@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Bash|PowerShell",
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/big-read-gate.mjs", "timeout": 10 }]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/worker-nudge.mjs", "timeout": 10 }]
+      },
+      {
+        "matcher": "mcp__nimbalyst__PromptForUserInput",
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/question-other.mjs", "timeout": 5 }]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "node ~/.claude/hooks/command-explain.mjs", "timeout": 5 },
+          { "type": "command", "command": "node ~/.claude/hooks/sql-guard.mjs", "timeout": 5 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/context-guard.mjs", "timeout": 10 }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/handoff-brief.mjs --hook", "timeout": 15 }]
+      }
+    ]
+  }
+}

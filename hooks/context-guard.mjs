@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+// context-guard: UserPromptSubmit hook. Every tool call re-sends the whole conversation, so in a
+// big session a one-line edit costs as much as the context (measured 2026-09-30: 109 small edits
+// at 274-485k context cost 35M tokens for a font, a background and some copy). When the last
+// context is over the limit (CONTEXT_GUARD_K, default 200 = 200k tokens), it warns the user and
+// tells Claude to batch the work and to offer /handoff (a fresh session) once, then every +100k. Silent for /commands. Fails open. CONTEXT_GUARD=off disables it.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const LIMIT_K = Number(process.env.CONTEXT_GUARD_K) || 200;
+
+// Context size of the last main-conversation API call, read from the end of the transcript
+function lastContext(file) {
+  const size = fs.statSync(file).size;
+  const len = Math.min(size, 4 * 1024 * 1024);
+  const buf = Buffer.alloc(len);
+  const fd = fs.openSync(file, "r");
+  fs.readSync(fd, buf, 0, len, size - len);
+  fs.closeSync(fd);
+  const lines = buf.toString("utf8").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"usage"')) continue;
+    let j;
+    try { j = JSON.parse(lines[i]); } catch { continue; }
+    const u = j.message?.usage;
+    if (j.type !== "assistant" || j.isSidechain || !u || j.message.model === "<synthetic>") continue;
+    return (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+  }
+  return 0;
+}
+
+let raw = "";
+process.stdin.on("data", (d) => (raw += d));
+process.stdin.on("end", () => {
+  try {
+    if (process.env.CONTEXT_GUARD === "off") return;
+    const input = JSON.parse(raw);
+    if (String(input.prompt ?? "").trim().startsWith("/")) return;
+    if (!input.transcript_path || !fs.existsSync(input.transcript_path)) return;
+    const k = Math.round(lastContext(input.transcript_path) / 1000);
+    if (k < LIMIT_K) return;
+    const lines = [
+      `[context-guard] This session already holds ~${k}k tokens, and every tool call re-sends all of it (~${k}k per call, even for a one-line edit). For this request:`,
+      `- Plan every change first, then apply them in as few calls as possible: all changes to one file in one Edit (or one Write of the whole file), not one Edit per line.`,
+      `- Don't re-read files, images or previews that are already in this conversation; render or check once at the end, not after each change.`,
+      `- Put all your questions in one prompt. Skip optional skills, reviews and extra checks unless the user asked for them.`,
+    ];
+    // Offer a switch to a fresh session once, then again every further 100k (per session)
+    const stateDir = path.join(os.tmpdir(), "context-guard");
+    const stateFile = path.join(stateDir, `${String(input.session_id || "none").replace(/[^\w-]/g, "")}.json`);
+    let askedAt = 0;
+    try { askedAt = JSON.parse(fs.readFileSync(stateFile, "utf8")).askedAt || 0; } catch {}
+    if (!askedAt || k >= askedAt + 100) {
+      lines.push(`- Offer a fresh session (the /handoff skill: a short brief, then a new session continues from it). If this request finishes the current task, do it, then ask. If it starts new work, ask first. Ask in one question with options (yes: run /handoff; no: continue here).`);
+      try { fs.mkdirSync(stateDir, { recursive: true }); fs.writeFileSync(stateFile, JSON.stringify({ askedAt: k })); } catch {}
+    } else {
+      lines.push(`- A fresh session was already offered at ~${askedAt}k; don't offer it again unless the user asks.`);
+    }
+    const context = lines.join("\n");
+    process.stdout.write(JSON.stringify({
+      systemMessage: `Context is ~${k}k tokens: every step re-sends all of it. For tweaks or new work, /compact or a new session is much cheaper.`,
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context },
+    }));
+  } catch {
+    // fail open
+  }
+});
