@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 
 const AGY_MODEL = process.env.BIG_READ_AGY_MODEL || "gemini-3.8-flash-medium";
 const AGY = `agy -p "<task; name the files to read>" --mode plan --model ${AGY_MODEL}`;
-const CODEX = `codex exec --skip-git-repo-check --ephemeral -s read-only -c 'windows.sandbox="unelevated"' -c model_reasoning_effort="low" "<task>" < /dev/null`;
+const CODEX = `codex exec --skip-git-repo-check -s read-only -c 'windows.sandbox="unelevated"' -c model_reasoning_effort="low" "<task>" < /dev/null`;
 const GATHER_AGENTS = new Set(["", "explore", "general-purpose"]);
 
 function onPath(name) {

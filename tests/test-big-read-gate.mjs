@@ -37,6 +37,24 @@ const cases = [
   ["opted-out project Read", "pass", { tool_name: "Read", tool_input: { file_path: join(optOut, "big.txt") }, cwd: join(optOut, "tools") }],
   ["relative Read big", "deny", { tool_name: "Read", tool_input: { file_path: "big.txt" } }],
   ["Git Bash cwd, relative cat", "deny", { tool_name: "Bash", tool_input: { command: "cat big.txt" }, cwd: gitBashDir }],
+  // pipes and redirects: only a filter, a line limit or a file as the target lets a dump through
+  ["cat piped into grep", "pass", { tool_name: "Bash", tool_input: { command: "cat big.txt | grep 'line 7'" } }],
+  ["cat piped into head -20", "pass", { tool_name: "Bash", tool_input: { command: "cat big.txt | head -20" } }],
+  ["cat redirected to a file", "pass", { tool_name: "Bash", tool_input: { command: "cat big.txt > copy.txt" } }],
+  ["cat piped into tee", "deny", { tool_name: "Bash", tool_input: { command: "cat big.txt | tee copy.txt" } }],
+  ["cat with only errors redirected", "deny", { tool_name: "Bash", tool_input: { command: "cat big.txt 2>/dev/null" } }],
+  ["cat with input redirect", "deny", { tool_name: "Bash", tool_input: { command: "cat < big.txt" } }],
+  ["tail -n +5 (to the end)", "deny", { tool_name: "Bash", tool_input: { command: "tail -n +5 big.txt" } }],
+  ["tail -n 30", "pass", { tool_name: "Bash", tool_input: { command: "tail -n 30 big.txt" } }],
+  ["cat after && and a variable", "deny", { tool_name: "Bash", tool_input: { command: "cd . && LANG=C cat big.txt" } }],
+  ["semicolon inside a string is not a new command", "pass", { tool_name: "Bash", tool_input: { command: 'echo "done; cat big.txt"' } }],
+  ["cat inside a heredoc body is text", "pass", { tool_name: "Bash", tool_input: { command: "node - <<'EOF'\ncat big.txt\nEOF" } }],
+  ["cat of a missing file", "pass", { tool_name: "Bash", tool_input: { command: "cat nope.txt" } }],
+  ["bash -c carries a dump", "deny", { tool_name: "Bash", tool_input: { command: "bash -c 'cat big.txt'" } }],
+  ["powershell -Command carries a dump", "deny", { tool_name: "Bash", tool_input: { command: "powershell -NoProfile -Command 'Get-Content big.txt'" } }],
+  ["powershell -Command with a line limit", "pass", { tool_name: "Bash", tool_input: { command: "powershell -NoProfile -Command 'Get-Content big.txt -TotalCount 40'" } }],
+  ["PS Get-Content piped into Select-Object -First", "pass", { tool_name: "PowerShell", tool_input: { command: "Get-Content big.txt | Select-Object -First 20" } }],
+  ["PS Get-Content piped into Out-Host", "deny", { tool_name: "PowerShell", tool_input: { command: "Get-Content big.txt | Out-Host" } }],
 ];
 let fail = 0;
 for (const [name, want, ev] of cases) {

@@ -6,6 +6,8 @@
 // The folder is this repository by default. Real names belong in the word list, not in this script:
 // one word or phrase per line in .privacy-words at the top of the folder (git ignores that file, so it
 // never ships). Each is matched without regard to case. Exit code 1 when anything is found.
+// A line "allow <file>:<line>" in the word list lets private words stand on that one line, for a
+// name that is meant to be public there, such as the copyright line of a licence.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -20,9 +22,12 @@ const SKIP_DIRS = new Set([".git", "node_modules"]);
 const BIG = 1024 * 1024;
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const words = fs.existsSync(WORDS_FILE)
+const listed = fs.existsSync(WORDS_FILE)
   ? fs.readFileSync(WORDS_FILE, "utf8").split(/\r?\n/).map((w) => w.trim()).filter((w) => w && !w.startsWith("#"))
   : [];
+const ALLOW = /^allow\s+(\S+:\d+)$/i;
+const allowed = new Set(listed.filter((w) => ALLOW.test(w)).map((w) => w.match(ALLOW)[1]));
+const words = listed.filter((w) => !ALLOW.test(w));
 // The home folder of whoever runs the check, in both slash styles
 const home = os.homedir();
 const PATTERNS = [
@@ -58,6 +63,7 @@ for (const file of files) {
   text.split("\n").forEach((line, i) => {
     for (const [what, re] of PATTERNS) {
       const m = line.match(re);
+      if (m && what.startsWith("private word") && allowed.has(`${rel}:${i + 1}`)) continue;
       if (m) hits.push(`${rel}:${i + 1}: ${what}: ${m[0].slice(0, 60)}`);
     }
   });

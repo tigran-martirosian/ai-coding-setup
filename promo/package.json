@@ -1,0 +1,25 @@
+{
+  "name": "ai-coding-setup-promo",
+  "version": "1.0.0",
+  "description": "The promo video for this repository, drawn with Remotion",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio",
+    "typecheck": "tsc",
+    "render": "node render.mjs",
+    "clips": "node render.mjs clips",
+    "stills": "node render.mjs stills"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/google-fonts": "4.0.529",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "typescript": "5.9.3"
+  }
+}

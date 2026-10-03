@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Usage</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* Dark slate, like Nimbalyst's usage popover: flat panels on a slate page, one accent,
+     green / yellow / red only for the state of a limit. Order: the plan, who used it, where it went. */
+  :root {
+    color-scheme: dark;
+    --bg: #0f172a; --panel: #020617; --rule: #1e293b; --ink: #f8fafc; --ink2: #cbd5e1; --muted: #94a3b8;
+    --accent: #38bdf8; --good: #10b981; --warn: #eab308; --bad: #ef4444;
+    --s1: #38bdf8; --s2: #a78bfa; --s3: #64748b; --s0: #475569;
+    --hover: rgba(148,163,184,.1); --select: rgba(56,189,248,.35);
+  }
+  * { box-sizing: border-box; }
+  html { scrollbar-color: #334155 transparent; }
+  ::selection { background: var(--select); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; caret-color: var(--accent); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 32px 28px 96px; }
+  button, input { font: inherit; color: inherit; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .nowrap { white-space: nowrap; }
+  .ic { vertical-align: -1px; flex: none; }
+  .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
+  h1 { font-size: 22px; line-height: 1.2; font-weight: 600; margin: 0; }
+  .scope { color: var(--muted); font-size: 13px; }
+
+  /* panels: every section is one flat panel, never one inside another */
+  .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 22px 20px; margin-top: 16px; min-width: 0; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 14px; }
+  h2 { font-size: 17px; line-height: 1.3; font-weight: 600; margin: 0; }
+  .head .note, summary .note { color: var(--muted); font-size: 13px; text-align: right; }
+  .cols2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 16px; }
+  .after { color: var(--muted); font-size: 13px; margin-top: 12px; }
+  .empty { color: var(--muted); }
+
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 8px; }
+  .s1 { background: var(--s1); } .s2 { background: var(--s2); } .s3 { background: var(--s3); } .s0 { background: var(--s0); }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; color: var(--ink2); font-size: 13px; }
+
+  /* the date range and the search: they drive everything below the plan */
+  .controls { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 30px; }
+  .ranges { display: flex; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .ranges button { border: 0; background: none; color: var(--ink2); padding: 6px 14px; cursor: pointer; transition: background .15s; }
+  .ranges button + button { border-left: 1px solid var(--rule); }
+  .ranges button:hover { background: var(--hover); }
+  .ranges button.on { background: var(--accent); color: var(--panel); font-weight: 600; }
+  #sum { color: var(--ink2); margin-right: auto; }
+  #q { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 6px 12px; width: 220px; }
+  #q::placeholder { color: var(--muted); }
+  #chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  #chips:not(:empty) { margin-top: 12px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--accent); color: var(--accent); background: none; border-radius: 8px; padding: 2px 10px; cursor: pointer; transition: background .15s; }
+  .chip:hover { background: var(--hover); }
+
+  /* plan ahead: the two limits and the advice on the left, the rest of the week on the right */
+  .plan { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 48px; }
+  .limit + .limit { margin-top: 24px; }
+  .limit .top { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
+  .limit .name { font-weight: 600; }
+  .limit .sub { color: var(--muted); font-size: 13px; }
+  .limit .pct { font-size: 30px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .track { height: 6px; border-radius: 3px; background: var(--rule); margin: 10px 0 8px; overflow: hidden; }
+  .track i { display: block; height: 100%; border-radius: 3px; background: currentColor; }
+  .limit .foot { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; color: var(--muted); }
+  .limit .foot .bad, .limit .foot .warn { font-weight: 600; }
+  .advice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; margin: 24px 0 0; }
+  .advice dt { color: var(--muted); white-space: nowrap; }
+  .advice dd { margin: 0; text-wrap: pretty; }
+  .outlook td.barcell { width: 38%; }
+  .outlook .track { margin: 0; }
+  .outlook tr:last-child th, .outlook tr:last-child td { border-bottom: 0; }
+
+  /* folded parts open on a click */
+  summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  summary::-webkit-details-marker { display: none; }
+  summary .ic { color: var(--muted); margin-right: 8px; transition: transform .15s; }
+  details[open] > summary .ic { transform: rotate(90deg); }
+  details[open] > summary { margin-bottom: 14px; }
+  .fold { border-top: 1px solid var(--rule); margin-top: 20px; padding-top: 14px; }
+  .fold summary { color: var(--ink2); justify-content: flex-start; gap: 0; }
+  .hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; }
+  .hr { display: flex; flex-direction: column; min-width: 0; }
+  .hr .col { height: 96px; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; border-bottom: 1px solid var(--s0); }
+  .hr.busy .col { background: var(--hover); }
+  .hr i { display: block; flex: none; }
+  .hr .mark { height: 4px; margin-top: 3px; border-radius: 2px; }
+  .hr.busy .mark { background: var(--warn); }
+  .hr b { font-weight: 400; font-size: 13px; color: var(--muted); text-align: center; height: 22px; }
+  .legend .line { height: 4px; vertical-align: middle; background: var(--warn); }
+
+  /* who used the plan */
+  .who { display: flex; justify-content: space-between; gap: 24px; }
+  .who > div:last-child:not(:first-child) { text-align: right; }
+  .who .name { color: var(--ink2); }
+  .who b { font-size: 26px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 10px; }
+  .who .fig span { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .share { display: flex; gap: 2px; height: 10px; border-radius: 5px; overflow: hidden; background: var(--rule); margin-top: 10px; }
+
+  /* tables */
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px 14px 8px 0; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  th:last-child, td:last-child { padding-right: 0; }
+  thead th { font-size: 13px; font-weight: 400; color: var(--muted); white-space: nowrap; padding-top: 0; }
+  thead th.num { text-align: right; }
+  thead th .dot { margin-left: 12px; }
+  thead th .dot:first-child { margin-left: 0; }
+  th button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: inherit; cursor: pointer; padding: 0; }
+  th button:hover, th button.on { color: var(--ink); }
+  tbody th { font-weight: 400; white-space: nowrap; }
+  .strong { font-weight: 600; }
+  .bar { display: block; height: 8px; min-width: 2px; border-radius: 4px; }
+
+  /* tokens per day */
+  .chart { display: grid; grid-template-columns: 52px 1fr; }
+  .yaxis, .plot { position: relative; height: 130px; }
+  .yaxis span { position: absolute; right: 10px; transform: translateY(50%); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .gridline { position: absolute; left: 0; right: 0; height: 1px; background: var(--rule); }
+  .gridline.base { background: var(--s0); }
+  .days { position: absolute; inset: 0; display: flex; }
+  .day { flex: 1; min-width: 0; height: 100%; border: 0; padding: 0; background: none; cursor: pointer; display: flex; justify-content: center; align-items: flex-end; transition: background .15s; }
+  .day:hover { background: var(--hover); }
+  .stack { width: 70%; max-width: 28px; min-width: 2px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+  .seg { display: block; flex: none; min-height: 2px; transition: opacity .15s; }
+  .seg:first-child { border-radius: 3px 3px 0 0; }
+  .days.picked .day:not(.on) .seg { opacity: .3; }
+  .xaxis { display: flex; padding-top: 6px; }
+  .xaxis span { flex: 1; min-width: 0; display: flex; justify-content: center; }
+  .xaxis b { font-weight: 400; font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+  /* ranked lists */
+  .rank { display: grid; grid-template-columns: minmax(90px, 170px) 1fr 64px 70px; gap: 12px; align-items: center; width: 100%; padding: 7px 0; border: 0; border-bottom: 1px solid var(--rule); background: none; text-align: left; }
+  .rank:last-child { border-bottom: 0; }
+  button.rank { cursor: pointer; transition: background .15s; }
+  button.rank:hover { background: var(--hover); }
+  .rank .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rank .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .rank .note { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .rank .bar { background: var(--s1); transition: opacity .15s; }
+  .ranks.picked .rank:not(.on) .bar { opacity: .3; }
+  .ranks.picked .rank.on .lab { font-weight: 600; }
+  #types .rank { grid-template-columns: minmax(90px, 200px) 1fr 64px 170px; }
+
+  /* chats */
+  tr.row { cursor: pointer; transition: background .15s; }
+  tr.row:hover, tr.row.open { background: var(--hover); }
+  td.t { max-width: 440px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.t .ic { color: var(--muted); margin: 0 8px 0 2px; transition: transform .15s; }
+  tr.open td.t .ic { transform: rotate(90deg); }
+  .split { display: flex; gap: 2px; height: 8px; min-width: 3px; border-radius: 4px; overflow: hidden; }
+  .split i { min-width: 1px; }
+  td.splitcell { width: 220px; }
+  tr.detail > td { background: var(--bg); padding: 14px 16px 16px 22px; }
+  .detail .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .detail code { font: 13px Consolas, ui-monospace, monospace; }
+  .detail th, .detail td { font-size: 14px; }
+  .detail h3 { font-size: 14px; font-weight: 600; margin: 16px 0 4px; }
+  .detail ul { margin: 0; padding-left: 18px; color: var(--ink2); font-size: 14px; }
+  .desc { color: var(--ink2); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .state { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .state.bad { font-weight: 600; }
+  .more { margin-top: 14px; border: 1px solid var(--rule); background: none; border-radius: 8px; padding: 6px 14px; cursor: pointer; transition: background .15s; }
+  .more:hover { background: var(--hover); }
+
+  #tip { position: fixed; z-index: 10; pointer-events: none; background: var(--panel); border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; font-size: 13px; min-width: 170px; }
+  #tip div { display: flex; justify-content: space-between; gap: 16px; }
+  #tip .h { font-weight: 600; margin-bottom: 4px; }
+
+  @media (max-width: 900px) {
+    .wrap { padding: 20px 14px 64px; }
+    .panel { padding: 16px; }
+    .cols2, .plan { grid-template-columns: minmax(0, 1fr); }
+    #q { width: 100%; }
+    .rank, #types .rank { grid-template-columns: minmax(80px, 1fr) 1fr 64px; }
+    .rank .note { display: none; }
+    td.splitcell { width: 90px; }
+    td.t { max-width: 200px; }
+    #chats > .scroll > table > thead th:nth-child(2), #chats > .scroll > table > thead th:nth-child(3),
+    tr.row > td:nth-child(2), tr.row > td:nth-child(3) { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Usage</h1>
+    <p class="scope" id="scope"></p>
+  </header>
+
+  <section class="panel">
+    <div class="head"><h2>Plan ahead</h2><span class="note" id="ahead-n"></span></div>
+    <div id="ahead"></div>
+  </section>
+
+  <div class="controls">
+    <div class="ranges" id="ranges"></div>
+    <span id="sum"></span>
+    <input id="q" type="search" placeholder="Search chats" aria-label="Search chats">
+  </div>
+  <div id="chips"></div>
+
+  <section class="panel" id="plan-s">
+    <div class="head"><h2>Who used the plan</h2><span class="note" id="plan-n"></span></div>
+    <div id="plan"></div>
+  </section>
+
+  <div class="cols2">
+    <section class="panel"><div class="head"><h2>Projects</h2></div><div id="projects"></div></section>
+    <section class="panel"><div class="head"><h2>Models</h2></div><div id="models"></div></section>
+  </div>
+
+  <section class="panel" id="daily-s">
+    <div class="head"><h2>Tokens per day</h2><div class="legend" id="legend"></div></div>
+    <div id="daily"></div>
+  </section>
+
+  <section class="panel"><div class="head"><h2>Chats</h2><span class="note" id="chats-n"></span></div><div id="chats"></div></section>
+
+  <details class="panel"><summary><h2><svg class="ic" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Subagents</h2><span class="note" id="types-n"></span></summary><div id="types"></div></details>
+  <details class="panel"><summary><h2><svg class="ic" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Codex</h2><span class="note" id="codex-n"></span></summary><div id="codex"></div></details>
+  <details class="panel"><summary><h2><svg class="ic" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Gemini</h2><span class="note" id="gemini-n"></span></summary><div id="gemini"></div></details>
+
+</div>
+<div id="tip" hidden></div>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById("data").textContent);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(Math.round(n));
+const pct = (a, b) => b ? `${Math.round(a / b * 100)}%` : "0%";
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+const pad = (n) => String(n).padStart(2, "0");
+const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const fmtDay = (k) => new Date(k + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const fmtTime = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+const fmtWhen = (iso) => new Date(iso).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+const modelName = (m) => m.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+const topModel = (models) => {
+  const e = Object.entries(models || {}).sort((a, b) => b[1] - a[1])[0];
+  return e ? modelName(e[0]) : "";
+};
+const leaf = (p) => String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+const svg = (d) => `<svg class="ic" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ICON = { open: svg("M4.5 2.5 8 6l-3.5 3.5"), x: svg("M3 3l6 6M9 3l-6 6"), ok: svg("M2.5 6.5 5 9l4.5-5.5"), down: svg("M6 2.5v7M3 6.5l3 3 3-3"), up: svg("M6 9.5v-7M3 5.5l3-3 3 3") };
+const okState = (ok) => ok ? `<span class="state good">${ICON.ok}ok</span>` : `<span class="state bad">${ICON.x}failed</span>`;
+
+// Tokens per day for every chat and every subagent
+const flat = (days) => {
+  const o = {};
+  for (const [d, m] of Object.entries(days || {})) o[d] = Object.values(m).reduce((a, b) => a + b, 0);
+  return o;
+};
+const today = dayKey(new Date());
+let minDay = today;
+for (const s of D.sessions) {
+  s.dayTot = flat(s.days);
+  for (const a of s.subagents) a.dayTot = flat(a.days);
+  for (const w of s.workers) w.day = dayKey(new Date(w.at));
+  for (const u of [s, ...s.subagents]) for (const d in u.dayTot) if (d < minDay) minDay = d;
+}
+for (const x of [...D.codex.sessions, ...D.gemini.conversations]) x.day = dayKey(new Date(x.at));
+const allDays = [];
+for (let d = new Date(minDay + "T12:00:00"); dayKey(d) <= today; d.setDate(d.getDate() + 1)) allDays.push(dayKey(d));
+
+const state = { range: 7, day: null, project: null, type: null, q: "", sort: "total", dir: -1, open: new Set(), allChats: false, allCodex: false, allGemini: false };
+const rangeDays = () => state.range === "all" ? allDays : allDays.slice(-state.range);
+const query = () => state.q.trim().toLowerCase();
+const tok = (u, days) => {
+  let n = 0;
+  for (const d in u.dayTot) if (days.has(d)) n += u.dayTot[d];
+  return n;
+};
+// What the same tokens would cost on the pay-as-you-go API (list prices, worked out in usage-scan)
+const usd = (u, days) => {
+  let n = 0;
+  for (const d in u.usd || {}) if (days.has(d)) n += u.usd[d];
+  return n;
+};
+const fmtUsd = (n) => "$" + n.toLocaleString("en-US", n >= 100 ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const USD_NOTE = "What these tokens would cost on Anthropic's pay-as-you-go API at list prices. A plan is not billed this way.";
+
+// Claude chats that match the filters (optionally ignoring one), with their tokens inside `days`
+function rows(days, skip) {
+  const q = query();
+  const out = [];
+  for (const s of D.sessions) {
+    if (skip !== "project" && state.project && s.project !== state.project) continue;
+    if (q && !`${s.title} ${s.name} ${s.id}`.toLowerCase().includes(q)) continue;
+    const main = tok(s, days);
+    const subs = s.subagents.map((a) => ({ a, t: tok(a, days) })).filter((x) => x.t > 0);
+    if (skip !== "type" && state.type && !subs.some((x) => x.a.type === state.type)) continue;
+    const sub = subs.reduce((n, x) => n + x.t, 0);
+    if (main + sub <= 0) continue;
+    out.push({ s, main, sub, subs, total: main + sub, usd: usd(s, days) + sum(subs, (x) => usd(x.a, days)) });
+  }
+  return out;
+}
+// Codex: runs started from Claude chats plus sessions used directly (app, CLI, Nimbalyst)
+function codexRuns(rs, days) {
+  const q = query();
+  const fromClaude = rs.flatMap((r) => r.s.workers.filter((w) => w.worker === "codex" && days.has(w.day)).map((w) => (
+    { at: w.at, what: w.what, from: r.s.title || r.s.id.slice(0, 8), tokens: w.tokens, seconds: w.seconds, ok: w.ok, n: w.processes, web: w.web, background: w.background })));
+  const direct = D.codex.sessions.filter((c) => days.has(c.day) && (!q || `${c.title} ${c.cwd}`.toLowerCase().includes(q))).map((c) => (
+    { at: c.at, what: c.title || leaf(c.cwd), from: c.origin || "Codex", tokens: c.tokens, seconds: null, ok: true, n: 1, direct: true }));
+  return [...fromClaude, ...direct].sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+function geminiRuns(days) {
+  const q = query();
+  return D.gemini.conversations.filter((c) => days.has(c.day) && (!q || `${c.title} ${c.folder}`.toLowerCase().includes(q)))
+    .sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
+// Claude plan use recorded for the whole account, split into this computer and other use.
+// 1 point = 1% of the weekly limit. The split is an estimate (see plan-use.mjs).
+const P = D.plan ?? { status: "none" };
+const SHOW_SPLIT = D.showSplit !== false; // false: no other use of the account, so nothing is split
+const pts = (n) => n >= 10 ? String(Math.round(n)) : n.toFixed(1).replace(/\.0$/, "");
+function planFor(P, days) {
+  const t = { total: 0, other: 0, idle: 0, any: false };
+  for (const d in P.days ?? {}) {
+    if (!days.has(d)) continue;
+    t.any = true;
+    for (const k of ["total", "other", "idle"]) t[k] += P.days[d][k];
+  }
+  // rounding in the recorded percentages can push a part slightly below zero or above the total
+  t.total = Math.max(0, t.total);
+  t.other = Math.min(t.total, Math.max(0, t.other));
+  t.mine = t.total - t.other;
+  return t;
+}
+// The estimate covers the whole account, so it is hidden while a project, subagent or search filter is on
+const otherTokens = (d) => SHOW_SPLIT && P.status === "ok" &&!state.project && !state.type && !query()
+  ? Math.max(0, P.days[d]?.other ?? 0) * P.tokensPerPoint : 0;
+
+function niceMax(v) {
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const f = v / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+
+function ranks(items, attr, picked) {
+  const max = Math.max(...items.map((x) => x.value));
+  return `<div class="ranks${picked ? " picked" : ""}">` + items.map((x) => {
+    const inner = `<span class="lab" title="${esc(x.label)}">${esc(x.label)}</span><span><i class="bar" style="width:${x.value / max * 100}%"></i></span><span class="val">${fmt(x.value)}</span><span class="note">${esc(x.note || "")}</span>`;
+    return attr && x.key != null
+      ? `<button class="rank${picked === x.key ? " on" : ""}" data-${attr}="${esc(x.key)}" aria-pressed="${picked === x.key}">${inner}</button>`
+      : `<div class="rank">${inner}</div>`;
+  }).join("") + `</div>`;
+}
+
+function renderHead(rs) {
+  const label = (r) => r === 1 ? "Today" : r === "all" ? "All" : `${r} days`;
+  $("ranges").innerHTML = [1, 7, 30, "all"].map((r) =>
+    `<button data-range="${r}" class="${state.range === r && !state.day ? "on" : ""}" aria-pressed="${state.range === r && !state.day}">${label(r)}</button>`).join("");
+  const chips = [];
+  if (state.day) chips.push(["day", `Day: ${fmtDay(state.day)}`]);
+  if (state.project) chips.push(["project", `Project: ${D.sessions.find((s) => s.project === state.project)?.name ?? state.project}`]);
+  if (state.type) chips.push(["type", `Subagent: ${state.type}`]);
+  $("chips").innerHTML = chips.map(([k, t]) => `<button class="chip" data-clear="${k}" aria-label="Remove filter ${esc(t)}">${esc(t)}${ICON.x}</button>`).join("");
+  const cost = sum(rs, (r) => r.usd);
+  $("sum").textContent = `${fmt(sum(rs, (r) => r.total))} tokens in ${plural(rs.length, "chat")}${cost ? `, about ${fmtUsd(cost)} at API prices` : ""}`;
+  $("sum").title = cost ? USD_NOTE : "";
+}
+
+// The split for one account (Claude or Codex): this computer against other devices or apps on it
+function planBlock(P, days) {
+  const t = planFor(P, days);
+  if (!t.any) return `<p class="empty">Nothing recorded in this period.</p>`;
+  // "calibrating": not enough on record yet to split the time this computer was working
+  const parts = P.status === "ok"
+    ? [["s1", "This computer", t.mine, "≈ "], ["s3", "Other use", t.other, "≈ "]]
+    : [["s3", "Other use, this computer idle", t.idle, ""], ["s0", "Not split yet", t.total - t.idle, ""]];
+  return `<div class="who">${parts.map(([cls, name, n, approx]) => `<div><div class="name"><i class="dot ${cls}"></i>${name}</div>
+      <div class="fig"><b>${pct(n, t.total)}</b><span>${approx}${pts(n)}% of the weekly limit</span></div></div>`).join("")}</div>
+    <div class="share">${parts.map(([cls, , n]) => n > 0 ? `<i class="${cls}" style="flex:${n}"></i>` : "").join("")}</div>`;
+}
+
+function renderPlan(days) {
+  $("plan-s").hidden = !SHOW_SPLIT;
+  if (!SHOW_SPLIT) return;
+  if (P.status === "none") {
+    $("plan").innerHTML = `<p class="empty">No plan percentages recorded yet.</p>`;
+    return;
+  }
+  $("plan-n").textContent = "";
+  $("plan").innerHTML = planBlock(P, days);
+}
+
+// What to expect and when to work: forecasts from plan-ahead.mjs, as of the moment the page was built.
+// The date range and the filters don't apply here.
+function renderAhead() {
+  const A = D.ahead ?? { status: "none" };
+  if (A.status === "none") {
+    $("ahead").innerHTML = `<p class="empty">Forecasts start once plan percentages have been recorded.</p>`;
+    return;
+  }
+  $("ahead-n").textContent = `as of ${fmtTime(A.at)}`;
+  const w = A.week, f = A.five, pace = w.average ?? w.recent;
+  const until = (iso) => {
+    const m = Math.round((Date.parse(iso) - Date.now()) / 60000);
+    if (!(m > 0)) return "Reset since this reading";
+    const d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60);
+    return `Resets in ${d ? `${d}d ${h}h` : h ? `${h}h ${m % 60}m` : `${m}m`}`;
+  };
+  // green while it lasts, yellow when it gets close, red when it runs out before the reset
+  const tone = (used, fc) => fc?.full || used >= 90 ? "bad" : used >= 70 || (fc?.atReset ?? 0) >= 85 ? "warn" : "good";
+  const limit = (name, sub, used, cls, resets, forecast) => `<div class="limit">
+    <div class="top"><div><div class="name">${name}</div><div class="sub">${sub}</div></div><div class="pct ${used == null ? "muted" : cls}">${used == null ? "–" : `${Math.round(used)}%`}</div></div>
+    <div class="track ${cls}">${used ? `<i style="width:${Math.min(100, used)}%"></i>` : ""}</div>
+    <div class="foot"><span>${resets}</span><span>${forecast}</span></div></div>`;
+  const weekTone = tone(w.used, pace), fiveTone = tone(f.used ?? 0, f);
+  const weekNote = !pace ? "" : pace.full ? `<span class="bad">Runs out ${fmtWhen(pace.full)}</span>` : `<span class="${weekTone === "warn" ? "warn" : ""}">Ends near ${Math.round(pace.atReset)}%</span>`;
+  const fiveNote = !f.open ? "" : f.full ? `<span class="bad">Fills up ${fmtWhen(f.full)}</span>` : `<span class="${fiveTone === "warn" ? "warn" : ""}">Ends near ${Math.round(f.atReset)}%</span>`;
+
+  // advice lines come as "Label: text"
+  const advice = A.tips.filter((t) => t.k !== "week" && t.k !== "five").map((t) => {
+    const i = t.text.indexOf(": "), text = i < 0 ? t.text : t.text.slice(i + 2);
+    return `<dt>${esc(i < 0 ? "" : t.text.slice(0, i))}</dt><dd>${esc(text.charAt(0).toUpperCase() + text.slice(1))}</dd>`;
+  }).join("");
+
+  const dayRows = A.days.map((d) => {
+    const label = new Date(Date.parse(d.end) - 1).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    const out = d.atPace >= 100, cls = out ? "bad" : d.atPace >= 85 ? "warn" : "good";
+    return `<tr><th scope="row">${label}</th>
+      <td class="barcell">${d.atPace == null ? "" : `<div class="track ${cls}"><i style="width:${Math.min(100, d.atPace)}%"></i></div>`}</td>
+      <td class="num strong ${out ? "bad" : ""}">${d.atPace == null ? "" : out ? "out" : `${Math.round(d.atPace)}%`}</td>
+      <td class="num muted">${Math.round(d.onBudget)}%</td></tr>`;
+  }).join("");
+
+  const who = A.otherUse.list.map((o) => o.name || "Other use").join(" and ");
+  const split = SHOW_SPLIT && A.hours.some((h) => h.mine != null), top = Math.max(...A.hours.map((h) => h.rate ?? 0), 0.01);
+  const hourCols = A.hours.map((h) => {
+    const mine = split ? h.mine ?? 0 : 0, rest = Math.max(0, (h.rate ?? 0) - mine);
+    const title = `${pad(h.h)}:00, ${h.rate == null ? "nothing recorded" : `${h.rate}% of the week an hour${!split || h.mine == null ? "" : `, ${h.mine}% from this computer`}`}${h.otherUse ? `. ${who} usually on, ${Math.round(h.otherUse * 7)} of 7 days` : ""}`;
+    return `<div class="hr${h.otherUse ? " busy" : ""}" title="${esc(title)}"><span class="col">${rest ? `<i class="${split ? "s3" : "s0"}" style="height:${rest / top * 100}%"></i>` : ""}${mine ? `<i class="s1" style="height:${mine / top * 100}%"></i>` : ""}</span><i class="mark"></i><b>${h.h % 3 ? "" : pad(h.h)}</b></div>`;
+  }).join("");
+  const legend = (split ? `<span><i class="dot s1"></i>This computer</span><span><i class="dot s3"></i>Other use</span>` : `<span><i class="dot s0"></i>${SHOW_SPLIT ? "Whole account" : "Plan use"}</span>`)
+    + (who ? `<span><i class="dot line"></i>${esc(who)} usually on</span>` : "");
+
+  $("ahead").innerHTML = `<div class="plan">
+      <div>
+        ${limit("Weekly", "7-day window", w.used, weekTone, until(w.resets), weekNote)}
+        ${limit("Session", "5-hour window", f.open ? f.used : null, f.open ? fiveTone : "", f.open ? until(f.resets) : "Starts with the next message", fiveNote)}
+        ${advice ? `<dl class="advice">${advice}</dl>` : ""}
+      </div>
+      <div class="scroll"><table class="outlook">
+        <thead><tr><th>By the end of</th><th></th><th class="num">At this pace</th><th class="num">On budget</th></tr></thead>
+        <tbody>${dayRows}</tbody></table></div>
+    </div>
+    <details class="fold"><summary>${ICON.open}Use by hour of the day</summary>
+      <div class="hours">${hourCols}</div>
+      <div class="legend">${legend}</div></details>`;
+}
+
+// One bar says nothing, so the chart shows only when the range has two days or more
+function renderDaily() {
+  const days = rangeDays();
+  $("daily-s").hidden = days.length < 2;
+  if (days.length < 2) return;
+  const per = new Map(days.map((d) => [d, { main: 0, sub: 0, other: otherTokens(d) }]));
+  const anyOther = [...per.values()].some((v) => v.other > 0);
+  $("legend").innerHTML = `<span><i class="dot s1"></i>Main chat</span><span><i class="dot s2"></i>Subagents</span>${anyOther ? `<span><i class="dot s3"></i>Other use</span>` : ""}`;
+  for (const r of rows(new Set(days))) {
+    for (const d in r.s.dayTot) if (per.has(d)) per.get(d).main += r.s.dayTot[d];
+    for (const a of r.s.subagents) for (const d in a.dayTot) if (per.has(d)) per.get(d).sub += a.dayTot[d];
+  }
+  const max = niceMax(Math.max(1, ...[...per.values()].map((v) => v.main + v.sub + v.other)));
+  const step = Math.ceil(days.length / 10);
+  const ticks = [0, 0.5, 1];
+  $("daily").innerHTML = `<div class="chart">
+    <div class="yaxis">${ticks.map((t) => `<span style="bottom:${t * 100}%">${t ? fmt(max * t).replace(/\.0+(?=\D)/, "") : "0"}</span>`).join("")}</div>
+    <div class="plot">${ticks.map((t) => `<i class="gridline${t ? "" : " base"}" style="bottom:${t * 100}%"></i>`).join("")}
+      <div class="days${state.day ? " picked" : ""}">${days.map((d) => {
+        const v = per.get(d);
+        return `<button class="day${state.day === d ? " on" : ""}" data-day="${d}" data-main="${v.main}" data-sub="${v.sub}" data-other="${Math.round(v.other)}" aria-pressed="${state.day === d}" aria-label="${fmtDay(d)}: ${fmt(v.main + v.sub)} tokens${v.other ? `, other use about ${fmt(v.other)}` : ""}"><span class="stack">${v.other ? `<i class="seg s3" style="height:${v.other / max * 100}%"></i>` : ""}${v.sub ? `<i class="seg s2" style="height:${v.sub / max * 100}%"></i>` : ""}${v.main ? `<i class="seg s1" style="height:${v.main / max * 100}%"></i>` : ""}</span></button>`;
+      }).join("")}</div>
+    </div>
+    <div></div>
+    <div class="xaxis">${days.map((d, i) => `<span>${(days.length - 1 - i) % step === 0 ? `<b>${fmtDay(d)}</b>` : ""}</span>`).join("")}</div>
+  </div>`;
+}
+
+function renderProjects(days) {
+  const by = new Map();
+  for (const r of rows(days, "project")) {
+    const p = by.get(r.s.project) ?? { key: r.s.project, label: r.s.name, value: 0, n: 0 };
+    p.value += r.total; p.n++;
+    by.set(r.s.project, p);
+  }
+  const list = [...by.values()].sort((a, b) => b.value - a.value);
+  const top = list.slice(0, 8).map((p) => ({ ...p, note: plural(p.n, "chat") }));
+  const rest = list.slice(8);
+  if (rest.length) top.push({ key: null, label: `${rest.length} smaller projects`, value: sum(rest, (p) => p.value), note: plural(sum(rest, (p) => p.n), "chat") });
+  $("projects").innerHTML = top.length ? ranks(top, "project", state.project) : `<p class="empty">No Claude usage in this period.</p>`;
+}
+
+function renderModels(rs, days) {
+  const by = {};
+  for (const r of rs) for (const u of [r.s, ...r.s.subagents]) for (const [d, m] of Object.entries(u.days || {})) {
+    if (!days.has(d)) continue;
+    for (const [name, t] of Object.entries(m)) if (t > 0 && name !== "<synthetic>") by[modelName(name)] = (by[modelName(name)] ?? 0) + t;
+  }
+  const total = Object.values(by).reduce((a, b) => a + b, 0);
+  const list = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value, note: value / total < 0.005 ? "under 1%" : pct(value, total) }));
+  $("models").innerHTML = list.length ? ranks(list) : `<p class="empty">No Claude usage in this period.</p>`;
+}
+
+function renderTypes(days) {
+  const by = new Map();
+  for (const r of rows(days, "type")) for (const { a, t } of r.subs) {
+    const x = by.get(a.type) ?? { key: a.type, label: a.type, value: 0, runs: 0 };
+    x.value += t; x.runs++;
+    by.set(a.type, x);
+  }
+  const list = [...by.values()].sort((a, b) => b.value - a.value).map((x) => ({ ...x, note: `${plural(x.runs, "run")}, ${fmt(x.value / x.runs)} each` }));
+  $("types-n").textContent = list.length ? `${fmt(sum(list, (x) => x.value))} tokens in ${plural(sum(list, (x) => x.runs), "run")}` : "none";
+  $("types").innerHTML = list.length ? ranks(list, "type", state.type) : `<p class="empty">No subagents ran in this period.</p>`;
+}
+
+const SORT = {
+  title: (r) => (r.s.title || "").toLowerCase(), project: (r) => r.s.name.toLowerCase(), last: (r) => r.s.last || "", total: (r) => r.total,
+};
+const COLS = [["title", "Chat", ""], ["project", "Project", ""], ["last", "Last active", ""], ["total", "Tokens", "num"],
+  [null, `<i class="dot s1"></i>Main chat<i class="dot s2"></i>Subagents`, ""]];
+
+function detail(r, days) {
+  const s = r.s;
+  const parts = [
+    { label: "Main chat", desc: "", model: topModel(s.models), tok: r.main, ctx: s.maxContext, cls: "s1" },
+    ...[...r.subs].sort((a, b) => b.t - a.t).map(({ a, t }) => ({ label: a.type, desc: a.description, model: topModel(a.models), tok: t, ctx: a.maxContext, cls: "s2" })),
+  ];
+  const max = Math.max(1, ...parts.map((p) => p.tok));
+  const ws = s.workers.filter((w) => days.has(w.day));
+  const name = { codex: "Codex", agy: "Gemini" };
+  return `<tr class="detail"><td colspan="${COLS.length}">
+    <div class="meta">Chat <code>${esc(s.id.slice(0, 8))}</code> in <code>${esc(s.project)}</code>, ${fmtTime(s.first)} to ${fmtTime(s.last)}${r.usd ? `, <span title="${esc(USD_NOTE)}">about ${fmtUsd(r.usd)} at API prices</span>` : ""}</div>
+    <table><thead><tr><th>Part</th><th>What it did</th><th>Model</th><th class="num">Tokens</th><th></th><th class="num">Largest context</th></tr></thead><tbody>
+    ${parts.map((p) => `<tr><td class="nowrap"><i class="dot ${p.cls}"></i>${esc(p.label)}</td><td><div class="desc" title="${esc(p.desc)}">${esc(p.desc)}</div></td><td class="nowrap">${esc(p.model)}</td><td class="num strong">${fmt(p.tok)}</td><td class="splitcell"><i class="bar ${p.cls}" style="width:${p.tok / max * 100}%"></i></td><td class="num">${fmt(p.ctx)}</td></tr>`).join("")}
+    </tbody></table>
+    ${ws.length ? `<h3>Codex and Gemini runs started from this chat</h3><ul>${ws.map((w) => `<li>${name[w.worker] ?? esc(w.worker)}${w.web ? " (web search)" : ""}${w.processes > 1 ? `, ${w.processes} at once` : ""}${w.seconds != null ? `, ${w.seconds} s` : ", in the background"}${w.tokens != null ? `, ${fmt(w.tokens)} tokens` : ""}${w.ok ? "" : `, <span class="bad">failed</span>`}: ${esc(w.what || "no description")}</li>`).join("")}</ul>` : ""}
+  </td></tr>`;
+}
+
+function renderChats(rs, days) {
+  const f = SORT[state.sort];
+  rs = [...rs].sort((a, b) => { const x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : 0) * state.dir; });
+  $("chats-n").textContent = rs.length ? plural(rs.length, "chat") : "";
+  if (!rs.length) { $("chats").innerHTML = `<p class="empty">No chats match.</p>`; return; }
+  const max = Math.max(...rs.map((r) => r.total));
+  const shown = state.allChats ? rs : rs.slice(0, 15);
+  $("chats").innerHTML = `<div class="scroll"><table>
+    <thead><tr>${COLS.map(([k, t, c]) => `<th class="${c}"${state.sort === k ? ` aria-sort="${state.dir < 0 ? "descending" : "ascending"}"` : ""}>${k ? `<button data-sort="${k}" class="${state.sort === k ? "on" : ""}">${t}${state.sort === k ? (state.dir < 0 ? ICON.down : ICON.up) : ""}</button>` : t}</th>`).join("")}</tr></thead>
+    <tbody>${shown.map((r) => {
+      const s = r.s, open = state.open.has(s.id);
+      return `<tr class="row${open ? " open" : ""}" data-open="${esc(s.id)}" tabindex="0" aria-expanded="${open}">
+        <td class="t" title="${esc(s.title)}">${ICON.open}${esc(s.title || `Untitled chat ${s.id.slice(0, 8)}`)}</td>
+        <td class="nowrap">${esc(s.name)}</td><td class="nowrap muted">${fmtTime(s.last)}</td>
+        <td class="num strong">${fmt(r.total)}</td>
+        <td class="splitcell"><span class="split" style="width:${r.total / max * 100}%">${r.main ? `<i class="s1" style="flex:${r.main}"></i>` : ""}${r.sub ? `<i class="s2" style="flex:${r.sub}"></i>` : ""}</span></td></tr>${open ? detail(r, days) : ""}`;
+    }).join("")}</tbody></table></div>
+    ${rs.length > shown.length ? `<button class="more" data-more="allChats">Show all ${rs.length} chats</button>` : ""}`;
+}
+
+function renderCodex(cx, days) {
+  const L = D.codex.limits;
+  let limits = L ? `<p class="after">Codex plan${L.plan ? ` (${esc(L.plan)})` : ""}: ${Math.round(L.primary.used_percent)}% of the ${Math.round(L.primary.window_minutes / 60)}-hour window${L.secondary ? `, ${Math.round(L.secondary.used_percent)}% of the ${Math.round(L.secondary.window_minutes / 1440)}-day window` : ""}, ${fmtTime(L.at)}.</p>` : "";
+  const CP = D.codex.plan ?? { status: "none" };
+  const plan = !SHOW_SPLIT || CP.status === "none" ? "" : `<div style="margin-bottom:22px">${planBlock(CP, days)}</div>`;
+  if (plan) limits = "";
+  $("codex-n").textContent = cx.length ? `${fmt(sum(cx, (x) => x.tokens || 0))} tokens in ${plural(sum(cx, (x) => x.n), "run")}` : "none";
+  if (!cx.length) { $("codex").innerHTML = `${plan}<p class="empty">No Codex runs in this period.</p>${limits}`; return; }
+  const shown = state.allCodex ? cx : cx.slice(0, 12);
+  $("codex").innerHTML = `${plan}<div class="scroll"><table>
+    <thead><tr><th>When</th><th>What</th><th>Started from</th><th class="num">Tokens</th><th class="num">Time</th><th>Result</th></tr></thead>
+    <tbody>${shown.map((x) => `<tr><td class="nowrap muted">${fmtTime(x.at)}</td><td>${esc(x.what || "no description")}${x.web ? ` <span class="muted">web search</span>` : ""}${x.n > 1 ? ` <span class="muted">${x.n} at once</span>` : ""}</td><td><div class="desc" title="${esc(x.from)}">${esc(x.from)}</div></td><td class="num">${x.tokens != null ? fmt(x.tokens) : `<span class="muted">not reported</span>`}</td><td class="num">${x.seconds != null ? `${x.seconds} s` : `<span class="muted">${x.direct ? "" : "background"}</span>`}</td><td>${okState(x.ok)}</td></tr>`).join("")}</tbody></table></div>
+    ${cx.length > shown.length ? `<button class="more" data-more="allCodex">Show all ${cx.length} runs</button>` : ""}${limits}`;
+}
+
+function renderGemini(gm, rs, days) {
+  const fromClaude = rs.flatMap((r) => r.s.workers.filter((w) => w.worker === "agy" && days.has(w.day)));
+  const failed = fromClaude.filter((w) => !w.ok).length;
+  const note = fromClaude.length ? `<p class="after">${plural(sum(fromClaude, (w) => w.processes), "run")} started from Claude chats${failed ? `, ${failed} failed` : ""}.</p>` : "";
+  $("gemini-n").textContent = gm.length ? `${plural(gm.length, "conversation")}, ${plural(sum(gm, (g) => g.steps), "step")}` : "none";
+  if (!D.gemini.available) { $("gemini").innerHTML = `<p class="empty">No Antigravity records found.</p>`; return; }
+  if (!gm.length) { $("gemini").innerHTML = `<p class="empty">No Gemini conversations in this period.</p>`; return; }
+  const shown = state.allGemini ? gm : gm.slice(0, 12);
+  $("gemini").innerHTML = `<div class="scroll"><table>
+    <thead><tr><th>When</th><th>Conversation</th><th>Folder</th><th class="num">Steps</th></tr></thead>
+    <tbody>${shown.map((g) => `<tr><td class="nowrap muted">${fmtTime(g.at)}</td><td>${esc(g.title || "Untitled")}</td><td><div class="desc" title="${esc(g.folder)}">${esc(leaf(g.folder))}</div></td><td class="num">${g.steps}</td></tr>`).join("")}</tbody></table></div>
+    ${gm.length > shown.length ? `<button class="more" data-more="allGemini">Show all ${gm.length} conversations</button>` : ""}${note}`;
+}
+
+function render() {
+  const days = new Set(state.day ? [state.day] : rangeDays());
+  const rs = rows(days), cx = codexRuns(rs, days), gm = geminiRuns(days);
+  renderHead(rs);
+  renderPlan(days);
+  renderDaily();
+  renderProjects(days);
+  renderModels(rs, days);
+  renderTypes(days);
+  renderChats(rs, days);
+  renderCodex(cx, days);
+  renderGemini(gm, rs, days);
+}
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-range],[data-day],[data-project],[data-type],[data-clear],[data-sort],[data-more],[data-open]");
+  if (!el) return;
+  const d = el.dataset;
+  const toggle = (k, v) => { state[k] = state[k] === v ? null : v; };
+  if (d.range) { state.range = d.range === "all" ? "all" : Number(d.range); state.day = null; }
+  else if (d.day) toggle("day", d.day);
+  else if (d.project) toggle("project", d.project);
+  else if (d.type) toggle("type", d.type);
+  else if (d.clear) state[d.clear] = null;
+  else if (d.sort) {
+    if (state.sort === d.sort) state.dir = -state.dir;
+    else { state.sort = d.sort; state.dir = d.sort === "title" || d.sort === "project" ? 1 : -1; }
+  }
+  else if (d.more) state[d.more] = true;
+  else if (d.open) state.open.has(d.open) ? state.open.delete(d.open) : state.open.add(d.open);
+  render();
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.row")) { e.preventDefault(); e.target.click(); }
+});
+$("q").addEventListener("input", (e) => { state.q = e.target.value; render(); });
+
+const tip = $("tip");
+document.addEventListener("mousemove", (e) => {
+  const c = e.target.closest?.(".day");
+  if (!c) { tip.hidden = true; return; }
+  const main = Number(c.dataset.main), sub = Number(c.dataset.sub), other = Number(c.dataset.other);
+  tip.innerHTML = `<div class="h">${fmtDay(c.dataset.day)}</div><div><span>This computer</span><b>${fmt(main + sub)}</b></div><div><span><i class="dot s1"></i>Main chat</span><span>${fmt(main)}</span></div><div><span><i class="dot s2"></i>Subagents</span><span>${fmt(sub)}</span></div>${other ? `<div><span><i class="dot s3"></i>Other use</span><span>≈ ${fmt(other)}</span></div>` : ""}`;
+  tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(e.clientX + 14, window.innerWidth - w - 8) + "px";
+  tip.style.top = Math.max(8, e.clientY - h - 12) + "px";
+});
+
+$("scope").textContent = `${D.computer} · built ${fmtTime(D.generated)}`;
+renderAhead();
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+The file named above is a digest of one project's recent chats between a user and Claude Code,
+made by a script. "S1", "S2" and so on are chats. Answer only from that file. Do not run other
+commands, do not search the web, do not write files. Write in English, whatever language the
+chats are in.
+
+Answer under these six headings, as short bullets. Put the chat label (S3) on every bullet and
+quote at most 12 words of the user. Give no advice and no fixes. If a heading has nothing,
+write "none".
+
+A. THE WORK: what this project is, and the 3 to 6 kinds of task the user asks for most
+   (one line each, with roughly how many requests).
+B. WENT WRONG: every place where the user corrected Claude, said the answer was wrong or was
+   not what they asked for, repeated a request because it was not done, or interrupted a reply.
+   One line each: what the user wanted, what Claude did instead.
+C. QUESTIONS: every question Claude asked that missed: the user typed their own answer because
+   the options did not fit, the answer was already in the chat, or the question was unclear.
+   One line each: what was asked, what the user really wanted.
+D. AGAIN AND AGAIN: tasks or instructions the user gives repeatedly in similar words, in two or
+   more chats. One line each, with the labels.
+E. DEPENDS ON: the tools, kinds of file, programs, services and websites this work depends on,
+   and any that failed or were missing.
+F. ALWAYS AND NEVER: things the user told Claude to always do or never do.
+
+At most 60 lines in all.
