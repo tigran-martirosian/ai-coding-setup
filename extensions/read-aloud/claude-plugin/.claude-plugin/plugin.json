@@ -1,0 +1,7 @@
+{
+  "name": "readaloud",
+  "version": "0.1.0",
+  "description": "/voice toggles hands-free Read Aloud (local Kokoro TTS) in Nimbalyst",
+  "author": { "name": "Local" },
+  "keywords": ["tts", "voice", "read aloud"]
+}
