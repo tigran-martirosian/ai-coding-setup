@@ -4,7 +4,7 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/ff97158a-9a66-4846-9334-8aec7e648c8b
+https://github.com/user-attachments/assets/fe3c7b60-752f-4903-a567-755b0ef6db51
 
 ## Install
 
