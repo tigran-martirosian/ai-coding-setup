@@ -4,9 +4,9 @@ This is the setup I run AI coding agents in for all my development: the rules I 
 
 This repository is the whole setup. One installer puts all of it in place; [docs/HOW-TO.md](docs/HOW-TO.md) says what to type afterwards and what you should see.
 
-[![The title card of the tour video](docs/img/promo-poster.png)](docs/img/promo.mp4)
+https://github.com/user-attachments/assets/ff97158a-9a66-4846-9334-8aec7e648c8b
 
-**[Watch the full tour](docs/img/promo.mp4)** (1 min 43 s, opens in a player with a time bar). The short clips below are the same scenes, one section at a time. Everything in them is redrawn, with made-up projects and numbers.
+The full tour, 1 min 43 s ([the file](docs/img/promo.mp4)). The short clips below are the same scenes, one section at a time. Everything in them is redrawn, with made-up projects and numbers.
 
 ## What is in it
 
