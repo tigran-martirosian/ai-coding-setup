@@ -77,4 +77,4 @@ If you read one file, read `hooks/link-gate.mjs`.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+All rights reserved. You may download and run it to try it out, but not copy, modify or distribute it. See [LICENSE](LICENSE).
