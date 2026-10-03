@@ -1,8 +1,8 @@
 # AI coding setup for Claude Code, Codex and Gemini
 
-This is the setup I run AI coding agents in for all my development: the rules I give them, automatic checks on each step, and two extensions for the Nimbalyst editor, where I work with Claude Code. Codex (GPT) and Gemini do the searching and long reading. Professionals in finance, data engineering and government IT installed the setup and use it at work.
+This is the setup I run AI coding agents in for all my development: the rules I give them, automatic checks on each step, and three extensions for the Nimbalyst editor, where I work with Claude Code. Codex (GPT) and Gemini do the searching and long reading. Professionals in finance, data engineering and government IT installed the setup and use it at work.
 
-I share the full setup privately as an install guide. This repository holds the part anyone can install with `node install.mjs`, and the source of the two extensions.
+I share the full setup privately as an install guide. This repository holds the part anyone can install with `node install.mjs`, and the source of the three extensions.
 
 ```mermaid
 flowchart TD
@@ -49,10 +49,11 @@ For a hard question I ask all three with [skills/court](skills/court/SKILL.md). 
 
 ## Editor extensions
 
-Two extensions for Nimbalyst, written in TypeScript and React. Each has its own README.
+Three extensions for Nimbalyst, written in TypeScript and React. Each has its own README.
 
 - [extensions/usage-plan](extensions/usage-plan/README.md) puts a ring on the editor's side bar with the week's usage, and opens a panel with the weekly and 5-hour limits, when the week runs out, and the daily budget against the daily pace. The forecast itself comes from a script in my usage tooling that isn't in this repository; the extension draws it.
 - [extensions/read-aloud](extensions/read-aloud/README.md) reads replies aloud with Kokoro, a voice model that runs on the computer. It cleans a reply for speech (no code, no Markdown), and a Python worker speaks it sentence by sentence.
+- [extensions/commands](extensions/commands/README.md) puts the commands I use most behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report and new project. A press starts a new session in the open project with that command. The commands are skills from my private setup; the extension only starts them.
 
 ## Install
 

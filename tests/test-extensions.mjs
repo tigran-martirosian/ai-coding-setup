@@ -1,4 +1,4 @@
-// Runs the unit tests of the two editor extensions that need no build and no editor.
+// Runs the unit tests of the three editor extensions that need no build and no editor.
 // Run: node tests/test-extensions.mjs
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const TESTS = [
   ["usage-plan", "test/format.test.ts"],
   ["read-aloud", "test/cleanText.test.ts"],
+  ["commands", "test/commands.test.ts"],
 ];
 let failed = 0;
 for (const [ext, file] of TESTS) {

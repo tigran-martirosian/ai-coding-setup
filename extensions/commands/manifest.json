@@ -1,0 +1,25 @@
+{
+  "id": "com.local.commandbuttons",
+  "name": "Commands",
+  "version": "0.1.0",
+  "description": "The setup's utility commands as buttons. Each one starts a new session in the open project.",
+  "author": "Local",
+  "main": "dist/index.js",
+  "apiVersion": "1.0.0",
+  "defaultEnabled": true,
+  "permissions": {
+    "ai": true
+  },
+  "contributions": {
+    "panels": [
+      {
+        "id": "commands",
+        "title": "Commands",
+        "icon": "bolt",
+        "placement": "sidebar",
+        "order": 91,
+        "tooltip": "Commands: board cleanup, scans, reports. Each starts a new session here."
+      }
+    ]
+  }
+}
