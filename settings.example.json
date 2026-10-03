@@ -17,7 +17,8 @@
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node ~/.claude/hooks/command-explain.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/sql-guard.mjs", "timeout": 5 }
+          { "type": "command", "command": "node ~/.claude/hooks/sql-guard.mjs", "timeout": 5 },
+          { "type": "command", "command": "node ~/.claude/hooks/opencli-readonly.mjs", "timeout": 15 }
         ]
       }
     ],
@@ -28,7 +29,10 @@
     ],
     "Stop": [
       {
-        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/handoff-brief.mjs --hook", "timeout": 15 }]
+        "hooks": [
+          { "type": "command", "command": "node ~/.claude/hooks/link-gate.mjs", "timeout": 10 },
+          { "type": "command", "command": "node ~/.claude/hooks/handoff-brief.mjs --hook", "timeout": 15 }
+        ]
       }
     ]
   }

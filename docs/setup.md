@@ -7,7 +7,7 @@ flowchart TD
   me["Me<br>task, rules, review"]
   hooks["Hooks<br>check each tool call"]
   main["Claude Code<br>main session"]
-  ext["Codex and Gemini<br>search, long reading"]
+  ext["GPT (Codex CLI) and Gemini (Antigravity CLI)<br>search, long reading"]
   worker["worker subagent<br>routine edits"]
   me --> main
   hooks -.-> main
@@ -24,13 +24,15 @@ flowchart TD
 
 ## What I hand to each tool
 
+The rule: searching and long reading go to GPT (through the Codex CLI) and Gemini (through the Antigravity CLI), which run on my other subscriptions. Design and code stay with Claude.
+
 | Tool | What I use it for | Limits I set |
 |---|---|---|
 | Claude Code in the Nimbalyst editor (the main session) | Planning a change with me, writing and editing the code, running the checks | It does what I asked and nothing else: no unrelated refactoring, no extra features |
-| Codex and Gemini command-line tools | Searching a project, reading long files and logs, web research, a second opinion on a plan or a diff | They never edit files, and their answers are leads that get checked |
+| GPT (Codex CLI) and Gemini (Antigravity CLI) | Searching a project, reading long files and logs, web research, a second opinion on a plan or a diff | They never edit files, and their answers are leads that get checked |
 | `worker` subagent ([agents/worker.md](../agents/worker.md)) | Routine edits that follow a clear plan | A smaller model, and it stops after 25 turns |
 
-Searching and long reading cost the most on the main model, which is why they go to the cheaper tools. For a larger task I use a skill that splits the work across child sessions (research, build, an independent review, fixes), so what comes back to me has already been checked once.
+Searching and long reading cost the most on the main model, which is why they go to the other two. For a hard question, where one model's answer isn't enough, I ask all three with the [court skill](../skills/court/SKILL.md): GPT, Gemini and Claude answer on their own, GPT and Gemini review the answers without knowing who wrote them, and a Claude chair sums up. I read the verdict and decide. For a larger task I use a [skill](../skills/lead/SKILL.md) that splits the work across child sessions (research, build, an independent review, fixes), so what comes back to me has already been checked once.
 
 ## The rules I wrote
 
@@ -53,8 +55,10 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a subagent starts | `worker-nudge` | Searching goes to Codex or Gemini first |
 | Before a shell command | `command-explain` | Explain the command in plain words |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
-| Before a question to me | `question-other` | Every choice lets me type my own answer |
+| Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |
+| Before a question to me | `question-other` | Every choice lets me type my own answer, and a recommendation that says "Checked:" must match a lookup in the session log |
 | When I send a message | `context-guard` | Warn when the session passes 200k tokens |
+| Before a reply goes out | `link-gate` | No link that wasn't opened in this session |
 | After each reply | `handoff-brief` | Keep a brief so a new session can continue |
 
 In the seven days up to October 1, 2026, `big-read-gate` stopped 11 whole-file reads and `worker-nudge` stopped 3 search subagents. I use the scanner's counts to decide which rule needs a hook next. The wiring is in [settings.example.json](../settings.example.json).
