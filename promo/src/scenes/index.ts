@@ -7,6 +7,7 @@ import { Dashboard } from "./Dashboard";
 import { EndCard } from "./EndCard";
 import { Gates } from "./Gates";
 import { Handoff } from "./Handoff";
+import { Install } from "./Install";
 import { Intro } from "./Intro";
 import { Lead } from "./Lead";
 import { Permission } from "./Permission";
@@ -16,6 +17,7 @@ import { Rules } from "./Rules";
 import { RunYourself } from "./RunYourself";
 import { Says } from "./Says";
 import { Usage } from "./Usage";
+import { Voice } from "./Voice";
 
 export type SceneEntry = { id: string; component: React.FC<SceneProps>; durationInFrames: number };
 
@@ -36,6 +38,8 @@ export const SCENES: SceneEntry[] = [
   { id: "Picture", component: Picture, durationInFrames: 180 },
   { id: "Rules", component: Rules, durationInFrames: 200 },
   { id: "Commands", component: Commands, durationInFrames: 220 },
+  { id: "Voice", component: Voice, durationInFrames: 180 },
+  { id: "Install", component: Install, durationInFrames: 210 },
   { id: "EndCard", component: EndCard, durationInFrames: 110 },
 ];
 
@@ -47,6 +51,7 @@ const CLIP_SCENES: Record<string, string[]> = {
   usage: ["Usage", "Dashboard"],
   projects: ["Projects", "Picture", "Rules"],
   commands: ["Commands"],
+  voice: ["Voice"],
 };
 
 export const CLIPS = Object.entries(CLIP_SCENES).map(([id, sceneIds]) => ({ id, sceneIds }));

@@ -158,6 +158,8 @@ Three extensions for Nimbalyst, written in TypeScript and React.
 
 ## Voice typing
 
+![A key held while speaking, then the words typed into the chat box](docs/img/clip-voice.gif)
+
 I speak most of my prompts. [Handy](https://handy.computer) types what I say where the cursor is: hold a key, talk, release. The speech model runs on the computer.
 
 ```
