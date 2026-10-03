@@ -1,0 +1,24 @@
+{
+  "name": "nimbalyst-usage-plan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types test/command.test.ts && node --experimental-strip-types test/format.test.ts",
+    "install-ext": "node scripts/install.mjs"
+  },
+  "devDependencies": {
+    "@nimbalyst/extension-sdk": "^0.6.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
+  },
+  "dependencies": {
+    "react": "^19.3.0"
+  }
+}

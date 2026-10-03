@@ -1,0 +1,64 @@
+{
+  "id": "com.local.readaloud",
+  "name": "Read Aloud",
+  "version": "0.1.0",
+  "description": "Read agent replies aloud with Kokoro TTS running locally. No cloud, no per-use cost.",
+  "author": "Local",
+  "main": "dist/index.js",
+  "apiVersion": "1.0.0",
+  "defaultEnabled": true,
+  "permissions": {
+    "ai": true
+  },
+  "contributions": {
+    "hostComponents": ["ReadAloudHost"],
+    "backendModules": [
+      {
+        "id": "kokoro",
+        "entry": "dist/backend.js",
+        "runtime": "utility-process",
+        "permissions": ["mcp-server-register"],
+        "enablement": {
+          "default": "disabled",
+          "promptOn": "firstUse",
+          "purpose": "Run the Kokoro text-to-speech model from your local TTS folder (default C:\\LocalTTS) so replies can be read aloud. Everything stays on this computer."
+        }
+      }
+    ],
+    "settingsRoutes": [
+      {
+        "id": "readaloud",
+        "scope": "application",
+        "label": "Read Aloud",
+        "group": "Extensions",
+        "icon": "volume_up",
+        "order": 90,
+        "component": "ReadAloudSettingsPanel"
+      }
+    ],
+    "configuration": {
+      "title": "Read Aloud",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true, "description": "Show the Read Aloud control on agent replies", "scope": "user" },
+        "voice": { "type": "string", "default": "af_heart", "description": "Kokoro voice", "scope": "user" },
+        "speed": { "type": "number", "default": 1.0, "description": "Playback speed (0.5 to 2.0)", "scope": "user" },
+        "skipCodeBlocks": { "type": "boolean", "default": true, "description": "Skip fenced code blocks", "scope": "user" },
+        "skipTerminalOutput": { "type": "boolean", "default": true, "description": "Skip terminal output and diffs", "scope": "user" },
+        "ttsDirectory": { "type": "string", "default": "C:\\LocalTTS", "description": "Folder with venv, kokoro-v1.0.onnx and voices-v1.0.bin", "scope": "user" },
+        "autoRead": { "type": "boolean", "default": false, "description": "Hands-free: read finished replies and questions automatically", "scope": "user" }
+      }
+    },
+    "claudePlugin": {
+      "path": "claude-plugin",
+      "displayName": "Read Aloud",
+      "description": "Adds /voice to toggle hands-free reading of replies",
+      "enabledByDefault": true,
+      "commands": [
+        {
+          "name": "voice",
+          "description": "Toggle hands-free Read Aloud for replies and questions (on | off)"
+        }
+      ]
+    }
+  }
+}

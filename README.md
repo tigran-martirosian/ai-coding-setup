@@ -1,45 +1,66 @@
-# Claude Code hooks
+# AI coding setup for Claude Code, Codex and Gemini
 
-I delegate a lot of routine work to Claude Code. These are the small scripts I wrote to keep that cheap and under control. The hooks stop wasteful or risky actions before they run, and a scanner shows where the tokens went.
+This is the setup I run AI coding agents in for all my development: the rules I give them, automatic checks on each step, and two extensions for the Nimbalyst editor, where I work with Claude Code. Codex (GPT) and Gemini do the searching and long reading. Professionals in finance, data engineering and government IT installed the setup and use it at work.
 
-I work in Claude Code inside the Nimbalyst editor, and I hand searching and long reading to the Codex and Gemini command-line tools, which are cheaper for that. I wrote the rules for how the work is split, and the hooks enforce the ones that were being skipped. [docs/setup.md](docs/setup.md) describes how I work with these tools.
+I share the full setup privately as an install guide. This repository holds the part anyone can install with `node install.mjs`, and the source of the two extensions.
 
-## Hooks
-
-Each hook is one Node.js script. Claude Code runs it around a tool call and passes the call as JSON.
-
-| Hook | What it does |
-|---|---|
-| `big-read-gate` | Blocks reading a large text file whole (over 350 lines or 50 KB) and tells the model to read only the part it needs. The idea comes from "shunt", a Claude Code plugin in Spotify's open-source [portal-ai-plugins](https://github.com/spotify/portal-ai-plugins) that keeps large file reads away from the main model to save tokens. |
-| `worker-nudge` | Blocks the first try at a search subagent and points to the Codex or Gemini command-line tools instead. The same call tried again goes through. |
-| `context-guard` | Warns when a session passes 200k tokens and suggests a fresh one. |
-| `command-explain` | Blocks a shell command that doesn't end with a plain-words comment saying what it does. |
-| `question-other` | Makes every multiple-choice question include a free-text answer. |
-| `sql-guard` | Asks for confirmation before DROP, TRUNCATE, or DELETE and UPDATE without WHERE. |
-| `handoff-brief` | After each reply, writes a short brief of the session so a new one can continue from it. |
-
-Every hook fails open: on an error or input it doesn't understand, it lets the call through. Each can be switched off with an environment variable named at the top of its file. To see what a hook looks like, start with `hooks/worker-nudge.mjs`, which is under 70 lines.
-
-`question-other` and `command-explain` are written for the Nimbalyst editor. The other five don't depend on the editor.
-
-## Usage scanner
-
-`scripts/usage-scan.mjs` reads the session transcripts and reports tokens per session and per subagent, and how often each hook blocked something. It showed me that one search subagent run used 0.6 to 4.3 million tokens, which is why `worker-nudge` exists.
-
-```
-node scripts/usage-scan.mjs --days 7
+```mermaid
+flowchart TD
+  me["Me<br>task, rules, review"]
+  hooks["Hooks<br>check each tool call"]
+  main["Claude Code<br>main session"]
+  ext["GPT (Codex CLI) and Gemini (Antigravity CLI)<br>search, long reading"]
+  worker["worker subagent<br>routine edits"]
+  me --> main
+  hooks -.-> main
+  main --> ext
+  main --> worker
 ```
 
-Over my last seven days of sessions (up to October 1, 2026) it counted 11 whole-file reads stopped by `big-read-gate` and 3 search subagents stopped by `worker-nudge`.
+## Automatic checks on each step
+
+Each check is a Node.js hook: a script that Claude Code runs around a step, and that can send the step back. Claude Code keeps a log of every tool call in a session, and the first two checks compare what the agent says with what that log shows it did.
+
+- **`link-gate`**. Without it, a reply could hand me a link the agent remembered or saw in search results but never opened. With it, the reply is rejected until each link is opened or taken out.
+- **`question-other`**. Without it, a recommended option could say "Checked: the docs" when nothing was looked up. With it, a "Checked:" reason is rejected unless it matches a file read or a search in the log; otherwise the option has to say "Judgment:".
+
+Two more checks look at the command itself:
+
+- **`command-explain`**. Without it, a permission prompt shows me a raw shell command. With it, a command is blocked unless it ends with a line in plain words saying what it does.
+- **`opencli-readonly`**. Without it, the agent could post, like or follow from my logged-in accounts through OpenCLI. With it, only commands that OpenCLI itself marks `[read]` get through.
+
+The other hooks keep sessions cheap and safe: `big-read-gate` (large files are read in parts), `sql-guard` (asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE), `context-guard` (warns when a session gets long) and `handoff-brief` (keeps a brief so a fresh session can continue). If a hook hits an error, it lets the call through rather than block work. `link-gate` counts an address as opened when a browser tool, WebFetch or a shell command went to it and didn't fail, so it can't tell whether the page said what the reply claims.
+
+## Three models
+
+Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: the first try at a search subagent is blocked and pointed at `codex` or `agy`. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
+
+For a hard question I ask all three with [skills/court](skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. I read it and decide. If `codex` or `agy` isn't installed, the panel goes on without that seat. [docs/setup.md](docs/setup.md) covers the rest: the rules I give the models and the `worker` agent for routine edits. `skills/lead` is the skill I use to split a big task across parallel sessions in Nimbalyst.
+
+## Editor extensions
+
+Two extensions for Nimbalyst, written in TypeScript and React. Each has its own README.
+
+- [extensions/usage-plan](extensions/usage-plan/README.md) puts a ring on the editor's side bar with the week's usage, and opens a panel with the weekly and 5-hour limits, when the week runs out, and the daily budget against the daily pace. The forecast itself comes from a script in my usage tooling that isn't in this repository; the extension draws it.
+- [extensions/read-aloud](extensions/read-aloud/README.md) reads replies aloud with Kokoro, a voice model that runs on the computer. It cleans a reply for speech (no code, no Markdown), and a Python worker speaks it sentence by sentence.
 
 ## Install
 
-Needs Node.js. I run them on Windows, and the tests run on Windows too. Copy the files in `hooks` to `~/.claude/hooks` and merge `settings.example.json` into `~/.claude/settings.json`. The worker agent in `agents` and the handoff skill in `skills` go to the folders of the same name under `~/.claude`.
+Needs Node.js 18 or newer. I run it on Windows.
 
-## Test
+```
+node install.mjs --dry-run
+node install.mjs
+```
+
+The dry run prints every file it would copy and every hook it would add, and changes nothing. The real run copies `hooks`, `agents` and `skills` into `~/.claude` and adds the hook wiring from `settings.example.json` to `~/.claude/settings.json`. Before it replaces a file, it keeps the old one as `<name>.before-install-<date>`, so your own settings aren't lost. A second run changes nothing. The Codex CLI and the Antigravity CLI are optional. `question-other` and `command-explain` are written for Nimbalyst. The extensions build and install on their own (see their READMEs).
+
+## Tests and the privacy check
 
 ```
 node tests/run-all.mjs
 ```
 
-Eight test files run the hooks and the scanner as separate processes on made-up input. No model is called. They also run on GitHub Actions on every push.
+The tests run each hook as a separate process on made-up session logs. They also run the court script without calling any model, the installer twice on a blank temporary home folder, and the extensions' unit tests. Last comes `scripts/privacy-check.mjs` on this repository. It looks for home folder paths, email addresses, API keys, AI credit lines, backup and `.env` files, and the words in a private list (`.privacy-words`, which git ignores). The tests run on GitHub Actions on every push. GitHub doesn't have my word list, so I also run the check myself before each release.
+
+If you read one file, read `hooks/link-gate.mjs`.

@@ -1,0 +1,25 @@
+{
+  "id": "com.local.usageplan",
+  "name": "Usage Plan",
+  "version": "0.1.0",
+  "description": "Claude plan usage and forecast in a side panel. Reads the local usage-report skill; nothing leaves this computer.",
+  "author": "Local",
+  "main": "dist/index.js",
+  "apiVersion": "1.0.0",
+  "defaultEnabled": true,
+  "permissions": {
+    "filesystem": true
+  },
+  "contributions": {
+    "panels": [
+      {
+        "id": "usage-plan",
+        "title": "Usage Plan",
+        "icon": "data_usage",
+        "placement": "sidebar",
+        "order": 90,
+        "tooltip": "Claude plan: week and 5-hour use, the pace, and when each runs out."
+      }
+    ]
+  }
+}

@@ -5,3 +5,5 @@ node_modules/
 handoffs/
 reports/
 audits/
+.privacy-words
+dist/
