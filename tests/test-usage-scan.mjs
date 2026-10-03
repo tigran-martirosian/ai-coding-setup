@@ -27,7 +27,7 @@ write(path.join(proj, "s1.jsonl"), [
   // same message id on two lines (two content blocks): counted once
   asst(0, "m1", usage(10, 1000, 90), [{ type: "text", text: "hi" }]),
   asst(0, "m1", usage(10, 1000, 90), [bash("b1", "cd x; codex exec --skip-git-repo-check 'q' < /dev/null")]),
-  result(1, "b1", "answer"),
+  result(1, "b1", "answer\ntokens used\n1,234\nanswer"),
   asst(2, "m2", usage(0, 2000, 0), [bash("b2", wrapper)]),
   result(3, "b2", "done"),
   // mentions codex exec only as text inside sed: not a worker run
@@ -38,7 +38,11 @@ write(path.join(proj, "s1.jsonl"), [
   asst(6, "m5", usage(0, 5000, 0), [bash("b4", "agy -p 'read big.ts' --mode plan")]),
   result(7, "b4", "ok"),
   // after minute 30: outside a --minutes 30 window
-  asst(45, "m6", usage(0, 100000, 0), []),
+  asst(45, "m6", usage(0, 100000, 0), [
+    { type: "tool_use", id: "k1", name: "Skill", input: { skill: "handoff" } },
+    { type: "tool_use", id: "x1", name: "mcp__demo__lookup", input: {} },
+    { type: "tool_use", id: "x2", name: "mcp__demo__fetch", input: {} },
+  ]),
 ]);
 write(path.join(proj, "s1", "subagents", "agent-x.jsonl"), [
   asst(10, "s-m1", usage(5, 500, 5), [], "claude-sonnet-5-5"),
@@ -68,6 +72,25 @@ check("worker shell calls", full.workers.calls, 3);
 check("web flag on wrapper call", full.workers.list.filter((w) => w.web).length, 1);
 check("hook block counted", full.hooks["worker-nudge"]?.blocks, 1);
 check("next step after block", full.hooks["worker-nudge"]?.next, { worker: 1 });
+// fields the dashboard reads
+const dayTotal = (days) => Object.values(days).flatMap(Object.values).reduce((a, b) => a + b, 0);
+check("per-day tokens add up to main", dayTotal(s.days), s.main);
+check("per-day tokens add up for a subagent", dayTotal(s.subagents[0].days), 1210);
+check("per-day tokens are split by model", [...new Set(Object.values(s.subagents[0].days).flatMap(Object.keys))], ["claude-sonnet-5-5"]);
+// API-price equivalent: Opus 5.5 is $4 in, $20 out, $0.20 cache read per million; Sonnet 5.5 $2, $10, $0.20
+const usdTotal = (usd) => Math.round(Object.values(usd).reduce((a, b) => a + b, 0) * 1e4) / 1e4;
+check("dollars at API prices, main chat", usdTotal(s.usd), Math.round((10 * 4 + 90 * 20 + 115000 * 0.2) / 1e6 * 1e4) / 1e4);
+check("dollars at API prices, subagent on another model", usdTotal(s.subagents[0].usd), Math.round((5 * 2 + 5 * 10 + 1200 * 0.2) / 1e6 * 1e4) / 1e4);
+check("total dollars is a number", typeof full.totals.usd, "number");
+check("session lists its worker calls with a start time", s.workers.map((w) => typeof w.at), ["string", "string", "string"]);
+check("short project name", s.name, "demo");
+check("Codex token count read from the result, null when missing", s.workers.map((w) => w.tokens), [1234, null, null]);
+// what gets used (the unused-inventory part of the audit)
+check("tool calls, MCP tools grouped per server", full.use.tools, { Bash: 4, "demo (MCP)": 2, Agent: 1, Skill: 1 });
+check("skill uses", full.use.skills, { handoff: 1 });
+check("subagent starts by type", full.use.agents, { Explore: 1 });
+check("tokens by model", full.use.models, { "claude-opus-5-5": 115100, "claude-sonnet-5-5": 1210 });
+check("first-call size and big-session counts", [full.use.firstCall, full.use.over200k], [{ median: 1010, max: 1010 }, 0]);
 
 const win = run("--session", "s1", "--minutes", "30");
 check("--minutes cuts main", win.sessions[0].main, 15100);

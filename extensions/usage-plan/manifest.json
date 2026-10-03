@@ -2,7 +2,7 @@
   "id": "com.local.usageplan",
   "name": "Usage Plan",
   "version": "0.1.0",
-  "description": "Claude plan usage and forecast in a side panel. Reads the local usage-report skill; nothing leaves this computer.",
+  "description": "Claude plan usage and forecast in a small pop-up. Reads the local usage-report skill; nothing leaves this computer.",
   "author": "Local",
   "main": "dist/index.js",
   "apiVersion": "1.0.0",

@@ -6,6 +6,7 @@
 // --hook: Stop hook mode. Reads the hook JSON from stdin and silently rewrites
 // ~/.claude/handoffs/<folder>-latest.md after every reply, so a brief exists even when Claude
 // usage runs out (then continue in a GPT or Gemini session from that file). Fails open.
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -82,10 +83,27 @@ const first = s.prompts[0] ?? "(none)";
 const recent = s.prompts.slice(1).slice(-8);
 const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
 const outDir = path.join(os.homedir(), ".claude", "handoffs");
+// Two projects can have the same folder name (C:\work\api and D:\old\api).
+// The plain name stays with the project that already holds <folder>-latest.md; another project
+// with that folder name gets <folder>-<6 characters from its path>, so they never overwrite
+// each other. Each brief names its project in the "Project folder" line.
+const samePath = (a, b) => {
+  const norm = (p) => (process.platform === "win32" ? path.resolve(p).toLowerCase() : path.resolve(p));
+  return norm(a) === norm(b);
+};
+const folderOf = (text) => text.match(/^Project folder: `(.+?)`\. /m)?.[1];
+function briefName() {
+  const base = path.basename(work);
+  let owner;
+  try { owner = folderOf(fs.readFileSync(path.join(outDir, `${base}-latest.md`), "utf8")); } catch {}
+  if (!owner || samePath(owner, work)) return base;
+  return `${base}-${createHash("sha1").update(path.resolve(work).toLowerCase()).digest("hex").slice(0, 6)}`;
+}
+const name = briefName();
 // Hook mode: one brief per session (<folder>-auto-<id>.md), plus <folder>-latest.md for the newest
-const autoPrefix = `${path.basename(work)}-auto-`;
+const autoPrefix = `${name}-auto-`;
 const out = path.join(outDir, hook ? `${autoPrefix}${path.basename(transcript, ".jsonl").slice(0, 8)}.md`
-  : `${path.basename(work)}-${stamp}.md`);
+  : `${name}-${stamp}.md`);
 
 const brief = [
   `# Handoff: ${path.basename(work)}`,
@@ -136,7 +154,10 @@ function writeLatest() {
     const age = now - fs.statSync(p).mtimeMs;
     if (age > 7 * 864e5) { try { fs.unlinkSync(p); } catch {} continue; }
     if (p === out || age > 2 * 864e5) continue;
-    const goal = fs.readFileSync(p, "utf8").split("## First request (the goal)\n\n")[1]?.split("\n")[0] ?? "";
+    const text = fs.readFileSync(p, "utf8");
+    const folder = folderOf(text);
+    if (folder && !samePath(folder, work)) continue; // a same-named folder's brief from before the names were split
+    const goal = text.split("## First request (the goal)\n\n")[1]?.split("\n")[0] ?? "";
     others.push({ p, t: fs.statSync(p).mtimeMs, goal });
   }
   others.sort((a, b) => b.t - a.t);
@@ -145,5 +166,5 @@ function writeLatest() {
        "If the session above isn't the one the user means, read the matching brief below instead.", "",
        ...others.map((o) => `- ${new Date(o.t).toLocaleString()}: \`${o.p}\` (first request: ${cut(o.goal, 150)})`), ""]
     : [];
-  fs.writeFileSync(path.join(outDir, `${path.basename(work)}-latest.md`), brief + list.join("\n"));
+  fs.writeFileSync(path.join(outDir, `${name}-latest.md`), brief + list.join("\n"));
 }

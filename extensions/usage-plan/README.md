@@ -1,8 +1,8 @@
 # Usage Plan (Nimbalyst extension)
 
-A gutter button that shows the week's percent in a ring and opens a side panel with the Claude plan
-numbers: the weekly and 5-hour limits, when the week runs out, the daily budget against the daily pace, and
-when to get on and off. One button opens the full usage dashboard.
+A gutter button that shows the week's percent in a ring and opens a small pop-up with the Claude plan
+numbers: the weekly and 5-hour limits, when each runs out, and the daily and hourly budget against the
+pace. One button opens the full usage dashboard.
 
 Nimbalyst draws an extension's gutter button itself and ignores a panel's `gutterButton` export, so the ring
 is a style rule on the app's button (`src/gutter.ts`). If an app update changes that button, the plain icon

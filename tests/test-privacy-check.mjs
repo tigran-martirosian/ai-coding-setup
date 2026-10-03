@@ -45,6 +45,10 @@ for (const [what, text] of Object.entries(leaks)) {
 }
 ok("a word from the word list is found without regard to case",
   check(folder({ "a.md": leaks["private word"] }), "--words", path.join(tmp, "words.txt")).out.includes('private word "example farm"'));
+fs.writeFileSync(path.join(tmp, "allow.txt"), "example farm\nallow LICENSE:1\n");
+const allow = check(folder({ LICENSE: "Copyright Example Farm Co\nExample Farm again\n", "a.md": "j.smith" + "@gmail.com\n" }), "--words", path.join(tmp, "allow.txt")).out;
+ok("an allowed line may hold a private word; other lines and other findings still count",
+  [allow.includes("LICENSE:1:"), allow.includes("LICENSE:2:"), allow.includes("a.md:1: email"), allow.includes("1 private words")], [false, true, true, true]);
 ok("finds backup and .env files by name", check(folder({ "x.mjs.bak": "", ".env": "", ".env.example": "" })).out.match(/: (backup|environment) file/g), [": environment file", ": backup file"]);
 ok("lists a file over 1 MB", check(folder({ "big.txt": "a".repeat(1100000) })).out.includes("big.txt (1.0 MB)"));
 const clean = check(folder({

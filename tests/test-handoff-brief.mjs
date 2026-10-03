@@ -57,6 +57,39 @@ const manualFile = manual.stdout.trim();
 check("manual mode prints the brief's path", manual.status === 0 && /demo-project-\d{8}-\d{4}\.md$/.test(manualFile));
 check("manual brief leaves room for the summary", fs.existsSync(manualFile) && /<!-- summary/.test(fs.readFileSync(manualFile, "utf8")));
 
+// Two projects with the same folder name must not overwrite each other's briefs
+const projA = path.join(home, "a", "proj");
+const projB = path.join(home, "b", "proj");
+for (const p of [projA, projB]) fs.mkdirSync(p, { recursive: true });
+const session = (id, cwd, request) => transcript(`${id}.jsonl`, [
+  JSON.stringify({ type: "user", cwd, message: { content: request } }),
+  JSON.stringify({ type: "assistant", cwd, message: { model: "m", usage: { input_tokens: 1200 }, content: [{ type: "text", text: "Done." }] } }),
+]);
+const hookIn = (file, cwd) => run(["--hook"], JSON.stringify({ transcript_path: file, cwd }));
+const tA = session("cccccccc-1111", projA, "request from project A");
+const tA2 = session("eeeeeeee-1111", projA, "second session in project A");
+const tB = session("dddddddd-1111", projB, "request from project B");
+
+hookIn(tA, projA);
+check("first project gets the plain name", read("proj-latest.md").includes("request from project A") && files().includes("proj-auto-cccccccc.md"));
+hookIn(tB, projB);
+const bLatest = files().find((n) => /^proj-[0-9a-f]{6}-latest\.md$/.test(n));
+check("same-named project gets its own latest file", !!bLatest && read(bLatest).includes("request from project B"));
+check("the first project's latest is not overwritten", read("proj-latest.md").includes("request from project A") && !read("proj-latest.md").includes("project B"));
+check("its per-session brief has the same prefix", files().some((n) => /^proj-[0-9a-f]{6}-auto-dddddddd\.md$/.test(n)));
+hookIn(tB, projB);
+check("a second run reuses the name", files().filter((n) => /^proj-[0-9a-f]{6}-latest\.md$/.test(n)).length === 1);
+hookIn(tA2, projA);
+const aLatest = read("proj-latest.md");
+check("latest lists only its own project's sessions", aLatest.includes("second session in project A") && aLatest.includes("proj-auto-cccccccc.md") && !aLatest.includes("dddddddd"));
+// a brief written under the plain prefix by the other project before the names were split
+fs.writeFileSync(path.join(outDir, "proj-auto-ffffffff.md"),
+  `# Handoff: proj\n\nFrom session \`f\`.\nProject folder: \`${projB}\`. Follow its CLAUDE.md.\n\n## First request (the goal)\n\nold request from B\n`);
+hookIn(tA2, projA);
+check("an old same-prefix brief from the other project is left out", !read("proj-latest.md").includes("ffffffff"));
+const manualB = run(["--transcript", tB, "--cwd", projB], "").stdout.trim();
+check("manual brief for the second project carries its name", /proj-[0-9a-f]{6}-\d{8}-\d{4}\.md$/.test(manualB));
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

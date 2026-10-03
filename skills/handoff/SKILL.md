@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Move the current work to a fresh, cheap session — write a short handoff brief (goal, state, next step, files) and open a new session that continues from it. Use when context-guard says the session is big and the user agrees to switch, or the user says "handoff", "new session", "move to a fresh session", or runs /handoff.
+description: Move the current work to a fresh, cheap session — write a short handoff brief (goal, state, next step, files) and open a new session that continues from it. Use when context-guard says the session is big and the user agrees to switch, or the user says "handoff", "new session", "move to a fresh session", or runs /handoff (optional: another project's folder to hand the work to).
 ---
 
 # Handoff to a fresh session
@@ -15,7 +15,9 @@ A big session re-sends all its context on every step; a fresh one starts from a 
    - decisions the user made, and things tried that failed (so they aren't redone);
    - anything the user still owes (answers, approvals).
    Only facts a fresh session couldn't get from the files. No file contents.
-3. **Open the new session.** If `mcp__nimbalyst-host__spawn_session` is available (load it with ToolSearch first), call it with `isolated: true`, `inheritModel: true`, `title`: this session's name + " (cont.)", and `prompt`: `Read <brief path> and continue the work from "Where we are". Don't redo finished steps.` Otherwise tell the user to start a new session and paste that prompt.
+3. **Open the new session.** If `mcp__nimbalyst-host__spawn_session` is available (load it with ToolSearch first), call it with `isolated: true` (a top-level session, not a child filed under this one's group; never use `create_session`, which makes a child), `inheritModel: true`, `title`: this session's name + " (cont.)", and `prompt`: `Read <brief path> and continue the work from "Where we are". Don't redo finished steps.` Otherwise tell the user to start a new session and paste that prompt.
 4. **Reply** in two lines: the new session is open (or the prompt to paste), and this one can be closed. Do no more work here.
 
-**When Claude is out of usage:** a Stop hook (`handoff-brief.mjs --hook`) rewrites `~/.claude/handoffs/<folder>-latest.md` after every reply, with no summary; it also lists the folder's other recent sessions, each with its own `<folder>-auto-<id>.md` brief. Open a new session with another model and say: `Continue the work from ~/.claude/handoffs/<folder>-latest.md.`
+**Handing off to another project** (`/handoff <folder>`, or the work belongs in another project's folder): `spawn_session` always opens in the current folder, so it can't be used. Do steps 1 and 2 as above (the brief is written under `~/.claude/handoffs/`, so the other project can read it), then call `mcp__nimbalyst-host__workspace_open` with the target folder, and reply with the one line to paste into a new session there, in a code block: `Read <brief path> and continue the work from "Where we are". Don't redo finished steps.` Say which model to pick if the work needs one. Nothing is written into the other project's folder from here.
+
+**When Claude is out of usage:** a Stop hook (`handoff-brief.mjs --hook`) rewrites `~/.claude/handoffs/<folder>-latest.md` after every reply, with no summary; it also lists the folder's other recent sessions, each with its own `<folder>-auto-<id>.md` brief. Open a new session with another model and say: `Continue the work from ~/.claude/handoffs/<folder>-latest.md.` If two projects have the same folder name, the second one's briefs are named `<folder>-<6 characters>-…` instead; the "Project folder" line at the top of each brief says which project it is.
