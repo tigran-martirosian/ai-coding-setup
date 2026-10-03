@@ -17,6 +17,16 @@ flowchart TD
   main --> worker
 ```
 
+## What it looks like
+
+![The session board in Nimbalyst, with real sessions](docs/img/board.png)
+
+Nimbalyst shows every conversation as a card on a board. Claude moves its own card from Planning to Complete as the work goes.
+
+<img src="docs/img/usage-panel.png" alt="The usage panel" width="274">
+
+The usage panel from [extensions/usage-plan](extensions/usage-plan/README.md): both limits, and when the weekly one runs out at the current pace.
+
 ## Automatic checks on each step
 
 Each check is a Node.js hook: a script that Claude Code runs around a step, and that can send the step back. Claude Code keeps a log of every tool call in a session, and the first two checks compare what the agent says with what that log shows it did.
@@ -64,3 +74,7 @@ node tests/run-all.mjs
 The tests run each hook as a separate process on made-up session logs. They also run the court script without calling any model, the installer twice on a blank temporary home folder, and the extensions' unit tests. Last comes `scripts/privacy-check.mjs` on this repository. It looks for home folder paths, email addresses, API keys, AI credit lines, backup and `.env` files, and the words in a private list (`.privacy-words`, which git ignores). The tests run on GitHub Actions on every push. GitHub doesn't have my word list, so I also run the check myself before each release.
 
 If you read one file, read `hooks/link-gate.mjs`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
