@@ -36,7 +36,7 @@ Searching and long reading cost the most on the main model, which is why they go
 
 ## The rules I wrote
 
-A global instruction file holds the rules for every session. That file is personal and isn't in this repository. The main ones:
+A global instruction file holds the rules for every session. The file is [rules/CLAUDE.md](../rules/CLAUDE.md), and the installer puts it at `~/.claude/CLAUDE.md`. The main ones:
 
 - Ask when a requirement is unclear and the choice matters. For a small, reversible choice, pick a default and say so.
 - Do what was asked: no unrelated refactoring, no features nobody asked for.
@@ -57,8 +57,13 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |
 | Before a question to me | `question-other` | Every choice lets me type my own answer, and a recommendation that says "Checked:" must match a lookup in the session log |
+| Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | When I send a message | `context-guard` | Warn when the session passes 200k tokens |
+| When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
+| When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
+| While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
 | Before a reply goes out | `link-gate` | No link that wasn't opened in this session |
+| Before a reply goes out | `run-yourself` | A reply that tells me to run a command is sent back once, so the agent runs it |
 | After each reply | `handoff-brief` | Keep a brief so a new session can continue |
 
 In the seven days up to October 1, 2026, `big-read-gate` stopped 11 whole-file reads and `worker-nudge` stopped 3 search subagents. I use the scanner's counts to decide which rule needs a hook next. The wiring is in [settings.example.json](../settings.example.json).

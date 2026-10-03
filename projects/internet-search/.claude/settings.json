@@ -1,0 +1,10 @@
+{
+  "model": "opus",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "node .claude/hooks/link-gate.mjs", "timeout": 10 }]
+      }
+    ]
+  }
+}

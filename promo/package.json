@@ -1,0 +1,27 @@
+{
+  "name": "ai-coding-setup-promo",
+  "version": "1.0.0",
+  "description": "The promo video for this repository, drawn with Remotion",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio",
+    "typecheck": "tsc",
+    "render": "npm run render:mp4 && npm run render:gif && npm run render:poster",
+    "render:mp4": "remotion render Promo ../docs/img/promo.mp4 --codec=h264 --crf=20",
+    "render:gif": "remotion render Promo ../docs/img/promo.gif --codec=gif --every-nth-frame=3 --scale=0.5",
+    "render:poster": "remotion still Promo ../docs/img/promo-poster.png --frame=1020 --scale=0.5",
+    "stills": "remotion render Promo out/stills --frames=70,250,430,630,810,1020,1220,1400,1610,1720 --image-format=png"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/google-fonts": "4.0.529",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "typescript": "5.9.3"
+  }
+}

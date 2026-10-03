@@ -1,4 +1,4 @@
-// Tests for scripts/usage-scan.mjs on a made-up transcripts folder.
+// Tests for skills/usage-report/usage-scan.mjs on a made-up transcripts folder.
 // Run: node test-usage-scan.mjs
 import fs from "node:fs";
 import path from "node:path";
@@ -6,7 +6,7 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const SCRIPT = fileURLToPath(new URL("../scripts/usage-scan.mjs", import.meta.url));
+const SCRIPT = fileURLToPath(new URL("../skills/usage-report/usage-scan.mjs", import.meta.url));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "usage-scan-test-"));
 const proj = path.join(root, "C--Projects-demo");
 fs.mkdirSync(path.join(proj, "s1", "subagents"), { recursive: true });
