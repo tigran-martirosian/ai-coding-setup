@@ -10,7 +10,12 @@ unless you chose another one). The copy of this page the installer puts into
 
 ## Installing
 
-You need Node.js 18 or newer and Claude Code. Codex, Antigravity and Nimbalyst are optional.
+You need Node.js 18 or newer and Claude Code. Codex, Antigravity, Nimbalyst and Handy (voice typing)
+are optional, and the installer does not install them. To have the programs, the plugins and the app
+settings put in place too, on Windows or a Mac, use [full-install.md](full-install.md) instead.
+
+Download the repository as a zip from its GitHub page (the green **Code** button, then **Download
+ZIP**) and unzip it, or clone it. Open a terminal in that folder.
 
 ```
 node install.mjs --dry-run
@@ -25,7 +30,7 @@ node install.mjs
 
 You should see the same lines without `[dry run]`, ending with `Done. Restart Claude Code so it loads
 the hooks.` Run it a second time and every file line says `unchanged`, `kept` or `already wired`;
-the rules, worker, extensions and `Done.` lines are printed again.
+the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 
 | Flag | What it does |
 |---|---|
@@ -53,6 +58,11 @@ the rules, worker, extensions and `Done.` lines are printed again.
 - **The Nimbalyst extensions** are built from source. In each folder under `extensions`:
   `npm install`, `npm run build`, `npm run install-ext`, then restart Nimbalyst. You should see a
   new button in Nimbalyst's left gutter.
+- **Voice typing** is Handy, a free program that runs on the computer (no account). On Windows:
+  `winget install --id cjpais.Handy -e`; other systems: https://handy.computer. Open it once, allow
+  the microphone and download the **Parakeet V3** model. In its settings choose push to talk on
+  Right Alt, direct typing, and keeping the model loaded. Then click into a chat box, hold Right
+  Alt, speak and release. You should see your words typed there.
 
 ## While you work
 
@@ -180,7 +190,7 @@ something unrelated inside another project, Claude names the right folder and op
 - **`/setup-audit`:** checks that the setup itself still works.
 - "Should we add tool X?" is a question for this folder.
 
-## What Claude now does by itself
+## What the rules take care of
 
 - Runs and checks things itself, and does not ask you to run a command it can run.
 - Sends big reading and searching to a cheaper model or an outside worker, and keeps the thinking

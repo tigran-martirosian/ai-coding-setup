@@ -17,6 +17,8 @@
 //   --agy yes|no                the same for the Antigravity CLI (`agy`)
 //   --replace-rules             replace a ~/.claude/CLAUDE.md that has other content (a dated copy is kept)
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
+//   --node <file>               start the hooks with this Node by its full path instead of plain `node`
+//                               (for a Mac, where an app opened from the Dock may not have Node on its PATH)
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,6 +34,7 @@ const WIN = process.platform === "win32";
 const fwd = (p) => p.replace(/\\/g, "/");
 const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 const say = (s) => console.log((DRY ? "[dry run] " : "") + s);
+const NODE = opt("node") ? `"${fwd(path.resolve(opt("node")))}"` : "node";
 
 if (Number(process.versions.node.split(".")[0]) < 18) {
   console.log(`Node.js 18 or newer is needed; this is ${process.version}.`);
@@ -135,7 +138,7 @@ function wire(target, hooks, folder, where = "") {
         const [, script, extra] = global || hook.command.match(/^node (\S+)(.*)$/);
         const list = ((target.hooks ??= {})[event] ??= []);
         if (JSON.stringify(list).includes(path.basename(script))) continue;
-        const command = `node "${fwd(path.join(global ? CLAUDE : folder, script))}"${extra}`;
+        const command = `${NODE} "${fwd(path.join(global ? CLAUDE : folder, script))}"${extra}`;
         const entry = { type: "command", command, timeout: hook.timeout };
         list.push(group.matcher ? { matcher: group.matcher, hooks: [entry] } : { hooks: [entry] });
         say(`hook added: ${event}${group.matcher ? ` (${group.matcher})` : ""} ${path.basename(script)}${where}`);
@@ -269,4 +272,6 @@ const extensions = fs.existsSync(extDir) ? fs.readdirSync(extDir).filter((n) => 
 if (extensions.length) {
   say(`Nimbalyst extensions are not installed by this script: ${extensions.join(", ")}. For each one, in ${fwd(path.join(REPO, "extensions"))}/<name>: npm install, npm run build, npm run install-ext, then restart Nimbalyst.`);
 }
+say(`Voice typing is not installed by this script: it is Handy, a separate free program. See "Voice typing" in ${fwd(path.join(REPO, "README.md"))}`);
+say(`The programs, the plugins and the app settings are the full install: ${fwd(path.join(REPO, "docs", "full-install.md"))}`);
 say(DRY ? "Nothing was changed." : `Done. Restart Claude Code so it loads the hooks. How to use the setup: ${fwd(path.join(REPO, "docs", "HOW-TO.md"))}`);

@@ -1,6 +1,7 @@
 // Installs the built extension into Nimbalyst's user extensions folder
 // (%APPDATA%\@nimbalyst\electron\extensions\usageplan). Does not touch the app install.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -16,7 +17,9 @@ if (!result.valid) {
 }
 for (const w of result.warnings ?? []) console.warn('warning:', w);
 
-const target = path.join(process.env.APPDATA, '@nimbalyst', 'electron', 'extensions', 'usageplan');
+// On a Mac Nimbalyst keeps its settings under Application Support
+const appData = process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support') : process.env.APPDATA;
+const target = path.join(appData,'@nimbalyst', 'electron', 'extensions', 'usageplan');
 fs.rmSync(target, { recursive: true, force: true });
 fs.mkdirSync(target, { recursive: true });
 for (const item of ['manifest.json', 'dist', 'README.md']) {

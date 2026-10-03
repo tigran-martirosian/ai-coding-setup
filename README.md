@@ -2,7 +2,7 @@
 
 This is the setup I run AI coding agents in for all my development: the rules I give them, automatic checks on each step, skills for the jobs I repeat, and three extensions for the Nimbalyst editor, where I work with Claude Code. Codex (GPT) and Gemini do the searching and long reading. Professionals in finance, data engineering and government IT installed the setup and use it at work.
 
-This repository is the whole setup. One installer puts all of it in place; [docs/HOW-TO.md](docs/HOW-TO.md) says what to type afterwards and what you should see.
+This repository is the whole setup. [Install](#install) has the two ways to put it in place, the whole setup or only the files; [docs/HOW-TO.md](docs/HOW-TO.md) says what to type afterwards and what you should see.
 
 https://github.com/user-attachments/assets/ff97158a-9a66-4846-9334-8aec7e648c8b
 
@@ -131,9 +131,39 @@ Three extensions for Nimbalyst, written in TypeScript and React. Each has its ow
 - [extensions/read-aloud](extensions/read-aloud/README.md) reads replies aloud with Kokoro, a voice model that runs on the computer. It cleans a reply for speech (no code, no Markdown), and a Python worker speaks it sentence by sentence.
 - [extensions/commands](extensions/commands/README.md) puts the commands I use most behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report and new project. A press starts a new session in the open project with that command. The six commands are skills in [skills](skills).
 
+## Voice typing
+
+I speak most of my prompts instead of typing them. That is [Handy](https://handy.computer), a free open-source program that isn't part of this repository: hold a key, talk, release, and the text is typed where the cursor is, in the editor's chat box or any other window. The speech model runs on the computer, so there is no account and the audio stays on it.
+
+```
+winget install --id cjpais.Handy -e
+```
+
+On a Mac it is `brew install --cask handy`. On first start Handy asks for the microphone and a model. The settings I use (on Windows the full install sets them, with `scripts/app-settings.mjs --handy`):
+
+| Setting | Value |
+|---|---|
+| Model | Parakeet V3 (`parakeet-tdt-0.6b-v3`, the 8-bit file). It is fast and finds the language itself |
+| Keep the model loaded | Always, so the text comes right after I release the key |
+| Shortcut | Hold Right Alt to talk (push to talk) |
+| Output | Typed directly, with a space after it; the clipboard is left alone |
+| Clean-up | Filler words removed, silence cut |
+| Custom words | Names the model gets wrong: Nimbalyst, Claude, Codex, Gemini, handoff |
+| Start | With Windows, hidden in the tray |
+
 ## Install
 
-Needs Node.js 18 or newer. I run it on Windows.
+Download the repository (the green **Code** button, then **Download ZIP**) and unzip it, or clone it. There are two ways in, and both need Claude Code installed and signed in.
+
+**The whole setup, on a new Windows computer or Mac.** Open a terminal in the folder and let Claude Code do the install:
+
+```
+claude "Read docs/full-install.md and carry out every step in it."
+```
+
+[docs/full-install.md](docs/full-install.md) is the list of steps it follows. It asks which subscriptions you have and where the projects folder goes. Then it installs the programs that are missing (Nimbalyst, Node.js, Git, uv, Handy, and the Codex and Antigravity CLIs if you have those subscriptions; `winget` on Windows, Homebrew on a Mac), runs the installer below, adds the plugins, signs in the workers, builds two of the extensions, sets a few Nimbalyst and Handy settings and tests the result. Your theme, sounds and other settings stay as they are. I run it on Windows; the Mac steps have not been run on a real Mac yet.
+
+**Only the files.** Needs Node.js 18 or newer:
 
 ```
 node install.mjs --dry-run
@@ -149,13 +179,15 @@ The dry run prints every file it would copy and every hook it would add, and cha
 
 Before it replaces a file, it keeps the old one as `<name>.before-install-<date>`, so your own settings aren't lost. A second run changes nothing. The Codex CLI and the Antigravity CLI are optional: the installer looks for them and writes the rules to fit. `question-other` and `command-explain` are written for Nimbalyst. The extensions build and install on their own (see their READMEs).
 
+I run the setup on Windows. On a Mac, the installer, the hooks and the settings script are covered by the same tests, which run on both systems; the program installs are the Homebrew steps in the full-install file, and Read Aloud is Windows only.
+
 ## Tests and the privacy check
 
 ```
 node tests/run-all.mjs
 ```
 
-The tests run each hook as a separate process on made-up session logs. They also run the court script without calling any model, the installer twice on a blank temporary home folder, and the extensions' unit tests. Last comes `scripts/privacy-check.mjs` on this repository. It looks for home folder paths, email addresses, API keys, AI credit lines, backup and `.env` files, and the words in a private list (`.privacy-words`, which git ignores). The tests run on GitHub Actions on every push. GitHub doesn't have my word list, so I also run the check myself before each release.
+The tests run each hook as a separate process on made-up session logs. They also run the court script without calling any model, the installer twice on a blank temporary home folder, and the extensions' unit tests. Last comes `scripts/privacy-check.mjs` on this repository. It looks for home folder paths, email addresses, API keys, AI credit lines, backup and `.env` files, and the words in a private list (`.privacy-words`, which git ignores). The tests run on GitHub Actions on every push, on Windows and on macOS. GitHub doesn't have my word list, so I also run the check myself before each release.
 
 If you read one file, read `hooks/link-gate.mjs`. The video is drawn with Remotion; its source is in [promo](promo).
 

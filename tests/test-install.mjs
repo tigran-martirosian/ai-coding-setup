@@ -184,6 +184,12 @@ fs.mkdirSync(path.join(brokenHome, "Projects", "quick-tasks", ".claude"), { recu
 fs.writeFileSync(path.join(brokenHome, "Projects", "quick-tasks", ".claude", "settings.json"), "{ not json");
 ok("a project folder's settings that are not valid JSON stop it too, before anything is copied", [install(brokenHome).code, fs.existsSync(path.join(brokenHome, ".claude"))], [1, false]);
 
+// --node: the hooks are started with the Node given, by its full path
+const nodeHome = path.join(tmp, "node-home");
+install(nodeHome, "--node", process.execPath);
+const withNode = [json(path.join(nodeHome, ".claude", "settings.json")), json(path.join(nodeHome, "Projects", "internet-search", ".claude", "settings.json"))].flatMap(commandsIn);
+ok("--node starts every hook with that Node", withNode.filter((c) => !c.startsWith(`"${fwd(process.execPath)}" "`)), []);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fails ? `${fails} failed` : "all passed");
 process.exit(fails ? 1 : 0);
