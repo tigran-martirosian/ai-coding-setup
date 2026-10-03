@@ -97,7 +97,7 @@ try {
     .flatMap((g) => g.hooks || []).map((h) => (h.command.match(/"([^"]*link-gate\.mjs)"/) || [])[1]).filter(Boolean);
 } catch {}
 ok("settings.json registers the link gate as a Stop hook", registered.length, 1);
-ok("and the registered path is this folder's hook", !!registered[0] && path.resolve(registered[0]) === path.resolve(HOOK), true);
+ok("and the registered path is this folder's hook", !!registered[0] && fs.existsSync(registered[0]) && fs.realpathSync(registered[0]) === fs.realpathSync(HOOK), true);
 
 // ---- the hook as a process
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "link-gate-test-"));

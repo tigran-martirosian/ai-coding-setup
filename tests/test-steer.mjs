@@ -7,7 +7,8 @@ import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const STEER = fileURLToPath(new URL("../skills/steer/steer.mjs", import.meta.url));
-const home = fs.mkdtempSync(path.join(os.tmpdir(), "steer-test-"));
+// realpath: on a Mac the temp folder is a link, and the script sees the folder it points to
+const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "steer-test-")));
 const work = path.join(home, "work");
 fs.mkdirSync(work);
 const key = (c) => String(c).replace(/[^a-zA-Z0-9]/g, "-");
