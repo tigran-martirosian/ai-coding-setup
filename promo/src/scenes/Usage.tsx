@@ -5,18 +5,14 @@ import { Scene, SceneProps } from "../Scene";
 import { color } from "../theme";
 import { Bar, Columns } from "../ui";
 
-// Made-up figures. The layout follows the real pop-up and dashboard.
-const PLANS = [
-  { name: "Claude", used: 62, tint: color.red, note: "Runs out Thu 4:10 PM" },
-  { name: "Codex", used: 18, tint: color.green, note: "Lasts until the reset" },
-  { name: "Gemini", used: 9, tint: color.green, note: "Lasts until the reset" },
+// Made-up figures. The layout follows the real pop-up and the "Plan ahead" part of the dashboard.
+const AHEAD = [
+  { day: "Tue", pace: 67, paceLabel: "67%", budget: "65%", tint: color.green },
+  { day: "Wed", pace: 87, paceLabel: "87%", budget: "77%", tint: color.amber },
+  { day: "Thu", pace: 100, paceLabel: "out", budget: "89%", tint: color.red },
 ] as const;
 
-const FORECAST = [
-  { day: "Tue", value: 74, label: "74%", tint: color.amber },
-  { day: "Wed", value: 91, label: "91%", tint: color.amber },
-  { day: "Thu", value: 100, label: "out", tint: color.red },
-] as const;
+const THIS_COMPUTER = 94;
 
 const panel: React.CSSProperties = {
   background: color.panel,
@@ -52,11 +48,12 @@ const Limit: React.FC<{ title: string; window: string; used: number; tint: strin
 
 export const Usage: React.FC<SceneProps> = ({ durationInFrames }) => {
   const frame = useCurrentFrame();
+  const split = THIS_COMPUTER * appear(frame, 150, 36);
 
   return (
     <Scene
       tag="extension · usage-plan"
-      caption="The usage pop-up shows how much of the week is used and when it runs out. The dashboard puts Claude, Codex and Gemini side by side."
+      caption="Not only how much is used: when the week runs out at this pace, the daily budget that would make it last, and how much of it was this computer."
       durationInFrames={durationInFrames}
     >
       <Columns>
@@ -91,40 +88,18 @@ export const Usage: React.FC<SceneProps> = ({ durationInFrames }) => {
         </Appear>
 
         <Appear at={70} from="right" style={{ flex: 1 }}>
-          <div style={{ ...panel, display: "flex", flexDirection: "column", gap: 24, height: "100%", boxSizing: "border-box" }}>
+          <div style={{ ...panel, display: "flex", flexDirection: "column", gap: 18, height: "100%", boxSizing: "border-box" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontSize: 32, fontWeight: 700 }}>This week</span>
-              <span style={{ fontSize: 23, color: color.dim }}>as of Mon 9:30 AM</span>
-            </div>
-            <div style={{ display: "flex", gap: 20 }}>
-              {PLANS.map((plan, i) => {
-                const grow = appear(frame, 84 + i * 10, 40);
-                return (
-                  <div
-                    key={plan.name}
-                    style={{
-                      flex: 1,
-                      border: `1px solid ${color.line}`,
-                      borderRadius: 14,
-                      padding: 22,
-                      background: color.raised,
-                    }}
-                  >
-                    <div style={{ fontSize: 28, fontWeight: 600 }}>{plan.name}</div>
-                    <div style={{ fontSize: 68, fontWeight: 700, color: plan.tint, lineHeight: 1.2 }}>
-                      {Math.round(plan.used * grow)}%
-                    </div>
-                    <Bar value={plan.used * grow} color={plan.tint} />
-                    <div style={{ fontSize: 23, color: plan.tint === color.red ? color.red : color.dim, marginTop: 12 }}>
-                      {plan.note}
-                    </div>
-                  </div>
-                );
-              })}
+              <span style={{ fontSize: 32, fontWeight: 700 }}>Plan ahead</span>
+              <span style={{ fontSize: 23, color: color.dim }}>as of Tue 6:10 PM</span>
             </div>
             <div>
-              <div style={{ fontSize: 23, color: color.dim, marginBottom: 6 }}>Claude at this pace, by the end of</div>
-              {FORECAST.map((row, i) => (
+              <div style={{ display: "flex", gap: 24, fontSize: 22, color: color.dim, paddingBottom: 4 }}>
+                <span style={{ flex: 1 }}>By the end of</span>
+                <span style={{ width: 150, textAlign: "right" }}>At this pace</span>
+                <span style={{ width: 130, textAlign: "right" }}>On budget</span>
+              </div>
+              {AHEAD.map((row, i) => (
                 <div
                   key={row.day}
                   style={{
@@ -132,27 +107,42 @@ export const Usage: React.FC<SceneProps> = ({ durationInFrames }) => {
                     alignItems: "center",
                     gap: 24,
                     fontSize: 27,
-                    padding: "10px 0",
-                    borderTop: i === 0 ? "none" : `1px solid ${color.line}`,
+                    padding: "9px 0",
+                    borderTop: `1px solid ${color.line}`,
                   }}
                 >
-                  <span style={{ width: 80 }}>{row.day}</span>
+                  <span style={{ width: 70 }}>{row.day}</span>
                   <div style={{ flex: 1 }}>
-                    <Bar value={row.value * appear(frame, 120 + i * 10, 36)} color={row.tint} height={8} />
+                    <Bar value={row.pace * appear(frame, 84 + i * 10, 36)} color={row.tint} height={8} />
                   </div>
-                  <span
-                    style={{
-                      width: 80,
-                      textAlign: "right",
-                      fontWeight: 700,
-                      color: row.tint === color.red ? color.red : color.text,
-                    }}
-                  >
-                    {row.label}
+                  <span style={{ width: 150, textAlign: "right", fontWeight: 700, color: row.tint === color.red ? color.red : color.text }}>
+                    {row.paceLabel}
                   </span>
+                  <span style={{ width: 130, textAlign: "right", color: color.dim }}>{row.budget}</span>
                 </div>
               ))}
             </div>
+            <Appear at={120}>
+              <div style={{ fontSize: 26 }}>
+                <span style={{ color: color.dim }}>Budget </span>
+                <b>12% a day</b> to last; now averaging <b style={{ color: color.red }}>20%</b>.
+              </div>
+            </Appear>
+            <Appear at={144}>
+              <div style={{ borderTop: `1px solid ${color.line}`, paddingTop: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 24, marginBottom: 10 }}>
+                  <span>
+                    <span style={{ color: color.dim }}>Who used the plan · </span>This computer <b>{Math.round(split)}%</b>
+                  </span>
+                  <span>
+                    Other use <b>{Math.round(100 - split)}%</b>
+                  </span>
+                </div>
+                <div style={{ display: "flex", height: 10, borderRadius: 10, overflow: "hidden", background: color.faint }}>
+                  <div style={{ width: `${split}%`, background: color.sky }} />
+                </div>
+              </div>
+            </Appear>
           </div>
         </Appear>
       </Columns>

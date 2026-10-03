@@ -4,8 +4,8 @@ A gutter button that opens a small pop-up list of the commands I use most: board
 project scan, setup audit, usage report and new project. Pressing one starts a new session in the open
 project, on Sonnet, with the command as its first message.
 
-The commands are skills from my private setup and are not in this repository; the extension only starts
-them. The list is in `src/commands.ts`. To add a button, add a line there, then build and install. A
+The commands are the skills in [skills](../../skills); the extension only starts them. The list is in
+`src/commands.ts`. To add a button, add a line there, then build and install. A
 button can be tied to one project folder (`only`). Buttons for skills that exist on one computer only go
 in `src/own.ts`, and `npm run build:share` builds the extension without them, which is the build I give
 to other people.

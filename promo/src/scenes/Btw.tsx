@@ -1,6 +1,6 @@
 import React from "react";
-import { interpolate, useCurrentFrame } from "remotion";
-import { Appear, appear, typed } from "../anim";
+import { Easing, interpolate, useCurrentFrame } from "remotion";
+import { Appear, typed } from "../anim";
 import { Scene, SceneProps } from "../Scene";
 import { color, mono } from "../theme";
 import { Bubble, Columns, Step, Window } from "../ui";
@@ -8,15 +8,26 @@ import { Bubble, Columns, Step, Window } from "../ui";
 const NOTE = "/btw also keep the old column names";
 const TYPE_AT = 18;
 const SEND_AT = 60;
+const FLY_AT = 66;
 const NOTE_READ_AT = 100;
+
+// The panels have a fixed height, so the note's path can be given in pixels of the stage:
+// from the sent message to the place where the busy session shows the note.
+const PANEL_HEIGHT = 470;
+const FROM = { left: 1330, top: 230 };
+const TO = { left: 60, top: 374 };
 const NEXT_DONE_AT = 150;
 
 export const Btw: React.FC<SceneProps> = ({ durationInFrames }) => {
   const frame = useCurrentFrame();
   const sent = frame >= SEND_AT;
-  // The note travels from the second chat to the busy session.
-  const flight = appear(frame, SEND_AT + 4, 30);
-  const flightOpacity = interpolate(frame, [SEND_AT + 4, SEND_AT + 10, SEND_AT + 30, SEND_AT + 36], [0, 1, 1, 0], {
+  // The note leaves the message in the second chat and lands where the busy session shows it.
+  const flight = interpolate(frame, [FLY_AT, NOTE_READ_AT], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.inOut(Easing.cubic),
+  });
+  const flightOpacity = interpolate(frame, [FLY_AT, FLY_AT + 5, NOTE_READ_AT - 4, NOTE_READ_AT + 2], [0, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
@@ -27,7 +38,7 @@ export const Btw: React.FC<SceneProps> = ({ durationInFrames }) => {
       caption="/btw sends a note to a session that is busy. It reads the note before its next step and carries on."
       durationInFrames={durationInFrames}
     >
-      <Columns>
+      <Columns height={PANEL_HEIGHT}>
         <Window title="Import orders" chip="RUNNING" style={{ flex: 1.1 }}>
           <Step status="ok">Read the table schema</Step>
           <Step status="ok">Write the importer</Step>
@@ -88,9 +99,11 @@ export const Btw: React.FC<SceneProps> = ({ durationInFrames }) => {
       <div
         style={{
           position: "absolute",
-          top: 190,
-          left: interpolate(flight, [0, 1], [1180, 560]),
+          left: interpolate(flight, [0, 1], [FROM.left, TO.left]),
+          // A shallow arc, so the note doesn't cut straight through the text.
+          top: interpolate(flight, [0, 1], [FROM.top, TO.top]) - 50 * Math.sin(Math.PI * flight),
           opacity: flightOpacity,
+          zIndex: 3,
           fontFamily: mono,
           fontSize: 24,
           fontWeight: 600,
