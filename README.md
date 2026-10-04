@@ -6,6 +6,12 @@ Professionals in finance, data engineering and government IT installed it and us
 
 https://github.com/user-attachments/assets/fe3c7b60-752f-4903-a567-755b0ef6db51
 
+## What's new
+
+**October 4, 2026: one command for the free workers.** Searching and long reading now go through [workers/ask.mjs](workers/ask.mjs). It picks the first worker that is ready, moves to the next one when a worker runs out of usage, and says which one answered. The setup now works the same with a ChatGPT subscription, a Google one, both or neither, and a search no longer stops because one worker is busy.
+
+Earlier changes are in [CHANGELOG.md](CHANGELOG.md).
+
 ## Install
 
 Needs Claude Code, installed and signed in. Download the ZIP or clone the repository, then in its folder:
@@ -62,7 +68,7 @@ The other hooks keep sessions cheap and safe:
 | Hook | What it does |
 |---|---|
 | `big-read-gate` | Large files are read in parts, not whole |
-| `worker-nudge` | Sends searching to the free workers (Codex, Gemini) |
+| `worker-nudge` | Sends searching to the first free worker that is ready (Codex, Gemini) |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
 | `context-guard` | Warns when a session gets long, and has the agent offer a handoff |
@@ -75,7 +81,7 @@ A hook that hits an error lets the call through. `link-gate` knows that a page w
 
 ## Three models
 
-![A search sent to Codex, the court of three models, and a lead session with child sessions](docs/img/clip-models.gif)
+![A search handed to the first free worker, the court of three models, and a lead session with child sessions](docs/img/clip-models.gif)
 
 Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: the first try at a search subagent is blocked and pointed at one command, [workers/ask.mjs](workers/ask.mjs). That command tries the workers in order (Codex, then Antigravity for local files; Codex for the web), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
 

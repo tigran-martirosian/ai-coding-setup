@@ -24,7 +24,7 @@ flowchart TD
 
 ## What I hand to each tool
 
-The rule: searching and long reading go to GPT (through the Codex CLI) and Gemini (through the Antigravity CLI), which run on my other subscriptions. Design and code stay with Claude.
+The rule: searching and long reading go to GPT (through the Codex CLI) and Gemini (through the Antigravity CLI), which run on my other subscriptions. Design and code stay with Claude. One command, [workers/ask.mjs](../workers/ask.mjs), picks the worker: the first one that is set up and working. It moves to the next when one is out of usage, says which one answered, and hands the job back to Claude when none can.
 
 | Tool | What I use it for | Limits I set |
 |---|---|---|
@@ -52,7 +52,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When | Hook | Rule it enforces |
 |---|---|---|
 | Before a file read or shell command | `big-read-gate` | Read large files in parts |
-| Before a subagent starts | `worker-nudge` | Searching goes to Codex or Gemini first |
+| Before a subagent starts | `worker-nudge` | Searching goes to the first free worker that is ready (Codex or Gemini) |
 | Before a shell command | `command-explain` | Explain the command in plain words |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |

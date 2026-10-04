@@ -6,16 +6,16 @@ import { BlockNote, Columns, ToolRow, Window } from "../ui";
 
 const READ_BLOCKED_AT = 32;
 const SEARCH_BLOCKED_AT = 84;
-const CODEX_DONE_AT = 150;
+const WORKER_DONE_AT = 150;
 
 export const Gates: React.FC<SceneProps> = ({ durationInFrames }) => {
   const frame = useCurrentFrame();
-  const codexDone = frame >= CODEX_DONE_AT;
+  const workerDone = frame >= WORKER_DONE_AT;
 
   return (
     <Scene
       tag="hooks · big-read-gate, worker-nudge"
-      caption="A whole-file read of a big file is blocked and becomes a read of the part needed. A search subagent is blocked and the search goes to Codex or Gemini."
+      caption="A whole-file read of a big file is blocked and becomes a read of the part needed. A search subagent is blocked and one command hands the search to the first free worker that is ready."
       durationInFrames={durationInFrames}
     >
       <Columns>
@@ -43,13 +43,16 @@ export const Gates: React.FC<SceneProps> = ({ durationInFrames }) => {
             />
           </Appear>
           <Appear at={SEARCH_BLOCKED_AT}>
-            <BlockNote hook="worker-nudge">Blocked: searching goes to Codex or Gemini.</BlockNote>
+            <BlockNote hook="worker-nudge">Blocked: searching goes to a free worker.</BlockNote>
           </Appear>
           <Appear at={112}>
-            <ToolRow tool="Bash" text={'codex exec "where is the retry logic?"'} status={codexDone ? "ok" : "running"} />
+            <ToolRow tool="Bash" text={'ask.mjs "where is the retry logic?"'} status={workerDone ? "ok" : "running"} />
           </Appear>
-          <Appear at={CODEX_DONE_AT}>
-            <ToolRow tool="Codex" text="src/net/retry.ts, line 41   in 8 s" status="ok" />
+          <Appear at={130}>
+            <ToolRow tool="ask" text="Codex is out of usage, Gemini takes it" status="ok" />
+          </Appear>
+          <Appear at={WORKER_DONE_AT}>
+            <ToolRow tool="Gemini" text="src/net/retry.ts, line 41   in 9 s" status="ok" />
           </Appear>
         </Window>
       </Columns>

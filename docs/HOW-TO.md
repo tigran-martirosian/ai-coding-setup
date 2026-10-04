@@ -84,8 +84,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   extension). It opens a short list: board cleanup, next move, project scan, setup audit, usage
   report, new project. Press one and a new chat starts in the open project with that command. You
   should see the new chat in the sessions list.
-- **A second opinion that uses none of the Claude plan** (with Codex installed). Before building
-  from a design or a plan, say "get a second opinion from Codex on this".
+- **A second opinion that uses none of the Claude plan** (with Codex or Antigravity installed).
+  Before building from a design or a plan, say "get a second opinion on this". The first free
+  worker that is ready gives it.
 
 ## When a chat is busy or long
 
