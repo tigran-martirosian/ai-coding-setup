@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 
 const AGY_MODEL = process.env.BIG_READ_AGY_MODEL || "gemini-3.8-flash-medium";
 const AGY = `agy -p "<task; name the files to read>" --mode plan --model ${AGY_MODEL}`;
-const CODEX = `codex exec --skip-git-repo-check -s read-only -c 'windows.sandbox="unelevated"' -c model_reasoning_effort="low" "<task>" < /dev/null`;
+const CODEX = `~/.claude/workers/ask-codex.sh "<task, or the path of a text file holding a longer task>"`;
 const GATHER_AGENTS = new Set(["", "explore", "general-purpose"]);
 
 function onPath(name) {
@@ -48,7 +48,7 @@ try {
   const workers = [];
   if (hasCodex) {
     workers.push(`- Codex (local files and code): ${CODEX}`);
-    workers.push(`- Codex with web research: the same command with --search before exec (codex --search exec ...)`);
+    workers.push(`- Codex with web research: the same command with --web before the task (ask-codex.sh --web ...)`);
   }
   if (hasAgy) workers.push(`- Antigravity (Gemini, very large files; not for the web): ${AGY}`);
   const reason = [

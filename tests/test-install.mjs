@@ -31,7 +31,7 @@ const fwd = (p) => p.replace(/\\/g, "/");
 const json = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 const commandsIn = (settings) => Object.values(settings.hooks || {}).flat().flatMap((g) => g.hooks).map((h) => h.command);
 const copiesIn = (dir) => walk(dir).filter((f) => f.includes(".before-install-")).map((f) => path.basename(f).split(".before-install-")[0]).sort();
-const shipped = ["hooks", "agents", "skills"].flatMap((d) => walk(path.join(REPO, d))).map((f) => path.relative(REPO, f));
+const shipped = ["hooks", "agents", "skills", "workers"].flatMap((d) => walk(path.join(REPO, d))).map((f) => path.relative(REPO, f));
 const example = json(path.join(REPO, "settings.example.json"));
 const scripts = Object.values(example.hooks).flat().flatMap((g) => g.hooks).map((h) => h.command.match(/~\/\.claude\/(\S+)/)[1]);
 const HOMES = ["ask-anything", "claude-settings", "internet-search", "quick-tasks"];

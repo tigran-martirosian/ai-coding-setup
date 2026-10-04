@@ -40,10 +40,10 @@ function deny(path, m) {
   const kb = Math.round(m.bytes / 1024);
   const reason = [
     `[big-read-gate] ${path} is ${m.lines} lines (${kb} KB). Reading it whole would put all of it in context. Instead:`,
-    `1. Locate the part you need (Grep with line numbers, or context-mode's ctx_execute_file), then Read with offset/limit, at most ${MAX_LINES} lines.`,
+    `1. Locate the part you need (Grep with line numbers), then Read with offset/limit, at most ${MAX_LINES} lines.`,
     `2. To understand or summarise it, hand the reading to a cheap worker and keep only its answer. Use the first one available:`,
     `   - Antigravity (Gemini): agy -p "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number. Do not edit anything." --mode plan --model ${AGY_MODEL}`,
-    `   - Codex (ChatGPT): codex exec --skip-git-repo-check -s read-only -c 'windows.sandbox="unelevated"' -c model_reasoning_effort="low" "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number."`,
+    `   - Codex (ChatGPT): ~/.claude/workers/ask-codex.sh "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number."`,
     `   - Otherwise a haiku subagent (Agent tool, model: haiku) that answers from targeted reads.`,
     `   Ask one specific question per call. Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,

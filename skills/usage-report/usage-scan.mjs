@@ -41,7 +41,8 @@ const since = sessionPrefix
 // Only at a command position, so text that merely mentions `codex exec` (sed, grep, echo) doesn't count
 const AT_CMD = String.raw`(?:^|[;&|({]|\$\(|\bdo\b|\bthen\b)\s*(?:(?:timeout|time)\s+(?:\S+\s+)?)?`;
 const WORKER_RE = {
-  codex: new RegExp(AT_CMD + String.raw`codex(?:\.exe)?\s+(?:--\S+\s+)*exec\b`, "gm"),
+  // either the raw command or the wrapper script (~/.claude/workers/ask-codex.sh)
+  codex: new RegExp(AT_CMD + String.raw`(?:codex(?:\.exe)?\s+(?:--\S+\s+)*exec\b|(?:bash\s+)?\S*ask-codex(?:\.sh)?(?=\s))`, "gm"),
   agy: new RegExp(AT_CMD + String.raw`agy(?:\.exe)?\s+-p\b`, "gm"),
 };
 const HOOK_RE = /PreToolUse:(\w+) hook[^:]*:\s*\[([\w-]+)\]/;
@@ -184,7 +185,7 @@ function scan(file, window) {
           workers.push({
             tokens: used.length ? used.reduce((a, b) => a + b, 0) : null,
             worker: w, processes: n, seconds: bg ? null : Math.round((t - use.t) / 1000),
-            ok: !c.is_error, background: bg, web: w === "codex" && /--search/.test(cmd),
+            ok: !c.is_error, background: bg, web: w === "codex" && /--search|ask-codex(?:\.sh)?\s+(?:--think\s+)?--web\b/.test(cmd),
             what: (use.input.description ?? "").slice(0, 80),
             at: new Date(use.t).toISOString(),
           });

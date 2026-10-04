@@ -39,6 +39,7 @@ This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks int
 | Starter projects | Four folders, each with its own rules and tools | [projects](projects) |
 | Editor extensions | Usage pop-up, Read Aloud and a commands button for Nimbalyst | [extensions](extensions) |
 | Worker agent | A cheaper subagent for routine edits | [agents](agents) |
+| Codex script | One short command for the Codex worker, so it fits the permission popup | [workers](workers) |
 | Installer | Puts the files in place and keeps a copy of what it replaces | [install.mjs](install.mjs) |
 | Tour video | The Remotion source of the video above | [promo](promo) |
 

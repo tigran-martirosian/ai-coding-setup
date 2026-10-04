@@ -48,7 +48,7 @@ function filesIn(dir, base = dir) {
     e.isDirectory() ? filesIn(path.join(dir, e.name), base) : [path.relative(base, path.join(dir, e.name))]);
 }
 // Every file in these repo folders goes to the folder of the same name under ~/.claude.
-const files = ["hooks", "agents", "skills"].flatMap((d) => filesIn(path.join(REPO, d)).map((f) => path.join(d, f)));
+const files = ["hooks", "agents", "skills", "workers"].flatMap((d) => filesIn(path.join(REPO, d)).map((f) => path.join(d, f)));
 
 // Settings that can't be read stop the install before anything is copied.
 function readSettings(file) {
@@ -121,7 +121,13 @@ function fit(rel, data) {
 const repoText = (rel) => fit(rel, fs.readFileSync(path.join(REPO, rel))).toString("utf8").replace(/\r\n/g, "\n");
 
 // ---- 1. the files for ~/.claude
-for (const rel of files) put(path.join(CLAUDE, rel), fs.readFileSync(path.join(REPO, rel)));
+for (const rel of files) {
+  let data = fs.readFileSync(path.join(REPO, rel));
+  // a shell script needs Unix line ends and has to be runnable; off Windows Codex's Windows-only sandbox flag goes
+  if (rel.endsWith(".sh")) data = Buffer.from(data.toString("utf8").replace(/\r\n/g, "\n").replace(WIN ? "" : ` -c 'windows.sandbox="unelevated"'`, ""));
+  put(path.join(CLAUDE, rel), data);
+  if (rel.endsWith(".sh") && !DRY) fs.chmodSync(path.join(CLAUDE, rel), 0o755);
+}
 // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
 const shared = path.join(REPO, "projects", "shared");
 if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), fit(rel, fs.readFileSync(path.join(shared, rel))));
