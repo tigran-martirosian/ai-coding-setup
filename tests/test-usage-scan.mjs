@@ -2,8 +2,8 @@
 // Run: node test-usage-scan.mjs
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 import { execFileSync } from "node:child_process";
 
 const SCRIPT = fileURLToPath(new URL("../skills/usage-report/usage-scan.mjs", import.meta.url));
@@ -36,9 +36,18 @@ write(path.join(proj, "s1.jsonl"), [
   asst(5, "m4", usage(0, 4000, 0), [{ type: "tool_use", id: "a1", name: "Agent", input: { subagent_type: "Explore", prompt: "find" } }]),
   result(5, "a1", "PreToolUse:Agent hook error: [worker-nudge] Search/research subagents cost...", true),
   asst(6, "m5", usage(0, 5000, 0), [bash("b4", "agy -p 'read big.ts' --mode plan"),
-    bash("b5", "~/.claude/workers/ask-codex.sh --web /tmp/task.txt")]),
+    bash("b5", "~/.claude/workers/ask-codex.sh --web /tmp/task.txt"),
+    // the worker command: counted under the worker that answered; --status is not a worker run
+    bash("b6", '~/.claude/workers/ask.mjs --web "who won"'),
+    bash("b7", '~/.claude/workers/ask.mjs "read big.ts"'),
+    bash("b8", "~/.claude/workers/ask.mjs --status"),
+    bash("b9", "~/.claude/workers/ask.mjs --web /tmp/task.txt")]),
   result(7, "b4", "ok"),
   result(7, "b5", "ok"),
+  result(7, "b6", "[ask] answered by Codex (ChatGPT login)\nSpain."),
+  result(7, "b7", "[ask] answered by Antigravity (gemini-3.8-flash-medium)\nIt has 3 functions."),
+  result(7, "b8", "Web research (--web), in this order:"),
+  result(7, "b9", "[ask] no free worker could answer. Do it with Claude instead"),
   // after minute 30: outside a --minutes 30 window
   asst(45, "m6", usage(0, 100000, 0), [
     { type: "tool_use", id: "k1", name: "Skill", input: { skill: "handoff" } },
@@ -68,10 +77,11 @@ check("max context", s.maxContext, 100000);
 check("subagent type from meta", s.subagents[0].type, "copy-humanizer");
 check("subagent tokens", s.subagents[0].tokens, 510 + 700);
 check("total = main + subagents", full.totals.tokens, s.main + 1210);
-check("codex processes (1 direct + 3 via shell function + 1 ask-codex.sh, sed ignored)", full.workers.codexProcesses, 5);
-check("agy processes", full.workers.agyProcesses, 1);
-check("worker shell calls", full.workers.calls, 4);
-check("web flag on the shell function call and on ask-codex.sh --web", full.workers.list.filter((w) => w.web).length, 2);
+check("codex processes (1 direct + 3 via shell function + 1 ask-codex.sh + 1 answered through ask.mjs, sed ignored)", full.workers.codexProcesses, 6);
+check("agy processes (1 direct + 1 answered through ask.mjs)", full.workers.agyProcesses, 2);
+check("worker shell calls (ask.mjs --status is not one)", full.workers.calls, 7);
+check("an ask.mjs call no worker answered is counted as failed", full.workers.list.filter((w) => w.worker === "none" && !w.ok).length, 1);
+check("web flag on the shell function call, ask-codex.sh --web and both ask.mjs --web calls", full.workers.list.filter((w) => w.web).length, 4);
 check("hook block counted", full.hooks["worker-nudge"]?.blocks, 1);
 check("next step after block", full.hooks["worker-nudge"]?.next, { worker: 1 });
 // fields the dashboard reads
@@ -84,11 +94,11 @@ const usdTotal = (usd) => Math.round(Object.values(usd).reduce((a, b) => a + b, 
 check("dollars at API prices, main chat", usdTotal(s.usd), Math.round((10 * 4 + 90 * 20 + 115000 * 0.2) / 1e6 * 1e4) / 1e4);
 check("dollars at API prices, subagent on another model", usdTotal(s.subagents[0].usd), Math.round((5 * 2 + 5 * 10 + 1200 * 0.2) / 1e6 * 1e4) / 1e4);
 check("total dollars is a number", typeof full.totals.usd, "number");
-check("session lists its worker calls with a start time", s.workers.map((w) => typeof w.at), ["string", "string", "string", "string"]);
+check("session lists its worker calls with a start time", s.workers.map((w) => typeof w.at), Array(7).fill("string"));
 check("short project name", s.name, "demo");
-check("Codex token count read from the result, null when missing", s.workers.map((w) => w.tokens), [1234, null, null, null]);
+check("Codex token count read from the result, null when missing", s.workers.map((w) => w.tokens), [1234, null, null, null, null, null, null]);
 // what gets used (the unused-inventory part of the audit)
-check("tool calls, MCP tools grouped per server", full.use.tools, { Bash: 5, "demo (MCP)": 2, Agent: 1, Skill: 1 });
+check("tool calls, MCP tools grouped per server", full.use.tools, { Bash: 9, "demo (MCP)": 2, Agent: 1, Skill: 1 });
 check("skill uses", full.use.skills, { handoff: 1 });
 check("subagent starts by type", full.use.agents, { Explore: 1 });
 check("tokens by model", full.use.models, { "claude-opus-5-5": 115100, "claude-sonnet-5-5": 1210 });

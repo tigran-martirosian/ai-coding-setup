@@ -57,21 +57,24 @@ The user wants busy work kept off the main model. This counts as standing permis
 
 ## External workers first for gathering information
 
-Codex and Antigravity run on the user's other subscriptions and cost no Claude usage. They are Bash commands, not subagents, so the "don't spawn agents" default doesn't apply to them. **Gathering goes to them by default; thinking stays with Claude.** Either way the gathering happens: if a worker isn't a fit or fails, do the lookup yourself instead of skipping it.
+The free workers (Codex on a ChatGPT login, Gemini on an Antigravity login) cost no Claude usage. They are one Bash command, not subagents, so the "don't spawn agents" default doesn't apply to them. **Gathering goes to them by default; thinking stays with Claude.** Either way the gathering happens: if no worker is a fit or can answer, do the lookup yourself instead of skipping it.
 
 - **Send to a worker:**
   - Finding things: "where is X", "which files do Y", sweeping a folder or project.
   - Reading or summarising anything long: big files, logs, docs, converted PDFs, long command output.
-  - Looking things up: web research that needs several searches or reading pages, library or API facts, prices, comparisons of options. One Codex call replaces several turns. A single quick fact is fine with WebSearch (it adds only ~700 tokens).
+  - Looking things up: web research that needs several searches or reading pages, library or API facts, prices, comparisons of options. One worker call replaces several turns. A single quick fact is fine with WebSearch (it adds only ~700 tokens).
   - A second opinion on a plan, diff or diagnosis before Claude settles on it.
   - Bulk drafting (lists, sample data, boilerplate text) that Claude then checks and edits.
 - **Keep in Claude:** decisions, design, diagnosing bugs, writing or editing code, the final wording of the answer, anything that needs this conversation's context, and tiny lookups (one grep or one short file is faster than a 10–40 second worker call).
-- **Which worker:**
-  - Codex for local files, code and web research: `~/.claude/workers/ask-codex.sh "<task>"`, with `--web` first for web research and `--think` only for a hard research question (the default low effort answers file questions in 8 s and web ones in 14 s). A task longer than a line or two goes into a text file and the file's path is passed instead of the text: the command-explain hook refuses long commands. The script holds the flags Codex needs here (read-only, runs outside a git folder).
-  - Antigravity (Gemini) for very large files and second opinions: `agy -p "<task>" --mode plan --model gemini-3.8-flash-medium`. It ignores stdin, so name the files in the task. **Not for web research:** headless mode denies the commands it tries, and on the web it looped for almost 10 minutes (Codex: 14 seconds, same measurement).
+- **One command, and it picks the worker:**
+  - Local files, code, long reads and second opinions: `~/.claude/workers/ask.mjs "<task>"`. Name the files in the task. It uses Codex, then Antigravity (Gemini).
+  - Web research: `~/.claude/workers/ask.mjs --web "<task>"`. Codex is the one free worker that can search the web; without it the command says at once that Claude does the research. Add `--think` only for a hard research question.
+  - A task longer than a line or two goes into a text file and the file's path is passed instead of the text: the command-explain hook refuses long commands.
+  - It uses the first worker that is set up and working, prints which one answered and why another was skipped, and leaves a worker that is out of usage alone for half an hour. `~/.claude/workers/ask.mjs --status` lists what is set up. A worker is turned off with a file `codex.off` or `agy.off` in `~/.claude/workers/`.
+  - **When it ends with "no free worker could answer"** (exit code 3), Claude does the gathering, as its last line says: web research with a `worker` subagent (Sonnet: the question, a budget of about 15 tool calls, a short answer with links) or one WebSearch for a single fact; local reading with Grep and targeted reads, or a `worker` subagent. Say in the reply that no free worker was available.
 - Ask for a short answer (with file paths and line numbers where relevant). Run the worker in the background when Claude has other work to do meanwhile.
-- **A task written to a file gets short lines.** When a worker's task is too long for the command and goes into a text file, break it into lines of about 100 characters or fewer. Nimbalyst's file card doesn't wrap a long line and draws it over the edge of its box.
-- **Search subagents are the big cost:** on the author's computer, Explore/general-purpose runs processed 0.6–4.3M tokens each. A hook (worker-nudge) blocks the first try of those subagents and points here. Retry the identical call only if it really needs a Claude subagent (for example, it must edit files).
+- **A task written to a file gets short lines.** When a worker's task goes into a text file, break it into lines of about 100 characters or fewer. Nimbalyst's file card doesn't wrap a long line and draws it over the edge of its box.
+- **Search subagents are the big cost:** Explore/general-purpose runs processed 0.6–4.3M tokens each. A hook (worker-nudge) blocks the first try of those subagents and points here. Retry the identical call only if it really needs a Claude subagent (for example, it must edit files).
 - Treat answers as leads: verify anything the final answer depends on. Never let a worker edit files.
 - For a question that spans a whole project, pack it first: `npx repomix --compress -o <temp file>`, then point the worker at that file. Never read a repomix pack yourself.
 

@@ -39,7 +39,7 @@ This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks int
 | Starter projects | Four folders, each with its own rules and tools | [projects](projects) |
 | Editor extensions | Usage pop-up, Read Aloud and a commands button for Nimbalyst | [extensions](extensions) |
 | Worker agent | A cheaper subagent for routine edits | [agents](agents) |
-| Codex script | One short command for the Codex worker, so it fits the permission popup | [workers](workers) |
+| Worker command | One short command for searching and long reading. It uses the first free worker that is set up and working (Codex, then Gemini through Antigravity), says which one answered, and hands the job back to Claude when none can | [workers](workers) |
 | Installer | Puts the files in place and keeps a copy of what it replaces | [install.mjs](install.mjs) |
 | Tour video | The Remotion source of the video above | [promo](promo) |
 
@@ -62,7 +62,7 @@ The other hooks keep sessions cheap and safe:
 | Hook | What it does |
 |---|---|
 | `big-read-gate` | Large files are read in parts, not whole |
-| `worker-nudge` | Sends searching to Codex or Gemini |
+| `worker-nudge` | Sends searching to the free workers (Codex, Gemini) |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
 | `context-guard` | Warns when a session gets long, and has the agent offer a handoff |
@@ -77,7 +77,7 @@ A hook that hits an error lets the call through. `link-gate` knows that a page w
 
 ![A search sent to Codex, the court of three models, and a lead session with child sessions](docs/img/clip-models.gif)
 
-Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: the first try at a search subagent is blocked and pointed at `codex` or `agy`. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
+Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: the first try at a search subagent is blocked and pointed at one command, [workers/ask.mjs](workers/ask.mjs). That command tries the workers in order (Codex, then Antigravity for local files; Codex for the web), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
 
 ```mermaid
 flowchart TD

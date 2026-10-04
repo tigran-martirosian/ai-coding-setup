@@ -45,6 +45,9 @@ const WORKER_RE = {
   codex: new RegExp(AT_CMD + String.raw`(?:codex(?:\.exe)?\s+(?:--\S+\s+)*exec\b|(?:bash\s+)?\S*ask-codex(?:\.sh)?(?=\s))`, "gm"),
   agy: new RegExp(AT_CMD + String.raw`agy(?:\.exe)?\s+-p\b`, "gm"),
 };
+// The worker command (~/.claude/workers/ask.mjs) picks the worker itself and prints which one answered
+const ASK_RE = new RegExp(AT_CMD + String.raw`(?:node\s+)?\S*workers/ask(?:\.mjs)?\s+(?!--status)`, "gm");
+const ASK_ANSWERED = [[/answered by Codex/, "codex"], [/answered by Antigravity/, "agy"]];
 const HOOK_RE = /PreToolUse:(\w+) hook[^:]*:\s*\[([\w-]+)\]/;
 
 const readLines = (file) => {
@@ -170,6 +173,18 @@ function scan(file, window) {
         }
         if (!use || !["Bash", "PowerShell"].includes(use.name)) continue;
         const cmd = String(use.input.command ?? "");
+        const asked = (cmd.match(ASK_RE) ?? []).length;
+        if (asked) {
+          const bg = use.input.run_in_background === true;
+          // no "answered by" line: no worker could answer (or the output went to the background)
+          const by = ASK_ANSWERED.find(([re]) => re.test(text))?.[1];
+          workers.push({
+            tokens: null, worker: by ?? "none", processes: asked, seconds: bg ? null : Math.round((t - use.t) / 1000),
+            ok: bg ? !c.is_error : Boolean(by), background: bg, web: /workers\/ask(?:\.mjs)?\s+(?:--think\s+)?--web\b/.test(cmd),
+            what: (use.input.description ?? "").slice(0, 80),
+            at: new Date(use.t).toISOString(),
+          });
+        }
         for (const [w, re] of Object.entries(WORKER_RE)) {
           let n = (cmd.match(re) ?? []).length;
           if (!n) continue;
@@ -200,7 +215,7 @@ function scan(file, window) {
     const next = ordered[i + 1]?.[1];
     if (!next) { h.next = "nothing"; continue; }
     const cmd = String(next.input.command ?? "");
-    h.next = /\b(codex|agy)\b/.test(cmd) ? "worker"
+    h.next = /\b(codex|agy)\b|workers\/ask/.test(cmd) ? "worker"
       : next.name === ordered[i][1].name ? "retried" : next.name;
   }
   if (!msgs.size && !hooks.length) return null;
@@ -344,7 +359,7 @@ out.push(`**Total: ${M(T.tokens)}** in ${T.sessions} sessions (main ${M(T.mainTo
   `The same tokens would cost about **$${T.usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}** on the pay-as-you-go API (list prices; the plan is not billed this way).`, ``);
 out.push(`## Top sessions`, ``, `| Session | Project | Title | Total | Main (calls) | Max context | Subagents |`, `|---|---|---|---|---|---|---|`);
 for (const s of report.sessions.slice(0, top)) {
-  const subs = s.subagents.map((a) => `${a.type} ${M(a.tokens)}/${a.calls}`).join(", ") || "-";
+  const subs = s.subagents.map((a) => `${a.type} ${M(a.tokens)}/${a.calls}`).join(", ") || "—";
   out.push(`| ${s.id.slice(0, 8)} | ${shortName(s.project)} | ${(s.title || "").slice(0, 40).replace(/\|/g, "/")} | ${M(s.total)} | ${M(s.main)} (${s.calls}) | ${M(s.maxContext)} | ${subs} |`);
 }
 out.push(``, `## Subagents by type`, ``);
@@ -358,7 +373,7 @@ out.push(``, `## Workers`, ``);
 const W = report.workers;
 out.push(`Codex: ${W.codexProcesses} processes, agy: ${W.agyProcesses}, in ${W.calls} shell calls (${W.failed} failed).`);
 const timed = W.list.filter((x) => x.seconds != null);
-if (timed.length) out.push(`Foreground call time: ${Math.min(...timed.map((x) => x.seconds))}-${Math.max(...timed.map((x) => x.seconds))} s.`);
+if (timed.length) out.push(`Foreground call time: ${Math.min(...timed.map((x) => x.seconds))}–${Math.max(...timed.map((x) => x.seconds))} s.`);
 for (const x of W.list.slice(0, 10)) out.push(`- ${x.worker}${x.web ? " (web)" : ""} ×${x.processes}${x.seconds != null ? `, ${x.seconds} s` : ", background"}${x.ok ? "" : ", FAILED"}: ${x.what || "(no description)"}`);
 out.push(``, `## Hook blocks`, ``);
 const H = Object.entries(report.hooks);

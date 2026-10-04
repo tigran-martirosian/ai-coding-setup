@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // worker-nudge: a PreToolUse hook that routes search/research subagents (Explore, general-purpose,
-// research types) to the free external workers (Codex, Antigravity) instead of Claude. Measured
+// research types) to the free external workers (~/.claude/workers/ask.mjs) instead of Claude. Measured
 // 2026-09-30: such subagents processed 0.6-4.3M tokens per run; one worker call costs Claude a few
 // hundred. WebSearch/WebFetch are left alone: they add ~700 tokens, less than the extra turn a
 // block costs. The first try is denied with the worker commands; retrying the identical call goes
@@ -11,12 +11,15 @@ import { join, delimiter } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 
-const AGY_MODEL = process.env.BIG_READ_AGY_MODEL || "gemini-3.8-flash-medium";
-const AGY = `agy -p "<task; name the files to read>" --mode plan --model ${AGY_MODEL}`;
-const CODEX = `~/.claude/workers/ask-codex.sh "<task, or the path of a text file holding a longer task>"`;
+const ASK = `~/.claude/workers/ask.mjs`;
+const TASK = `"<task, or the path of a text file holding a longer task>"`;
 const GATHER_AGENTS = new Set(["", "explore", "general-purpose"]);
 
+// ask.mjs picks the worker. A worker is off when <name>.off exists in this folder (no subscription)
+const WORKERS = join(process.env.USERPROFILE || process.env.HOME || "", ".claude", "workers");
+
 function onPath(name) {
+  if (existsSync(join(WORKERS, `${name}.off`))) return false;
   const exts = process.platform === "win32" ? ["", ".cmd", ".exe", ".ps1"] : [""];
   return (process.env.PATH || "").split(delimiter).some((d) => d && exts.some((e) => existsSync(join(d, name + e))));
 }
@@ -46,11 +49,10 @@ try {
   writeFileSync(file, JSON.stringify([...seen, key].slice(-200)));
 
   const workers = [];
-  if (hasCodex) {
-    workers.push(`- Codex (local files and code): ${CODEX}`);
-    workers.push(`- Codex with web research: the same command with --web before the task (ask-codex.sh --web ...)`);
-  }
-  if (hasAgy) workers.push(`- Antigravity (Gemini, very large files; not for the web): ${AGY}`);
+  workers.push(`- Local files and code: ${ASK} ${TASK} (name the files to read in the task)`);
+  if (hasCodex) workers.push(`- Web research: ${ASK} --web ${TASK}`);
+  else workers.push(`- Web research: not a worker call. Use a "worker" subagent (Sonnet, capped) with a budget of about 15 tool calls, or WebSearch yourself for one quick fact.`);
+  workers.push(`The script uses the first worker that is set up and working (Codex, then Gemini for local files) and says which one answered. If it ends with "no free worker could answer", do what its last line says.`);
   const reason = [
     `[worker-nudge] Search/research subagents cost 0.6-4M Claude tokens per run. Do this gathering with one free external worker call instead (no Claude usage). Run it with Bash, in the background if you have other work meanwhile, and ask for a short answer with paths/lines:`,
     ...workers,

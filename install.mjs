@@ -74,6 +74,7 @@ const homeSettings = Object.fromEntries(HOMES.map((h) => [h, readSettings(path.j
 const onPath = (name) => (process.env.PATH || "").split(path.delimiter)
   .some((d) => d && ["", ".cmd", ".exe", ".ps1"].some((e) => fs.existsSync(path.join(d, name + e))));
 const worker = (name) => (opt(name) === "yes" ? true : opt(name) === "no" ? false : onPath(name));
+const WORKERS = path.join(CLAUDE, "workers");
 const have = { codex: worker("codex"), agy: worker("agy") };
 const which = have.codex && have.agy ? "Codex and Antigravity" : have.codex ? "Codex only" : have.agy ? "Antigravity only" : "Claude alone";
 
@@ -124,9 +125,16 @@ const repoText = (rel) => fit(rel, fs.readFileSync(path.join(REPO, rel))).toStri
 for (const rel of files) {
   let data = fs.readFileSync(path.join(REPO, rel));
   // a shell script needs Unix line ends and has to be runnable; off Windows Codex's Windows-only sandbox flag goes
-  if (rel.endsWith(".sh")) data = Buffer.from(data.toString("utf8").replace(/\r\n/g, "\n").replace(WIN ? "" : ` -c 'windows.sandbox="unelevated"'`, ""));
+  const script = rel.endsWith(".sh") || rel === path.join("workers", "ask.mjs"); // started by its own name
+  if (script) data = Buffer.from(data.toString("utf8").replace(/\r\n/g, "\n").replace(WIN ? "" : ` -c 'windows.sandbox="unelevated"'`, ""));
   put(path.join(CLAUDE, rel), data);
-  if (rel.endsWith(".sh") && !DRY) fs.chmodSync(path.join(CLAUDE, rel), 0o755);
+  if (script && !DRY) fs.chmodSync(path.join(CLAUDE, rel), 0o755);
+}
+// The worker command (workers/ask.mjs) leaves out a worker that has a file <name>.off next to it
+for (const name of ["codex", "agy"]) {
+  const off = path.join(WORKERS, `${name}.off`);
+  if (!have[name]) put(off, Buffer.from(`Not used on this computer. Run install.mjs with --${name} yes to use this worker.\n`), { keep: true });
+  else if (fs.existsSync(off)) { if (!DRY) fs.rmSync(off); say(`removed ${fwd(off)}`); }
 }
 // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
 const shared = path.join(REPO, "projects", "shared");
@@ -172,7 +180,8 @@ function withWorkers(text, section) {
   return lines.join("\n");
 }
 const full = repoText("rules/CLAUDE.md");
-const section = have.codex && have.agy ? null : repoText(`rules/workers-${have.codex ? "codex" : have.agy ? "agy" : "none"}.md`);
+// One section fits every mix of workers: its command (ask.mjs) picks the worker. With none, the section for Claude alone
+const section = have.codex || have.agy ? null : repoText("rules/workers-none.md");
 const built = section ? withWorkers(full, section) : full;
 const rulesFile = path.join(CLAUDE, "CLAUDE.md");
 const mine = fs.existsSync(rulesFile) ? fs.readFileSync(rulesFile, "utf8").replace(/\r\n/g, "\n") : null;
