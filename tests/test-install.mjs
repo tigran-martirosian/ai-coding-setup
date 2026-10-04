@@ -58,8 +58,11 @@ ok("dry run changes nothing", fs.readdirSync(home), []);
 // ---- the real install
 const first = install(home);
 ok("install exits cleanly", first.code, 0);
+// off Windows the installer takes Codex's Windows-only sandbox flag out of a shell script
+const asInstalled = (f) => (f.endsWith(".sh") && process.platform !== "win32"
+  ? Buffer.from(fs.readFileSync(path.join(REPO, f), "utf8").replace(` -c 'windows.sandbox="unelevated"'`, "")) : fs.readFileSync(path.join(REPO, f)));
 ok("every file arrived byte for byte",
-  shipped.filter((f) => !fs.existsSync(path.join(claude, f)) || !fs.readFileSync(path.join(claude, f)).equals(fs.readFileSync(path.join(REPO, f)))), []);
+  shipped.filter((f) => !fs.existsSync(path.join(claude, f)) || !fs.readFileSync(path.join(claude, f)).equals(asInstalled(f))), []);
 const settings = json(path.join(claude, "settings.json"));
 const commands = commandsIn(settings);
 const times = (list, s) => list.filter((x) => x.includes(path.basename(s))).length;
