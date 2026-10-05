@@ -3,6 +3,8 @@
 //   node court.mjs open <run folder>    answers from every default gpt/gemini seat in roles.md
 //   node court.mjs review <run folder>  blind peer review of every answer in the folder
 //   node court.mjs bundle <run folder>  the quick court: the same bundle and key, without the reviews
+//   node court.mjs readers <run folder> the reader court: every gpt/gemini reader in the folder's readers.md
+//                                       reads piece.md; follow it with "bundle"
 // The run folder must already hold question.txt. Claude seats are run by the session (Agent tool).
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
@@ -25,6 +27,15 @@ const REVIEW_RULES = `Below are anonymous answers to one question. You are a str
 2. Rank the answers from best to worst, one line of why each.
 3. List the points where the answers really disagree, and which side the evidence supports.
 At most 320 words. Do not write any files.`;
+
+const READER_RULES = `You are one reader of the piece below. Read it alone, as the person described above,
+knowing nothing about it beyond what is on the page. Stay in your job: leave to other readers what they
+would care about. First line: "Reader: <who you are, in a few words>". Then five short parts:
+"First reaction" (what you think in the first ten seconds), "Works for me" (up to 3 points),
+"Loses me" (up to 3: what you don't understand, don't believe or don't care about, quoting the words),
+"What I would do" (the decision someone in your position makes) and "One change" (the single change
+that would move you most). At most 220 words, plain language. Do not ask questions back and do not
+write any files.`;
 
 // roles.md: "## <id>" sections with "runs on:" and "default:" lines, the rest is the seat's brief.
 export function loadRoles(text) {
@@ -85,16 +96,25 @@ if (onPath('agy')) ASK.gemini = askGemini;
 const words = (s) => s.split(/\s+/).filter(Boolean).length;
 
 function answerFiles(dir) {
-  return readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('review-') && !['verdict.md', 'bundle.md'].includes(f));
+  return readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('review-') && !['verdict.md', 'bundle.md', 'readers.md', 'piece.md'].includes(f));
 }
 
-async function open(dir) {
+// The reader court takes its seats from the run folder's readers.md and gives each one the piece to read.
+async function open(dir, readers = false) {
   const question = readFileSync(join(dir, 'question.txt'), 'utf8').trim();
-  const seats = loadRoles(readFileSync(join(HERE, 'roles.md'), 'utf8')).filter((r) => r.isDefault && ASK[r.runsOn]);
-  if (!seats.length) console.log('Neither codex nor agy is on the PATH: the Claude seats sit alone.');
+  const listed = readers
+    ? loadRoles(readFileSync(join(dir, 'readers.md'), 'utf8')).filter((r) => r.runsOn !== 'claude')
+    : loadRoles(readFileSync(join(HERE, 'roles.md'), 'utf8')).filter((r) => r.isDefault && r.runsOn !== 'claude');
+  const seats = listed.filter((r) => ASK[r.runsOn]);
+  if (!Object.keys(ASK).length) console.log(`Neither codex nor agy is on the PATH: the Claude ${readers ? 'readers read' : 'seats sit'} alone.`);
+  // A reader given to a tool that is missing must not vanish without a word: the session has to run it on Claude.
+  if (readers) for (const r of listed) if (!ASK[r.runsOn]) console.log(`READER NOT RUN: ${r.id} (${r.runsOn} is not set up here; run this reader on claude)`);
+  const task = readers
+    ? `${READER_RULES}\n\nQUESTION:\n${question}\n\nTHE PIECE:\n${readFileSync(join(dir, 'piece.md'), 'utf8').trim()}`
+    : `${ANSWER_RULES}\n\nQUESTION:\n${question}`;
   await Promise.all(seats.map(async (seat) => {
     const file = join(dir, `${seat.id}.md`);
-    const r = await ASK[seat.runsOn](`${seat.brief}\n\n${ANSWER_RULES}\n\nQUESTION:\n${question}`, file);
+    const r = await ASK[seat.runsOn](`${seat.brief}\n\n${task}`, file);
     writeFileSync(file, r.ok ? r.text + '\n' : `${FAILED}: ${r.text}\n`);
     console.log(`${seat.id} (${seat.runsOn}): ${r.ok ? `ok, ${words(r.text)} words` : `FAILED: ${r.text.slice(0, 200)}`}`);
   }));
@@ -133,11 +153,15 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(imp
 if (isMain) {
   const [mode, dirArg] = process.argv.slice(2);
   const dir = dirArg ? resolve(dirArg) : '';
-  if (!['open', 'review', 'bundle'].includes(mode) || !dir || !existsSync(join(dir, 'question.txt'))) {
-    console.log('Usage: node court.mjs open|review|bundle <run folder that holds question.txt>');
+  if (!['open', 'review', 'bundle', 'readers'].includes(mode) || !dir || !existsSync(join(dir, 'question.txt'))) {
+    console.log('Usage: node court.mjs open|review|bundle|readers <run folder that holds question.txt>');
+    process.exit(1);
+  }
+  if (mode === 'readers' && !['readers.md', 'piece.md'].every((f) => existsSync(join(dir, f)))) {
+    console.log('The reader court needs readers.md and piece.md in the run folder.');
     process.exit(1);
   }
   const reviewers = Object.keys(ASK).length;
   if (mode === 'review' && !reviewers) console.log('Neither codex nor agy is on the PATH: the bundle is written without reviews.');
-  await (mode === 'open' ? open(dir) : review(dir, mode === 'review' && reviewers > 0));
+  await (mode === 'open' || mode === 'readers' ? open(dir, mode === 'readers') : review(dir, mode === 'review' && reviewers > 0));
 }

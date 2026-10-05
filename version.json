@@ -1,5 +1,5 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "date": "2026-10-04",
-  "summary": "You stay on the model you picked: the rules no longer steer new chats to Sonnet."
+  "summary": "The reader court: /court readers <file> shows how a piece reads to people with different jobs."
 }

@@ -8,6 +8,8 @@ https://github.com/user-attachments/assets/2bf61db5-d115-49d1-ad46-0006cd18db26
 
 ## What's new
 
+**October 4, 2026, version 1.0.3: the reader court.** `/court readers <file>` has a few readers with different jobs read a resume, a README, a post or a page, each alone, and sums up how it lands and what to change.
+
 **October 4, 2026, version 1.0.2: you stay on the model you picked.** The rules no longer expect new chats to start on Sonnet, and Claude no longer stops to ask whether to move to Opus. The rules file every chat loads is shorter.
 
 **October 4, 2026, version 1.0.0: the setup updates itself.** Once a day it checks whether a newer version is released and says so in one line. Typing `/update-setup` installs it without asking anything again, and keeps your own skills, hooks, settings and notes.
@@ -116,7 +118,7 @@ flowchart TD
   main --> worker
 ```
 
-- **The court.** For a hard question I ask all three with [skills/court](skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. I read it and decide.
+- **The court.** For a hard question I ask all three with [skills/court](skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. I read it and decide. For a piece of writing there is the reader court (`/court readers <file>`): a few readers with different jobs, say a recruiter, an engineer and an outsider, each read it alone and say how it lands with them.
 - **The lead.** For a big task, [skills/lead](skills/lead/SKILL.md) splits the work across child sessions in Nimbalyst that run side by side, has a separate session review the result, sends the fixes back and reports what it checked.
 
 The rules I give the models are described in [docs/setup.md](docs/setup.md).

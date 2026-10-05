@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.3, October 4, 2026
+
+- **The reader court.** `/court readers <file>` is for a piece instead of a question: a resume, a README, a post, a page. A few readers with different jobs each read it alone and say what works, what loses them and the one change they would make, and a chair sums up where they agree, where they differ and what to change first. It works with ChatGPT, Google, both or neither; a reader whose tool is missing reads on Claude. See [skills/court](skills/court/SKILL.md).
+
 ## Version 1.0.2, October 4, 2026
 
 - **You stay on the model you picked.** The rules no longer expect new chats to start on Sonnet, and Claude no longer stops to ask whether hard work should move to Opus. The rules file is shorter by about 1,100 characters, which every chat loads. Routine jobs still go to a Sonnet helper and to the free workers. See "Models" in [docs/HOW-TO.md](docs/HOW-TO.md).
