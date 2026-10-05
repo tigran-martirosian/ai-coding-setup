@@ -8,25 +8,12 @@ https://github.com/user-attachments/assets/085c83e4-ea82-4bc8-9156-a2045f7365a6
 
 ## What's new
 
-**October 5, 2026, version 1.0.8: the tour video shows the new handoff.** A long session moves to a fresh one with no question asked, and the video and the sessions clip now show that.
+**October 5, 2026** (versions 1.0.5 to 1.0.8). A long session now moves to a fresh one by itself: when a reply ends past 250k tokens, the agent writes the brief and opens the new session, so your next message doesn't pay for the long history. The Usage Plan panel shows how much of the week you used today. Nimbalyst gets five colour themes from the new [ink-themes](extensions/ink-themes/README.md) extension, and the tour video above shows all of this.
 
-**October 5, 2026, version 1.0.7: long sessions move themselves.** When a reply ends past 250k tokens, the work moves to a fresh session by itself, so your next message doesn't pay for the long history. The Usage Plan panel also shows how much of the week you used today.
-
-**October 5, 2026, version 1.0.6: the tour video is up to date.** It has a new scene for the five colour themes, the court scene shows the reader court, and the themes have their own clip below.
-
-**October 5, 2026, version 1.0.5: five colour themes.** The new [ink-themes](extensions/ink-themes/README.md) extension gives Nimbalyst five themes that share one look: dark violet, grey with ivy green, graphite with brown, a light ivory one and deep sea blue.
-
-**October 4, 2026, version 1.0.4: the audit finds dead weight.** `/setup-audit` now lists what every chat loads but hardly uses and asks about fixes once, in one form. `/new-project` suggests Playwright, Frontend Design and NotebookLM where they fit.
-
-**October 4, 2026, version 1.0.3: the reader court.** `/court readers <file>` has a few readers with different jobs read a resume, a README, a post or a page, each alone, and sums up how it lands and what to change.
-
-**October 4, 2026, version 1.0.2: you stay on the model you picked.** The rules no longer expect new chats to start on Sonnet, and Claude no longer stops to ask whether to move to Opus. The rules file every chat loads is shorter.
-
-**October 4, 2026, version 1.0.0: the setup updates itself.** Once a day it checks whether a newer version is released and says so in one line. Typing `/update-setup` installs it without asking anything again, and keeps your own skills, hooks, settings and notes.
-
-**October 4, 2026: one command for the free workers.** Searching and long reading now go through [workers/ask.mjs](workers/ask.mjs). It picks the first worker that is ready, moves to the next one when a worker runs out of usage, and says which one answered. The setup now works the same with a ChatGPT subscription, a Google one, both or neither, and a search no longer stops because one worker is busy.
+**October 4, 2026** (versions 1.0.0 to 1.0.4). The setup updates itself. Once a day it checks for a newer version, and `/update-setup` installs it and keeps your own skills, hooks, settings and notes. Searching and long reading go through one command, [workers/ask.mjs](workers/ask.mjs), which uses whichever worker is ready, so the setup works with a ChatGPT subscription, a Google one, both or neither. `/court readers <file>` has several readers with different jobs read a resume, a README or a post and tells you how it lands. `/setup-audit` lists what every chat loads but hardly uses, and new chats stay on the model you picked.
 
 Earlier changes are in [CHANGELOG.md](CHANGELOG.md).
+
 
 ## Install
 
