@@ -1,5 +1,5 @@
 {
-  "version": "1.0.12",
+  "version": "1.0.13",
   "date": "2026-10-05",
-  "summary": "The installer builds the Nimbalyst extensions itself: themes, usage ring and command buttons arrive with this update."
+  "summary": "The installer also installs the plugins and adds the Claude Code settings; /update-setup then sets up Nimbalyst, a theme you pick and voice typing."
 }

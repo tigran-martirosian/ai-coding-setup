@@ -6,6 +6,9 @@
 //      fits what is installed (Codex, Antigravity, both or neither)
 //   3. the base project folders from projects/ (ask-anything, internet-search, quick-tasks,
 //      claude-settings), each with its skills, hooks, tools and its own .claude/settings.json
+//   4. Claude Code's own settings (a default model when none is set, permission rules for the saved
+//      sign-ins and .env files), the Nimbalyst extensions and the plugins
+// What a script can't do (the settings inside Nimbalyst, voice typing) it names at the end for a chat.
 // A file that is replaced is kept next to the new one as <name>.before-install-<date>. The notes files
 // the user fills in (profile.md, finds/INDEX.md) are written only when missing. Everything else is the
 // user's once they changed it: a later run (an update) replaces a hook, a skill, the rules, a folder's
@@ -28,6 +31,9 @@
 //   --replace-all               the same for every such file, and for the rules
 //   --extensions yes|no         build the Nimbalyst extensions and put them into Nimbalyst (default: yes
 //                               when Nimbalyst is installed; they change nothing until a theme is picked)
+//   --plugins yes|no            install the plugins (default: yes; each is handled once, so one that was
+//                               removed or switched later stays as it is)
+//   --done chat-steps           only put on record that a chat carried out the steps named at the end
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
 //   --node <file>               start the hooks with this Node by its full path instead of plain `node`
 //                               (for a Mac, where an app opened from the Dock may not have Node on its
@@ -38,6 +44,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { addClaudeCodeSettings } from "./scripts/claude-code-settings.mjs";
 
 const REPO = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -81,6 +88,13 @@ const settings = readSettings(settingsFile);
 // The projects folder: the one given, else the one an earlier run kept, else Projects in the home folder
 const stateFile = path.join(CLAUDE, "setup-state.json");
 const state = readSettings(stateFile);
+// --done <name>: a step a chat carried out goes on record, so later runs stop naming it
+if (opt("done")) {
+  if (!fs.existsSync(stateFile)) { console.log(`${fwd(stateFile)} is missing: run the install first.`); process.exit(1); }
+  fs.writeFileSync(stateFile, JSON.stringify({ ...state, done: [...new Set([...(state.done || []), opt("done")])] }, null, 2) + "\n");
+  console.log(`on record as done: ${opt("done")}`);
+  process.exit(0);
+}
 const nodeFile = opt("node") ? fwd(path.resolve(opt("node"))) : state.node || "";
 const NODE = nodeFile ? `"${nodeFile}"` : "node";
 const PROJECTS = opt("projects") ? path.resolve(opt("projects").replace(/^~(?=$|[\\/])/, home)) : state.projects || path.join(home, "Projects");
@@ -223,8 +237,13 @@ function wire(target, hooks, folder, where = "") {
 }
 const example = JSON.parse(fs.readFileSync(path.join(REPO, "settings.example.json"), "utf8"));
 const settingsWas = JSON.stringify(settings);
-if (!wire(settings, example.hooks, CLAUDE)) say(`hooks already wired in ${fwd(settingsFile)}`);
-else putJson(settingsFile, settings, settingsWas);
+const wired = wire(settings, example.hooks, CLAUDE);
+if (!wired) say(`hooks already wired in ${fwd(settingsFile)}`);
+// Claude Code's own settings go into the same file: what is set there already stays
+const own = addClaudeCodeSettings(settings, WIN);
+if (own.model) say(`model: set to sonnet in ${fwd(settingsFile)} (none was set)`);
+if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins and SSH keys can't be read, a .env file is asked about)`);
+if (wired || own.model || own.added) putJson(settingsFile, settings, settingsWas);
 
 // ---- 2. the global rules, with the worker section that fits
 const HEAD = /^## (External workers first for gathering information|Gathering information on Claude alone)$/;
@@ -408,12 +427,76 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
     builtExt[name] = printOf(dir);
     say(`extension installed: ${name} (quit Nimbalyst and open it again to load it)`);
   }
-  if (!DRY && JSON.stringify(builtExt) !== JSON.stringify(state.extensions || {})) fs.writeFileSync(stateFile, JSON.stringify({ ...nextState, extensions: builtExt }, null, 2) + "\n");
+  if (!DRY && JSON.stringify(builtExt) !== JSON.stringify(state.extensions || {})) {
+    nextState.extensions = builtExt;
+    fs.writeFileSync(stateFile, JSON.stringify(nextState, null, 2) + "\n");
+  }
 } else if (extensions.length) {
   say(`Nimbalyst extensions are not installed by this script: ${extensions.join(", ")}. For each one, in ${fwd(path.join(REPO, "extensions"))}/<name>: npm install, npm run build, npm run install-ext, then restart Nimbalyst.`);
 }
-say(`Voice typing is not installed by this script: it is Handy, a separate free program. See "Voice typing" in ${fwd(path.join(REPO, "README.md"))}`);
-say(`The programs, the plugins and the app settings are the full install: ${fwd(path.join(REPO, "docs", "full-install.md"))}`);
+
+// The plugins. claude-hud stays on; the other three load into every session while they are on, so
+// they are installed switched off and /new-project turns one on in the project that needs it. Each
+// is handled once and put on record: one the user removed or switched later stays as they have it.
+const PLUGINS = [
+  ["claude-hud@claude-hud", "jarrodwatts/claude-hud", true],
+  ["claude-code-setup@claude-plugins-official", "anthropics/claude-plugins-official", false],
+  ["superpowers@claude-plugins-official", "anthropics/claude-plugins-official", false],
+  ["context7@claude-plugins-official", "anthropics/claude-plugins-official", false],
+];
+// --home is another home folder (the tests), and the claude command works on the real one
+const wantPlugins = opt("plugins") === "no" ? false : opt("plugins") === "yes" ? true : opt("home") === null;
+const plugged = [...(state.plugins || [])];
+const toPlug = PLUGINS.filter(([name]) => !plugged.includes(name));
+const cli = (line, ms = 300000) => {
+  const r = spawnSync(line, { shell: true, encoding: "utf8", timeout: ms });
+  return { ok: r.status === 0, out: `${r.stdout || ""}${r.stderr || ""}`.trim() || String(r.error || "no output") };
+};
+const tail = (text) => text.split("\n").slice(-3).join(" | ");
+if (!wantPlugins) {
+  if (toPlug.length) say(`plugins not installed by this run: ${toPlug.map(([n]) => n.split("@")[0]).join(", ")}`);
+} else if (toPlug.length && !onPath("claude")) {
+  say(`plugins not installed: the claude command is not on the PATH. Run this again from a terminal where claude works.`);
+} else if (toPlug.length && !onPath("git")) {
+  say(`plugins not installed: they are downloaded with Git, which is not on the PATH. Install Git and run this again.`);
+} else if (toPlug.length && DRY) {
+  say(`plugins would be installed if missing: ${toPlug.map(([n]) => n.split("@")[0]).join(", ")}`);
+} else if (toPlug.length) {
+  const list = cli("claude plugin list", 60000);
+  const markets = new Set();
+  if (!list.ok) say(`plugins not installed: claude plugin list failed (${tail(list.out)})`);
+  else for (const [name, market, on] of toPlug) {
+    if (list.out.includes(name)) { say(`plugin already there: ${name} (left as it is)`); plugged.push(name); continue; }
+    if (!markets.has(market)) { cli(`claude plugin marketplace add ${market}`); markets.add(market); }
+    const got = cli(`claude plugin install ${name}`);
+    const off = got.ok && !on ? cli(`claude plugin disable ${name}`) : got;
+    if (!off.ok) { say(`plugin failed: ${name} (${tail(off.out)}). Everything else was installed; run this again to retry.`); continue; }
+    plugged.push(name);
+    say(`plugin installed: ${name}${on ? "" : " (switched off; /new-project turns it on in the project that needs it)"}`);
+  }
+}
+// find-skills is someone else's skill, fetched with npx into the real home folder
+const finder = "find-skills";
+if (wantPlugins && !DRY && opt("home") === null && !plugged.includes(finder)) {
+  if (fs.existsSync(path.join(CLAUDE, "skills", finder))) plugged.push(finder);
+  else if (onPath("npx")) {
+    const got = cli(`npx -y skills add vercel-labs/skills --skill ${finder} -g -y`);
+    if (got.ok) { plugged.push(finder); say(`skill installed: ${finder}`); }
+    else say(`skill failed: ${finder} (${tail(got.out)}). Everything else was installed; run this again to retry.`);
+  }
+}
+if (!DRY && JSON.stringify(plugged) !== JSON.stringify(state.plugins || [])) {
+  nextState.plugins = plugged;
+  fs.writeFileSync(stateFile, JSON.stringify(nextState, null, 2) + "\n");
+}
+
+// What a script can't do is named until a chat has done it: the settings inside Nimbalyst are
+// reached with tools only a chat there has, and voice typing is a program the person sets up.
+const fullInstall = fwd(path.join(REPO, "docs", "full-install.md"));
+if (!(state.done || []).includes("chat-steps")) {
+  say(`Left for a chat, once: Nimbalyst's settings and voice typing. In a Claude chat (inside Nimbalyst where it is used) carry out steps 8 and 9 of ${fullInstall}; ask first whether voice typing is wanted, the line that installs Handy is in step 2. Then run: node "${fwd(path.join(REPO, "install.mjs"))}" --done chat-steps`);
+}
+say(`The programs (Nimbalyst, Git, uv, the outside workers) are the full install: ${fullInstall}`);
 
 // ---- what this run did to files that were already there, and what looks left over
 // A hook in settings.json that starts a script by its full path, where that script is not there
@@ -427,7 +510,7 @@ if (!DRY) for (const [event, groups] of Object.entries(settings.hooks || {})) {
     }
   }
 }
-const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|linked|removed|extension installed)/.test(l));
+const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|linked|removed|extension installed|plugin installed|skill installed|model: set|permissions: )/.test(l));
 if (did || tally.yours.length) {
   const parts = [[tally.added, "new"], [tally.replaced.length, "replaced"], [tally.yours.length, "kept as yours"], [tally.same, "unchanged"]];
   say(`Files: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(", ")}.`);

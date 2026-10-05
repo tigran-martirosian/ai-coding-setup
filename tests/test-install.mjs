@@ -287,6 +287,44 @@ if (process.platform === "win32") {
   if (!hadDist) fs.rmSync(themeDist, { recursive: true, force: true });
 }
 
+// ---- Claude Code's own settings: a model when none is set, the permission rules, and a set model stays
+ok("a blank home gets a model and the permission rules", [settings.model, settings.permissions.deny.includes("Read(~/.ssh/**)"), settings.permissions.ask.includes("Read(//**/.env)")], ["sonnet", true, true]);
+ok("a model that was set stays, next to the rules", [merged.model, merged.permissions.deny.length > 0], ["sonnet", true]);
+
+// ---- the plugins, with a stand-in for the claude command that keeps a list of what it was told
+const fake = path.join(tmp, "fake-claude");
+fs.mkdirSync(fake);
+const told = path.join(fake, "told.txt");
+fs.writeFileSync(path.join(fake, "claude.mjs"), `import fs from "node:fs";
+const a = process.argv.slice(2).join(" ");
+fs.appendFileSync(${JSON.stringify(told)}, a + "\\n");
+if (a === "plugin list") console.log("Installed plugins:\\n  > superpowers@claude-plugins-official");
+if (a === "plugin install context7@claude-plugins-official") { console.error("no network"); process.exit(1); }
+`);
+fs.writeFileSync(path.join(fake, "claude.cmd"), `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`);
+fs.writeFileSync(path.join(fake, "claude"), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/claude.mjs" "$@"\n`, { mode: 0o755 });
+fs.writeFileSync(path.join(fake, "git"), "");
+const plugHome = path.join(tmp, "plug-home");
+const shellPath = process.platform === "win32" ? `${fake}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}` : `${fake}${path.delimiter}/bin${path.delimiter}/usr/bin`;
+const plug = installWith(shellPath, plugHome, "--plugins", "yes");
+const toldLines = () => fs.readFileSync(told, "utf8").trim().split("\n");
+ok("a missing plugin is installed, and the three that load everywhere are switched off",
+  [plug.out.includes("plugin installed: claude-hud@claude-hud\n"), plug.out.includes("plugin installed: claude-code-setup@claude-plugins-official (switched off"),
+    toldLines().includes("plugin disable claude-code-setup@claude-plugins-official"), toldLines().includes("plugin disable claude-hud@claude-hud")], [true, true, true, false]);
+ok("one that is there already is left as it is", [plug.out.includes("plugin already there: superpowers@claude-plugins-official"), toldLines().some((l) => l.includes("install superpowers"))], [true, false]);
+ok("one that fails is named and the install goes on", [/plugin failed: context7@claude-plugins-official \(no network\)/.test(plug.out), plug.code], [true, 0]);
+ok("what was handled is on record", json(path.join(plugHome, ".claude", "setup-state.json")).plugins, ["claude-hud@claude-hud", "claude-code-setup@claude-plugins-official", "superpowers@claude-plugins-official"]);
+fs.writeFileSync(told, "");
+installWith(shellPath, plugHome, "--plugins", "yes");
+ok("the next run only retries the one that failed", toldLines().filter((l) => l.startsWith("plugin install")), ["plugin install context7@claude-plugins-official"]);
+ok("without the claude command the run says so", installWith(emptyPath, path.join(tmp, "no-claude"), "--plugins", "yes").out.includes("plugins not installed: the claude command is not on the PATH"));
+
+// ---- the steps left for a chat are named until one is put on record as done
+ok("the run names the steps left for a chat", /Left for a chat, once.*steps 8 and 9.*--done chat-steps/.test(plug.out));
+const marked = install(plugHome, "--done", "chat-steps");
+ok("--done puts them on record and changes nothing else", [marked.out.trim(), json(path.join(plugHome, ".claude", "setup-state.json")).done], ["on record as done: chat-steps", ["chat-steps"]]);
+ok("and the next run no longer names them", install(plugHome).out.includes("Left for a chat"), false);
+
 // ---- broken settings are left alone
 const broken = path.join(tmp, "broken");
 fs.mkdirSync(path.join(broken, ".claude"), { recursive: true });

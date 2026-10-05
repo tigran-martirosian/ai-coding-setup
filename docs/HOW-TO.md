@@ -11,8 +11,9 @@ unless you chose another one). The copy of this page the installer puts into
 ## Installing
 
 You need Node.js 18 or newer and Claude Code. Codex, Antigravity, Nimbalyst and Handy (voice typing)
-are optional, and the installer does not install them. To have the programs, the plugins and the app
-settings put in place too, on Windows or a Mac, use [full-install.md](full-install.md) instead.
+are optional, and the installer does not install them. It does install the plugins and add the
+Claude Code settings. To have the programs put in place too, on Windows or a Mac, use
+[full-install.md](full-install.md) instead.
 
 Download the repository as a zip from its GitHub page (the green **Code** button, then **Download
 ZIP**) and unzip it, or clone it. Open a terminal in that folder.

@@ -2,6 +2,11 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.13, October 5, 2026
+
+- **The plugins and the settings come with the install and with an update.** `node install.mjs` used to leave the plugins and the Claude Code settings to the full install, so a setup put in place with the installer alone never had them. Now the same run installs the four plugins (`claude-hud` on; `claude-code-setup`, `superpowers` and `context7` switched off until a project needs one) and the `find-skills` skill, sets the model to Sonnet if you never set one, and adds permission rules: the agent can't read saved sign-ins or SSH keys and asks before it reads a `.env` file. A plugin is handled once, so one you remove or switch on later stays as you have it. One that fails is named and the rest of the install goes on. `--plugins no` leaves them out.
+- **`/update-setup` finishes what a script can't do.** The settings inside Nimbalyst (the four project folders opened, the default model, worktrees and the terminal) and voice typing need a chat. The installer now names them once, and `/update-setup` carries them out: it asks whether you want voice typing, and which of the five themes you want, and switches to it.
+
 ## Version 1.0.12, October 5, 2026
 
 - **The extensions install themselves.** `node install.mjs` used to copy the files and leave the Nimbalyst extensions as three commands each. Now, when Nimbalyst is installed, the same run builds the themes, the usage ring and the command buttons and puts them into Nimbalyst, and an update rebuilds only the ones that changed. Quit Nimbalyst and open it again to see them; nothing looks different until you pick a theme. Read Aloud is rebuilt only where it is installed already. A build that fails is named with its last lines and the rest of the install goes on. `--extensions no` leaves them out.
