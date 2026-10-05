@@ -1,5 +1,5 @@
 {
-  "version": "1.0.3",
+  "version": "1.0.4",
   "date": "2026-10-04",
-  "summary": "The reader court: /court readers <file> shows how a piece reads to people with different jobs."
+  "summary": "/setup-audit lists what is loaded but hardly used and asks about fixes once; /new-project suggests more tools."
 }

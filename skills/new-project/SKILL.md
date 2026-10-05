@@ -60,11 +60,12 @@ picks:
 | If the project… | Tell sessions to use |
 |---|---|
 | uses a library or framework | **Context7** for current docs before writing code against it |
-| has a web UI | Nimbalyst **Browser** to preview it and check it |
+| has a web UI | Nimbalyst **Browser** to preview it and check it; if they are installed, **Playwright** to check it in a real browser and **Frontend Design** for the look |
 | needs UI or architecture planning | Nimbalyst **MockupLM** mockups and **Excalidraw** diagrams before building |
 | has a database or data model | Nimbalyst **DataModelLM** (`.datamodel`) for the schema, kept in step with the DDL, and the matching database best-practices skill |
 | has large files or docs | The big-read gate is global. Name the biggest files here so sessions go straight to targeted reads or a cheap worker. |
 | takes in PDFs, Word, PowerPoint or Excel | **MarkItDown**: convert to `.md` once, keep the `.md` next to the source, and read that |
+| is research-heavy | **NotebookLM** if it's set up, and any installed research agents |
 | has a plan and multiple steps | **Superpowers** brainstorm → plan → build → review, and Nimbalyst **Planning** trackers |
 
 Also add any project-specific cheap-worker routing, for example "summaries of `logs/` go to

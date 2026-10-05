@@ -191,7 +191,8 @@ something unrelated inside another project, Claude names the right folder and op
   computer. Run it again after a few weeks of work.
 - **Adding Codex or Gemini later.** If you get a ChatGPT or a Google subscription, say "add the
   Codex worker" or "add the Antigravity worker" in a chat in this folder.
-- **`/setup-audit`:** checks that the setup itself still works.
+- **`/setup-audit`:** checks that the setup itself still works, and names what is loaded in every
+  chat but hardly used. It asks which fixes to apply once, in one form.
 - "Should we add tool X?" is a question for this folder.
 
 ## What the rules take care of

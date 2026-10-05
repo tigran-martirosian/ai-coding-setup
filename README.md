@@ -8,6 +8,8 @@ https://github.com/user-attachments/assets/2bf61db5-d115-49d1-ad46-0006cd18db26
 
 ## What's new
 
+**October 4, 2026, version 1.0.4: the audit finds dead weight.** `/setup-audit` now lists what every chat loads but hardly uses and asks about fixes once, in one form. `/new-project` suggests Playwright, Frontend Design and NotebookLM where they fit.
+
 **October 4, 2026, version 1.0.3: the reader court.** `/court readers <file>` has a few readers with different jobs read a resume, a README, a post or a page, each alone, and sums up how it lands and what to change.
 
 **October 4, 2026, version 1.0.2: you stay on the model you picked.** The rules no longer expect new chats to start on Sonnet, and Claude no longer stops to ask whether to move to Opus. The rules file every chat loads is shorter.
