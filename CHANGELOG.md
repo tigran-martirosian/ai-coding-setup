@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.10, October 5, 2026
+
+- **The update check runs every 12 hours.** It was once a day. A release now reaches you within half a day of using Claude Code, and the reminder comes at most that often.
+
 ## Version 1.0.9, October 5, 2026
 
 - **A file you changed stays yours.** Until now an install or an update replaced every one of the setup's files, also a hook or a skill you had edited, and left yours only as a dated copy. Now the installer remembers what it wrote. A file that is no longer what it wrote is left alone, and so is a file you had under the same name before the first install. The run ends with the list `Kept as yours`. `--replace <name>` takes the setup's version of one file, `--replace-all` takes all of them and the rules, and `/update-setup` asks which you want. A setup installed with an earlier version is updated the old way one more time, then its files are on record.

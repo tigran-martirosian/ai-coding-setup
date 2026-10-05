@@ -61,7 +61,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When I send a message | `context-guard` | Warn when the session passes 200k tokens |
 | When a reply ends | `context-guard` | Move the work to a fresh session past 250k tokens |
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
-| When I send a message | `update-check` | Say once a day when a newer version of the setup is released |
+| When I send a message | `update-check` | Say, at most every 12 hours, when a newer version of the setup is released |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
 | While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
 | Before a reply goes out | `link-gate` | No link that wasn't opened in this session |

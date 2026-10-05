@@ -1,5 +1,5 @@
 {
-  "version": "1.0.9",
+  "version": "1.0.10",
   "date": "2026-10-05",
-  "summary": "A file you changed stays yours: an install or update lists it and you choose what to replace."
+  "summary": "The check for a newer version runs every 12 hours instead of once a day."
 }

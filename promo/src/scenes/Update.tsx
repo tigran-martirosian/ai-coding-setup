@@ -27,7 +27,7 @@ export const Update: React.FC<SceneProps> = ({ durationInFrames }) => {
   return (
     <Scene
       tag="update-check · /update-setup"
-      caption="Once a day the setup checks for a newer version and says so in one line. One command installs it and keeps what you added."
+      caption="Twice a day the setup checks for a newer version and says so in one line. One command installs it and keeps what you added."
       durationInFrames={durationInFrames}
     >
       <Window title="Chat" chip="version 1.0.0" chipColor={color.dim} style={{ width: 1320 }}>

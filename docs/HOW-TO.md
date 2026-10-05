@@ -53,10 +53,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   rewrites the worker section of the rules and, with Codex, adds the picture skill to two folders.
   The installer saves the folder you ran it from as `repo` in `~/.claude/setup-state.json`, so a
   chat can find it again.
-- **Updates.** Once a day the setup checks whether a newer version is released and says so in one
+- **Updates.** Every 12 hours the setup checks whether a newer version is released and says so in one
   line. Type `/update-setup` to install it: your own skills, hooks, settings and notes stay, and a
   rules file or one of the setup's files you changed yourself is replaced only after you say yes. `UPDATE_CHECK=off` in the
-  environment turns the daily check off; `/update-setup` still works.
+  environment turns the check off; `/update-setup` still works.
 - **Optional extras the rules mention.** The installer does not install these; where one is missing
   the rule that names it simply doesn't apply.
   - **uv** (provides `uvx`): converts PDF, Word and Excel files to text; also reads videos and feeds.

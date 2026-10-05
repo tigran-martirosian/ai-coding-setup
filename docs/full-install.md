@@ -167,4 +167,4 @@ Then reply in the user's language, in short lines:
 - **What was already there:** the files kept as theirs and the files replaced (each old one is next to the new one as `<name>.before-install-<date>`), any hook whose script is not there, and the file under `~/.claude/setup-logs` that has the whole run. Leave this out on a computer that had no setup before.
 - **What was left out** and how to add it: a missing worker (run `node install.mjs --codex yes` or `--agy yes` from `<repo>` after installing and signing in), a program that could not be installed with its install command.
 - **How to use it:** `<projects>/claude-settings/HOW-TO.md` has an example for each feature; typing the single word `usage` shows how much of the plan is used.
-- **Updates:** once a day the setup says when a newer version is out; typing `/update-setup` installs it and keeps their own files.
+- **Updates:** every 12 hours the setup checks and says when a newer version is out; typing `/update-setup` installs it and keeps their own files.

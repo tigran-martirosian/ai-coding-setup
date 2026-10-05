@@ -50,10 +50,10 @@ check("the event name is UserPromptSubmit", said.hookSpecificOutput?.hookEventNa
 check("the check is recorded", kept(old)?.latest === "1.2.0");
 const before = asked;
 const second = await run(old);
-check("a second prompt on the same day is silent and asks nobody", second.out === "" && asked === before);
+check("a second prompt within 12 hours is silent and asks nobody", second.out === "" && asked === before);
 
-fs.writeFileSync(path.join(old, ".claude", "update-check.json"), JSON.stringify({ checkedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(), latest: "1.2.0" }));
-check("a day later it says it again", /1\.2\.0/.test((await run(old)).out));
+fs.writeFileSync(path.join(old, ".claude", "update-check.json"), JSON.stringify({ checkedAt: new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString(), latest: "1.2.0" }));
+check("13 hours later it says it again", /1\.2\.0/.test((await run(old)).out));
 
 check("the same version installed: silent", (await run(home("same", "1.2.0"))).out === "");
 check("a newer version installed than released: silent", (await run(home("ahead", "1.3.0"))).out === "");

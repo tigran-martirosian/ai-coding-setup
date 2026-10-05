@@ -8,9 +8,9 @@ https://github.com/user-attachments/assets/6655bc56-4439-4b9f-b94e-8e4d586c3fb0
 
 ## What's new
 
-**October 5, 2026** (versions 1.0.5 to 1.0.9). An install or an update no longer replaces a file you changed: your version of a hook or a skill stays, the run lists it, and you choose which ones to swap for the new version. A long session now moves to a fresh one by itself: when a reply ends past 250k tokens, the agent writes the brief and opens the new session, so your next message doesn't pay for the long history. The Usage Plan panel shows how much of the week you used today. Nimbalyst gets five colour themes from the new [ink-themes](extensions/ink-themes/README.md) extension, and the tour video above shows all of this.
+**October 5, 2026** (versions 1.0.5 to 1.0.10). The check for a newer version now runs every 12 hours instead of once a day. An install or an update no longer replaces a file you changed: your version of a hook or a skill stays, the run lists it, and you choose which ones to swap for the new version. A long session now moves to a fresh one by itself: when a reply ends past 250k tokens, the agent writes the brief and opens the new session, so your next message doesn't pay for the long history. The Usage Plan panel shows how much of the week you used today. Nimbalyst gets five colour themes from the new [ink-themes](extensions/ink-themes/README.md) extension, and the tour video above shows all of this.
 
-**October 4, 2026** (versions 1.0.0 to 1.0.4). The setup updates itself. Once a day it checks for a newer version, and `/update-setup` installs it and keeps your own skills, hooks, settings and notes. Searching and long reading go through one command, [workers/ask.mjs](workers/ask.mjs), which uses whichever worker is ready, so the setup works with a ChatGPT subscription, a Google one, both or neither. `/court readers <file>` has several readers with different jobs read a resume, a README or a post and tells you how it lands. `/setup-audit` lists what every chat loads but hardly uses, and new chats stay on the model you picked.
+**October 4, 2026** (versions 1.0.0 to 1.0.4). The setup updates itself. Twice a day it checks for a newer version, and `/update-setup` installs it and keeps your own skills, hooks, settings and notes. Searching and long reading go through one command, [workers/ask.mjs](workers/ask.mjs), which uses whichever worker is ready, so the setup works with a ChatGPT subscription, a Google one, both or neither. `/court readers <file>` has several readers with different jobs read a resume, a README or a post and tells you how it lands. `/setup-audit` lists what every chat loads but hardly uses, and new chats stay on the model you picked.
 
 Earlier changes are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -42,7 +42,7 @@ If you already have a Claude Code setup, yours stays. A hook or skill of yours w
 
 ## Updating
 
-Once a day the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](hooks/update-check.mjs)) and says so in one line. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
+Every 12 hours the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](hooks/update-check.mjs)) and says so in one line. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
 
 ![An update announced in one line, then installed with one command](docs/img/clip-update.gif)
 
@@ -51,7 +51,7 @@ Once a day the setup asks GitHub whether a newer version is released ([hooks/upd
 - **Files of mine that you changed.** The same goes for a hook or a skill from this setup that you edited: it stays as you have it, the update lists it, and `/update-setup` asks whether you want the new version.
 - **Without a chat:** `node ~/.claude/skills/update-setup/update.mjs`, or `--check` to only look.
 - **Installed before version 1.0.0?** Download the repository once more and run the install again; from then on it updates itself.
-- **Off switch:** set `UPDATE_CHECK=off` to stop the daily check.
+- **Off switch:** set `UPDATE_CHECK=off` to stop the check.
 
 ## What's inside
 
@@ -93,7 +93,7 @@ The other hooks keep sessions cheap and safe:
 | `context-guard` | Warns when a session gets long, and past 250k tokens moves the work to a fresh session |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
-| `update-check` | Says once a day when a newer version of the setup is released |
+| `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
 | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
 
