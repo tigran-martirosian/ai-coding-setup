@@ -14,10 +14,10 @@ rounder shapes, a name under every side button, a floating message box) and diff
 | **Ink Tide** | Deep sea blue with a sea-glass teal accent |
 | **Ink Ember** | Dark wine, almost black, with a dusty rose accent |
 | **Ink Frost** | Light: cool white pages, a pale grey-blue side bar and a slate blue accent |
-| **Ink Saffron** | Neutral charcoal with a saffron gold accent |
+| **Ink Noir** | Black and white only: black panels, grey text and a white button |
 | **Ink Cobalt** | Night blue with a bright cobalt accent |
 | **Ink Blossom** | Light: blush white pages, a pale rose side bar and a berry accent |
-| **Ink Slate** | Cool slate grey panels on a darker side bar, with a tangerine accent |
+| **Ink Neon** | Plum black with a hot magenta accent and electric cyan links |
 
 ## Install
 

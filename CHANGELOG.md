@@ -2,6 +2,11 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.16, October 5, 2026
+
+- **A picture in the chat opens when you click it.** Nimbalyst shows a picture small from any folder, but the enlarged view only loads files inside the open project, so a picture from the temp folder opened as an empty box. A new check, `picture-in-project`, sends such a picture back and has the agent copy it into the project first. `PICTURE_IN_PROJECT=off` turns it off.
+- **Two themes replaced.** Ink Saffron and Ink Slate looked too much like Ink Graphite. In their place: Ink Noir (black and white only, with a white button) and Ink Neon (plum black, hot magenta, electric cyan links). Still eleven themes. If you had picked Saffron or Slate, pick a theme again after the update.
+
 ## Version 1.0.15, October 5, 2026
 
 - **Six more colour themes.** Ink Ember (dark wine and rose), Ink Frost (light, cool white and slate blue), Ink Saffron (charcoal and gold), Ink Cobalt (night blue), Ink Blossom (light, blush and berry) and Ink Slate (slate grey and tangerine) join the first five. That makes eleven, eight dark and three light, and each passes the same reading checks.

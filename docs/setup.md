@@ -56,6 +56,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a shell command | `command-explain` | Explain the command in plain words |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |
+| Before a picture is shown in the chat | `picture-in-project` | The file is inside the open project, so a click opens it enlarged instead of an empty box |
 | Before a question to me | `question-other` | Every choice lets me type my own answer, and a recommendation that says "Checked:" must match a lookup in the session log |
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | When I send a message | `context-guard` | Warn when the session passes 200k tokens |

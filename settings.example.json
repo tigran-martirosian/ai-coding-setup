@@ -14,6 +14,10 @@
         "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/question-other.mjs", "timeout": 5 }]
       },
       {
+        "matcher": "mcp__nimbalyst__display_to_user",
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/picture-in-project.mjs", "timeout": 5 }]
+      },
+      {
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node ~/.claude/hooks/command-explain.mjs", "timeout": 5 },

@@ -13,10 +13,10 @@ const THEMES = [
   { name: "Ink Tide", bg: "#111a20", side: "#0c1318", raised: "#1a272f", border: "#26363f", text: "#e6eef1", muted: "#b6c6cd", faint: "#8a9ca4", primary: "#26818e", onPrimary: "#ffffff" },
   { name: "Ink Ember", bg: "#1b1517", side: "#141011", raised: "#282023", border: "#382d31", text: "#f1e9ea", muted: "#cdbfc2", faint: "#a39397", primary: "#b0506a", onPrimary: "#ffffff" },
   { name: "Ink Frost", bg: "#f1f4f7", side: "#e3e8ee", raised: "#fbfcfd", border: "#c5cdd8", text: "#1c232c", muted: "#444f5d", faint: "#586473", primary: "#35609a", onPrimary: "#ffffff" },
-  { name: "Ink Saffron", bg: "#1a1a17", side: "#121210", raised: "#262622", border: "#35352f", text: "#efede3", muted: "#c8c5b6", faint: "#9d9a8b", primary: "#d2a03c", onPrimary: "#1d1503" },
+  { name: "Ink Noir", bg: "#101010", side: "#080808", raised: "#1c1c1c", border: "#2c2c2c", text: "#e6e6e6", muted: "#bdbdbd", faint: "#8f8f8f", primary: "#ececec", onPrimary: "#111111" },
   { name: "Ink Cobalt", bg: "#12151f", side: "#0d0f17", raised: "#1c2130", border: "#2a3044", text: "#e8ebf5", muted: "#bcc3d8", faint: "#8e96b0", primary: "#3f6fd8", onPrimary: "#ffffff" },
   { name: "Ink Blossom", bg: "#f8f1f2", side: "#eee3e6", raised: "#fefbfb", border: "#dcc9ce", text: "#2a1f23", muted: "#56464c", faint: "#6a585e", primary: "#a8406a", onPrimary: "#ffffff" },
-  { name: "Ink Slate", bg: "#22262b", side: "#16191d", raised: "#2e333a", border: "#3d434b", text: "#eef0f2", muted: "#c2c8cf", faint: "#a3aab3", primary: "#e0823c", onPrimary: "#1f1005" },
+  { name: "Ink Neon", bg: "#170f1a", side: "#0f0911", raised: "#241829", border: "#38273f", text: "#f4ecf6", muted: "#cdbfd2", faint: "#a08fa6", primary: "#d6249f", onPrimary: "#ffffff" },
 ] as const;
 
 type Key = Exclude<keyof (typeof THEMES)[number], "name">;
