@@ -4,9 +4,11 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/5781d78d-c420-43a3-8a88-9fd0f4431032
+https://github.com/user-attachments/assets/085c83e4-ea82-4bc8-9156-a2045f7365a6
 
 ## What's new
+
+**October 5, 2026, version 1.0.8: the tour video shows the new handoff.** A long session moves to a fresh one with no question asked, and the video and the sessions clip now show that.
 
 **October 5, 2026, version 1.0.7: long sessions move themselves.** When a reply ends past 250k tokens, the work moves to a fresh session by itself, so your next message doesn't pay for the long history. The Usage Plan panel also shows how much of the week you used today.
 

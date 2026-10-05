@@ -2,10 +2,14 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.8, October 5, 2026
+
+- **The tour video shows the new handoff.** The handoff scene no longer has a Yes button: the session passes 250k tokens and the work moves to a fresh one by itself. The sessions clip in the README is re-rendered too.
+
 ## Version 1.0.7, October 5, 2026
 
 - **A long session moves to a fresh one by itself.** Until now `context-guard` had the agent offer a handoff at 200k tokens, and one more message in a session that had grown in the meantime still re-sent all of it. Now, when a reply ends past 250k tokens, the agent writes the brief and opens the new session without asking, once, then again every further 100k if you stay. The warning at 200k stays. `CONTEXT_GUARD_AUTO_K` changes the limit and `CONTEXT_GUARD_AUTO=off` brings back warning only.
-- **Used today.** The Usage Plan panel shows how much of the week went today, next to the weekly and 5-hour numbers. The tour video still shows the old question with a Yes button.
+- **Used today.** The Usage Plan panel shows how much of the week went today, next to the weekly and 5-hour numbers.
 
 ## Version 1.0.6, October 5, 2026
 

@@ -93,7 +93,7 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
       tag="automatic handoff · /board-cleanup"
       caption={
         <span>
-          Automatic handoff: a brief is rewritten after every reply, and a long session offers to move to a fresh one.{" "}
+          Automatic handoff: a brief is rewritten after every reply, and a long session moves to a fresh one by itself.{" "}
           <span style={{ whiteSpace: "nowrap" }}>/board-cleanup</span> tidies the board.
         </span>
       }
@@ -104,7 +104,7 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 24, marginBottom: 8 }}>
               <span style={{ color: color.dim }}>Context</span>
-              <span style={{ color: color.amber, fontWeight: 600 }}>{Math.round(214 * appear(frame, 6, 30))}k tokens</span>
+              <span style={{ color: color.amber, fontWeight: 600 }}>{Math.round(262 * appear(frame, 6, 30))}k tokens</span>
             </div>
             <Bar value={92 * appear(frame, 6, 30)} color={color.amber} />
           </div>
@@ -127,25 +127,12 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
           <Appear at={40}>
             <div style={{ border: `1.5px solid ${color.amber}88`, borderRadius: 12, padding: "14px 18px", background: `${color.amber}14` }}>
               <div style={{ fontSize: 24, lineHeight: 1.35 }}>
-                <span style={{ fontFamily: mono, color: color.amber }}>context-guard</span> This session is long. Move it to a
-                fresh one?
+                <span style={{ fontFamily: mono, color: color.amber }}>context-guard</span> This session is long. Moving the work
+                to a fresh one.
               </div>
-              <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
-                <span
-                  style={{
-                    fontSize: 23,
-                    fontWeight: 700,
-                    borderRadius: 8,
-                    padding: "6px 22px",
-                    color: color.panel,
-                    background: color.sky,
-                    boxShadow: frame >= YES_AT && frame < HANDOFF_AT + 10 ? `0 0 0 5px ${color.sky}55` : "none",
-                  }}
-                >
-                  Yes
-                </span>
-                <span style={{ fontSize: 23, borderRadius: 8, padding: "6px 22px", border: `1px solid ${color.line}` }}>Not now</span>
-              </div>
+              <Appear at={YES_AT}>
+                <div style={{ fontSize: 23, marginTop: 12, color: color.sky, fontWeight: 600 }}>No question asked. Your next message goes there.</div>
+              </Appear>
             </div>
           </Appear>
         </Window>

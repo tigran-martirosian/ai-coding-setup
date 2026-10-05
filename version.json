@@ -1,5 +1,5 @@
 {
-  "version": "1.0.7",
+  "version": "1.0.8",
   "date": "2026-10-05",
-  "summary": "A long session moves to a fresh one by itself; the usage panel shows what you used today."
+  "summary": "The tour video shows the handoff that needs no question."
 }
