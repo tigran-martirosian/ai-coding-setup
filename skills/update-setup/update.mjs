@@ -16,6 +16,8 @@
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 
@@ -35,6 +37,23 @@ const newer = (a, b) => {
   for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
   return false;
 };
+// Reads an address, following redirects. Not fetch: on Windows, Node can crash when a process ends
+// right after one.
+const get = (url, ms, hops = 5) => new Promise((resolve, reject) => {
+  const req = (url.startsWith("https:") ? https : http).get(url, { timeout: ms, headers: { "user-agent": "setup-update" } }, (res) => {
+    if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && hops > 0) {
+      res.resume();
+      return resolve(get(new URL(res.headers.location, url).href, ms, hops - 1));
+    }
+    if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+    const parts = [];
+    res.on("data", (d) => parts.push(d));
+    res.on("end", () => resolve(Buffer.concat(parts)));
+    res.on("error", reject);
+  });
+  req.on("timeout", () => req.destroy(new Error("no answer in time")));
+  req.on("error", reject);
+});
 
 const stateFile = path.join(CLAUDE, "setup-state.json");
 if (!fs.existsSync(stateFile)) stop(`${fwd(stateFile)} is missing, so this setup was not put in place by install.mjs. Download ${REPO_URL} and run its install once.`);
@@ -51,9 +70,7 @@ function install(folder) {
 
 let latest;
 try {
-  const res = await fetch(VERSION_URL, { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  latest = await res.json();
+  latest = JSON.parse(await get(VERSION_URL, 15000));
 } catch (e) {
   stop(`could not read ${VERSION_URL} (${e.message}). Check the internet connection and try again.`);
 }
@@ -78,9 +95,7 @@ const part = `${target}.part`;
 fs.rmSync(part, { recursive: true, force: true });
 fs.mkdirSync(part, { recursive: true });
 try {
-  const res = await fetch(archiveUrl(latest.version), { signal: AbortSignal.timeout(120000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  fs.writeFileSync(path.join(part, "source.tar.gz"), Buffer.from(await res.arrayBuffer()));
+  fs.writeFileSync(path.join(part, "source.tar.gz"), await get(archiveUrl(latest.version), 120000));
 } catch (e) {
   fs.rmSync(part, { recursive: true, force: true });
   stop(`could not download ${archiveUrl(latest.version)} (${e.message}).`);

@@ -8,6 +8,8 @@
 // Offline, or GitHub not answering within 4 seconds: silent, and the next prompt tries again.
 // Fails open. UPDATE_CHECK=off disables it. SETUP_UPDATE_BASE points it at another address (tests).
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 
@@ -22,15 +24,31 @@ const newer = (a, b) => {
   for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
   return false;
 };
+// Reads an address, following redirects. Not fetch: on Windows, Node can crash when a process ends
+// right after one.
+const get = (url, ms, hops = 5) => new Promise((resolve, reject) => {
+  const req = (url.startsWith("https:") ? https : http).get(url, { timeout: ms, headers: { "user-agent": "setup-update" } }, (res) => {
+    if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && hops > 0) {
+      res.resume();
+      return resolve(get(new URL(res.headers.location, url).href, ms, hops - 1));
+    }
+    if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+    const parts = [];
+    res.on("data", (d) => parts.push(d));
+    res.on("end", () => resolve(Buffer.concat(parts)));
+    res.on("error", reject);
+  });
+  req.on("timeout", () => req.destroy(new Error("no answer in time")));
+  req.on("error", reject);
+});
 
 if (process.env.UPDATE_CHECK !== "off") {
   try {
     const stateFile = path.join(CLAUDE, "update-check.json");
     const last = json(stateFile);
     if (!(Date.now() - new Date(last.checkedAt || 0).getTime() < DAY)) {
-      const res = await fetch(VERSION_URL, { signal: AbortSignal.timeout(4000) });
-      if (res.ok) {
-        const latest = await res.json();
+      const latest = JSON.parse(await get(VERSION_URL, 4000));
+      if (latest.version) {
         const installed = json(path.join(CLAUDE, "setup-state.json")).version || "0";
         fs.writeFileSync(stateFile, JSON.stringify({ checkedAt: new Date().toISOString(), latest: latest.version }) + "\n");
         if (newer(latest.version, installed)) {
