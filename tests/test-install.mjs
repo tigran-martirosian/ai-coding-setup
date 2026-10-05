@@ -200,7 +200,13 @@ const merged = json(path.join(used, ".claude", "settings.json"));
 ok("the user's own model and hook stay", [merged.model, JSON.stringify(merged.hooks.Stop).includes("my-own-hook.mjs")], ["sonnet", true]);
 const kept = fs.readdirSync(path.join(used, ".claude")).concat(fs.readdirSync(path.join(used, ".claude", "hooks")))
   .filter((f) => f.includes(".before-install-")).map((f) => f.split(".before-install-")[0]).sort();
-ok("the old settings and the old hook are kept as copies", kept, ["settings.json", "sql-guard.mjs"]);
+ok("the old settings are kept as a copy", kept, ["settings.json"]);
+const usedHook = path.join(used, ".claude", "hooks", "sql-guard.mjs");
+ok("a file that was there before under the same name stays, and the run lists it with the way to take the setup's",
+  [fs.readFileSync(usedHook, "utf8"), onUsed.out.includes(`kept yours ${fwd(usedHook)}`), /Kept as yours[^\n]*\n  hooks\/sql-guard\.mjs\n[^\n]*--replace <name>[^\n]*--replace-all/.test(onUsed.out)],
+  ["// an older version\n", true, true]);
+const logs = () => fs.readdirSync(path.join(used, ".claude", "setup-logs"));
+ok("a run that changed something saves what it printed", [logs().length, fs.readFileSync(path.join(used, ".claude", "setup-logs", logs()[0]), "utf8").includes(`kept yours ${fwd(usedHook)}`)], [1, true]);
 ok("rules with other content are left alone, and the installer says so",
   [fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8"), /rules: left alone.*--replace-rules/.test(onUsed.out)], ["# My rules\n\n- Mine.\n", true]);
 ok("--projects puts the folders where it says", [HOMES.every((h) => fs.existsSync(path.join(elsewhere, h, "CLAUDE.md"))), fs.existsSync(path.join(used, "Projects"))], [true, false]);
@@ -210,6 +216,46 @@ const oldRules = usedFiles.find((f) => f.startsWith("CLAUDE.md.before-install-")
 ok("--replace-rules takes the new rules and keeps the old ones as a dated copy",
   [fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies"), oldRules && fs.readFileSync(path.join(used, ".claude", oldRules), "utf8")], [true, "# My rules\n\n- Mine.\n"]);
 ok("a later run without --projects uses the folder given before", [replaced.out.includes(fwd(path.join(elsewhere, "quick-tasks"))), fs.existsSync(path.join(used, "Projects"))], [true, false]);
+ok("the file of the user's still stays on a later run", fs.readFileSync(usedHook, "utf8"), "// an older version\n");
+const oneTaken = install(used, "--replace", "hooks/sql-guard.mjs");
+const hookCopy = fs.readdirSync(path.join(used, ".claude", "hooks")).find((f) => f.startsWith("sql-guard.mjs.before-install-"));
+ok("--replace takes the setup's version of that one file and keeps the user's as a dated copy",
+  [fs.readFileSync(usedHook).equals(fs.readFileSync(path.join(REPO, "hooks", "sql-guard.mjs"))), hookCopy && fs.readFileSync(path.join(used, ".claude", "hooks", hookCopy), "utf8"),
+    /Replaced[^\n]*\n  hooks\/sql-guard\.mjs\n/.test(oneTaken.out)], [true, "// an older version\n", true]);
+
+// ---- a file of the setup's that the user changed after the install stays, also in a project folder
+const usedSkill = path.join(used, ".claude", "skills", "handoff", "SKILL.md");
+const usedTool = path.join(elsewhere, "internet-search", "tools", "peek.mjs");
+for (const f of [usedHook, usedSkill, usedTool]) fs.appendFileSync(f, "\n// my own change\n");
+fs.writeFileSync(path.join(used, ".claude", "CLAUDE.md"), "# My rules again\n");
+const usedBefore = [...snap(path.join(used, ".claude")), ...snap(elsewhere)];
+const keptMine = install(used);
+ok("the changed files stay and the run changes nothing",
+  [JSON.stringify([...snap(path.join(used, ".claude")), ...snap(elsewhere)]) === JSON.stringify(usedBefore), CHANGED.test(keptMine.out),
+    ["hooks/sql-guard.mjs", "skills/handoff/SKILL.md", fwd(usedTool)].every((f) => keptMine.out.includes(`\n  ${f}\n`)), keptMine.out.includes("Files: 3 kept as yours")],
+  [true, false, true, true]);
+install(used, "--replace-all");
+ok("--replace-all takes the setup's version of every one of them, and the rules",
+  [[usedHook, usedSkill, usedTool].map((f) => fs.readFileSync(f, "utf8").includes("my own change")), fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies")],
+  [[false, false, false], true]);
+ok("the run after it has nothing left to keep", install(used).out.includes("kept yours"), false);
+
+// ---- a setup installed before files were on record: a file that differs is replaced once, with a copy
+const usedState = path.join(used, ".claude", "setup-state.json");
+const old = json(usedState);
+delete old.files;
+fs.writeFileSync(usedState, JSON.stringify(old));
+fs.writeFileSync(usedSkill, "# The skill of an older version\n");
+const fromOld = install(used);
+ok("with no record an older file is replaced, and from then on the files are on record",
+  [fromOld.out.includes(`replaced ${fwd(usedSkill)}`), fs.readFileSync(usedSkill, "utf8").includes("older version"), fwd(usedSkill) in json(usedState).files], [true, false, true]);
+
+// ---- a hook in the settings whose script is gone is named
+const gone = fwd(path.join(used, ".claude", "hooks", "gone.mjs"));
+const withGone = json(path.join(used, ".claude", "settings.json"));
+withGone.hooks.Stop.push({ hooks: [{ type: "command", command: `node "${gone}"` }] });
+fs.writeFileSync(path.join(used, ".claude", "settings.json"), JSON.stringify(withGone));
+ok("a wired hook whose script is not there is listed", install(used).out.includes(`\n  Stop: ${gone}\n`));
 
 // ---- broken settings are left alone
 const broken = path.join(tmp, "broken");

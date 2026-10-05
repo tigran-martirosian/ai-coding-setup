@@ -2,6 +2,13 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.9, October 5, 2026
+
+- **A file you changed stays yours.** Until now an install or an update replaced every one of the setup's files, also a hook or a skill you had edited, and left yours only as a dated copy. Now the installer remembers what it wrote. A file that is no longer what it wrote is left alone, and so is a file you had under the same name before the first install. The run ends with the list `Kept as yours`. `--replace <name>` takes the setup's version of one file, `--replace-all` takes all of them and the rules, and `/update-setup` asks which you want. A setup installed with an earlier version is updated the old way one more time, then its files are on record.
+- **Every run that changes something is saved.** What the installer printed goes to `~/.claude/setup-logs`, and its last lines count the files that are new, replaced, kept as yours and unchanged.
+- **Leftover hooks are named.** A hook in `~/.claude/settings.json` that starts a script which is not there is listed at the end of the run. Nothing is removed.
+- **The tour video shows it.** The update scene has a line for a file that was kept because you changed it.
+
 ## Version 1.0.8, October 5, 2026
 
 - **The tour video shows the new handoff.** The handoff scene no longer has a Yes button: the session passes 250k tokens and the work moves to a fresh one by itself. The sessions clip in the README is re-rendered too.

@@ -7,9 +7,12 @@
 //   3. the base project folders from projects/ (ask-anything, internet-search, quick-tasks,
 //      claude-settings), each with its skills, hooks, tools and its own .claude/settings.json
 // A file that is replaced is kept next to the new one as <name>.before-install-<date>. The notes files
-// the user fills in (profile.md, finds/INDEX.md) are written only when missing. The rules, each
-// folder's CLAUDE.md and HOW-TO.md are the user's once they changed them: a later run (an update)
-// replaces one only while it is still exactly what an earlier run wrote.
+// the user fills in (profile.md, finds/INDEX.md) are written only when missing. Everything else is the
+// user's once they changed it: a later run (an update) replaces a hook, a skill, the rules, a folder's
+// CLAUDE.md or HOW-TO.md only while it is still exactly what an earlier run wrote. A file that was
+// there before the first install under the same name is the user's too. Such a file stays, the run
+// lists it at the end, and --replace or --replace-all takes the setup's version.
+// A run that changed something saves what it printed in ~/.claude/setup-logs.
 // What a run was told is kept in ~/.claude/setup-state.json, with the version from version.json, so
 // that the updater (skills/update-setup/update.mjs) can run this again without asking anything.
 //   node install.mjs            install
@@ -20,6 +23,9 @@
 //                               yes when `codex` is on the PATH)
 //   --agy yes|no                the same for the Antigravity CLI (`agy`)
 //   --replace-rules             replace a ~/.claude/CLAUDE.md that has other content (a dated copy is kept)
+//   --replace <file>            take the setup's version of one file the user changed, named as the run
+//                               lists it (hooks/sql-guard.mjs); can be given several times
+//   --replace-all               the same for every such file, and for the rules
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
 //   --node <file>               start the hooks with this Node by its full path instead of plain `node`
 //                               (for a Mac, where an app opened from the Dock may not have Node on its
@@ -39,7 +45,8 @@ const CLAUDE = path.join(home, ".claude");
 const WIN = process.platform === "win32";
 const fwd = (p) => p.replace(/\\/g, "/");
 const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-const say = (s) => console.log((DRY ? "[dry run] " : "") + s);
+const said = [];
+const say = (s) => { said.push(s); console.log((DRY ? "[dry run] " : "") + s); };
 const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const read = (file) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
 
@@ -101,16 +108,39 @@ function keepCopy(file) {
   if (!DRY) fs.copyFileSync(file, copy);
   return path.basename(copy);
 }
+// state.files: each of the setup's own files as a run last wrote it, by full path. One that no longer
+// matches was changed by the user, or was theirs before the first install, and stays unless asked for.
+// A setup put in place before files were on record has none: there a file is replaced as it used to be.
+const onRecord = !state.version || "files" in state;
+const filesWritten = { ...(state.files || {}) };
+const replaceAll = args.includes("--replace-all");
+const replaceThese = args.flatMap((a, i) => (a === "--replace" && args[i + 1] ? [fwd(args[i + 1]).replace(/^~\/\.claude\//, "")] : []));
+const asked = (to) => replaceAll || replaceThese.some((r) => fwd(to) === r || fwd(to).endsWith("/" + r));
+// A file as the lists at the end name it: from ~/.claude where it is inside, else by its full path
+const short = (to) => (fwd(to).startsWith(fwd(CLAUDE) + "/") ? fwd(to).slice(fwd(CLAUDE).length + 1) : fwd(to));
+const tally = { added: 0, same: 0, replaced: [], yours: [] };
 // Writes a file and says what happened. keep: a file that is already there is the user's and stays.
-function put(to, data, { keep = false } = {}) {
+// own: one of the setup's files, which stays only when the user changed it.
+function put(to, data, { keep = false, own = false } = {}) {
   const there = fs.existsSync(to);
   if (there && keep) return say(`kept ${fwd(to)} (already there)`);
-  if (there && fs.readFileSync(to).equals(data)) return say(`unchanged ${fwd(to)}`);
+  const now = there ? fs.readFileSync(to) : null;
+  if (there && now.equals(data)) {
+    if (own) filesWritten[fwd(to)] = sha(data);
+    tally.same++;
+    return say(`unchanged ${fwd(to)}`);
+  }
+  if (there && own && onRecord && filesWritten[fwd(to)] !== sha(now) && !asked(to)) {
+    tally.yours.push(short(to));
+    return say(`kept yours ${fwd(to)} (it differs from the setup's version)`);
+  }
   const backup = there ? keepCopy(to) : null;
   if (!DRY) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.writeFileSync(to, data);
   }
+  if (own) filesWritten[fwd(to)] = sha(data);
+  if (backup) tally.replaced.push(short(to)); else tally.added++;
   say(`${backup ? "replaced" : "copied"} ${fwd(to)}${backup ? ` (old copy: ${backup})` : ""}`);
 }
 function putJson(file, data, was) {
@@ -138,7 +168,7 @@ for (const rel of files) {
   // a shell script needs Unix line ends and has to be runnable; off Windows Codex's Windows-only sandbox flag goes
   const script = rel.endsWith(".sh") || rel === path.join("workers", "ask.mjs"); // started by its own name
   if (script) data = Buffer.from(data.toString("utf8").replace(/\r\n/g, "\n").replace(WIN ? "" : ` -c 'windows.sandbox="unelevated"'`, ""));
-  put(path.join(CLAUDE, rel), data);
+  put(path.join(CLAUDE, rel), data, { own: true });
   if (script && !DRY) fs.chmodSync(path.join(CLAUDE, rel), 0o755);
 }
 // The worker command (workers/ask.mjs) leaves out a worker that has a file <name>.off next to it
@@ -149,7 +179,7 @@ for (const name of ["codex", "agy"]) {
 }
 // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
 const shared = path.join(REPO, "projects", "shared");
-if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), fit(rel, fs.readFileSync(path.join(shared, rel))));
+if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), fit(rel, fs.readFileSync(path.join(shared, rel))), { own: true });
 
 // The hook wiring: each hook from an example is added unless that event already runs the same script.
 // The command points at the installed copy by its full path, so it works from any folder and shell.
@@ -205,7 +235,7 @@ const writeRules = (text) => { if (!DRY) { fs.mkdirSync(CLAUDE, { recursive: tru
 const marks = { rules: state.rules, rulesOffered: state.rulesOffered };
 if (mine === null) { writeRules(built); say(`rules: wrote ${fwd(rulesFile)} (workers: ${which})`); }
 else if (mine === built) say(`rules: unchanged ${fwd(rulesFile)} (workers: ${which})`);
-else if (args.includes("--replace-rules") || state.rules === sha(mine)) {
+else if (args.includes("--replace-rules") || replaceAll || state.rules === sha(mine)) {
   const backup = keepCopy(rulesFile);
   writeRules(built);
   say(`rules: replaced ${fwd(rulesFile)} (workers: ${which}; old copy: ${backup})`);
@@ -250,7 +280,7 @@ for (const name of HOMES) {
     if (rel === example || rel === "CLAUDE.md") continue;
     // Skills, hooks and tools are the setup's; anything else in the folder is the user's once it is there
     const own = rel.startsWith(".claude" + path.sep) || rel.startsWith("tools" + path.sep);
-    put(path.join(dir, rel), fit(rel, fs.readFileSync(path.join(from, rel))), { keep: !own });
+    put(path.join(dir, rel), fit(rel, fs.readFileSync(path.join(from, rel))), { keep: !own, own });
   }
   if (name === "claude-settings") {
     const howTo = path.join(dir, "HOW-TO.md");
@@ -312,7 +342,7 @@ for (const name of HOMES) {
 // Remembered for later runs: the projects folder, the folder of this setup (a chat can find it again),
 // its version, the answers about the workers and Node, and what the rules and notes files were written as
 const version = JSON.parse(fs.readFileSync(path.join(REPO, "version.json"), "utf8")).version;
-const nextState = { ...state, projects: PROJECTS, repo: REPO, version, ...marks, written };
+const nextState = { ...state, projects: PROJECTS, repo: REPO, version, ...marks, written, files: filesWritten };
 for (const name of ["codex", "agy"]) if (answer(name) !== null) nextState[name] = answer(name);
 if (nodeFile) nextState.node = nodeFile;
 for (const key of Object.keys(nextState)) if (nextState[key] === undefined) delete nextState[key];
@@ -330,4 +360,43 @@ if (extensions.length) {
 }
 say(`Voice typing is not installed by this script: it is Handy, a separate free program. See "Voice typing" in ${fwd(path.join(REPO, "README.md"))}`);
 say(`The programs, the plugins and the app settings are the full install: ${fwd(path.join(REPO, "docs", "full-install.md"))}`);
+
+// ---- what this run did to files that were already there, and what looks left over
+// A hook in settings.json that starts a script by its full path, where that script is not there
+const lost = [];
+if (!DRY) for (const [event, groups] of Object.entries(settings.hooks || {})) {
+  for (const hook of groups.flatMap((g) => g.hooks || [])) {
+    for (const m of String(hook.command || "").matchAll(/"([^"]+\.(?:mjs|cjs|js|sh|py|ps1))"|(\S+\.(?:mjs|cjs|js|sh|py|ps1))(?=\s|$)/g)) {
+      let script = (m[1] || m[2]).replace(/^~(?=[\\/])/, home);
+      if (WIN) script = script.replace(/^\/([a-zA-Z])\//, "$1:/");
+      if (path.isAbsolute(script) && !/[$%]/.test(script) && !fs.existsSync(script)) lost.push(`${event}: ${fwd(script)}`);
+    }
+  }
+}
+const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|linked|removed)/.test(l));
+if (did || tally.yours.length) {
+  const parts = [[tally.added, "new"], [tally.replaced.length, "replaced"], [tally.yours.length, "kept as yours"], [tally.same, "unchanged"]];
+  say(`Files: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(", ")}.`);
+}
+if (tally.replaced.length) {
+  say(`Replaced, the old one is next to each as <name>.before-install-<date>:`);
+  for (const f of tally.replaced) say(`  ${f}`);
+}
+if (tally.yours.length) {
+  say(`Kept as yours, because they differ from the setup's version (you changed them, or had them before):`);
+  for (const f of tally.yours) say(`  ${f}`);
+  say(`To take the setup's version, run this again with --replace <name> for one file or --replace-all for all of them and the rules. Yours is then kept as a dated copy.`);
+}
+if (lost.length) {
+  say(`Hooks in ${fwd(settingsFile)} whose script is not there (left over from something else; nothing was done about them):`);
+  for (const l of lost) say(`  ${l}`);
+}
+// What a run printed is saved when it changed something, so it can be read or sent later
+const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+const logFile = path.join(CLAUDE, "setup-logs", `install-${stamp}.txt`);
+if (did && !DRY) say(`This run is saved in ${fwd(logFile)}`);
 say(DRY ? "Nothing was changed." : `Done. Restart Claude Code so it loads the hooks. How to use the setup: ${fwd(path.join(REPO, "docs", "HOW-TO.md"))}`);
+if (did && !DRY) {
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.writeFileSync(logFile, said.join("\n") + "\n");
+}

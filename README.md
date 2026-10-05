@@ -4,11 +4,11 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/085c83e4-ea82-4bc8-9156-a2045f7365a6
+https://github.com/user-attachments/assets/6655bc56-4439-4b9f-b94e-8e4d586c3fb0
 
 ## What's new
 
-**October 5, 2026** (versions 1.0.5 to 1.0.8). A long session now moves to a fresh one by itself: when a reply ends past 250k tokens, the agent writes the brief and opens the new session, so your next message doesn't pay for the long history. The Usage Plan panel shows how much of the week you used today. Nimbalyst gets five colour themes from the new [ink-themes](extensions/ink-themes/README.md) extension, and the tour video above shows all of this.
+**October 5, 2026** (versions 1.0.5 to 1.0.9). An install or an update no longer replaces a file you changed: your version of a hook or a skill stays, the run lists it, and you choose which ones to swap for the new version. A long session now moves to a fresh one by itself: when a reply ends past 250k tokens, the agent writes the brief and opens the new session, so your next message doesn't pay for the long history. The Usage Plan panel shows how much of the week you used today. Nimbalyst gets five colour themes from the new [ink-themes](extensions/ink-themes/README.md) extension, and the tour video above shows all of this.
 
 **October 4, 2026** (versions 1.0.0 to 1.0.4). The setup updates itself. Once a day it checks for a newer version, and `/update-setup` installs it and keeps your own skills, hooks, settings and notes. Searching and long reading go through one command, [workers/ask.mjs](workers/ask.mjs), which uses whichever worker is ready, so the setup works with a ChatGPT subscription, a Google one, both or neither. `/court readers <file>` has several readers with different jobs read a resume, a README or a post and tells you how it lands. `/setup-audit` lists what every chat loads but hardly uses, and new chats stay on the model you picked.
 
@@ -34,6 +34,8 @@ node install.mjs
 
 This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks into `~/.claude/settings.json`, writes `~/.claude/CLAUDE.md` if there is none, and creates four project folders under `~/Projects`. A file it replaces is kept as `<name>.before-install-<date>`.
 
+If you already have a Claude Code setup, yours stays. A hook or skill of yours with the same name as one of these is left as it is, and the run ends with the list of those files. `--replace <name>` takes my version of one, and `--replace-all` takes all of them and the rules, for when you want to start over. A run that changed something saves what it printed in `~/.claude/setup-logs`.
+
 - **Without Nimbalyst:** the rules, hooks and skills work in plain Claude Code. The extensions, the session board and `/lead` need Nimbalyst, the editor I run Claude Code in. `question-other` and `command-explain` are written for it too.
 - **Mac:** I run the setup on Windows. The tests also run on macOS, but the full install has not been run on a real Mac, and Read Aloud is Windows only.
 - **Afterwards:** [docs/HOW-TO.md](docs/HOW-TO.md) says what to type and what you should see.
@@ -46,6 +48,7 @@ Once a day the setup asks GitHub whether a newer version is released ([hooks/upd
 
 - **Yours stays yours.** The installer only writes the setup's own files. Skills, hooks, settings and notes you added are not touched, and every replaced file is kept as `<name>.before-install-<date>`.
 - **Rules.** A `~/.claude/CLAUDE.md` you never changed is brought up to date. One you changed is replaced only after you say yes.
+- **Files of mine that you changed.** The same goes for a hook or a skill from this setup that you edited: it stays as you have it, the update lists it, and `/update-setup` asks whether you want the new version.
 - **Without a chat:** `node ~/.claude/skills/update-setup/update.mjs`, or `--check` to only look.
 - **Installed before version 1.0.0?** Download the repository once more and run the install again; from then on it updates itself.
 - **Off switch:** set `UPDATE_CHECK=off` to stop the daily check.

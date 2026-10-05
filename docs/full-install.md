@@ -87,6 +87,8 @@ node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no>
 
 On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. If it says `rules: left alone` or `rules: new in this version, yours were kept`, the user already has a `~/.claude/CLAUDE.md` of their own: show in a few lines what `rules/CLAUDE.md` adds, ask whether to replace theirs (a dated copy is kept), and on yes run the same command with `--replace-rules`.
 
+If the run ends with a list under `Kept as yours`, the user already had files with those names: their own hooks or skills, or an older copy of this setup. They were left as they are. Show the list and ask once: take the setup's version of all of them, of some (which ones), or keep theirs. A dated copy of theirs is kept either way. All: the same command with `--replace-all`, which takes the rules too. Some: with `--replace <name>` for each, the name as the list has it. If the run lists hooks whose script is not there, name them in the final reply and change nothing. A run that changed something saves what it printed under `~/.claude/setup-logs`.
+
 ## 4. Plugins and skills
 
 First run `claude plugin list` and note which plugins are already installed. Then run these one at a time, skipping what is there:
@@ -162,6 +164,7 @@ Then reply in the user's language, in short lines:
 
 - **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, each outside worker, the three extensions, the four folders with their full path, voice typing.
 - **Do this once.** Quit Nimbalyst and open it again: the two new buttons then sit in the side bar and every chat finds the programs installed today. Start a new chat for the next task, because rules and hooks load when a chat starts. In each project folder you work in, type `/new-project` once. Any sign-in still open, with the exact command. If step 8 was skipped: open `<projects>/claude-settings` in Nimbalyst, turn on Developer Mode under Settings > Advanced, and paste in a new chat: `Open these four folders as projects: <the four full paths>. Set the default model for new chats to claude-code:sonnet. Turn on the alpha features worktrees and terminal if they are off. Then show me the settings overview.`
+- **What was already there:** the files kept as theirs and the files replaced (each old one is next to the new one as `<name>.before-install-<date>`), any hook whose script is not there, and the file under `~/.claude/setup-logs` that has the whole run. Leave this out on a computer that had no setup before.
 - **What was left out** and how to add it: a missing worker (run `node install.mjs --codex yes` or `--agy yes` from `<repo>` after installing and signing in), a program that could not be installed with its install command.
 - **How to use it:** `<projects>/claude-settings/HOW-TO.md` has an example for each feature; typing the single word `usage` shows how much of the plan is used.
 - **Updates:** once a day the setup says when a newer version is out; typing `/update-setup` installs it and keeps their own files.

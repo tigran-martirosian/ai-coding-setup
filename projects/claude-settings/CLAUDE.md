@@ -7,6 +7,8 @@ happen here.
 - **The installer can be run again at any time.** `node install.mjs`, run in the folder saved as
   `repo` in `~/.claude/setup-state.json`, adds what is missing, keeps a dated copy of every file it replaces
   (`<name>.before-install-<yyyymmdd>`) and leaves the notes files in these four folders as they are.
+  One of the setup's files that was changed here stays too: the run lists it under `Kept as yours`,
+  and `--replace <name>` or `--replace-all` takes the setup's version.
   `node install.mjs --dry-run` prints what it would do and changes nothing.
 - **Adding a worker later.** With a ChatGPT subscription: install the Codex CLI
   (`npm i -g @openai/codex`) and run `codex login`. With a Google subscription: install the

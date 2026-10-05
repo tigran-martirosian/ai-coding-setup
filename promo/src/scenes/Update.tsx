@@ -12,13 +12,14 @@ const STEPS = [
   "Newer version: 1.0.1 (installed: 1.0.0)",
   "Downloaded the release from GitHub",
   "Replaced the setup's files, each old one kept as a dated copy",
+  "Kept as yours: hooks/sql-guard.mjs, which you changed",
   "Your own skills, hooks, settings and notes: not touched",
 ] as const;
 
 const NOTICE_AT = 10;
 const COMMAND_AT = 44;
 const FIRST_STEP_AT = 76;
-const PER_STEP = 24;
+const PER_STEP = 22;
 
 export const Update: React.FC<SceneProps> = ({ durationInFrames }) => {
   const frame = useCurrentFrame();

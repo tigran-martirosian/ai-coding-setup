@@ -97,7 +97,15 @@ const mine = path.join(tmp, "mine");
 spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", mine, "--codex", "no", "--agy", "no"], { encoding: "utf8" });
 const myRules = path.join(mine, ".claude", "CLAUDE.md");
 fs.writeFileSync(myRules, fs.readFileSync(myRules, "utf8").replace("# How to work", "# How to work\n\n- My own rule."));
+const myHook = path.join(mine, ".claude", "hooks", "sql-guard.mjs");
+fs.appendFileSync(myHook, "\n// my own change\n");
 const keptMine = await update(mine);
+check("a hook of the setup's that the user changed is kept and listed",
+  fs.readFileSync(myHook, "utf8").endsWith("// my own change\n") && /Kept as yours[^\n]*\n  hooks\/sql-guard\.mjs\n/.test(keptMine.out));
+const hookTaken = await update(mine, "--replace", "hooks/sql-guard.mjs");
+check("--replace takes this version's copy and keeps the user's as a dated copy",
+  hookTaken.code === 0 && fs.readFileSync(myHook, "utf8").endsWith("// newer\n")
+  && fs.readdirSync(path.dirname(myHook)).some((f) => f.startsWith("sql-guard.mjs.before-install-") && fs.readFileSync(path.join(path.dirname(myHook), f), "utf8").endsWith("// my own change\n")));
 check("rules the user changed are kept and the updater says so",
   keptMine.code === 0 && keptMine.out.includes("rules: new in this version, yours were kept") && fs.readFileSync(myRules, "utf8").includes("- My own rule.") && !fs.readFileSync(myRules, "utf8").includes("A rule from the newer version."));
 const taken = await update(mine, "--replace-rules");
