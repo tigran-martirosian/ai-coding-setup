@@ -9,7 +9,7 @@ export interface Pace {
 export interface Plan {
   status: string;
   at?: string;
-  week?: { used: number; resets: string; rolled: boolean; budget: number; average: Pace | null; recent: Pace | null };
+  week?: { used: number; resets: string; rolled: boolean; budget: number; today?: number; average: Pace | null; recent: Pace | null };
   five?: { open: boolean; used?: number; resets?: string; perHour?: number; atReset?: number; full?: string | null };
 }
 

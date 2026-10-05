@@ -1,0 +1,116 @@
+/* Ink themes: shapes, fonts and button labels, shared by every theme. Colours come from themes.mjs.
+   The scope word on the next line is replaced by build.mjs with the selector that is only true while one of the themes is on. */
+__S__ {
+  --ink-sans: Figtree, "Segoe UI", system-ui, sans-serif;
+  --ink-display: "Bricolage Grotesque", Figtree, "Segoe UI", sans-serif;
+  --ink-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+
+  /* Fonts */
+  body { font-family: var(--ink-sans) !important; }
+  h1, h2, h3, .workspace-summary-header-name { font-family: var(--ink-display); letter-spacing: -0.01em; }
+  code, kbd { font-family: var(--ink-mono); }
+
+  /* Text on the accent: light or dark, as the theme says */
+  [class^="bg-[var(--nim-primary)]"], [class*=" bg-[var(--nim-primary)]"] { color: var(--nim-on-primary) !important; }
+
+  /* Rounder shapes (split buttons keep their flat inner edges) */
+  .rounded:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]) { border-radius: 8px; }
+  .rounded-md:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]) { border-radius: 10px; }
+  .rounded-lg:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]) { border-radius: 13px; }
+
+  /* Sessions panel: one darker surface with no dividing lines, like the mockup's side panel */
+  .session-history, .workspace-summary-header { background: var(--nim-bg-secondary) !important; }
+  .workspace-summary-header { padding: 16px 14px 10px !important; border-bottom: 0 !important; }
+  .workspace-summary-header-name { font-size: 17px !important; font-weight: 600 !important; }
+  .workspace-summary-header-path { font-family: var(--ink-mono); font-size: 10.5px !important; margin-top: 3px !important; }
+  .session-history-section-label { border-bottom: 0 !important; background: transparent !important; padding: 4px 14px 2px !important;
+    text-transform: none !important; letter-spacing: 0 !important; font-weight: 500 !important; }
+  .session-history-search, .session-history-filters { border-bottom: 0 !important; padding: 6px 14px !important; }
+  .session-history-search-input { border-radius: 11px !important; background: var(--nim-bg) !important; padding-top: 9px !important; padding-bottom: 9px !important; }
+
+  /* Parts added by shell.js: New session button, mode switch, usage bars */
+  .ink-top { display: grid; gap: 10px; margin-top: 12px; }
+  .ink-new { display: block; width: 100%; text-align: left; padding: 9px 13px; border: 0; border-radius: 11px; cursor: pointer;
+    background: var(--nim-primary); color: var(--nim-on-primary); font: 600 13.5px var(--ink-sans); box-shadow: 0 6px 22px color-mix(in srgb, var(--nim-primary) 32%, transparent); }
+  .ink-new:hover { background: var(--nim-primary-hover); }
+  .ink-seg { display: flex; padding: 2px; border: 1px solid var(--nim-border); border-radius: 11px; background: var(--nim-bg-tertiary); }
+  .ink-seg-btn { flex: 1; padding: 5px 0; border: 0; border-radius: 9px; cursor: pointer; background: transparent; color: var(--nim-text-muted); font: 500 12px var(--ink-sans); }
+  .ink-seg-btn:hover { color: var(--nim-text); }
+  .ink-seg-btn.on { background: var(--nim-bg-active); color: var(--nim-text); }
+  .ink-usage { flex-shrink: 0; display: grid; gap: 10px; padding: 12px 16px 14px; border-top: 1px solid var(--nim-border); }
+  .ink-usage[hidden], .ink-usage-row[hidden] { display: none; }
+  .ink-usage-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--nim-text-muted); }
+  .ink-usage-pct { font: 500 12px var(--ink-mono); color: var(--nim-text); }
+  .ink-usage-bar { height: 4px; margin-top: 5px; border-radius: 2px; background: var(--nim-border); overflow: hidden; }
+  .ink-usage-fill { display: block; height: 100%; border-radius: 2px; background: var(--nim-primary); transition: width 0.3s ease; }
+  .ink-usage-row[data-tone="warning"] .ink-usage-fill { background: var(--nim-warning); }
+  .ink-usage-row[data-tone="error"] .ink-usage-fill { background: var(--nim-error); }
+  /* While the switch is on screen it replaces these three side icons (shell.js sets the class) */
+  &.ink-shell [data-testid="agent-mode-button"], &.ink-shell [data-testid="files-mode-button"], &.ink-shell [data-testid="tracker-mode-button"] { display: none !important; }
+
+  /* Session header: bigger title in the display font, more air */
+  .workstream-header { height: 62px !important; padding-left: 22px !important; padding-right: 22px !important; }
+  .workstream-header-title { font: 600 16px/1.25 var(--ink-display) !important; letter-spacing: -0.01em; }
+
+  /* Group headings: quiet, not shouting */
+  .collapsible-group { margin-bottom: 8px; }
+  .collapsible-group-header { padding: 10px 14px 4px !important; font-size: 11.5px !important; font-weight: 500 !important; }
+  .collapsible-group-title { text-transform: none !important; letter-spacing: 0 !important; }
+  .collapsible-group-title::first-letter { text-transform: uppercase; }
+
+  /* Session rows: roomier, rounder, small details in the mono font, pill-shaped status */
+  .session-list-item { border-radius: 11px; padding-top: 8px; padding-bottom: 8px; margin-top: 1px; margin-bottom: 1px; }
+  .session-list-item-title { font-size: 13.5px !important; }
+  .session-list-item-icon { opacity: 0.6; }
+  .session-list-item-meta { font-family: var(--ink-mono); font-size: 10.5px !important; margin-top: 2px !important; }
+  .session-list-item-phase { border-radius: 99px; padding: 2px 9px; font: 500 10px/1.3 var(--ink-sans); }
+
+  /* The two main buttons stand out */
+  .ai-chat-send-button { box-shadow: 0 4px 18px color-mix(in srgb, var(--nim-primary) 35%, transparent); }
+  .window-top-bar__create-primary { background: var(--nim-primary) !important; color: var(--nim-on-primary) !important; padding: 0 10px; }
+
+  /* Side buttons: a name under every icon. The Usage Plan button is left alone: its extension draws the week's percent in ::after. */
+  .nav-button:not([data-panel-id*="usageplan"]), [data-testid$="-usage-indicator"] { height: auto !important; min-height: 36px; flex-direction: column; gap: 3px; padding: 5px 0 4px !important; }
+  .nav-button:not([data-panel-id*="usageplan"])::after, [data-testid$="-usage-indicator"]::after { font: 600 10px/1 var(--ink-sans); color: var(--nim-text-faint); white-space: nowrap; }
+  .nav-button.active:not([data-panel-id*="usageplan"])::after { color: inherit; }
+  [data-testid="files-mode-button"]::after { content: "Files"; }
+  [data-testid="agent-mode-button"]::after { content: "Agent"; }
+  [data-testid="tracker-mode-button"]::after { content: "Tracker"; }
+  .nav-button[aria-label="Project Graph"]::after { content: "Graph"; }
+  .nav-button[aria-label="Commands"]::after { content: "Cmds"; }
+  [data-testid="terminal-panel-button"]::after { content: "Term"; }
+  .nav-button[aria-label="Git Log"]::after { content: "Git"; }
+  [data-testid="claude-usage-indicator"]::after { content: "Claude"; }
+  [data-testid="codex-usage-indicator"]::after { content: "Codex"; }
+  [data-testid="gemini-usage-indicator"]::after { content: "Gemini"; }
+  [data-testid="gutter-permissions-button"]::after { content: "Perms"; }
+  [data-testid="gutter-theme-button"]::after { content: "Theme"; }
+  [data-testid="gutter-user-button"]::after { content: "Me"; }
+
+  /* The app centres these on the whole button; with a name underneath they belong on the icon (5px padding, 32px ring) */
+  [data-testid$="-usage-indicator"] > span { inset: 5px 0 auto 0 !important; height: 44px; }
+  /* The rings are drawn at 44px instead of the app's 32px, so an 11.5px bold percent fits inside and can be read */
+  [data-testid$="-usage-indicator"], button[data-panel-id*="usageplan"] { width: 44px !important; margin: 0 -5px; flex-shrink: 0; }
+  button[data-panel-id*="usageplan"] { height: 44px !important; }
+  [data-testid$="-usage-indicator"] > svg { width: 44px; height: 44px; }
+  button[data-panel-id*="usageplan"]::before { inset: 6px !important; transform: scale(1.375); }
+  [data-testid$="-usage-indicator"] > span, button[data-panel-id*="usageplan"]::after { font-size: 11.5px !important; font-weight: 700 !important; letter-spacing: -0.05em; color: var(--nim-text) !important; }
+  .trust-indicator-dot { bottom: auto !important; top: 19px; right: 5px !important; }
+
+  /* Nothing to show */
+  [data-testid="gutter-feedback-button"] { display: none !important; }
+
+  /* Message box: one floating rounded box instead of a bar across the bottom */
+  .ai-chat-input { margin: 0 20px 16px; padding: 10px 12px !important; border: 1px solid var(--nim-border) !important; border-radius: 16px;
+    background: var(--nim-bg-tertiary) !important; box-shadow: 0 10px 28px var(--ink-shadow); }
+  .ai-chat-input:focus-within { border-color: var(--nim-border-focus) !important; }
+  .ai-chat-input-field { background: transparent !important; border-color: transparent !important; font-size: 14px; }
+
+  /* Empty chat: a heading and command cards instead of the rotating product tip */
+  .tip-card--inline, .slash-command-suggestions-label { display: none !important; }
+  .rich-transcript-empty-extras::before { content: "What are we working on?"; font: 700 34px/1.15 var(--ink-display); letter-spacing: -0.02em; color: var(--nim-text); text-align: center; }
+  .slash-command-suggestions-pills { gap: 12px; }
+  .slash-command-pill { border-radius: 14px !important; padding: 12px 18px !important;
+    background: var(--nim-bg-tertiary) !important; box-shadow: 0 10px 28px var(--ink-shadow); }
+  .slash-command-pill:hover { border-color: var(--nim-border-focus) !important; }
+}

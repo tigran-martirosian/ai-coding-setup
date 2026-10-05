@@ -4,21 +4,16 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/2bf61db5-d115-49d1-ad46-0006cd18db26
+https://github.com/user-attachments/assets/c92219e6-4d94-405c-bcb3-92eec42a687b
 
 ## What's new
 
-**October 4, 2026, version 1.0.4: the audit finds dead weight.** `/setup-audit` now lists what every chat loads but hardly uses and asks about fixes once, in one form. `/new-project` suggests Playwright, Frontend Design and NotebookLM where they fit.
+**October 5, 2026** (versions 1.0.5 to 1.0.16). The installer now builds the Nimbalyst extensions itself, so the themes, the usage ring and the command buttons arrive with the install and with every update. It also installs the plugins and adds the Claude Code settings, and `/update-setup` finishes what only a chat can do: the settings inside Nimbalyst, a theme you pick, and voice typing if you want it. A handoff brief can no longer be written with an empty summary, `/chat-review` reads your chats with whichever worker you have instead of Codex only, and the side-bar button gains Update setup and Chat review. The check for a newer version now runs every 12 hours instead of once a day, and a worker that is refused for your location is skipped for half an hour instead of being tried on every call. An install or an update no longer replaces a file you changed: your version of a hook or a skill stays, the run lists it, and you choose which ones to swap for the new version. A long session now moves to a fresh one by itself: when a reply ends past 250k tokens, the agent writes the brief and opens the new session, so your next message doesn't pay for the long history. The Usage Plan panel shows how much of the week you used today. Nimbalyst gets eleven colour themes from the new [ink-themes](extensions/ink-themes/README.md) extension, folded into one row of the Theme menu, and `/new-project` points a project that has a web UI to Designeer for design references. A picture the agent shows in the chat now always opens when you click it: a new check, `picture-in-project`, has the agent copy it into the project first. The tour video above shows all of this.
 
-**October 4, 2026, version 1.0.3: the reader court.** `/court readers <file>` has a few readers with different jobs read a resume, a README, a post or a page, each alone, and sums up how it lands and what to change.
-
-**October 4, 2026, version 1.0.2: you stay on the model you picked.** The rules no longer expect new chats to start on Sonnet, and Claude no longer stops to ask whether to move to Opus. The rules file every chat loads is shorter.
-
-**October 4, 2026, version 1.0.0: the setup updates itself.** Once a day it checks whether a newer version is released and says so in one line. Typing `/update-setup` installs it without asking anything again, and keeps your own skills, hooks, settings and notes.
-
-**October 4, 2026: one command for the free workers.** Searching and long reading now go through [workers/ask.mjs](workers/ask.mjs). It picks the first worker that is ready, moves to the next one when a worker runs out of usage, and says which one answered. The setup now works the same with a ChatGPT subscription, a Google one, both or neither, and a search no longer stops because one worker is busy.
+**October 4, 2026** (versions 1.0.0 to 1.0.4). The setup updates itself. Twice a day it checks for a newer version, and `/update-setup` installs it and keeps your own skills, hooks, settings and notes. Searching and long reading go through one command, [workers/ask.mjs](workers/ask.mjs), which uses whichever worker is ready, so the setup works with a ChatGPT subscription, a Google one, both or neither. `/court readers <file>` has several readers with different jobs read a resume, a README or a post and tells you how it lands. `/setup-audit` lists what every chat loads but hardly uses, and new chats stay on the model you picked.
 
 Earlier changes are in [CHANGELOG.md](CHANGELOG.md).
+
 
 ## Install
 
@@ -30,30 +25,33 @@ claude "Read docs/full-install.md and carry out every step in it."
 
 Claude Code asks which subscriptions you have (ChatGPT for Codex, Google AI for Gemini; both optional), then installs what is missing: Nimbalyst, Node.js, Git, uv, Handy, the Codex and Antigravity CLIs, the files below, the plugins and a few settings. The steps are in [docs/full-install.md](docs/full-install.md).
 
-Only the files, with Node.js 18 or newer:
+Without the programs, with Node.js 18 or newer:
 
 ```
 node install.mjs --dry-run
 node install.mjs
 ```
 
-This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks into `~/.claude/settings.json`, writes `~/.claude/CLAUDE.md` if there is none, and creates four project folders under `~/Projects`. A file it replaces is kept as `<name>.before-install-<date>`.
+This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks into `~/.claude/settings.json`, writes `~/.claude/CLAUDE.md` if there is none, and creates four project folders under `~/Projects`. When Nimbalyst is installed it also builds the editor extensions (the themes, the usage ring, the command buttons) and puts them into Nimbalyst; `--extensions no` leaves them out. It installs four plugins when the `claude` command and Git are there (`claude-hud` on; `claude-code-setup`, `superpowers` and `context7` switched off until a project needs one; `--plugins no` leaves them out), sets the model to Sonnet if you never set one, and adds permission rules so the agent can't read saved sign-ins or SSH keys and asks before it reads a `.env` file. The settings inside Nimbalyst and voice typing need a chat: the run names them, and `/update-setup` carries them out once. A file it replaces is kept as `<name>.before-install-<date>`.
 
-- **Without Nimbalyst:** the rules, hooks and skills work in plain Claude Code. The extensions, the session board and `/lead` need Nimbalyst, the editor I run Claude Code in. `question-other` and `command-explain` are written for it too.
+If you already have a Claude Code setup, yours stays. A hook or skill of yours with the same name as one of these is left as it is, and the run ends with the list of those files. `--replace <name>` takes my version of one, and `--replace-all` takes all of them and the rules, for when you want to start over. A run that changed something saves what it printed in `~/.claude/setup-logs`.
+
+- **Without Nimbalyst:** the rules, hooks and skills work in plain Claude Code. The extensions, the session board and `/lead` need Nimbalyst, the editor I run Claude Code in. `question-other`, `command-explain` and `picture-in-project` are written for it too.
 - **Mac:** I run the setup on Windows. The tests also run on macOS, but the full install has not been run on a real Mac, and Read Aloud is Windows only.
 - **Afterwards:** [docs/HOW-TO.md](docs/HOW-TO.md) says what to type and what you should see.
 
 ## Updating
 
-Once a day the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](hooks/update-check.mjs)) and says so in one line. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
+Every 12 hours the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](hooks/update-check.mjs)) and says so in one line. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
 
 ![An update announced in one line, then installed with one command](docs/img/clip-update.gif)
 
 - **Yours stays yours.** The installer only writes the setup's own files. Skills, hooks, settings and notes you added are not touched, and every replaced file is kept as `<name>.before-install-<date>`.
 - **Rules.** A `~/.claude/CLAUDE.md` you never changed is brought up to date. One you changed is replaced only after you say yes.
+- **Files of mine that you changed.** The same goes for a hook or a skill from this setup that you edited: it stays as you have it, the update lists it, and `/update-setup` asks whether you want the new version.
 - **Without a chat:** `node ~/.claude/skills/update-setup/update.mjs`, or `--check` to only look.
 - **Installed before version 1.0.0?** Download the repository once more and run the install again; from then on it updates itself.
-- **Off switch:** set `UPDATE_CHECK=off` to stop the daily check.
+- **Off switch:** set `UPDATE_CHECK=off` to stop the check.
 
 ## What's inside
 
@@ -63,7 +61,7 @@ Once a day the setup asks GitHub whether a newer version is released ([hooks/upd
 | Hooks | Scripts that check each step and can send it back | [hooks](hooks) |
 | Skills | Commands for repeated jobs: `/court`, `/lead`, `/handoff`, `/btw`, `/setup-audit` and others | [skills](skills) |
 | Starter projects | Four folders, each with its own rules and tools | [projects](projects) |
-| Editor extensions | Usage pop-up, Read Aloud and a commands button for Nimbalyst | [extensions](extensions) |
+| Editor extensions | Usage pop-up, Read Aloud, a commands button and eleven colour themes for Nimbalyst | [extensions](extensions) |
 | Worker agent | A cheaper subagent for routine edits | [agents](agents) |
 | Worker command | One short command for searching and long reading. It uses the first free worker that is set up and working (Codex, then Gemini through Antigravity), says which one answered, and hands the job back to Claude when none can | [workers](workers) |
 | Installer | Puts the files in place and keeps a copy of what it replaces | [install.mjs](install.mjs) |
@@ -81,6 +79,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `link-gate` | A reply with a link the agent remembered or saw in search results but never opened |
 | `question-other` | A recommended option that says "Checked:" when no file read or search in the log matches it |
 | `command-explain` | A shell command that doesn't end with a line in plain words saying what it does |
+| `picture-in-project` | A picture shown in the chat from outside the open project, which Nimbalyst can't open enlarged |
 | `run-yourself` | A reply that ends with "now open a terminal and run this"; the agent runs it itself |
 | `opencli-readonly` | Posting, liking or following from my logged-in accounts through OpenCLI |
 
@@ -92,10 +91,10 @@ The other hooks keep sessions cheap and safe:
 | `worker-nudge` | Sends searching to the first free worker that is ready (Codex, Gemini) |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
-| `context-guard` | Warns when a session gets long, and has the agent offer a handoff |
+| `context-guard` | Warns when a session gets long, and past 250k tokens moves the work to a fresh session |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
-| `update-check` | Says once a day when a newer version of the setup is released |
+| `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
 | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
 
@@ -130,7 +129,7 @@ The rules I give the models are described in [docs/setup.md](docs/setup.md).
 ![A note sent to a busy session, then an automatic handoff and a board cleanup](docs/img/clip-sessions.gif)
 
 - **A note to a busy session.** Nimbalyst holds a new message until the running reply ends. With [skills/steer](skills/steer/steer.mjs), `/btw <note>` in a second chat leaves a note that the busy session reads before its next step, and `/ask <question>` answers a question about that session without touching its work.
-- **Handoff.** Every step re-sends the whole conversation, so a long session gets expensive. `handoff-brief` rewrites a short brief after every reply, and at 200k tokens `context-guard` has the agent offer to move the work to a fresh session that starts from that brief. `/handoff` does the same on request. The brief also lets the work go on in a GPT or Gemini session when the Claude plan runs out.
+- **Handoff.** Every step re-sends the whole conversation, so a long session gets expensive. `handoff-brief` rewrites a short brief after every reply, and `context-guard` warns at 200k tokens. When a reply ends past 250k, it has the agent move the work to a fresh session that starts from that brief, without asking, so the next message doesn't re-send the long history. `/handoff` does the same on request. The brief also lets the work go on in a GPT or Gemini session when the Claude plan runs out.
 - **The board.** Nimbalyst shows every conversation as a card on a board, and Claude moves its own card from Planning to Complete as the work goes. `/board-cleanup` moves the finished ones that were left behind.
 
 <details>
@@ -179,11 +178,14 @@ With Codex installed, `ask-anything` and `quick-tasks` get the picture skill. It
 
 ![The commands button starting a setup audit, and Read Aloud speaking a reply](docs/img/clip-commands.gif)
 
-Three extensions for Nimbalyst, written in TypeScript and React.
+Four extensions for Nimbalyst. The first three are written in TypeScript and React; the themes are plain CSS and a small script.
 
 - [usage-plan](extensions/usage-plan/README.md) is the ring and the pop-up from the usage section.
 - [read-aloud](extensions/read-aloud/README.md) reads replies aloud with Kokoro, a voice model that runs on the computer. It cleans a reply for speech (no code, no Markdown), and a Python worker speaks it sentence by sentence.
-- [commands](extensions/commands/README.md) puts six commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report and new project. A press starts a new session in the open project with that command.
+- [commands](extensions/commands/README.md) puts seven commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report, new project and update setup. In the `claude-settings` folder it also shows chat review. A press starts a new session in the open project with that command.
+- [ink-themes](extensions/ink-themes/README.md) adds eleven colour themes with their own fonts and rounder shapes, eight dark and three light, under one **Ink themes** row of the Theme menu.
+
+![The eleven themes, one after another on the same window](docs/img/clip-themes.gif)
 
 ## Voice typing
 

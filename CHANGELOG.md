@@ -2,6 +2,66 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.16, October 5, 2026
+
+- **A picture in the chat opens when you click it.** Nimbalyst shows a picture small from any folder, but the enlarged view only loads files inside the open project, so a picture from the temp folder opened as an empty box. A new check, `picture-in-project`, sends such a picture back and has the agent copy it into the project first. `PICTURE_IN_PROJECT=off` turns it off.
+- **Two themes replaced.** Ink Saffron and Ink Slate looked too much like Ink Graphite. In their place: Ink Noir (black and white only, with a white button) and Ink Neon (plum black, hot magenta, electric cyan links). Still eleven themes. If you had picked Saffron or Slate, pick a theme again after the update.
+
+## Version 1.0.15, October 5, 2026
+
+- **Six more colour themes.** Ink Ember (dark wine and rose), Ink Frost (light, cool white and slate blue), Ink Saffron (charcoal and gold), Ink Cobalt (night blue), Ink Blossom (light, blush and berry) and Ink Slate (slate grey and tangerine) join the first five. That makes eleven, eight dark and three light, and each passes the same reading checks.
+- **The theme menu stays short.** The Ink themes fold into one "Ink themes" row of Nimbalyst's Theme menu. Press the row to unfold them; it also names the theme that is on.
+- **`/new-project` knows where to look for design references.** A project with a web UI gets Designeer (designeer.xyz) written into its tools: a free list of design galleries, component libraries, and type and colour tools, to look at before a new page or a redesign.
+- **The tour video shows the eleven themes.**
+
+## Version 1.0.14, October 5, 2026
+
+- **A handoff brief always has its summary.** The brief was written first and the summary added in a second step, and that step could be skipped, which left the next session a brief with an empty "Where we are". Now the summary is written first and the brief script takes it in (`--summary <file>`); without one it writes nothing and says why.
+- **`/chat-review` works with any worker.** Its reader called Codex directly, so without Codex every project came back as failed. It now goes through `ask.mjs` and uses whichever worker is set up, Codex or Gemini.
+- **Two more command buttons.** Update setup starts `/update-setup`, and Chat review shows in the `claude-settings` folder and starts `/chat-review`. A button can now be hidden on one computer (`HIDE` in `src/own.ts`).
+
+## Version 1.0.13, October 5, 2026
+
+- **The plugins and the settings come with the install and with an update.** `node install.mjs` used to leave the plugins and the Claude Code settings to the full install, so a setup put in place with the installer alone never had them. Now the same run installs the four plugins (`claude-hud` on; `claude-code-setup`, `superpowers` and `context7` switched off until a project needs one) and the `find-skills` skill, sets the model to Sonnet if you never set one, and adds permission rules: the agent can't read saved sign-ins or SSH keys and asks before it reads a `.env` file. A plugin is handled once, so one you remove or switch on later stays as you have it. One that fails is named and the rest of the install goes on. `--plugins no` leaves them out.
+- **`/update-setup` finishes what a script can't do.** The settings inside Nimbalyst (the four project folders opened, the default model, worktrees and the terminal) and voice typing need a chat. The installer now names them once, and `/update-setup` carries them out: it asks whether you want voice typing, and which of the five themes you want, and switches to it.
+
+## Version 1.0.12, October 5, 2026
+
+- **The extensions install themselves.** `node install.mjs` used to copy the files and leave the Nimbalyst extensions as three commands each. Now, when Nimbalyst is installed, the same run builds the themes, the usage ring and the command buttons and puts them into Nimbalyst, and an update rebuilds only the ones that changed. Quit Nimbalyst and open it again to see them; nothing looks different until you pick a theme. Read Aloud is rebuilt only where it is installed already. A build that fails is named with its last lines and the rest of the install goes on. `--extensions no` leaves them out.
+
+## Version 1.0.11, October 5, 2026
+
+- **A hook wired by an older copy is moved to the new one.** If your settings started one of the setup's hooks from another folder inside `~/.claude`, the installer saw the name, left the wiring alone and the new copy was never used. Now it points that wiring at the installed copy and says `hook repointed`. A script outside `~/.claude` is yours and is not touched.
+- **A worker that is refused for your location is left alone for half an hour.** When Gemini or Codex answers that your location is not supported, `ask.mjs` now says so and skips that worker for 30 minutes, the same as when it is out of usage, so each call no longer waits for it to fail.
+
+## Version 1.0.10, October 5, 2026
+
+- **The update check runs every 12 hours.** It was once a day. A release now reaches you within half a day of using Claude Code, and the reminder comes at most that often.
+
+## Version 1.0.9, October 5, 2026
+
+- **A file you changed stays yours.** Until now an install or an update replaced every one of the setup's files, also a hook or a skill you had edited, and left yours only as a dated copy. Now the installer remembers what it wrote. A file that is no longer what it wrote is left alone, and so is a file you had under the same name before the first install. The run ends with the list `Kept as yours`. `--replace <name>` takes the setup's version of one file, `--replace-all` takes all of them and the rules, and `/update-setup` asks which you want. A setup installed with an earlier version is updated the old way one more time, then its files are on record.
+- **Every run that changes something is saved.** What the installer printed goes to `~/.claude/setup-logs`, and its last lines count the files that are new, replaced, kept as yours and unchanged.
+- **Leftover hooks are named.** A hook in `~/.claude/settings.json` that starts a script which is not there is listed at the end of the run. Nothing is removed.
+- **The tour video shows it.** The update scene has a line for a file that was kept because you changed it.
+
+## Version 1.0.8, October 5, 2026
+
+- **The tour video shows the new handoff.** The handoff scene no longer has a Yes button: the session passes 250k tokens and the work moves to a fresh one by itself. The sessions clip in the README is re-rendered too.
+
+## Version 1.0.7, October 5, 2026
+
+- **A long session moves to a fresh one by itself.** Until now `context-guard` had the agent offer a handoff at 200k tokens, and one more message in a session that had grown in the meantime still re-sent all of it. Now, when a reply ends past 250k tokens, the agent writes the brief and opens the new session without asking, once, then again every further 100k if you stay. The warning at 200k stays. `CONTEXT_GUARD_AUTO_K` changes the limit and `CONTEXT_GUARD_AUTO=off` brings back warning only.
+- **Used today.** The Usage Plan panel shows how much of the week went today, next to the weekly and 5-hour numbers.
+
+## Version 1.0.6, October 5, 2026
+
+- **The tour video is up to date.** A new scene shows the five colour themes one after another on the same window, the court scene now shows `/court readers`, and the end card counts four editor extensions. The README's extensions section has a clip of the themes.
+
+## Version 1.0.5, October 5, 2026
+
+- **Five colour themes for Nimbalyst.** A new extension, [ink-themes](extensions/ink-themes/README.md): Ink Aurora (dark violet), Ink Ivy (grey and ivy green), Ink Graphite (grey on near-black with brown), Ink Bone (light, ivory and bone) and Ink Tide (deep sea blue). They share fonts, rounder shapes, a name under every side button, a New session button and usage bars in the side panel, and usage rings big enough to read. It builds with Node alone. Nothing changes until you pick one with the Theme button, and a test checks that every text colour can be read on its background.
+
 ## Version 1.0.4, October 4, 2026
 
 - **`/setup-audit` finds what you load but don't use.** It compares what each chat loads (plugins, global skills) with what was actually used and lists the dead weight. It also measures the open items from the last audit, checks the workers through `ask.mjs --status`, and asks which fixes to apply once, in one form. If that form gets lost, it applies only the small fixes that are easy to undo, says how to undo them, and lists the rest as text. See [skills/setup-audit](skills/setup-audit/SKILL.md).

@@ -11,8 +11,9 @@ unless you chose another one). The copy of this page the installer puts into
 ## Installing
 
 You need Node.js 18 or newer and Claude Code. Codex, Antigravity, Nimbalyst and Handy (voice typing)
-are optional, and the installer does not install them. To have the programs, the plugins and the app
-settings put in place too, on Windows or a Mac, use [full-install.md](full-install.md) instead.
+are optional, and the installer does not install them. It does install the plugins and add the
+Claude Code settings. To have the programs put in place too, on Windows or a Mac, use
+[full-install.md](full-install.md) instead.
 
 Download the repository as a zip from its GitHub page (the green **Code** button, then **Download
 ZIP**) and unzip it, or clone it. Open a terminal in that folder.
@@ -37,19 +38,27 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 | `--projects <folder>` | Where the four project folders go. The default is `Projects` in your home folder; a folder given once is remembered. |
 | `--codex yes` or `no`, `--agy yes` or `no` | Whether the rules use Codex and Antigravity. Without the flag the installer looks for `codex` and `agy` on the PATH. |
 | `--replace-rules` | Replace a `~/.claude/CLAUDE.md` you already have. Without it a rules file with other content is left alone. |
+| `--replace <name>` | Take the setup's version of one file the run listed under `Kept as yours`, for example `--replace hooks/sql-guard.mjs`. Can be given several times. |
+| `--replace-all` | Take the setup's version of every file listed there, and the rules. For a computer whose old setup you don't want to keep. |
+| `--extensions no` | Leave the Nimbalyst extensions out. Without it they are built and put into Nimbalyst when Nimbalyst is installed. |
 | `--dry-run` | Print what it would do and change nothing. |
 
 - **Nothing of yours is lost.** A file the installer replaces is kept next to the new one as
   `<name>.before-install-<date>`. The notes files you fill in (each folder's `CLAUDE.md`,
   `profile.md`, `finds/INDEX.md`, `HOW-TO.md`) are written only when they are missing.
+- **A file you changed stays yours.** If you had a hook or a skill with the same name as one of the
+  setup's, or you changed one of the setup's after installing, the installer leaves it alone. It
+  ends with the list `Kept as yours` and the two flags above. A run that changed something also
+  saves what it printed in `~/.claude/setup-logs`, and names any hook in your settings whose script
+  is not there.
 - **Got Codex or Antigravity later?** Install it, sign in and run `node install.mjs` again. It
   rewrites the worker section of the rules and, with Codex, adds the picture skill to two folders.
   The installer saves the folder you ran it from as `repo` in `~/.claude/setup-state.json`, so a
   chat can find it again.
-- **Updates.** Once a day the setup checks whether a newer version is released and says so in one
+- **Updates.** Every 12 hours the setup checks whether a newer version is released and says so in one
   line. Type `/update-setup` to install it: your own skills, hooks, settings and notes stay, and a
-  rules file you changed yourself is replaced only after you say yes. `UPDATE_CHECK=off` in the
-  environment turns the daily check off; `/update-setup` still works.
+  rules file or one of the setup's files you changed yourself is replaced only after you say yes. `UPDATE_CHECK=off` in the
+  environment turns the check off; `/update-setup` still works.
 - **Optional extras the rules mention.** The installer does not install these; where one is missing
   the rule that names it simply doesn't apply.
   - **uv** (provides `uvx`): converts PDF, Word and Excel files to text; also reads videos and feeds.
@@ -59,6 +68,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **The Nimbalyst extensions** are built from source. In each folder under `extensions`:
   `npm install`, `npm run build`, `npm run install-ext`, then restart Nimbalyst. You should see a
   new button in Nimbalyst's left gutter.
+- **Colour themes.** The `ink-themes` extension adds eleven: eight dark ones (Ink Aurora, Ivy,
+  Graphite, Tide, Ember, Noir, Cobalt, Neon) and three light ones (Ink Bone, Frost, Blossom).
+  Press the **Theme** button at the bottom of the left gutter, press **Ink themes** to unfold the
+  list and pick one.
 - **Voice typing** is Handy, a free program that runs on the computer (no account). On Windows:
   `winget install --id cjpais.Handy -e`; other systems: https://handy.computer. Open it once, allow
   the microphone and download the **Parakeet V3** model. In its settings choose push to talk on

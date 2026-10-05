@@ -2,7 +2,10 @@
 // handoff-brief: writes a short brief of a Claude Code session so work can continue in a fresh
 // session (the /handoff skill). Reads only the transcript: the first and last user requests,
 // files edited, and Claude's last reply.
-// Usage: node handoff-brief.mjs [--transcript <file.jsonl>] [--cwd <project folder>]
+// Usage: node handoff-brief.mjs --summary <file> [--transcript <file.jsonl>] [--cwd <project folder>]
+// --summary: a text file with where the work stands, written by Claude first. It becomes the
+// "Where we are" part and is deleted afterwards. Without it no brief is written: a brief with an
+// empty summary leaves the next session to guess.
 // --hook: Stop hook mode. Reads the hook JSON from stdin and silently rewrites
 // ~/.claude/handoffs/<folder>-latest.md after every reply, so a brief exists even when Claude
 // usage runs out (then continue in a GPT or Gemini session from that file). Fails open.
@@ -18,6 +21,15 @@ let hookInput = {};
 if (hook) {
   try { hookInput = JSON.parse(fs.readFileSync(0, "utf8")); } catch { process.exit(0); }
   if (process.env.HANDOFF_HOOK === "off" || !hookInput.transcript_path) process.exit(0);
+}
+const summaryFile = (opt("--summary") || "").replace(/^~(?=$|[\\/])/, os.homedir());
+let summary = "";
+if (!hook) {
+  const how = "Write 5 to 12 bullets on where the work stands to a file, then run this again with --summary <that file>.";
+  if (!summaryFile) { console.log(`No brief written: the summary is missing. ${how}`); process.exit(1); }
+  if (!fs.existsSync(summaryFile)) { console.log(`No brief written: ${summaryFile} is not there. ${how}`); process.exit(1); }
+  summary = fs.readFileSync(summaryFile, "utf8").trim();
+  if (summary.length < 40) { console.log(`No brief written: ${summaryFile} is nearly empty. ${how}`); process.exit(1); }
 }
 const cwd = path.resolve(hookInput.cwd || opt("--cwd") || process.cwd());
 const projectsDir = path.join(os.homedir(), ".claude", "projects");
@@ -114,7 +126,7 @@ const brief = [
   "## Where we are",
   "",
   hook ? "(Written automatically after the last reply, with no summary: work out where things stand from the latest requests and the last reply below, then check the files.)"
-    : "<!-- summary: filled in by the /handoff skill -->",
+    : summary,
   "",
   "## First request (the goal)",
   "",
@@ -140,7 +152,10 @@ try {
   fs.writeFileSync(out, brief);
   if (hook) writeLatest();
 } catch (e) { if (hook) process.exit(0); throw e; }
-if (!hook) console.log(out);
+if (!hook) {
+  fs.rmSync(summaryFile, { force: true });
+  console.log(out);
+}
 
 // <folder>-latest.md = this brief + the other sessions of the last 2 days in this folder, so a
 // small side session that replied last doesn't hide the one the user means. Auto briefs older

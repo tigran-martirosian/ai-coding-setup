@@ -5,11 +5,11 @@ description: Review the user's recent chats on this computer to see what they wo
 
 # Chat review
 
-Fits the setup to what the user really does. A script and the Codex worker do the reading; you
+Fits the setup to what the user really does. A script and a free worker do the reading; you
 judge, look up what exists, and ask. **Change nothing until the user has ticked it.** No chat text
 goes into a rule, a skill, a report or a web search, and no report is sent to anyone. The only
-reader besides you is the Codex worker (OpenAI), the same one that reads long files: when Codex is
-set up, it reads the chat digests, so tell the user that before the scan.
+reader besides you is the free worker that also reads long files (Codex from OpenAI, or Gemini from
+Google, whichever is set up): it reads the chat digests, so tell the user that before the scan.
 
 `$S` below is `.claude/skills/chat-review` in this folder.
 
@@ -24,16 +24,17 @@ is one: what was declined is not offered again, and what was set up is checked, 
 
 ## 2. Read the digests
 
-`node $S/read-digests.mjs <digest folder>` (Bash, timeout 600000). It gives every digest to the
-Codex worker at the same time, with the fixed questions in `reader-task.txt`, and writes
+`node $S/read-digests.mjs <digest folder>` (Bash, timeout 600000). It gives each digest to the
+worker command (`~/.claude/workers/ask.mjs`), with the fixed questions in `reader-task.txt`, and writes
 `<project>.findings.md` next to each digest. A project with fewer than 5 requests is skipped.
 
-Read only the `.findings.md` files. If a project is reported as FAILED, give one `worker` subagent
+Read only the `.findings.md` files. If a project is reported as FAILED (no worker is set up, or it
+could not answer), give one `worker` subagent
 that digest and the text of `reader-task.txt` (it reads the digest in parts), and say that it was used.
 
 ## 3. Judge (this stays with you)
 
-Codex's lines are leads. Before a finding becomes a proposal, check it in the digest: Grep the chat
+The worker's lines are leads. Before a finding becomes a proposal, check it in the digest: Grep the chat
 label, then Read those lines.
 
 **What counts:** something seen in two or more chats; or once, when the user said "always" or
@@ -57,7 +58,8 @@ In this order, and stop at the first that fits:
 
 1. Installed but turned off: `claude plugin list`.
 2. Skills: `npx skills find "<two or three plain words for the kind of task>"`.
-3. One Codex `--search` run: "skills, plugins or tools for <kind of task> in Claude Code".
+3. One web lookup, `~/.claude/workers/ask.mjs --web "skills, plugins or tools for <kind of task> in Claude Code"`;
+   if it says no free worker could answer, one WebSearch with the same words.
 
 Search words describe the kind of task in general words; never a name, a table, a file or a
 sentence from the chats. Before proposing a find, read its own page or `SKILL.md`: what it does,
@@ -94,5 +96,5 @@ Reply short: what was set up and where, what was declined, and which of it needs
 in a `CLAUDE.md` is read when a chat starts; skills and hooks are picked up by running chats). Add
 one line to this folder's `DECISIONS.md` per change. Reply in the language the user writes in.
 
-Budget: about 30 tool calls. The scan and Codex do the reading; you read only findings and the
+Budget: about 30 tool calls. The scan and the worker do the reading; you read only findings and the
 digest lines you check.

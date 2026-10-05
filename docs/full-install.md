@@ -87,9 +87,13 @@ node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no>
 
 On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. If it says `rules: left alone` or `rules: new in this version, yours were kept`, the user already has a `~/.claude/CLAUDE.md` of their own: show in a few lines what `rules/CLAUDE.md` adds, ask whether to replace theirs (a dated copy is kept), and on yes run the same command with `--replace-rules`.
 
+When Nimbalyst is already installed, this run also builds the editor extensions and puts them into Nimbalyst (`extension installed: <name>`); the extensions step further down is then only for one that says `extension failed` or `extension not built`. The same run adds the Claude Code settings of step 5 and installs the plugins of step 4 (`plugin installed: <name>`), so those two steps are only for what it reports as failed or not installed. Its line `Left for a chat, once` means steps 8 and 9 below: you are that chat.
+
+If the run ends with a list under `Kept as yours`, the user already had files with those names: their own hooks or skills, or an older copy of this setup. They were left as they are. Show the list and ask once: take the setup's version of all of them, of some (which ones), or keep theirs. A dated copy of theirs is kept either way. All: the same command with `--replace-all`, which takes the rules too. Some: with `--replace <name>` for each, the name as the list has it. If the run lists hooks whose script is not there, name them in the final reply and change nothing. A run that changed something saves what it printed under `~/.claude/setup-logs`.
+
 ## 4. Plugins and skills
 
-First run `claude plugin list` and note which plugins are already installed. Then run these one at a time, skipping what is there:
+The installer in step 3 did this when it printed `plugin installed:` or `plugin already there:` for each of the four plugins; go on to the warm-ups at the end of this step. Only for a line `plugin failed`, `skill failed` or `plugins not installed`: run `claude plugin list`, note which plugins are already installed, then run these one at a time, skipping what is there:
 
 ```
 claude plugin marketplace add anthropics/claude-plugins-official
@@ -105,6 +109,8 @@ npx -y repomix --version
 `claude-hud` stays on everywhere. The other three load into every session when they are on, so turn each one **that this run installed** off again with `claude plugin disable <name>@claude-plugins-official`; `/new-project` turns them on for the project that needs them. One the user already had stays as they had it. If `uvx` is there, warm up the document converter: `uvx --from "markitdown[all]" markitdown --help`.
 
 ## 5. Claude Code settings
+
+The installer in step 3 made these already. To make them alone:
 
 ```
 node scripts/app-settings.mjs
@@ -123,7 +129,7 @@ A sign-in that isn't finished now is noted for step 10. Nothing else waits on it
 
 ## 7. The Nimbalyst extensions
 
-For `usage-plan` and `commands`, in `<repo>/extensions/<name>`: `npm install`, `npm run build`, `npm run install-ext`. The last one copies the build to `<extensions>` and prints `installed to` and the folder. `read-aloud` is optional and Windows only: it needs a voice model and Python, see [its README](../extensions/read-aloud/README.md). Nimbalyst loads extensions when it starts; don't close it yourself, step 10 tells the user.
+For `usage-plan` and `commands`, in `<repo>/extensions/<name>`: `npm install`, `npm run build`, `npm run install-ext`. The last one copies the build to `<extensions>` and prints `installed to` and the folder. For `ink-themes` (five colour themes; it only adds them to the theme list, the look changes when the user picks one): `npm run build`, `npm run install-ext`, no `npm install`. `read-aloud` is optional and Windows only: it needs a voice model and Python, see [its README](../extensions/read-aloud/README.md). Nimbalyst loads extensions when it starts; don't close it yourself, step 10 tells the user.
 
 ## 8. Nimbalyst settings
 
@@ -132,7 +138,8 @@ Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__n
 1. `workspace_open` once for each of the four folders under `<projects>`, so each shows up as a project.
 2. `settings_get_overview`, then `ai_set_default_model` with `providerModel: "claude-code:sonnet"`.
 3. Turn on **worktrees** and **terminal** if they are off: `features_toggle` with `bucket: "alpha"`, the feature's tag from the overview, `enabled: true`. If the call answers `requiresUserAction: "developer-mode"`, tell the user: "Turn on Developer Mode in Nimbalyst: Settings > Advanced. Then say done." and call it again.
-4. Leave the theme, the sounds, the permission mode and everything else as the user has them. If a tool is missing or a call fails, change nothing and note it for step 10.
+4. **The look.** If `<extensions>/inktheme/manifest.json` is there, ask once which theme they want: Ink Aurora, Ink Ivy, Ink Graphite, Ink Tide, Ink Ember, Ink Noir, Ink Cobalt, Ink Neon (dark), Ink Bone, Ink Frost, Ink Blossom (light), or the one they have now. For one of the eleven: `appearance_set_theme` with `com.local.inktheme:<id>`, the id being the name in small letters with a dash (`ink-aurora`, `ink-frost` and so on). If the call fails, the extension was installed in this run and loads when Nimbalyst starts: tell them to quit Nimbalyst, open it again and pick the theme with the Theme button at the bottom of the side bar.
+5. Leave the sounds, the permission mode and everything else as the user has them. If a tool is missing or a call fails, change nothing and note it for step 10.
 
 ## 9. Handy, for voice typing
 
@@ -142,6 +149,8 @@ Handy writes its settings file on first start, so tell the user: "Open Handy, fo
 - **Mac:** show the user the table under "Voice typing" in the [README](../README.md) and let them set those in Handy's own window; the key to hold is theirs to pick.
 
 If the user doesn't want to do it now, note it for step 10.
+
+When steps 8 and 9 are done or the user said no to them, run `node install.mjs --done chat-steps` from `<repo>`: later runs and updates then stop naming them. If step 8 was skipped because this session is not inside Nimbalyst and the user does use Nimbalyst, leave that command out.
 
 ## 10. Test, then tell the user
 
@@ -154,14 +163,15 @@ Run each check once; fix an obvious failure, report any other with its output. B
 5. `node ~/.claude/skills/usage-report/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
 6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
 7. `node "<projects>/ask-anything/.claude/skills/court/court.mjs"` with no arguments prints a line starting with `Usage: node court.mjs`.
-8. `<extensions>/usageplan/manifest.json` and `<extensions>/commandbuttons/manifest.json` parse as JSON.
+8. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.
 9. `node ~/.claude/skills/update-setup/update.mjs --check` prints `Already on the newest version`.
 10. On a Mac: `zsh -lic 'command -v node uvx'` prints two paths, and every hook command in `~/.claude/settings.json` starts with a Node that exists.
 
 Then reply in the user's language, in short lines:
 
-- **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, each outside worker, the two extensions, the four folders with their full path, voice typing.
+- **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, each outside worker, the three extensions, the four folders with their full path, voice typing.
 - **Do this once.** Quit Nimbalyst and open it again: the two new buttons then sit in the side bar and every chat finds the programs installed today. Start a new chat for the next task, because rules and hooks load when a chat starts. In each project folder you work in, type `/new-project` once. Any sign-in still open, with the exact command. If step 8 was skipped: open `<projects>/claude-settings` in Nimbalyst, turn on Developer Mode under Settings > Advanced, and paste in a new chat: `Open these four folders as projects: <the four full paths>. Set the default model for new chats to claude-code:sonnet. Turn on the alpha features worktrees and terminal if they are off. Then show me the settings overview.`
+- **What was already there:** the files kept as theirs and the files replaced (each old one is next to the new one as `<name>.before-install-<date>`), any hook whose script is not there, and the file under `~/.claude/setup-logs` that has the whole run. Leave this out on a computer that had no setup before.
 - **What was left out** and how to add it: a missing worker (run `node install.mjs --codex yes` or `--agy yes` from `<repo>` after installing and signing in), a program that could not be installed with its install command.
 - **How to use it:** `<projects>/claude-settings/HOW-TO.md` has an example for each feature; typing the single word `usage` shows how much of the plan is used.
-- **Updates:** once a day the setup says when a newer version is out; typing `/update-setup` installs it and keeps their own files.
+- **Updates:** every 12 hours the setup checks and says when a newer version is out; typing `/update-setup` installs it and keeps their own files.

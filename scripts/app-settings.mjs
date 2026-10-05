@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // The settings of the full install that are not files of this repository (docs/full-install.md).
+// install.mjs makes the Claude Code ones itself; this script is for those alone, and for Handy.
 // Safe to run again: it adds what is missing and a second run changes nothing. A file that is changed
 // is kept next to the new one as <name>.before-install-<date>.
 //   node scripts/app-settings.mjs            Claude Code, ~/.claude/settings.json: "model": "sonnet" when no
@@ -13,6 +14,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { addClaudeCodeSettings } from "./claude-code-settings.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] || "" : null);
@@ -47,30 +49,12 @@ function write(file, data, was) {
 }
 
 // ---- Claude Code
-const DENY = [
-  "Read(~/.claude/.credentials.json)", "Read(~/.codex/auth.json)", "Read(~/.gemini/oauth_creds.json)",
-  "Read(~/.gemini/google_accounts.json)", "Read(~/.ssh/**)",
-  "Bash(*.credentials.json*)", "Bash(*.codex/auth.json*)", "Bash(*oauth_creds.json*)", "Bash(*.ssh/*)",
-  "PowerShell(*.credentials.json*)", "PowerShell(*.codex/auth.json*)", "PowerShell(*.codex\\auth.json*)",
-  "PowerShell(*oauth_creds.json*)", "PowerShell(*.ssh/*)", "PowerShell(*.ssh\\*)",
-];
-const ASK = [
-  "Read(//**/.env)", "Read(//**/.env.*)", "Bash(* .env*)", "Bash(*/.env*)",
-  "PowerShell(* .env*)", "PowerShell(*/.env*)", "PowerShell(*\\.env*)",
-];
-const forThisSystem = (rules) => rules.filter((r) => WIN || !r.startsWith("PowerShell("));
-
 const settingsFile = path.join(home, ".claude", "settings.json");
 const settings = read(settingsFile);
 const settingsWas = JSON.stringify(settings);
-if (!settings.model) { settings.model = "sonnet"; say(`model: set to sonnet (none was set)`); }
-else say(`model: left as it is (${settings.model})`);
-let added = 0;
-for (const [kind, rules] of [["deny", DENY], ["ask", ASK]]) {
-  const list = ((settings.permissions ??= {})[kind] ??= []);
-  for (const rule of forThisSystem(rules)) if (!list.includes(rule)) { list.push(rule); added++; }
-}
-say(`permissions: ${added} rule(s) added`);
+const did = addClaudeCodeSettings(settings, WIN);
+say(did.model ? `model: set to sonnet (none was set)` : `model: left as it is (${settings.model})`);
+say(`permissions: ${did.added} rule(s) added`);
 write(settingsFile, settings, settingsWas);
 
 // ---- Handy: the settings from the README's "Voice typing" table. Its model, microphone and sounds

@@ -34,14 +34,35 @@ check("CONTEXT_GUARD=off", run({ prompt: "x", transcript_path: big }, { CONTEXT_
 check("CONTEXT_GUARD_K raises the limit", run({ prompt: "x", transcript_path: big }, { CONTEXT_GUARD_K: "500" }) === "");
 check("CONTEXT_GUARD_K lowers the limit", run({ prompt: "x", transcript_path: small }, { CONTEXT_GUARD_K: "40" }) !== "");
 
-// /handoff offer: once per session, again after +100k
+// Automatic handoff at the end of a reply (Stop): once per session, again after +100k
 const sid = `test-${process.pid}`;
+const user = (text) => JSON.stringify({ type: "user", message: { content: text } }).replace('{"type"', '{"type"');
+const mid = transcript("mid.jsonl", [asst(230000)]);
 const bigger = transcript("bigger.jsonl", [asst(530000)]);
+const stop = (t, extra = {}, env = {}) => run({ hook_event_name: "Stop", transcript_path: t, session_id: sid, ...extra }, env);
+const reason = (o) => { try { return JSON.parse(o).reason ?? ""; } catch { return ""; } };
 const ctx = (t) => { try { return JSON.parse(run({ prompt: "x", transcript_path: t, session_id: sid })).hookSpecificOutput.additionalContext; } catch { return ""; } };
-check("first time: offers /handoff", /Offer a fresh session/.test(ctx(big)));
-check("second time: doesn't offer again", /already offered at ~420k/.test(ctx(big)));
-check("+100k later: offers again", /Offer a fresh session/.test(ctx(bigger)));
-fs.rmSync(path.join(os.tmpdir(), "context-guard", `${sid}.json`), { force: true });
+const clear = () => fs.rmSync(path.join(os.tmpdir(), "context-guard", `${sid}.json`), { force: true });
+check("stop under the handoff limit: silent", stop(mid) === "" && stop(small) === "");
+check("prompt between the limits: batches, no handoff line", /one Edit/.test(ctx(mid)) && !/fresh session/.test(ctx(mid)));
+check("prompt over the handoff limit: hand off when done", /move the work to a fresh session without asking/.test(ctx(big)));
+check("stop while a stop hook is already running: silent", stop(big, { stop_hook_active: true }) === "");
+check("CONTEXT_GUARD_AUTO=off: stop is silent", stop(big, {}, { CONTEXT_GUARD_AUTO: "off" }) === "");
+check("CONTEXT_GUARD_AUTO_K raises the handoff limit", stop(big, {}, { CONTEXT_GUARD_AUTO_K: "500" }) === "");
+const held = stop(big);
+check("stop over the limit: holds the reply and asks for the handoff", JSON.parse(held).decision === "block" && /~420k/.test(reason(held)) && /without asking/.test(reason(held)));
+check("second stop: silent", stop(big) === "");
+check("prompt after a handoff: don't hand off again", /already opened at ~420k/.test(ctx(big)));
+check("+100k later: holds again", /~530k/.test(reason(stop(bigger))));
+clear();
+// A turn that already handed off (the user ran /handoff) is not held
+const call = (cmd) => JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5", content: [{ type: "tool_use", name: "Bash", input: { command: cmd } }], usage: { input_tokens: 2, cache_read_input_tokens: 300000, cache_creation_input_tokens: 0 } } });
+const handed = transcript("handed.jsonl", [user("/handoff"), call("node ~/.claude/skills/handoff/handoff-brief.mjs"), asst(300000)]);
+const earlier = transcript("earlier.jsonl", [user("x"), call("node ~/.claude/skills/handoff/handoff-brief.mjs"), user("go on"), call("ls"), asst(300000)]);
+check("this turn already handed off: silent", stop(handed) === "");
+clear();
+check("a handoff in an earlier turn doesn't count", JSON.parse(stop(earlier) || "{}").decision === "block");
+clear();
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);

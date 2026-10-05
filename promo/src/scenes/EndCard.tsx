@@ -14,7 +14,7 @@ export const EndCard: React.FC<SceneProps> = ({ durationInFrames }) => {
       </Appear>
       <Appear at={18}>
         <div style={{ fontSize: 40, color: color.dim }}>
-          Rules, hooks, skills, three editor extensions and four starter projects.
+          Rules, hooks, skills, four editor extensions and four starter projects.
         </div>
       </Appear>
       <Appear at={34}>

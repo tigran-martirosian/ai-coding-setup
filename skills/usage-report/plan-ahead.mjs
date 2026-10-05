@@ -103,6 +103,11 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
       week.recent = { ...line(used, (used - back.week.u) / ((last.ms - back.ms) / HOUR), last.ms, reset), hours: Math.round((last.ms - back.ms) / HOUR) };
     }
   }
+  // used since local midnight, in points of the week
+  const dayStart = nextMidnight(now) - DAY;
+  const inWeek = rolled ? [] : S.filter((s) => sameWindow(s.week, last.week));
+  const before = inWeek.findLast((s) => s.ms <= dayStart);
+  week.today = rolled ? 0 : round(Math.max(0, used - (before ? before.week.u : start >= dayStart ? 0 : inWeek[0].week.u)));
   const pace = week.average ?? week.recent;
   if (plan?.status === "ok") {
     const all = Object.values(plan.days);

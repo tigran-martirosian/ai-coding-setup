@@ -4,7 +4,7 @@
 // has no call that reaches a session that is already running (read from the app's code, 2026-10-03),
 // so /handoff, /ask and /btw, which belong to a running chat, are not here.
 
-import { OWN } from './own.ts';
+import { HIDE, OWN } from './own.ts';
 
 export interface Command {
   id: string;
@@ -22,15 +22,20 @@ export interface Command {
 declare const __SHARE__: boolean | undefined;
 const SHARE = typeof __SHARE__ !== 'undefined' && __SHARE__;
 
-export const COMMANDS: Command[] = [
+const ALL: Command[] = [
   { id: 'board-cleanup', label: 'Board cleanup', prompt: '/board-cleanup', note: 'Move finished sessions to Complete', icon: 'mop' },
   { id: 'next-move', label: 'Next move', prompt: '/next-move', note: 'The most useful thing to do next here', icon: 'navigation' },
   { id: 'project-scan', label: 'Project scan', prompt: '/project-scan', note: "Check this project's Claude setup", icon: 'troubleshoot' },
   { id: 'setup-audit', label: 'Setup audit', prompt: '/setup-audit', note: 'Full check of the global setup', icon: 'fact_check' },
   { id: 'usage-report', label: 'Usage report', prompt: '/usage-report', note: 'Where the tokens went, and the forecast', icon: 'bar_chart' },
+  { id: 'chat-review', label: 'Chat review', prompt: '/chat-review', note: 'What your chats show is missing', icon: 'forum', only: 'claude-settings' },
   ...(SHARE ? [] : OWN),
   { id: 'new-project', label: 'New project', prompt: '/new-project', note: 'Set this folder up for Claude', icon: 'create_new_folder' },
+  { id: 'update-setup', label: 'Update setup', prompt: '/update-setup', note: 'Install the newest version of the setup', icon: 'system_update_alt' },
 ];
+
+// own.ts can hide a button whose skill is not on this computer; the build for other people has them all.
+export const COMMANDS: Command[] = ALL.filter((c) => SHARE || !HIDE.includes(c.id));
 
 // Every button starts on Sonnet, whatever model was picked last in the app.
 export const MODEL = 'claude-code:sonnet';

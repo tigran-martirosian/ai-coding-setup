@@ -12,13 +12,14 @@ const STEPS = [
   "Newer version: 1.0.1 (installed: 1.0.0)",
   "Downloaded the release from GitHub",
   "Replaced the setup's files, each old one kept as a dated copy",
-  "Your own skills, hooks, settings and notes: not touched",
+  "Rebuilt the editor extensions, installed the missing plugins",
+  "Kept as yours: hooks/sql-guard.mjs, which you changed",
 ] as const;
 
 const NOTICE_AT = 10;
 const COMMAND_AT = 44;
 const FIRST_STEP_AT = 76;
-const PER_STEP = 24;
+const PER_STEP = 22;
 
 export const Update: React.FC<SceneProps> = ({ durationInFrames }) => {
   const frame = useCurrentFrame();
@@ -26,7 +27,7 @@ export const Update: React.FC<SceneProps> = ({ durationInFrames }) => {
   return (
     <Scene
       tag="update-check · /update-setup"
-      caption="Once a day the setup checks for a newer version and says so in one line. One command installs it and keeps what you added."
+      caption="Twice a day the setup checks for a newer version and says so in one line. One command installs it and keeps what you added."
       durationInFrames={durationInFrames}
     >
       <Window title="Chat" chip="version 1.0.0" chipColor={color.dim} style={{ width: 1320 }}>

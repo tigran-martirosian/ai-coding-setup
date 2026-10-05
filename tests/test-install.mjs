@@ -200,7 +200,13 @@ const merged = json(path.join(used, ".claude", "settings.json"));
 ok("the user's own model and hook stay", [merged.model, JSON.stringify(merged.hooks.Stop).includes("my-own-hook.mjs")], ["sonnet", true]);
 const kept = fs.readdirSync(path.join(used, ".claude")).concat(fs.readdirSync(path.join(used, ".claude", "hooks")))
   .filter((f) => f.includes(".before-install-")).map((f) => f.split(".before-install-")[0]).sort();
-ok("the old settings and the old hook are kept as copies", kept, ["settings.json", "sql-guard.mjs"]);
+ok("the old settings are kept as a copy", kept, ["settings.json"]);
+const usedHook = path.join(used, ".claude", "hooks", "sql-guard.mjs");
+ok("a file that was there before under the same name stays, and the run lists it with the way to take the setup's",
+  [fs.readFileSync(usedHook, "utf8"), onUsed.out.includes(`kept yours ${fwd(usedHook)}`), /Kept as yours[^\n]*\n  hooks\/sql-guard\.mjs\n[^\n]*--replace <name>[^\n]*--replace-all/.test(onUsed.out)],
+  ["// an older version\n", true, true]);
+const logs = () => fs.readdirSync(path.join(used, ".claude", "setup-logs"));
+ok("a run that changed something saves what it printed", [logs().length, fs.readFileSync(path.join(used, ".claude", "setup-logs", logs()[0]), "utf8").includes(`kept yours ${fwd(usedHook)}`)], [1, true]);
 ok("rules with other content are left alone, and the installer says so",
   [fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8"), /rules: left alone.*--replace-rules/.test(onUsed.out)], ["# My rules\n\n- Mine.\n", true]);
 ok("--projects puts the folders where it says", [HOMES.every((h) => fs.existsSync(path.join(elsewhere, h, "CLAUDE.md"))), fs.existsSync(path.join(used, "Projects"))], [true, false]);
@@ -210,6 +216,114 @@ const oldRules = usedFiles.find((f) => f.startsWith("CLAUDE.md.before-install-")
 ok("--replace-rules takes the new rules and keeps the old ones as a dated copy",
   [fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies"), oldRules && fs.readFileSync(path.join(used, ".claude", oldRules), "utf8")], [true, "# My rules\n\n- Mine.\n"]);
 ok("a later run without --projects uses the folder given before", [replaced.out.includes(fwd(path.join(elsewhere, "quick-tasks"))), fs.existsSync(path.join(used, "Projects"))], [true, false]);
+ok("the file of the user's still stays on a later run", fs.readFileSync(usedHook, "utf8"), "// an older version\n");
+const oneTaken = install(used, "--replace", "hooks/sql-guard.mjs");
+const hookCopy = fs.readdirSync(path.join(used, ".claude", "hooks")).find((f) => f.startsWith("sql-guard.mjs.before-install-"));
+ok("--replace takes the setup's version of that one file and keeps the user's as a dated copy",
+  [fs.readFileSync(usedHook).equals(fs.readFileSync(path.join(REPO, "hooks", "sql-guard.mjs"))), hookCopy && fs.readFileSync(path.join(used, ".claude", "hooks", hookCopy), "utf8"),
+    /Replaced[^\n]*\n  hooks\/sql-guard\.mjs\n/.test(oneTaken.out)], [true, "// an older version\n", true]);
+
+// ---- a file of the setup's that the user changed after the install stays, also in a project folder
+const usedSkill = path.join(used, ".claude", "skills", "handoff", "SKILL.md");
+const usedTool = path.join(elsewhere, "internet-search", "tools", "peek.mjs");
+for (const f of [usedHook, usedSkill, usedTool]) fs.appendFileSync(f, "\n// my own change\n");
+fs.writeFileSync(path.join(used, ".claude", "CLAUDE.md"), "# My rules again\n");
+const usedBefore = [...snap(path.join(used, ".claude")), ...snap(elsewhere)];
+const keptMine = install(used);
+ok("the changed files stay and the run changes nothing",
+  [JSON.stringify([...snap(path.join(used, ".claude")), ...snap(elsewhere)]) === JSON.stringify(usedBefore), CHANGED.test(keptMine.out),
+    ["hooks/sql-guard.mjs", "skills/handoff/SKILL.md", fwd(usedTool)].every((f) => keptMine.out.includes(`\n  ${f}\n`)), keptMine.out.includes("Files: 3 kept as yours")],
+  [true, false, true, true]);
+install(used, "--replace-all");
+ok("--replace-all takes the setup's version of every one of them, and the rules",
+  [[usedHook, usedSkill, usedTool].map((f) => fs.readFileSync(f, "utf8").includes("my own change")), fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies")],
+  [[false, false, false], true]);
+ok("the run after it has nothing left to keep", install(used).out.includes("kept yours"), false);
+
+// ---- a setup installed before files were on record: a file that differs is replaced once, with a copy
+const usedState = path.join(used, ".claude", "setup-state.json");
+const old = json(usedState);
+delete old.files;
+fs.writeFileSync(usedState, JSON.stringify(old));
+fs.writeFileSync(usedSkill, "# The skill of an older version\n");
+const fromOld = install(used);
+ok("with no record an older file is replaced, and from then on the files are on record",
+  [fromOld.out.includes(`replaced ${fwd(usedSkill)}`), fs.readFileSync(usedSkill, "utf8").includes("older version"), fwd(usedSkill) in json(usedState).files], [true, false, true]);
+
+// ---- a hook in the settings whose script is gone is named
+const gone = fwd(path.join(used, ".claude", "hooks", "gone.mjs"));
+const withGone = json(path.join(used, ".claude", "settings.json"));
+withGone.hooks.Stop.push({ hooks: [{ type: "command", command: `node "${gone}"` }] });
+fs.writeFileSync(path.join(used, ".claude", "settings.json"), JSON.stringify(withGone));
+ok("a wired hook whose script is not there is listed", install(used).out.includes(`\n  Stop: ${gone}\n`));
+
+// ---- a hook of the setup's that an older copy wired from another place in ~/.claude is pointed at the installed one
+const moved = path.join(tmp, "moved");
+fs.mkdirSync(path.join(moved, ".claude", "skills", "handoff"), { recursive: true });
+const oldBrief = fwd(path.join(moved, ".claude", "skills", "handoff", "handoff-brief.mjs"));
+fs.writeFileSync(oldBrief, "// old\n");
+const briefEvent = Object.keys(example.hooks).find((e) => JSON.stringify(example.hooks[e]).includes("handoff-brief.mjs"));
+fs.writeFileSync(path.join(moved, ".claude", "settings.json"), JSON.stringify({ hooks: { [briefEvent]: [{ hooks: [
+  { type: "command", command: `"node.exe" "${oldBrief}" --hook` }, { type: "command", command: "node /elsewhere/context-guard.mjs" }] }] } }));
+const movedRun = install(moved);
+const movedCmds = commandsIn(json(path.join(moved, ".claude", "settings.json")));
+ok("a hook wired from an older place in ~/.claude is pointed at the installed copy, and a script elsewhere is left alone",
+  [movedCmds.filter((c) => c.includes("handoff-brief.mjs")), movedCmds.includes("node /elsewhere/context-guard.mjs"), movedRun.out.includes(`hook repointed: ${briefEvent} handoff-brief.mjs`)],
+  [[`node "${fwd(path.join(moved, ".claude", "hooks", "handoff-brief.mjs"))}" --hook`], true, true]);
+ok("the run after it repoints nothing", install(moved).out.includes("hook repointed"), false);
+
+// ---- with Nimbalyst there, the run builds an extension and puts it into Nimbalyst's folder
+if (process.platform === "win32") {
+  const themeDist = path.join(REPO, "extensions", "ink-themes", "dist");
+  const hadDist = fs.existsSync(themeDist);
+  const appData = path.join(tmp, "appdata");
+  fs.mkdirSync(path.join(appData, "@nimbalyst", "electron"), { recursive: true });
+  const withExt = () => spawnSync(process.execPath, [INSTALL, "--home", path.join(tmp, "ext-home"), "--extensions", "yes"],
+    { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath, APPDATA: appData, SETUP_EXTENSIONS: "ink-themes" } }).stdout;
+  ok("the theme extension is built and installed", [withExt().includes("extension installed: ink-themes"), fs.existsSync(path.join(appData, "@nimbalyst", "electron", "extensions", "inktheme", "manifest.json"))], [true, true]);
+  ok("the next run leaves it alone", withExt().includes("extension unchanged: ink-themes"));
+  ok("--extensions no leaves the extensions out", install(path.join(tmp, "ext-home"), "--extensions", "no").out.includes("extensions are not installed by this script"));
+  // the build writes its output next to the source; a folder this test made goes again
+  if (!hadDist) fs.rmSync(themeDist, { recursive: true, force: true });
+}
+
+// ---- Claude Code's own settings: a model when none is set, the permission rules, and a set model stays
+ok("a blank home gets a model and the permission rules", [settings.model, settings.permissions.deny.includes("Read(~/.ssh/**)"), settings.permissions.ask.includes("Read(//**/.env)")], ["sonnet", true, true]);
+ok("a model that was set stays, next to the rules", [merged.model, merged.permissions.deny.length > 0], ["sonnet", true]);
+
+// ---- the plugins, with a stand-in for the claude command that keeps a list of what it was told
+const fake = path.join(tmp, "fake-claude");
+fs.mkdirSync(fake);
+const told = path.join(fake, "told.txt");
+fs.writeFileSync(path.join(fake, "claude.mjs"), `import fs from "node:fs";
+const a = process.argv.slice(2).join(" ");
+fs.appendFileSync(${JSON.stringify(told)}, a + "\\n");
+if (a === "plugin list") console.log("Installed plugins:\\n  > superpowers@claude-plugins-official");
+if (a === "plugin install context7@claude-plugins-official") { console.error("no network"); process.exit(1); }
+`);
+fs.writeFileSync(path.join(fake, "claude.cmd"), `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`);
+fs.writeFileSync(path.join(fake, "claude"), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/claude.mjs" "$@"\n`, { mode: 0o755 });
+fs.writeFileSync(path.join(fake, "git"), "");
+const plugHome = path.join(tmp, "plug-home");
+const shellPath = process.platform === "win32" ? `${fake}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}` : `${fake}${path.delimiter}/bin${path.delimiter}/usr/bin`;
+const plug = installWith(shellPath, plugHome, "--plugins", "yes");
+const toldLines = () => fs.readFileSync(told, "utf8").trim().split("\n");
+ok("a missing plugin is installed, and the three that load everywhere are switched off",
+  [plug.out.includes("plugin installed: claude-hud@claude-hud\n"), plug.out.includes("plugin installed: claude-code-setup@claude-plugins-official (switched off"),
+    toldLines().includes("plugin disable claude-code-setup@claude-plugins-official"), toldLines().includes("plugin disable claude-hud@claude-hud")], [true, true, true, false]);
+ok("one that is there already is left as it is", [plug.out.includes("plugin already there: superpowers@claude-plugins-official"), toldLines().some((l) => l.includes("install superpowers"))], [true, false]);
+ok("one that fails is named and the install goes on", [/plugin failed: context7@claude-plugins-official \(no network\)/.test(plug.out), plug.code], [true, 0]);
+ok("what was handled is on record", json(path.join(plugHome, ".claude", "setup-state.json")).plugins, ["claude-hud@claude-hud", "claude-code-setup@claude-plugins-official", "superpowers@claude-plugins-official"]);
+fs.writeFileSync(told, "");
+installWith(shellPath, plugHome, "--plugins", "yes");
+ok("the next run only retries the one that failed", toldLines().filter((l) => l.startsWith("plugin install")), ["plugin install context7@claude-plugins-official"]);
+ok("without the claude command the run says so", installWith(emptyPath, path.join(tmp, "no-claude"), "--plugins", "yes").out.includes("plugins not installed: the claude command is not on the PATH"));
+
+// ---- the steps left for a chat are named until one is put on record as done
+ok("the run names the steps left for a chat", /Left for a chat, once.*steps 8 and 9.*--done chat-steps/.test(plug.out));
+const marked = install(plugHome, "--done", "chat-steps");
+ok("--done puts them on record and changes nothing else", [marked.out.trim(), json(path.join(plugHome, ".claude", "setup-state.json")).done], ["on record as done: chat-steps", ["chat-steps"]]);
+ok("and the next run no longer names them", install(plugHome).out.includes("Left for a chat"), false);
 
 // ---- broken settings are left alone
 const broken = path.join(tmp, "broken");
