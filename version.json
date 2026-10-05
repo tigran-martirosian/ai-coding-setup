@@ -1,5 +1,5 @@
 {
-  "version": "1.0.11",
+  "version": "1.0.12",
   "date": "2026-10-05",
-  "summary": "An update now moves a hook that an older copy had wired from another folder, and a worker refused for your location is no longer retried on every call."
+  "summary": "The installer builds the Nimbalyst extensions itself: themes, usage ring and command buttons arrive with this update."
 }

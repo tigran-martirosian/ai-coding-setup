@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.12, October 5, 2026
+
+- **The extensions install themselves.** `node install.mjs` used to copy the files and leave the Nimbalyst extensions as three commands each. Now, when Nimbalyst is installed, the same run builds the themes, the usage ring and the command buttons and puts them into Nimbalyst, and an update rebuilds only the ones that changed. Quit Nimbalyst and open it again to see them; nothing looks different until you pick a theme. Read Aloud is rebuilt only where it is installed already. A build that fails is named with its last lines and the rest of the install goes on. `--extensions no` leaves them out.
+
 ## Version 1.0.11, October 5, 2026
 
 - **A hook wired by an older copy is moved to the new one.** If your settings started one of the setup's hooks from another folder inside `~/.claude`, the installer saw the name, left the wiring alone and the new copy was never used. Now it points that wiring at the installed copy and says `hook repointed`. A script outside `~/.claude` is yours and is not touched.

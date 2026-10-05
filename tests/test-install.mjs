@@ -272,6 +272,21 @@ ok("a hook wired from an older place in ~/.claude is pointed at the installed co
   [[`node "${fwd(path.join(moved, ".claude", "hooks", "handoff-brief.mjs"))}" --hook`], true, true]);
 ok("the run after it repoints nothing", install(moved).out.includes("hook repointed"), false);
 
+// ---- with Nimbalyst there, the run builds an extension and puts it into Nimbalyst's folder
+if (process.platform === "win32") {
+  const themeDist = path.join(REPO, "extensions", "ink-themes", "dist");
+  const hadDist = fs.existsSync(themeDist);
+  const appData = path.join(tmp, "appdata");
+  fs.mkdirSync(path.join(appData, "@nimbalyst", "electron"), { recursive: true });
+  const withExt = () => spawnSync(process.execPath, [INSTALL, "--home", path.join(tmp, "ext-home"), "--extensions", "yes"],
+    { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath, APPDATA: appData, SETUP_EXTENSIONS: "ink-themes" } }).stdout;
+  ok("the theme extension is built and installed", [withExt().includes("extension installed: ink-themes"), fs.existsSync(path.join(appData, "@nimbalyst", "electron", "extensions", "inktheme", "manifest.json"))], [true, true]);
+  ok("the next run leaves it alone", withExt().includes("extension unchanged: ink-themes"));
+  ok("--extensions no leaves the extensions out", install(path.join(tmp, "ext-home"), "--extensions", "no").out.includes("extensions are not installed by this script"));
+  // the build writes its output next to the source; a folder this test made goes again
+  if (!hadDist) fs.rmSync(themeDist, { recursive: true, force: true });
+}
+
 // ---- broken settings are left alone
 const broken = path.join(tmp, "broken");
 fs.mkdirSync(path.join(broken, ".claude"), { recursive: true });

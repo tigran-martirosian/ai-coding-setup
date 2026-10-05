@@ -26,10 +26,13 @@
 //   --replace <file>            take the setup's version of one file the user changed, named as the run
 //                               lists it (hooks/sql-guard.mjs); can be given several times
 //   --replace-all               the same for every such file, and for the rules
+//   --extensions yes|no         build the Nimbalyst extensions and put them into Nimbalyst (default: yes
+//                               when Nimbalyst is installed; they change nothing until a theme is picked)
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
 //   --node <file>               start the hooks with this Node by its full path instead of plain `node`
 //                               (for a Mac, where an app opened from the Dock may not have Node on its
 //                               PATH; remembered for later runs)
+import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -367,10 +370,46 @@ for (const [tool, what] of [["codex", "Codex CLI (GPT)"], ["agy", "Antigravity C
   const why = opt(tool) ? "" : answer(tool) !== null ? " (as answered before)" : onPath(tool) ? " (found on the PATH)" : " (not found on the PATH)";
   say(`${what}: ${have[tool] ? "used" : "not used, optional"}${why}`);
 }
-// The editor extensions are built from source with npm and installed into Nimbalyst, so not here
+// The editor extensions are built from source and installed into Nimbalyst's own extensions folder,
+// when Nimbalyst is there. One whose source is as at the last run is left alone. read-aloud needs a
+// speech program of its own, so it is only rebuilt where it is installed already.
 const extDir = path.join(REPO, "extensions");
 const extensions = fs.existsSync(extDir) ? fs.readdirSync(extDir).filter((n) => fs.existsSync(path.join(extDir, n, "package.json"))) : [];
-if (extensions.length) {
+const appData = process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "";
+const extHome = path.join(appData, "@nimbalyst", "electron");
+const EXT_FOLDER = { "ink-themes": "inktheme", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud" };
+// --home is another home folder (the tests), where the real Nimbalyst is not the one to install into
+const wantExt = opt("extensions") === "no" ? false : opt("extensions") === "yes" ? true : opt("home") === null;
+const sourceOf = (dir, base = dir) => fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !["node_modules", "dist"].includes(e.name))
+  .flatMap((e) => (e.isDirectory() ? sourceOf(path.join(dir, e.name), base) : [path.relative(base, path.join(dir, e.name))]));
+const printOf = (dir) => sha(sourceOf(dir).sort().map((f) => f + "\n" + read(path.join(dir, f))).join("\n"));
+const builtExt = { ...(state.extensions || {}) };
+if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
+  const only = (process.env.SETUP_EXTENSIONS || "").split(",").filter(Boolean); // the tests build one
+  for (const name of extensions.filter((n) => !only.length || only.includes(n))) {
+    const dir = path.join(extDir, name);
+    const target = path.join(extHome, "extensions", EXT_FOLDER[name] || name);
+    if (name === "read-aloud" && !fs.existsSync(target)) { say(`extension left out: read-aloud (it needs its own speech program; see ${fwd(path.join(dir, "README.md"))})`); continue; }
+    if (builtExt[name] === printOf(dir) && fs.existsSync(target)) { say(`extension unchanged: ${name}`); continue; }
+    const plain = name === "ink-themes"; // builds with Node alone
+    if (!plain && !onPath("npm")) { say(`extension not built: ${name} (npm is not on the PATH; install Node.js with npm and run this again)`); continue; }
+    if (DRY) { say(`extension would be built and installed: ${name}`); continue; }
+    const steps = plain ? [[process.execPath, ["build.mjs"]], [process.execPath, ["build.mjs", "--install"]]]
+      : [["npm", ["install"]], ["npm", ["run", "build"]], ["npm", ["run", "install-ext"]]];
+    let failed = "";
+    for (const [cmd, a] of steps) {
+      const run = { cwd: dir, encoding: "utf8", timeout: 600000 };
+      const r = cmd === "npm" ? spawnSync(`npm ${a.join(" ")}`, { ...run, shell: true }) : spawnSync(cmd, a, run);
+      if (r.status === 0) continue;
+      failed = `${path.basename(cmd)} ${a.join(" ")}: ${(`${r.stderr || ""}${r.stdout || ""}`.trim() || String(r.error || "no output")).split("\n").slice(-4).join(" | ")}`;
+      break;
+    }
+    if (failed) { say(`extension failed: ${name} (${failed}). Everything else was installed; run this again to retry.`); continue; }
+    builtExt[name] = printOf(dir);
+    say(`extension installed: ${name} (quit Nimbalyst and open it again to load it)`);
+  }
+  if (!DRY && JSON.stringify(builtExt) !== JSON.stringify(state.extensions || {})) fs.writeFileSync(stateFile, JSON.stringify({ ...nextState, extensions: builtExt }, null, 2) + "\n");
+} else if (extensions.length) {
   say(`Nimbalyst extensions are not installed by this script: ${extensions.join(", ")}. For each one, in ${fwd(path.join(REPO, "extensions"))}/<name>: npm install, npm run build, npm run install-ext, then restart Nimbalyst.`);
 }
 say(`Voice typing is not installed by this script: it is Handy, a separate free program. See "Voice typing" in ${fwd(path.join(REPO, "README.md"))}`);
@@ -388,7 +427,7 @@ if (!DRY) for (const [event, groups] of Object.entries(settings.hooks || {})) {
     }
   }
 }
-const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|linked|removed)/.test(l));
+const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|linked|removed|extension installed)/.test(l));
 if (did || tally.yours.length) {
   const parts = [[tally.added, "new"], [tally.replaced.length, "replaced"], [tally.yours.length, "kept as yours"], [tally.same, "unchanged"]];
   say(`Files: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(", ")}.`);

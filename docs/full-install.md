@@ -87,6 +87,8 @@ node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no>
 
 On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. If it says `rules: left alone` or `rules: new in this version, yours were kept`, the user already has a `~/.claude/CLAUDE.md` of their own: show in a few lines what `rules/CLAUDE.md` adds, ask whether to replace theirs (a dated copy is kept), and on yes run the same command with `--replace-rules`.
 
+When Nimbalyst is already installed, this run also builds the editor extensions and puts them into Nimbalyst (`extension installed: <name>`); the extensions step further down is then only for one that says `extension failed` or `extension not built`.
+
 If the run ends with a list under `Kept as yours`, the user already had files with those names: their own hooks or skills, or an older copy of this setup. They were left as they are. Show the list and ask once: take the setup's version of all of them, of some (which ones), or keep theirs. A dated copy of theirs is kept either way. All: the same command with `--replace-all`, which takes the rules too. Some: with `--replace <name>` for each, the name as the list has it. If the run lists hooks whose script is not there, name them in the final reply and change nothing. A run that changed something saves what it printed under `~/.claude/setup-logs`.
 
 ## 4. Plugins and skills

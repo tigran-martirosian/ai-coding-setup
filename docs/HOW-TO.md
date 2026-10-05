@@ -39,6 +39,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 | `--replace-rules` | Replace a `~/.claude/CLAUDE.md` you already have. Without it a rules file with other content is left alone. |
 | `--replace <name>` | Take the setup's version of one file the run listed under `Kept as yours`, for example `--replace hooks/sql-guard.mjs`. Can be given several times. |
 | `--replace-all` | Take the setup's version of every file listed there, and the rules. For a computer whose old setup you don't want to keep. |
+| `--extensions no` | Leave the Nimbalyst extensions out. Without it they are built and put into Nimbalyst when Nimbalyst is installed. |
 | `--dry-run` | Print what it would do and change nothing. |
 
 - **Nothing of yours is lost.** A file the installer replaces is kept next to the new one as
