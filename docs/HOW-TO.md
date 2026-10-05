@@ -107,13 +107,11 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 
 ## Models
 
-- The rules expect new chats to start on Sonnet, which uses less of the plan. The installer leaves
-  your default model as it is; to start on Sonnet in the terminal, put `"model": "sonnet"` into
-  `~/.claude/settings.json`.
-- For hard work Claude asks once whether to move it to Opus. On yes, the work continues in a new
-  chat on Opus.
-- In Nimbalyst a new chat starts on the model you picked last in the model picker. After using
-  another model, pick Sonnet again.
+- A new chat starts on the model you chose, and stays on it: the rules don't steer you to another
+  model and Claude doesn't ask to switch. In the terminal that is `"model"` in
+  `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
+- Sonnet uses less of the plan than Opus. Routine jobs still go to a Sonnet helper and to the free
+  workers whichever model you chat on.
 - Three folders start on Opus by themselves: `ask-anything`, `internet-search`, `claude-settings`.
 
 ## Your projects

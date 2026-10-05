@@ -1,5 +1,5 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "date": "2026-10-04",
-  "summary": "The update check no longer ends with a Node error on Windows."
+  "summary": "You stay on the model you picked: the rules no longer steer new chats to Sonnet."
 }

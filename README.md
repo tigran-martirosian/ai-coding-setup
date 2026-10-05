@@ -8,6 +8,8 @@ https://github.com/user-attachments/assets/2bf61db5-d115-49d1-ad46-0006cd18db26
 
 ## What's new
 
+**October 4, 2026, version 1.0.2: you stay on the model you picked.** The rules no longer expect new chats to start on Sonnet, and Claude no longer stops to ask whether to move to Opus. The rules file every chat loads is shorter.
+
 **October 4, 2026, version 1.0.0: the setup updates itself.** Once a day it checks whether a newer version is released and says so in one line. Typing `/update-setup` installs it without asking anything again, and keeps your own skills, hooks, settings and notes.
 
 **October 4, 2026: one command for the free workers.** Searching and long reading now go through [workers/ask.mjs](workers/ask.mjs). It picks the first worker that is ready, moves to the next one when a worker runs out of usage, and says which one answered. The setup now works the same with a ChatGPT subscription, a Google one, both or neither, and a search no longer stops because one worker is busy.

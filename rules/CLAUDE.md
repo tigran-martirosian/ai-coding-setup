@@ -41,8 +41,6 @@ These rules cut waste: raw dumps, repeat reads and repeat checks. They never mea
 
 The user wants busy work kept off the main model. This counts as standing permission to use subagents for it.
 
-- **Sessions should start on Sonnet; hard work moves to Opus after a yes.** These rules expect new sessions on Sonnet; the installer leaves your default model alone, so set `"model": "sonnet"` in `~/.claude/settings.json` for the terminal. In Nimbalyst the default for new sessions is whichever model was picked last in any session's model picker, so pick Sonnet again after using another model there, and never leave it on Haiku. No hook can change a running session's model, so the session itself has to notice. If you are not on Opus and the request is hard (design or architecture, diagnosing a bug whose cause isn't obvious, a big multi-part request, or two failed attempts at the same problem), stop before doing the work and ask once with a `confirm` prompt whether to move it to Opus (default yes). On yes in Nimbalyst: write a short brief (goal, state, files, what "done" looks like), open it with `spawn_session` (`isolated: true`, `model: "claude-code:opus"`), reply with one line and do no more here. In the terminal: tell the user to type `/model opus`. On no: carry on and don't ask again in this session. Simple work (small edits, lookups, short opinions, following a clear plan) stays where it is, without asking.
-
 - **Big multi-part requests in Nimbalyst:** decide yourself whether to lead them with child sessions (research, build, independent review, fixes) using the `lead` skill; don't wait to be asked. Small tasks stay in one session.
 
 - Keep reasoning, planning, design decisions and final review in the main session.
