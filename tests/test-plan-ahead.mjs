@@ -42,6 +42,10 @@ check("week average pace: 40 points in 48 hours ends at 140 and runs out after 7
 check("pace of the last 24 hours on record", [A.week.recent.perDay, A.week.recent.hours], [20, 24]);
 check("days: the last one ends at the reset, on budget at 100", [A.days.at(-1).end, A.days.at(-1).onBudget, A.days.at(-1).atPace], ["2026-10-08T02:00:00.000Z", 100, 140]);
 check("no split yet: no share of the budget for this computer", A.week.share, null);
+// today starts at local midnight, so the reading it counts from depends on the time zone
+const day0 = new Date(at("2026-10-03T02:00:00Z"));
+const midnight = new Date(day0.getFullYear(), day0.getMonth(), day0.getDate()).getTime();
+check("used today: the week's points since local midnight", A.week.today, 40 - (samples.filter((x) => Date.parse(x.t) <= midnight).at(-1) ?? samples[0]).week.u);
 
 // ---- the 5-hour window
 check("5-hour window: 10 points in the last half hour ends at 80, not full", [A.five.open, A.five.used, A.five.resets, A.five.atReset, A.five.full],

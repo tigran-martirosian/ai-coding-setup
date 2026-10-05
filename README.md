@@ -8,6 +8,8 @@ https://github.com/user-attachments/assets/5781d78d-c420-43a3-8a88-9fd0f4431032
 
 ## What's new
 
+**October 5, 2026, version 1.0.7: long sessions move themselves.** When a reply ends past 250k tokens, the work moves to a fresh session by itself, so your next message doesn't pay for the long history. The Usage Plan panel also shows how much of the week you used today.
+
 **October 5, 2026, version 1.0.6: the tour video is up to date.** It has a new scene for the five colour themes, the court scene shows the reader court, and the themes have their own clip below.
 
 **October 5, 2026, version 1.0.5: five colour themes.** The new [ink-themes](extensions/ink-themes/README.md) extension gives Nimbalyst five themes that share one look: dark violet, grey with ivy green, graphite with brown, a light ivory one and deep sea blue.
@@ -96,7 +98,7 @@ The other hooks keep sessions cheap and safe:
 | `worker-nudge` | Sends searching to the first free worker that is ready (Codex, Gemini) |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
-| `context-guard` | Warns when a session gets long, and has the agent offer a handoff |
+| `context-guard` | Warns when a session gets long, and past 250k tokens moves the work to a fresh session |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
 | `update-check` | Says once a day when a newer version of the setup is released |
@@ -134,7 +136,7 @@ The rules I give the models are described in [docs/setup.md](docs/setup.md).
 ![A note sent to a busy session, then an automatic handoff and a board cleanup](docs/img/clip-sessions.gif)
 
 - **A note to a busy session.** Nimbalyst holds a new message until the running reply ends. With [skills/steer](skills/steer/steer.mjs), `/btw <note>` in a second chat leaves a note that the busy session reads before its next step, and `/ask <question>` answers a question about that session without touching its work.
-- **Handoff.** Every step re-sends the whole conversation, so a long session gets expensive. `handoff-brief` rewrites a short brief after every reply, and at 200k tokens `context-guard` has the agent offer to move the work to a fresh session that starts from that brief. `/handoff` does the same on request. The brief also lets the work go on in a GPT or Gemini session when the Claude plan runs out.
+- **Handoff.** Every step re-sends the whole conversation, so a long session gets expensive. `handoff-brief` rewrites a short brief after every reply, and `context-guard` warns at 200k tokens. When a reply ends past 250k, it has the agent move the work to a fresh session that starts from that brief, without asking, so the next message doesn't re-send the long history. `/handoff` does the same on request. The brief also lets the work go on in a GPT or Gemini session when the Claude plan runs out.
 - **The board.** Nimbalyst shows every conversation as a card on a board, and Claude moves its own card from Planning to Complete as the work goes. `/board-cleanup` moves the finished ones that were left behind.
 
 <details>

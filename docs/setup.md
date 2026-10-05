@@ -59,6 +59,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a question to me | `question-other` | Every choice lets me type my own answer, and a recommendation that says "Checked:" must match a lookup in the session log |
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | When I send a message | `context-guard` | Warn when the session passes 200k tokens |
+| When a reply ends | `context-guard` | Move the work to a fresh session past 250k tokens |
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
 | When I send a message | `update-check` | Say once a day when a newer version of the setup is released |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
@@ -71,6 +72,6 @@ In the seven days up to October 1, 2026, `big-read-gate` stopped 11 whole-file r
 
 ## Long sessions
 
-A long session sends its whole history again on every step, so every step costs more. When `context-guard` warns, I move the work to a fresh session: the [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
+A long session sends its whole history again on every step, so every step costs more. When a reply ends past 250k tokens, `context-guard` has the agent move the work to a fresh session by itself: the [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
 
 Each project keeps three short files that a new session reads first: `CLAUDE.md` (rules and commands for the project), `HANDOFF.md` (current state and what's next) and `DECISIONS.md` (what I decided and when).

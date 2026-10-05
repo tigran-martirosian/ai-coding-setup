@@ -143,7 +143,7 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
       {week && (
         <>
           <div className="up-group">
-            <Limit name="Weekly" sub="7-day window" used={week.used} resets={week.resets} length={WEEK_MS} tone={tone} now={now} />
+            <Limit name="Weekly" sub={week.today == null ? '7-day window' : `7-day window · ${Math.round(week.today)}% today`} used={week.used} resets={week.resets} length={WEEK_MS} tone={tone} now={now} />
             <PaceCard forecast={forecast} tone={tone} budgetLabel="Daily budget" budget={week.budget} pace={p ? p.perDay : null} unit="a day" />
           </div>
           <div className="up-group">
@@ -192,6 +192,7 @@ function UsagePlanGutterButton({ isActive, onActivate }: PanelGutterButtonProps)
   const lines = week
     ? [
         `Week: ${Math.round(week.used)}% used (resets ${span(Date.parse(week.resets) - now)})`,
+        week.today == null ? '' : `Today: ${Math.round(week.today)}% of the week`,
         p?.full ? `Runs out ${when(p.full)} at this pace` : p ? `Ends near ${Math.round(p.atReset)}% at this pace` : '',
         ok?.five?.open ? `Session: ${Math.round(ok.five.used ?? 0)}% used` : '',
       ]

@@ -54,6 +54,7 @@
           { "type": "command", "command": "node ~/.claude/hooks/handoff-brief.mjs --hook", "timeout": 15 },
           { "type": "command", "command": "node ~/.claude/hooks/plan-usage-logger.mjs", "timeout": 5 },
           { "type": "command", "command": "node ~/.claude/hooks/run-yourself.mjs", "timeout": 5 },
+          { "type": "command", "command": "node ~/.claude/hooks/context-guard.mjs", "timeout": 10 },
           { "type": "command", "command": "node ~/.claude/skills/steer/steer.mjs --hook", "timeout": 5 }
         ]
       }
