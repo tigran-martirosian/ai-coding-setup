@@ -1,0 +1,12 @@
+{
+  "name": "ink-themes",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Five colour themes for Nimbalyst with their own fonts and rounder shapes.",
+  "scripts": {
+    "build": "node build.mjs",
+    "install-ext": "node build.mjs --install",
+    "test": "node build.mjs && node test.mjs"
+  }
+}

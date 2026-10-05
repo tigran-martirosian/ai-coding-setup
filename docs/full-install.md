@@ -123,7 +123,7 @@ A sign-in that isn't finished now is noted for step 10. Nothing else waits on it
 
 ## 7. The Nimbalyst extensions
 
-For `usage-plan` and `commands`, in `<repo>/extensions/<name>`: `npm install`, `npm run build`, `npm run install-ext`. The last one copies the build to `<extensions>` and prints `installed to` and the folder. `read-aloud` is optional and Windows only: it needs a voice model and Python, see [its README](../extensions/read-aloud/README.md). Nimbalyst loads extensions when it starts; don't close it yourself, step 10 tells the user.
+For `usage-plan` and `commands`, in `<repo>/extensions/<name>`: `npm install`, `npm run build`, `npm run install-ext`. The last one copies the build to `<extensions>` and prints `installed to` and the folder. For `ink-themes` (five colour themes; it only adds them to the theme list, the look changes when the user picks one): `npm run build`, `npm run install-ext`, no `npm install`. `read-aloud` is optional and Windows only: it needs a voice model and Python, see [its README](../extensions/read-aloud/README.md). Nimbalyst loads extensions when it starts; don't close it yourself, step 10 tells the user.
 
 ## 8. Nimbalyst settings
 
@@ -154,13 +154,13 @@ Run each check once; fix an obvious failure, report any other with its output. B
 5. `node ~/.claude/skills/usage-report/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
 6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
 7. `node "<projects>/ask-anything/.claude/skills/court/court.mjs"` with no arguments prints a line starting with `Usage: node court.mjs`.
-8. `<extensions>/usageplan/manifest.json` and `<extensions>/commandbuttons/manifest.json` parse as JSON.
+8. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.
 9. `node ~/.claude/skills/update-setup/update.mjs --check` prints `Already on the newest version`.
 10. On a Mac: `zsh -lic 'command -v node uvx'` prints two paths, and every hook command in `~/.claude/settings.json` starts with a Node that exists.
 
 Then reply in the user's language, in short lines:
 
-- **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, each outside worker, the two extensions, the four folders with their full path, voice typing.
+- **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, each outside worker, the three extensions, the four folders with their full path, voice typing.
 - **Do this once.** Quit Nimbalyst and open it again: the two new buttons then sit in the side bar and every chat finds the programs installed today. Start a new chat for the next task, because rules and hooks load when a chat starts. In each project folder you work in, type `/new-project` once. Any sign-in still open, with the exact command. If step 8 was skipped: open `<projects>/claude-settings` in Nimbalyst, turn on Developer Mode under Settings > Advanced, and paste in a new chat: `Open these four folders as projects: <the four full paths>. Set the default model for new chats to claude-code:sonnet. Turn on the alpha features worktrees and terminal if they are off. Then show me the settings overview.`
 - **What was left out** and how to add it: a missing worker (run `node install.mjs --codex yes` or `--agy yes` from `<repo>` after installing and signing in), a program that could not be installed with its install command.
 - **How to use it:** `<projects>/claude-settings/HOW-TO.md` has an example for each feature; typing the single word `usage` shows how much of the plan is used.

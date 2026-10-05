@@ -1,5 +1,5 @@
 {
-  "version": "1.0.4",
-  "date": "2026-10-04",
-  "summary": "/setup-audit lists what is loaded but hardly used and asks about fixes once; /new-project suggests more tools."
+  "version": "1.0.5",
+  "date": "2026-10-05",
+  "summary": "Five colour themes for Nimbalyst: Ink Aurora, Ivy, Graphite, Bone (light) and Tide."
 }

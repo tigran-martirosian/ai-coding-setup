@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.5, October 5, 2026
+
+- **Five colour themes for Nimbalyst.** A new extension, [ink-themes](extensions/ink-themes/README.md): Ink Aurora (dark violet), Ink Ivy (grey and ivy green), Ink Graphite (grey on near-black with brown), Ink Bone (light, ivory and bone) and Ink Tide (deep sea blue). They share fonts, rounder shapes, a name under every side button, a New session button and usage bars in the side panel, and usage rings big enough to read. It builds with Node alone. Nothing changes until you pick one with the Theme button, and a test checks that every text colour can be read on its background.
+
 ## Version 1.0.4, October 4, 2026
 
 - **`/setup-audit` finds what you load but don't use.** It compares what each chat loads (plugins, global skills) with what was actually used and lists the dead weight. It also measures the open items from the last audit, checks the workers through `ask.mjs --status`, and asks which fixes to apply once, in one form. If that form gets lost, it applies only the small fixes that are easy to undo, says how to undo them, and lists the rest as text. See [skills/setup-audit](skills/setup-audit/SKILL.md).

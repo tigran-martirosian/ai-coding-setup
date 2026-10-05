@@ -8,6 +8,8 @@ https://github.com/user-attachments/assets/2bf61db5-d115-49d1-ad46-0006cd18db26
 
 ## What's new
 
+**October 5, 2026, version 1.0.5: five colour themes.** The new [ink-themes](extensions/ink-themes/README.md) extension gives Nimbalyst five themes that share one look: dark violet, grey with ivy green, graphite with brown, a light ivory one and deep sea blue.
+
 **October 4, 2026, version 1.0.4: the audit finds dead weight.** `/setup-audit` now lists what every chat loads but hardly uses and asks about fixes once, in one form. `/new-project` suggests Playwright, Frontend Design and NotebookLM where they fit.
 
 **October 4, 2026, version 1.0.3: the reader court.** `/court readers <file>` has a few readers with different jobs read a resume, a README, a post or a page, each alone, and sums up how it lands and what to change.
@@ -63,7 +65,7 @@ Once a day the setup asks GitHub whether a newer version is released ([hooks/upd
 | Hooks | Scripts that check each step and can send it back | [hooks](hooks) |
 | Skills | Commands for repeated jobs: `/court`, `/lead`, `/handoff`, `/btw`, `/setup-audit` and others | [skills](skills) |
 | Starter projects | Four folders, each with its own rules and tools | [projects](projects) |
-| Editor extensions | Usage pop-up, Read Aloud and a commands button for Nimbalyst | [extensions](extensions) |
+| Editor extensions | Usage pop-up, Read Aloud, a commands button and five colour themes for Nimbalyst | [extensions](extensions) |
 | Worker agent | A cheaper subagent for routine edits | [agents](agents) |
 | Worker command | One short command for searching and long reading. It uses the first free worker that is set up and working (Codex, then Gemini through Antigravity), says which one answered, and hands the job back to Claude when none can | [workers](workers) |
 | Installer | Puts the files in place and keeps a copy of what it replaces | [install.mjs](install.mjs) |
@@ -179,11 +181,14 @@ With Codex installed, `ask-anything` and `quick-tasks` get the picture skill. It
 
 ![The commands button starting a setup audit, and Read Aloud speaking a reply](docs/img/clip-commands.gif)
 
-Three extensions for Nimbalyst, written in TypeScript and React.
+Four extensions for Nimbalyst. The first three are written in TypeScript and React; the themes are plain CSS and a small script.
 
 - [usage-plan](extensions/usage-plan/README.md) is the ring and the pop-up from the usage section.
 - [read-aloud](extensions/read-aloud/README.md) reads replies aloud with Kokoro, a voice model that runs on the computer. It cleans a reply for speech (no code, no Markdown), and a Python worker speaks it sentence by sentence.
 - [commands](extensions/commands/README.md) puts six commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report and new project. A press starts a new session in the open project with that command.
+- [ink-themes](extensions/ink-themes/README.md) adds five colour themes with their own fonts and rounder shapes: Ink Aurora, Ivy, Graphite, Bone and Tide.
+
+![The five themes side by side](extensions/ink-themes/preview.png)
 
 ## Voice typing
 
