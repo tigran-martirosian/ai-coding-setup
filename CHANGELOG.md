@@ -2,6 +2,12 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.14, October 5, 2026
+
+- **A handoff brief always has its summary.** The brief was written first and the summary added in a second step, and that step could be skipped, which left the next session a brief with an empty "Where we are". Now the summary is written first and the brief script takes it in (`--summary <file>`); without one it writes nothing and says why.
+- **`/chat-review` works with any worker.** Its reader called Codex directly, so without Codex every project came back as failed. It now goes through `ask.mjs` and uses whichever worker is set up, Codex or Gemini.
+- **Two more command buttons.** Update setup starts `/update-setup`, and Chat review shows in the `claude-settings` folder and starts `/chat-review`. A button can now be hidden on one computer (`HIDE` in `src/own.ts`).
+
 ## Version 1.0.13, October 5, 2026
 
 - **The plugins and the settings come with the install and with an update.** `node install.mjs` used to leave the plugins and the Claude Code settings to the full install, so a setup put in place with the installer alone never had them. Now the same run installs the four plugins (`claude-hud` on; `claude-code-setup`, `superpowers` and `context7` switched off until a project needs one) and the `find-skills` skill, sets the model to Sonnet if you never set one, and adds permission rules: the agent can't read saved sign-ins or SSH keys and asks before it reads a `.env` file. A plugin is handled once, so one you remove or switch on later stays as you have it. One that fails is named and the rest of the install goes on. `--plugins no` leaves them out.

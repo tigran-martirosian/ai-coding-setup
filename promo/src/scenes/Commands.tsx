@@ -13,6 +13,7 @@ const COMMANDS = [
   { label: "Setup audit", note: "Full check of the global setup" },
   { label: "Usage report", note: "Where the tokens went, and the forecast" },
   { label: "New project", note: "Set this folder up for Claude" },
+  { label: "Update setup", note: "Install the newest version of the setup" },
 ] as const;
 
 const SENTENCES = ["The importer is done.", "Empty files are skipped now.", "All the tests pass."] as const;

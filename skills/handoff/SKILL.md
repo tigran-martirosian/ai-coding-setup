@@ -7,14 +7,14 @@ description: Move the current work to a fresh, cheap session — write a short h
 
 A big session re-sends all its context on every step; a fresh one starts from a short brief. Budget: about 5 tool calls.
 
-1. **Brief.** Run `node ~/.claude/hooks/handoff-brief.mjs` in the project folder. It prints the path of the brief it wrote. It picks the newest transcript for this folder, so check that its "First request" matches this conversation; if another session in the same folder was newer, rerun with `--transcript <this session's .jsonl>`.
-2. **Summary.** Replace the `<!-- summary ... -->` line in the brief with 5–12 bullets from this conversation, in one Edit:
+1. **Summary first.** Write `~/.claude/handoffs/summary.md` (Write tool) with 5–12 bullets from this conversation:
    - the goal, in one line;
    - done and verified (with the proof: command and result);
    - in progress, and the exact next step;
    - decisions the user made, and things tried that failed (so they aren't redone);
    - anything the user still owes (answers, approvals).
    Only facts a fresh session couldn't get from the files. No file contents.
+2. **Brief.** Run `node ~/.claude/hooks/handoff-brief.mjs --summary ~/.claude/handoffs/summary.md` in the project folder. It puts the summary under "Where we are", deletes the summary file and prints the path of the brief it wrote; without a summary it writes nothing and says so. It picks the newest transcript for this folder, so check that its "First request" matches this conversation; if another session in the same folder was newer, write the summary again and rerun with `--transcript <this session's .jsonl>`.
 3. **Open the new session.** If `mcp__nimbalyst-host__spawn_session` is available (load it with ToolSearch first), call it with `isolated: true` (a top-level session, not a child filed under this one's group; never use `create_session`, which makes a child), `inheritModel: true`, `title`: this session's name + " (cont.)", and `prompt`: `Read <brief path> and continue the work from "Where we are". Don't redo finished steps.` Otherwise tell the user to start a new session and paste that prompt.
 4. **Reply** in two lines: the new session is open (or the prompt to paste), and this one can be closed. Do no more work here.
 

@@ -79,7 +79,7 @@ process.stdin.on("end", () => {
         decision: "block",
         reason: [
           `[context-guard] This session now holds ~${k}k tokens, and every further message here re-sends all of it. Move the work to a fresh session now, without asking the user:`,
-          `- Follow the handoff skill (its "Automatic handoff" part): write the brief, add the summary, open the new session.`,
+          `- Follow the handoff skill (its "Automatic handoff" part): write the summary, then the brief with it, open the new session.`,
           `- If the task is finished, say so in the summary; the new session then only reads the brief and waits for the user's next request.`,
           `- Do no other work. End with two lines: the new session is open (its name), and the next message goes there, not here.`,
           `- One exception: if your reply just asked the user something this session needs answered, don't hand off; say in one line that the work moves to a fresh session after their answer.`,

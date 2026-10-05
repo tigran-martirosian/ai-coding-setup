@@ -52,10 +52,20 @@ const latest = read("demo-project-latest.md");
 check("latest is the newest session", /^# Handoff: demo-project/.test(latest) && /Fix the footer/.test(latest));
 check("latest lists the other session", /## Other sessions in this folder/.test(latest) && /demo-project-auto-aaaaaaaa\.md.*Build the price table/.test(latest));
 
-const manual = run(["--transcript", first, "--cwd", home], "");
+// A manual brief needs the summary first: without one, or with a nearly empty one, nothing is written
+const bare = run(["--transcript", first, "--cwd", home], "");
+check("manual mode without a summary writes no brief and says why", bare.status === 1 && /summary is missing.*--summary/.test(bare.stdout));
+const summaryFile = path.join(home, "summary.md");
+fs.writeFileSync(summaryFile, "- todo\n");
+check("a nearly empty summary writes no brief either", run(["--summary", summaryFile, "--transcript", first, "--cwd", home], "").stdout.includes("nearly empty"));
+fs.writeFileSync(summaryFile, "- Goal: a price table on the pricing page.\n- Done: the table, 12 tests pass.\n");
+const manual = run(["--summary", summaryFile, "--transcript", first, "--cwd", home], "");
 const manualFile = manual.stdout.trim();
 check("manual mode prints the brief's path", manual.status === 0 && /demo-project-\d{8}-\d{4}\.md$/.test(manualFile));
-check("manual brief leaves room for the summary", fs.existsSync(manualFile) && /<!-- summary/.test(fs.readFileSync(manualFile, "utf8")));
+const manualBrief = fs.existsSync(manualFile) ? fs.readFileSync(manualFile, "utf8") : "";
+check("the summary is in the brief under Where we are, with no placeholder left",
+  /## Where we are\n\n- Goal: a price table[^\n]*\n- Done: the table, 12 tests pass\.\n\n## First request/.test(manualBrief) && !manualBrief.includes("<!--"));
+check("the summary file is gone afterwards", !fs.existsSync(summaryFile));
 
 // Two projects with the same folder name must not overwrite each other's briefs
 const projA = path.join(home, "a", "proj");
@@ -87,7 +97,8 @@ fs.writeFileSync(path.join(outDir, "proj-auto-ffffffff.md"),
   `# Handoff: proj\n\nFrom session \`f\`.\nProject folder: \`${projB}\`. Follow its CLAUDE.md.\n\n## First request (the goal)\n\nold request from B\n`);
 hookIn(tA2, projA);
 check("an old same-prefix brief from the other project is left out", !read("proj-latest.md").includes("ffffffff"));
-const manualB = run(["--transcript", tB, "--cwd", projB], "").stdout.trim();
+fs.writeFileSync(summaryFile, "- Goal: a price table on the pricing page.\n- Done: the table, 12 tests pass.\n");
+const manualB = run(["--summary", summaryFile, "--transcript", tB, "--cwd", projB], "").stdout.trim();
 check("manual brief for the second project carries its name", /proj-[0-9a-f]{6}-\d{8}-\d{4}\.md$/.test(manualB));
 
 fs.rmSync(home, { recursive: true, force: true });

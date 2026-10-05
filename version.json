@@ -1,5 +1,5 @@
 {
-  "version": "1.0.13",
+  "version": "1.0.14",
   "date": "2026-10-05",
-  "summary": "The installer also installs the plugins and adds the Claude Code settings; /update-setup then sets up Nimbalyst, a theme you pick and voice typing."
+  "summary": "A handoff brief always has its summary, /chat-review works with any worker, and the side-bar button gains Update setup and Chat review."
 }

@@ -14,7 +14,10 @@ const skills = path.join(os.homedir(), '.claude', 'skills');
 const installed = fs.existsSync(path.join(skills, 'board-cleanup'));
 for (const c of COMMANDS) {
   assert.match(c.prompt, /^\/[a-z-]+$/, c.id);
-  if (installed) assert.ok(fs.existsSync(path.join(skills, c.prompt.slice(1), 'SKILL.md')), `no skill for ${c.prompt}`);
+  // a button tied to one project may start a skill that lives in that project's own folder
+  // inside the setup's repository, the skill may be one the repository ships and this computer doesn't have
+  const places = [skills, path.join(import.meta.dirname, '..', '..', '..', 'skills')];
+  if (installed && !c.only) assert.ok(places.some((p) => fs.existsSync(path.join(p, c.prompt.slice(1), 'SKILL.md'))), `no skill for ${c.prompt}`);
 }
 ok(installed ? 'every button has an installed skill' : 'every button names a skill (the skills are not installed here, so that was not checked)');
 
@@ -34,7 +37,8 @@ ok('a button tied to one project shows only in that project');
 const shared = path.join(import.meta.dirname, '..', 'dist-share', 'index.js');
 if (fs.existsSync(shared)) {
   const js = fs.readFileSync(shared, 'utf8');
-  for (const c of OWN) assert.ok(!js.includes(c.prompt), `the shared build still has ${c.prompt}, which only works here`);
+  const everywhere = COMMANDS.filter((c) => !OWN.includes(c)).map((c) => c.prompt);
+  for (const c of OWN.filter((o) => !everywhere.includes(o.prompt))) assert.ok(!js.includes(c.prompt), `the shared build still has ${c.prompt}, which only works here`);
   for (const c of COMMANDS.filter((c) => !OWN.includes(c))) assert.ok(js.includes(c.prompt), c.prompt);
   ok(`the shared build has the ${COMMANDS.length - OWN.length} buttons that work anywhere and none from own.ts`);
 }
