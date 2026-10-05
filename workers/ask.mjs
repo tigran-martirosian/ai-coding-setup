@@ -28,6 +28,7 @@ const AGY_MODEL = process.env.BIG_READ_AGY_MODEL || "gemini-3.8-flash-medium";
 const COOLDOWN_FILE = join(HOME, "cooldown.json");
 const COOLDOWN_MS = 30 * 60 * 1000; // an out-of-usage worker is not tried again for half an hour
 const OUT_OF_USAGE = /usage limit|rate limit|quota|resource_exhausted|too many requests|\b429\b/i;
+const NOT_HERE = /location is not supported/i; // the service refuses this place, so trying again soon is no use either
 
 const note = (line) => process.stderr.write(`[ask] ${line}\n`);
 
@@ -50,7 +51,7 @@ function unusable(route) {
   if (existsSync(join(HOME, `${route}.off`))) return `switched off (${route}.off)`;
   if (!onPath(route)) return "not installed";
   const until = readCooldowns()[route];
-  if (until && until > Date.now()) return `out of usage, next try after ${new Date(until).toLocaleTimeString()}`;
+  if (until && until > Date.now()) return `out of usage or not available here, next try after ${new Date(until).toLocaleTimeString()}`;
   return "";
 }
 
@@ -64,7 +65,7 @@ function runBash(script, args) {
   if (r.status === 0 && out) return { ok: true, text: out };
   const all = `${r.stderr || ""}\n${r.stdout || ""}`.trim();
   const last = all.split(/\r?\n/).filter((l) => l.trim()).slice(-2).join(" | ").slice(0, 300);
-  return { ok: false, reason: last || `exit code ${r.status}, no output`, outOfUsage: OUT_OF_USAGE.test(all) };
+  return { ok: false, reason: last || `exit code ${r.status}, no output`, outOfUsage: OUT_OF_USAGE.test(all), notHere: NOT_HERE.test(all) };
 }
 
 const ROUTES = {
@@ -131,8 +132,8 @@ for (const route of ORDER[kind]) {
     answered = true;
     break;
   }
-  if (result.outOfUsage) setCooldown(route);
-  note(`${route} failed${result.outOfUsage ? " (out of usage)" : ""}: ${result.reason}`);
+  if (result.outOfUsage || result.notHere) setCooldown(route);
+  note(`${route} failed${result.outOfUsage ? " (out of usage)" : result.notHere ? " (not available from this location)" : ""}: ${result.reason}`);
 }
 if (!answered) {
   note(`no free worker could answer. ${CLAUDE_INSTEAD[kind]}`);

@@ -2,6 +2,11 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.11, October 5, 2026
+
+- **A hook wired by an older copy is moved to the new one.** If your settings started one of the setup's hooks from another folder inside `~/.claude`, the installer saw the name, left the wiring alone and the new copy was never used. Now it points that wiring at the installed copy and says `hook repointed`. A script outside `~/.claude` is yours and is not touched.
+- **A worker that is refused for your location is left alone for half an hour.** When Gemini or Codex answers that your location is not supported, `ask.mjs` now says so and skips that worker for 30 minutes, the same as when it is out of usage, so each call no longer waits for it to fail.
+
 ## Version 1.0.10, October 5, 2026
 
 - **The update check runs every 12 hours.** It was once a day. A release now reaches you within half a day of using Claude Code, and the reminder comes at most that often.

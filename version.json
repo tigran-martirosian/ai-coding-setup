@@ -1,5 +1,5 @@
 {
-  "version": "1.0.10",
+  "version": "1.0.11",
   "date": "2026-10-05",
-  "summary": "The check for a newer version runs every 12 hours instead of once a day."
+  "summary": "An update now moves a hook that an older copy had wired from another folder, and a worker refused for your location is no longer retried on every call."
 }

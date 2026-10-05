@@ -257,6 +257,21 @@ withGone.hooks.Stop.push({ hooks: [{ type: "command", command: `node "${gone}"` 
 fs.writeFileSync(path.join(used, ".claude", "settings.json"), JSON.stringify(withGone));
 ok("a wired hook whose script is not there is listed", install(used).out.includes(`\n  Stop: ${gone}\n`));
 
+// ---- a hook of the setup's that an older copy wired from another place in ~/.claude is pointed at the installed one
+const moved = path.join(tmp, "moved");
+fs.mkdirSync(path.join(moved, ".claude", "skills", "handoff"), { recursive: true });
+const oldBrief = fwd(path.join(moved, ".claude", "skills", "handoff", "handoff-brief.mjs"));
+fs.writeFileSync(oldBrief, "// old\n");
+const briefEvent = Object.keys(example.hooks).find((e) => JSON.stringify(example.hooks[e]).includes("handoff-brief.mjs"));
+fs.writeFileSync(path.join(moved, ".claude", "settings.json"), JSON.stringify({ hooks: { [briefEvent]: [{ hooks: [
+  { type: "command", command: `"node.exe" "${oldBrief}" --hook` }, { type: "command", command: "node /elsewhere/context-guard.mjs" }] }] } }));
+const movedRun = install(moved);
+const movedCmds = commandsIn(json(path.join(moved, ".claude", "settings.json")));
+ok("a hook wired from an older place in ~/.claude is pointed at the installed copy, and a script elsewhere is left alone",
+  [movedCmds.filter((c) => c.includes("handoff-brief.mjs")), movedCmds.includes("node /elsewhere/context-guard.mjs"), movedRun.out.includes(`hook repointed: ${briefEvent} handoff-brief.mjs`)],
+  [[`node "${fwd(path.join(moved, ".claude", "hooks", "handoff-brief.mjs"))}" --hook`], true, true]);
+ok("the run after it repoints nothing", install(moved).out.includes("hook repointed"), false);
+
 // ---- broken settings are left alone
 const broken = path.join(tmp, "broken");
 fs.mkdirSync(path.join(broken, ".claude"), { recursive: true });

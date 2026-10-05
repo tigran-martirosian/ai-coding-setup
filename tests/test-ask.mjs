@@ -16,6 +16,7 @@ const fake = (name) => `#!/usr/bin/env bash
 case "$FAKE_${name.toUpperCase()}" in
   ok) echo "${name} answer: $*" ;;
   limit) echo "ERROR: You've hit your usage limit. Try again later." >&2; exit 1 ;;
+  away) echo "FAILED_PRECONDITION (code 400): User location is not supported for the API use" >&2; exit 1 ;;
   *) echo "${name} broke" >&2; exit 1 ;;
 esac
 `;
@@ -63,6 +64,9 @@ r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "fail" } });
 check("local: no worker answers: exit 3 and Claude is pointed to", r.code === 3 && r.out === "" && r.err.includes("Grep and Read"), show(r));
 r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "ok" }, files: { "agy.off": "off" } });
 check("local: agy.off skips Antigravity", r.code === 3 && r.err.includes("agy skipped: switched off"), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "away" } });
+check("local: a worker refused for this location is named and gets a cooldown", r.code === 3 && /agy failed \(not available from this location\)/.test(r.err)
+  && "agy" in JSON.parse(readFileSync(join(r.home, "cooldown.json"), "utf8")), show(r));
 r = ask(["--think", "hard one"], { have: ["codex"], env: { FAKE_CODEX: "ok" } });
 check("--think drops Codex's low effort setting", r.code === 0 && !r.out.includes("model_reasoning_effort"), show(r));
 

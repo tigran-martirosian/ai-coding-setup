@@ -192,8 +192,23 @@ function wire(target, hooks, folder, where = "") {
         const global = hook.command.match(/~\/\.claude\/(\S+)(.*)$/);
         const [, script, extra] = global || hook.command.match(/^node (\S+)(.*)$/);
         const list = ((target.hooks ??= {})[event] ??= []);
-        if (JSON.stringify(list).includes(path.basename(script))) continue;
-        const command = `${NODE} "${fwd(path.join(global ? CLAUDE : folder, script))}"${extra}`;
+        const base = path.basename(script);
+        const at = fwd(path.join(global ? CLAUDE : folder, script));
+        const command = `${NODE} "${at}"${extra}`;
+        if (JSON.stringify(list).includes(base)) {
+          // An older copy of this setup may have wired the same script from another place in ~/.claude:
+          // that wiring is pointed at the installed copy. A script outside ~/.claude is the user's own.
+          const name = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          for (const old of global ? list.flatMap((g) => g.hooks || []) : []) {
+            const m = String(old.command || "").match(new RegExp(`"([^"]*[\\\\/]${name})"|(\\S*[\\\\/]${name})`));
+            const was = m && fwd(m[1] || m[2]).replace(/^~(?=\/)/, fwd(home));
+            if (!was || was.toLowerCase() === at.toLowerCase() || !was.toLowerCase().startsWith(fwd(CLAUDE).toLowerCase() + "/")) continue;
+            old.command = command;
+            say(`hook repointed: ${event} ${base}${where} (it started ${was})`);
+            added++;
+          }
+          continue;
+        }
         const entry = { type: "command", command, timeout: hook.timeout };
         list.push(group.matcher ? { matcher: group.matcher, hooks: [entry] } : { hooks: [entry] });
         say(`hook added: ${event}${group.matcher ? ` (${group.matcher})` : ""} ${path.basename(script)}${where}`);
@@ -373,7 +388,7 @@ if (!DRY) for (const [event, groups] of Object.entries(settings.hooks || {})) {
     }
   }
 }
-const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|linked|removed)/.test(l));
+const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|linked|removed)/.test(l));
 if (did || tally.yours.length) {
   const parts = [[tally.added, "new"], [tally.replaced.length, "replaced"], [tally.yours.length, "kept as yours"], [tally.same, "unchanged"]];
   say(`Files: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(", ")}.`);
