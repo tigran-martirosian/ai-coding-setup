@@ -1,6 +1,6 @@
 ---
 name: court
-description: Hold a court of models on one question — GPT and Gemini (where set up) and several Claude seats with different jobs answer independently, GPT and Gemini review the answers blind, and an Opus chair gives the verdict. There is a quick court and a full one; the user picks at the start of each run. Use when the user types /court <question>, says "hold court", "ask the court", "what does the council think", or accepts your offer of a court on a contested question.
+description: Hold a court of models on one question — GPT and Gemini (where set up) and several Claude seats with different jobs answer independently, GPT and Gemini review the answers blind, and an Opus chair gives the verdict. There is a quick court and a full one; the user picks at the start of each run. Use when the user types /court <question>, says "hold court", "ask the court", "what does the council think", or accepts your offer of a court on a contested question. Also the reader court, for a piece instead of a question: when the user types /court readers <file> or asks how a resume, README, post or page reads to different people.
 ---
 
 # Court
@@ -60,6 +60,58 @@ that can sit. With neither tool, hold the full court only: its three Claude seat
 5. **Relay.** Read `verdict.md` and give it as the reply, with each letter replaced by its seat from
    the key (for example "the Sceptic (Claude)"). Add a last line, **Court**: quick or full, the seats
    that sat and any seat or reviewer that failed.
+
+## The reader court
+
+For a piece, not a question: a resume, a README, a post, a page, a picture. Readers with different
+jobs each read it alone and say how it lands with them; the chair sums up. Run it when the user
+types `/court readers <file>` or asks how a piece looks to different people. Don't ask "quick or
+full" here. One round, no review step.
+
+1. **Readers.** Use the ones the user named. If they named none, propose three whose jobs differ and
+   who would really meet this piece (for a resume: the recruiter who screens it, the engineer who
+   would work with the person, someone outside the field), and ask once. Three by default, five at
+   most.
+2. **Run folder** `court/<yyyy-mm-dd>-<short-slug>/`, with:
+   - `question.txt`: what the user wants to know ("Would you call this person?"); if they gave
+     nothing, "How does this piece land with you?".
+   - `piece.md`: the piece as text. Convert a PDF or Word file with
+     `uvx --from "markitdown[all]" markitdown "<file>" -o "<run folder>/piece.md"`. For a picture
+     write one line saying it is a picture; then every reader runs on `claude`.
+   - `readers.md`: one `## <reader id>` section per reader, with a `runs on:` line and the brief.
+     The first reader runs on `gpt` and the second on `gemini` where those are set up (see "Seats
+     that are not set up"); every other reader runs on `claude`. The brief says who the reader is
+     **and what they do with such a piece** (how long they give it, what they look for, what
+     decision they make): a job changes the reading, a personality alone doesn't.
+3. **Readings, all in one message:** Bash, timeout 600000:
+   `node ~/.claude/skills/court/court.mjs readers court/<folder>` (the GPT and Gemini readers; leave
+   the call out when every reader runs on `claude`), and one Agent call per `claude` reader
+   (`subagent_type: "worker"`, `model: "opus"`, `run_in_background: false`): the reader's brief, then
+   the reader rules below, then the question, then: "Read the piece with the Read tool: `<absolute
+   path of the original file, or of piece.md>`. Write your reading to `<absolute run
+   folder>/<reader id>.md` with the Write tool and reply with the one word: done. Use no other tool."
+   If the script prints `READER NOT RUN`, run that reader with an Agent call too.
+   - Reader rules, word for word: "You are one reader of the piece. Read it alone, as the person
+     described above, knowing nothing about it beyond what is on the page. Stay in your job: leave to
+     other readers what they would care about. First line: `Reader: <who you are, in a few words>`.
+     Then five short parts: **First reaction** (what you think in the first ten seconds), **Works
+     for me** (up to 3 points), **Loses me** (up to 3: what you don't understand, don't believe or
+     don't care about, quoting the words), **What I would do** (the decision someone in your position
+     makes) and **One change** (the single change that would move you most). At most 220 words, plain
+     language. Do not ask questions back."
+4. **Bundle:** `node ~/.claude/skills/court/court.mjs bundle court/<folder>`.
+5. **Chair.** One Agent call (`subagent_type: "worker"`, `model: "opus"`, `run_in_background: false`):
+   "You chair a panel of readers. Read `<absolute path>/bundle.md`: one piece was read by several
+   people with different jobs, each alone (A, B, ...; each reading's first line says who the reader
+   is). Write the summary to `<absolute path>/verdict.md` with the Write tool and reply with the one
+   word: done. Sections: **How it lands** (two or three sentences); **Every reader** (what all of
+   them said); **Only one reader** (what a single reader saw, with who, and whether it matters for
+   the piece's real audience); **Readers disagree** (where, and whose reading counts more for this
+   piece and why); **Changes** (at most three, most useful first, each with the readers it would
+   move). Don't average the readers: a point one reader makes about their own job outweighs three
+   guesses about it. Refer to readers by letter and job. At most 300 words, plain language."
+6. **Relay** the summary, with a last line **Reader court**: the readers, which model each ran on,
+   and any that failed.
 
 ## The chair's brief
 

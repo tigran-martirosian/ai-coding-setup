@@ -62,6 +62,24 @@ ok("the quick court's bundle has no reviews", bundle.includes("REVIEWER"), false
 const r = court("review", dir);
 ok("review with neither tool writes the bundle without reviews", [r.code, r.out.includes("without reviews")], [0, true]);
 
+// ---- the reader court
+const READERS = "## recruiter\nruns on: gpt\nScreens resumes, gives each one 30 seconds.\n\n## engineer\nruns on: claude\nWould work with the person.\n";
+const noPiece = runFolder({});
+ok("readers without readers.md and piece.md says what is missing",
+  [court("readers", noPiece).code, court("readers", noPiece).out.includes("needs readers.md and piece.md")], [1, true]);
+const reading = runFolder({});
+fs.writeFileSync(path.join(reading, "readers.md"), READERS);
+fs.writeFileSync(path.join(reading, "piece.md"), "A resume.");
+const rd = court("readers", reading);
+ok("readers with neither tool: exits cleanly and names the reader that did not run",
+  [rd.code, rd.out.includes("READER NOT RUN: recruiter"), rd.out.includes("engineer")], [0, true, false]);
+ok("readers with neither tool writes no reading", fs.readdirSync(reading).sort(), ["piece.md", "question.txt", "readers.md"]);
+fs.writeFileSync(path.join(reading, "recruiter.md"), "Reader: recruiter\nI would call.");
+fs.writeFileSync(path.join(reading, "engineer.md"), "Reader: engineer\nToo vague.");
+const rb = court("bundle", reading);
+ok("the readers' bundle holds the two readings and leaves out readers.md and piece.md",
+  [rb.code, Object.values(JSON.parse(fs.readFileSync(path.join(reading, "key.json"), "utf8"))).sort()], [0, ["engineer", "recruiter"]]);
+
 const lonely = runFolder({ sceptic: "No.\nConfidence: low" });
 ok("one answer is not a court", court("bundle", lonely).code, 1);
 const noQuestion = fs.mkdtempSync(path.join(tmp, "run-"));

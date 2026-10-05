@@ -11,7 +11,6 @@ import { resolve, extname, dirname, join } from "node:path";
 
 const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
 const MAX_BYTES = Number(process.env.BIG_READ_MAX_BYTES) || 50000;
-const AGY_MODEL = process.env.BIG_READ_AGY_MODEL || "gemini-3.8-flash-medium";
 const READ_CAP = 2000; // lines the Read tool returns when no limit is given
 const BINARY = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".pdf", ".ipynb"]);
 
@@ -40,11 +39,11 @@ function deny(path, m) {
   const kb = Math.round(m.bytes / 1024);
   const reason = [
     `[big-read-gate] ${path} is ${m.lines} lines (${kb} KB). Reading it whole would put all of it in context. Instead:`,
-    `1. Locate the part you need (Grep with line numbers, or context-mode's ctx_execute_file), then Read with offset/limit, at most ${MAX_LINES} lines.`,
-    `2. To understand or summarise it, hand the reading to a cheap worker and keep only its answer. Use the first one available:`,
-    `   - Antigravity (Gemini): agy -p "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number. Do not edit anything." --mode plan --model ${AGY_MODEL}`,
-    `   - Codex (ChatGPT): codex exec --skip-git-repo-check -s read-only -c 'windows.sandbox="unelevated"' -c model_reasoning_effort="low" "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number."`,
-    `   - Otherwise a haiku subagent (Agent tool, model: haiku) that answers from targeted reads.`,
+    `1. Locate the part you need (Grep with line numbers), then Read with offset/limit, at most ${MAX_LINES} lines.`,
+    `2. To understand or summarise it, hand the reading to a cheap worker and keep only its answer:`,
+    // ask.mjs uses the first free worker that is set up and working (Codex, then Antigravity) and says which
+    `   - A free worker: ~/.claude/workers/ask.mjs "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number. Do not edit anything."`,
+    `   - If that ends with "no free worker could answer": a haiku subagent (Agent tool, model: haiku) that answers from targeted reads.`,
     `   Ask one specific question per call. Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,
   ].join("\n");

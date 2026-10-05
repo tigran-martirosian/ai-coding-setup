@@ -16,6 +16,7 @@ import { Projects } from "./Projects";
 import { Rules } from "./Rules";
 import { RunYourself } from "./RunYourself";
 import { Says } from "./Says";
+import { Update } from "./Update";
 import { Usage } from "./Usage";
 import { Voice } from "./Voice";
 
@@ -40,6 +41,7 @@ export const SCENES: SceneEntry[] = [
   { id: "Commands", component: Commands, durationInFrames: 220 },
   { id: "Voice", component: Voice, durationInFrames: 180 },
   { id: "Install", component: Install, durationInFrames: 210 },
+  { id: "Update", component: Update, durationInFrames: 210 },
   { id: "EndCard", component: EndCard, durationInFrames: 110 },
 ];
 
@@ -52,6 +54,7 @@ const CLIP_SCENES: Record<string, string[]> = {
   projects: ["Projects", "Picture", "Rules"],
   commands: ["Commands"],
   voice: ["Voice"],
+  update: ["Update"],
 };
 
 export const CLIPS = Object.entries(CLIP_SCENES).map(([id, sceneIds]) => ({ id, sceneIds }));

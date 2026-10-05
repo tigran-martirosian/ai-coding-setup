@@ -46,11 +46,12 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   rewrites the worker section of the rules and, with Codex, adds the picture skill to two folders.
   The installer saves the folder you ran it from as `repo` in `~/.claude/setup-state.json`, so a
   chat can find it again.
+- **Updates.** Once a day the setup checks whether a newer version is released and says so in one
+  line. Type `/update-setup` to install it: your own skills, hooks, settings and notes stay, and a
+  rules file you changed yourself is replaced only after you say yes. `UPDATE_CHECK=off` in the
+  environment turns the daily check off; `/update-setup` still works.
 - **Optional extras the rules mention.** The installer does not install these; where one is missing
   the rule that names it simply doesn't apply.
-  - **context-mode** (a Claude Code plugin): runs big command output and large files outside the chat.
-  - **The LSP tool** (Claude Code's code navigation, needs a language server): finds a function by
-    name instead of reading whole files.
   - **uv** (provides `uvx`): converts PDF, Word and Excel files to text; also reads videos and feeds.
   - **The `find-skills` skill**: looks for a skill that does what you ask.
   - **The `claude-code-setup` plugin**: suggests hooks and skills for a project.
@@ -84,8 +85,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   extension). It opens a short list: board cleanup, next move, project scan, setup audit, usage
   report, new project. Press one and a new chat starts in the open project with that command. You
   should see the new chat in the sessions list.
-- **A second opinion that uses none of the Claude plan** (with Codex installed). Before building
-  from a design or a plan, say "get a second opinion from Codex on this".
+- **A second opinion that uses none of the Claude plan** (with Codex or Antigravity installed).
+  Before building from a design or a plan, say "get a second opinion on this". The first free
+  worker that is ready gives it.
 
 ## When a chat is busy or long
 
@@ -105,13 +107,11 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 
 ## Models
 
-- The rules expect new chats to start on Sonnet, which uses less of the plan. The installer leaves
-  your default model as it is; to start on Sonnet in the terminal, put `"model": "sonnet"` into
-  `~/.claude/settings.json`.
-- For hard work Claude asks once whether to move it to Opus. On yes, the work continues in a new
-  chat on Opus.
-- In Nimbalyst a new chat starts on the model you picked last in the model picker. After using
-  another model, pick Sonnet again.
+- A new chat starts on the model you chose, and stays on it: the rules don't steer you to another
+  model and Claude doesn't ask to switch. In the terminal that is `"model"` in
+  `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
+- Sonnet uses less of the plan than Opus. Routine jobs still go to a Sonnet helper and to the free
+  workers whichever model you chat on.
 - Three folders start on Opus by themselves: `ask-anything`, `internet-search`, `claude-settings`.
 
 ## Your projects
@@ -155,6 +155,10 @@ something unrelated inside another project, Claude names the right folder and op
   verdict) for an everyday question, or the full one (five answers, a blind review, then the
   verdict) when the answer has real stakes. The full court uses much more of the plan. Without
   Codex and Antigravity the court sits with its Claude seats only.
+- **`/court readers <file>`: how a piece reads to different people.** For a resume, a README, a
+  post or a page. Name the readers or let Claude propose three whose jobs differ (for a resume: the
+  recruiter, the engineer, an outsider). Each reads it alone and says what works, what loses them
+  and the one change they would make; a chair sums it up.
 - **A video or a page that will not open.** Paste a YouTube link and ask what the video says, or
   give the address of a page: Claude reads the subtitles or the page's text. Videos and feeds need
   the program uv.
@@ -187,7 +191,8 @@ something unrelated inside another project, Claude names the right folder and op
   computer. Run it again after a few weeks of work.
 - **Adding Codex or Gemini later.** If you get a ChatGPT or a Google subscription, say "add the
   Codex worker" or "add the Antigravity worker" in a chat in this folder.
-- **`/setup-audit`:** checks that the setup itself still works.
+- **`/setup-audit`:** checks that the setup itself still works, and names what is loaded in every
+  chat but hardly used. It asks which fixes to apply once, in one form.
 - "Should we add tool X?" is a question for this folder.
 
 ## What the rules take care of

@@ -4,7 +4,21 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/fe3c7b60-752f-4903-a567-755b0ef6db51
+https://github.com/user-attachments/assets/2bf61db5-d115-49d1-ad46-0006cd18db26
+
+## What's new
+
+**October 4, 2026, version 1.0.4: the audit finds dead weight.** `/setup-audit` now lists what every chat loads but hardly uses and asks about fixes once, in one form. `/new-project` suggests Playwright, Frontend Design and NotebookLM where they fit.
+
+**October 4, 2026, version 1.0.3: the reader court.** `/court readers <file>` has a few readers with different jobs read a resume, a README, a post or a page, each alone, and sums up how it lands and what to change.
+
+**October 4, 2026, version 1.0.2: you stay on the model you picked.** The rules no longer expect new chats to start on Sonnet, and Claude no longer stops to ask whether to move to Opus. The rules file every chat loads is shorter.
+
+**October 4, 2026, version 1.0.0: the setup updates itself.** Once a day it checks whether a newer version is released and says so in one line. Typing `/update-setup` installs it without asking anything again, and keeps your own skills, hooks, settings and notes.
+
+**October 4, 2026: one command for the free workers.** Searching and long reading now go through [workers/ask.mjs](workers/ask.mjs). It picks the first worker that is ready, moves to the next one when a worker runs out of usage, and says which one answered. The setup now works the same with a ChatGPT subscription, a Google one, both or neither, and a search no longer stops because one worker is busy.
+
+Earlier changes are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
@@ -29,6 +43,18 @@ This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks int
 - **Mac:** I run the setup on Windows. The tests also run on macOS, but the full install has not been run on a real Mac, and Read Aloud is Windows only.
 - **Afterwards:** [docs/HOW-TO.md](docs/HOW-TO.md) says what to type and what you should see.
 
+## Updating
+
+Once a day the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](hooks/update-check.mjs)) and says so in one line. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
+
+![An update announced in one line, then installed with one command](docs/img/clip-update.gif)
+
+- **Yours stays yours.** The installer only writes the setup's own files. Skills, hooks, settings and notes you added are not touched, and every replaced file is kept as `<name>.before-install-<date>`.
+- **Rules.** A `~/.claude/CLAUDE.md` you never changed is brought up to date. One you changed is replaced only after you say yes.
+- **Without a chat:** `node ~/.claude/skills/update-setup/update.mjs`, or `--check` to only look.
+- **Installed before version 1.0.0?** Download the repository once more and run the install again; from then on it updates itself.
+- **Off switch:** set `UPDATE_CHECK=off` to stop the daily check.
+
 ## What's inside
 
 | Part | What it does | Where |
@@ -39,7 +65,9 @@ This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks int
 | Starter projects | Four folders, each with its own rules and tools | [projects](projects) |
 | Editor extensions | Usage pop-up, Read Aloud and a commands button for Nimbalyst | [extensions](extensions) |
 | Worker agent | A cheaper subagent for routine edits | [agents](agents) |
+| Worker command | One short command for searching and long reading. It uses the first free worker that is set up and working (Codex, then Gemini through Antigravity), says which one answered, and hands the job back to Claude when none can | [workers](workers) |
 | Installer | Puts the files in place and keeps a copy of what it replaces | [install.mjs](install.mjs) |
+| Updater | Says when a newer version is out; `/update-setup` installs it and keeps your own files | [skills/update-setup](skills/update-setup) |
 | Tour video | The Remotion source of the video above | [promo](promo) |
 
 ## Checks
@@ -61,12 +89,13 @@ The other hooks keep sessions cheap and safe:
 | Hook | What it does |
 |---|---|
 | `big-read-gate` | Large files are read in parts, not whole |
-| `worker-nudge` | Sends searching to Codex or Gemini |
+| `worker-nudge` | Sends searching to the first free worker that is ready (Codex, Gemini) |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
 | `context-guard` | Warns when a session gets long, and has the agent offer a handoff |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
+| `update-check` | Says once a day when a newer version of the setup is released |
 | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
 
@@ -74,9 +103,9 @@ A hook that hits an error lets the call through. `link-gate` knows that a page w
 
 ## Three models
 
-![A search sent to Codex, the court of three models, and a lead session with child sessions](docs/img/clip-models.gif)
+![A search handed to the first free worker, the court of three models, and a lead session with child sessions](docs/img/clip-models.gif)
 
-Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: the first try at a search subagent is blocked and pointed at `codex` or `agy`. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
+Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: the first try at a search subagent is blocked and pointed at one command, [workers/ask.mjs](workers/ask.mjs). That command tries the workers in order (Codex, then Antigravity for local files; Codex for the web), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
 
 ```mermaid
 flowchart TD
@@ -91,7 +120,7 @@ flowchart TD
   main --> worker
 ```
 
-- **The court.** For a hard question I ask all three with [skills/court](skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. I read it and decide.
+- **The court.** For a hard question I ask all three with [skills/court](skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. I read it and decide. For a piece of writing there is the reader court (`/court readers <file>`): a few readers with different jobs, say a recruiter, an engineer and an outsider, each read it alone and say how it lands with them.
 - **The lead.** For a big task, [skills/lead](skills/lead/SKILL.md) splits the work across child sessions in Nimbalyst that run side by side, has a separate session review the result, sends the fixes back and reports what it checked.
 
 The rules I give the models are described in [docs/setup.md](docs/setup.md).

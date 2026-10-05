@@ -24,7 +24,7 @@ flowchart TD
 
 ## What I hand to each tool
 
-The rule: searching and long reading go to GPT (through the Codex CLI) and Gemini (through the Antigravity CLI), which run on my other subscriptions. Design and code stay with Claude.
+The rule: searching and long reading go to GPT (through the Codex CLI) and Gemini (through the Antigravity CLI), which run on my other subscriptions. Design and code stay with Claude. One command, [workers/ask.mjs](../workers/ask.mjs), picks the worker: the first one that is set up and working. It moves to the next when one is out of usage, says which one answered, and hands the job back to Claude when none can.
 
 | Tool | What I use it for | Limits I set |
 |---|---|---|
@@ -52,7 +52,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When | Hook | Rule it enforces |
 |---|---|---|
 | Before a file read or shell command | `big-read-gate` | Read large files in parts |
-| Before a subagent starts | `worker-nudge` | Searching goes to Codex or Gemini first |
+| Before a subagent starts | `worker-nudge` | Searching goes to the first free worker that is ready (Codex or Gemini) |
 | Before a shell command | `command-explain` | Explain the command in plain words |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |
@@ -60,6 +60,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | When I send a message | `context-guard` | Warn when the session passes 200k tokens |
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
+| When I send a message | `update-check` | Say once a day when a newer version of the setup is released |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
 | While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
 | Before a reply goes out | `link-gate` | No link that wasn't opened in this session |
