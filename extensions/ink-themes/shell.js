@@ -87,12 +87,71 @@ function paintUsage(box) {
   box.hidden = shown === 0;
 }
 
+/**
+ * The app's theme menu lists every theme in one column. This extension's themes (all named "Ink ...")
+ * fold into one "Ink themes" row there; a press on the row opens and closes them. It is done whichever
+ * theme is on, since the long list is there either way. The menu is built anew each time it opens, so
+ * it always starts folded.
+ */
+const isInk = (item) => /^Ink\s/.test(item.querySelector('.theme-name')?.textContent || '');
+let foldOpen = false;
+
+function foldMenu() {
+  const menu = document.querySelector('.theme-menu');
+  if (!menu) { foldOpen = false; return; }
+  const items = [...menu.querySelectorAll('.theme-menu-item:not(.ink-fold)')].filter(isInk);
+  let row = menu.querySelector('.ink-fold');
+  if (items.length < 2) return row?.remove();
+  if (!row) {
+    // A copy of one of the app's own rows, so it looks right in every theme
+    row = items[0].cloneNode(true);
+    const name = row.querySelector('.theme-name');
+    const icon = row.querySelector('.theme-icon > *');
+    if (!name || !icon) return;
+    while (name.nextSibling) name.nextSibling.remove();
+    row.classList.add('ink-fold');
+    name.textContent = 'Ink themes';
+    const arrow = icon.cloneNode(false);
+    arrow.classList.add('ink-fold-arrow');
+    row.append(arrow);
+    row.onclick = (e) => {
+      e.stopPropagation();
+      foldOpen = !foldOpen;
+      foldMenu();
+    };
+    items[0].before(row);
+  }
+  const arrow = foldOpen ? 'expand_less' : 'expand_more';
+  const mark = row.querySelector('.ink-fold-arrow');
+  if (mark.textContent !== arrow) mark.textContent = arrow;
+  row.setAttribute('aria-expanded', String(foldOpen));
+  // The app puts a tick after the name of the theme that is on; the row names it while it is folded away
+  const on = items.find((item) => item.querySelector('.theme-name')?.nextElementSibling);
+  const label = on ? `Ink themes · ${on.querySelector('.theme-name').textContent.replace(/^Ink\s/, '')}` : 'Ink themes';
+  const name = row.querySelector('.theme-name');
+  if (name.textContent !== label) name.textContent = label;
+  for (const item of items) {
+    const display = foldOpen ? '' : 'none';
+    if (item.style.display !== display) item.style.display = display;
+    if (item.style.paddingLeft !== '26px') item.style.paddingLeft = '26px';
+  }
+}
+
+function unfoldMenu() {
+  document.querySelectorAll('.ink-fold').forEach((n) => n.remove());
+  for (const item of document.querySelectorAll('.theme-menu-item')) {
+    item.style.display = '';
+    item.style.paddingLeft = '';
+  }
+}
+
 function removeAll() {
   document.querySelectorAll('.ink-top, .ink-usage').forEach((n) => n.remove());
   document.documentElement.classList.remove('ink-shell');
 }
 
 function sync() {
+  foldMenu();
   if (!themeOn()) return removeAll();
 
   for (const header of document.querySelectorAll('.workspace-summary-header')) {
@@ -148,6 +207,7 @@ function deactivate() {
   observer = undefined;
   clearInterval(timer);
   removeAll();
+  unfoldMenu();
 }
 
 export { activate, deactivate };

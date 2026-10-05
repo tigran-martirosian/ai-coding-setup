@@ -1,4 +1,4 @@
-// The five colour themes. Each one is a short list of base colours; colors() turns it into the full
+// The colour themes. Each one is a short list of base colours; colors() turns it into the full
 // set Nimbalyst asks for, so every theme fills the same slots in the same way.
 // To add a theme: add an entry here, run `node build.mjs` and `node test.mjs`.
 
@@ -54,6 +54,66 @@ export const THEMES = [
     link: '#72c6d2', linkHover: '#9edbe4', tint: [170, 222, 245],
     thumb: '#33454f', thumbHover: '#4a606c',
     success: '#84d6b0', warning: '#e0c27a', error: '#eaa0a4', info: '#9dbcf0', purple: '#b6aaea',
+  },
+  {
+    id: 'ink-ember', name: 'Ink Ember', isDark: true,
+    about: 'Dark wine, almost black, with a dusty rose accent.',
+    bg: '#1b1517', side: '#141011', raised: '#282023', stripe: '#211a1c', border: '#382d31',
+    text: '#f1e9ea', muted: '#cdbfc2', faint: '#a39397', disabled: '#6c5e62',
+    primary: '#b0506a', primaryHover: '#c06079', onPrimary: '#ffffff', focus: '#d27f95',
+    link: '#e59aae', linkHover: '#f2bcc9', tint: [255, 205, 215],
+    thumb: '#4a3c41', thumbHover: '#65545a',
+    success: '#8fd3a8', warning: '#e2c47c', error: '#f09a80', info: '#a6bde6', purple: '#c2aee6',
+  },
+  {
+    id: 'ink-frost', name: 'Ink Frost', isDark: false,
+    about: 'Light: cool white pages, a pale grey-blue side bar and a slate blue accent.',
+    bg: '#f1f4f7', side: '#e3e8ee', raised: '#fbfcfd', stripe: '#e9edf2', border: '#c5cdd8',
+    text: '#1c232c', muted: '#444f5d', faint: '#586473', disabled: '#98a2af',
+    primary: '#35609a', primaryHover: '#2a4f83', onPrimary: '#ffffff', focus: '#4a78b6',
+    link: '#2d5791', linkHover: '#1c3f70', tint: [20, 40, 70],
+    thumb: '#b9c2ce', thumbHover: '#9ba6b5',
+    success: '#27744c', warning: '#855d0a', error: '#b03a3c', info: '#2a6294', purple: '#6850a6',
+  },
+  {
+    id: 'ink-saffron', name: 'Ink Saffron', isDark: true,
+    about: 'Neutral charcoal with a saffron gold accent.',
+    bg: '#1a1a17', side: '#121210', raised: '#262622', stripe: '#20201c', border: '#35352f',
+    text: '#efede3', muted: '#c8c5b6', faint: '#9d9a8b', disabled: '#66645a',
+    primary: '#d2a03c', primaryHover: '#dfb04f', onPrimary: '#1d1503', focus: '#e0b55c',
+    link: '#e6c06e', linkHover: '#f2d79b', tint: [255, 236, 190],
+    thumb: '#45453d', thumbHover: '#5f5f55',
+    success: '#93d1a0', warning: '#eba56a', error: '#ec9c92', info: '#a3c0e0', purple: '#c0afe2',
+  },
+  {
+    id: 'ink-cobalt', name: 'Ink Cobalt', isDark: true,
+    about: 'Night blue with a bright cobalt accent.',
+    bg: '#12151f', side: '#0d0f17', raised: '#1c2130', stripe: '#171b28', border: '#2a3044',
+    text: '#e8ebf5', muted: '#bcc3d8', faint: '#8e96b0', disabled: '#5b627a',
+    primary: '#3f6fd8', primaryHover: '#5282e6', onPrimary: '#ffffff', focus: '#6f9bf0',
+    link: '#8fb2f5', linkHover: '#b7cdf9', tint: [185, 205, 255],
+    thumb: '#373f58', thumbHover: '#505a7a',
+    success: '#84d6ae', warning: '#e2c47c', error: '#eca0a6', info: '#8fd0ea', purple: '#b9aaf0',
+  },
+  {
+    id: 'ink-blossom', name: 'Ink Blossom', isDark: false,
+    about: 'Light: blush white pages, a pale rose side bar and a berry accent.',
+    bg: '#f8f1f2', side: '#eee3e6', raised: '#fefbfb', stripe: '#f3e9eb', border: '#dcc9ce',
+    text: '#2a1f23', muted: '#56464c', faint: '#6a585e', disabled: '#a8979c',
+    primary: '#a8406a', primaryHover: '#8f3258', onPrimary: '#ffffff', focus: '#bd5680',
+    link: '#963660', linkHover: '#74244a', tint: [70, 20, 40],
+    thumb: '#d2bfc4', thumbHover: '#b8a3a9',
+    success: '#2c7650', warning: '#875d0c', error: '#b43a2e', info: '#2f6396', purple: '#6c52a4',
+  },
+  {
+    id: 'ink-slate', name: 'Ink Slate', isDark: true,
+    about: 'Cool slate grey panels on a darker side bar, with a tangerine accent.',
+    bg: '#22262b', side: '#16191d', raised: '#2e333a', stripe: '#282c32', border: '#3d434b',
+    text: '#eef0f2', muted: '#c2c8cf', faint: '#a3aab3', disabled: '#666d76',
+    primary: '#e0823c', primaryHover: '#ec934f', onPrimary: '#1f1005', focus: '#f0a060',
+    link: '#f2ab72', linkHover: '#f8c9a2', tint: [225, 235, 250],
+    thumb: '#474e57', thumbHover: '#616973',
+    success: '#8fd3a4', warning: '#e6c874', error: '#f09a9a', info: '#9cc3ea', purple: '#c0b0e8',
   },
 ];
 

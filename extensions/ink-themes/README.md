@@ -1,9 +1,9 @@
 # Ink themes
 
-Five colour themes for Nimbalyst. They share one look (the Figtree and Bricolage Grotesque fonts,
+Eleven colour themes for Nimbalyst. They share one look (the Figtree and Bricolage Grotesque fonts,
 rounder shapes, a name under every side button, a floating message box) and differ only in colour.
 
-![The five themes side by side](preview.png)
+![The eleven themes side by side](preview.png)
 
 | Theme | What it looks like |
 |---|---|
@@ -12,6 +12,12 @@ rounder shapes, a name under every side button, a floating message box) and diff
 | **Ink Graphite** | Graphite grey panels on a near-black side bar, with a saddle brown accent |
 | **Ink Bone** | Light: ivory pages, a bone side bar, warm ink text and a terracotta accent |
 | **Ink Tide** | Deep sea blue with a sea-glass teal accent |
+| **Ink Ember** | Dark wine, almost black, with a dusty rose accent |
+| **Ink Frost** | Light: cool white pages, a pale grey-blue side bar and a slate blue accent |
+| **Ink Saffron** | Neutral charcoal with a saffron gold accent |
+| **Ink Cobalt** | Night blue with a bright cobalt accent |
+| **Ink Blossom** | Light: blush white pages, a pale rose side bar and a berry accent |
+| **Ink Slate** | Cool slate grey panels on a darker side bar, with a tangerine accent |
 
 ## Install
 
@@ -23,8 +29,10 @@ npm run install-ext
 ```
 
 The second command prints `installed to` and the folder. Restart Nimbalyst, press the **Theme**
-button at the bottom of the side bar and pick one. Nothing changes until you pick a theme, and
-picking any other theme puts everything back as it was.
+button at the bottom of the side bar, press **Ink themes** to unfold the list and pick one. The
+themes sit under that one row so the menu stays short; the row also names the one that is on.
+Nothing else changes until you pick a theme, and picking any other theme puts everything back as
+it was.
 
 ## What it adds besides colour
 
@@ -59,8 +67,8 @@ above was taken from.
 | File | What |
 |---|---|
 | `themes.mjs` | The colours of each theme |
-| `theme.src.css` | Fonts, shapes and labels, shared by all five |
-| `shell.js` | The New session button, the switch and the usage bars |
+| `theme.src.css` | Fonts, shapes and labels, shared by all the themes |
+| `shell.js` | The New session button, the switch, the usage bars and the folded theme menu |
 | `build.mjs` | Writes `manifest.json` and `dist/` |
 | `test.mjs` | The checks |
 | `fonts/` | Figtree, Bricolage Grotesque and JetBrains Mono, each under the SIL Open Font License |

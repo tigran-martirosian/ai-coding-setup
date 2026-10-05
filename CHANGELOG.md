@@ -2,6 +2,13 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.15, October 5, 2026
+
+- **Six more colour themes.** Ink Ember (dark wine and rose), Ink Frost (light, cool white and slate blue), Ink Saffron (charcoal and gold), Ink Cobalt (night blue), Ink Blossom (light, blush and berry) and Ink Slate (slate grey and tangerine) join the first five. That makes eleven, eight dark and three light, and each passes the same reading checks.
+- **The theme menu stays short.** The Ink themes fold into one "Ink themes" row of Nimbalyst's Theme menu. Press the row to unfold them; it also names the theme that is on.
+- **`/new-project` knows where to look for design references.** A project with a web UI gets Designeer (designeer.xyz) written into its tools: a free list of design galleries, component libraries, and type and colour tools, to look at before a new page or a redesign.
+- **The tour video shows the eleven themes.**
+
 ## Version 1.0.14, October 5, 2026
 
 - **A handoff brief always has its summary.** The brief was written first and the summary added in a second step, and that step could be skipped, which left the next session a brief with an empty "Where we are". Now the summary is written first and the brief script takes it in (`--summary <file>`); without one it writes nothing and says why.

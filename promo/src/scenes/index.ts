@@ -40,7 +40,7 @@ export const SCENES: SceneEntry[] = [
   { id: "Picture", component: Picture, durationInFrames: 180 },
   { id: "Rules", component: Rules, durationInFrames: 200 },
   { id: "Commands", component: Commands, durationInFrames: 220 },
-  { id: "Themes", component: Themes, durationInFrames: 240 },
+  { id: "Themes", component: Themes, durationInFrames: 300 },
   { id: "Voice", component: Voice, durationInFrames: 180 },
   { id: "Install", component: Install, durationInFrames: 210 },
   { id: "Update", component: Update, durationInFrames: 210 },

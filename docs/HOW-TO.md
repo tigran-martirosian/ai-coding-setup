@@ -68,8 +68,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **The Nimbalyst extensions** are built from source. In each folder under `extensions`:
   `npm install`, `npm run build`, `npm run install-ext`, then restart Nimbalyst. You should see a
   new button in Nimbalyst's left gutter.
-- **Colour themes.** The `ink-themes` extension adds five: Ink Aurora, Ivy, Graphite, Bone (the
-  light one) and Tide. Press the **Theme** button at the bottom of the left gutter and pick one.
+- **Colour themes.** The `ink-themes` extension adds eleven: eight dark ones (Ink Aurora, Ivy,
+  Graphite, Tide, Ember, Saffron, Cobalt, Slate) and three light ones (Ink Bone, Frost, Blossom).
+  Press the **Theme** button at the bottom of the left gutter, press **Ink themes** to unfold the
+  list and pick one.
 - **Voice typing** is Handy, a free program that runs on the computer (no account). On Windows:
   `winget install --id cjpais.Handy -e`; other systems: https://handy.computer. Open it once, allow
   the microphone and download the **Parakeet V3** model. In its settings choose push to talk on
