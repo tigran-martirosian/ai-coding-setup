@@ -76,7 +76,8 @@ const state = json(path.join(claude, "setup-state.json"));
 const source = path.join(claude, "setup-source", `v${NEW}`);
 check("the update exits cleanly", done.code === 0 && done.out.includes(`Updated to version ${NEW}`));
 check("the version on record is the new one", state.version === NEW);
-check("the setup's folder is now the downloaded one", path.resolve(state.repo) === path.resolve(source) && fs.existsSync(path.join(source, "install.mjs")));
+// on a Mac the temporary folder is a link, and Node names a script by its real path
+check("the setup's folder is now the downloaded one", fs.existsSync(path.join(source, "install.mjs")) && fs.realpathSync(state.repo) === fs.realpathSync(source));
 check("a changed hook is replaced and the old one kept as a dated copy",
   fs.readFileSync(path.join(claude, "hooks", "sql-guard.mjs"), "utf8").endsWith("// newer\n") && fs.readdirSync(path.join(claude, "hooks")).some((f) => f.startsWith("sql-guard.mjs.before-install-")));
 check("rules the user never changed are brought up to date", fs.readFileSync(path.join(claude, "CLAUDE.md"), "utf8").includes("A rule from the newer version."));
