@@ -4,7 +4,7 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/84690072-475e-4066-8c10-2da50100273d
+https://github.com/user-attachments/assets/2bf61db5-d115-49d1-ad46-0006cd18db26
 
 ## What's new
 
@@ -40,6 +40,8 @@ This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks int
 ## Updating
 
 Once a day the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](hooks/update-check.mjs)) and says so in one line. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
+
+![An update announced in one line, then installed with one command](docs/img/clip-update.gif)
 
 - **Yours stays yours.** The installer only writes the setup's own files. Skills, hooks, settings and notes you added are not touched, and every replaced file is kept as `<name>.before-install-<date>`.
 - **Rules.** A `~/.claude/CLAUDE.md` you never changed is brought up to date. One you changed is replaced only after you say yes.

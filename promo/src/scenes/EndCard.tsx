@@ -36,7 +36,7 @@ export const EndCard: React.FC<SceneProps> = ({ durationInFrames }) => {
         </div>
       </Appear>
       <Appear at={62}>
-        <div style={{ fontSize: 46, fontWeight: 600 }}>One installer.</div>
+        <div style={{ fontSize: 46, fontWeight: 600 }}>One installer. It updates itself.</div>
       </Appear>
     </Scene>
   );
