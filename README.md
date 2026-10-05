@@ -4,9 +4,11 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/2bf61db5-d115-49d1-ad46-0006cd18db26
+https://github.com/user-attachments/assets/5781d78d-c420-43a3-8a88-9fd0f4431032
 
 ## What's new
+
+**October 5, 2026, version 1.0.6: the tour video is up to date.** It has a new scene for the five colour themes, the court scene shows the reader court, and the themes have their own clip below.
 
 **October 5, 2026, version 1.0.5: five colour themes.** The new [ink-themes](extensions/ink-themes/README.md) extension gives Nimbalyst five themes that share one look: dark violet, grey with ivy green, graphite with brown, a light ivory one and deep sea blue.
 
@@ -188,7 +190,7 @@ Four extensions for Nimbalyst. The first three are written in TypeScript and Rea
 - [commands](extensions/commands/README.md) puts six commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report and new project. A press starts a new session in the open project with that command.
 - [ink-themes](extensions/ink-themes/README.md) adds five colour themes with their own fonts and rounder shapes: Ink Aurora, Ivy, Graphite, Bone and Tide.
 
-![The five themes side by side](extensions/ink-themes/preview.png)
+![The five themes, one after another on the same window](docs/img/clip-themes.gif)
 
 ## Voice typing
 

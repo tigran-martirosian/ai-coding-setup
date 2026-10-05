@@ -16,6 +16,7 @@ import { Projects } from "./Projects";
 import { Rules } from "./Rules";
 import { RunYourself } from "./RunYourself";
 import { Says } from "./Says";
+import { Themes } from "./Themes";
 import { Update } from "./Update";
 import { Usage } from "./Usage";
 import { Voice } from "./Voice";
@@ -29,7 +30,7 @@ export const SCENES: SceneEntry[] = [
   { id: "RunYourself", component: RunYourself, durationInFrames: 180 },
   { id: "Says", component: Says, durationInFrames: 230 },
   { id: "Gates", component: Gates, durationInFrames: 200 },
-  { id: "Court", component: Court, durationInFrames: 210 },
+  { id: "Court", component: Court, durationInFrames: 250 },
   { id: "Lead", component: Lead, durationInFrames: 230 },
   { id: "Btw", component: Btw, durationInFrames: 180 },
   { id: "Handoff", component: Handoff, durationInFrames: 230 },
@@ -39,6 +40,7 @@ export const SCENES: SceneEntry[] = [
   { id: "Picture", component: Picture, durationInFrames: 180 },
   { id: "Rules", component: Rules, durationInFrames: 200 },
   { id: "Commands", component: Commands, durationInFrames: 220 },
+  { id: "Themes", component: Themes, durationInFrames: 240 },
   { id: "Voice", component: Voice, durationInFrames: 180 },
   { id: "Install", component: Install, durationInFrames: 210 },
   { id: "Update", component: Update, durationInFrames: 210 },
@@ -53,6 +55,7 @@ const CLIP_SCENES: Record<string, string[]> = {
   usage: ["Usage", "Dashboard"],
   projects: ["Projects", "Picture", "Rules"],
   commands: ["Commands"],
+  themes: ["Themes"],
   voice: ["Voice"],
   update: ["Update"],
 };

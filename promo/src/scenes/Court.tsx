@@ -2,12 +2,13 @@ import React from "react";
 import { useCurrentFrame } from "remotion";
 import { Appear, appear, typed } from "../anim";
 import { Scene, SceneProps } from "../Scene";
-import { color } from "../theme";
+import { color, mono } from "../theme";
 import { Chip } from "../ui";
 
 const BLIND_AT = 84;
 const REVIEW_AT = 104;
 const VERDICT_AT = 142;
+const READERS_AT = 186;
 const VERDICT = "Split by month. Answers B and C agree, and A leaves out the cost of the extra indexes.";
 
 const SEATS = [
@@ -32,7 +33,7 @@ export const Court: React.FC<SceneProps> = ({ durationInFrames }) => {
       tag="/court"
       caption="The court: three models answer one question alone, two review the answers without knowing who wrote which, and a chair writes the verdict."
       durationInFrames={durationInFrames}
-      stageStyle={{ flexDirection: "column", gap: 22 }}
+      stageStyle={{ flexDirection: "column", gap: 20 }}
     >
       <Appear at={6}>
         <div style={{ ...card, padding: "14px 32px", fontSize: 32, fontWeight: 600, borderColor: color.faint }}>
@@ -92,6 +93,15 @@ export const Court: React.FC<SceneProps> = ({ durationInFrames }) => {
             <span style={{ fontSize: 25, color: color.dim }}>You read it and decide.</span>
           </div>
           <div style={{ fontSize: 31, lineHeight: 1.35 }}>{typed(VERDICT, frame, VERDICT_AT + 8, 2.2)}</div>
+        </div>
+      </Appear>
+
+      <Appear at={READERS_AT}>
+        <div style={{ display: "flex", alignItems: "center", gap: 20, fontSize: 27, color: color.dim }}>
+          <Chip color={color.violet} style={{ fontSize: 24, fontFamily: mono }}>
+            /court readers resume.md
+          </Chip>
+          <span>For a piece instead of a question: readers with different jobs say how it lands.</span>
         </div>
       </Appear>
     </Scene>
