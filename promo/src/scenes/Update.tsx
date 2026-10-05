@@ -12,8 +12,8 @@ const STEPS = [
   "Newer version: 1.0.1 (installed: 1.0.0)",
   "Downloaded the release from GitHub",
   "Replaced the setup's files, each old one kept as a dated copy",
+  "Rebuilt the editor extensions, installed the missing plugins",
   "Kept as yours: hooks/sql-guard.mjs, which you changed",
-  "Your own skills, hooks, settings and notes: not touched",
 ] as const;
 
 const NOTICE_AT = 10;
