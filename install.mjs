@@ -7,18 +7,24 @@
 //   3. the base project folders from projects/ (ask-anything, internet-search, quick-tasks,
 //      claude-settings), each with its skills, hooks, tools and its own .claude/settings.json
 // A file that is replaced is kept next to the new one as <name>.before-install-<date>. The notes files
-// the user fills in (each folder's CLAUDE.md, profile.md, finds/INDEX.md, HOW-TO.md) are written only
-// when missing.
+// the user fills in (profile.md, finds/INDEX.md) are written only when missing. The rules, each
+// folder's CLAUDE.md and HOW-TO.md are the user's once they changed them: a later run (an update)
+// replaces one only while it is still exactly what an earlier run wrote.
+// What a run was told is kept in ~/.claude/setup-state.json, with the version from version.json, so
+// that the updater (skills/update-setup/update.mjs) can run this again without asking anything.
 //   node install.mjs            install
 //   node install.mjs --dry-run  print what it would do and change nothing
 //   --projects <folder>         where the project folders go (default: Projects in the home folder;
 //                               the folder given once is remembered for later runs)
-//   --codex yes|no              whether the Codex CLI is used (default: yes when `codex` is on the PATH)
+//   --codex yes|no              whether the Codex CLI is used (default: the answer given before, else
+//                               yes when `codex` is on the PATH)
 //   --agy yes|no                the same for the Antigravity CLI (`agy`)
 //   --replace-rules             replace a ~/.claude/CLAUDE.md that has other content (a dated copy is kept)
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
 //   --node <file>               start the hooks with this Node by its full path instead of plain `node`
-//                               (for a Mac, where an app opened from the Dock may not have Node on its PATH)
+//                               (for a Mac, where an app opened from the Dock may not have Node on its
+//                               PATH; remembered for later runs)
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -34,7 +40,8 @@ const WIN = process.platform === "win32";
 const fwd = (p) => p.replace(/\\/g, "/");
 const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 const say = (s) => console.log((DRY ? "[dry run] " : "") + s);
-const NODE = opt("node") ? `"${fwd(path.resolve(opt("node")))}"` : "node";
+const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const read = (file) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
 
 if (Number(process.versions.node.split(".")[0]) < 18) {
   console.log(`Node.js 18 or newer is needed; this is ${process.version}.`);
@@ -64,6 +71,8 @@ const settings = readSettings(settingsFile);
 // The projects folder: the one given, else the one an earlier run kept, else Projects in the home folder
 const stateFile = path.join(CLAUDE, "setup-state.json");
 const state = readSettings(stateFile);
+const nodeFile = opt("node") ? fwd(path.resolve(opt("node"))) : state.node || "";
+const NODE = nodeFile ? `"${nodeFile}"` : "node";
 const PROJECTS = opt("projects") ? path.resolve(opt("projects").replace(/^~(?=$|[\\/])/, home)) : state.projects || path.join(home, "Projects");
 const HOMES = fs.readdirSync(path.join(REPO, "projects"), { withFileTypes: true })
   .filter((e) => e.isDirectory() && e.name !== "shared").map((e) => e.name);
@@ -73,7 +82,9 @@ const homeSettings = Object.fromEntries(HOMES.map((h) => [h, readSettings(path.j
 // the court sits with its Claude seats only and the picture skill (it needs Codex) is left out.
 const onPath = (name) => (process.env.PATH || "").split(path.delimiter)
   .some((d) => d && ["", ".cmd", ".exe", ".ps1"].some((e) => fs.existsSync(path.join(d, name + e))));
-const worker = (name) => (opt(name) === "yes" ? true : opt(name) === "no" ? false : onPath(name));
+// A yes or no given once is remembered, so a later run (an update) doesn't turn a worker back on
+const answer = (name) => (opt(name) === "yes" ? true : opt(name) === "no" ? false : typeof state[name] === "boolean" ? state[name] : null);
+const worker = (name) => answer(name) ?? onPath(name);
 const WORKERS = path.join(CLAUDE, "workers");
 const have = { codex: worker("codex"), agy: worker("agy") };
 const which = have.codex && have.agy ? "Codex and Antigravity" : have.codex ? "Codex only" : have.agy ? "Antigravity only" : "Claude alone";
@@ -189,23 +200,37 @@ const mine = fs.existsSync(rulesFile) ? fs.readFileSync(rulesFile, "utf8").repla
 const ownSection = section || full.split("\n").slice(full.split("\n").findIndex((l) => HEAD.test(l))).join("\n").split(/\n(?=# )/)[0];
 const swapped = mine === null ? null : withWorkers(mine, ownSection);
 const writeRules = (text) => { if (!DRY) { fs.mkdirSync(CLAUDE, { recursive: true }); fs.writeFileSync(rulesFile, text); } };
+// state.rules: the rules as a run last wrote them. A file that still matches was not changed by the
+// user, so a newer version replaces it. state.rulesOffered: the newer rules the user was last told about.
+const marks = { rules: state.rules, rulesOffered: state.rulesOffered };
 if (mine === null) { writeRules(built); say(`rules: wrote ${fwd(rulesFile)} (workers: ${which})`); }
 else if (mine === built) say(`rules: unchanged ${fwd(rulesFile)} (workers: ${which})`);
-else if (args.includes("--replace-rules")) {
+else if (args.includes("--replace-rules") || state.rules === sha(mine)) {
   const backup = keepCopy(rulesFile);
   writeRules(built);
   say(`rules: replaced ${fwd(rulesFile)} (workers: ${which}; old copy: ${backup})`);
-} else if (mine === swapped) say(`rules: unchanged ${fwd(rulesFile)} (workers: ${which})`);
-else if (swapped !== null) {
-  const backup = keepCopy(rulesFile);
-  writeRules(swapped);
-  say(`rules: wrote the worker section of ${fwd(rulesFile)} (${which}); the rest is left as it was (old copy: ${backup})`);
 } else {
-  say(`rules: left alone, ${fwd(rulesFile)} has other content. Run again with --replace-rules to take these rules (a dated copy is kept), or merge rules/CLAUDE.md by hand.`);
+  if (mine === swapped) say(`rules: unchanged ${fwd(rulesFile)} (workers: ${which})`);
+  else if (swapped !== null) {
+    const backup = keepCopy(rulesFile);
+    writeRules(swapped);
+    say(`rules: wrote the worker section of ${fwd(rulesFile)} (${which}); the rest is left as it was (old copy: ${backup})`);
+  } else {
+    say(`rules: left alone, ${fwd(rulesFile)} has other content. Run again with --replace-rules to take these rules (a dated copy is kept), or merge rules/CLAUDE.md by hand.`);
+  }
+  // The user's own rules stay; said once for each version of the rules they don't have
+  if (state.rulesOffered !== sha(built)) say(`rules: new in this version, yours were kept. Run again with --replace-rules to take them (a dated copy is kept).`);
+  marks.rulesOffered = sha(built);
+  marks.kept = true;
 }
+if (!marks.kept) marks.rules = sha(built);
+delete marks.kept;
 
 // ---- 3. the project folders
 const homes = JSON.parse(fs.readFileSync(path.join(REPO, "projects", "homes.json"), "utf8"));
+// The notes files as a run last wrote them, by full path. One that still matches is not the user's yet.
+const written = { ...(state.written || {}) };
+const asWritten = (file) => fs.existsSync(file) && written[fwd(file)] === sha(read(file));
 const NOTE = "## Workers on this computer";
 // The lines about a missing worker, as the last section of a folder's CLAUDE.md; none when nothing is missing
 function withNote(text, wanted) {
@@ -227,13 +252,23 @@ for (const name of HOMES) {
     const own = rel.startsWith(".claude" + path.sep) || rel.startsWith("tools" + path.sep);
     put(path.join(dir, rel), fit(rel, fs.readFileSync(path.join(from, rel))), { keep: !own });
   }
-  if (name === "claude-settings") put(path.join(dir, "HOW-TO.md"), fit("HOW-TO.md", fs.readFileSync(path.join(REPO, "docs", "HOW-TO.md"))), { keep: true });
+  if (name === "claude-settings") {
+    const howTo = path.join(dir, "HOW-TO.md");
+    const text = fit("HOW-TO.md", fs.readFileSync(path.join(REPO, "docs", "HOW-TO.md"))).toString("utf8").replace(/\r\n/g, "\n");
+    const ours = asWritten(howTo);
+    put(howTo, Buffer.from(text), { keep: !ours });
+    if (ours || !fs.existsSync(howTo) || read(howTo) === text) written[fwd(howTo)] = sha(text);
+  }
 
-  // CLAUDE.md: written when missing; in one that is there only the note about missing workers changes
+  // CLAUDE.md: written when missing and replaced while it is as an earlier run wrote it; in one the
+  // user changed only the note about missing workers changes
   const notes = path.join(dir, "CLAUDE.md");
   const wanted = (homes.notes[name] || []).filter((n) => n.without.every((w) => !have[w])).map((n) => n.line);
-  if (!fs.existsSync(notes)) put(notes, Buffer.from(withNote(repoText(path.join("projects", name, "CLAUDE.md")), wanted)));
-  else {
+  const fresh = withNote(repoText(path.join("projects", name, "CLAUDE.md")), wanted);
+  if (!fs.existsSync(notes) || asWritten(notes) || read(notes) === fresh) {
+    put(notes, Buffer.from(fresh));
+    written[fwd(notes)] = sha(fresh);
+  } else {
     const now = fs.readFileSync(notes, "utf8").replace(/\r\n/g, "\n");
     const next = withNote(now, wanted);
     if (next === now) say(`kept ${fwd(notes)} (already there)`);
@@ -274,12 +309,18 @@ for (const name of HOMES) {
   }
   putJson(file, s, was);
 }
-// Remembered for later runs: the projects folder, and the folder of this setup (a chat can find it again)
-const nextState = { ...state, projects: PROJECTS, repo: REPO };
+// Remembered for later runs: the projects folder, the folder of this setup (a chat can find it again),
+// its version, the answers about the workers and Node, and what the rules and notes files were written as
+const version = JSON.parse(fs.readFileSync(path.join(REPO, "version.json"), "utf8")).version;
+const nextState = { ...state, projects: PROJECTS, repo: REPO, version, ...marks, written };
+for (const name of ["codex", "agy"]) if (answer(name) !== null) nextState[name] = answer(name);
+if (nodeFile) nextState.node = nodeFile;
+for (const key of Object.keys(nextState)) if (nextState[key] === undefined) delete nextState[key];
 if (JSON.stringify(nextState) !== JSON.stringify(state)) putJson(stateFile, nextState, JSON.stringify(state));
 
 for (const [tool, what] of [["codex", "Codex CLI (GPT)"], ["agy", "Antigravity CLI (Gemini)"]]) {
-  say(`${what}: ${have[tool] ? "used" : "not used, optional"}${opt(tool) ? "" : onPath(tool) ? " (found on the PATH)" : " (not found on the PATH)"}`);
+  const why = opt(tool) ? "" : answer(tool) !== null ? " (as answered before)" : onPath(tool) ? " (found on the PATH)" : " (not found on the PATH)";
+  say(`${what}: ${have[tool] ? "used" : "not used, optional"}${why}`);
 }
 // The editor extensions are built from source with npm and installed into Nimbalyst, so not here
 const extDir = path.join(REPO, "extensions");

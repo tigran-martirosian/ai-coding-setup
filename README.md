@@ -8,6 +8,8 @@ https://github.com/user-attachments/assets/84690072-475e-4066-8c10-2da50100273d
 
 ## What's new
 
+**October 4, 2026, version 1.0.0: the setup updates itself.** Once a day it checks whether a newer version is released and says so in one line. Typing `/update-setup` installs it without asking anything again, and keeps your own skills, hooks, settings and notes.
+
 **October 4, 2026: one command for the free workers.** Searching and long reading now go through [workers/ask.mjs](workers/ask.mjs). It picks the first worker that is ready, moves to the next one when a worker runs out of usage, and says which one answered. The setup now works the same with a ChatGPT subscription, a Google one, both or neither, and a search no longer stops because one worker is busy.
 
 Earlier changes are in [CHANGELOG.md](CHANGELOG.md).
@@ -35,6 +37,16 @@ This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks int
 - **Mac:** I run the setup on Windows. The tests also run on macOS, but the full install has not been run on a real Mac, and Read Aloud is Windows only.
 - **Afterwards:** [docs/HOW-TO.md](docs/HOW-TO.md) says what to type and what you should see.
 
+## Updating
+
+Once a day the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](hooks/update-check.mjs)) and says so in one line. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
+
+- **Yours stays yours.** The installer only writes the setup's own files. Skills, hooks, settings and notes you added are not touched, and every replaced file is kept as `<name>.before-install-<date>`.
+- **Rules.** A `~/.claude/CLAUDE.md` you never changed is brought up to date. One you changed is replaced only after you say yes.
+- **Without a chat:** `node ~/.claude/skills/update-setup/update.mjs`, or `--check` to only look.
+- **Installed before version 1.0.0?** Download the repository once more and run the install again; from then on it updates itself.
+- **Off switch:** set `UPDATE_CHECK=off` to stop the daily check.
+
 ## What's inside
 
 | Part | What it does | Where |
@@ -47,6 +59,7 @@ This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks int
 | Worker agent | A cheaper subagent for routine edits | [agents](agents) |
 | Worker command | One short command for searching and long reading. It uses the first free worker that is set up and working (Codex, then Gemini through Antigravity), says which one answered, and hands the job back to Claude when none can | [workers](workers) |
 | Installer | Puts the files in place and keeps a copy of what it replaces | [install.mjs](install.mjs) |
+| Updater | Says when a newer version is out; `/update-setup` installs it and keeps your own files | [skills/update-setup](skills/update-setup) |
 | Tour video | The Remotion source of the video above | [promo](promo) |
 
 ## Checks
@@ -74,6 +87,7 @@ The other hooks keep sessions cheap and safe:
 | `context-guard` | Warns when a session gets long, and has the agent offer a handoff |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
+| `update-check` | Says once a day when a newer version of the setup is released |
 | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
 

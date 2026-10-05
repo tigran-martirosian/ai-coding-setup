@@ -1,6 +1,7 @@
 // Tests for install.mjs on a blank temporary home folder. Nothing outside that folder is touched and
 // no worker (Codex, Antigravity) has to be installed. Run: node tests/test-install.mjs
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -118,6 +119,7 @@ ok("install with Codex exits cleanly", withCodex.code, 0);
 ok("the user's profile is kept as it is", text("internet-search", "profile.md"), "# Profile for hunts\n\n- **Country:** somewhere\n");
 ok("only the worker section of the user's rules changes",
   [rules().includes("- My own rule."), rules().includes("## External workers first"), rules().includes("Claude alone"), rules().includes("~/.claude/workers/ask.mjs")], [true, true, false, true]);
+ok("the installer says once that this version's rules differ from the user's", withCodex.out.includes("rules: new in this version, yours were kept"));
 const inWorkers = (name) => fs.existsSync(path.join(claude, "workers", name));
 ok("a worker that is not used is switched off for the worker command", [inWorkers("ask.mjs"), inWorkers("codex.off"), inWorkers("agy.off")], [true, false, true]);
 ok("the user's own line stays and the note about Codex goes", [text("ask-anything", "CLAUDE.md").includes("My own line."), text("ask-anything", "CLAUDE.md").includes("Codex is not set up"),
@@ -137,6 +139,7 @@ for (const h of ["ask-anything", "quick-tasks"]) {
 ok("the other two folders get no picture gate", ["internet-search", "claude-settings"].map((h) => fs.readFileSync(path.join(projects, h, ".claude", "settings.json"), "utf8").includes("picture-gate")), [false, false]);
 const beforeAgain = [...snap(claude), ...snap(projects)];
 const again = install(home, "--codex", "yes", "--agy", "no");
+ok("the next run doesn't say it again", again.out.includes("rules: new in this version"), false);
 ok("a second run with Codex changes nothing", [CHANGED.test(again.out), JSON.stringify([...snap(claude), ...snap(projects)]) === JSON.stringify(beforeAgain)], [false, true]);
 
 // ---- Codex taken away again: the link and the gate's wiring go, the shared files are not deleted through the link
@@ -150,8 +153,38 @@ ok("the link gate's wiring stays", commandsIn(json(path.join(projects, "internet
 const bin = path.join(tmp, "bin");
 fs.mkdirSync(bin);
 fs.writeFileSync(path.join(bin, "codex"), "");
-const found = installWith(bin, home, "--dry-run");
+const found = installWith(bin, path.join(tmp, "never-asked"), "--dry-run");
 ok("codex on the PATH is found", [found.out.includes("Codex CLI (GPT): used (found on the PATH)"), found.out.includes("Codex only")], [true, true]);
+
+ok("an answer given once wins over the PATH on a later run", installWith(bin, home, "--dry-run").out.includes("Codex CLI (GPT): not used, optional (as answered before)"));
+ok("the answers, the version and Node are on record", (() => {
+  const s = json(path.join(claude, "setup-state.json"));
+  return [s.codex, s.agy, s.version === json(path.join(REPO, "version.json")).version, "node" in s];
+})(), [false, false, true, false]);
+
+// ---- an update: files the user never changed are replaced by the newer version's, changed ones stay
+const sha = (t) => crypto.createHash("sha256").update(t).digest("hex");
+const upd = path.join(tmp, "upd");
+install(upd);
+const updState = path.join(upd, ".claude", "setup-state.json");
+const updRules = path.join(upd, ".claude", "CLAUDE.md");
+const updNotes = path.join(upd, "Projects", "quick-tasks", "CLAUDE.md");
+const updHowTo = path.join(upd, "Projects", "claude-settings", "HOW-TO.md");
+const mineNotes = path.join(upd, "Projects", "ask-anything", "CLAUDE.md");
+// as if an older version had written these three files: other text, and on record as written
+const s = json(updState);
+fs.writeFileSync(updRules, "# Rules of an older version\n");
+s.rules = sha("# Rules of an older version\n");
+for (const f of [updNotes, updHowTo]) { fs.writeFileSync(f, "# Notes of an older version\n"); s.written[fwd(f)] = sha("# Notes of an older version\n"); }
+fs.writeFileSync(updState, JSON.stringify(s));
+fs.writeFileSync(mineNotes, "# ask-anything\n\nAll mine.\n");
+const updated = install(upd);
+ok("rules that are as an older version wrote them are replaced, with a dated copy",
+  [fs.readFileSync(updRules, "utf8").startsWith("# How to format replies"), updated.out.includes(`rules: replaced ${fwd(updRules)}`), copiesIn(path.join(upd, ".claude")).includes("CLAUDE.md")], [true, true, true]);
+ok("a folder's notes and the how-to that are as written are replaced too",
+  [fs.readFileSync(updNotes, "utf8").startsWith("# quick-tasks"), fs.readFileSync(updHowTo, "utf8").includes("Notes of an older version")], [true, false]);
+ok("notes the user changed stay", fs.readFileSync(mineNotes, "utf8").startsWith("# ask-anything\n\nAll mine.\n"));
+ok("the run after the update changes nothing", CHANGED.test(install(upd).out), false);
 
 // ---- an existing setup keeps its own settings and rules, and old copies are kept
 const used = path.join(tmp, "used");
@@ -194,6 +227,8 @@ const nodeHome = path.join(tmp, "node-home");
 install(nodeHome, "--node", process.execPath);
 const withNode = [json(path.join(nodeHome, ".claude", "settings.json")), json(path.join(nodeHome, "Projects", "internet-search", ".claude", "settings.json"))].flatMap(commandsIn);
 ok("--node starts every hook with that Node", withNode.filter((c) => !c.startsWith(`"${fwd(process.execPath)}" "`)), []);
+
+ok("--node is remembered for later runs", json(path.join(nodeHome, ".claude", "setup-state.json")).node, fwd(process.execPath));
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fails ? `${fails} failed` : "all passed");

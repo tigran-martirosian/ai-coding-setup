@@ -17,12 +17,16 @@ each as its own question (not a tick-list):
 - What does "done" look like for the first milestone?
 - Stack and key commands (build, test, run, lint), if not obvious from the files.
 - Any hard rules: sources of truth, things never to touch, style or tone.
+- If the project works with data (tables, reports, loads): where the data comes from, what reads
+  the result (a report, a screen, another system), how often it refreshes, and how Claude can run
+  queries here (which command or connection, whether it points at test or real data, or that only
+  the user can run them).
 
 ## 2. Create the base (skip what already exists, never overwrite)
 
 | File | Content |
 |---|---|
-| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) |
+| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) |
 | `HANDOFF.md` | Current state, what's next, open questions. Rewritten at the end of every working session so a fresh session can pick up cold. |
 | `DECISIONS.md` | Every user decision as **decision** — why · *origin, date*. It wins over older docs. Newest first per section. |
 | `docs/` | Design documents and plans, one markdown file per topic. |
@@ -56,8 +60,6 @@ picks:
 | If the project… | Tell sessions to use |
 |---|---|
 | uses a library or framework | **Context7** for current docs before writing code against it |
-| is written in TypeScript or JavaScript | The **typescript-lsp** plugin (jump to a definition, find references). It needs its language server on the computer: if `typescript-language-server --version` fails, ask once, then `npm i -g typescript-language-server typescript` |
-| is written in Python | The **pyright-lsp** plugin (the same for Python). It needs its language server: if `pyright --version` fails, ask once, then `npm i -g pyright` |
 | has a web UI | Nimbalyst **Browser** to preview it and check it |
 | needs UI or architecture planning | Nimbalyst **MockupLM** mockups and **Excalidraw** diagrams before building |
 | has a database or data model | Nimbalyst **DataModelLM** (`.datamodel`) for the schema, kept in step with the DDL, and the matching database best-practices skill |

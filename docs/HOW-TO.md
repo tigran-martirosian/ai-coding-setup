@@ -46,11 +46,12 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   rewrites the worker section of the rules and, with Codex, adds the picture skill to two folders.
   The installer saves the folder you ran it from as `repo` in `~/.claude/setup-state.json`, so a
   chat can find it again.
+- **Updates.** Once a day the setup checks whether a newer version is released and says so in one
+  line. Type `/update-setup` to install it: your own skills, hooks, settings and notes stay, and a
+  rules file you changed yourself is replaced only after you say yes. `UPDATE_CHECK=off` in the
+  environment turns the daily check off; `/update-setup` still works.
 - **Optional extras the rules mention.** The installer does not install these; where one is missing
   the rule that names it simply doesn't apply.
-  - **context-mode** (a Claude Code plugin): runs big command output and large files outside the chat.
-  - **The LSP tool** (Claude Code's code navigation, needs a language server): finds a function by
-    name instead of reading whole files.
   - **uv** (provides `uvx`): converts PDF, Word and Excel files to text; also reads videos and feeds.
   - **The `find-skills` skill**: looks for a skill that does what you ask.
   - **The `claude-code-setup` plugin**: suggests hooks and skills for a project.

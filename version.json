@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0",
+  "date": "2026-10-04",
+  "summary": "The setup can update itself: once a day it says when a newer version is out, and /update-setup installs it."
+}
