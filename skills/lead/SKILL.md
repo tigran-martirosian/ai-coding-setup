@@ -23,6 +23,21 @@ Don't split if you could finish in a few minutes, or if explaining the job costs
 3. Set this session's phase with `update_session_meta` (`planning` → `implementing` → `validating`). For a plain research job or a build→review→test loop, consider `workflowPreset` `research` or `implement-review-test`.
 4. Write the plan as a short list of workstreams with dependencies: which run now in parallel, which wait.
 
+### A hard plan goes to the `planner` first
+
+When the plan is the hard part (workstreams that depend on each other, a change that is hard to undo, or several reasonable ways to do it where the choice matters), ask the `planner` agent before step 4: Agent tool, `subagent_type: "planner"`. It runs on Fable, reads files and changes nothing. Don't use it for a plan you can already see: it costs more than any other step here.
+
+Its brief gives context and leaves the approach open:
+- **The request, in the user's own words.** Quoted, not paraphrased.
+- **The situation.** What exists today, which files matter, what was already tried and how it went.
+- **Decisions the user has made.** Only real ones (said in chat or written in DECISIONS.md), each with its reason, stated as facts.
+- **What is still open.** The things nobody has decided yet.
+- **What to send back.** A plan, the alternatives it weighed, and anything in the request it would push back on.
+
+Keep out of the brief: your own idea of the solution (even as a suggestion), your guesses dressed up as constraints, step lists and "do X, not Y" rules, and leading questions ("should we use A for this?").
+
+When the plan comes back, compare it with your own view and tell the user where they differ instead of quietly picking one. If the call fails (for example the account has no Fable), say so and write the plan yourself.
+
 ## 3. Brief each child
 
 Use `spawn_session` with `notifyOnComplete: true` and a short `title`. The brief is all the child knows — include:

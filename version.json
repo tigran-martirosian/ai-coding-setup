@@ -1,5 +1,5 @@
 {
-  "version": "1.0.16",
-  "date": "2026-10-05",
-  "summary": "A picture shown in the chat now opens enlarged (new picture-in-project check), and Ink Noir and Ink Neon replace two themes that looked alike."
+  "version": "1.0.17",
+  "date": "2026-10-07",
+  "summary": "A planner agent on the strongest model writes the plan for big or hard-to-undo work, from a brief that gives the situation and leaves the approach open."
 }

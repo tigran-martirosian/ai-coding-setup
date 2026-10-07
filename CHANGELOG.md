@@ -2,6 +2,12 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.17, October 7, 2026
+
+- **A planner on the strongest model.** New agent `planner` ([agents/planner.md](agents/planner.md)): it runs on Fable, reads files, changes nothing and stops after 15 turns. The main session asks it for the plan when the plan is the hard part (a big job split across child sessions, or a change that is hard to undo) and then does the work itself with the cheaper helpers. Only the plan runs on the expensive model, and it starts from a short brief instead of the whole chat. One real call on a small task cost about 25 cents at API prices.
+- **Its brief gives the situation and leaves the approach open.** The `lead` skill says what goes in (your request in your own words, what exists, the decisions you really made, what is still open) and what stays out (the main session's own solution, guesses dressed up as constraints, step lists). When the plan comes back, the main session tells you where it differs from its own view.
+- **Needs Fable on your plan.** Without it the call fails, the session says so and writes the plan itself.
+
 ## Version 1.0.16, October 5, 2026
 
 - **A picture in the chat opens when you click it.** Nimbalyst shows a picture small from any folder, but the enlarged view only loads files inside the open project, so a picture from the temp folder opened as an empty box. A new check, `picture-in-project`, sends such a picture back and has the agent copy it into the project first. `PICTURE_IN_PROJECT=off` turns it off.
