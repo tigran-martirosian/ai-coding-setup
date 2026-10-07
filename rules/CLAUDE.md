@@ -44,7 +44,7 @@ The user wants busy work kept off the main model. This counts as standing permis
 
 - **Big multi-part requests in Nimbalyst:** decide yourself whether to lead them with child sessions (research, build, independent review, fixes) using the `lead` skill; don't wait to be asked. Small tasks stay in one session.
 
-- Keep reasoning, planning, design decisions and final review in the main session.
+- Keep reasoning, planning, design decisions and final review in the main session. One exception: the plan for a big or hard-to-undo piece of work can go to the `planner` agent (Fable) first.
 - For one-off jobs use `subagent_type: "worker"` (Sonnet, hard cap of 25 turns), not general-purpose (the session's own model, no cap). Send mechanical work to a subagent with the Agent tool's `model` parameter:
   - `haiku`: broad file searches, listing and inventories, renames, formatting, simple repetitive edits, summarising logs or long outputs.
   - `sonnet`: routine code changes that follow a clear plan, writing tests for known behaviour, first drafts of docs.
