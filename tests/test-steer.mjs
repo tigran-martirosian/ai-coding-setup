@@ -100,8 +100,8 @@ ok("a finished session: the note is left, with the 20 minute limit",
   r.code === 0 && r.out.startsWith("Left for ") && r.out.includes("idle") && r.out.includes("within 20 minutes"));
 transcript("cccccccc-busy", "tool_use");
 r = run(["send", "which one"], { env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" } });
-ok("several targets: nothing is sent, each is marked busy or finished, and Claude is told to pick without asking",
-  r.code === 2 && r.out.includes("NOT SENT") && r.out.includes("Don't ask the user") && /bbbbbbbb {2}finished its reply/.test(r.out) && /cccccccc {2}busy/.test(r.out));
+ok("several targets, none named: the busy one gets the note, not the finished one",
+  r.code === 0 && r.out.startsWith('Sent to the session last asked "request of cccccccc-busy". ') && left().at(-1).to === "cccccccc-busy");
 
 // 14-17: the target is called by the name on its tab, so the user can tell where the note went.
 const self = { env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" } };
@@ -115,7 +115,9 @@ transcript("cccccccc-busy", "tool_use", [{ type: "ai-title", aiTitle: "Title fro
 r = run(["send", "--to", "cccccccc", "hi"], self);
 ok("without a tab name, Claude Code's own title is used", r.code === 0 && r.out.startsWith('Sent to "Title from Claude Code". '));
 r = run(["send", "which one"], self);
-ok("the list of several targets shows the names", r.code === 2 && r.out.includes('bbbbbbbb  "Juicer hunt"  busy') && r.out.includes('cccccccc  "Title from Claude Code"  busy'));
+ok("several busy targets: the most recently active one gets the note", r.code === 0 && r.out.startsWith('Sent to "Title from Claude Code". '));
+r = run(["send", "--to", "zzzzzzzz", "hi"], self);
+ok("an unknown id sends nothing and lists the sessions by name", r.code === 2 && r.out.includes("NOT SENT") && r.out.includes('bbbbbbbb  "Juicer hunt"  busy') && r.out.includes('cccccccc  "Title from Claude Code"  busy'));
 transcript("cccccccc-busy", "tool_use", Array.from({ length: 40 }, () => ({ type: "assistant", message: { content: [{ type: "text", text: "x".repeat(100000) }] } })));
 r = run(["send", "--to", "cccccccc", "hi"], self);
 ok("a long session whose only request is at the start is still called by it", r.code === 0 && r.out.startsWith('Sent to the session last asked "request of cccccccc-busy". '));

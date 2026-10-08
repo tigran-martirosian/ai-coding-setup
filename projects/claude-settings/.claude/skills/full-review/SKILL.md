@@ -23,10 +23,16 @@ Open the newest `audits/review-*.md` (not the `-numbers` file) and read only its
 **Still open** tables. What was declined is not offered again unless its number moved a lot, and then
 say by how much. What was done is measured this time: did it move the number it was meant to move.
 
+**A review younger than about five days:** say so in one line before step 2. Most of the same days get
+scanned again and what was ticked then cannot be measured yet, so this run only looks for what is new:
+decisions of that review stand, the split between models is not asked again, and the report names the
+first day a measurement makes sense.
+
 ## 2. Numbers (one shell call)
 
 `bash $S/numbers.sh --days N` runs `~/.claude/skills/usage-report/usage-scan.mjs` and
-`$S/review-scan.mjs` and writes both reports to `audits/review-<date>-numbers.md`. Read that file
+`$S/review-scan.mjs` and writes both reports to `audits/review-<date>-numbers.md` (`-2-numbers` when the
+day already has one; it prints the name). Read that file
 (about 250 lines) in two parts.
 
 - usage-scan: totals, top sessions, subagents by type and model, workers, hook blocks, what gets used,

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.20",
+  "version": "1.0.21",
   "date": "2026-10-08",
-  "summary": "A full review that ends in options, and a fresh chat at 200k instead of 250k."
+  "summary": "/btw picks the session itself, and /full-review copes with a second run on the same day."
 }

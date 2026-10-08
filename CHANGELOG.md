@@ -2,6 +2,11 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.21, October 8, 2026
+
+- **`/btw` no longer needs a second try when several sessions are open.** It sends the note to the busy one, else the most recently active, and tells you which one got it.
+- **`/full-review` run twice in one day keeps both sets of numbers.** The second run writes `-2-numbers`, the third `-3-numbers`, and an earlier file is never overwritten. It also says up front when the last review is too recent to measure anything, and then only looks for what is new.
+
 ## Version 1.0.20, October 8, 2026
 
 - **`/full-review`: one review that ends in choices.** New command in the `claude-settings` folder. It measures a week of work: where the usage went, which model did which kind of work and what another split would have cost, where the time of each turn went, the turns you pushed back on, failed tool calls and how big the chats grew. A free worker reads the chat digests for wrong assumptions and for answers that came too slow or too fast. The result is a short report and one form with options, each with its number; only what you tick is changed. A Full review button comes with the commands extension.
