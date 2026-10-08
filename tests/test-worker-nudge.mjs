@@ -17,6 +17,8 @@ const cases = [
   ["Agent Explore identical retry: allow", { tool_name: "Agent", tool_input: { subagent_type: "Explore", prompt: "find" } }, false],
   ["Agent Explore new prompt: deny", { tool_name: "Agent", tool_input: { subagent_type: "Explore", prompt: "find other" } }, true],
   ["Agent general-purpose: deny", { tool_name: "Agent", tool_input: { subagent_type: "general-purpose", prompt: "gp" } }, true],
+  ["Agent claude (uncapped catch-all): deny", { tool_name: "Agent", tool_input: { subagent_type: "claude", prompt: "judge" } }, true],
+  ["Agent worker: allow", { tool_name: "Agent", tool_input: { subagent_type: "worker", prompt: "judge" } }, false],
   ["Task Explore: deny", { tool_name: "Task", tool_input: { subagent_type: "Explore", prompt: "t" } }, true],
   ["WebSearch: allow", { tool_name: "WebSearch", tool_input: { query: "x" } }, false],
   ["WebFetch: allow", { tool_name: "WebFetch", tool_input: { url: "https://a.b" } }, false],

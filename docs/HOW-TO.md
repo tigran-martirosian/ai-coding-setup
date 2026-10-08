@@ -204,6 +204,7 @@ something unrelated inside another project, Claude names the right folder and op
   shows where Claude got in your way and which skills are missing, and sets up only what you tick.
   The chat digests are read by Codex (OpenAI) when Codex is set up; the findings stay on this
   computer. Run it again after a few weeks of work.
+- **`/full-review`: one review of how the work went.** Where the usage went, which model did the work, where the reasoning and the chats went wrong, what took too long or was answered too fast, and what keeps failing. It ends in a short list of options, each with the number behind it, and changes only what you tick.
 - **Adding Codex or Gemini later.** If you get a ChatGPT or a Google subscription, say "add the
   Codex worker" or "add the Antigravity worker" in a chat in this folder.
 - **`/setup-audit`:** checks that the setup itself still works, and names what is loaded in every

@@ -2,6 +2,14 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.20, October 8, 2026
+
+- **`/full-review`: one review that ends in choices.** New command in the `claude-settings` folder. It measures a week of work: where the usage went, which model did which kind of work and what another split would have cost, where the time of each turn went, the turns you pushed back on, failed tool calls and how big the chats grew. A free worker reads the chat digests for wrong assumptions and for answers that came too slow or too fast. The result is a short report and one form with options, each with its number; only what you tick is changed. A Full review button comes with the commands extension.
+- **A fresh chat at 200k instead of 250k.** `context-guard` now warns at 150k and moves the work to a fresh session when a reply ends past 200k. Measured over a week, 31% of all usage sat in requests sent with more than 200k of context. `CONTEXT_GUARD_K` and `CONTEXT_GUARD_AUTO_K` set your own limits.
+- **The catch-all agent type gets the same first-try block as the search agents.** A `claude`-type helper has no turn limit and runs on the session's own model; measured runs averaged over a million tokens each. `worker-nudge` now sends the first try back and points to the capped `worker` helper. Repeating the call goes through.
+- **One rule added:** read a file outside the project before editing it. A refused edit is a request spent for nothing, and a week of chats held about a hundred of them.
+- **`/chat-review` reads again with Antigravity.** The reader is started in the digest folder, because Antigravity only reads files under the folder it runs in; before, every digest failed. The reader also answers two more headings: where the reasoning went wrong, and where the pace was off. A failed read now prints the worker's own reason.
+
 ## Version 1.0.19, October 8, 2026
 
 - **The strong model plans, a cheaper one builds.** New check `build-nudge`: in a main session on Opus or Fable, the edit that comes after three edit steps in one turn is sent back once, with how to brief a `worker` helper (Sonnet, or Haiku for mechanical edits): the files, the exact structure to write, what must not change and the check that proves it. Repeating the call goes through, so small jobs are not held up. Measured over a week, turns with three or more edit steps were two thirds of the cost, because every step re-sends the whole conversation at the strong model's price.

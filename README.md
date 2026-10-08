@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/c92219e6-4d94-405c-bcb3-92eec42a687b
 
 ## What's new
 
-**October 8, 2026** (versions 1.0.18 and 1.0.19). A call that keeps failing the same way is now stopped: after three identical errors, a fourth try of the same call is refused and the agent has to change its approach or ask. The message for a shell command that is too long says what to do instead (save the script to a file, then run it with one short command). A new `/plan-first` command shows the plan for a big or vague request in a form and starts only after your yes. `/usage-report` gains a "Wasted requests" section, and `/project-scan` and `/new-project` check that a project says where its data lives and how to read it. The strong model now plans and a cheaper one builds: when a session on Opus or Fable starts a job of three or more edit steps, a new check, `build-nudge`, sends the next edit back once and has the agent write the plan as a brief for a Sonnet or Haiku helper, then check the result itself. In a week of measured use, turns like that were two thirds of the cost.
+**October 8, 2026** (versions 1.0.18 to 1.0.20). A call that keeps failing the same way is now stopped: after three identical errors, a fourth try of the same call is refused and the agent has to change its approach or ask. The message for a shell command that is too long says what to do instead (save the script to a file, then run it with one short command). A new `/plan-first` command shows the plan for a big or vague request in a form and starts only after your yes. `/usage-report` gains a "Wasted requests" section, and `/project-scan` and `/new-project` check that a project says where its data lives and how to read it. The strong model now plans and a cheaper one builds: when a session on Opus or Fable starts a job of three or more edit steps, a new check, `build-nudge`, sends the next edit back once and has the agent write the plan as a brief for a Sonnet or Haiku helper, then check the result itself. In a week of measured use, turns like that were two thirds of the cost. A new `/full-review` command measures a week of work (usage, which model did what, slow and rushed turns, failed calls) and ends in a short list of options to tick. The move to a fresh chat now happens at 200k tokens instead of 250k.
 
 **October 7, 2026** (version 1.0.17). A hard plan can now be written by the strongest model without running the whole session on it. A new `planner` agent runs on Fable, reads the files and changes nothing; the main session asks it for the plan of a big or hard-to-undo piece of work and then carries the plan out with the cheaper helpers. The brief it gets holds your request in your own words, the situation and the decisions you made, and leaves out the main session's own idea of the answer, so the plan is a second view. The main session tells you where the two differ.
 
@@ -96,7 +96,7 @@ The other hooks keep sessions cheap and safe:
 | `repeat-guard` | Refuses a retry of the same call after the same error came back three times, and reminds once when one file is edited six times or read four times in a turn |
 | `build-nudge` | Reminds a main session on Opus or Fable, once per turn, to hand the building to a cheaper helper after three edit steps, and the gathering after four lookups in a row |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
-| `context-guard` | Warns when a session gets long, and past 250k tokens moves the work to a fresh session |
+| `context-guard` | Warns when a session gets long, and past 200k tokens moves the work to a fresh session |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
 | `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
@@ -134,7 +134,7 @@ The rules I give the models are described in [docs/setup.md](docs/setup.md).
 ![A note sent to a busy session, then an automatic handoff and a board cleanup](docs/img/clip-sessions.gif)
 
 - **A note to a busy session.** Nimbalyst holds a new message until the running reply ends. With [skills/steer](skills/steer/steer.mjs), `/btw <note>` in a second chat leaves a note that the busy session reads before its next step, and `/ask <question>` answers a question about that session without touching its work.
-- **Handoff.** Every step re-sends the whole conversation, so a long session gets expensive. `handoff-brief` rewrites a short brief after every reply, and `context-guard` warns at 200k tokens. When a reply ends past 250k, it has the agent move the work to a fresh session that starts from that brief, without asking, so the next message doesn't re-send the long history. `/handoff` does the same on request. The brief also lets the work go on in a GPT or Gemini session when the Claude plan runs out.
+- **Handoff.** Every step re-sends the whole conversation, so a long session gets expensive. `handoff-brief` rewrites a short brief after every reply, and `context-guard` warns at 150k tokens. When a reply ends past 200k, it has the agent move the work to a fresh session that starts from that brief, without asking, so the next message doesn't re-send the long history. `/handoff` does the same on request. The brief also lets the work go on in a GPT or Gemini session when the Claude plan runs out.
 - **The board.** Nimbalyst shows every conversation as a card on a board, and Claude moves its own card from Planning to Complete as the work goes. `/board-cleanup` moves the finished ones that were left behind.
 
 <details>
@@ -168,7 +168,7 @@ The installer creates four project folders ([projects](projects)). A request tha
 
 | Project | For | Its own tools |
 |---|---|---|
-| `claude-settings` | Changing and checking the setup itself | `/setup-audit`, `/usage-report`, `/chat-review` |
+| `claude-settings` | Changing and checking the setup itself | `/setup-audit`, `/usage-report`, `/chat-review`, `/full-review` |
 | `ask-anything` | General questions | The court, the picture skill, reading web pages and videos |
 | `internet-search` | Finding things online | A finder skill with a fixed order, and its own link gate that accepts only pages that were opened |
 | `quick-tasks` | One-off file jobs | A dated folder per job, work on copies, the picture skill |

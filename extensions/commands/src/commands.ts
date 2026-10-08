@@ -29,6 +29,7 @@ const ALL: Command[] = [
   { id: 'setup-audit', label: 'Setup audit', prompt: '/setup-audit', note: 'Full check of the global setup', icon: 'fact_check' },
   { id: 'usage-report', label: 'Usage report', prompt: '/usage-report', note: 'Where the tokens went, and the forecast', icon: 'bar_chart' },
   { id: 'chat-review', label: 'Chat review', prompt: '/chat-review', note: 'What your chats show is missing', icon: 'forum', only: 'claude-settings' },
+  { id: 'full-review', label: 'Full review', prompt: '/full-review', note: 'How the work went, and what to change', icon: 'rate_review', only: 'claude-settings' },
   ...(SHARE ? [] : OWN),
   { id: 'new-project', label: 'New project', prompt: '/new-project', note: 'Set this folder up for Claude', icon: 'create_new_folder' },
   { id: 'update-setup', label: 'Update setup', prompt: '/update-setup', note: 'Install the newest version of the setup', icon: 'system_update_alt' },

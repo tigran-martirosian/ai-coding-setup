@@ -2,9 +2,10 @@
 // context-guard: UserPromptSubmit and Stop hook. Every tool call re-sends the whole conversation, so
 // in a big session a one-line edit costs as much as the context (measured 2026-09-30: 109 small edits
 // at 274-485k context cost 35M tokens for a font, a background and some copy).
-//   UserPromptSubmit: when the last context is over the limit (CONTEXT_GUARD_K, default 200 = 200k
+//   UserPromptSubmit: when the last context is over the limit (CONTEXT_GUARD_K, default 150 = 150k
 //     tokens), it warns the user and tells Claude to batch the work. Silent for /commands.
-//   Stop: when a reply ends over the handoff limit (CONTEXT_GUARD_AUTO_K, default 250), it holds the
+//   Stop: when a reply ends over the handoff limit (CONTEXT_GUARD_AUTO_K, default 200; it was 250
+//     until 2026-10-08, when 31% of a week's tokens sat in requests sent with over 200k), it holds the
 //     reply once and has Claude move the work to a fresh session (the handoff skill) without asking,
 //     so the user's next message doesn't re-send the big context. Once per session, then again every
 //     further 100k. Silent when this turn already handed off. CONTEXT_GUARD_AUTO=off keeps only the warning.
@@ -13,8 +14,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const LIMIT_K = Number(process.env.CONTEXT_GUARD_K) || 200;
-const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || 250;
+const LIMIT_K = Number(process.env.CONTEXT_GUARD_K) || 150;
+const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || 200;
 const AUTO = process.env.CONTEXT_GUARD_AUTO !== "off";
 
 // The last lines of the transcript (up to 4 MB)

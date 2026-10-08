@@ -88,7 +88,7 @@ ok("the rules name the real projects folder", [rules().includes("<projects>"), r
 ok("each project folder has its notes and its model",
   HOMES.map((h) => [fs.existsSync(path.join(projects, h, "CLAUDE.md")), text(h, "CLAUDE.md").includes("<projects>"), json(path.join(projects, h, ".claude", "settings.json")).model]),
   [[true, false, "opus"], [true, false, "opus"], [true, false, "opus"], [true, false, "sonnet"]]);
-const expected = ["ask-anything/.claude/skills/read-web/SKILL.md", "claude-settings/.claude/skills/chat-review/SKILL.md", "claude-settings/HOW-TO.md",
+const expected = ["ask-anything/.claude/skills/read-web/SKILL.md", "claude-settings/.claude/skills/chat-review/SKILL.md", "claude-settings/.claude/skills/full-review/SKILL.md","claude-settings/HOW-TO.md",
   "internet-search/.claude/skills/finder/SKILL.md", "internet-search/.claude/hooks/link-gate.mjs", "internet-search/tools/peek.mjs",
   "internet-search/profile.md", "internet-search/finds/INDEX.md"];
 ok("the skills, the link gate, the tools and the starter notes are there", expected.filter((f) => !fs.existsSync(path.join(projects, f))), []);

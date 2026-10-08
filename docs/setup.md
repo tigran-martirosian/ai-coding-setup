@@ -62,8 +62,8 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn |
 | Before a file edit, read, search or page fetch | `build-nudge` | In a main session on Opus or Fable, send back once per turn the edit that comes after three edit steps, with how to brief a cheaper helper, and the lookup that comes after four lookups in a row |
-| When I send a message | `context-guard` | Warn when the session passes 200k tokens |
-| When a reply ends | `context-guard` | Move the work to a fresh session past 250k tokens |
+| When I send a message | `context-guard` | Warn when the session passes 150k tokens |
+| When a reply ends | `context-guard` | Move the work to a fresh session past 200k tokens |
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
 | When I send a message | `update-check` | Say, at most every 12 hours, when a newer version of the setup is released |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
@@ -76,6 +76,6 @@ In the seven days up to October 1, 2026, `big-read-gate` stopped 11 whole-file r
 
 ## Long sessions
 
-A long session sends its whole history again on every step, so every step costs more. When a reply ends past 250k tokens, `context-guard` has the agent move the work to a fresh session by itself: the [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
+A long session sends its whole history again on every step, so every step costs more. When a reply ends past 200k tokens, `context-guard` has the agent move the work to a fresh session by itself: the [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
 
 Each project keeps three short files that a new session reads first: `CLAUDE.md` (rules and commands for the project), `HANDOFF.md` (current state and what's next) and `DECISIONS.md` (what I decided and when).
