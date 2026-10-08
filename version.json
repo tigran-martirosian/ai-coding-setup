@@ -1,5 +1,5 @@
 {
-  "version": "1.0.18",
+  "version": "1.0.19",
   "date": "2026-10-08",
-  "summary": "A hook that stops retrying the same failing call, a /plan-first command, and a report of the requests the setup itself wastes."
+  "summary": "A reminder hook that has the strong model plan and a cheaper helper build."
 }

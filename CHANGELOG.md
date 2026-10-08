@@ -2,6 +2,13 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.19, October 8, 2026
+
+- **The strong model plans, a cheaper one builds.** New check `build-nudge`: in a main session on Opus or Fable, the edit that comes after three edit steps in one turn is sent back once, with how to brief a `worker` helper (Sonnet, or Haiku for mechanical edits): the files, the exact structure to write, what must not change and the check that proves it. Repeating the call goes through, so small jobs are not held up. Measured over a week, turns with three or more edit steps were two thirds of the cost, because every step re-sends the whole conversation at the strong model's price.
+- **Lookups in a row go out in one go.** The same check sends back the read, search or page fetch that comes after four lookup steps in a row and points to the free worker or a Haiku helper. Once per turn as well.
+- **It leaves the rest alone.** Helpers, sessions on Sonnet or Haiku, and edits to the project's record files (`HANDOFF.md`, `DECISIONS.md`, memory notes) are never held up. `BUILD_NUDGE=off` turns it off; `BUILD_NUDGE_EDITS` and `BUILD_NUDGE_LOOKUPS` change the two counts.
+- **One rule added** in `rules/CLAUDE.md` saying the same in words.
+
 ## Version 1.0.18, October 8, 2026
 
 - **A retry that cannot work is refused.** New check `repeat-guard`: when the same call has failed three times with the same error, a fourth try of that call is sent back, and the agent has to take a different approach or ask. It also reminds the agent once when a single file is edited six times or read four times in one turn. `REPEAT_GUARD=off` turns it off.

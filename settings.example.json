@@ -22,6 +22,10 @@
         "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/repeat-guard.mjs", "timeout": 5 }]
       },
       {
+        "matcher": "Edit|MultiEdit|Write|NotebookEdit|Read|Grep|Glob|WebFetch|WebSearch",
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/build-nudge.mjs", "timeout": 5 }]
+      },
+      {
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node ~/.claude/hooks/command-explain.mjs", "timeout": 5 },

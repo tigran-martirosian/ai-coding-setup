@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/c92219e6-4d94-405c-bcb3-92eec42a687b
 
 ## What's new
 
-**October 8, 2026** (version 1.0.18). A call that keeps failing the same way is now stopped: after three identical errors, a fourth try of the same call is refused and the agent has to change its approach or ask. The message for a shell command that is too long says what to do instead (save the script to a file, then run it with one short command). A new `/plan-first` command shows the plan for a big or vague request in a form and starts only after your yes. `/usage-report` gains a "Wasted requests" section, and `/project-scan` and `/new-project` check that a project says where its data lives and how to read it.
+**October 8, 2026** (versions 1.0.18 and 1.0.19). A call that keeps failing the same way is now stopped: after three identical errors, a fourth try of the same call is refused and the agent has to change its approach or ask. The message for a shell command that is too long says what to do instead (save the script to a file, then run it with one short command). A new `/plan-first` command shows the plan for a big or vague request in a form and starts only after your yes. `/usage-report` gains a "Wasted requests" section, and `/project-scan` and `/new-project` check that a project says where its data lives and how to read it. The strong model now plans and a cheaper one builds: when a session on Opus or Fable starts a job of three or more edit steps, a new check, `build-nudge`, sends the next edit back once and has the agent write the plan as a brief for a Sonnet or Haiku helper, then check the result itself. In a week of measured use, turns like that were two thirds of the cost.
 
 **October 7, 2026** (version 1.0.17). A hard plan can now be written by the strongest model without running the whole session on it. A new `planner` agent runs on Fable, reads the files and changes nothing; the main session asks it for the plan of a big or hard-to-undo piece of work and then carries the plan out with the cheaper helpers. The brief it gets holds your request in your own words, the situation and the decisions you made, and leaves out the main session's own idea of the answer, so the plan is a second view. The main session tells you where the two differ.
 
@@ -94,6 +94,7 @@ The other hooks keep sessions cheap and safe:
 | `worker-nudge` | Sends searching to the first free worker that is ready (Codex, Gemini) |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `repeat-guard` | Refuses a retry of the same call after the same error came back three times, and reminds once when one file is edited six times or read four times in a turn |
+| `build-nudge` | Reminds a main session on Opus or Fable, once per turn, to hand the building to a cheaper helper after three edit steps, and the gathering after four lookups in a row |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
 | `context-guard` | Warns when a session gets long, and past 250k tokens moves the work to a fresh session |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |

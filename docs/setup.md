@@ -61,6 +61,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a question to me | `question-other` | Every choice lets me type my own answer, and a recommendation that says "Checked:" must match a lookup in the session log |
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn |
+| Before a file edit, read, search or page fetch | `build-nudge` | In a main session on Opus or Fable, send back once per turn the edit that comes after three edit steps, with how to brief a cheaper helper, and the lookup that comes after four lookups in a row |
 | When I send a message | `context-guard` | Warn when the session passes 200k tokens |
 | When a reply ends | `context-guard` | Move the work to a fresh session past 250k tokens |
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
