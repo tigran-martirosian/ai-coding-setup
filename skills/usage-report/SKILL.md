@@ -21,6 +21,7 @@ Numbers come from a script, not from reading transcripts. **Never open transcrip
    - the biggest costs and what they were (from the session titles);
    - any subagent over ~1M tokens, and whether a free worker (Codex/agy) could have done its gathering;
    - failed worker calls, and hook blocks followed by "retried" or "nothing";
+   - the script's "Wasted requests" section (requests the setup itself causes: hook blocks, board-only and ToolSearch-only requests, failure streaks);
    - the change against the last report.
 4. **Reply:** the total, the top 3 costs, what stands out, and a link to the report. For a full review with fixes, suggest `/setup-audit`.
 

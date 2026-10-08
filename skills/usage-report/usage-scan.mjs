@@ -97,8 +97,15 @@ const textOf = (content) =>
   typeof content === "string" ? content
   : Array.isArray(content) ? content.map((c) => c.text ?? "").join("\n") : "";
 
-// Scan one transcript file. `window` limits by time; returns null if nothing in it.
-function scan(file, window) {
+// Requests the setup itself causes: per file, every API request (last usage of its message id), the user
+// messages (turns) with the requests under each, runs of failed tool calls, and hook blocks.
+const emptyWaste = () => ({ reqs: new Map(), turns: [], streaks: [], blocks: [], unmatched: 0 });
+const WASTE_HOOK_RE = /hook (?:error|blocking error)[^:]*:\s*(?:\[[^\]]*\]:?\s*)?([a-z][a-z-]+):/i;
+const BOARD_RE = /update_session_meta|update_session_board/;
+const ctxOf = (u = {}) => (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+
+// Scan one transcript file. `window` limits by time; returns null if nothing in it. `sub`: a subagent file.
+function scan(file, window, sub = false) {
   const lines = readLines(file);
   const stamps = lines.map((l) => Date.parse(l.timestamp)).filter((t) => !isNaN(t));
   if (!stamps.length) return null;
@@ -122,11 +129,49 @@ function scan(file, window) {
   const hooks = [];
   let title = "";
   let first = Infinity, last = 0;
+  const waste = emptyWaste();
+  const wasteTool = new Map(); // tool_use id -> { id: request id, name }
+  let turn = null, run = null;
+  const endRun = () => { if (run && run.n >= 3) waste.streaks.push(run); run = null; };
+  const wasteLine = (l) => {
+    if (!sub && l.isSidechain) return;
+    if (l.type === "assistant" && l.message?.id) {
+      const id = l.message.id;
+      let r = waste.reqs.get(id);
+      if (!r) { r = { usage: null, tools: [] }; waste.reqs.set(id, r); turn?.ids.push(id); }
+      r.usage = l.message.usage ?? r.usage;
+      for (const c of l.message.content ?? []) {
+        if (c.type !== "tool_use") continue;
+        r.tools.push({ name: c.name, input: c.input ?? {} });
+        wasteTool.set(c.id, { id, name: c.name });
+      }
+    } else if (l.type === "user") {
+      const c = l.message?.content;
+      const text = typeof c === "string" ? c : Array.isArray(c) ? c.find((x) => x.type === "text")?.text : undefined;
+      if (text !== undefined && !l.isMeta && !sub) { endRun(); turn = { ids: [], text }; waste.turns.push(turn); }
+      if (!Array.isArray(c)) return;
+      for (const x of c) {
+        if (x.type !== "tool_result") continue;
+        const use = wasteTool.get(x.tool_use_id);
+        const body = textOf(x.content);
+        const hook = body.match(WASTE_HOOK_RE)?.[1] ?? (/command-explain:/.test(body) ? "command-explain" : null);
+        if (hook && x.is_error) {
+          const reason = hook !== "command-explain" ? "" : /too long/.test(body) ? "too long"
+            : /no explanation line/.test(body) ? "no note (or no empty line before it)" : /PowerShell tool/.test(body) ? "PowerShell tool" : "other";
+          if (!use) waste.unmatched++;
+          waste.blocks.push({ hook, reason, id: use?.id ?? null });
+        }
+        if (sub) continue;
+        if (x.is_error) { run ??= { n: 0, tool: use?.name ?? "?" }; run.n++; } else endRun();
+      }
+    }
+  };
 
   for (const l of lines) {
     if (l.type === "ai-title" && l.aiTitle) title = l.aiTitle;
     if (l.type === "summary" && l.summary && !title) title = l.summary;
     if (!inWin(l)) continue;
+    wasteLine(l);
     const t = Date.parse(l.timestamp);
     if (l.type === "assistant" && l.message?.usage) {
       first = Math.min(first, t); last = Math.max(last, t);
@@ -218,9 +263,11 @@ function scan(file, window) {
     h.next = /\b(codex|agy)\b|workers\/ask/.test(cmd) ? "worker"
       : next.name === ordered[i][1].name ? "retried" : next.name;
   }
+  endRun();
   if (!msgs.size && !hooks.length) return null;
   const vals = [...msgs.values()];
   return {
+    waste,
     tokens: vals.reduce((a, v) => a + v.tok, 0),
     calls: vals.length,
     maxContext: vals.reduce((a, v) => Math.max(a, v.ctx), 0),
@@ -255,7 +302,7 @@ for (const proj of fs.readdirSync(root, { withFileTypes: true })) {
         const pw = minutes && main?.first
           ? { since: Date.parse(main.first), until: Math.min(until, Date.parse(main.first) + minutes * 60000), minutes: 0 }
           : { since, until, minutes: 0 };
-        const r = scan(path.join(sdir, s), pw);
+        const r = scan(path.join(sdir, s), pw, true);
         if (!r) continue;
         let meta = {};
         try { meta = JSON.parse(fs.readFileSync(path.join(sdir, s.replace(/\.jsonl$/, ".meta.json")), "utf8")); } catch {}
@@ -263,7 +310,7 @@ for (const proj of fs.readdirSync(root, { withFileTypes: true })) {
       }
     }
     if (!main && !subs.length) continue;
-    const m = main ?? { tokens: 0, calls: 0, maxContext: 0, firstContext: 0, models: {}, days: {}, usd: {}, tools: {}, skills: {}, agents: {}, workers: [], hooks: [], title: "" };
+    const m = main ?? { waste: emptyWaste(), tokens: 0, calls: 0, maxContext: 0, firstContext: 0, models: {}, days: {}, usd: {}, tools: {}, skills: {}, agents: {}, workers: [], hooks: [], title: "" };
     sessions.push({
       project: proj.name, id, ...m,
       subagents: subs,
@@ -314,6 +361,57 @@ const use = {
 // Project folders are paths with ":", "\" and "/" turned into "-"; drop the home folder or drive part
 const homeKey = os.homedir().replace(/[:\\/]/g, "-") + "-";
 const shortName = (p) => p === homeKey.slice(0, -1) ? "~" : (p.startsWith(homeKey) ? p.slice(homeKey.length) : p.replace(/^[A-Za-z]--(\w+-)?/, "")) || p;
+
+// Wasted requests: turns, streaks, board-only and ToolSearch-only come from the main chats; hook blocks
+// and the token split also from subagents.
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+const wasted = { tokens: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 }, requests: 0, turns: [], perProject: {}, streaks: [],
+  hooks: {}, commandExplain: {}, unmatched: 0, boardOnly: { complete: { n: 0, tokens: 0 }, other: { n: 0, tokens: 0 } }, toolSearchOnly: { n: 0, tokens: 0 } };
+for (const s of all) {
+  const W = s.waste;
+  const main = sessions.includes(s);
+  const reqCtx = (id) => ctxOf(W.reqs.get(id).usage ?? {});
+  for (const r of W.reqs.values()) {
+    const u = r.usage ?? {};
+    wasted.requests++;
+    wasted.tokens.input += u.input_tokens ?? 0; wasted.tokens.cacheWrite += u.cache_creation_input_tokens ?? 0;
+    wasted.tokens.cacheRead += u.cache_read_input_tokens ?? 0; wasted.tokens.output += u.output_tokens ?? 0;
+    if (!main || !r.tools.length) continue;
+    const t = ctxOf(u);
+    if (r.tools.every((x) => BOARD_RE.test(x.name))) {
+      const k = r.tools[0].input.phase === "complete" ? "complete" : "other";
+      wasted.boardOnly[k].n++; wasted.boardOnly[k].tokens += t;
+    }
+    if (r.tools.every((x) => x.name === "ToolSearch")) { wasted.toolSearchOnly.n++; wasted.toolSearchOnly.tokens += t; }
+  }
+  wasted.unmatched += W.unmatched;
+  for (const b of W.blocks) {
+    const tok = b.id ? reqCtx(b.id) : 0;
+    const h = (wasted.hooks[b.hook] ??= { blocks: 0, tokens: 0 });
+    h.blocks++; h.tokens += tok;
+    if (b.hook === "command-explain") {
+      const c = (wasted.commandExplain[b.reason] ??= { blocks: 0, tokens: 0 });
+      c.blocks++; c.tokens += tok;
+    }
+  }
+  if (!main) continue;
+  for (const t of W.turns) {
+    if (!t.ids.length) continue;
+    const row = { project: shortName(s.project), session: s.id.slice(0, 8), requests: t.ids.length, tokens: sum(t.ids, reqCtx), text: t.text.replace(/\s+/g, " ").trim().slice(0, 60) };
+    wasted.turns.push(row);
+    const p = (wasted.perProject[row.project] ??= []);
+    p.push(row.requests);
+  }
+  for (const k of W.streaks) wasted.streaks.push({ project: shortName(s.project), session: s.id.slice(0, 8), n: k.n, tool: k.tool });
+}
+wasted.turnCount = wasted.turns.length;
+wasted.longestTurns = [...wasted.turns].sort((a, b) => b.requests - a.requests).slice(0, 5);
+wasted.requestsPerMessage = { median: median(wasted.turns.map((t) => t.requests)), max: Math.max(0, ...wasted.turns.map((t) => t.requests)) };
+wasted.perProject = Object.fromEntries(Object.entries(wasted.perProject).map(([k, v]) => [k, { messages: v.length, median: median(v), max: Math.max(...v) }]));
+wasted.streakCount = wasted.streaks.length;
+wasted.longestStreak = Math.max(0, ...wasted.streaks.map((k) => k.n));
+wasted.worstStreaks = [...wasted.streaks].sort((a, b) => b.n - a.n).slice(0, 5);
+delete wasted.turns; delete wasted.streaks;
 const report = {
   window: sessionPrefix ? { session: sessionPrefix, minutes: minutes || null }
     : { since: new Date(since).toISOString(), until: new Date(until).toISOString(), minutes: minutes || null },
@@ -336,6 +434,7 @@ const report = {
   }, {}),
   subagentsByType: byType,
   use,
+  wasted,
   sessions: sessions.map((s) => ({
     project: s.project, name: shortName(s.project), id: s.id, title: s.title, first: s.first, last: s.last,
     total: s.total, main: s.tokens, calls: s.calls, maxContext: s.maxContext,
@@ -387,4 +486,27 @@ out.push(`- Session start (first call): median ${M(U.firstCall.median)}, largest
 out.push(`- Tool calls: ${listOf(U.tools)}`);
 out.push(`- Skills: ${listOf(U.skills)}`);
 out.push(`- Subagents: ${listOf(U.agents)}`);
+const X = report.wasted;
+const pct = (n, d) => d ? `${(100 * n / d).toFixed(1)}%` : "0%";
+const tokAll = X.tokens.input + X.tokens.cacheWrite + X.tokens.cacheRead + X.tokens.output;
+out.push(``, `## Wasted requests`, ``,
+  `A request is one API call; each re-sends the whole context, so its cost is its context size (input + cache writes + cache reads).`, ``,
+  `**Tokens in ${X.requests} requests:** fresh input ${M(X.tokens.input)} (${pct(X.tokens.input, tokAll)}), cache writes ${M(X.tokens.cacheWrite)} (${pct(X.tokens.cacheWrite, tokAll)}), ` +
+  `cached re-reads ${M(X.tokens.cacheRead)} (${pct(X.tokens.cacheRead, tokAll)}, the context sent again, not new work), output ${M(X.tokens.output)} (${pct(X.tokens.output, tokAll)}).`, ``,
+  `**Requests per user message** (main chats, ${X.turnCount} messages): median ${X.requestsPerMessage.median}, largest ${X.requestsPerMessage.max}.`, ``,
+  `| Project | Messages | Median | Largest |`, `|---|---|---|---|`);
+for (const [k, v] of Object.entries(X.perProject).sort((a, b) => b[1].messages - a[1].messages).slice(0, 10)) out.push(`| ${k} | ${v.messages} | ${v.median} | ${v.max} |`);
+out.push(``, `**Longest turns:**`, ``, `| Project | Session | Requests | Tokens | Message |`, `|---|---|---|---|---|`);
+for (const t of X.longestTurns) out.push(`| ${t.project} | ${t.session} | ${t.requests} | ${M(t.tokens)} | ${t.text.replace(/\|/g, "/")} |`);
+out.push(``, `**Failure streaks** (3 or more tool calls in a row that came back as errors, inside one user message): ${X.streakCount}, longest ${X.longestStreak}.`);
+for (const k of X.worstStreaks) out.push(`- ${k.project} ${k.session}: ${k.n} in a row, ${k.tool}`);
+out.push(``, `**Hook blocks** (tokens = the request that was blocked):`);
+const hookRows = Object.entries(X.hooks).sort((a, b) => b[1].tokens - a[1].tokens);
+if (!hookRows.length) out.push(`- None.`);
+for (const [k, v] of hookRows) out.push(`- ${k}: ${v.blocks} blocks, ${M(v.tokens)}`);
+for (const [k, v] of Object.entries(X.commandExplain).sort((a, b) => b[1].blocks - a[1].blocks)) out.push(`  - command-explain, ${k}: ${v.blocks} blocks, ${M(v.tokens)}`);
+if (X.unmatched) out.push(`- ${X.unmatched} blocks could not be matched to their request (it lies outside the time window); counted with 0 tokens.`);
+const B = X.boardOnly, S = X.toolSearchOnly;
+out.push(``, `**Requests that only set the board entry:** set to complete ${B.complete.n} (${M(B.complete.tokens)}), other ${B.other.n} (${M(B.other.tokens)}).`,
+  `**Requests that only called ToolSearch:** ${S.n} (${M(S.tokens)}).`);
 console.log(out.join("\n"));

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.17",
-  "date": "2026-10-07",
-  "summary": "A planner agent on the strongest model writes the plan for big or hard-to-undo work, from a brief that gives the situation and leaves the approach open."
+  "version": "1.0.18",
+  "date": "2026-10-08",
+  "summary": "A hook that stops retrying the same failing call, a /plan-first command, and a report of the requests the setup itself wastes."
 }

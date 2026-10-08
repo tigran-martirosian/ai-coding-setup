@@ -2,6 +2,15 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.18, October 8, 2026
+
+- **A retry that cannot work is refused.** New check `repeat-guard`: when the same call has failed three times with the same error, a fourth try of that call is sent back, and the agent has to take a different approach or ask. It also reminds the agent once when a single file is edited six times or read four times in one turn. `REPEAT_GUARD=off` turns it off.
+- **A clearer message for a command that is too long.** `command-explain` now says the command itself gets five lines in the permission popup and gives the two steps: save the script to a file first, then run it with one short command.
+- **`/plan-first` for a big or vague request.** Claude says what it understood and why, names the shortest route and what could go wrong, shows the plan in a form and starts only after your yes.
+- **A "Wasted requests" section in `/usage-report`.** It shows requests per message, the longest turns, streaks of failures, hook blocks by reason, requests that only set the session board or only loaded a tool, and cached re-reads shown apart.
+- **`/project-scan` and `/new-project` check where the data lives.** A project that keeps a database, a log or data files should say where each one is, as a full path, and the command that reads it.
+- **Three rules sharpened** in `rules/CLAUDE.md`: a fix that brings the same error back twice has failed and the third step is a different approach, the command in a permission popup gets five lines, and the board update goes together with the last tool calls instead of in a request of its own.
+
 ## Version 1.0.17, October 7, 2026
 
 - **A planner on the strongest model.** New agent `planner` ([agents/planner.md](agents/planner.md)): it runs on Fable, reads files, changes nothing and stops after 15 turns. The main session asks it for the plan when the plan is the hard part (a big job split across child sessions, or a change that is hard to undo) and then does the work itself with the cheaper helpers. Only the plan runs on the expensive model, and it starts from a short brief instead of the whole chat. One real call on a small task cost about 25 cents at API prices.

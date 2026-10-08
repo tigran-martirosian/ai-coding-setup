@@ -26,7 +26,7 @@ each as its own question (not a tick-list):
 
 | File | Content |
 |---|---|
-| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) |
+| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · for any project that keeps data (a database, a log, data files): where each one lives as a full path, and the exact command that reads it with a tool that is installed · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) |
 | `HANDOFF.md` | Current state, what's next, open questions. Rewritten at the end of every working session so a fresh session can pick up cold. |
 | `DECISIONS.md` | Every user decision as **decision** — why · *origin, date*. It wins over older docs. Newest first per section. |
 | `docs/` | Design documents and plans, one markdown file per topic. |

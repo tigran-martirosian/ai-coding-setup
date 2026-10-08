@@ -60,6 +60,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a picture is shown in the chat | `picture-in-project` | The file is inside the open project, so a click opens it enlarged instead of an empty box |
 | Before a question to me | `question-other` | Every choice lets me type my own answer, and a recommendation that says "Checked:" must match a lookup in the session log |
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
+| Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn |
 | When I send a message | `context-guard` | Warn when the session passes 200k tokens |
 | When a reply ends | `context-guard` | Move the work to a fresh session past 250k tokens |
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |

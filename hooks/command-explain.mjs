@@ -72,8 +72,10 @@ try {
     if (shown > MAX_LINES) {
       deny(
         `this command is too long: it takes about ${shown} lines in the permission popup, which shows about ${MAX_LINES} before it scrolls, ` +
-        `so the explanation on the last line would be hidden. Make it shorter: put the script or the long text in a file (Write tool) and run ` +
-        `that file with a short command, or split the work into separate commands. Keep the empty line and the "# WHAT THIS DOES: " line at the end.`,
+        `so the explanation on the last line would be hidden. The empty line and the note take 2 of the ${MAX_LINES}, so the command itself gets ${MAX_LINES - 2} ` +
+        `(a line over ${WIDTH} characters counts as more than one). Do it in two steps: 1. save the script or the long text to a file with the Write tool; ` +
+        `2. run that file with one short command, then the empty line and the "# WHAT THIS DOES: " line. Don't trim the command line by line and try again. ` +
+        `Next time decide before the first try: a heredoc, a script with its own line breaks, or a python -c / node -e that spans more than one line goes into a file first.`,
       );
     }
   }

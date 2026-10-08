@@ -136,6 +136,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   them, select the cards in the Complete column and choose Archive selected; Claude cannot archive
   for you.
 - **`/project-scan`:** checks one project's Claude setup and saves a report.
+- **`/plan-first`:** for a big or vague request. Claude says what it understood, shows the plan in a form
+  and starts only after your yes.
 - **`/next-move`:** names the one most useful thing to do next. It reads your goals from
   `~/.claude/goals.md`, so write a few lines there first (what you want to reach this year).
 
