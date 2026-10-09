@@ -14,7 +14,9 @@ fs.mkdirSync(dir);
 const t0 = Date.now() - 3600000;
 const at = (s) => new Date(t0 + s * 1000).toISOString();
 const usage = { input_tokens: 10, cache_read_input_tokens: 1000, output_tokens: 400 };
-const user = (s, text) => ({ type: "user", timestamp: at(s), cwd: "C:\\Projects\\demo", message: { content: text } });
+// a folder path in the form of the system the test runs on: the scan names the project by its last part
+const cwd = process.platform === "win32" ? "C:\\Projects\\demo" : "/Projects/demo";
+const user = (s, text) => ({ type: "user", timestamp: at(s), cwd, message: { content: text } });
 const result = (s, id, text = "ok", bad = false) => ({ type: "user", timestamp: at(s), message: { content: [{ type: "tool_result", tool_use_id: id, content: text, is_error: bad }] } });
 const reply = (s, id, content) => ({ type: "assistant", timestamp: at(s), message: { id, model: "claude-opus-5-5", usage, content } });
 const use = (id, name, input = {}) => ({ type: "tool_use", id, name, input });
