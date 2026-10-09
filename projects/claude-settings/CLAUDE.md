@@ -24,6 +24,7 @@ happen here.
   this computer (a script and the Codex worker do the reading), finds where Claude got in the way
   and which skills or tools are missing, shows a tick list and sets up only what is ticked, in the
   project it belongs to. Run it after a few weeks of work, or when the same problem keeps coming back.
+- **`/full-review` is the one review that ends in choices.** It runs the usage scanner, a second scanner (the kind of work per request, what another split between models would have cost, where the time of each turn went, failed tool calls, context size) and the chat reading together, writes a report to `audits/`, and asks once which of the measured options to carry out. Run it every week or two.
 - **Save a dated copy first.** Before changing `~/.claude/settings.json` or `~/.claude/CLAUDE.md`
   by hand, copy it next to itself as `<name>.before-<topic>-<yyyymmdd>`.
 - **Change one thing, test it for real, write it down.** Every change gets one line in `DECISIONS.md`

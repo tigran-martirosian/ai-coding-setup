@@ -3,7 +3,7 @@ made by a script. "S1", "S2" and so on are chats. Answer only from that file. Do
 commands, do not search the web, do not write files. Write in English, whatever language the
 chats are in.
 
-Answer under these six headings, as short bullets. Put the chat label (S3) on every bullet and
+Answer under these eight headings, as short bullets. Put the chat label (S3) on every bullet and
 quote at most 12 words of the user. Give no advice and no fixes. If a heading has nothing,
 write "none".
 
@@ -20,5 +20,11 @@ D. AGAIN AND AGAIN: tasks or instructions the user gives repeatedly in similar w
 E. DEPENDS ON: the tools, kinds of file, programs, services and websites this work depends on,
    and any that failed or were missing.
 F. ALWAYS AND NEVER: things the user told Claude to always do or never do.
+G. REASONING: places where Claude assumed something instead of checking it, said a thing was done
+   or working when it was not, drew a wrong conclusion, or went off in a direction the user had
+   to stop. One line each: what it concluded or assumed, what turned out to be true.
+H. PACE: places where the user said it took too long, did more than asked or kept trying the
+   same thing, and places where the answer came too fast: shallow, a guess, or given up early
+   and handed back to the user. One line each, marked LONG or SHORT.
 
-At most 60 lines in all.
+At most 80 lines in all.

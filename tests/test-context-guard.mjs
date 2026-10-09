@@ -37,13 +37,17 @@ check("CONTEXT_GUARD_K lowers the limit", run({ prompt: "x", transcript_path: sm
 // Automatic handoff at the end of a reply (Stop): once per session, again after +100k
 const sid = `test-${process.pid}`;
 const user = (text) => JSON.stringify({ type: "user", message: { content: text } }).replace('{"type"', '{"type"');
-const mid = transcript("mid.jsonl", [asst(230000)]);
+const mid = transcript("mid.jsonl", [asst(170000)]);
+const over = transcript("over.jsonl", [asst(210000)]);
 const bigger = transcript("bigger.jsonl", [asst(530000)]);
 const stop = (t, extra = {}, env = {}) => run({ hook_event_name: "Stop", transcript_path: t, session_id: sid, ...extra }, env);
 const reason = (o) => { try { return JSON.parse(o).reason ?? ""; } catch { return ""; } };
 const ctx = (t) => { try { return JSON.parse(run({ prompt: "x", transcript_path: t, session_id: sid })).hookSpecificOutput.additionalContext; } catch { return ""; } };
 const clear = () => fs.rmSync(path.join(os.tmpdir(), "context-guard", `${sid}.json`), { force: true });
 check("stop under the handoff limit: silent", stop(mid) === "" && stop(small) === "");
+check("under the warning limit (140k): silent", run({ prompt: "x", transcript_path: transcript("low.jsonl", [asst(140000)]) }) === "");
+check("stop at 210k: holds the reply (the limit is 200k)", /~210k/.test(reason(stop(over))));
+clear();
 check("prompt between the limits: batches, no handoff line", /one Edit/.test(ctx(mid)) && !/fresh session/.test(ctx(mid)));
 check("prompt over the handoff limit: hand off when done", /move the work to a fresh session without asking/.test(ctx(big)));
 check("stop while a stop hook is already running: silent", stop(big, { stop_hook_active: true }) === "");

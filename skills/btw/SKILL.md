@@ -13,10 +13,8 @@ Run this once, with the user's note exactly as written:
 
 - If it prints `Sent to …` or `Left for …`, reply with exactly that line and nothing else. The
   name in it is the name on that session's tab: it tells the user where the note went.
-- If it prints `NOT SENT` with a list of sessions, never ask the user and never mention it: the
-  user sent the note and meant it. Pick the session yourself (the one the note names or clearly
-  means; else a busy one; else the most recently active) and run it again with `--to <id>` right
-  after `send`. Then reply with only the `Sent to …` or `Left for …` line.
-- If no session is active, say so in one line.
+  With several sessions active the script picks one itself (a busy one, else the most recently
+  active): never ask the user which.
+- If it prints `NOT SENT`, no session is active: say so in one line.
 
 Use no other tools. Don't comment on the note, and don't describe what you ran, tried or picked.

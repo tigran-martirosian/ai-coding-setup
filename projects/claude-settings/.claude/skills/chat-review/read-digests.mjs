@@ -36,7 +36,8 @@ function ask(prompt, outFile) {
       fs.rmSync(taskFile, { force: true });
       done({ ok, why });
     };
-    const child = spawn(process.execPath, [ASK, taskFile], { windowsHide: true });
+    // started in the digest folder: Antigravity may only read files under the folder it runs in
+    const child = spawn(process.execPath, [ASK, taskFile], { windowsHide: true, cwd: dir });
     const timer = setTimeout(() => { child.kill(); finish(false, `timed out after ${TIMEOUT_MS / 1000} s`); }, TIMEOUT_MS);
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { log += d; });
@@ -45,7 +46,7 @@ function ask(prompt, outFile) {
       const text = out.trim();
       const ok = code === 0 && text.length > 0;
       if (ok) fs.writeFileSync(outFile, text + "\n");
-      finish(ok, code === 3 ? "no free worker could answer" : log.trim().slice(-300) || (text ? `exit code ${code}` : "empty answer"));
+      finish(ok, code === 3 ? `no free worker could answer: ${log.trim().replace(/\s+/g, " ").slice(-400)}` : log.trim().slice(-300) || (text ? `exit code ${code}` : "empty answer"));
     });
   });
 }

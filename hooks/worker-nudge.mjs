@@ -13,7 +13,8 @@ import { createHash } from "node:crypto";
 
 const ASK = `~/.claude/workers/ask.mjs`;
 const TASK = `"<task, or the path of a text file holding a longer task>"`;
-const GATHER_AGENTS = new Set(["", "explore", "general-purpose"]);
+// "claude" is the catch-all type: no turn cap, the session's own model (28 runs at 1.09M each, 2026-10-08)
+const GATHER_AGENTS = new Set(["", "explore", "general-purpose", "claude"]);
 
 // ask.mjs picks the worker. A worker is off when <name>.off exists in this folder (no subscription)
 const WORKERS = join(process.env.USERPROFILE || process.env.HOME || "", ".claude", "workers");
@@ -57,6 +58,7 @@ try {
     `[worker-nudge] Search/research subagents cost 0.6-4M Claude tokens per run. Do this gathering with one free external worker call instead (no Claude usage). Run it with Bash, in the background if you have other work meanwhile, and ask for a short answer with paths/lines:`,
     ...workers,
     `Keep the reasoning and the final answer yourself, and verify anything the answer depends on.`,
+    `A job that is not gathering (a review, a build, a check) goes to subagent_type "worker" (Sonnet, capped at 25 turns) with a budget in its prompt, not to an uncapped agent type.`,
     `If this really needs a Claude subagent (it edits files, needs this conversation's context, or the worker failed), retry the identical call and it will go through.`,
   ].join("\n");
   writeSync(1, JSON.stringify({

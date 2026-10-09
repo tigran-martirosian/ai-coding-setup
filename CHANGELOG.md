@@ -2,6 +2,40 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.22, October 8, 2026
+
+- **A real reference before design work.** One rule added in `rules/CLAUDE.md`: before designing or redesigning anything a person looks at (a page, an app screen, a README, the look of a video), the agent opens one real reference and says which one it used. Three are named: Component Gallery (how real design systems build one element), Refero Styles (the type and colour of real products) and DESIGNmd (a design system as one `DESIGN.md` file to drop into the project). Nothing to install.
+- **`/new-project` writes the same three into a project with a web UI**, next to Designeer.
+
+## Version 1.0.21, October 8, 2026
+
+- **`/btw` no longer needs a second try when several sessions are open.** It sends the note to the busy one, else the most recently active, and tells you which one got it.
+- **`/full-review` run twice in one day keeps both sets of numbers.** The second run writes `-2-numbers`, the third `-3-numbers`, and an earlier file is never overwritten. It also says up front when the last review is too recent to measure anything, and then only looks for what is new.
+
+## Version 1.0.20, October 8, 2026
+
+- **`/full-review`: one review that ends in choices.** New command in the `claude-settings` folder. It measures a week of work: where the usage went, which model did which kind of work and what another split would have cost, where the time of each turn went, the turns you pushed back on, failed tool calls and how big the chats grew. A free worker reads the chat digests for wrong assumptions and for answers that came too slow or too fast. The result is a short report and one form with options, each with its number; only what you tick is changed. A Full review button comes with the commands extension.
+- **A fresh chat at 200k instead of 250k.** `context-guard` now warns at 150k and moves the work to a fresh session when a reply ends past 200k. Measured over a week, 31% of all usage sat in requests sent with more than 200k of context. `CONTEXT_GUARD_K` and `CONTEXT_GUARD_AUTO_K` set your own limits.
+- **The catch-all agent type gets the same first-try block as the search agents.** A `claude`-type helper has no turn limit and runs on the session's own model; measured runs averaged over a million tokens each. `worker-nudge` now sends the first try back and points to the capped `worker` helper. Repeating the call goes through.
+- **One rule added:** read a file outside the project before editing it. A refused edit is a request spent for nothing, and a week of chats held about a hundred of them.
+- **`/chat-review` reads again with Antigravity.** The reader is started in the digest folder, because Antigravity only reads files under the folder it runs in; before, every digest failed. The reader also answers two more headings: where the reasoning went wrong, and where the pace was off. A failed read now prints the worker's own reason.
+
+## Version 1.0.19, October 8, 2026
+
+- **The strong model plans, a cheaper one builds.** New check `build-nudge`: in a main session on Opus or Fable, the edit that comes after three edit steps in one turn is sent back once, with how to brief a `worker` helper (Sonnet, or Haiku for mechanical edits): the files, the exact structure to write, what must not change and the check that proves it. Repeating the call goes through, so small jobs are not held up. Measured over a week, turns with three or more edit steps were two thirds of the cost, because every step re-sends the whole conversation at the strong model's price.
+- **Lookups in a row go out in one go.** The same check sends back the read, search or page fetch that comes after four lookup steps in a row and points to the free worker or a Haiku helper. Once per turn as well.
+- **It leaves the rest alone.** Helpers, sessions on Sonnet or Haiku, and edits to the project's record files (`HANDOFF.md`, `DECISIONS.md`, memory notes) are never held up. `BUILD_NUDGE=off` turns it off; `BUILD_NUDGE_EDITS` and `BUILD_NUDGE_LOOKUPS` change the two counts.
+- **One rule added** in `rules/CLAUDE.md` saying the same in words.
+
+## Version 1.0.18, October 8, 2026
+
+- **A retry that cannot work is refused.** New check `repeat-guard`: when the same call has failed three times with the same error, a fourth try of that call is sent back, and the agent has to take a different approach or ask. It also reminds the agent once when a single file is edited six times or read four times in one turn. `REPEAT_GUARD=off` turns it off.
+- **A clearer message for a command that is too long.** `command-explain` now says the command itself gets five lines in the permission popup and gives the two steps: save the script to a file first, then run it with one short command.
+- **`/plan-first` for a big or vague request.** Claude says what it understood and why, names the shortest route and what could go wrong, shows the plan in a form and starts only after your yes.
+- **A "Wasted requests" section in `/usage-report`.** It shows requests per message, the longest turns, streaks of failures, hook blocks by reason, requests that only set the session board or only loaded a tool, and cached re-reads shown apart.
+- **`/project-scan` and `/new-project` check where the data lives.** A project that keeps a database, a log or data files should say where each one is, as a full path, and the command that reads it.
+- **Three rules sharpened** in `rules/CLAUDE.md`: a fix that brings the same error back twice has failed and the third step is a different approach, the command in a permission popup gets five lines, and the board update goes together with the last tool calls instead of in a request of its own.
+
 ## Version 1.0.17, October 7, 2026
 
 - **A planner on the strongest model.** New agent `planner` ([agents/planner.md](agents/planner.md)): it runs on Fable, reads files, changes nothing and stops after 15 turns. The main session asks it for the plan when the plan is the hard part (a big job split across child sessions, or a change that is hard to undo) and then does the work itself with the cheaper helpers. Only the plan runs on the expensive model, and it starts from a short brief instead of the whole chat. One real call on a small task cost about 25 cents at API prices.

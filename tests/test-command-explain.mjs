@@ -49,6 +49,8 @@ const cases = [
   ["Nimbalyst: one 300-character line passes", B(`echo ${"x".repeat(300)}${NOTE}`), false, NIMBALYST],
   ["Nimbalyst: COMMAND_EXPLAIN_LINES raises the limit", B(`${echoes(12)}${NOTE}`), false, { ...NIMBALYST, COMMAND_EXPLAIN_LINES: "20" }],
   ["Nimbalyst: a long command with no note gets the note message first", B(echoes(12)), MISSING, NIMBALYST],
+  ["Nimbalyst: the too-long message says the command gets 5 lines", B(`${echoes(6)}${NOTE}`), "the command itself gets 5", NIMBALYST],
+  ["Nimbalyst: the too-long message gives the two steps", B(`${echoes(6)}${NOTE}`), "with the Write tool; 2. run that file", NIMBALYST],
 ];
 let fail = 0;
 for (const [name, input, deny, env] of cases) {

@@ -3,7 +3,7 @@
 // to end (Nimbalyst queues messages until then). Used by the /btw and /ask skills.
 //   list                     sessions in this folder active in the last 10 min (not this one)
 //   send [--to <id>] <note>  queue a note for one session (the only active one, or --to);
-//                            with several active and no --to, lists them and queues nothing
+//                            with several active and no --to: a busy one, else the most recent
 //   --hook                   PreToolUse, PostToolUse and Stop hook: hand this session the notes
 //                            addressed to it at the first chance. Before a tool call the call is
 //                            held (denied once) so the note is read first; after a tool call the
@@ -134,14 +134,14 @@ if (mode === "list") {
   const list = others();
   console.log(list.length ? show(list) : "No other session was active in this folder in the last 10 minutes.");
 } else if (mode === "send") {
-  const { t, list, bad } = pickTarget(rest);
+  const { t: one, list, bad } = pickTarget(rest);
+  // Several active and none named: a busy one, else the most recent (the list is newest first).
+  const t = one || (bad ? null : list.find((f) => !f.done) || list[0]);
   const msg = (rest[0] === "-" ? await stdin() : rest.join(" ")).trim();
   if (!msg) { console.log("usage: steer.mjs send [--to <id>] <note>"); process.exit(1); }
   if (!t) {
     console.log(bad ? `NOT SENT: "${bad}" is not one of the active sessions (use an id from this list, not the tab id):
-${show(list)}` : list.length
-      ? `NOT SENT: ${list.length} sessions are active in this folder. Don't ask the user: pick the one the note means (else a busy one, else the most recent) and rerun with --to <id>:\n${show(list)}`
-      : "NOT SENT: no other session was active in this folder in the last 10 minutes.");
+${show(list)}` : "NOT SENT: no other session was active in this folder in the last 10 minutes.");
     process.exit(2);
   }
   fs.mkdirSync(DIR, { recursive: true });

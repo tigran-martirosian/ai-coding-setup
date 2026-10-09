@@ -26,7 +26,7 @@ each as its own question (not a tick-list):
 
 | File | Content |
 |---|---|
-| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) |
+| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · for any project that keeps data (a database, a log, data files): where each one lives as a full path, and the exact command that reads it with a tool that is installed · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) |
 | `HANDOFF.md` | Current state, what's next, open questions. Rewritten at the end of every working session so a fresh session can pick up cold. |
 | `DECISIONS.md` | Every user decision as **decision** — why · *origin, date*. It wins over older docs. Newest first per section. |
 | `docs/` | Design documents and plans, one markdown file per topic. |
@@ -60,7 +60,7 @@ picks:
 | If the project… | Tell sessions to use |
 |---|---|
 | uses a library or framework | **Context7** for current docs before writing code against it |
-| has a web UI | Nimbalyst **Browser** to preview it and check it; if they are installed, **Playwright** to check it in a real browser and **Frontend Design** for the look; **Designeer** (https://www.designeer.xyz, a free list of design galleries, component libraries, and type and colour tools; nothing to install) for references before a new page or a redesign |
+| has a web UI | Nimbalyst **Browser** to preview it and check it; if they are installed, **Playwright** to check it in a real browser and **Frontend Design** for the look; **Designeer** (https://www.designeer.xyz, a free list of design galleries, component libraries, and type and colour tools; nothing to install) for references before a new page or a redesign, with **Component Gallery** (https://component.gallery, how real design systems build one element), **Refero Styles** (https://styles.refero.design, the type and colour of real products) and **DESIGNmd** (https://designmd.ai, a design system as one `DESIGN.md` file to drop into the project) |
 | needs UI or architecture planning | Nimbalyst **MockupLM** mockups and **Excalidraw** diagrams before building |
 | has a database or data model | Nimbalyst **DataModelLM** (`.datamodel`) for the schema, kept in step with the DDL, and the matching database best-practices skill |
 | has large files or docs | The big-read gate is global. Name the biggest files here so sessions go straight to targeted reads or a cheap worker. |

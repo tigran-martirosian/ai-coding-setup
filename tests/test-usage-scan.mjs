@@ -115,3 +115,39 @@ check("--project filter excludes others", run("--project", "nomatch", "--days", 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);
+
+// Wasted requests: own project so the cases above stay as they are
+const tool = (id, name, input = {}) => ({ type: "tool_use", id, name, input });
+const user = (min, text) => ({ type: "user", timestamp: at(min), message: { content: text } });
+const blocked = (why) => `PreToolUse:Bash hook error: [node hook]: command-explain: ${why}`;
+fs.mkdirSync(path.join(root, "C--Projects-waste"));
+write(path.join(root, "C--Projects-waste", "w1.jsonl"), [
+  user(0, "fix the thing please"),
+  asst(1, "w-m1", usage(0, 1000, 1), [tool("w1", "Bash")]), result(1, "w1", blocked("Command is too long"), true),
+  asst(2, "w-m2", usage(0, 2000, 1), [tool("w2", "Bash")]), result(2, "w2", "boom", true),
+  asst(3, "w-m3", usage(0, 3000, 1), [tool("w3", "Bash")]), result(3, "w3", blocked("no explanation line"), true),
+  asst(4, "w-m4", usage(0, 4000, 1), [tool("w4", "mcp__nimbalyst__update_session_meta", { phase: "complete" })]), result(4, "w4", "ok"),
+  asst(5, "w-m5", usage(0, 5000, 1), [tool("w5", "mcp__nimbalyst__update_session_meta", { add: ["x"] })]), result(5, "w5", "ok"),
+  asst(6, "w-m6", usage(0, 6000, 1), [tool("w6", "ToolSearch")]), result(6, "w6", "ok"),
+  // not an error, only quotes a block message (a file read): not a block
+  asst(7, "w-m7", usage(0, 7000, 1), [tool("w7", "Read")]), result(7, "w7", blocked("Command is too long")),
+  // one message id on two lines: one request, usage of the last line
+  asst(7, "w-m9", usage(0, 50, 1), [{ type: "text", text: "a" }]),
+  asst(7, "w-m9", usage(0, 70, 3), [{ type: "text", text: "b" }]),
+  user(8, "second message"),
+  asst(9, "w-m8", usage(0, 100, 1), [{ type: "text", text: "ok" }]),
+]);
+const X = run("--project", "waste", "--days", "10000").wasted;
+check("wasted: requests per message", [X.turnCount, X.requestsPerMessage], [2, { median: 8, max: 8 }]);
+check("wasted: per project", X.perProject, { waste: { messages: 2, median: 8, max: 8 } });
+check("wasted: longest turn", X.longestTurns.map((t) => [t.requests, t.tokens, t.text]), [[8, 28070, "fix the thing please"], [1, 100, "second message"]]);
+check("wasted: one failure streak of 3", [X.streakCount, X.longestStreak, X.worstStreaks.map((k) => [k.n, k.tool])], [1, 3, [[3, "Bash"]]]);
+check("wasted: hook blocks with the blocked request's tokens", X.hooks["command-explain"], { blocks: 2, tokens: 4000 });
+check("wasted: command-explain by reason", X.commandExplain, { "too long": { blocks: 1, tokens: 1000 }, "no note (or no empty line before it)": { blocks: 1, tokens: 3000 } });
+check("wasted: board-only requests split", X.boardOnly, { complete: { n: 1, tokens: 4000 }, other: { n: 1, tokens: 5000 } });
+check("wasted: ToolSearch-only requests", X.toolSearchOnly, { n: 1, tokens: 6000 });
+check("wasted: token split", X.tokens, { input: 0, cacheWrite: 0, cacheRead: 28170, output: 11 });
+
+fs.rmSync(root, { recursive: true, force: true });
+console.log(`\n${pass}/${pass + fail} passed`);
+process.exit(fail ? 1 : 0);
