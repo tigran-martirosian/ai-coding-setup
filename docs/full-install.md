@@ -162,7 +162,7 @@ Run each check once; fix an obvious failure, report any other with its output. B
 4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: with a worker, the output contains `"deny"`; with none, no output.
 5. `node ~/.claude/skills/usage-report/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
 6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
-7. `node "<projects>/ask-anything/.claude/skills/court/court.mjs"` with no arguments prints a line starting with `Usage: node court.mjs`.
+7. `node ~/.claude/skills/court/court.mjs` with no arguments prints a line starting with `Usage: node court.mjs`.
 8. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.
 9. `node ~/.claude/skills/update-setup/update.mjs --check` prints `Already on the newest version`.
 10. On a Mac: `zsh -lic 'command -v node uvx'` prints two paths, and every hook command in `~/.claude/settings.json` starts with a Node that exists.
