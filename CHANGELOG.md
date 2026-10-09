@@ -2,6 +2,11 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.22, October 8, 2026
+
+- **A real reference before design work.** One rule added in `rules/CLAUDE.md`: before designing or redesigning anything a person looks at (a page, an app screen, a README, the look of a video), the agent opens one real reference and says which one it used. Three are named: Component Gallery (how real design systems build one element), Refero Styles (the type and colour of real products) and DESIGNmd (a design system as one `DESIGN.md` file to drop into the project). Nothing to install.
+- **`/new-project` writes the same three into a project with a web UI**, next to Designeer.
+
 ## Version 1.0.21, October 8, 2026
 
 - **`/btw` no longer needs a second try when several sessions are open.** It sends the note to the busy one, else the most recently active, and tells you which one got it.

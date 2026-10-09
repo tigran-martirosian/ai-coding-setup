@@ -60,7 +60,7 @@ picks:
 | If the project… | Tell sessions to use |
 |---|---|
 | uses a library or framework | **Context7** for current docs before writing code against it |
-| has a web UI | Nimbalyst **Browser** to preview it and check it; if they are installed, **Playwright** to check it in a real browser and **Frontend Design** for the look; **Designeer** (https://www.designeer.xyz, a free list of design galleries, component libraries, and type and colour tools; nothing to install) for references before a new page or a redesign |
+| has a web UI | Nimbalyst **Browser** to preview it and check it; if they are installed, **Playwright** to check it in a real browser and **Frontend Design** for the look; **Designeer** (https://www.designeer.xyz, a free list of design galleries, component libraries, and type and colour tools; nothing to install) for references before a new page or a redesign, with **Component Gallery** (https://component.gallery, how real design systems build one element), **Refero Styles** (https://styles.refero.design, the type and colour of real products) and **DESIGNmd** (https://designmd.ai, a design system as one `DESIGN.md` file to drop into the project) |
 | needs UI or architecture planning | Nimbalyst **MockupLM** mockups and **Excalidraw** diagrams before building |
 | has a database or data model | Nimbalyst **DataModelLM** (`.datamodel`) for the schema, kept in step with the DDL, and the matching database best-practices skill |
 | has large files or docs | The big-read gate is global. Name the biggest files here so sessions go straight to targeted reads or a cheap worker. |
