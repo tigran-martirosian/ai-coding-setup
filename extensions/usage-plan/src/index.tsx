@@ -11,6 +11,7 @@ import { FIVE_MS, WEEK_MS, clock, pace, sessionPace, span, weekTone, when } from
 import type { Tone } from './format';
 import { clearGutter, paintGutter } from './gutter';
 import { installPopover, removePopover } from './popover';
+import type { Shared } from './store';
 import { getState, openDashboard, refresh, setExec, start, stop, subscribe } from './store';
 import { CSS } from './styles';
 import { t } from './strings';
@@ -60,6 +61,40 @@ function Limit(props: { name: string; sub: string; used: number | null; resets?:
   );
 }
 
+const pctText = (n: number | null) => (n === null ? '—' : `${Math.round(n)}%`);
+
+/** One row per person who uses the shared subscription, as counted by ccpool. */
+function SharedUse({ members }: { members: NonNullable<Shared['members']> }) {
+  return (
+    <div className="up-group">
+      <div className="up-who">
+        <div>
+          <div className="up-name">{t.whoUsed}</div>
+          <div className="up-sub">{t.sharedHint}</div>
+        </div>
+        <div className="up-col">{`5${t.hour}`}</div>
+        <div className="up-col">{t.weekShort}</div>
+        {members.map((m) => (
+          <SharedRow key={m.name} member={m} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SharedRow({ member }: { member: NonNullable<Shared['members']>[number] }) {
+  return (
+    <>
+      <div>
+        {member.name === 'unknown' ? t.notCounted : member.name}
+        {member.me && <span className="up-dim">{` · ${t.you}`}</span>}
+      </div>
+      <div className="up-who-num">{pctText(member.five)}</div>
+      <div className="up-who-num">{pctText(member.week)}</div>
+    </>
+  );
+}
+
 interface Forecast {
   icon: string;
   value: string;
@@ -104,7 +139,7 @@ function PaceCard(props: { forecast: Forecast | null; tone: Tone; budgetLabel: s
 
 /** The whole view. With a host it is the sidebar panel; without one, the popover. */
 function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
-  const { plan, error, loading } = useStore();
+  const { plan, shared, error, loading } = useStore();
   const now = useNow();
   const [opening, setOpening] = useState(false);
 
@@ -151,6 +186,7 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
             <Limit name={t.session} sub={t.window5} used={s ? (five?.used ?? 0) : null} resets={five?.resets} length={FIVE_MS} tone={fiveTone} now={now} />
             {s && <PaceCard forecast={fiveForecast} tone={fiveTone} budgetLabel={t.hourlyBudget} budget={s.budget} pace={s.perHour} unit={t.unitHour} />}
           </div>
+          {shared?.setUp && shared.members?.length ? <SharedUse members={shared.members} /> : null}
         </>
       )}
       {plan && !ok && <div className="up-empty">{t.noPlan}</div>}

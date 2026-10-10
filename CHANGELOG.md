@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.30, October 10, 2026
+
+- **The usage pop-up shows who used how much.** On a computer where `/shared-usage` was set up, the pop-up behind the usage ring gets one more block, "Who used it": a row per person with their share of the 5-hour and the weekly limit, and a "Not counted" row for usage from before the setup or from claude.ai. The numbers come from `ccpool status`, read by a new script, `skills/usage-report/shared-usage.mjs`. Without ccpool the pop-up looks as before. Restart Nimbalyst once after the update.
+
 ## Version 1.0.29, October 10, 2026
 
 - **`/shared-usage`: who used how much of a shared subscription.** Claude shows one number for the whole account. When more than one person works on it, `/shared-usage` sets up [ccpool](https://github.com/hexxt-git/ccpool), someone else's open-source tool, which splits the 5-hour and weekly limits per person. The command installs it, asks for your name, the group password and a password of your own, joins the group and, on Windows, makes its background program start at log-on. Each person types the command on their own computer with the same group password. It says before it starts what leaves the computer: token counts per reply, the model name, the limit percentages and your name go to the tool author's server; chat text, file names and the Claude login do not. Usage is counted from the moment it runs. The command starts only when you type it.

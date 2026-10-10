@@ -1,5 +1,5 @@
 {
-  "version": "1.0.29",
+  "version": "1.0.30",
   "date": "2026-10-10",
-  "summary": "A /shared-usage command: when more than one person works on a subscription, it shows who used how much of the limits."
+  "summary": "The usage pop-up shows who used how much of a shared subscription, once /shared-usage is set up."
 }
