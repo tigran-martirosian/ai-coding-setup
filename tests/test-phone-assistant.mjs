@@ -20,7 +20,7 @@ process.env.HOME = tmp;
 process.env.FAKE_RECORD = record;
 process.env.INBOX_CLAUDE_CMD = JSON.stringify([process.execPath, path.join(HERE, 'phone-bot', 'fake-claude.mjs')]);
 process.env.INBOX_NIMBALYST_MODULE = path.join(HERE, 'phone-bot', 'fake-nimbalyst.mjs');
-const { ask, gatherContext } = await import('../skills/phone-bot/bot/assistant.mjs');
+const { ask, gatherContext, findClaude } = await import('../skills/phone-bot/bot/assistant.mjs');
 
 const rec = () => JSON.parse(fs.readFileSync(record, 'utf8'));
 async function rejects(fn) { try { await fn(); return null; } catch (e) { return e; } }
@@ -67,6 +67,24 @@ check('NOT_RUNNING said in words, refs empty', /Nimbalyst is not running on the 
 process.env.STUB_MODE = 'boom';
 const b = await gatherContext([]);
 check('other errors named in one line', /endpoint exploded/.test(b.text), b.text);
+
+// findClaude: where the bot looks for the claude program on Windows
+const mk = (...parts) => { const d = path.join(tmp, ...parts); fs.mkdirSync(d, { recursive: true }); return d; };
+const onPath = mk('f1', 'bin'), home2 = mk('f2', 'home'), localBin = mk('f2', 'home', '.local', 'bin');
+fs.writeFileSync(path.join(onPath, 'claude.exe'), '');
+fs.writeFileSync(path.join(localBin, 'claude.exe'), '');
+const empty = mk('f0');
+check('claude.exe on the PATH', findClaude({ PATH: [empty, onPath].join(path.delimiter) }, empty)[0] === path.join(onPath, 'claude.exe'));
+check('claude.exe in .local/bin, not on the PATH', findClaude({ PATH: empty }, home2)[0] === path.join(localBin, 'claude.exe'));
+const npmDir = mk('f3', 'npm'), pkgDir = mk('f3', 'npm', 'node_modules', '@anthropic-ai', 'claude-code');
+fs.writeFileSync(path.join(npmDir, 'claude.cmd'), '');
+fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ bin: { claude: 'bin/claude.exe' } }));
+const viaNpm = findClaude({ PATH: npmDir }, empty);
+check('npm install with a program inside', viaNpm.length === 1 && viaNpm[0] === path.join(pkgDir, 'bin', 'claude.exe'), JSON.stringify(viaNpm));
+fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ bin: { claude: 'cli.js' } }));
+const viaJs = findClaude({ PATH: empty, APPDATA: path.join(tmp, 'f3') }, empty);
+check('npm install with a script runs under node', viaJs[0] === process.execPath && viaJs[1] === path.join(pkgDir, 'cli.js'), JSON.stringify(viaJs));
+check('nothing installed gives null', findClaude({ PATH: empty }, empty) === null);
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed`);

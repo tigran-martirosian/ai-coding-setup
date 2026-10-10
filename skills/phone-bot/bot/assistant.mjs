@@ -109,11 +109,32 @@ export async function gatherContext(inboxLines) {
   return { text: lines.join('\n'), refs: note ? {} : refs };
 }
 
+// Windows: spawn without a shell starts only a real program, and the bot's PATH may lack the install folder.
+// Looks on the PATH, in the native install's folder, then inside an npm install (found by its claude.cmd).
+export function findClaude(env = process.env, home = os.homedir()) {
+  const dirs = (env.PATH || env.Path || '').split(path.delimiter).filter(Boolean);
+  const exe = [...dirs, path.join(home, '.local', 'bin')].map((d) => path.join(d, 'claude.exe')).find((f) => fs.existsSync(f));
+  if (exe) return [exe];
+  for (const d of [...dirs, ...(env.APPDATA ? [path.join(env.APPDATA, 'npm')] : [])]) {
+    const pkg = path.join(d, 'node_modules', '@anthropic-ai', 'claude-code');
+    if (!fs.existsSync(path.join(d, 'claude.cmd')) || !fs.existsSync(path.join(pkg, 'package.json'))) continue;
+    const { bin } = JSON.parse(fs.readFileSync(path.join(pkg, 'package.json'), 'utf8'));
+    const file = path.join(pkg, typeof bin === 'string' ? bin : bin.claude);
+    return /\.[cm]?js$/.test(file) ? [process.execPath, file] : [file];
+  }
+  return null;
+}
+
 function claudeCommand() {
-  if (!process.env.INBOX_CLAUDE_CMD) return ['claude'];
-  const cmd = JSON.parse(process.env.INBOX_CLAUDE_CMD);
-  if (!Array.isArray(cmd) || !cmd.length) throw new Error('INBOX_CLAUDE_CMD must be a JSON array');
-  return cmd;
+  if (process.env.INBOX_CLAUDE_CMD) {
+    const cmd = JSON.parse(process.env.INBOX_CLAUDE_CMD);
+    if (!Array.isArray(cmd) || !cmd.length) throw new Error('INBOX_CLAUDE_CMD must be a JSON array');
+    return cmd;
+  }
+  if (process.platform !== 'win32') return ['claude'];
+  const found = findClaude();
+  if (!found) throw new Error('could not start claude: Claude Code was not found on this PC (looked on the PATH, in .local\\bin of the home folder and in npm\'s folder). Install Claude Code, then send the message again');
+  return found;
 }
 
 export function ask({ text, context, sessionId }) {
@@ -126,13 +147,12 @@ export function ask({ text, context, sessionId }) {
   if (sessionId) args.push('--resume', sessionId);
 
   return new Promise((resolve, reject) => {
-    // claude is claude.cmd on Windows; spawn without a shell needs the real name.
-    const child = spawn(cmd === 'claude' && process.platform === 'win32' ? 'claude.exe' : cmd, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(cmd, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let out = '', err = '';
     const timer = setTimeout(() => { child.kill(); reject(new Error('the assistant took longer than 120 seconds')); }, CLAUDE_TIMEOUT_MS);
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
-    child.on('error', (e) => { clearTimeout(timer); reject(new Error(e.code === 'ENOENT' ? 'could not start claude: the "claude" program was not found (on Windows the bot needs claude.exe, the native Claude Code install)' : `could not start claude: ${e.message}`)); });
+    child.on('error', (e) => { clearTimeout(timer); reject(new Error(e.code === 'ENOENT' ? `could not start claude: "${cmd}" was not found` : `could not start claude: ${e.message}`)); });
     child.on('close', (code) => {
       clearTimeout(timer);
       let j = null;
