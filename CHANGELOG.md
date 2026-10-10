@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.28, October 10, 2026
+
+- **A language choice, English or Russian.** `/update-setup` asks once which language you want; `/update-setup russian` or `/update-setup english` changes it later without a question. With Russian, Claude answers in Russian in every chat (`"language": "russian"` in `settings.json`, and Nimbalyst's preferred language), and the setup's own extensions are built with Russian text: the command buttons, the usage panel with its dates and units, and the read-aloud controls and settings. Restart Nimbalyst once after a change. A first install asks in its opening form, or takes `install.mjs --language russian`. Nimbalyst's own menus and the voices of read-aloud stay as they are, and the session a command button starts is named in the chosen language. Because the language is now part of what the installer compares, every extension is rebuilt once on the first update to this version.
+
 ## Version 1.0.27, October 10, 2026
 
 Three rules that came out of a `/full-review` of one week.

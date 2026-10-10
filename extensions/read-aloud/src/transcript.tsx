@@ -14,6 +14,7 @@ import { player, usePlayer } from './player';
 import { updateSetting, useSettings } from './settings';
 import { setAutoRead } from './autoRead';
 import { splitVoice } from './cleanText';
+import { t } from './strings';
 
 export const CONTROL_TAG = 'readaloud-control';
 
@@ -128,49 +129,49 @@ export function ReadAloudControl(props: Record<string, unknown>) {
   return (
     <span ref={ref} className={`readaloud-control${mine ? ' active' : ''}`} data-readaloud-key={key} hidden={!visible}>
       {!mine && (
-        <button type="button" className="readaloud-btn" title={speech?.hasSummary ? 'Read the short spoken summary' : 'Read aloud'} onClick={() => readAloud(false)}>
+        <button type="button" className="readaloud-btn" title={speech?.hasSummary ? t.readSummary : t.readAloud} onClick={() => readAloud(false)}>
           <Icon name="volume_up" />
         </button>
       )}
       {!mine && speech?.hasSummary && (
-        <button type="button" className="readaloud-btn" title="Read the full reply" onClick={() => readAloud(true)}>
+        <button type="button" className="readaloud-btn" title={t.readFull} onClick={() => readAloud(true)}>
           <Icon name="article" />
         </button>
       )}
       {mine && st.status === 'synthesizing' && (
         <>
-          <span className="readaloud-btn" title="Preparing speech">
+          <span className="readaloud-btn" title={t.preparing}>
             <Icon name="progress_activity" spin />
           </span>
-          <button type="button" className="readaloud-btn" title="Pause" onClick={() => player.pause()}>
+          <button type="button" className="readaloud-btn" title={t.pause} onClick={() => player.pause()}>
             <Icon name="pause" />
           </button>
         </>
       )}
       {mine && st.status === 'playing' && (
-        <button type="button" className="readaloud-btn on" title="Pause" onClick={() => player.pause()}>
+        <button type="button" className="readaloud-btn on" title={t.pause} onClick={() => player.pause()}>
           <Icon name="pause" />
         </button>
       )}
       {mine && st.status === 'paused' && (
-        <button type="button" className="readaloud-btn on" title="Resume" onClick={() => player.resume()}>
+        <button type="button" className="readaloud-btn on" title={t.resume} onClick={() => player.resume()}>
           <Icon name="play_arrow" />
         </button>
       )}
       {mine && (
-        <button type="button" className="readaloud-btn" title="Skip ahead" onClick={() => void player.skip()}>
+        <button type="button" className="readaloud-btn" title={t.skipAhead} onClick={() => void player.skip()}>
           <Icon name="skip_next" />
         </button>
       )}
       {mine && (
-        <button type="button" className="readaloud-btn" title="Stop" onClick={() => player.stop()}>
+        <button type="button" className="readaloud-btn" title={t.stop} onClick={() => player.stop()}>
           <Icon name="stop" />
         </button>
       )}
       <button
         type="button"
         className="readaloud-btn readaloud-speed"
-        title="Speech speed (click to change; applies from the next sentence)"
+        title={t.speedTip}
         onClick={cycleSpeed}
       >
         {settings.speed}×
@@ -183,7 +184,7 @@ export function ReadAloudControl(props: Record<string, unknown>) {
       <button
         type="button"
         className={`readaloud-btn readaloud-auto${settings.autoRead ? ' on' : ''}`}
-        title={settings.autoRead ? 'Hands-free reading is on: finished replies and questions are read aloud. Click to turn off.' : 'Turn on hands-free reading (reads finished replies and questions aloud)'}
+        title={settings.autoRead ? t.autoOnTip : t.autoOffTip}
         onClick={toggleAuto}
       >
         <Icon name="headphones" />

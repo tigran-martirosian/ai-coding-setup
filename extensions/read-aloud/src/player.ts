@@ -10,6 +10,7 @@ import { useSyncExternalStore } from 'react';
 import { callBackend } from './bridge';
 import { chunkForSpeech, cleanForSpeech } from './cleanText';
 import { getSettings } from './settings';
+import { t } from './strings';
 
 export type PlayerStatus = 'idle' | 'synthesizing' | 'playing' | 'paused';
 
@@ -68,7 +69,7 @@ class Player {
     const s = getSettings();
     const chunks = chunkForSpeech(cleanForSpeech(markdown, s));
     if (!chunks.length) {
-      this.set({ status: 'idle', key: null, error: { key, message: 'Nothing to read in this message.' } });
+      this.set({ status: 'idle', key: null, error: { key, message: t.nothingToRead } });
       return this.next();
     }
     this.set({ status: 'synthesizing', key, chunk: 0, total: chunks.length, error: null });

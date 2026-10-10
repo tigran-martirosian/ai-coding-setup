@@ -1,5 +1,7 @@
 // Pure helpers: the planner's JSON shape and how its values are worded on screen.
 
+import { t } from './strings.ts';
+
 export interface Pace {
   perDay: number;
   atReset: number;
@@ -21,11 +23,11 @@ export const FIVE_MS = 5 * HOUR;
 
 /** "Tue 12:11 AM" */
 export const when = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+  iso ? new Date(iso).toLocaleString(t.locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
 
 /** "11:52 AM" */
 export const clock = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  iso ? new Date(iso).toLocaleTimeString(t.locale, { hour: 'numeric', minute: '2-digit' }) : '';
 
 /** "5d 10h", "2h 5m", "12m" */
 export function span(ms: number) {
@@ -33,9 +35,9 @@ export function span(ms: number) {
   const d = Math.floor(minutes / 1440);
   const h = Math.floor((minutes % 1440) / 60);
   const m = minutes % 60;
-  if (d) return `${d}d ${h}h`;
-  if (h) return `${h}h ${m}m`;
-  return `${m}m`;
+  if (d) return `${d}${t.day} ${h}${t.hour}`;
+  if (h) return `${h}${t.hour} ${m}${t.minute}`;
+  return `${m}${t.minute}`;
 }
 
 /** The pace the planner's own advice uses. */

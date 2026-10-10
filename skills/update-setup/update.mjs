@@ -65,7 +65,7 @@ const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
 const installed = state.version || "0";
 
 // Runs a version's installer with the flags that are passed on
-const passed = args.flatMap((a, i) => (["--replace-rules", "--replace-all"].includes(a) ? [a] : a === "--replace" && args[i + 1] ? [a, args[i + 1]] : []));
+const passed = args.flatMap((a, i) => (["--replace-rules", "--replace-all"].includes(a) ? [a] : ["--replace", "--language"].includes(a) && args[i + 1] ? [a, args[i + 1]] : []));
 function install(folder) {
   const flags = [...passed];
   if (homeAt !== -1) flags.push("--home", home);

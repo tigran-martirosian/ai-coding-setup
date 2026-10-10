@@ -21,15 +21,16 @@ For Claude: the user ran one command and expects the rest to happen by itself. D
 
 ## 1. Ask: the subscriptions and the projects folder
 
-One form, three questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in a terminal AskUserQuestion):
+One form, four questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in a terminal AskUserQuestion):
 
 | Question | What a yes adds |
 |---|---|
 | Do you have a paid **ChatGPT** subscription? | The **Codex** worker: long reading, folder sweeps, web research; a GPT seat in the court; generated pictures. |
 | Do you have a **Google AI** subscription (Gemini)? | The **Antigravity** worker (`agy`): very large files, second opinions; a Gemini seat in the court. |
 | Where should the projects folder go? | Four small project folders are made in it. The default is `Projects` in the home folder; any folder works. |
+| Which **language**: English or Русский? | With Русский, Claude answers in Russian in every chat and the setup's Nimbalyst extensions show Russian text. |
 
-Say that "no" is fine: everything works on Claude alone. In the form's intro, name what step 2 installs if it is missing (Nimbalyst, Node.js, Git, uv, Handy for voice typing, a worker's program for each yes, ffmpeg with the ChatGPT yes; on a Mac also Homebrew, which asks once for the Mac password) and that it takes about ten to twenty minutes. Remember the answers as CODEX, AGY and PROJECTS.
+Say that "no" is fine: everything works on Claude alone. In the form's intro, name what step 2 installs if it is missing (Nimbalyst, Node.js, Git, uv, Handy for voice typing, a worker's program for each yes, ffmpeg with the ChatGPT yes; on a Mac also Homebrew, which asks once for the Mac password) and that it takes about ten to twenty minutes. Remember the answers as CODEX, AGY, PROJECTS and LANGUAGE (`english` or `russian`).
 
 ## 2. Programs
 
@@ -82,7 +83,7 @@ If Node can't be installed, stop and tell the user. If a worker's program can't 
 From `<repo>`:
 
 ```
-node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no>
+node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no> --language <english|russian>
 ```
 
 On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. If it says `rules: left alone` or `rules: new in this version, yours were kept`, the user already has a `~/.claude/CLAUDE.md` of their own: show in a few lines what `rules/CLAUDE.md` adds, ask whether to replace theirs (a dated copy is kept), and on yes run the same command with `--replace-rules`.
@@ -136,7 +137,7 @@ For `usage-plan` and `commands`, in `<repo>/extensions/<name>`: `npm install`, `
 Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__nimbalyst-host__...`). Otherwise skip to step 9; step 10 gives the user a prompt for it.
 
 1. `workspace_open` once for each of the four folders under `<projects>`, so each shows up as a project.
-2. `settings_get_overview`, then `ai_set_default_model` with `providerModel: "claude-code:sonnet"`.
+2. `settings_get_overview`, then `ai_set_default_model` with `providerModel: "claude-code:sonnet"`. If LANGUAGE is `russian`, also `ai_set_preferred_language` with `ru`.
 3. Turn on **worktrees** and **terminal** if they are off: `features_toggle` with `bucket: "alpha"`, the feature's tag from the overview, `enabled: true`. If the call answers `requiresUserAction: "developer-mode"`, tell the user: "Turn on Developer Mode in Nimbalyst: Settings > Advanced. Then say done." and call it again.
 4. **The look.** If `<extensions>/inktheme/manifest.json` is there, ask once which theme they want: Ink Aurora, Ink Ivy, Ink Graphite, Ink Tide, Ink Ember, Ink Noir, Ink Cobalt, Ink Neon (dark), Ink Bone, Ink Frost, Ink Blossom (light), or the one they have now. For one of the eleven: `appearance_set_theme` with `com.local.inktheme:<id>`, the id being the name in small letters with a dash (`ink-aurora`, `ink-frost` and so on). If the call fails, the extension was installed in this run and loads when Nimbalyst starts: tell them to quit Nimbalyst, open it again and pick the theme with the Theme button at the bottom of the side bar.
 5. Leave the sounds, the permission mode and everything else as the user has them. If a tool is missing or a call fails, change nothing and note it for step 10.

@@ -5,6 +5,7 @@
 // so /handoff, /ask and /btw, which belong to a running chat, are not here.
 
 import { HIDE, OWN } from './own.ts';
+import { t } from './strings.ts';
 
 export interface Command {
   id: string;
@@ -23,16 +24,16 @@ declare const __SHARE__: boolean | undefined;
 const SHARE = typeof __SHARE__ !== 'undefined' && __SHARE__;
 
 const ALL: Command[] = [
-  { id: 'board-cleanup', label: 'Board cleanup', prompt: '/board-cleanup', note: 'Move finished sessions to Complete', icon: 'mop' },
-  { id: 'next-move', label: 'Next move', prompt: '/next-move', note: 'The most useful thing to do next here', icon: 'navigation' },
-  { id: 'project-scan', label: 'Project scan', prompt: '/project-scan', note: "Check this project's Claude setup", icon: 'troubleshoot' },
-  { id: 'setup-audit', label: 'Setup audit', prompt: '/setup-audit', note: 'Full check of the global setup', icon: 'fact_check' },
-  { id: 'usage-report', label: 'Usage report', prompt: '/usage-report', note: 'Where the tokens went, and the forecast', icon: 'bar_chart' },
-  { id: 'chat-review', label: 'Chat review', prompt: '/chat-review', note: 'What your chats show is missing', icon: 'forum', only: 'claude-settings' },
-  { id: 'full-review', label: 'Full review', prompt: '/full-review', note: 'How the work went, and what to change', icon: 'rate_review', only: 'claude-settings' },
+  { id: 'board-cleanup', label: t.commands.boardCleanup.label, prompt: '/board-cleanup', note: t.commands.boardCleanup.note, icon: 'mop' },
+  { id: 'next-move', label: t.commands.nextMove.label, prompt: '/next-move', note: t.commands.nextMove.note, icon: 'navigation' },
+  { id: 'project-scan', label: t.commands.projectScan.label, prompt: '/project-scan', note: t.commands.projectScan.note, icon: 'troubleshoot' },
+  { id: 'setup-audit', label: t.commands.setupAudit.label, prompt: '/setup-audit', note: t.commands.setupAudit.note, icon: 'fact_check' },
+  { id: 'usage-report', label: t.commands.usageReport.label, prompt: '/usage-report', note: t.commands.usageReport.note, icon: 'bar_chart' },
+  { id: 'chat-review', label: t.commands.chatReview.label, prompt: '/chat-review', note: t.commands.chatReview.note, icon: 'forum', only: 'claude-settings' },
+  { id: 'full-review', label: t.commands.fullReview.label, prompt: '/full-review', note: t.commands.fullReview.note, icon: 'rate_review', only: 'claude-settings' },
   ...(SHARE ? [] : OWN),
-  { id: 'new-project', label: 'New project', prompt: '/new-project', note: 'Set this folder up for Claude', icon: 'create_new_folder' },
-  { id: 'update-setup', label: 'Update setup', prompt: '/update-setup', note: 'Install the newest version of the setup', icon: 'system_update_alt' },
+  { id: 'new-project', label: t.commands.newProject.label, prompt: '/new-project', note: t.commands.newProject.note, icon: 'create_new_folder' },
+  { id: 'update-setup', label: t.commands.updateSetup.label, prompt: '/update-setup', note: t.commands.updateSetup.note, icon: 'system_update_alt' },
 ];
 
 // own.ts can hide a button whose skill is not on this computer; the build for other people has them all.

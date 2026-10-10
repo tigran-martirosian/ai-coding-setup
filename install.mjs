@@ -36,6 +36,10 @@
 //                               removed or switched later stays as it is)
 //   --done chat-steps           only put on record that a chat carried out the steps named at the end
 //                               (no longer needed: only the first install names them)
+//   --language english|russian  the language Claude answers in and the extensions show (also en, ru,
+//                               русский; kept for later runs, so an update keeps it; with russian,
+//                               "language": "russian" goes into settings.json, and the extensions are built
+//                               with SETUP_LANGUAGE=russian)
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
 //   --node <file>               start the hooks with this Node by its full path instead of plain `node`
 //                               (for a Mac, where an app opened from the Dock may not have Node on its
@@ -96,6 +100,13 @@ if (opt("done")) {
   fs.writeFileSync(stateFile, JSON.stringify({ ...state, done: [...new Set([...(state.done || []), opt("done")])] }, null, 2) + "\n");
   console.log(`on record as done: ${opt("done")}`);
   process.exit(0);
+}
+// The language: the one given, else the one kept from an earlier run ("" = not chosen)
+const LANGUAGES = { english: "english", en: "english", russian: "russian", ru: "russian", "русский": "russian" };
+let LANG = state.language || "";
+if (opt("language") !== null) {
+  LANG = LANGUAGES[opt("language").trim().toLowerCase()];
+  if (!LANG) { console.log(`--language ${opt("language")}: not supported. The two languages are english and russian.`); process.exit(1); }
 }
 const nodeFile = opt("node") ? fwd(path.resolve(opt("node"))) : state.node || "";
 const NODE = nodeFile ? `"${nodeFile}"` : "node";
@@ -245,7 +256,12 @@ if (!wired) say(`hooks already wired in ${fwd(settingsFile)}`);
 const own = addClaudeCodeSettings(settings, WIN);
 if (own.model) say(`model: set to sonnet in ${fwd(settingsFile)} (none was set)`);
 if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins and SSH keys can't be read, a .env file is asked about)`);
-if (wired || own.model || own.added) putJson(settingsFile, settings, settingsWas);
+// Claude Code's own reply-language setting follows the language. english removes only the "russian"
+// this setup wrote: a language the person set to something else stays.
+let langChanged = false;
+if (LANG === "russian" && settings.language !== "russian") { settings.language = "russian"; langChanged = true; say(`language: russian set in ${fwd(settingsFile)}`); }
+else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
+if (wired || own.model || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
 
 // ---- 2. the global rules, with the worker section that fits
 const HEAD = /^## (External workers first for gathering information|Gathering information on Claude alone)$/;
@@ -384,6 +400,7 @@ const version = JSON.parse(fs.readFileSync(path.join(REPO, "version.json"), "utf
 const nextState = { ...state, projects: PROJECTS, repo: REPO, version, ...marks, written, files: filesWritten };
 for (const name of ["codex", "agy"]) if (answer(name) !== null) nextState[name] = answer(name);
 if (nodeFile) nextState.node = nodeFile;
+if (LANG) nextState.language = LANG;
 for (const key of Object.keys(nextState)) if (nextState[key] === undefined) delete nextState[key];
 if (JSON.stringify(nextState) !== JSON.stringify(state)) putJson(stateFile, nextState, JSON.stringify(state));
 
@@ -403,7 +420,9 @@ const EXT_FOLDER = { "ink-themes": "inktheme", "usage-plan": "usageplan", comman
 const wantExt = opt("extensions") === "no" ? false : opt("extensions") === "yes" ? true : opt("home") === null;
 const sourceOf = (dir, base = dir) => fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !["node_modules", "dist"].includes(e.name))
   .flatMap((e) => (e.isDirectory() ? sourceOf(path.join(dir, e.name), base) : [path.relative(base, path.join(dir, e.name))]));
-const printOf = (dir) => sha(sourceOf(dir).sort().map((f) => f + "\n" + read(path.join(dir, f))).join("\n"));
+// The extensions are built in the language (SETUP_LANGUAGE), so it is part of what is compared
+const EXT_LANG = LANG || "english";
+const printOf = (dir) => sha(sourceOf(dir).sort().map((f) => f + "\n" + read(path.join(dir, f))).join("\n") + `\nlanguage:${EXT_LANG}`);
 const builtExt = { ...(state.extensions || {}) };
 if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
   const only = (process.env.SETUP_EXTENSIONS || "").split(",").filter(Boolean); // the tests build one
@@ -419,7 +438,7 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
       : [["npm", ["install"]], ["npm", ["run", "build"]], ["npm", ["run", "install-ext"]]];
     let failed = "";
     for (const [cmd, a] of steps) {
-      const run = { cwd: dir, encoding: "utf8", timeout: 600000 };
+      const run = { cwd: dir, encoding: "utf8", timeout: 600000, env: { ...process.env, SETUP_LANGUAGE: EXT_LANG } };
       const r = cmd === "npm" ? spawnSync(`npm ${a.join(" ")}`, { ...run, shell: true }) : spawnSync(cmd, a, run);
       if (r.status === 0) continue;
       failed = `${path.basename(cmd)} ${a.join(" ")}: ${(`${r.stderr || ""}${r.stdout || ""}`.trim() || String(r.error || "no output")).split("\n").slice(-4).join(" | ")}`;
@@ -536,6 +555,7 @@ if (lost.length) {
 const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
 const logFile = path.join(CLAUDE, "setup-logs", `install-${stamp}.txt`);
 if (did && !DRY) say(`This run is saved in ${fwd(logFile)}`);
+say(`Language: ${LANG || "not chosen"}`);
 say(DRY ? "Nothing was changed." : `Done. Restart Claude Code so it loads the hooks. How to use the setup: ${fwd(path.join(REPO, "docs", "HOW-TO.md"))}`);
 if (did && !DRY) {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
