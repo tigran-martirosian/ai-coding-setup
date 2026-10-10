@@ -26,6 +26,9 @@ const PENDING = {
   [SID5]: { status: 'waiting_for_input', pendingPrompt: null },
   [SID6]: { status: 'idle', pendingPrompt: QUESTION },
   [SID7]: { status: 'waiting_for_input', pendingPrompt: { promptId: 'toolu_x', promptType: 'plan_approval', content: {} } },
+  ['b0000000-0000-0000-0000-000000000001']: { status: 'waiting_for_input', pendingPrompt: null, originalPrompt: 'find the color task' },
+  ['b0000000-0000-0000-0000-000000000002']: { status: 'idle', pendingPrompt: null, originalPrompt: 'find the color task' },
+  ['b0000000-0000-0000-0000-000000000003']: { status: 'waiting_for_input', pendingPrompt: QUESTION, originalPrompt: 'find the color task' },
 };
 const seen = []; // { url, tool, args }
 
@@ -75,6 +78,8 @@ function writeEndpoint(extra) {
   }));
 }
 process.env.NIMBALYST_ENDPOINT_FILE = file;
+const tdir = fs.mkdtempSync(path.join(os.tmpdir(), 'nimbalyst-transcripts-'));
+process.env.CLAUDE_PROJECTS_DIR = tdir;
 writeEndpoint();
 const nim = await import('../skills/phone-bot/bot/nimbalyst.mjs');
 
@@ -104,6 +109,45 @@ check('pendingPrompt: a form is null', (await nim.pendingPrompt(P, SID5)) === nu
 check('pendingPrompt: an answered question on an idle session is null', (await nim.pendingPrompt(P, SID6)) === null, 'not null');
 check('pendingPrompt: another prompt type is null', (await nim.pendingPrompt(P, SID7)) === null, 'not null');
 check('pendingPrompt: a session with nothing pending is null', (await nim.pendingPrompt(P, SID)) === null, 'not null');
+// Transcript fallback: Nimbalyst reports no pendingPrompt for its own question tool.
+const jl = (...objs) => objs.map((o) => JSON.stringify(o)).join('\n') + '\n';
+const userLine = (t) => ({ type: 'user', message: { role: 'user', content: t } });
+const useLine = (id, name, input) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });
+const resLine = (id) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } });
+const ASK = { questions: [{ question: 'Which color do you like?', header: 'Color', options: [{ label: 'Red', description: 'warm' }, { label: 'Blue' }, { label: 'Green' }], multiSelect: false }] };
+const folderOf = (proj) => { const d = path.join(tdir, proj.replace(/[^A-Za-z0-9]/g, '-')); fs.mkdirSync(d, { recursive: true }); return d; };
+const PROMPT = `find the color task\n\n${nim.PHONE_NOTE}`;
+const SIDW = 'b0000000-0000-0000-0000-000000000001', SIDI = 'b0000000-0000-0000-0000-000000000002', SIDB = 'b0000000-0000-0000-0000-000000000003';
+
+const T1 = 'C:\\Projects\\t-found';
+fs.writeFileSync(path.join(folderOf(T1), 's.jsonl'), jl(userLine(PROMPT), useLine('toolu_m1', 'mcp__nimbalyst__AskUserQuestion', ASK)));
+const tq = await nim.pendingPrompt(T1, SIDW);
+check('transcript: the MCP question is found when Nimbalyst reports null', JSON.stringify(tq) === JSON.stringify({ promptId: 'toolu_m1', promptType: 'ask_user_question_request', questions: [{ question: 'Which color do you like?', header: 'Color', options: [{ label: 'Red', description: 'warm' }, { label: 'Blue' }, { label: 'Green' }], multiSelect: false }] }), JSON.stringify(tq));
+check('transcript: the built-in tool name matches too', nim.transcriptQuestion(T1, 'find the color task') !== null, 'null');
+check('transcript: an empty original prompt matches nothing', nim.transcriptQuestion(T1, '  ') === null, 'not null');
+
+const T2 = 'C:\\Projects\\t-answered';
+fs.writeFileSync(path.join(folderOf(T2), 's.jsonl'), jl(userLine(PROMPT), useLine('toolu_m2', 'mcp__nimbalyst__AskUserQuestion', ASK), resLine('toolu_m2')));
+check('transcript: a question with a tool_result is null', (await nim.pendingPrompt(T2, SIDW)) === null, 'not null');
+
+const T3 = 'C:\\Projects\\t-form';
+fs.writeFileSync(path.join(folderOf(T3), 's.jsonl'), jl(userLine(PROMPT), useLine('toolu_m3', 'mcp__nimbalyst__AskUserQuestion', ASK), resLine('toolu_m3'), useLine('toolu_f', 'mcp__nimbalyst__PromptForUserInput', { fields: [] })));
+check('transcript: a form as the last tool call is null', (await nim.pendingPrompt(T3, SIDW)) === null, 'not null');
+
+const T4 = 'C:\\Projects\\t-other';
+fs.writeFileSync(path.join(folderOf(T4), 's.jsonl'), jl(userLine('some other task'), useLine('toolu_m4', 'mcp__nimbalyst__AskUserQuestion', ASK)));
+check('transcript: another first prompt is null', (await nim.pendingPrompt(T4, SIDW)) === null, 'not null');
+
+const T5 = 'C:\\Projects\\t-two';
+for (const n of ['a', 'b']) fs.writeFileSync(path.join(folderOf(T5), `${n}.jsonl`), jl(userLine(PROMPT), useLine(`toolu_${n}`, 'mcp__nimbalyst__AskUserQuestion', ASK)));
+check('transcript: two matching files give null', (await nim.pendingPrompt(T5, SIDW)) === null, 'not null');
+
+check('transcript: no folder gives null', (await nim.pendingPrompt('C:\\Projects\\t-nofolder', SIDW)) === null, 'not null');
+
+const pw = await nim.pendingPrompt(T1, SIDB);
+check('transcript: Nimbalyst\'s own pendingPrompt still wins', pw && pw.promptId === 'toolu_q', JSON.stringify(pw));
+check('transcript: a status that is not waiting gives null', (await nim.pendingPrompt(T1, SIDI)) === null, 'not null');
+
 await nim.respondToPrompt(P, SID3, 'toolu_q', 'ask_user_question_request', { answers: { 'Which?': 'A' } });
 const rp = seen.findLast((s) => s.tool === 'respond_to_prompt');
 check('respondToPrompt sends the five arguments', rp && JSON.stringify(rp.args) === JSON.stringify({ sessionId: SID3, promptId: 'toolu_q', promptType: 'ask_user_question_request', response: { answers: { 'Which?': 'A' } } }), JSON.stringify(rp));

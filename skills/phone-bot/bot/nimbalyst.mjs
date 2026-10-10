@@ -152,21 +152,115 @@ export async function sendPrompt(projectPath, sessionId, text) {
 
 // null unless the session waits on something that can be answered through the endpoint.
 // The endpoint keeps pendingPrompt filled after it was answered, so only status waiting_for_input counts.
+function mapQuestions(questions) {
+  return questions.map((q) => ({
+    question: q.question, header: q.header,
+    options: (q.options || []).map((o) => ({ label: o.label, description: o.description })),
+    multiSelect: q.multiSelect === true,
+  }));
+}
+
+const HEAD_BYTES = 200 * 1024;
+const TAIL_BYTES = 400 * 1024;
+const MAX_FILES = 8;
+const MAX_AGE_MS = 24 * 3600 * 1000;
+
+function readPart(fd, pos, len) {
+  const buf = Buffer.alloc(len);
+  const n = fs.readSync(fd, buf, 0, len, pos);
+  return buf.subarray(0, n).toString('utf8');
+}
+
+// Complete JSON lines of a chunk; a first line (when the chunk starts mid-file) or last line (when it
+// ends mid-file) that does not parse is dropped.
+function parseLines(chunk) {
+  const out = [];
+  for (const line of chunk.split('\n')) {
+    if (!line.trim()) continue;
+    try { out.push(JSON.parse(line)); } catch { /* cut line */ }
+  }
+  return out;
+}
+
+function firstUserText(lines) {
+  for (const l of lines) {
+    if (l.type !== 'user' || !l.message) continue;
+    const c = l.message.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) {
+      const t = c.find((p) => p && p.type === 'text' && typeof p.text === 'string');
+      if (t) return t.text;
+    }
+  }
+  return null;
+}
+
+// Nimbalyst reports only the built-in AskUserQuestion as pending. A question asked through its own
+// tool (mcp__nimbalyst__AskUserQuestion) is found in the session's Claude Code transcript: the last
+// tool call, unanswered. The session is told apart by its first user text; two matches give null.
+export function transcriptQuestion(projectPath, originalPrompt) {
+  const want = String(originalPrompt || '').trim();
+  if (!want) return null;
+  const base = process.env.CLAUDE_PROJECTS_DIR || path.join(os.homedir(), '.claude', 'projects');
+  const folder = path.join(base, String(projectPath).replace(/[^A-Za-z0-9]/g, '-'));
+  let names;
+  try { names = fs.readdirSync(folder, { withFileTypes: true }); } catch { return null; }
+  const now = Date.now();
+  const files = [];
+  for (const e of names) {
+    if (!e.isFile() || !e.name.endsWith('.jsonl')) continue;
+    const p = path.join(folder, e.name);
+    try {
+      const st = fs.statSync(p);
+      if (now - st.mtimeMs <= MAX_AGE_MS) files.push({ p, mtime: st.mtimeMs, size: st.size });
+    } catch { /* gone */ }
+  }
+  files.sort((a, b) => b.mtime - a.mtime);
+  const found = [];
+  for (const f of files.slice(0, MAX_FILES)) {
+    let head, tail;
+    try {
+      const fd = fs.openSync(f.p, 'r');
+      try {
+        head = readPart(fd, 0, Math.min(HEAD_BYTES, f.size));
+        const tailStart = Math.max(0, f.size - TAIL_BYTES);
+        tail = readPart(fd, tailStart, f.size - tailStart);
+        if (f.size > HEAD_BYTES) head = head.slice(0, head.lastIndexOf('\n') + 1);
+        if (tailStart > 0) tail = tail.slice(tail.indexOf('\n') + 1);
+      } finally { fs.closeSync(fd); }
+    } catch { continue; }
+    const text = firstUserText(parseLines(head));
+    if (!text || !text.includes(want)) continue;
+    let last = null;
+    const answered = new Set();
+    for (const l of parseLines(tail)) {
+      const c = l.message && l.message.content;
+      if (!Array.isArray(c)) continue;
+      for (const part of c) {
+        if (!part) continue;
+        if (part.type === 'tool_use') last = part;
+        else if (part.type === 'tool_result') answered.add(part.tool_use_id);
+      }
+    }
+    if (!last || answered.has(last.id)) continue;
+    const name = String(last.name || '');
+    if (name !== 'AskUserQuestion' && !name.endsWith('__AskUserQuestion')) continue;
+    const qs = last.input && last.input.questions;
+    if (!Array.isArray(qs) || !qs.length) continue;
+    found.push({ promptId: last.id, promptType: 'ask_user_question_request', questions: mapQuestions(qs) });
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
 export async function pendingPrompt(projectPath, sessionId) {
   const r = jsonResult('get_session_result', await callTool(projectPath, 'get_session_result', { sessionId, includeFullResponse: false }));
-  if (r.status !== 'waiting_for_input' || !r.pendingPrompt) return null;
+  if (r.status !== 'waiting_for_input') return null;
+  if (!r.pendingPrompt) return transcriptQuestion(projectPath, r.originalPrompt);
   const { promptId, promptType, content: c } = r.pendingPrompt;
   if (promptType === 'ask_user_question_request') {
     const questions = c && Array.isArray(c.questions) ? c.questions : [];
     if (!questions.length) return null;
-    return {
-      promptId, promptType,
-      questions: questions.map((q) => ({
-        question: q.question, header: q.header,
-        options: q.options.map((o) => ({ label: o.label, description: o.description })),
-        multiSelect: q.multiSelect === true,
-      })),
-    };
+    return { promptId, promptType, questions: mapQuestions(questions) };
   }
   if (promptType === 'permission_request') {
     return { promptId, promptType, toolName: c.toolName, rawCommand: c.rawCommand, isDestructive: c.isDestructive === true, warnings: Array.isArray(c.warnings) ? c.warnings : [] };

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.31",
+  "version": "1.0.32",
   "date": "2026-10-10",
-  "summary": "/phone-bot: your own Telegram bot saves what you send from the phone, passes requests to your sessions and shows their questions as buttons."
+  "summary": "The phone bot shows buttons for every question with options, also one asked through Nimbalyst's own question tool."
 }
