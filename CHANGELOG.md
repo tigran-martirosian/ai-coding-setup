@@ -4,7 +4,7 @@ What changed, newest first, and what it gives you.
 
 ## Version 1.0.32, October 10, 2026
 
-- **The phone bot shows buttons for every question with options.** A session can ask through two tools, Claude Code's own and Nimbalyst's. Nimbalyst reports only the first to outside programs, so a question asked through the second reached the phone as "a form, answer it at the computer". The bot now also reads the waiting question from the session's Claude Code transcript on your computer, and the buttons answer it the same way. Seen on a real phone before and after. A form with tick boxes or text fields still has to be answered at the computer.
+- **The phone bot shows buttons for every question with options.** A session can ask through two tools, Claude Code's own and Nimbalyst's. Nimbalyst reports only the first to outside programs, so a question asked through the second reached the phone as "a form, answer it at the computer". The bot now also reads the waiting question from the session's Claude Code transcript on your computer, and the buttons answer it the same way. A form with tick boxes or text fields still has to be answered at the computer.
 
 ## Version 1.0.31, October 10, 2026
 
