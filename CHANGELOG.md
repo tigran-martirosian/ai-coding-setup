@@ -2,6 +2,14 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.23, October 10, 2026
+
+Three small additions taken from reading Matt Pocock's [skills](https://github.com/mattpocock/skills).
+
+- **The reviewer in `/lead` reports under two headings.** "Against the request" lists what is missing, what was built that nobody asked for and what looks wrong; "Quality" lists what the checks found. The lead keeps the two apart, because a piece can pass one and fail the other.
+- **A handoff brief carries no secrets and names the skills to use next.** In the summary a key, token or password is written as `<REDACTED>`, since another model may read the brief.
+- **`/full-review` sorts a repeated correction before offering it.** One that a script can check is offered as a hook with its test; one that needs judgment is offered as a rule.
+
 ## Version 1.0.22, October 8, 2026
 
 - **A real reference before design work.** One rule added in `rules/CLAUDE.md`: before designing or redesigning anything a person looks at (a page, an app screen, a README, the look of a video), the agent opens one real reference and says which one it used. Three are named: Component Gallery (how real design systems build one element), Refero Styles (the type and colour of real products) and DESIGNmd (a design system as one `DESIGN.md` file to drop into the project). Nothing to install.

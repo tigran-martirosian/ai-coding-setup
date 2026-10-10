@@ -70,6 +70,12 @@ Rules:
 
 For meaningful changes, a **separate reviewer child** checks the result against the original request — it doesn't redo the work and changes no files. Give it the request, the changed files, and what to check (build/tests/type errors, runtime errors, desktop + mobile layout, broken images/assets, content accuracy, regressions). It returns a list of problems with file:line, or "pass".
 
+Its report has two headings, and you keep them apart instead of merging them into one list:
+- **Against the request:** what was asked for and is missing or only partly there; what was built that nobody asked for; what is there but looks wrong. Each with the words of the request it concerns.
+- **Quality:** what the checks above found.
+
+A piece can pass one and fail the other, and one merged list hides that.
+
 Problems → send each one back to the child that owns it if its context is still under 150k (check first, see section 4), otherwise start a narrow fix child → review again, checking only what changed. A fix brief names the problem and says: fix only this; report anything else you notice instead of fixing it.
 
 **At most 3 fix rounds per piece.** If it still fails, stop: the plan or the brief is wrong, not the piece. Rework that, or report to the user with the open problems.
