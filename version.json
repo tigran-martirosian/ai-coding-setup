@@ -1,5 +1,5 @@
 {
-  "version": "1.0.25",
+  "version": "1.0.26",
   "date": "2026-10-10",
-  "summary": "An update is quiet: it opens no project folders and asks nothing about a theme or voice typing."
+  "summary": "The free Gemini worker answers when asked to read files instead of coming back empty."
 }

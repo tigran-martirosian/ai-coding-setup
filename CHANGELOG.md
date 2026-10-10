@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.26, October 10, 2026
+
+- **The free Gemini worker answers when asked to read files.** A task that named several files often came back with no answer and the message "a tool required the command permission". The cause: run without a window, Antigravity cannot ask for a permission, so the first shell command the model tries (it reached for one just to list the folder) is refused, and that ends the whole run. `ask.mjs` now tells it before the task to use its own file tools and no shell command. On the same four files the call failed 3 times out of 3 before and answered 5 times out of 5 after.
+
 ## Version 1.0.25, October 10, 2026
 
 - **An update is quiet.** `/update-setup` used to finish the steps a script can't do whenever they were not on record as done: it opened the four project folders in Nimbalyst again, asked which theme you want and asked about voice typing, also on a computer where all of that was set up long ago. Now only the first install names those steps. A computer that has a version on record gets its files updated and nothing else: no folder is opened and nothing is asked about the theme, the default model or voice typing.

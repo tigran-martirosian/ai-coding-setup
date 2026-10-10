@@ -68,6 +68,15 @@ function runBash(script, args) {
   return { ok: false, reason: last || `exit code ${r.status}, no output`, outOfUsage: OUT_OF_USAGE.test(all), notHere: NOT_HERE.test(all) };
 }
 
+// Run with -p, Antigravity cannot ask for a permission: the first shell command the model tries (it
+// reaches for one to list the folder) is refused and the run ends with no answer. Its file tools need none.
+const AGY_RULES = [
+  "Rules for this run: you are running without a terminal. Never run a shell command (no run_command,",
+  "no PowerShell, no ls, dir, cat, Get-ChildItem or Get-Content): it is refused and the whole run ends",
+  "with no answer. Use only your file tools to list folders, find files and read them. If a file named",
+  "in the task is missing, say so and carry on. Do not write or change any file.",
+].join("\n");
+
 const ROUTES = {
   codex: {
     label: "Codex (ChatGPT login)",
@@ -79,7 +88,7 @@ const ROUTES = {
   agy: {
     label: `Antigravity (${AGY_MODEL})`,
     run({ task }) {
-      return runBash(`agy -p "$1" --mode plan --model "$2" < /dev/null`, [task, AGY_MODEL]);
+      return runBash(`agy -p "$1" --mode plan --model "$2" < /dev/null`, [`${AGY_RULES}\n\n${task}`, AGY_MODEL]);
     },
   },
 };
