@@ -1,5 +1,5 @@
 {
-  "version": "1.0.32",
+  "version": "1.0.33",
   "date": "2026-10-10",
-  "summary": "The phone bot shows buttons for every question with options, also one asked through Nimbalyst's own question tool."
+  "summary": "On a Mac the shared-usage background program now starts again after a restart."
 }

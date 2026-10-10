@@ -144,7 +144,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   [ccpool](https://github.com/hexxt-git/ccpool), someone else's open-source tool, and shows how much of
   the limits each person used. It asks for your name and two passwords. Each person types the command on
   their own computer with the same group password. The token counts go to the tool author's server;
-  chat text and file names stay on your computer.
+  chat text and file names stay on your computer. Its background program starts with the computer on
+  Windows and macOS.
 
 ## From your phone
 

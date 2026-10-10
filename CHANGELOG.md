@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.33, October 10, 2026
+
+- **On a Mac the `/shared-usage` background program starts again after a restart.** It used to come back by itself only on Windows; on a Mac it stayed off after a restart until you ran `ccpool daemon start`, and your usage was counted under "unknown" in the meantime. The command now sets up a launch agent on macOS, through a new script, `skills/shared-usage/logon-start.mjs`, which also writes the Windows start file. If you set it up before this version, type `/shared-usage` once more: it adds the start at log-on and shows the view. Tested on Windows; the macOS part was checked in a dry run, not on a Mac. On Linux you still start it yourself after a restart.
+
 ## Version 1.0.32, October 10, 2026
 
 - **The phone bot shows buttons for every question with options.** A session can ask through two tools, Claude Code's own and Nimbalyst's. Nimbalyst reports only the first to outside programs, so a question asked through the second reached the phone as "a form, answer it at the computer". The bot now also reads the waiting question from the session's Claude Code transcript on your computer, and the buttons answer it the same way. A form with tick boxes or text fields still has to be answered at the computer.
