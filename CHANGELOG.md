@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.24, October 10, 2026
+
+- **Commands you always type no longer take up room in every session.** `/plan-first`, `/ask`, `/btw` and `/showcase` now start only when you type them (`disable-model-invocation: true`), so their descriptions are not loaded into each session. Typing the command works as before.
+
 ## Version 1.0.23, October 10, 2026
 
 Three small additions taken from reading Matt Pocock's [skills](https://github.com/mattpocock/skills).

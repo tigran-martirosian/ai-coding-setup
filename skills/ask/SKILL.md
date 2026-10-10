@@ -1,6 +1,7 @@
 ---
 name: ask
 description: Answer a side question about another Claude session that is busy in this same folder ("what are you doing", "why that approach"), without interrupting it or changing its task. Use when the user types /ask <question>.
+disable-model-invocation: true
 ---
 
 # Side question about the busy session

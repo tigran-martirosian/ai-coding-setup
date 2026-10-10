@@ -1,6 +1,7 @@
 ---
 name: plan-first
 description: Think before acting on a big or vague request - restate what is being asked and why, name the shortest route and what could go wrong, show the plan in a form, and start only after a yes. Use when the user types /plan-first <request>, or says "plan first", "think before you start", "don't just start".
+disable-model-invocation: true
 ---
 
 # Plan first
