@@ -146,6 +146,22 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   their own computer with the same group password. The token counts go to the tool author's server;
   chat text and file names stay on your computer.
 
+## From your phone
+
+- **`/phone-bot`: your own Telegram bot on your computer.** Claude walks you through making the bot
+  in Telegram (@BotFather) and starts it here. It starts again at log-on. Only the first person who
+  writes to it becomes its owner; everyone else is ignored.
+- **What you can send:** photos, files, links, notes, albums and voice notes. Each is saved in
+  `~/phone-inbox`, with one line per item in `index.md`. Voice notes become text when `uv` is installed.
+- **Commands in the bot:** `/help`, `/last [n]` (the latest items), `/undo` (remove the last one),
+  `/new` (the chat starts afresh) and `/chat on|off` (off means save only).
+- **Plain text is a chat.** Claude Haiku answers on your own subscription. It can hand a request to
+  a Nimbalyst session, but only after you tap Send.
+- **Questions from a session** (a choice or a permission prompt) appear as buttons in Telegram. A form
+  still has to be answered at the computer.
+- **`/phone`:** in any session, looks at what you sent from the phone and carries on with it.
+- **To stop:** `node ~/.claude/skills/phone-bot/setup.mjs --remove`. Your inbox folder stays.
+
 ## How much of the plan is used
 
 - **`usage`**: type this one word. A page opens in the browser, at no cost in tokens: how much of

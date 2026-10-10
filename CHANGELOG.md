@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.31, October 10, 2026
+
+- **`/phone-bot`: your own Telegram bot that saves what you send from the phone and talks to your sessions.** You create the bot in Telegram (@BotFather, `/newbot`) and paste its token; a small program on your computer does the rest and starts again at log-on. Photos, files, links, notes, albums and voice notes sent to the bot are saved in `~/phone-inbox`, and `/phone` in any session looks at them. Plain text is a chat with Claude Haiku on your own subscription, about 1,500 tokens a message. It can pass a request to a Nimbalyst session or start a new one, always after a tap on Send, and the session's answer comes back to the phone. When a session asks a question with options, or asks for permission to run something, the options arrive as buttons and a tap answers it; a typed reply to that message works too. A form with tick boxes or text fields still has to be answered at the computer, so a prompt sent from the phone asks the session to use plain option questions. Only the first person who writes to the bot can use it. What you send passes through Telegram's servers; files, the token and the inbox stay on your computer. Voice notes become text when `uv` is installed. The command starts only when you type it. Tested on Windows; the start at log-on for macOS is written but was not tested on a Mac.
+
 ## Version 1.0.30, October 10, 2026
 
 - **The usage pop-up shows who used how much.** On a computer where `/shared-usage` was set up, the pop-up behind the usage ring gets one more block, "Who used it": a row per person with their share of the 5-hour and the weekly limit, and a "Not counted" row for usage from before the setup or from claude.ai. The numbers come from `ccpool status`, read by a new script, `skills/usage-report/shared-usage.mjs`. Without ccpool the pop-up looks as before. Restart Nimbalyst once after the update.

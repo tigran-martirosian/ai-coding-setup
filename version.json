@@ -1,5 +1,5 @@
 {
-  "version": "1.0.30",
+  "version": "1.0.31",
   "date": "2026-10-10",
-  "summary": "The usage pop-up shows who used how much of a shared subscription, once /shared-usage is set up."
+  "summary": "/phone-bot: your own Telegram bot saves what you send from the phone, passes requests to your sessions and shows their questions as buttons."
 }
