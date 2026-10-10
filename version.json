@@ -1,5 +1,5 @@
 {
-  "version": "1.0.26",
+  "version": "1.0.27",
   "date": "2026-10-10",
-  "summary": "The free Gemini worker answers when asked to read files instead of coming back empty."
+  "summary": "Three rules from a week of measured use: tests run out of your sight, your own projects are read before they are described, and a helper that used up its turns is not sent on."
 }

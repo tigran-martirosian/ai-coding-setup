@@ -2,6 +2,14 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.27, October 10, 2026
+
+Three rules that came out of a `/full-review` of one week.
+
+- **Tests and automation run out of your sight.** A game window or a browser used only to check the agent's own work no longer opens on your screen: it runs headless, in the background or in Nimbalyst's own browser. A window opens only for something you have to click or asked to see.
+- **Your own projects are read before they are described.** When the agent writes about how one of your projects or tools works, also when the job is only to reword a sentence, it opens that project's files first. In the measured week the same sentence about a tool was rewritten five times from a guess.
+- **A helper that used up its turns is not sent on.** The `worker` helper stops after 25 turns, but a follow-up message gave it 25 more on top of everything it had gathered: one run made 49 requests. The agent now takes the report and briefs a fresh helper for what is left.
+
 ## Version 1.0.26, October 10, 2026
 
 - **The free Gemini worker answers when asked to read files.** A task that named several files often came back with no answer and the message "a tool required the command permission". The cause: run without a window, Antigravity cannot ask for a permission, so the first shell command the model tries (it reached for one just to list the folder) is refused, and that ends the whole run. `ask.mjs` now tells it before the task to use its own file tools and no shell command. On the same four files the call failed 3 times out of 3 before and answered 5 times out of 5 after.
