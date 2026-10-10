@@ -319,11 +319,11 @@ installWith(shellPath, plugHome, "--plugins", "yes");
 ok("the next run only retries the one that failed", toldLines().filter((l) => l.startsWith("plugin install")), ["plugin install context7@claude-plugins-official"]);
 ok("without the claude command the run says so", installWith(emptyPath, path.join(tmp, "no-claude"), "--plugins", "yes").out.includes("plugins not installed: the claude command is not on the PATH"));
 
-// ---- the steps left for a chat are named until one is put on record as done
-ok("the run names the steps left for a chat", /Left for a chat, once.*steps 8 and 9.*--done chat-steps/.test(plug.out));
+// ---- the steps left for a chat are named by the first install only
+ok("the first install names the steps left for a chat", /Left for a chat, once.*steps 8 and 9/.test(plug.out));
+ok("a later run no longer names them, with nothing put on record", [install(plugHome).out.includes("Left for a chat"), "done" in json(path.join(plugHome, ".claude", "setup-state.json"))], [false, false]);
 const marked = install(plugHome, "--done", "chat-steps");
-ok("--done puts them on record and changes nothing else", [marked.out.trim(), json(path.join(plugHome, ".claude", "setup-state.json")).done], ["on record as done: chat-steps", ["chat-steps"]]);
-ok("and the next run no longer names them", install(plugHome).out.includes("Left for a chat"), false);
+ok("--done from an older version's text still only puts them on record", [marked.out.trim(), json(path.join(plugHome, ".claude", "setup-state.json")).done], ["on record as done: chat-steps", ["chat-steps"]]);
 
 // ---- broken settings are left alone
 const broken = path.join(tmp, "broken");

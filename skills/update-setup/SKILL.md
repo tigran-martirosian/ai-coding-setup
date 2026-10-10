@@ -12,7 +12,7 @@ The update is one script; your part is to run it, deal with the few things it ca
 3. **Files they changed.** Only if the output has the line `Kept as yours`: the files listed under it are the setup's, but the user changed them (or had their own under that name), so they were not replaced and are now behind this version. Show the list and ask once: take this version's copy of all of them, of some (which ones), or keep theirs. A dated copy of theirs is kept either way. All: `node ~/.claude/skills/update-setup/update.mjs --replace-all` (this takes the rules too, so leave step 2's question out). Some: the same command with `--replace <name>` for each, the name as the list has it.
 4. **Extensions.** The installer rebuilds a changed Nimbalyst extension itself: `extension installed: <name>` means it is in place, `extension unchanged` that nothing was needed. For a line `extension failed: <name> (...)`, give the reason and try once by hand in the folder the `extension changed:` line names: `npm install`, `npm run build`, `npm run install-ext` (`ink-themes` without `npm install`).
 5. **Plugins.** `plugin installed:` and `plugin already there:` need nothing. For a line `plugin failed`, `skill failed` or `plugins not installed`, give the reason it names; the next update tries again.
-6. **Left for a chat.** Only if the output has the line `Left for a chat, once`: the setup's settings inside Nimbalyst (the four project folders opened, the default model, the theme) and voice typing were never set up here, and a script can't do them. Do what the line says now: read steps 8 and 9 of the `full-install.md` it names and carry them out, asking first whether voice typing is wanted, then run the `--done chat-steps` command the line ends with.
+6. **Nothing else.** An update changes files only. Open no project folder or window, and ask about nothing the first install covered (the look of the editor, dictation, the default model): the user has those as they want them.
 7. **Reply**, short, in the language the user writes in:
    - the version it is on now and the `What is new` line the script printed;
    - what the run listed at its end: the files it replaced, the ones kept as theirs, any hook in the settings whose script is not there (name it, change nothing), and the file under `~/.claude/setup-logs` that has the whole run;
@@ -20,4 +20,4 @@ The update is one script; your part is to run it, deal with the few things it ca
    - anything that failed, with its output;
    - one offer: in a project they work in, `/project-scan` checks that project's own `CLAUDE.md` and settings against the updated setup.
 
-Budget: about 10 tool calls, about 20 when step 6 applies.
+Budget: about 10 tool calls.

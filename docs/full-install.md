@@ -87,7 +87,7 @@ node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no>
 
 On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. If it says `rules: left alone` or `rules: new in this version, yours were kept`, the user already has a `~/.claude/CLAUDE.md` of their own: show in a few lines what `rules/CLAUDE.md` adds, ask whether to replace theirs (a dated copy is kept), and on yes run the same command with `--replace-rules`.
 
-When Nimbalyst is already installed, this run also builds the editor extensions and puts them into Nimbalyst (`extension installed: <name>`); the extensions step further down is then only for one that says `extension failed` or `extension not built`. The same run adds the Claude Code settings of step 5 and installs the plugins of step 4 (`plugin installed: <name>`), so those two steps are only for what it reports as failed or not installed. Its line `Left for a chat, once` means steps 8 and 9 below: you are that chat.
+When Nimbalyst is already installed, this run also builds the editor extensions and puts them into Nimbalyst (`extension installed: <name>`); the extensions step further down is then only for one that says `extension failed` or `extension not built`. The same run adds the Claude Code settings of step 5 and installs the plugins of step 4 (`plugin installed: <name>`), so those two steps are only for what it reports as failed or not installed. Its line `Left for a chat, once` means steps 8 and 9 below: you are that chat. Only this first run prints it; a later run or an update does not, and never opens a folder or asks about a theme or voice typing.
 
 If the run ends with a list under `Kept as yours`, the user already had files with those names: their own hooks or skills, or an older copy of this setup. They were left as they are. Show the list and ask once: take the setup's version of all of them, of some (which ones), or keep theirs. A dated copy of theirs is kept either way. All: the same command with `--replace-all`, which takes the rules too. Some: with `--replace <name>` for each, the name as the list has it. If the run lists hooks whose script is not there, name them in the final reply and change nothing. A run that changed something saves what it printed under `~/.claude/setup-logs`.
 
@@ -143,14 +143,16 @@ Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__n
 
 ## 9. Handy, for voice typing
 
-Handy writes its settings file on first start, so tell the user: "Open Handy, follow its first-start setup (allow the microphone, pick the model Parakeet V3), then quit it from its tray or menu bar icon and say done." On a Mac it also needs System Settings > Privacy & Security > Accessibility.
+**If step 2's check found Handy already installed, skip this step:** the user has it set up their way. Say in one line that voice typing was already there, and change nothing in it.
+
+Otherwise: Handy writes its settings file on first start, so tell the user: "Open Handy, follow its first-start setup (allow the microphone, pick the model Parakeet V3), then quit it from its tray or menu bar icon and say done." On a Mac it also needs System Settings > Privacy & Security > Accessibility.
 
 - **Windows:** after their "done", run `node scripts/app-settings.mjs --handy`. It sets push to talk on Right Alt, text typed directly with a space after it, the clipboard left alone, filler words removed, the model kept loaded, and a hidden start with Windows. A dated copy of the old file is kept.
 - **Mac:** show the user the table under "Voice typing" in the [README](../README.md) and let them set those in Handy's own window; the key to hold is theirs to pick.
 
 If the user doesn't want to do it now, note it for step 10.
 
-When steps 8 and 9 are done or the user said no to them, run `node install.mjs --done chat-steps` from `<repo>`: later runs and updates then stop naming them. If step 8 was skipped because this session is not inside Nimbalyst and the user does use Nimbalyst, leave that command out.
+Steps 8 and 9 belong to this first install only. Nothing has to be put on record for them: a later run of the installer and every update leave them alone.
 
 ## 10. Test, then tell the user
 

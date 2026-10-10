@@ -8,7 +8,8 @@
 //      claude-settings), each with its skills, hooks, tools and its own .claude/settings.json
 //   4. Claude Code's own settings (a default model when none is set, permission rules for the saved
 //      sign-ins and .env files), the Nimbalyst extensions and the plugins
-// What a script can't do (the settings inside Nimbalyst, voice typing) it names at the end for a chat.
+// What a script can't do (the settings inside Nimbalyst, voice typing) the first install names at the
+// end for a chat; an update does not.
 // A file that is replaced is kept next to the new one as <name>.before-install-<date>. The notes files
 // the user fills in (profile.md, finds/INDEX.md) are written only when missing. Everything else is the
 // user's once they changed it: a later run (an update) replaces a hook, a skill, the rules, a folder's
@@ -34,6 +35,7 @@
 //   --plugins yes|no            install the plugins (default: yes; each is handled once, so one that was
 //                               removed or switched later stays as it is)
 //   --done chat-steps           only put on record that a chat carried out the steps named at the end
+//                               (no longer needed: only the first install names them)
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
 //   --node <file>               start the hooks with this Node by its full path instead of plain `node`
 //                               (for a Mac, where an app opened from the Dock may not have Node on its
@@ -490,11 +492,13 @@ if (!DRY && JSON.stringify(plugged) !== JSON.stringify(state.plugins || [])) {
   fs.writeFileSync(stateFile, JSON.stringify(nextState, null, 2) + "\n");
 }
 
-// What a script can't do is named until a chat has done it: the settings inside Nimbalyst are
+// What a script can't do is named by the first install only: the settings inside Nimbalyst are
 // reached with tools only a chat there has, and voice typing is a program the person sets up.
+// A home with a version on record has been through that, so a later run (an update) stays quiet:
+// it opens no folder and asks about nothing the person has already set up or answered.
 const fullInstall = fwd(path.join(REPO, "docs", "full-install.md"));
-if (!(state.done || []).includes("chat-steps")) {
-  say(`Left for a chat, once: Nimbalyst's settings and voice typing. In a Claude chat (inside Nimbalyst where it is used) carry out steps 8 and 9 of ${fullInstall}; ask first whether voice typing is wanted, the line that installs Handy is in step 2. Then run: node "${fwd(path.join(REPO, "install.mjs"))}" --done chat-steps`);
+if (!state.version && !(state.done || []).includes("chat-steps")) {
+  say(`Left for a chat, once: Nimbalyst's settings and voice typing. In a Claude chat (inside Nimbalyst where it is used) carry out steps 8 and 9 of ${fullInstall}. This is named now only; an update never asks for it.`);
 }
 say(`The programs (Nimbalyst, Git, uv, the outside workers) are the full install: ${fullInstall}`);
 

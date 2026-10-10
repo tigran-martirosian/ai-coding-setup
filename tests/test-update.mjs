@@ -89,6 +89,13 @@ check("the answers about the workers are remembered", ["codex.off", "agy.off"].e
 check("the changed extension is named, the others are not", done.out.includes("extension changed: commands") && !done.out.includes("extension changed: usage-plan"));
 check("the download leaves no archive and no half-made folder", fs.readdirSync(path.join(claude, "setup-source")).join() === `v${NEW}`);
 
+// ---- an update is quiet: what a chat does at the first install (open the folders in Nimbalyst, ask
+// about a theme and voice typing) is named by the first install only, and the skill has no such step
+check("the first install names the steps left for a chat", /Left for a chat, once.*steps 8 and 9/.test(first.stdout));
+check("an update names nothing for a chat: no folders to open, no theme or voice typing question", !/Left for a chat|voice typing|Handy|a theme/i.test(done.out));
+check("the update skill has no step that opens folders or asks about a theme or voice typing",
+  !/Left for a chat|workspace_open|folders opened|the theme|voice typing|Handy|full-install/i.test(fs.readFileSync(path.join(REPO, "skills", "update-setup", "SKILL.md"), "utf8")));
+
 const again = await update(home);
 check("a second run says it is on the newest version and changes nothing", again.code === 0 && again.out.trim() === `Already on the newest version (${NEW}).`);
 

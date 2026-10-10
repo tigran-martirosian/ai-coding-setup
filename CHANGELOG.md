@@ -2,6 +2,11 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.25, October 10, 2026
+
+- **An update is quiet.** `/update-setup` used to finish the steps a script can't do whenever they were not on record as done: it opened the four project folders in Nimbalyst again, asked which theme you want and asked about voice typing, also on a computer where all of that was set up long ago. Now only the first install names those steps. A computer that has a version on record gets its files updated and nothing else: no folder is opened and nothing is asked about the theme, the default model or voice typing.
+- **The first install leaves a Handy that is already there alone.** When Handy was installed before the setup, the install no longer walks you through its first-start setup or rewrites its settings.
+
 ## Version 1.0.24, October 10, 2026
 
 - **Commands you always type no longer take up room in every session.** `/plan-first`, `/ask` and `/btw` now start only when you type them (`disable-model-invocation: true`), so their descriptions are not loaded into each session. Typing the command works as before.

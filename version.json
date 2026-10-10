@@ -1,5 +1,5 @@
 {
-  "version": "1.0.24",
+  "version": "1.0.25",
   "date": "2026-10-10",
-  "summary": "Commands you always type no longer take up room in every session."
+  "summary": "An update is quiet: it opens no project folders and asks nothing about a theme or voice typing."
 }
