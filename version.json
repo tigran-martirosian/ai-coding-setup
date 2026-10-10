@@ -1,5 +1,5 @@
 {
-  "version": "1.0.34",
+  "version": "1.0.35",
   "date": "2026-10-10",
-  "summary": "New /watch command: give Claude a YouTube link or a video file and it can tell you what is said and shown."
+  "summary": "New /watch command: give Claude a YouTube link or a video file and it can tell you what is said and shown, also when you only say to use the video as a reference."
 }

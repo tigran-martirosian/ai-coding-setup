@@ -1,6 +1,6 @@
 ---
 name: watch
-description: Watch a video cheaply - a YouTube link or a video file becomes its subtitles with times and sheets of timed stills that a cheap model reads. Use when the user gives a video and asks what is said, shown or written on screen in it, what happens in it, or how something in it looks or moves, or runs /watch (a link or a file, optionally a question).
+description: Watch a video cheaply - a YouTube link or a video file becomes its subtitles with times and sheets of timed stills that a cheap model reads. Use when the user gives a video (a YouTube link, a video file) and asks what is said, shown or written on screen in it, what happens in it, or how something in it looks or moves, wants it used as a reference (for a design, a look, a move, a feature), or runs /watch (a link or a file, optionally a question).
 ---
 
 # Watch a video

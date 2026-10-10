@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.35, October 10, 2026
+
+- **`/watch` starts by itself more often.** Send a video and say to use it as a reference (for a design, a look, a move, a feature) and Claude now reaches for `/watch` without being told. Before, it was only named for questions about what a video says or shows.
+
 ## Version 1.0.34, October 10, 2026
 
 - **`/watch`: give Claude a YouTube link or a video file and a question.** A script fetches the subtitles and makes sheets of timed stills, either an overview of the whole video or about 5 stills a second for one stretch. A cheap model reads them, so a video costs a few thousand tokens to look through. It needs ffmpeg; for links it also uses yt-dlp, which it runs through uvx when it is not installed.
