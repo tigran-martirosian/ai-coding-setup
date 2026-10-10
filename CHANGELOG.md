@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.37, October 10, 2026
+
+- **The global rules are half as long.** `rules/CLAUDE.md` went from about 20 KB to about 10 KB. The file is read again at every step of every session, so each step now reads roughly 2,500 fewer tokens. What stayed: every preference, every path and command, and one line for each thing a hook refuses. What went: the explanations of why a rule exists, the lists of which job goes to which helper, and advice a current model follows without being told. In a small test (16 runs of two coding tasks) rules cut even further gave the same results in the same time as the long ones. If you never changed your rules file, `/update-setup` replaces it and keeps a dated copy of the old one. If you did change it, yours is kept and you are told once that a newer version exists.
+
 ## Version 1.0.36, October 10, 2026
 
 - **The phone bot's assistant finds Claude Code by itself on Windows.** A message typed to the bot could come back with "the claude program was not found" although Claude Code was installed. The bot looked for `claude.exe` only in the folders on the PATH, so it missed an install whose folder is not on the PATH and one made with npm. It now also looks in `.local\bin` in your home folder and inside npm's folder, and when it finds nothing it says where it looked. `/update-setup` brings the fix; then ask Claude to restart the phone bot, because a running bot keeps the old code.

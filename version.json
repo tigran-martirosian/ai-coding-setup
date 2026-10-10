@@ -1,5 +1,5 @@
 {
-  "version": "1.0.36",
+  "version": "1.0.37",
   "date": "2026-10-10",
-  "summary": "The phone bot's assistant finds Claude Code on Windows wherever it is installed."
+  "summary": "The global rules are half as long, so every step of every session reads fewer tokens."
 }
