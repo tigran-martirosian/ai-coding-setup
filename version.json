@@ -1,5 +1,5 @@
 {
-  "version": "1.0.33",
+  "version": "1.0.34",
   "date": "2026-10-10",
-  "summary": "On a Mac the shared-usage background program now starts again after a restart."
+  "summary": "New /watch command: give Claude a YouTube link or a video file and it can tell you what is said and shown."
 }

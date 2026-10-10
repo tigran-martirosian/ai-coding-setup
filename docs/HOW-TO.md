@@ -140,6 +140,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   and starts only after your yes.
 - **`/next-move`:** names the one most useful thing to do next. It reads your goals from
   `~/.claude/goals.md`, so write a few lines there first (what you want to reach this year).
+- **`/watch`: you have a video.** Give Claude a YouTube link or a video file and a question. A script fetches the subtitles and makes sheets of timed stills (an overview of the whole video, or about 5 stills a second for one stretch); a cheap model reads them, so a video costs a few thousand tokens to look through. Needs ffmpeg.
 - **`/shared-usage`: more than one person works on the subscription.** It sets up
   [ccpool](https://github.com/hexxt-git/ccpool), someone else's open-source tool, and shows how much of
   the limits each person used. It asks for your name and two passwords. Each person types the command on

@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.34, October 10, 2026
+
+- **`/watch`: give Claude a YouTube link or a video file and a question.** A script fetches the subtitles and makes sheets of timed stills, either an overview of the whole video or about 5 stills a second for one stretch. A cheap model reads them, so a video costs a few thousand tokens to look through. It needs ffmpeg; for links it also uses yt-dlp, which it runs through uvx when it is not installed.
+
 ## Version 1.0.33, October 10, 2026
 
 - **On a Mac the `/shared-usage` background program starts again after a restart.** It used to come back by itself only on Windows; on a Mac it stayed off after a restart until you ran `ccpool daemon start`, and your usage was counted under "unknown" in the meantime. The command now sets up a launch agent on macOS, through a new script, `skills/shared-usage/logon-start.mjs`, which also writes the Windows start file. If you set it up before this version, type `/shared-usage` once more: it adds the start at log-on and shows the view. Tested on Windows; the macOS part was checked in a dry run, not on a Mac. On Linux you still start it yourself after a restart.
