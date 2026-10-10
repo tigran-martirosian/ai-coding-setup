@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.29, October 10, 2026
+
+- **`/shared-usage`: who used how much of a shared subscription.** Claude shows one number for the whole account. When more than one person works on it, `/shared-usage` sets up [ccpool](https://github.com/hexxt-git/ccpool), someone else's open-source tool, which splits the 5-hour and weekly limits per person. The command installs it, asks for your name, the group password and a password of your own, joins the group and, on Windows, makes its background program start at log-on. Each person types the command on their own computer with the same group password. It says before it starts what leaves the computer: token counts per reply, the model name, the limit percentages and your name go to the tool author's server; chat text, file names and the Claude login do not. Usage is counted from the moment it runs. The command starts only when you type it.
+
 ## Version 1.0.28, October 10, 2026
 
 - **A language choice, English or Russian.** `/update-setup` asks once which language you want; `/update-setup russian` or `/update-setup english` changes it later without a question. With Russian, Claude answers in Russian in every chat (`"language": "russian"` in `settings.json`, and Nimbalyst's preferred language), and the setup's own extensions are built with Russian text: the command buttons, the usage panel with its dates and units, and the read-aloud controls and settings. Restart Nimbalyst once after a change. A first install asks in its opening form, or takes `install.mjs --language russian`. Nimbalyst's own menus and the voices of read-aloud stay as they are, and the session a command button starts is named in the chosen language. Because the language is now part of what the installer compares, every extension is rebuilt once on the first update to this version.

@@ -140,6 +140,11 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   and starts only after your yes.
 - **`/next-move`:** names the one most useful thing to do next. It reads your goals from
   `~/.claude/goals.md`, so write a few lines there first (what you want to reach this year).
+- **`/shared-usage`: more than one person works on the subscription.** It sets up
+  [ccpool](https://github.com/hexxt-git/ccpool), someone else's open-source tool, and shows how much of
+  the limits each person used. It asks for your name and two passwords. Each person types the command on
+  their own computer with the same group password. The token counts go to the tool author's server;
+  chat text and file names stay on your computer.
 
 ## How much of the plan is used
 

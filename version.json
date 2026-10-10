@@ -1,5 +1,5 @@
 {
-  "version": "1.0.28",
+  "version": "1.0.29",
   "date": "2026-10-10",
-  "summary": "A language choice: pick Russian and Claude answers in Russian and the setup's buttons and panels show Russian text."
+  "summary": "A /shared-usage command: when more than one person works on a subscription, it shows who used how much of the limits."
 }
