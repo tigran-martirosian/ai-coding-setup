@@ -10,7 +10,8 @@ import { readFileSync, statSync, writeSync } from "node:fs";
 import { resolve, extname, dirname, join } from "node:path";
 
 const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
-const MAX_BYTES = Number(process.env.BIG_READ_MAX_BYTES) || 50000;
+// 20000 bytes (about 20k characters; 50000 until 2026-10-11): a file under 350 lines can still be too big to read whole
+const MAX_BYTES = Number(process.env.BIG_READ_MAX_BYTES) || 20000;
 const READ_CAP = 2000; // lines the Read tool returns when no limit is given
 const BINARY = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".pdf", ".ipynb"]);
 
@@ -37,13 +38,18 @@ const tooBig = (r) => r.lines > MAX_LINES || r.bytes > MAX_BYTES;
 
 function deny(path, m) {
   const kb = Math.round(m.bytes / 1024);
+  // Lines of this file that fit under both limits (a file of long lines needs a shorter read than MAX_LINES)
+  const perLine = m.bytes / m.lines;
+  const fit = Math.min(MAX_LINES, Math.floor(MAX_BYTES / perLine));
   const reason = [
     `[big-read-gate] ${path} is ${m.lines} lines (${kb} KB). Reading it whole would put all of it in context. Instead:`,
-    `1. Locate the part you need (Grep with line numbers), then Read with offset/limit, at most ${MAX_LINES} lines.`,
+    fit >= 1
+      ? `1. Locate the part you need (Grep with line numbers), then Read with offset/limit, at most ${fit} lines.`
+      : `1. Its lines are very long (about ${Math.round(perLine)} characters each): Grep with a narrow pattern (-o with some context), not a Read.`,
     `2. To understand or summarise it, hand the reading to a cheap worker and keep only its answer:`,
-    // ask.mjs uses the first free worker that is set up and working (Codex, then Antigravity) and says which
+    // ask.mjs uses the first free worker that is set up and working and says which
     `   - A free worker: ~/.claude/workers/ask.mjs "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number. Do not edit anything."`,
-    `   - If that ends with "no free worker could answer": a haiku subagent (Agent tool, model: haiku) that answers from targeted reads.`,
+    `   - If that ends with "no free worker could answer": a subagent with subagent_type: "worker", model: "haiku" (Agent tool) that answers from targeted reads.`,
     `   Ask one specific question per call. Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,
   ].join("\n");

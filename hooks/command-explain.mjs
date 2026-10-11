@@ -75,7 +75,8 @@ try {
         `so the explanation on the last line would be hidden. The empty line and the note take 2 of the ${MAX_LINES}, so the command itself gets ${MAX_LINES - 2} ` +
         `(a line over ${WIDTH} characters counts as more than one). Do it in two steps: 1. save the script or the long text to a file with the Write tool; ` +
         `2. run that file with one short command, then the empty line and the "# WHAT THIS DOES: " line. Don't trim the command line by line and try again. ` +
-        `Next time decide before the first try: a heredoc, a script with its own line breaks, or a python -c / node -e that spans more than one line goes into a file first.`,
+        `Next time decide before the first try: a heredoc, a script with its own line breaks, or a python -c / node -e that spans more than one line goes into a file first. ` +
+        `Example: Write tool: save the script as ~/.claude/tmp/job.mjs. Then Bash, two lines and the note:\nnode ~/.claude/tmp/job.mjs\n\n# WHAT THIS DOES: Runs the saved script that does X; changes only Y.`,
       );
     }
   }

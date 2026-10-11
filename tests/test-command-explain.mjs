@@ -1,6 +1,8 @@
 // Tests for hooks/command-explain.mjs. Run: node test-command-explain.mjs
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const HOOK = fileURLToPath(new URL("../hooks/command-explain.mjs", import.meta.url));
 // Every run names its surroundings, so results don't depend on where the tests are started.
@@ -46,11 +48,12 @@ const cases = [
   ["Nimbalyst: one 1000-character line is denied", B(`echo ${"x".repeat(1000)}${NOTE}`), "too long", NIMBALYST],
   ["Nimbalyst: 7 lines in all pass", B(`${echoes(5)}${NOTE}`), false, NIMBALYST],
   ["Nimbalyst: 8 lines in all are denied", B(`${echoes(6)}${NOTE}`), "too long", NIMBALYST],
+  ["Nimbalyst: the too-long message says the command gets 5 lines", B(`${echoes(6)}${NOTE}`), "the command itself gets 5", NIMBALYST],
+  ["Nimbalyst: the too-long message gives the two steps", B(`${echoes(6)}${NOTE}`), "with the Write tool; 2. run that file", NIMBALYST],
+  ["Nimbalyst: the too-long message shows the file-first example", B(`${echoes(6)}${NOTE}`), "# WHAT THIS DOES: Runs the saved script that does X", NIMBALYST],
   ["Nimbalyst: one 300-character line passes", B(`echo ${"x".repeat(300)}${NOTE}`), false, NIMBALYST],
   ["Nimbalyst: COMMAND_EXPLAIN_LINES raises the limit", B(`${echoes(12)}${NOTE}`), false, { ...NIMBALYST, COMMAND_EXPLAIN_LINES: "20" }],
   ["Nimbalyst: a long command with no note gets the note message first", B(echoes(12)), MISSING, NIMBALYST],
-  ["Nimbalyst: the too-long message says the command gets 5 lines", B(`${echoes(6)}${NOTE}`), "the command itself gets 5", NIMBALYST],
-  ["Nimbalyst: the too-long message gives the two steps", B(`${echoes(6)}${NOTE}`), "with the Write tool; 2. run that file", NIMBALYST],
 ];
 let fail = 0;
 for (const [name, input, deny, env] of cases) {

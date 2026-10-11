@@ -1,5 +1,5 @@
 {
-  "version": "1.0.41",
-  "date": "2026-10-10",
-  "summary": "/watch works on a Mac with Homebrew: it uses ffmpeg-full, and says so when only the plain ffmpeg is there."
+  "version": "1.0.42",
+  "date": "2026-10-11",
+  "summary": "A big session is cut after 15 steps and restarts from a note (turn-cap); a warning when the prompt cache has expired (cold-cache)."
 }

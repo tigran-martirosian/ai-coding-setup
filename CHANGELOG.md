@@ -2,6 +2,16 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.42, October 11, 2026
+
+- **`turn-cap`: a big session is cut instead of reminded.** Every step re-sends the whole conversation, and in measured use most tokens were the same context read again in sessions that had passed 100k. The older reminders (`build-nudge`, `context-guard`) let a repeated call through; this one refuses. In a session over 100k tokens: after 15 tool steps in the session, further tool calls are refused and the agent writes a restart note into `~/.claude/handoffs/` and hands the rest to a fresh child session; the session you talk in gets at most 10 tool steps and 2 edit steps per message, and a child job (a session whose first line is `CHILD JOB:`) gets 20. Handing work on, asking you a question, proposing a commit and writing HANDOFF.md, DECISIONS.md or a handoff note are never refused. Subagents are left alone. `TURN_CAP=off` switches it off; the numbers are `TURN_CAP_*` variables at the top of the file.
+- **`cold-cache`: a warning when the prompt cache has expired.** After about an hour idle, the next message pays for the whole context at full price. When you send a message to a session over 100k tokens that was idle for over 55 minutes, the agent is told, and can offer to continue from a short note in a fresh session. `COLD_CACHE=off` switches it off.
+- **`context-guard` only warns.** It no longer orders an automatic handoff at 200k (that clashed with `turn-cap`); it shows one line with `turn-cap`'s rule. The long-sessions line in `rules/CLAUDE.md` says the same.
+- **`repeat-guard` and `build-nudge` see the whole turn.** They read only the last 400 KB of the session file, so in a turn with large pictures they missed the start of it. They now read backwards to your last message. A background-task notification no longer counts as a new message in `repeat-guard`.
+- **`big-read-gate` also stops files over 20,000 characters** (it was 50,000) and says how many lines of a file with long lines fit in one read.
+- **`run-yourself` lets a handoff prompt through** when it is the `/handoff` skill's own text, and `command-explain` shows an example of the two-step way to run a long command. New tests: `tests/test-turn-cap.mjs` and `tests/test-cold-cache.mjs`.
+- If you never changed your rules file, `/update-setup` replaces it and keeps a dated copy of the old one.
+
 ## Version 1.0.41, October 10, 2026
 
 - **`/watch` on a Mac.** Homebrew's plain `ffmpeg` is built without the filter that writes text on a picture, so `/watch` stopped there with "ffmpeg made no sheets". The Mac run of the tests on GitHub showed it once the workflow installed ffmpeg. The script now uses Homebrew's `ffmpeg-full` when it is installed (Homebrew keeps it off the PATH, so the script looks in its folder), and when only the plain one is there it says what to install: `brew install ffmpeg-full`. The full install does that on a Mac. Nothing changes on Windows.

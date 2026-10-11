@@ -26,6 +26,10 @@
         "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/build-nudge.mjs", "timeout": 5 }]
       },
       {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/turn-cap.mjs", "timeout": 10 }]
+      },
+      {
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node ~/.claude/hooks/command-explain.mjs", "timeout": 5 },
@@ -53,6 +57,7 @@
         "hooks": [
           { "type": "command", "command": "node ~/.claude/hooks/context-guard.mjs", "timeout": 10 },
           { "type": "command", "command": "node ~/.claude/hooks/board-nudge.mjs", "timeout": 5 },
+          { "type": "command", "command": "node ~/.claude/hooks/cold-cache.mjs", "timeout": 5 },
           { "type": "command", "command": "node ~/.claude/hooks/update-check.mjs", "timeout": 10 },
           { "type": "command", "command": "node ~/.claude/hooks/usage-dashboard-hook.mjs" },
           { "type": "command", "command": "node ~/.claude/hooks/plan-usage-logger.mjs", "timeout": 5 }

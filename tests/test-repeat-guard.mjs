@@ -1,9 +1,9 @@
-// Tests for hooks/repeat-guard.mjs. Run: node tests/test-repeat-guard.mjs
+// Tests for hooks/repeat-guard.mjs. Run: node test-repeat-guard.mjs
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(new URL("../hooks/repeat-guard.mjs", import.meta.url));
 const DIR = mkdtempSync(join(tmpdir(), "repeat-guard-"));
@@ -85,6 +85,22 @@ const cases = [
     const filler = { type: "assistant", message: { content: [{ type: "text", text: "y".repeat(2000) }] } };
     return run([user("go"), ...Array.from({ length: 500 }, () => filler), ...many(5, "Edit", F)], "Edit", { file_path: F });
   }, "additionalContext"],
+  ["a long turn (3 MB of pictures after the user message) still counts its edits from the start", () => {
+    const pic = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "none", content: "p".repeat(1_000_000) }] } };
+    return run([user("go"), ...many(5, "Edit", F), pic, pic, pic], "Edit", { file_path: F });
+  }, "in one edit"],
+  ["a long turn: three identical errors before 3 MB of pictures are no longer the last three: passes", () => {
+    const pic = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "none", content: "p".repeat(1_000_000) }] } };
+    return run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), pic, pic, pic, ...failed("Edit", ERR)], ...EDIT);
+  }, false],
+  ["a 3 MB line before the last user message: the turn still ends there", () => {
+    const pic = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "none", content: "p".repeat(3_000_000) }] } };
+    return run([user("go"), ...many(5, "Edit", F), pic, user("next"), ...many(1, "Edit", F)], "Edit", { file_path: F });
+  }, false],
+  ["a <task-notification> user line does not reset the count: 6th edit reminded", () => run([user("go"), ...many(3, "Edit", F), user("<task-notification>\n<task-id>x</task-id></task-notification>"), ...many(2, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
+  ["a [System: background task user line does not reset the count: 6th edit reminded", () => run([user("go"), ...many(3, "Edit", F), user("[System: background task finished]"), ...many(2, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
+  ["a notification inside three identical errors does not reset them: denied", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), user("<task-notification>done</task-notification>"), ...failed("Edit", ERR)], ...EDIT), "deny"],
+  ["a notification as a content block of text does not reset the count either", () => run([user("go"), ...many(5, "Edit", F), { type: "user", message: { role: "user", content: [{ type: "text", text: "<task-notification>x</task-notification>" }] } }], "Edit", { file_path: F }), "in one edit"],
 ];
 
 let failures = 0;

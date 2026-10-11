@@ -62,8 +62,10 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn |
 | Before every tool call | `build-nudge` | In a main session on Opus or Fable, send back once per turn the edit that comes after three edit steps, with how to brief a cheaper helper, and the lookup that comes after four lookups in a row; add a note, once per turn, when the session has made 15 requests since my message (the call still goes through) |
+| Before every tool call | `turn-cap` | In a session over 100k tokens, refuse further tool calls after 15 steps in the session (the agent writes a restart note and hands the rest to a fresh child session), and after 10 tool steps or 2 edit steps in one message in the session I talk in (a child job gets 20) |
 | When I send a message | `context-guard` | Warn when the session passes 150k tokens |
-| When a reply ends | `context-guard` | Move the work to a fresh session past 200k tokens |
+| When a reply ends | `context-guard` | Show one line with turn-cap's rule when a session passes 200k tokens |
+| When I send a message | `cold-cache` | Warn when I come back to a session over 100k tokens after the prompt cache has expired (55 minutes), because the next message pays for the whole history again |
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
 | When I send a message | `update-check` | Say, at most every 12 hours, when a newer version of the setup is released |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
@@ -76,6 +78,6 @@ In the seven days up to October 1, 2026, `big-read-gate` stopped 11 whole-file r
 
 ## Long sessions
 
-A long session sends its whole history again on every step, so every step costs more. When a reply ends past 200k tokens, `context-guard` has the agent move the work to a fresh session by itself: the [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
+A long session sends its whole history again on every step, so every step costs more. `context-guard` warns at 150k tokens, and `turn-cap` does the cutting: in a session over 100k tokens it refuses further tool calls once the session has made 15 steps there, and the agent writes a restart note into `~/.claude/handoffs/` and hands the rest to a fresh child session. The [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
 
 Each project keeps three short files that a new session reads first: `CLAUDE.md` (rules and commands for the project), `HANDOFF.md` (current state and what's next) and `DECISIONS.md` (what I decided and when).
