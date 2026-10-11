@@ -45,7 +45,11 @@ check("handover: the real example (ticked changes turned into a prompt to paste)
 check("handover silent: stop_hook_active (the second try goes through)", run({ last_assistant_message: HANDOVER, stop_hook_active: true }) === "");
 check("handover silent: the reply says what needs a session there",
   msg(HANDOVER + " The render needs a session there: the `/make-video` skill only loads in that project.") === "");
-check("handover silent: RUN_YOURSELF=off", run({ last_assistant_message: HANDOVER }, { RUN_YOURSELF: "off" }) === "");
+check("handover silent: the prompt is for another person's own computer",
+  msg(HANDOVER + " The prompt is for the other maker's own computer: nothing here can reach it.") === "" &&
+  msg(HANDOVER + " Send it to him; he pastes it into a new chat on his computer.") === "");
+check("handover: 'your own computer' is still stopped", handover(msg(HANDOVER + " It runs on your own computer.")));
+check("handover silent: RUN_YOURSELF=off",run({ last_assistant_message: HANDOVER }, { RUN_YOURSELF: "off" }) === "");
 check("handover silent: a command shown as proof next to a project's name",
   msg("Done. The session in the demo-videos project window ran `npm run lint` and it passed.") === "");
 check("fires: 'paste this into a new session' with no other project named", blocks(msg("You need to paste this into a new session:\n```\n" + PROMPT + "\n```")));

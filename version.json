@@ -1,5 +1,5 @@
 {
-  "version": "1.0.37",
+  "version": "1.0.38",
   "date": "2026-10-10",
-  "summary": "The global rules are half as long, so every step of every session reads fewer tokens."
+  "summary": "The session you talk in leads and hands the building to small helper jobs, so it makes fewer requests."
 }

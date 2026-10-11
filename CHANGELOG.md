@@ -2,6 +2,13 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.38, October 10, 2026
+
+- **The session you talk in leads; it does not build.** A new rule in `rules/CLAUDE.md`. Every request a session makes re-sends everything in it, so what a session costs is the number of requests times its size. In one project, over one week, 91M of 95M tokens were spent by the main sessions and 4M by their helpers. The session you talk in now writes the brief, reads the helper's report and the diff, and reports to you, in as few requests as it can. It still makes one or two edits itself, and it is not moved to a fresh session only for being long.
+- **Helpers get smaller jobs.** One small job per helper instead of a whole step of a plan, and a budget of about 10 tool calls instead of about 20; a job that needs more is split in two. Eight helpers in one measured session had averaged 1.25M tokens each.
+- **`run-yourself` lets a prompt for another person through.** When a reply hands you a prompt that someone else has to paste on their own computer, the check no longer sends the reply back with "do it yourself": nothing on your computer can reach theirs. Two new cases in `tests/test-run-yourself.mjs`.
+- If you never changed your rules file, `/update-setup` replaces it and keeps a dated copy of the old one. If you did change it, yours is kept and you are told once that a newer version exists.
+
 ## Version 1.0.37, October 10, 2026
 
 - **The global rules are half as long.** `rules/CLAUDE.md` went from about 20 KB to about 10 KB. The file is read again at every step of every session, so each step now reads roughly 2,500 fewer tokens. What stayed: every preference, every path and command, and one line for each thing a hook refuses. What went: the explanations of why a rule exists, the lists of which job goes to which helper, and advice a current model follows without being told. In a small test (16 runs of two coding tasks) rules cut even further gave the same results in the same time as the long ones. If you never changed your rules file, `/update-setup` replaces it and keeps a dated copy of the old one. If you did change it, yours is kept and you are told once that a newer version exists.
