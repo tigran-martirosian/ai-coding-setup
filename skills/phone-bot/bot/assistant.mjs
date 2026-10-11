@@ -102,11 +102,13 @@ export async function gatherContext(inboxLines) {
   } catch (e) {
     for (const k of Object.keys(refs)) delete refs[k];
     refs.projects = {};
-    note = e.code === 'NOT_RUNNING' ? 'Nimbalyst is not running on the PC' : `Nimbalyst could not be read: ${e.message}`;
+    if (e.code !== 'NOT_RUNNING') note = `Nimbalyst could not be read: ${e.message}`;
+    else if (e.reason === 'no-file') note = 'Nimbalyst cannot be reached: its connection file is missing. If Nimbalyst is open on the PC, quit it and open it again';
+    else note = 'Nimbalyst is not running on the PC';
   }
   if (note) lines.push(note);
   lines.push('Latest inbox entries:', ...(inboxLines && inboxLines.length ? inboxLines : ['(none)']));
-  return { text: lines.join('\n'), refs: note ? {} : refs };
+  return { text: lines.join('\n'), refs: note ? {} : refs, note };
 }
 
 // Windows: spawn without a shell starts only a real program, and the bot's PATH may lack the install folder.

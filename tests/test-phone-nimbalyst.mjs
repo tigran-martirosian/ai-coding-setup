@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { spawn as spawnChild } from 'node:child_process';
 
 let passed = 0, failed = 0;
 function check(name, ok, detail) {
@@ -175,7 +176,8 @@ check('wrong token is refused as an error', bad && /401/.test(bad.message) && ba
 check('token never in the error message', bad && !bad.message.includes('wrong-token-value') && !bad.message.includes(TOKEN), bad && bad.message);
 writeEndpoint();
 
-// dead pid: a pid far above any real one
+// dead pid: a pid far above any real one (nothing is remembered from the earlier calls)
+nim.forgetEndpoint();
 writeEndpoint({ pid: 2147483000 });
 const dead = await rejects(() => nim.listSessions('C:\\Projects\\alpha'));
 check('dead pid -> NOT_RUNNING', dead && dead.code === 'NOT_RUNNING', String(dead));
@@ -185,6 +187,49 @@ check('listProjects with dead pid -> NOT_RUNNING', deadP && deadP.code === 'NOT_
 fs.rmSync(file);
 const none = await rejects(() => nim.listSessions('C:\\Projects\\alpha'));
 check('no endpoint file -> NOT_RUNNING', none && none.code === 'NOT_RUNNING', String(none));
+check('never seen and file missing -> NOT_RUNNING with reason no-file', none && none.reason === 'no-file' && /no endpoint file/.test(none.message), String(none));
+check('dead pid reason is process-gone', dead && dead.reason === 'process-gone', String(dead));
+
+// the file is deleted while Nimbalyst keeps running: the remembered descriptor answers
+nim.forgetEndpoint();
+writeEndpoint();
+const before = nim.listProjects();
+fs.rmSync(file);
+const fromMemory = await rejects(async () => nim.listProjects());
+check('file read once then deleted, pid alive -> listProjects answers from memory', !fromMemory && nim.listProjects().length === 2 && before.length === 2, String(fromMemory));
+const memSessions = await nim.listSessions('C:\\Projects\\alpha', 5);
+check('a tool call works through the remembered descriptor', memSessions.length === 2, JSON.stringify(memSessions));
+
+// remembered process dies and the file is missing
+const child = spawnChild(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+nim.forgetEndpoint();
+writeEndpoint({ pid: child.pid });
+nim.listProjects();
+fs.rmSync(file);
+child.kill();
+await new Promise((r) => child.once('exit', r));
+const gone = await rejects(async () => nim.listProjects());
+check('remembered pid dead and file missing -> NOT_RUNNING', gone && gone.code === 'NOT_RUNNING' && gone.reason === 'process-gone', String(gone));
+
+// watchEndpoint catches a file that exists only briefly
+nim.forgetEndpoint();
+const stop = nim.watchEndpoint();
+writeEndpoint();
+await new Promise((r) => setTimeout(r, 300));
+fs.rmSync(file);
+await new Promise((r) => setTimeout(r, 100));
+const watched = await rejects(async () => nim.listProjects());
+check('watchEndpoint: file written then deleted ~300 ms later -> listProjects still works', !watched && nim.listProjects().length === 2, String(watched));
+stop();
+nim.forgetEndpoint();
+const noWatch = await rejects(async () => nim.listProjects());
+check('after the watcher is stopped and memory cleared, the missing file is NOT_RUNNING again', noWatch && noWatch.reason === 'no-file', String(noWatch));
+const stopMissingDir = nim.watchEndpoint();
+stopMissingDir();
+check('watchEndpoint never throws when the folder does not exist', true);
+
+// the token is in no error message
+check('token in no error message (no-file, dead pid, gone)', [none, dead, deadP, gone, noWatch].every((e) => e && !e.message.includes(TOKEN)), 'leaked');
 
 // a tool error carries the tool name and the message
 writeEndpoint();

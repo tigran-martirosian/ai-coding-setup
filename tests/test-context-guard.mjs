@@ -1,9 +1,9 @@
 // Tests for hooks/context-guard.mjs. Run: node test-context-guard.mjs
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(new URL("../hooks/context-guard.mjs", import.meta.url));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "context-guard-test-"));
@@ -42,22 +42,26 @@ const over = transcript("over.jsonl", [asst(210000)]);
 const bigger = transcript("bigger.jsonl", [asst(530000)]);
 const stop = (t, extra = {}, env = {}) => run({ hook_event_name: "Stop", transcript_path: t, session_id: sid, ...extra }, env);
 const reason = (o) => { try { return JSON.parse(o).reason ?? ""; } catch { return ""; } };
+// The Stop hook only warns now (systemMessage, no block)
+const warn = (o) => { try { return JSON.parse(o).systemMessage ?? ""; } catch { return ""; } };
+const blocked = (o) => { try { return JSON.parse(o).decision === "block"; } catch { return false; } };
 const ctx = (t) => { try { return JSON.parse(run({ prompt: "x", transcript_path: t, session_id: sid })).hookSpecificOutput.additionalContext; } catch { return ""; } };
 const clear = () => fs.rmSync(path.join(os.tmpdir(), "context-guard", `${sid}.json`), { force: true });
 check("stop under the handoff limit: silent", stop(mid) === "" && stop(small) === "");
 check("under the warning limit (140k): silent", run({ prompt: "x", transcript_path: transcript("low.jsonl", [asst(140000)]) }) === "");
-check("stop at 210k: holds the reply (the limit is 200k)", /~210k/.test(reason(stop(over))));
+const w210 = stop(over);
+check("stop at 210k: warns, does not hold the reply (the limit is 200k)", /~210k/.test(warn(w210)) && !blocked(w210));
 clear();
 check("prompt between the limits: batches, no handoff line", /one Edit/.test(ctx(mid)) && !/fresh session/.test(ctx(mid)));
-check("prompt over the handoff limit: hand off when done", /move the work to a fresh session without asking/.test(ctx(big)));
+check("prompt over the limit: points at turn-cap's rule, no automatic handoff", /after 15 more steps at over 100k/.test(ctx(big)) && /CHILD JOB/.test(ctx(big)) && !/without asking/.test(ctx(big)));
 check("stop while a stop hook is already running: silent", stop(big, { stop_hook_active: true }) === "");
 check("CONTEXT_GUARD_AUTO=off: stop is silent", stop(big, {}, { CONTEXT_GUARD_AUTO: "off" }) === "");
 check("CONTEXT_GUARD_AUTO_K raises the handoff limit", stop(big, {}, { CONTEXT_GUARD_AUTO_K: "500" }) === "");
 const held = stop(big);
-check("stop over the limit: holds the reply and asks for the handoff", JSON.parse(held).decision === "block" && /~420k/.test(reason(held)) && /without asking/.test(reason(held)));
+check("stop over the limit: only warns, with turn-cap's rule", !blocked(held) && /~420k/.test(warn(held)) && /turn-cap/.test(warn(held)) && /after 15 more steps at over 100k/.test(warn(held)) && /CHILD JOB/.test(warn(held)));
 check("second stop: silent", stop(big) === "");
-check("prompt after a handoff: don't hand off again", /already opened at ~420k/.test(ctx(big)));
-check("+100k later: holds again", /~530k/.test(reason(stop(bigger))));
+check("prompt after a warning: don't raise it again", /already warned at ~420k/.test(ctx(big)));
+check("+100k later: warns again", /~530k/.test(warn(stop(bigger))));
 clear();
 // A turn that already handed off (the user ran /handoff) is not held
 const call = (cmd) => JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5", content: [{ type: "tool_use", name: "Bash", input: { command: cmd } }], usage: { input_tokens: 2, cache_read_input_tokens: 300000, cache_creation_input_tokens: 0 } } });
@@ -65,7 +69,7 @@ const handed = transcript("handed.jsonl", [user("/handoff"), call("node ~/.claud
 const earlier = transcript("earlier.jsonl", [user("x"), call("node ~/.claude/skills/handoff/handoff-brief.mjs"), user("go on"), call("ls"), asst(300000)]);
 check("this turn already handed off: silent", stop(handed) === "");
 clear();
-check("a handoff in an earlier turn doesn't count", JSON.parse(stop(earlier) || "{}").decision === "block");
+check("a handoff in an earlier turn doesn't count", /~300k/.test(warn(stop(earlier))));
 clear();
 
 fs.rmSync(dir, { recursive: true, force: true });

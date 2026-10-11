@@ -13,7 +13,8 @@
 // Third check, for "a yes is the go-ahead": blocks ONCE when the reply hands the user a prompt to paste
 // into a session in another project's window, and says to do the work from here if its own tools can.
 // Silent when the user's last message asked for a handoff, or the reply says what the work needs a
-// session there for (a skill, hook or MCP server that only loads in that project).
+// session there for (a skill, hook or MCP server that only loads in that project), or the prompt is the
+// handoff skill's own ("... continue the work from "Where we are"").
 // Fails open. RUN_YOURSELF=off disables it.
 import fs from "node:fs";
 
@@ -115,10 +116,14 @@ const NEEDS_SESSION =
 const OTHER_PERSON =
   /\b(his|her|their|friend'?s?|other maker'?s?|someone else'?s?|another person'?s?)\s+(own\s+)?(computer|pc|machine|laptop|chat)\b/i;
 
+// The prompt the handoff skill itself tells Claude to hand over ("Read <brief> and continue the work from
+// "Where we are"..."): a handoff the skill was asked for, not work Claude could do from here
+const SKILL_PROMPT = /\bcontinue the work from\s+["“”']?Where we are\b/i;
+
 export const handsOverPrompt = (text) => {
   if (!text || NEEDS_SESSION.test(text) || OTHER_PERSON.test(text)) return false;
   return codeCandidates(text).some((c) => {
-    if (!shellLike(c.code) || !forOtherProject(text, c)) return false;
+    if (!shellLike(c.code) || !forOtherProject(text, c) || SKILL_PROMPT.test(c.code)) return false;
     return /\b(paste|type|send|give)\b/i.test(text.slice(Math.max(0, c.at - 300), c.at));
   });
 };

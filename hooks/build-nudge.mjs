@@ -13,7 +13,7 @@
 //      kind gets a note, once per turn. It is not a denial: the call goes through.
 // Reminders 1 and 2 come once per turn: repeating the call goes through. Calls sent together with the
 // denied one (within BUILD_NUDGE_WINDOW_MS, 3000) are denied with it. Subagents and sessions on a
-// cheaper model are left alone. It only sees about the last 400 KB of the transcript.
+// cheaper model are left alone. It reads the transcript backwards to the user's last message.
 // Fails open: any problem lets the call through silently. BUILD_NUDGE=off disables it.
 import fs from "node:fs";
 import os from "node:os";
@@ -23,21 +23,46 @@ const EDITS = Number(process.env.BUILD_NUDGE_EDITS) || 3;
 const LOOKUPS = Number(process.env.BUILD_NUDGE_LOOKUPS) || 4;
 const REQUESTS = Number(process.env.BUILD_NUDGE_REQUESTS) || 15;
 const WINDOW_MS = Number(process.env.BUILD_NUDGE_WINDOW_MS ?? 3000);
-const TAIL_BYTES = 400 * 1024;
+const CHUNK_BYTES = 1024 * 1024;
 const EDIT_TOOLS = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
 const LOOKUP_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch"];
 const RECORD_FILE = /(HANDOFF|DECISIONS|MEMORY)\.md$|[\\/](memory|handoffs)[\\/]/i;
 
-// The last lines of the transcript (about 400 KB); a cut-off first line is dropped
-function tail(file) {
-  const size = fs.statSync(file).size;
-  const len = Math.min(size, TAIL_BYTES);
-  const buf = Buffer.alloc(len);
+// Reads the file backwards in 1 MB chunks until the last real user message is found (or the file start),
+// and returns the parsed lines from that message on. A partial line at a chunk start is carried as a Buffer.
+// (A fixed tail went blind in sessions with pictures: base64 filled it and the turn's steps were not seen.)
+function readTurn(file) {
   const fd = fs.openSync(file, "r");
-  try { fs.readSync(fd, buf, 0, len, size - len); } finally { fs.closeSync(fd); }
-  const lines = buf.toString("utf8").split("\n");
-  if (len < size) lines.shift();
-  return lines;
+  try {
+    let pos = fs.fstatSync(fd).size;
+    let carry = Buffer.alloc(0);
+    let later = [];
+    while (pos > 0 || carry.length) {
+      const len = Math.min(pos, CHUNK_BYTES);
+      pos -= len;
+      const chunk = Buffer.alloc(len);
+      if (len) fs.readSync(fd, chunk, 0, len, pos);
+      let buf = Buffer.concat([chunk, carry]);
+      carry = Buffer.alloc(0);
+      if (pos > 0) {
+        const nl = buf.indexOf(10);
+        if (nl < 0) { carry = buf; continue; }
+        carry = buf.subarray(0, nl);
+        buf = buf.subarray(nl + 1);
+      }
+      const parsed = [];
+      for (const line of buf.toString("utf8").split("\n")) {
+        if (!line.trim()) continue;
+        try { parsed.push(JSON.parse(line)); } catch { /* skip */ }
+      }
+      for (let i = parsed.length - 1; i >= 0; i--) {
+        if (!parsed[i].isSidechain && isRealUser(parsed[i])) return parsed.slice(i).concat(later);
+      }
+      later = parsed.concat(later);
+      if (pos === 0) break;
+    }
+    return later;
+  } finally { fs.closeSync(fd); }
 }
 const parts = (c) => (Array.isArray(c) ? c : []);
 const isRealUser = (j) =>
@@ -73,10 +98,7 @@ try {
   // The steps after the last real user message, and the model of the latest reply
   let turn = "cut", model = "";
   const steps = new Map(); // message id -> tool names and inputs
-  for (const line of tail(event.transcript_path)) {
-    if (!line.trim()) continue;
-    let j;
-    try { j = JSON.parse(line); } catch { continue; }
+  for (const j of readTurn(event.transcript_path)) {
     if (j.isSidechain) continue;
     if (isRealUser(j)) { turn = j.uuid ?? "cut"; steps.clear(); continue; }
     if (j.type !== "assistant" || !j.message || j.message.model === "<synthetic>") continue;

@@ -6,7 +6,8 @@ import { color } from "../theme";
 import { Chip, Status, StatusIcon } from "../ui";
 
 const RESEARCH_DONE_AT = 60;
-const BUILD_DONE_AT = 110;
+const IMPORTER_DONE_AT = 88;
+const BUILD_DONE_AT = 116;
 const REVIEW_DONE_AT = 146;
 const FIX_DONE_AT = 190;
 
@@ -14,8 +15,8 @@ type Child = { title: string; job: string; bornAt: number; doneAt: number };
 
 const CHILDREN: Child[] = [
   { title: "Research", job: "Read the old importer", bornAt: 24, doneAt: RESEARCH_DONE_AT },
-  { title: "Build: importer", job: "Read orders from CSV", bornAt: RESEARCH_DONE_AT, doneAt: BUILD_DONE_AT },
-  { title: "Build: report", job: "Monthly totals", bornAt: RESEARCH_DONE_AT + 6, doneAt: BUILD_DONE_AT - 8 },
+  { title: "Build: importer", job: "Read orders from CSV", bornAt: RESEARCH_DONE_AT, doneAt: IMPORTER_DONE_AT },
+  { title: "Build: report", job: "Monthly totals", bornAt: IMPORTER_DONE_AT, doneAt: BUILD_DONE_AT },
   { title: "Review", job: "A session that built none of it", bornAt: BUILD_DONE_AT, doneAt: REVIEW_DONE_AT },
 ];
 
@@ -35,7 +36,7 @@ export const Lead: React.FC<SceneProps> = ({ durationInFrames }) => {
   return (
     <Scene
       tag="/lead"
-      caption="/lead splits a big request across child sessions that run side by side. A separate session reviews the work, fixes go back, and the lead reports what it checked."
+      caption="/lead splits a big request across child sessions that run one after the other. A separate session reviews the work, fixes go back, and the lead reports what it checked."
       durationInFrames={durationInFrames}
       stageStyle={{ flexDirection: "column", gap: 0 }}
     >

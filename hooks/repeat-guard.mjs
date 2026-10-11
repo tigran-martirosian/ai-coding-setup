@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // repeat-guard: a PreToolUse hook that stops two kinds of looping inside one turn (a turn is everything
-// done since the user's last message). It reads the tail of the transcript once.
+// done since the user's last message). It reads the transcript backwards, in 2 MB chunks, until the
+// user's last message is found (the way turn-cap does), so a long turn with big pictures is still seen
+// from its start. A background-task notification (<task-notification>, [System: background task) arrives
+// as a user message but is not a new turn: it does not reset the counts.
 //   1. Repeat-error gate: when the last three tool results of the turn are all errors from the same tool
 //      with the same first 80 characters of text, and the three failed calls had the same target (the
 //      file_path, else the first 80 characters of the command, else of the input as JSON), the call
@@ -9,34 +12,59 @@
 //   2. Same-file reminder (never refuses): the 6th edit of one file in a turn, or the 4th read of one
 //      file, goes through with a short reminder as additional context. Exactly at that count only.
 // Thresholds: REPEAT_GUARD_ERRORS (3), REPEAT_GUARD_EDITS (6), REPEAT_GUARD_READS (4).
-// The hook only sees about the last 400 KB of the transcript, so in a very long turn the same-file
-// reminder can come late or not at all.
 // Fails open: any problem lets the call through silently. REPEAT_GUARD=off disables it.
 import fs from "node:fs";
 
 const ERRORS = Number(process.env.REPEAT_GUARD_ERRORS) || 3;
 const EDITS = Number(process.env.REPEAT_GUARD_EDITS) || 6;
 const READS = Number(process.env.REPEAT_GUARD_READS) || 4;
-const TAIL_BYTES = 400 * 1024;
+const CHUNK_BYTES = 2 * 1024 * 1024;
 const EDIT_TOOLS = ["Edit", "MultiEdit", "Write"];
 
-// The last lines of the transcript (about 400 KB); a cut-off first line is dropped
-function tail(file) {
-  const size = fs.statSync(file).size;
-  const len = Math.min(size, TAIL_BYTES);
-  const buf = Buffer.alloc(len);
-  const fd = fs.openSync(file, "r");
-  try { fs.readSync(fd, buf, 0, len, size - len); } finally { fs.closeSync(fd); }
-  const lines = buf.toString("utf8").split("\n");
-  if (len < size) lines.shift();
-  return lines;
-}
 const parts = (c) => (Array.isArray(c) ? c : []);
+const textOf = (c) => (typeof c === "string" ? c : parts(c).map((p) => p.text ?? "").join(" "));
+const NOTIFICATION = /^(<task-notification>|\[System: background task)/;
 const isRealUser = (j) =>
   j.type === "user" && !j.isMeta &&
-  (typeof j.message?.content === "string" || parts(j.message?.content).some((p) => p.type === "text"));
+  (typeof j.message?.content === "string" || parts(j.message?.content).some((p) => p.type === "text")) &&
+  !NOTIFICATION.test(textOf(j.message?.content).trimStart());
 const targetOf = (input) => input?.file_path ?? String(input?.command ?? JSON.stringify(input ?? {})).slice(0, 80);
-const textOf = (c) => (typeof c === "string" ? c : parts(c).map((p) => p.text ?? "").join(" "));
+
+// Reads the file backwards in 2 MB chunks until the last real user message is found (or the file start),
+// and returns the parsed lines from that message on. A partial line at a chunk start is carried as a Buffer.
+function readTurn(file) {
+  const fd = fs.openSync(file, "r");
+  try {
+    let pos = fs.fstatSync(fd).size;
+    let carry = Buffer.alloc(0);
+    let later = []; // parsed lines after the chunk being scanned, in file order
+    while (pos > 0 || carry.length) {
+      const len = Math.min(pos, CHUNK_BYTES);
+      pos -= len;
+      const chunk = Buffer.alloc(len);
+      if (len) fs.readSync(fd, chunk, 0, len, pos);
+      let buf = Buffer.concat([chunk, carry]);
+      carry = Buffer.alloc(0);
+      if (pos > 0) {
+        const nl = buf.indexOf(10);
+        if (nl < 0) { carry = buf; continue; }
+        carry = buf.subarray(0, nl);
+        buf = buf.subarray(nl + 1);
+      }
+      const parsed = [];
+      for (const line of buf.toString("utf8").split("\n")) {
+        if (!line.trim()) continue;
+        try { parsed.push(JSON.parse(line)); } catch { /* skip */ }
+      }
+      for (let i = parsed.length - 1; i >= 0; i--) {
+        if (!parsed[i].isSidechain && isRealUser(parsed[i])) return parsed.slice(i + 1).concat(later);
+      }
+      later = parsed.concat(later);
+      if (pos === 0) break;
+    }
+    return later;
+  } finally { fs.closeSync(fd); }
+}
 
 const deny = (reason) => process.stdout.write(JSON.stringify({
   hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `repeat-guard: ${reason}` },
@@ -48,15 +76,7 @@ try {
   if (!event.transcript_path || !fs.existsSync(event.transcript_path)) process.exit(0);
 
   // The entries after the last real user message
-  const entries = [];
-  for (const line of tail(event.transcript_path)) {
-    if (!line.trim()) continue;
-    let j;
-    try { j = JSON.parse(line); } catch { continue; }
-    if (j.isSidechain) continue;
-    if (isRealUser(j)) entries.length = 0;
-    else entries.push(j);
-  }
+  const entries = readTurn(event.transcript_path).filter((j) => !j.isSidechain);
 
   const uses = new Map(); // tool_use id -> { name, target }
   const calls = []; // { name, file }

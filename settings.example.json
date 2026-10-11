@@ -10,6 +10,10 @@
         "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/worker-nudge.mjs", "timeout": 10 }]
       },
       {
+        "matcher": "Agent|Task|Write|mcp__nimbalyst-host__spawn_session|mcp__nimbalyst-host__create_session|mcp__nimbalyst-host__send_prompt",
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/decided-quote.mjs", "timeout": 10 }]
+      },
+      {
         "matcher": "mcp__nimbalyst__PromptForUserInput",
         "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/question-other.mjs", "timeout": 5 }]
       },
@@ -24,6 +28,10 @@
       {
         "matcher": "*",
         "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/build-nudge.mjs", "timeout": 5 }]
+      },
+      {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/turn-cap.mjs", "timeout": 10 }]
       },
       {
         "matcher": "Bash|PowerShell",
@@ -53,6 +61,7 @@
         "hooks": [
           { "type": "command", "command": "node ~/.claude/hooks/context-guard.mjs", "timeout": 10 },
           { "type": "command", "command": "node ~/.claude/hooks/board-nudge.mjs", "timeout": 5 },
+          { "type": "command", "command": "node ~/.claude/hooks/cold-cache.mjs", "timeout": 5 },
           { "type": "command", "command": "node ~/.claude/hooks/update-check.mjs", "timeout": 10 },
           { "type": "command", "command": "node ~/.claude/hooks/usage-dashboard-hook.mjs" },
           { "type": "command", "command": "node ~/.claude/hooks/plan-usage-logger.mjs", "timeout": 5 }

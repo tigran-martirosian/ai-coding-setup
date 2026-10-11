@@ -12,6 +12,8 @@ function note(entry) {
 
 let polls = 0;
 
+export function watchEndpoint() { return () => {}; }
+
 export async function sessionStatus(projectPath, sessionId) {
   note({ fn: 'sessionStatus', sessionId });
   const states = JSON.parse(process.env.STUB_NIM_STATES || '["idle"]');

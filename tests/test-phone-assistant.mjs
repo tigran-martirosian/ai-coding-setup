@@ -64,8 +64,13 @@ check('inbox lines and time in the block', g.text.includes('- 10:00 | note | n1 
 process.env.STUB_MODE = 'notrunning';
 const n = await gatherContext([]);
 check('NOT_RUNNING said in words, refs empty', /Nimbalyst is not running on the PC/.test(n.text) && Object.keys(n.refs).length === 0, JSON.stringify(n));
+check('NOT_RUNNING (process gone) note is the short one', n.note === 'Nimbalyst is not running on the PC', JSON.stringify(n.note));
+check('note is null when Nimbalyst could be read', g.note === null, JSON.stringify(g.note));
+process.env.STUB_MODE = 'nofile';
+const nf = await gatherContext([]);
+check('missing endpoint file gives the connection-file note', nf.note === 'Nimbalyst cannot be reached: its connection file is missing. If Nimbalyst is open on the PC, quit it and open it again' && nf.text.includes(nf.note) && Object.keys(nf.refs).length === 0, JSON.stringify(nf));
 process.env.STUB_MODE = 'boom';
-const b = await gatherContext([]);
+const b =await gatherContext([]);
 check('other errors named in one line', /endpoint exploded/.test(b.text), b.text);
 
 // findClaude: where the bot looks for the claude program on Windows

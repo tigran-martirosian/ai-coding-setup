@@ -24,9 +24,12 @@ is one: what was declined is not offered again, and what was set up is checked, 
 
 ## 2. Read the digests
 
-`node $S/read-digests.mjs <digest folder>` (Bash, timeout 600000). It gives each digest to the
+`node $S/read-digests.mjs <digest folder> --earlier <the newest findings file>` when step 1 found one
+(Bash, timeout 600000). It gives each digest to the
 worker command (`~/.claude/workers/ask.mjs`), with the fixed questions in `reader-task.txt`, and writes
 `<project>.findings.md` next to each digest. A project with fewer than 5 requests is skipped.
+Each `.findings.md` then ends with "I. EARLIER FIXES": for every fix ticked last time, whether it held,
+came back or did not come up.
 
 Read only the `.findings.md` files. If a project is reported as FAILED (no worker is set up, or it
 could not answer), give one `worker` subagent
@@ -51,6 +54,7 @@ Give each finding that counts exactly one remedy, the smallest that fixes it:
 | A kind of work nothing in the setup covers (a file format, a service, a kind of analysis) | A skill, plugin or tool that already exists: see step 4. A new one is written only if none fits |
 | "Never do X", said and meant | A hook in the project (a small script and its test) |
 | A tool that kept failing or a program that was missing | The fix, or the program named with what it is for |
+| A fix from the last review came back (heading I) | Not added a second time. Check it in the digest, then reword the line that is there, or make it a hook when it is a "never" |
 
 ## 4. Look up what already exists (only for the remedies that need it)
 
@@ -83,14 +87,17 @@ If nothing counted, say so plainly and ask nothing. Don't pad the list.
 - **Global** only for a rule that showed up in two or more projects. Save a dated copy of
   `~/.claude/CLAUDE.md` first (`CLAUDE.md.bak.<yyyymmdd>-chat-review`).
 - **A program:** ask before each install, with what it is for.
-- **A new skill:** short, in the project, with a description that says when to use it.
+- **A new skill:** short, in the project, with a description that says when to use it. Write it with
+  the `skill-creator` skill when that is turned on, and give it the two or three requests the finding
+  came from, put in general words, as its test requests (one helper with the skill, one without).
 - Check each change once: the rule is there exactly once, the skill is listed, the hook answers its test.
 
 ## 7. Save and reply
 
 Write `~/.claude/reports/chat-review/findings-<yyyy-mm-dd>.md`: for each project one line on what
 the work is, then the findings in your own words (no quotes from the chats), then a **Decided** table
-(proposal | ticked or declined | where it went), then "seen, nothing to change".
+(proposal | ticked or declined | where it went), then a section "Earlier fixes" (fix | held, came
+back or did not come up | chat label), then "seen, nothing to change".
 
 Reply short: what was set up and where, what was declined, and which of it needs a new chat (a rule
 in a `CLAUDE.md` is read when a chat starts; skills and hooks are picked up by running chats). Add

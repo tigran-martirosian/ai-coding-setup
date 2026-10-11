@@ -1,9 +1,9 @@
-// Tests for hooks/build-nudge.mjs. Run: node tests/test-build-nudge.mjs
+// Tests for hooks/build-nudge.mjs. Run: node test-build-nudge.mjs
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 const hook = fileURLToPath(new URL("../hooks/build-nudge.mjs", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "build-nudge-test-"));
 let n = 0, fail = 0;
@@ -96,6 +96,11 @@ const reset = transcript([user("go"), ...bashes(15), user("next"), ...bashes(14)
 note("a new user message resets the count: nothing", run(call(reset, bash(), { session_id: `reqr-${process.pid}` })), false);
 const again = transcript([user("go"), ...bashes(15), user("next"), ...bashes(15)]);
 note("15 steps in the next turn: the note again", run(call(again, bash(), rid)), "requests on the main model");
+
+// A turn with pictures: 3 edit steps, then 3 MB of base64 lines (a fixed tail would not see the steps)
+const pic = (n) => ({ type: "user", uuid: `p${n}`, message: { content: [{ type: "tool_result", content: [{ type: "image", source: { data: "A".repeat(1024 * 1024) } }] }] } });
+const pictures = transcript([user("go"), step([edit()]), step([edit()]), step([edit()]), pic(1), pic(2), pic(3)]);
+expect("3 edit steps, then 3 MB of pictures: deny", run(call(pictures, edit(), { session_id: `pic-${process.pid}` })), "build-nudge");
 
 // Off switch and odd input
 expect("BUILD_NUDGE=off: allow", run(call(three, edit()), { BUILD_NUDGE: "off" }), false);

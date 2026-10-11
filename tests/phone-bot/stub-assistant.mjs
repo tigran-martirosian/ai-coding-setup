@@ -12,6 +12,7 @@ export const PROMPT_VERSION = 'stub-v1';
 export async function gatherContext() {
   return {
     text: 'stub context',
+    note: process.env.STUB_ASSISTANT_NOTE || null,
     refs: {
       projects: { Alpha: 'C:\\alpha', Beta: 'C:\\beta' },
       S1: { projectPath: 'C:\\alpha', projectName: 'Alpha', sessionId: 'sid-1', title: 'Fix login' },

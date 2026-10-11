@@ -377,6 +377,110 @@ const buttons = (b) => (b.reply_markup ? b.reply_markup.inline_keyboard[0].map((
   check('a reply to a message puts its text (or caption) before the user text', t.asked[0].text === '(The user is replying to this message: "Say yes to tidy the board.")\nyes please' && t.asked[1].text === '(The user is replying to this message: "a caption")\nok', `asked: ${J(t.asked.map((a) => a.text))}`);
 }
 
+// 23b. Nimbalyst could not be read: the note is the answer, nothing is prepared, no buttons.
+{
+  const NOTE = 'Nimbalyst cannot be reached: its connection file is missing. If Nimbalyst is open on the PC, quit it and open it again';
+  const t = talk('nonim', [act({ type: 'new_session', project: 'Alpha', text: 'x' })], { env: { STUB_ASSISTANT_NOTE: NOTE } });
+  check('with Nimbalyst unreachable a new_session answers with the note and "Nothing was sent."', t.sent[0] === `ok\n\n${NOTE}. Nothing was sent.` && t.raw.every((b) => !b.reply_markup), `sent: ${J(t.sent)}`);
+}
+
+// 24. New session: the project name is matched without regard to case; the tap starts it and the watcher follows it.
+{
+  const t = talk('newsession', [act({ type: 'new_session', project: 'beta', text: 'write the readme' }), tap('go:p1')], { env: { ...WATCH, STUB_NIM_STATES: J(['running', 'idle']) } });
+  const starts = t.nim.filter((c) => c.fn === 'startSession');
+  check('new_session proposes Beta › new session, and a tap starts it once', t.sent[0].startsWith('Beta › new session\n\n') && starts.length === 1 && starts[0].projectPath === 'C:\\beta' && starts[0].text === 'write the readme', `sent: ${J(t.sent)}, nim: ${J(t.nim)}`);
+  check('the watcher follows the new session', t.nim.some((c) => c.fn === 'sessionStatus' && c.sessionId === 'new-sid') && t.sent.at(-1) === 'Beta › new session\n\nThe fix is done.', `sent: ${J(t.sent)}`);
+}
+
+// 25. A waiting session: one "at the PC" message with the question, then the answer after it finishes.
+{
+  const t = talk('waiting', [act({ type: 'prompt', session: 'S1', text: 'clean up' }), tap('go:p1')], { env: { ...WATCH, STUB_NIM_STATES: J(['running', 'waiting', 'waiting', 'running', 'idle']) } });
+  const waits = t.sent.filter((s) => s.includes('has to be answered at the PC.'));
+  check('a waiting form gives one "at the PC" message with its question', waits.length === 1 && waits[0] === 'Alpha › Fix login is waiting for an answer.\n\nAllow deleting the build folder?\n\nThis one is a form, so it has to be answered at the PC.', `sent: ${J(t.sent)}`);
+  check('and the watcher keeps going until the answer', t.sent.at(-1) === 'Alpha › Fix login\n\nThe fix is done.', `sent: ${J(t.sent)}`);
+}
+
+// 26. Long answers: 13,000 characters as a .md file, 9,000 as several messages.
+{
+  const t = talk('longdoc', [act({ type: 'show', session: 'S1' })], { env: { STUB_NIM_ANSWER_LEN: '13000' } });
+  const docs = t.calls.filter((c) => c.method === 'sendDocument');
+  check('a 13,000-character answer goes out as one .md document with the heading as caption', docs.length === 1 && docs[0].chars === 13000 && docs[0].caption === 'Alpha › Fix login' && docs[0].name.endsWith('.md') && t.sent.length === 0, `docs: ${J(docs)}, sent: ${t.sent.length}`);
+  const s = talk('longparts', [act({ type: 'show', session: 'S2' })], { env: { STUB_NIM_ANSWER_LEN: '9000' } });
+  check('a 9,000-character answer goes out as 3 messages of at most 4,000 characters', s.sent.length === 3 && s.sent.every((p) => p.length <= 4000) && s.sent[0].startsWith('Beta › Write docs\n\n') && !s.calls.some((c) => c.method === 'sendDocument'), `lengths: ${J(s.sent.map((p) => p.length))}`);
+}
+
+// 27. Errors from the assistant or from Nimbalyst are answered as "Could not do that".
+{
+  const t = talk('asserr', [text('fail please')]);
+  check('an assistant error is answered with "Could not do that: <reason>"', t.sent[0] === 'Could not do that: the model is not reachable', `sent: ${J(t.sent)}`);
+  const n = talk('nimerr', [act({ type: 'prompt', session: 'S1', text: 'go' }), tap('go:p1')], { env: { STUB_NIM_FAIL: 'send' } });
+  check('a Nimbalyst error on Send is answered with "Could not do that: <reason>"', n.sent.at(-1) === 'Could not do that: Nimbalyst is not running' && !n.sent.includes('Sent.'), `sent: ${J(n.sent)}`);
+}
+
+// 28. The conversation id is passed on the second message and dropped after /new.
+{
+  const t = talk('conv', [text('one'), text('two'), text('/new'), text('three')]);
+  check('the second message carries the conversation id, the first and the one after /new do not', t.asked.length === 3 && t.asked[0].sessionId === undefined && t.asked[1].sessionId === 'conv-1' && t.asked[2].sessionId === undefined, `asked: ${J(t.asked.map((a) => a.sessionId))}`);
+  const state = JSON.parse(fs.readFileSync(path.join(t.home, '.telegram-control', 'inbox-state.json'), 'utf8'));
+  check('the conversation is kept in the state file', state.assistant && state.assistant.sessionId === 'conv-1' && state.assistant.count === 1, `state: ${J(state)}`);
+}
+
+// 28b. A conversation saved under other instructions is not resumed.
+{
+  const t = talk('convprompt', [text('one')]);
+  const stateFile = path.join(t.home, '.telegram-control', 'inbox-state.json');
+  const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  check('the prompt version is kept in the state file', st.assistant && st.assistant.prompt === 'stub-v1', `state: ${J(st)}`);
+  st.assistant.prompt = 'old-one';
+  fs.writeFileSync(stateFile, JSON.stringify(st));
+  const u = talk('convprompt', [text('two')], { again: t.home });
+  check('a saved conversation with another prompt version is not resumed', u.asked.length === 1 && u.asked[0].sessionId === undefined, `asked: ${J(u.asked.map((a) => a.sessionId))}`);
+}
+
+// 29. Voice notes with chat on get two buttons; "Send to Claude" reaches the assistant with the transcript.
+{
+  const t = talk('voicebtn', [privateMsg({ voice: { file_id: 'v3.ogg' } }), tap('go:p1')], { env: { INBOX_TRANSCRIBE_CMD: cmd('ok.js') } });
+  check('a voice note with chat on gets "Send to Claude" and "Keep as a note"', J(buttons(t.raw[0])) === J(['Send to Claude=go:p1', 'Keep as a note=no:p1']) && /^Saved: \S+\.ogg\n\nhello from the voice note$/.test(t.sent[0]), `raw: ${J(t.raw)}`);
+  check('"Send to Claude" asks the assistant with the transcript', t.asked.length === 1 && t.asked[0].text === 'hello from the voice note' && t.sent[1] === 'echo: hello from the voice note', `asked: ${J(t.asked)}, sent: ${J(t.sent)}`);
+  const k = talk('voicekeep', [privateMsg({ voice: { file_id: 'v4.ogg' } }), tap('no:p1')], { env: { INBOX_TRANSCRIBE_CMD: cmd('ok.js') } });
+  check('"Keep as a note" only removes the buttons', k.asked.length === 0 && k.sent.length === 1 && k.calls.some((c) => c.method === 'editMessageReplyMarkup'), `sent: ${J(k.sent)}, calls: ${J(k.calls)}`);
+  const o = talk('voiceoff', [text('/chat off'), privateMsg({ voice: { file_id: 'v5.ogg' } })], { env: { INBOX_TRANSCRIBE_CMD: cmd('ok.js') } });
+  const f = talk('voicefail2', [privateMsg({ voice: { file_id: 'v6.ogg' } })], { env: { INBOX_TRANSCRIBE_CMD: cmd('bad.js') } });
+  check('chat off, or no transcript: no buttons', !o.raw[1].reply_markup && !f.raw[0].reply_markup, `off: ${J(o.raw)}, fail: ${J(f.raw)}`);
+}
+
+// 30. Several actions: one reply message, then one message with its own buttons per action.
+{
+  const t = talk('multi', [text(`acts:${J([{ type: 'new_session', project: 'Alpha', text: 'do A' }, { type: 'none' }, { type: 'new_session', project: 'Beta', text: 'do B' }])}`), tap('go:p1'), tap('go:p2')]);
+  check('two new_session actions give the reply, then two messages with buttons', t.sent.length >= 3 && t.sent[0] === 'ok' && !t.raw[0].reply_markup
+    && t.sent[1] === 'Alpha › new session\n\nText to send:\ndo A' && t.sent[2] === 'Beta › new session\n\nText to send:\ndo B'
+    && J(buttons(t.raw[1])) === J(['Send=go:p1', 'Cancel=no:p1']) && J(buttons(t.raw[2])) === J(['Send=go:p2', 'Cancel=no:p2']), `sent: ${J(t.sent)}`);
+  const starts = t.nim.filter((c) => c.fn === 'startSession');
+  check('a tap on each sends to the right project', starts.length === 2 && starts[0].projectPath === 'C:\\alpha' && starts[0].text === 'do A' && starts[1].projectPath === 'C:\\beta' && starts[1].text === 'do B', `nim: ${J(t.nim)}`);
+}
+
+// 31. After a watched session's answer went out, the next message sees it as S0 and can prompt that session.
+{
+  const first = talk('lastans', [act({ type: 'prompt', session: 'S1', text: 'run the tests' }), tap('go:p1')], { env: { ...WATCH, STUB_NIM_STATES: J(['running', 'idle']) } });
+  const state = JSON.parse(fs.readFileSync(path.join(first.home, '.telegram-control', 'inbox-state.json'), 'utf8'));
+  check('the watched answer is kept in the state file', state.lastSession && state.lastSession.sessionId === 'sid-1' && state.lastSession.answer === 'The fix is done.', `state: ${J(state)}`);
+  const t = talk('lastans', [act({ type: 'prompt', session: 'S0', text: 'yes, do it' }), tap('go:p1')], { again: first.home, env: { ...WATCH, STUB_NIM_STATES: J(['running', 'idle']) } });
+  check('the next context holds the last session answer', /Last session answer sent to the phone \(S0 \| Alpha \| Fix login\):\nThe fix is done\./.test(t.asked[0].context), `context: ${J(t.asked[0] && t.asked[0].context)}`);
+  const sends = t.nim.filter((c) => c.fn === 'sendPrompt');
+  check('a prompt for S0 reaches that session after the tap', sends.length === 1 && sends[0].sessionId === 'sid-1' && sends[0].text === 'yes, do it', `nim: ${J(t.nim)}`);
+  const s2 = talk('showkeeps', [act({ type: 'show', session: 'S2' })]);
+  const st2 = JSON.parse(fs.readFileSync(path.join(s2.home, '.telegram-control', 'inbox-state.json'), 'utf8'));
+  check('the show action keeps the answer too', st2.lastSession && st2.lastSession.sessionId === 'sid-2' && st2.lastSession.title === 'Write docs', `state: ${J(st2)}`);
+}
+
+// 32. A Telegram reply carries the quoted text in front of the user's text.
+{
+  const m = privateMsg({ text: 'yes please', reply_to_message: { message_id: 3, text: 'Say yes to tidy the board.' } });
+  const c = privateMsg({ text: 'ok', reply_to_message: { message_id: 4, caption: 'a caption' } });
+  const t = talk('quote', [m, c]);
+  check('a reply to a message puts its text (or caption) before the user text', t.asked[0].text === '(The user is replying to this message: "Say yes to tidy the board.")\nyes please' && t.asked[1].text === '(The user is replying to this message: "a caption")\nok', `asked: ${J(t.asked.map((a) => a.text))}`);
+}
+
 // 33. Answering a waiting session from the phone. The first message the bot sends is id 101 (stub-fetch).
 const pend = (p, extra = {}) => ({ STUB_NIM_STATES: J(['waiting']), STUB_NIM_PENDING: J(p), ...extra });
 const QUESTION = (extra = {}) => ({ promptId: 'toolu_1', promptType: 'ask_user_question_request', questions: [{ question: 'Which colour?', header: 'Colour', options: [{ label: 'Red', description: 'warm' }, { label: 'Blue', description: '' }], multiSelect: false, ...extra }] });

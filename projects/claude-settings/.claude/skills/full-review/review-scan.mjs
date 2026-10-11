@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // review-scan: what the usage scan does not measure, from the Claude Code chat records (~/.claude/projects),
-// for the full-review skill. No model is called and nothing is sent anywhere. Main chats only, no subagents.
+// for the full-review skill. No model is called and nothing is sent anywhere. Main chats only; the helpers' own records are read only for the "Helper rework" section.
 //   - kind of work: what each request did (look, edit, run, delegate, ask, talk), how much of it ran in
 //     stretches a helper could have taken, and what-if totals for other ways to split the work between models
 //   - time: where the minutes of each turn went (the model, the shell, subagents, waiting for the user)
@@ -9,6 +9,7 @@
 //   - tool errors: which tools fail, how often, with what
 // A "request" is one API call; a "turn" is one message the user typed with everything done for it.
 // "Weight" is the rough plan weight of usage-report/usage-scan.mjs (cache reads 0.1x, output 5x).
+//   - helper rework: for each helper run (Agent call), whether its work had to be touched again (see below)
 // Options: --days N (default 7)   --project TEXT (only folders whose path contains it)
 //          --top N rows per list (default 8)   --root DIR (default ~/.claude/projects)
 import fs from "node:fs";
@@ -80,6 +81,8 @@ const KINDS = {
 };
 const LEAD_KINDS = new Set(["talk", "ask", "delegate", "board"]);
 
+const CAPPED = /stopped at its \d+-turn limit/;
+const normFile = (p) => p ? String(p).replace(/\\/g, "/").toLowerCase() : "";
 const one = (s) => String(s ?? "").replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, " ").replace(/\s+/g, " ").trim();
 const cut = (s, n = 60) => { const t = one(s).replace(/\|/g, "/"); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const textOf = (content) => typeof content === "string" ? content
@@ -91,7 +94,9 @@ const owner = new Map(); // API message id -> file, because a resumed chat repea
 const turnSeen = new Set();
 
 function readChat(file) {
-  const chat = { cwd: "", turns: [], errors: [], calls: {} };
+  const chat = { cwd: "", turns: [], errors: [], calls: {}, agents: [], edits: [], file };
+  const agentById = new Map();
+  let seq = 0; // line number in this chat: orders helper results against later edits
   const uses = new Map();
   const reqs = new Map();
   let turn = null, effort = "";
@@ -103,6 +108,7 @@ function readChat(file) {
     const eff = raw.length < 4000 && raw.match(/"effort":"(\w+)"/);
     if (eff) effort = eff[1];
     if (l.isSidechain) continue;
+    seq++;
     if (l.cwd && !chat.cwd) chat.cwd = l.cwd;
     const t = Date.parse(l.timestamp);
     if (isNaN(t)) continue;
@@ -123,6 +129,8 @@ function readChat(file) {
           r.tools.push({ name: b.name, input: b.input ?? {} });
           r.visible += JSON.stringify(b.input ?? {}).length;
           uses.set(b.id, b.name);
+          if (AGENT.test(b.name)) { const a = { id: b.id, input: b.input ?? {}, t, seq, resultSeq: 0, turn: null, capped: false }; agentById.set(b.id, a); chat.agents.push(a); }
+          if (EDIT.test(b.name)) chat.edits.push({ file: normFile(b.input?.file_path ?? b.input?.notebook_path ?? b.input?.path), seq });
           const name = b.name.replace(/^mcp__[\w-]+?__/, "");
           (chat.calls[name] ??= { n: 0, failed: 0 }).n++;
         }
@@ -151,6 +159,12 @@ function readChat(file) {
           }
         }
         const text = textOf(b.content);
+        const ag = agentById.get(b.tool_use_id);
+        // The first result of a foreground helper is its report. A background helper answers "launched" first and
+        // reports later in a task-notification (see below), which then replaces this.
+        if (ag && !ag.resultSeq) { ag.resultSeq = seq; ag.turn = turn; }
+        // Capped: the app starts the report of a helper that hit its turn limit with "NOTE: this agent stopped at its N-turn limit before finishing".
+        if (ag && CAPPED.test(text.slice(0, 300))) ag.capped = true;
         if (b.is_error && !NOT_A_FAILURE.test(text.slice(0, 300))) {
           const short = name.replace(/^mcp__[\w-]+?__/, "");
           if (chat.calls[short]) chat.calls[short].failed++;
@@ -159,6 +173,12 @@ function readChat(file) {
         }
       } else if (b.type === "text" && b.text?.trim()) {
         const text = b.text.trim();
+        const note = text.match(/^<task-notification>[\s\S]*?<tool-use-id>([\w-]+)<\/tool-use-id>/);
+        if (note && agentById.has(note[1])) {
+          const ag = agentById.get(note[1]);
+          ag.resultSeq = seq; ag.turn = turn;
+          if (CAPPED.test(text)) ag.capped = true;
+        }
         if (INTERRUPTED.test(text)) { if (turn) turn.interrupted = true; continue; }
         const command = text.match(/<command-name>\/?([\w:-]+)<\/command-name>/);
         if (command) typed.push(`/${command[1]} ${text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1] ?? ""}`);
@@ -308,6 +328,86 @@ p("## Too short, or long and still wrong", "",
   ...(longPushed.length ? [...head2, ...longPushed.sort((a, b) => b.w - a.w).slice(0, top).map(after), ""] : []),
   `**Replies the user interrupted:** ${stopped.length}; they had run a median of ${median(stopped.map((u) => u.reqs.length))} requests and ${mins(median(stopped.map((u) => u.active)))}, ${M(sum(stopped, (u) => u.tok))} tokens in all.`, "",
   ...(stopped.length ? [...head, ...stopped.sort((a, b) => b.tok - a.tok).slice(0, top).map(row), ""] : []));
+
+// Helper rework. A helper run is one Agent call in a main chat. Its own record is <chat>/subagents/agent-*.jsonl,
+// found through the toolUseId in the .meta.json next to it. Files it changed = Edit/Write/NotebookEdit calls there.
+// Touched again by a helper: a helper that started after this one's report changed one of the same files.
+// Touched again by the lead: the main chat edited one of the same files after the report. Pushed back: the first
+// user message after the report looks like a correction. Capped: see CAPPED above.
+const badRecords = [];
+function readHelper(file) {
+  const h = { tokens: 0, calls: 0, files: new Set(), model: "" };
+  const usage = new Map(), seen = new Set();
+  for (const raw of fs.readFileSync(file, "utf8").split("\n")) {
+    if (!raw) continue;
+    let l;
+    try { l = JSON.parse(raw); } catch { badRecords.push(file); continue; }
+    if (l.type !== "assistant" || !l.message) continue;
+    if (l.message.id && l.message.model !== "<synthetic>") { usage.set(l.message.id, l.message.usage ?? {}); h.model = l.message.model ?? h.model; }
+    for (const b of Array.isArray(l.message.content) ? l.message.content : []) {
+      if (b.type !== "tool_use" || seen.has(b.id)) continue;
+      seen.add(b.id); h.calls++;
+      if (EDIT.test(b.name)) h.files.add(normFile(b.input?.file_path ?? b.input?.notebook_path ?? b.input?.path));
+    }
+  }
+  h.tokens = sum([...usage.values()], tokensOf);
+  return h;
+}
+const labelOf = (m) => FAMILY.find(([re]) => re.test(String(m).toLowerCase()))?.[2] ?? (m ? String(m).replace(/^claude-/, "") : "unknown");
+const runs = [];
+for (const c of chats) {
+  const sdir = path.join(path.dirname(c.file), path.basename(c.file, ".jsonl"), "subagents");
+  const metas = new Map();
+  if (fs.existsSync(sdir)) for (const f of fs.readdirSync(sdir)) {
+    if (!f.endsWith(".meta.json")) continue;
+    try { const m = JSON.parse(fs.readFileSync(path.join(sdir, f), "utf8")); if (m.toolUseId) metas.set(m.toolUseId, { ...m, base: f.replace(/\.meta\.json$/, "") }); } catch { badRecords.push(path.join(sdir, f)); }
+  }
+  for (const a of c.agents) {
+    if (a.t < since) continue;
+    const meta = metas.get(a.id);
+    const rec = meta && fs.existsSync(path.join(sdir, meta.base + ".jsonl")) ? readHelper(path.join(sdir, meta.base + ".jsonl")) : null;
+    runs.push({ chat: c, a, rec, project: c.project, id: c.id,
+      type: meta?.agentType ?? a.input.subagent_type ?? "unknown",
+      model: labelOf(rec?.model || meta?.model || a.input.model || ""),
+      title: one(a.input.description ?? ""), done: a.resultSeq > 0, files: rec?.files ?? null });
+  }
+}
+for (const r of runs) {
+  if (!r.files?.size || !r.done) continue;
+  const share = (set) => [...r.files].filter((f) => set.has(f));
+  r.byHelper = runs.filter((o) => o !== r && o.chat === r.chat && o.files && o.a.seq > r.a.resultSeq).flatMap((o) => share(o.files));
+  r.byLead = r.chat.edits.filter((e) => e.seq > r.a.resultSeq && r.files.has(e.file)).map((e) => e.file);
+  r.push = !!r.a.turn && pushed(r.a.turn);
+  r.clean = !r.byHelper.length && !r.byLead.length && !r.a.capped && !r.push;
+}
+const groups = {};
+for (const r of runs) {
+  const g = (groups[`${r.type} / ${r.model}`] ??= { runs: 0, unknown: 0, none: 0, changing: [], tokens: 0 });
+  g.runs++;
+  if (!r.files || !r.done) g.unknown++;
+  else if (!r.files.size) g.none++;
+  else { g.changing.push(r); g.tokens += r.rec.tokens; }
+}
+const unknownRuns = runs.filter((r) => !r.files || !r.done);
+const badNames = [...new Set(badRecords)];
+p("## Helper rework", "",
+  `Helper runs (Agent calls) in the window: ${runs.length}. Files unknown (helper record not found, or no report yet): ${unknownRuns.length}, left out of the rates. Records that could not be parsed: ${badRecords.length}${badNames.length ? ` (${badNames.slice(0, 3).map((f) => path.basename(f)).join(", ")}${badNames.length > 3 ? ", ..." : ""})` : ""}.`,
+  `The rates count only runs that changed at least one file; runs that changed none (research, checks) are in their own column and not in "clean". "Clean" = not touched again by a helper, not touched again by the lead, not capped, not pushed back on.`, "",
+  "| Agent / model | Runs | Files unknown | Changed no file | Changed files | Clean | Touched again by a helper | Touched again by the lead | Capped | Pushed back | Tokens per run | Tokens per clean run |", "|---|---|---|---|---|---|---|---|---|---|---|---|");
+for (const [name, g] of Object.entries(groups).sort((a, b) => b[1].runs - a[1].runs)) {
+  const ch = g.changing, clean = ch.filter((r) => r.clean).length;
+  p(`| ${name} | ${g.runs} | ${g.unknown} | ${g.none} | ${ch.length} | ${clean} | ${ch.filter((r) => r.byHelper.length).length} | ${ch.filter((r) => r.byLead.length).length} | ${ch.filter((r) => r.a.capped).length} | ${ch.filter((r) => r.push).length} | ${ch.length ? M(g.tokens / ch.length) : "-"} | ${clean ? M(g.tokens / clean) : "-"} |`);
+}
+p("", "Touched again is an upper bound: a planned second step on the same file counts too. Tokens are those of the helper's own record, for runs that changed files.", "");
+const ex = (key, label) => {
+  const list = runs.filter((r) => r[key]?.length);
+  if (!list.length) return;
+  p(`**${label}** (${list.length} runs; first ${Math.min(top, list.length)}):`, "", "| Project | Day | Agent / model | Job | File |", "|---|---|---|---|---|");
+  for (const r of list.slice(0, top)) p(`| ${r.project} | ${new Date(r.a.t).toISOString().slice(0, 10)} | ${r.type} / ${r.model} | ${cut(r.title, 50)} | ${cut(r[key][0], 70)} |`);
+  p("");
+};
+ex("byLead", "Touched again by the lead");
+ex("byHelper", "Touched again by a helper");
 
 // Thinking
 const think = reqs.filter((r) => r.thinking);

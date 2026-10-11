@@ -2,6 +2,7 @@
 name: worker
 description: Budgeted helper for one-off jobs — routine code changes that follow a clear plan, simple repetitive edits, renames, formatting, drafting docs or tests for known behaviour. Use instead of general-purpose. Research goes where the rules in ~/.claude/CLAUDE.md send it.
 model: sonnet
+effort: medium
 maxTurns: 25
 ---
 

@@ -2,6 +2,60 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.50, October 11, 2026
+
+- **A tick no longer counts as a decision against your own words.** A new rule, "Read the whole answer": in a form answer, what you typed outweighs what you ticked. A tick that goes against your typed text, your last message or an earlier decision is put next to them and you are asked which you mean, and a tick is reported as "you ticked: <the option's full text>", with anything it would undo named in the same question.
+- **Briefs for helpers carry your words.** `/handoff` and `/lead` now write each decision with your exact words in quotes and where they came from, list what you said against a proposal first, and put everything without a quote under "Proposed by Claude, not confirmed". A helper told to write DECISIONS.md or a rule file writes only the quoted items and reports the rest back.
+- **New hook `decided-quote`.** It checks the prompt of `Agent`, `spawn_session`, `create_session` and `send_prompt`, and a file written into a `handoffs` folder. A line that claims a decision by you ("DECIDED", "decided by", "<Name> chose") without a quoted passage of at least three words in the same paragraph is refused once; the identical retry goes through. `DECIDED_QUOTE=off` switches it off. It is wired in `settings.example.json`, and the installer adds it on update.
+- New test: `tests/test-decided-quote.mjs`.
+
+## Version 1.0.49, October 11, 2026
+
+- **The phone bot copes with Nimbalyst's connection file going missing.** Nimbalyst writes a small connection file when it starts, and can delete it while the app keeps running, for example when it updates itself. The bot then acted as if Nimbalyst was closed and answered "I could not find the project ...". Now it keeps the connection in memory (never on disk), watches for the file so it catches it while it exists, and when it really cannot reach Nimbalyst it says so and what to do, instead of blaming the project name.
+- The phone bot tests and their stand-ins cover the new cases.
+
+## Version 1.0.48, October 11, 2026
+
+- **`/full-review` counts rework by helpers.** `review-scan.mjs` has a new "Helper rework" table: for each agent type and model, the runs that changed files, how many needed no second pass, how many had a file touched again by a helper or by the lead, and the tokens per run and per run that needed no second pass. "Touched again" is an upper bound, since a planned second step on the same file counts too. The choice of model for helpers can now rest on what happened and not on the price per token alone.
+- New tests in `tests/test-review-scan.mjs`.
+
+## Version 1.0.47, October 11, 2026
+
+- **`chat-review` checks its earlier fixes.** `read-digests.mjs` takes `--earlier <the last findings file>`. For each change ticked in that review it reports whether the problem stayed away (held), came back or did not come up again, and a fix that came back is reworded or turned into a hook instead of being added twice. A ticked fix that cannot be scored (no project before a colon, or no digest for its project this time) is named in a line instead of passing without a word. A new skill the review proposes is tried on a few test requests before it stays.
+- New tests in `tests/test-read-digests.mjs`.
+
+## Version 1.0.46, October 11, 2026
+
+- **Two tests updated for the helper rule of 1.0.45.** `tests/test-turn-cap.mjs` and `tests/test-turn-cap-helpers.mjs` started helper sessions with no model named, which the rule now refuses, so they failed in the 1.0.45 download. Nothing in the hooks changed.
+
+## Version 1.0.45, October 11, 2026
+
+- **`turn-cap`: a helper session must name its model and keep effort low.** A `spawn_session` or `create_session` call that names no model takes the app default, which can be the dearest model, so it is now refused with the exact settings to use (`claude-code:sonnet` at effort `medium`, or `claude-code:haiku` at `low` for mechanical jobs). A call at effort `high`, `xhigh` or `max` is refused too, because most of the output at that level is thinking. Both pass when the prompt has a line `OPUS BECAUSE:` with a reason. A handoff spawn (an isolated session that continues on your own model) is allowed. `TURN_CAP_MODEL_LOCK=off` switches it off.
+- **The `worker` agent runs at effort `medium`**, and `/lead` now says the thinking is done in the lead session while its children build on Sonnet at `medium` or Haiku at `low`.
+- New tests for the rule in `tests/test-turn-cap-lock.mjs`.
+
+## Version 1.0.44, October 11, 2026
+
+- **`turn-cap`: one helper at a time.** Several helpers started at once drained a usage window in minutes, because each pays a full start and reads the same files again. An `Agent`, `spawn_session` or `create_session` call is now refused while an earlier helper of the session is still running; the agent waits for its report and then starts the next one. A helper counts as ended when its end message arrives, or 20 minutes after its start. `TURN_CAP_HELPERS` sets how many may run at once (default 1, `off` switches the rule off) and `TURN_CAP_HELPER_MINUTES` sets the 20 minutes.
+- **`turn-cap`: a helper is stopped near 100k tokens.** A child session or subagent that reaches 100k tokens gets 5 more tool steps to wrap up. After that it has to reply with a report (what is done, what is left, the files touched), and a fresh helper continues from it. `TURN_CAP_CHILD_K` moves the line, in thousands of tokens; `off` switches it off.
+- **`turn-cap`'s advice asks for one helper.** When it refuses a step it now says to hand the work to one helper on the default model, with a brief that names the files and line ranges, so the helper does not read again what is already known.
+- **`/lead` runs its child sessions one after the other**, to match. New test: `tests/test-turn-cap-helpers.mjs`.
+
+## Version 1.0.43, October 11, 2026
+
+- **`turn-cap`: helpers stay on the cheaper model.** In measured use most of the cost was helpers started on the dearest model. An `Agent`, `spawn_session` or `create_session` call that names Opus or Fable is now refused, unless the agent type is `planner` or the prompt has a line `OPUS BECAUSE:` followed by a reason of at least 20 characters. `inheritModel: true` in a session that runs on Opus or Fable is refused the same way. Leaving the model out gives a worker on Sonnet, and `model: "haiku"` suits mechanical jobs. `TURN_CAP_MODEL_LOCK=off` switches it off.
+- **`turn-cap`: a session told to restart really stops.** Once a session over 100k tokens has been told to restart, later messages in it allow only the handoff note, questions to you, record files (HANDOFF.md, DECISIONS.md, memory, handoffs) and 5 Read, Grep or Glob calls per message. `TURN_CAP_HOLD_READS` sets that number; `TURN_CAP_RESTART_HOLD=off` switches the hold off.
+
+## Version 1.0.42, October 11, 2026
+
+- **`turn-cap`: a big session is cut instead of reminded.** Every step re-sends the whole conversation, and in measured use most tokens were the same context read again in sessions that had passed 100k. The older reminders (`build-nudge`, `context-guard`) let a repeated call through; this one refuses. In a session over 100k tokens: after 15 tool steps in the session, further tool calls are refused and the agent writes a restart note into `~/.claude/handoffs/` and hands the rest to a fresh child session; the session you talk in gets at most 10 tool steps and 2 edit steps per message, and a child job (a session whose first line is `CHILD JOB:`) gets 20. Handing work on, asking you a question, proposing a commit and writing HANDOFF.md, DECISIONS.md or a handoff note are never refused. Subagents are left alone. `TURN_CAP=off` switches it off; the numbers are `TURN_CAP_*` variables at the top of the file.
+- **`cold-cache`: a warning when the prompt cache has expired.** After about an hour idle, the next message pays for the whole context at full price. When you send a message to a session over 100k tokens that was idle for over 55 minutes, the agent is told, and can offer to continue from a short note in a fresh session. `COLD_CACHE=off` switches it off.
+- **`context-guard` only warns.** It no longer orders an automatic handoff at 200k (that clashed with `turn-cap`); it shows one line with `turn-cap`'s rule. The long-sessions line in `rules/CLAUDE.md` says the same.
+- **`repeat-guard` and `build-nudge` see the whole turn.** They read only the last 400 KB of the session file, so in a turn with large pictures they missed the start of it. They now read backwards to your last message. A background-task notification no longer counts as a new message in `repeat-guard`.
+- **`big-read-gate` also stops files over 20,000 characters** (it was 50,000) and says how many lines of a file with long lines fit in one read.
+- **`run-yourself` lets a handoff prompt through** when it is the `/handoff` skill's own text, and `command-explain` shows an example of the two-step way to run a long command. New tests: `tests/test-turn-cap.mjs` and `tests/test-cold-cache.mjs`.
+- If you never changed your rules file, `/update-setup` replaces it and keeps a dated copy of the old one.
+
 ## Version 1.0.41, October 10, 2026
 
 - **`/watch` on a Mac.** Homebrew's plain `ffmpeg` is built without the filter that writes text on a picture, so `/watch` stopped there with "ffmpeg made no sheets". The Mac run of the tests on GitHub showed it once the workflow installed ffmpeg. The script now uses Homebrew's `ffmpeg-full` when it is installed (Homebrew keeps it off the PATH, so the script looks in its folder), and when only the plain one is there it says what to install: `brew install ffmpeg-full`. The full install does that on a Mac. Nothing changes on Windows.

@@ -530,7 +530,7 @@ async function toAssistant(msg, text) {
     saveState();
     log(`assistant answered (${out.tokens} tokens)`);
     // `[out.action]` only keeps the old single-action test stand-in working.
-    await carryOut(msg, out.reply, out.actions || [out.action || { type: 'none' }], refs);
+    await carryOut(msg, out.reply, out.actions || [out.action || { type: 'none' }], refs, gathered.note || null);
   } catch (err) {
     log(`assistant step failed: ${err.message}`);
     await reply(msg, `Could not do that: ${err.message}`);
@@ -539,20 +539,22 @@ async function toAssistant(msg, text) {
 
 // One action: the reply is part of its message. Several: the reply goes out once on its own,
 // then every action answers without repeating it, and a "none" among them is skipped.
-async function carryOut(msg, answer, actions, refs) {
+async function carryOut(msg, answer, actions, refs, note = null) {
   const list = actions.length ? actions : [{ type: 'none' }];
-  if (list.length === 1) return carryOne(msg, answer, list[0], refs, true);
+  if (list.length === 1) return carryOne(msg, answer, list[0], refs, true, note);
   await reply(msg, answer);
   for (const action of list) {
-    if (action.type !== 'none') await carryOne(msg, answer, action, refs, false);
+    if (action.type !== 'none') await carryOne(msg, answer, action, refs, false, note);
   }
 }
 
-async function carryOne(msg, answer, action, refs, withReply) {
+async function carryOne(msg, answer, action, refs, withReply, note = null) {
   const chatId = msg.chat.id;
   const say = (s) => (withReply ? `${answer}\n\n${s}` : s);
   const missing = (what) => reply(msg, say(what));
   if (action.type === 'none') return reply(msg, answer);
+  // Nimbalyst could not be read: say why instead of "I could not find the project".
+  if (note && (action.type === 'prompt' || action.type === 'new_session' || action.type === 'show')) return missing(`${note}. Nothing was sent.`);
   if (action.type === 'note') {
     if (!action.text) return missing('I did not get the text to save, so nothing was saved.');
     const name = saveNote(stamp(msg.date), action.text, []);
@@ -821,6 +823,7 @@ async function handle(msg) {
 }
 
 // The first call sits inside the retry too: at log-on the network is often not up yet.
+nim.watchEndpoint();
 let started = false;
 let wait = 2000;
 for (;;) {

@@ -1,5 +1,7 @@
 // Stub of nimbalyst.mjs for test-assistant.mjs. STUB_MODE: ok (default) | notrunning | boom
+export function watchEndpoint() { return () => {}; }
 export function listProjects() {
+  if (process.env.STUB_MODE === 'nofile') { const e = new Error('x'); e.code = 'NOT_RUNNING'; e.reason = 'no-file'; throw e; }
   if (process.env.STUB_MODE === 'notrunning') { const e = new Error('x'); e.code = 'NOT_RUNNING'; throw e; }
   return [{ name: 'alpha', path: 'C:\\Projects\\alpha' }, { name: 'beta', path: 'C:\\Projects\\beta' }];
 }

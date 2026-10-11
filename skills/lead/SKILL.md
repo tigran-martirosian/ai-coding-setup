@@ -1,6 +1,6 @@
 ---
 name: lead
-description: Act as the lead/parent session in Nimbalyst — break a substantial request into workstreams, run child sessions (in parallel where safe), route results between them, get an independent review, send fixes back, and report the validated result. Use when a request is big enough to split (several independent parts, needs research + build + review, or would flood this session's context), when the user says "lead this", "orchestrate", "use child sessions", or runs /lead. Skip for small tasks.
+description: Act as the lead/parent session in Nimbalyst — break a substantial request into workstreams, run child sessions one after the other, route results between them, get an independent review, send fixes back, and report the validated result. Use when a request is big enough to split (several independent parts, needs research + build + review, or would flood this session's context), when the user says "lead this", "orchestrate", "use child sessions", or runs /lead. Skip for small tasks.
 ---
 
 # Lead
@@ -10,7 +10,7 @@ You own the outcome. Children do pieces; you plan, route, judge and verify. Need
 ## 1. Decide whether to split (default: don't)
 
 Split only if at least one is true:
-- two or more parts can run **at the same time** without touching the same files;
+- two or more parts are **independent** and touch different files, so each can be one small job in a fresh session;
 - a part needs a lot of its own reading (research, asset hunting, a big audit) that would bloat this session;
 - the work needs an **independent reviewer** (meaningful code/design changes).
 
@@ -21,7 +21,7 @@ Don't split if you could finish in a few minutes, or if explaining the job costs
 1. Inspect just enough of the project to plan (CLAUDE.md, HANDOFF, DECISIONS, the files in scope).
 2. Create **one tracker item** for the whole request (`tracker_create`, type `plan` or `task`) and link this session (`tracker_link_session`). That item is the Kanban-level unit: what, why, status. Decisions made along the way go on it as comments or as `decision` items.
 3. Set this session's phase with `update_session_meta` (`planning` → `implementing` → `validating`). For a plain research job or a build→review→test loop, consider `workflowPreset` `research` or `implement-review-test`.
-4. Write the plan as a short list of workstreams with dependencies: which run now in parallel, which wait.
+4. Write the plan as a short list of workstreams in the order they run, each with what it needs from the ones before it.
 
 ### A hard plan goes to the `planner` first
 
@@ -30,7 +30,7 @@ When the plan is the hard part (workstreams that depend on each other, a change 
 Its brief gives context and leaves the approach open:
 - **The request, in the user's own words.** Quoted, not paraphrased.
 - **The situation.** What exists today, which files matter, what was already tried and how it went.
-- **Decisions the user has made.** Only real ones (said in chat or written in DECISIONS.md), each with its reason, stated as facts.
+- **Decisions the user has made.** Only real ones (said in chat or written in DECISIONS.md), each with its reason and the user's words in quotes; what they said against a proposal comes first; what has no quote goes under "Proposed by Claude, not confirmed".
 - **What is still open.** The things nobody has decided yet.
 - **What to send back.** A plan, the alternatives it weighed, and anything in the request it would push back on.
 
@@ -42,7 +42,11 @@ When the plan comes back, compare it with your own view and tell the user where 
 
 Use `spawn_session` with `notifyOnComplete: true` and a short `title`. The brief is all the child knows — include:
 - **Goal:** one objective.
-- **Context:** only the facts it needs (decisions already made, findings from other children). Never paste this conversation.
+- **Context:** only the facts it needs (decisions already made, findings from other children). Never paste this conversation. Decisions are carried as evidence, not as conclusions:
+  - A decided item holds the user's exact words in quotes (for a form: the field label, the full text of the ticked option and anything typed with it) and where they came from (message time or form title). The brief gives the parent transcript path or session id.
+  - An item with no quote goes under "Proposed by Claude, not confirmed". What Claude worked out from a decision ("this replaces ...") is a proposal too.
+  - What the user said against a proposal is listed first, in their words.
+  - A child told to write DECISIONS.md or a rule file writes only the quoted items and reports the rest back.
 - **Files:** exact paths to read and the ones it may change.
 - **Don't touch:** files/areas owned by other children or out of scope.
 - **Deliverable:** what to return (a short report, a file path, a list) and roughly how long.
@@ -51,10 +55,9 @@ Use `spawn_session` with `notifyOnComplete: true` and a short `title`. The brief
 - **Budget:** keep tool calls lean; stop and report if blocked instead of guessing.
 
 Rules:
-- Model: `claude-code:sonnet` for routine work that follows a clear plan; `claude-code:opus` for design, diagnosis and review (a child with no `model` gets this session's model, so always name it). Use `effortLevel` `low` for mechanical jobs.
+- Model: the thinking (the plan, the design, the diagnosis, the final review) is done in this session before any child starts; children build. Every child gets `claude-code:sonnet` with `effortLevel` `medium`, or `claude-code:haiku` with `low` for mechanical jobs. A child with no `model` gets the app default, Opus, and the turn-cap hook refuses it, as it refuses Opus, Fable and `high`; a child whose job is itself a judgment (how a model or an animation looks) gets them with an `OPUS BECAUSE: <reason>` line in its prompt.
 - Unrelated side jobs: `isolated: true`, so they don't join this workstream.
-- Two children never edit the same file at the same time. If they must, run them one after the other.
-- Independent children start in the same turn.
+- Children run one after the other: start the next when the previous one has reported. Side by side, each pays a full start and re-reads the same files, and the turn-cap hook refuses a second helper while the first runs (`TURN_CAP_HELPERS` raises the limit; with a higher limit, two children still never edit the same file at the same time).
 
 ## 4. Coordinate
 

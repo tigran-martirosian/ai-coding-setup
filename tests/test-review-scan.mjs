@@ -6,6 +6,7 @@ import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCAN = fileURLToPath(new URL("../projects/claude-settings/.claude/skills/full-review/review-scan.mjs", import.meta.url));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "review-scan-"));
 const dir = path.join(root, "C--Projects-demo");
@@ -69,6 +70,45 @@ check("error text with numbers folded", /1 times \(demo\): Bash: Exit code N boo
 check("--project that matches nothing", /No turns in the last 7 days for "nothing"/.test(run("--project", "nothing").stdout));
 check("missing folder fails with an error", spawnSync(process.execPath, [SCAN, "--root", path.join(root, "none")]).status === 1);
 
+// Helper rework: its own chats folder, so the counts above stay as they are.
+// A clean (f1) | B (f2), touched again by helper C (f2) | D (f3), touched again by the lead | E (f4), the user pushes back
+// F changed no file | G has no helper record | H (f5) stopped at its turn limit
+const root2 = fs.mkdtempSync(path.join(os.tmpdir(), "review-scan-rework-"));
+const dir2 = path.join(root2, "C--Projects-demo");
+const sub = path.join(dir2, "cccccccc-3", "subagents");
+fs.mkdirSync(sub, { recursive: true });
+const helper = (toolId, files) => {
+  const rec = files.map((f, i) => ({ type: "assistant", isSidechain: true, timestamp: at(0), message: { id: `${toolId}-${i}`, model: "claude-sonnet-5-5", usage, content: [use(`${toolId}-t${i}`, "Write", { file_path: f })] } }));
+  if (!files.length) rec.push({ type: "assistant", isSidechain: true, timestamp: at(0), message: { id: `${toolId}-r`, model: "claude-sonnet-5-5", usage, content: [use(`${toolId}-g`, "Read", { file_path: "x" })] } });
+  fs.writeFileSync(path.join(sub, `agent-${toolId}.jsonl`), rec.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  fs.writeFileSync(path.join(sub, `agent-${toolId}.meta.json`), JSON.stringify({ agentType: "worker", description: `job ${toolId}`, toolUseId: toolId, model: "sonnet" }));
+};
+const spawn = (s, id, text = "report") => [reply(s, `m-${id}`, [use(id, "Agent", { description: `job ${id}`, subagent_type: "worker" })]), result(s + 1, id, text)];
+helper("hA", ["C:\\p\\f1.txt"]); helper("hB", ["C:\\p\\f2.txt"]); helper("hC", ["c:/p/F2.txt"]); helper("hD", ["C:\\p\\f3.txt"]);
+helper("hE", ["C:\\p\\f4.txt"]); helper("hF", []); helper("hH", ["C:\\p\\f5.txt"]); // hG gets no record
+const rework = [
+  user(0, "do the parts"), ...spawn(1, "hA"), ...spawn(3, "hB"), ...spawn(5, "hC"), ...spawn(7, "hD"),
+  reply(9, "m-lead", [use("lead1", "Edit", { file_path: "C:\\p\\f3.txt" })]), result(10, "lead1"),
+  reply(11, "m-end1", [{ type: "text", text: "done" }]),
+  user(20, "thanks, next"), ...spawn(21, "hE"), reply(23, "m-end2", [{ type: "text", text: "done" }]),
+  user(30, "no, wrong"), ...spawn(31, "hF"), ...spawn(33, "hG"),
+  ...spawn(35, "hH", "NOTE: this agent stopped at its 25-turn limit before finishing. The text below is PARTIAL output."),
+  reply(37, "m-end3", [{ type: "text", text: "ok" }]),
+];
+fs.writeFileSync(path.join(dir2, "cccccccc-3.jsonl"), rework.map((l) => JSON.stringify(l)).join("\n") + "\n");
+const out2 = spawnSync(process.execPath, [SCAN, "--root", root2], { encoding: "utf8" }).stdout;
+check("helper rework: 8 runs, 1 files unknown, 0 unparsable", /Helper runs \(Agent calls\) in the window: 8\. Files unknown [^:]+: 1, [^.]+\. Records that could not be parsed: 0\./.test(out2));
+check("helper rework row: runs, unknown, no file, changed, clean, by helper, by lead, capped, pushed, tokens", /\| worker \/ Sonnet \| 7 \| 0 \| 1 \| 6 \| 2 \| 1 \| 1 \| 1 \| 1 \| 1k \| 4k \|/.test(out2));
+check("a run with no helper record is its own row: model unknown, files unknown, left out of the rates", /\| worker \/ unknown \| 1 \| 1 \| 0 \| 0 \| 0 \|/.test(out2));
+check("touched by the lead is listed with job and file", /\| demo \| \d{4}-\d\d-\d\d \| worker \/ Sonnet \| job hD \| c:\/p\/f3\.txt \|/.test(out2));
+check("touched by a helper is listed (paths compare across slash and case)", /\| job hB \| c:\/p\/f2\.txt \|/.test(out2));
+check("upper-bound line is printed", /Touched again is an upper bound: a planned second step on the same file counts too\./.test(out2));
+// an unparsable helper record is counted and named
+fs.appendFileSync(path.join(sub, "agent-hA.jsonl"), "{not json\n");
+const out3 = spawnSync(process.execPath, [SCAN, "--root", root2], { encoding: "utf8" }).stdout;
+check("unparsable helper record is counted and named", /could not be parsed: 1 \(agent-hA\.jsonl\)/.test(out3));
+
 fs.rmSync(root, { recursive: true, force: true });
+fs.rmSync(root2, { recursive: true, force: true });
 console.log(`${pass} pass, ${fail} fail`);
 process.exit(fail ? 1 : 0);

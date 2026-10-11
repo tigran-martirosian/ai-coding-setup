@@ -2,13 +2,14 @@
 // context-guard: UserPromptSubmit and Stop hook. Every tool call re-sends the whole conversation, so
 // in a big session a one-line edit costs as much as the context (measured 2026-09-30: 109 small edits
 // at 274-485k context cost 35M tokens for a font, a background and some copy).
+// It only WARNS. The one rule that stops a session lives in turn-cap (after 15 steps at over 100k tokens
+// the session is cut and restarts from a note in ~/.claude/handoffs/); until 2026-10-11 this hook also
+// held the reply at 200k and ordered an automatic handoff, which turn-cap then refused (its Bash step).
 //   UserPromptSubmit: when the last context is over the limit (CONTEXT_GUARD_K, default 150 = 150k
 //     tokens), it warns the user and tells Claude to batch the work. Silent for /commands.
-//   Stop: when a reply ends over the handoff limit (CONTEXT_GUARD_AUTO_K, default 200; it was 250
-//     until 2026-10-08, when 31% of a week's tokens sat in requests sent with over 200k), it holds the
-//     reply once and has Claude move the work to a fresh session (the handoff skill) without asking,
-//     so the user's next message doesn't re-send the big context. Once per session, then again every
-//     further 100k. Silent when this turn already handed off. CONTEXT_GUARD_AUTO=off keeps only the warning.
+//   Stop: when a reply ends over the warning limit (CONTEXT_GUARD_AUTO_K, default 200), it shows the
+//     user one line with turn-cap's rule. Once per session, then again every further 100k. Silent when
+//     this turn already handed off. CONTEXT_GUARD_AUTO=off silences that line.
 // Fails open. CONTEXT_GUARD=off disables it.
 import fs from "node:fs";
 import os from "node:os";
@@ -17,6 +18,8 @@ import path from "node:path";
 const LIMIT_K = Number(process.env.CONTEXT_GUARD_K) || 150;
 const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || 200;
 const AUTO = process.env.CONTEXT_GUARD_AUTO !== "off";
+// turn-cap's rule, in plain words (the numbers are turn-cap's SESSION_STEPS and SESSION_K)
+const RULE = "after 15 more steps at over 100k the session is cut; write the restart note into ~/.claude/handoffs/ and spawn a CHILD JOB session.";
 
 // The last lines of the transcript (up to 4 MB)
 function tail(file) {
@@ -64,7 +67,7 @@ process.stdin.on("end", () => {
     const k = Math.round(lastContext(lines) / 1000);
     if (k < (stop ? AUTO_K : LIMIT_K)) return;
 
-    // handedAt: the size at which this session was last moved to a fresh one
+    // handedAt: the size at which the user was last warned (or the work was moved to a fresh session)
     const stateDir = path.join(os.tmpdir(), "context-guard");
     const stateFile = path.join(stateDir, `${String(input.session_id || "none").replace(/[^\w-]/g, "")}.json`);
     let handedAt = 0;
@@ -77,14 +80,7 @@ process.stdin.on("end", () => {
       mark();
       if (handedOffThisTurn(lines)) return;
       process.stdout.write(JSON.stringify({
-        decision: "block",
-        reason: [
-          `[context-guard] This session now holds ~${k}k tokens, and every further message here re-sends all of it. Move the work to a fresh session now, without asking the user:`,
-          `- Follow the handoff skill (its "Automatic handoff" part): write the summary, then the brief with it, open the new session.`,
-          `- If the task is finished, say so in the summary; the new session then only reads the brief and waits for the user's next request.`,
-          `- Do no other work. End with two lines: the new session is open (its name), and the next message goes there, not here.`,
-          `- One exception: if your reply just asked the user something this session needs answered, don't hand off; say in one line that the work moves to a fresh session after their answer.`,
-        ].join("\n"),
+        systemMessage: `[context-guard] This session holds ~${k}k tokens, and every further message re-sends all of it. turn-cap's rule: ${RULE}`,
       }));
       return;
     }
@@ -97,11 +93,11 @@ process.stdin.on("end", () => {
     ];
     if (AUTO && k >= AUTO_K) {
       context.push(done
-        ? `- A fresh session was already opened at ~${handedAt}k and the user kept going here; don't hand off again unless they ask.`
-        : `- When this request is done, move the work to a fresh session without asking (the handoff skill, "Automatic handoff").`);
+        ? `- The user was already warned at ~${handedAt}k and kept going here; don't raise it again unless they ask.`
+        : `- This session is past ${AUTO_K}k. turn-cap's rule: ${RULE} Don't open a new session on your own for this; just keep the steps few.`);
     }
     process.stdout.write(JSON.stringify({
-      systemMessage: `Context is ~${k}k tokens: every step re-sends all of it.${AUTO ? ` Past ${AUTO_K}k the work moves to a fresh session when the reply ends.` : " For tweaks or new work, /compact or a new session is much cheaper."}`,
+      systemMessage: `Context is ~${k}k tokens: every step re-sends all of it.${AUTO ? ` Past ${AUTO_K}k, turn-cap cuts a long run of steps and the work restarts in a fresh session.` : " For tweaks or new work, /compact or a new session is much cheaper."}`,
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context.join("\n") },
     }));
   } catch {

@@ -40,6 +40,10 @@ day already has one; it prints the name). Read that file
 - review-scan (main chats only): the kind of work per request and the what-if table; where the time of
   each turn went; quick answers and long turns the user pushed back on, interrupted replies; the size
   of the hidden thinking; failed tool calls.
+- review-scan "Helper rework" table: per agent type and model, the runs that changed files, how many
+  were clean, how many had a file touched again by a helper or by the lead, capped runs, runs pushed
+  back, tokens per run and tokens per clean run. "Touched again" is an upper bound: a planned second
+  step on the same file counts too.
 
 "Weight" is the rough plan weight (cache reads 0.1x, output 5x, Haiku 1, Sonnet 3, Opus 5, Fable 12.5).
 Take every number in the report from this file. Don't do arithmetic by hand: if a figure is missing,
@@ -55,7 +59,7 @@ A project reported as FAILED: give one `worker` subagent that digest and `$C/rea
 ## 4. Health
 
 Step 3 of `~/.claude/skills/setup-audit/SKILL.md`, in as few shell calls as possible: every test suite
-(the command that skill gives), the hook files that
+(`bash audits/run-all-suites.sh`; `HANDOFF.md` says which failures are expected), the hook files that
 `~/.claude/settings.json` names exist, `~/.claude/workers/ask.mjs --status`.
 
 ## 5. Judge (this stays with you)
@@ -69,7 +73,9 @@ numbers don't show a cause, write "cause not measured" instead of guessing one.
    against subagents, the share that is the context sent again.
 2. **Who did the work:** the share per model; subagents by type and model (which ran on the leading
    model that a cheaper one could have run); did the free workers take the gathering; the looking and
-   building stretches.
+   building stretches; the "Helper rework" table. A model whose tokens per clean run are higher than a
+   dearer model's, on at least 10 file-changing runs each, is an option to put on the list; fewer runs
+   than that are reported as too few to judge.
 3. **Reasoning:** reader heading G, checked. Plus the thinking numbers (how much, at which effort
    setting, in which turns), and whether the turns with the most thinking are the ones that went wrong.
 4. **Chats:** reader headings B and C, checked; questions answered in the user's own words; requests

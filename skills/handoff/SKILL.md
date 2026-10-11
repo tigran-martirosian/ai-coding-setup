@@ -11,7 +11,10 @@ A big session re-sends all its context on every step; a fresh one starts from a 
    - the goal, in one line;
    - done and verified (with the proof: command and result);
    - in progress, and the exact next step;
-   - decisions the user made, and things tried that failed (so they aren't redone);
+   - decisions the user made, each with their exact words in quotes (for a form: the field label, the full text of the ticked option and anything typed with it) and where they came from (message time or form title); things tried that failed (so they aren't redone);
+   - what the user said against a proposal, in their words, listed before the decisions;
+   - "Proposed by Claude, not confirmed": every item with no quote, and every consequence Claude worked out ("this replaces ..."). A helper told to write DECISIONS.md or a rule file from the brief writes only the quoted items and reports the rest back;
+   - the path of this conversation's transcript or its session id;
    - anything the user still owes (answers, approvals);
    - the skills the next session should use, by name, if any.
    Only facts a fresh session couldn't get from the files. No file contents. A key, token or password is written as `<REDACTED>`: another model may read the brief.

@@ -14,9 +14,12 @@ function endpointFile() {
   return path.join(os.homedir(), '.config', '@nimbalyst', 'electron', 'mcp-endpoint.json');
 }
 
-function notRunning(why) {
+// `reason` tells the caller why: 'no-file' (the endpoint file is missing and nothing is remembered),
+// 'process-gone' (the process that wrote it is dead) or 'refused' (nothing listens on the port).
+function notRunning(why, reason) {
   const e = new Error(`Nimbalyst is not running on the PC (${why})`);
   e.code = 'NOT_RUNNING';
+  e.reason = reason;
   return e;
 }
 
@@ -24,14 +27,57 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
+// Nimbalyst writes the file once and its quit code deletes it, even when an app that keeps running
+// wrote it (seen 2026-10-11 on a self-update). The last good descriptor is kept in memory only.
+let remembered = null;
+
+// Test only.
+export function forgetEndpoint() { remembered = null; }
+
 function readEndpoint() {
-  let raw;
-  try { raw = fs.readFileSync(endpointFile(), 'utf8'); } catch { throw notRunning('no endpoint file'); }
-  let d;
-  try { d = JSON.parse(raw); } catch { throw new Error('Nimbalyst endpoint file is not valid JSON'); }
-  if (!d.port || !d.token) throw new Error('Nimbalyst endpoint file has no port or token');
-  if (!d.pid || !pidAlive(d.pid)) throw notRunning('its process is gone');
-  return d;
+  let fileErr = null;
+  let raw = null;
+  try { raw = fs.readFileSync(endpointFile(), 'utf8'); } catch { fileErr = notRunning('no endpoint file', 'no-file'); }
+  if (raw !== null) {
+    let d = null;
+    try { d = JSON.parse(raw); } catch { fileErr = new Error('Nimbalyst endpoint file is not valid JSON'); }
+    if (!fileErr && (!d || !d.port || !d.token)) fileErr = new Error('Nimbalyst endpoint file has no port or token');
+    if (!fileErr) {
+      if (d.pid && pidAlive(d.pid)) { remembered = d; return d; }
+      fileErr = notRunning('its process is gone', 'process-gone');
+    }
+  }
+  if (remembered) {
+    if (pidAlive(remembered.pid)) return remembered;
+    remembered = null;
+    throw notRunning('its process is gone', 'process-gone');
+  }
+  throw fileErr;
+}
+
+// Catches the file during the short time it exists. Never throws; returns a function that stops it.
+export function watchEndpoint() {
+  const file = endpointFile();
+  const grab = () => {
+    try {
+      const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (d && d.port && d.token && d.pid && pidAlive(d.pid)) remembered = d;
+    } catch { /* missing, half written or invalid: the next try may work */ }
+  };
+  grab();
+  let watcher = null;
+  try {
+    const base = path.basename(file);
+    watcher = fs.watch(path.dirname(file), (_event, name) => { if (!name || name === base) grab(); });
+    watcher.on('error', () => {});
+    watcher.unref();
+  } catch { watcher = null; /* the timer alone carries on */ }
+  const timer = setInterval(grab, 3000);
+  timer.unref();
+  return () => {
+    clearInterval(timer);
+    if (watcher) { try { watcher.close(); } catch { /* already closed */ } }
+  };
 }
 
 // The reply is plain JSON or an SSE body with "data:" lines.
@@ -66,7 +112,10 @@ async function callTool(projectPath, tool, args, caller) {
     try {
       res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(TIMEOUT_MS) });
     } catch (e) {
-      if (e.cause && e.cause.code === 'ECONNREFUSED') throw notRunning('connection refused');
+      if (e.cause && e.cause.code === 'ECONNREFUSED') {
+        if (remembered === d) remembered = null;
+        throw notRunning('connection refused', 'refused');
+      }
       throw new Error(`${tool}: ${scrub(e.message)}`);
     }
     mcpSession = res.headers.get('mcp-session-id') || mcpSession;
