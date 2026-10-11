@@ -69,6 +69,34 @@ const broken = transcript([user("find"), step([read()]), step([read()]), step([[
 expect("a run broken by a shell step: allow", run(call(broken, read("c"))), false);
 expect("an edit after 4 lookup steps: allow", run(call(looks, edit())), false);
 
+// Requests reminder
+const bash = () => ["Bash", { command: "x" }];
+const bashes = (k, model) => Array.from({ length: k }, () => step([bash()], model));
+const note = (name, out, want) => {
+  const ok = want === false ? out === "" : out.includes("additionalContext") && out.includes(want) && !out.includes("permissionDecision");
+  if (!ok) fail++;
+  console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : `\n     ${out || "(allowed)"}`}`);
+};
+const fifteen = transcript([user("go"), ...bashes(15)]);
+const rid = { session_id: `req-${process.pid}` };
+note("15 steps, next Bash: note, no denial", run(call(fifteen, bash(), rid)), "requests on the main model");
+note("the same call again in the turn: nothing", run(call(fifteen, bash(), rid)), false);
+const fourteen = transcript([user("go"), ...bashes(14)]);
+note("14 steps: nothing", run(call(fourteen, bash(), { session_id: `req14-${process.pid}` })), false);
+const threeSteps = transcript([user("go"), ...bashes(3)]);
+note("BUILD_NUDGE_REQUESTS=3 with 3 steps: note", run(call(threeSteps, bash(), { session_id: `req3-${process.pid}` }), { BUILD_NUDGE_REQUESTS: "3" }), "requests on the main model");
+const fifteenSonnet = transcript([user("go"), ...bashes(15, "claude-sonnet-5-5")]);
+note("15 steps on Sonnet: nothing", run(call(fifteenSonnet, bash(), { session_id: `reqs-${process.pid}` })), false);
+note("15 steps inside a subagent: nothing", run(call(fifteen, bash(), { session_id: `reqa-${process.pid}`, agent_id: "a1" })), false);
+const mixed = transcript([user("go"), step([edit()]), step([edit()]), step([edit()]), ...bashes(12)]);
+const mid = { session_id: `reqm-${process.pid}` };
+expect("15 steps with 3 edit steps, next Edit: the build deny, not the note", run(call(mixed, edit(), mid)), "build-nudge");
+note("the repeated Edit after the window: the note", run(call(mixed, edit(), mid), { BUILD_NUDGE_WINDOW_MS: "0" }), "requests on the main model");
+const reset = transcript([user("go"), ...bashes(15), user("next"), ...bashes(14)]);
+note("a new user message resets the count: nothing", run(call(reset, bash(), { session_id: `reqr-${process.pid}` })), false);
+const again = transcript([user("go"), ...bashes(15), user("next"), ...bashes(15)]);
+note("15 steps in the next turn: the note again", run(call(again, bash(), rid)), "requests on the main model");
+
 // Off switch and odd input
 expect("BUILD_NUDGE=off: allow", run(call(three, edit()), { BUILD_NUDGE: "off" }), false);
 expect("no transcript: allow", run({ tool_name: "Edit", tool_input: { file_path: "a" } }), false);

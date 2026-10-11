@@ -272,6 +272,18 @@ ok("a hook wired from an older place in ~/.claude is pointed at the installed co
   [[`node "${fwd(path.join(moved, ".claude", "hooks", "handoff-brief.mjs"))}" --hook`], true, true]);
 ok("the run after it repoints nothing", install(moved).out.includes("hook repointed"), false);
 
+// ---- a hook whose example matcher changed: the old matcher is replaced, one the user changed is left alone
+const nudgeEvent = Object.keys(example.hooks).find((e) => JSON.stringify(example.hooks[e]).includes("build-nudge.mjs"));
+const nudgeEntries = (home) => (json(path.join(home, ".claude", "settings.json")).hooks[nudgeEvent] || []).filter((g) => g.hooks.some((h) => h.command.includes("build-nudge.mjs")));
+for (const [name, matcher, want] of [["oldmatch", "Edit|MultiEdit|Write|NotebookEdit|Read|Grep|Glob|WebFetch|WebSearch", "*"], ["ownmatch", "Edit|Write", "Edit|Write"]]) {
+  const home = path.join(tmp, name);
+  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { [nudgeEvent]: [{ matcher,
+    hooks: [{ type: "command", command: `node "${fwd(path.join(home, ".claude", "hooks", "build-nudge.mjs"))}"` }] }] } }));
+  install(home);
+  ok(`build-nudge wired with matcher ${matcher}: it ends as ${want}, in one entry`, [nudgeEntries(home).map((g) => g.matcher), nudgeEntries(home).length], [[want], 1]);
+}
+
 // ---- with Nimbalyst there, the run builds an extension and puts it into Nimbalyst's folder
 if (process.platform === "win32") {
   const themeDist = path.join(REPO, "extensions", "ink-themes", "dist");

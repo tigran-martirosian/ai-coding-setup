@@ -2,6 +2,11 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.39, October 10, 2026
+
+- **`build-nudge` counts a session's requests.** The rule from 1.0.38 (the session you talk in leads and does not build) now has a check behind it. Once a main session on Opus or Fable has made 15 requests since your last message, the next tool call carries a note: hand what is left to a helper as small jobs, and put what only this session can do into as few steps as possible. The note comes once per turn and blocks nothing; the call goes through. `BUILD_NUDGE_REQUESTS` changes the number.
+- **The check now runs before every tool call**, not only before edits and lookups, because shell commands count as requests too. `/update-setup` changes that setting for you if you still have the old one; a tool list you changed yourself is left alone.
+
 ## Version 1.0.38, October 10, 2026
 
 - **The session you talk in leads; it does not build.** A new rule in `rules/CLAUDE.md`. Every request a session makes re-sends everything in it, so what a session costs is the number of requests times its size. In one project, over one week, 91M of 95M tokens were spent by the main sessions and 4M by their helpers. The session you talk in now writes the brief, reads the helper's report and the diff, and reports to you, in as few requests as it can. It still makes one or two edits itself, and it is not moved to a fresh session only for being long.

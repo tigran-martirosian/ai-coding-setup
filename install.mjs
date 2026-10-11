@@ -214,6 +214,11 @@ if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), f
 // The hook wiring: each hook from an example is added unless that event already runs the same script.
 // The command points at the installed copy by its full path, so it works from any folder and shell.
 // A script named as ~/.claude/... is the one in ~/.claude, any other path is inside the project folder.
+// A hook whose example matcher changed: an install that still has exactly the old one gets the new one.
+// A matcher the user changed themselves is not in this list and is left alone.
+const OLD_MATCHERS = {
+  "build-nudge.mjs": ["Edit|MultiEdit|Write|NotebookEdit|Read|Grep|Glob|WebFetch|WebSearch"],
+};
 function wire(target, hooks, folder, where = "") {
   let added = 0;
   for (const [event, groups] of Object.entries(hooks || {})) {
@@ -235,6 +240,13 @@ function wire(target, hooks, folder, where = "") {
             if (!was || was.toLowerCase() === at.toLowerCase() || !was.toLowerCase().startsWith(fwd(CLAUDE).toLowerCase() + "/")) continue;
             old.command = command;
             say(`hook repointed: ${event} ${base}${where} (it started ${was})`);
+            added++;
+          }
+          for (const g of list) {
+            if (!group.matcher || !(OLD_MATCHERS[base] || []).includes(g.matcher)) continue;
+            if (!(g.hooks || []).some((h) => String(h.command || "").includes(base))) continue;
+            say(`hook matcher updated: ${event} ${base}${where} (${g.matcher} -> ${group.matcher})`);
+            g.matcher = group.matcher;
             added++;
           }
           continue;
@@ -533,7 +545,7 @@ if (!DRY) for (const [event, groups] of Object.entries(settings.hooks || {})) {
     }
   }
 }
-const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|linked|removed|extension installed|plugin installed|skill installed|model: set|permissions: )/.test(l));
+const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|hook matcher updated|linked|removed|extension installed|plugin installed|skill installed|model: set|permissions: )/.test(l));
 if (did || tally.yours.length) {
   const parts = [[tally.added, "new"], [tally.replaced.length, "replaced"], [tally.yours.length, "kept as yours"], [tally.same, "unchanged"]];
   say(`Files: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(", ")}.`);
