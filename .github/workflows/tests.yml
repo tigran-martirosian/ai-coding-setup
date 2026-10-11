@@ -19,6 +19,7 @@ jobs:
       # tests/test-watch.mjs draws a short video with ffmpeg, which the runners do not have.
       - if: runner.os == 'Windows'
         run: choco install ffmpeg -y --no-progress
+      # On a Mac the plain ffmpeg has no drawtext filter; skills/watch/watch.mjs finds ffmpeg-full by itself.
       - if: runner.os == 'macOS'
-        run: brew install ffmpeg
+        run: brew install ffmpeg ffmpeg-full
       - run: node tests/run-all.mjs

@@ -8,6 +8,7 @@
 // Everything about one video is kept in ~/.claude/video-cache/<id> (WATCH_HOME moves it): info.json,
 // transcript.txt, video.mp4 (720p at most, no sound) and the sheets, so a second look downloads nothing.
 // Needs ffmpeg, and for links yt-dlp (on PATH, or it is run through uvx). YT_DLP names another yt-dlp.
+// On a Mac it needs Homebrew's ffmpeg-full: the plain ffmpeg there cannot write the time on a still.
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -15,6 +16,9 @@ import crypto from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 
 const HOME = process.env.WATCH_HOME || path.join(os.homedir(), ".claude", "video-cache");
+// Homebrew does not put ffmpeg-full on PATH, so it is looked up where Homebrew keeps it.
+const BREW_FULL = ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"].find((d) => fs.existsSync(path.join(d, "ffmpeg")));
+const tool = (name) => (BREW_FULL ? path.join(BREW_FULL, name) : name);
 const PER_SHEET = 9;
 const stop = (msg, code = 1) => { console.error(msg); process.exit(code); };
 const USAGE = "usage: node watch.mjs <link or video file> [--from m:ss] [--to m:ss] [--every seconds] [--sheets n] [--out folder] [--no-frames] [--lang code]";
@@ -84,7 +88,7 @@ else if (isLink) {
   };
   fs.writeFileSync(infoFile, JSON.stringify(info, null, 2));
 } else {
-  const probe = execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", source], { encoding: "utf8" });
+  const probe = execFileSync(tool("ffprobe"), ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", source], { encoding: "utf8" });
   info = { id, source: path.resolve(source), title: path.basename(source), duration: Number(probe.trim()), chapters: [], subtitles: [], automatic: [] };
   if (!info.duration) stop(`ffprobe could not read the length of ${source}`);
   fs.writeFileSync(infoFile, JSON.stringify(info, null, 2));
@@ -159,8 +163,9 @@ for (const old of fs.readdirSync(out)) if (/^sheet_\d+\.jpg$/.test(old)) fs.rmSy
 const stamp = `drawtext=font=Arial:text='%{pts\\:hms\\:${from}}':x=6:y=6:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=4`;
 // select keeps real frames with their own times, so the time drawn on a still is the time it was taken at
 const filter = `select='gte(t,selected_n*${every})',scale=480:270:force_original_aspect_ratio=decrease,pad=480:270:(ow-iw)/2:(oh-ih)/2,${stamp},tile=3x3:padding=4`;
-const run = spawnSync("ffmpeg", ["-v", "error", "-y", "-ss", String(from), "-to", String(to), "-i", video, "-an", "-vf", filter, "-fps_mode", "passthrough", "-q:v", "4", path.join(out, "sheet_%02d.jpg")], { encoding: "utf8" });
+const run = spawnSync(tool("ffmpeg"), ["-v", "error", "-y", "-ss", String(from), "-to", String(to), "-i", video, "-an", "-vf", filter, "-fps_mode", "passthrough", "-q:v", "4", path.join(out, "sheet_%02d.jpg")], { encoding: "utf8" });
 const made = fs.readdirSync(out).filter((f) => /^sheet_\d+\.jpg$/.test(f)).sort();
+if (/No such filter: 'drawtext'/.test(run.stderr || "")) stop("This ffmpeg cannot write the time on a still (it has no drawtext filter). On a Mac: brew install ffmpeg-full");
 if (run.status !== 0 || !made.length) stop(`ffmpeg made no sheets:\n${(run.stderr || "").trim().split("\n").slice(-5).join("\n")}`);
 console.log(`Pictures: ${made.length} sheets in ${out}, one still every ${every} s, 9 on a sheet, read left to right, top to bottom`);
 made.forEach((file, i) => console.log(`  ${file}  ${clock(from + i * PER_SHEET * every)} to ${clock(Math.min(to, from + (i + 1) * PER_SHEET * every))}`));

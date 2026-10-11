@@ -70,7 +70,7 @@ Checks: `xcode-select -p` (Git is there when it prints a folder; don't run `git 
 | Handy | always | `brew install --cask handy` |
 | Codex CLI | CODEX yes | `npm i -g @openai/codex` |
 | Antigravity CLI | AGY yes | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
-| ffmpeg | CODEX yes | `brew install ffmpeg` |
+| ffmpeg | CODEX yes | `brew install ffmpeg ffmpeg-full` (`/watch` needs the full one to write the time on a still) |
 
 If Nimbalyst was installed just now, run `open -a Nimbalyst` and wait until `~/Library/Application Support/@nimbalyst/electron` is there. macOS may ask whether to open a downloaded app: the user clicks Open.
 

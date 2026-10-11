@@ -2,6 +2,10 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.41, October 10, 2026
+
+- **`/watch` on a Mac.** Homebrew's plain `ffmpeg` is built without the filter that writes text on a picture, so `/watch` stopped there with "ffmpeg made no sheets". The Mac run of the tests on GitHub showed it once the workflow installed ffmpeg. The script now uses Homebrew's `ffmpeg-full` when it is installed (Homebrew keeps it off the PATH, so the script looks in its folder), and when only the plain one is there it says what to install: `brew install ffmpeg-full`. The full install does that on a Mac. Nothing changes on Windows.
+
 ## Version 1.0.40, October 10, 2026
 
 - **The tests pass on GitHub again.** The last several versions showed a red mark on GitHub for two reasons that were in the tests and not in what you install. On macOS the phone bot's test put the bot's lock, a socket file, at a path longer than the 104 characters macOS allows; the test now uses a short folder and name there. `tests/test-watch.mjs` draws its test video with ffmpeg, which GitHub's machines do not have; the workflow installs it first.
