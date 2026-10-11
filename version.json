@@ -1,5 +1,5 @@
 {
-  "version": "1.0.39",
+  "version": "1.0.40",
   "date": "2026-10-10",
-  "summary": "A session that has made 15 requests since your message is told so once, so it hands the rest to a helper."
+  "summary": "The tests pass on GitHub again, the tour video shows the phone bot and /watch, and the README's news is short."
 }

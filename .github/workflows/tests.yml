@@ -16,4 +16,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+      # tests/test-watch.mjs draws a short video with ffmpeg, which the runners do not have.
+      - if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - if: runner.os == 'macOS'
+        run: brew install ffmpeg
       - run: node tests/run-all.mjs

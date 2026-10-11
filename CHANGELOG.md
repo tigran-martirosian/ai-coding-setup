@@ -2,6 +2,13 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.40, October 10, 2026
+
+- **The tests pass on GitHub again.** The last several versions showed a red mark on GitHub for two reasons that were in the tests and not in what you install. On macOS the phone bot's test put the bot's lock, a socket file, at a path longer than the 104 characters macOS allows; the test now uses a short folder and name there. `tests/test-watch.mjs` draws its test video with ffmpeg, which GitHub's machines do not have; the workflow installs it first.
+- **The tour video caught up.** It was last rendered on October 5 and showed none of the week's additions. A new scene shows `/phone-bot` and `/watch`, and another lists `/plan-first`, `/full-review`, the planner agent, `/shared-usage` and the Russian version.
+- **A shorter "What's new" in the README.** The paragraph for October 10 had grown to about 900 words; it now names the main changes and leaves the rest to this file. "What's inside" lists `/watch` and `/shared-usage`.
+- **`docs/full-install.md` says four extensions.** The closing report of the full install still counted three.
+
 ## Version 1.0.39, October 10, 2026
 
 - **`build-nudge` counts a session's requests.** The rule from 1.0.38 (the session you talk in leads and does not build) now has a check behind it. Once a main session on Opus or Fable has made 15 requests since your last message, the next tool call carries a note: hand what is left to a helper as small jobs, and put what only this session can do into as few steps as possible. The note comes once per turn and blocks nothing; the call goes through. `BUILD_NUDGE_REQUESTS` changes the number.

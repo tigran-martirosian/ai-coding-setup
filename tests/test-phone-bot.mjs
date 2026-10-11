@@ -19,14 +19,17 @@ function check(name, ok, detail) {
 }
 
 function makeHome(name) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), `inbox-bot-${name}-`));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ib-'));
   fs.mkdirSync(path.join(home, '.telegram-control'));
   fs.writeFileSync(path.join(home, '.telegram-control', 'secrets.json'), '{"token":"TEST"}');
   return home;
 }
 
+// Off Windows the lock is a socket file inside the made-up home, and macOS refuses a socket path over
+// 104 characters, so the folder and the name stay short there. A Windows pipe name is global: it is unique.
 function envFor(home, name, extra) {
-  return { ...process.env, USERPROFILE: home, HOME: home, INBOX_BOT_PIPE: `inbox-bot-test-${process.pid}-${name}`, ...extra };
+  const pipe = process.platform === 'win32' ? `inbox-bot-test-${process.pid}-${name}` : 't';
+  return { ...process.env, USERPROFILE: home, HOME: home, INBOX_BOT_PIPE: pipe, ...extra };
 }
 
 function readLog(home) {
