@@ -11,8 +11,14 @@ interface ExecResult {
 }
 export type Exec = (command: string, options?: { timeout?: number }) => Promise<ExecResult>;
 
+export interface Shared {
+  setUp: boolean;
+  members?: { name: string; me: boolean; five: number | null; week: number | null; active: boolean }[];
+}
+
 export interface State {
   plan: Plan | null;
+  shared: Shared | null;
   error: string;
   loading: boolean;
 }
@@ -30,7 +36,7 @@ const direct: Exec = (command, options) =>
   );
 
 let exec: Exec = direct;
-let state: State = { plan: null, error: '', loading: false };
+let state: State = { plan: null, shared: null, error: '', loading: false };
 let timer: ReturnType<typeof setInterval> | undefined;
 const listeners = new Set<() => void>();
 
@@ -61,7 +67,10 @@ export async function refresh() {
   try {
     const r = await exec(script('plan-ahead.mjs', '--json'), { timeout: 30_000 });
     if (!r.success) throw new Error(lastLine(r));
-    set({ plan: JSON.parse(r.stdout), error: '', loading: false });
+    set({ plan: JSON.parse(r.stdout), error: '' });
+    const sh = await exec(script('shared-usage.mjs'), { timeout: 30_000 });
+    if (!sh.success) throw new Error(lastLine(sh));
+    set({ shared: JSON.parse(sh.stdout), loading: false });
   } catch (e) {
     set({ error: e instanceof Error ? e.message : String(e), loading: false });
   }

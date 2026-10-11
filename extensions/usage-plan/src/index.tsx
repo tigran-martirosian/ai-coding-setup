@@ -11,8 +11,10 @@ import { FIVE_MS, WEEK_MS, clock, pace, sessionPace, span, weekTone, when } from
 import type { Tone } from './format';
 import { clearGutter, paintGutter } from './gutter';
 import { installPopover, removePopover } from './popover';
+import type { Shared } from './store';
 import { getState, openDashboard, refresh, setExec, start, stop, subscribe } from './store';
 import { CSS } from './styles';
+import { t } from './strings';
 
 const useStore = () => useSyncExternalStore(subscribe, getState);
 
@@ -44,7 +46,7 @@ function Limit(props: { name: string; sub: string; used: number | null; resets?:
         </div>
         <div>
           <div className="up-pct">{used === null ? '–' : `${Math.round(used)}%`}</div>
-          {used !== null && <div className="up-used">used</div>}
+          {used !== null && <div className="up-used">{t.used}</div>}
         </div>
       </div>
       <div className="up-bar">
@@ -53,9 +55,43 @@ function Limit(props: { name: string; sub: string; used: number | null; resets?:
       </div>
       <div className="up-meta">
         <Sym name="schedule" />
-        {used === null ? 'Starts with your next message' : `Resets in ${span(left)}`}
+        {used === null ? t.startsNext : t.resetsIn(span(left))}
       </div>
     </div>
+  );
+}
+
+const pctText = (n: number | null) => (n === null ? '—' : `${Math.round(n)}%`);
+
+/** One row per person who uses the shared subscription, as counted by ccpool. */
+function SharedUse({ members }: { members: NonNullable<Shared['members']> }) {
+  return (
+    <div className="up-group">
+      <div className="up-who">
+        <div>
+          <div className="up-name">{t.whoUsed}</div>
+          <div className="up-sub">{t.sharedHint}</div>
+        </div>
+        <div className="up-col">{`5${t.hour}`}</div>
+        <div className="up-col">{t.weekShort}</div>
+        {members.map((m) => (
+          <SharedRow key={m.name} member={m} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SharedRow({ member }: { member: NonNullable<Shared['members']>[number] }) {
+  return (
+    <>
+      <div>
+        {member.name === 'unknown' ? t.notCounted : member.name}
+        {member.me && <span className="up-dim">{` · ${t.you}`}</span>}
+      </div>
+      <div className="up-who-num">{pctText(member.five)}</div>
+      <div className="up-who-num">{pctText(member.week)}</div>
+    </>
   );
 }
 
@@ -90,7 +126,7 @@ function PaceCard(props: { forecast: Forecast | null; tone: Tone; budgetLabel: s
         </div>
         {pace !== null && (
           <div className="up-stat">
-            <div className="up-label">Your pace</div>
+            <div className="up-label">{t.yourPace}</div>
             <div className={`up-num ${pace > budget ? 'over' : ''}`}>
               {pace}% <small>{unit}</small>
             </div>
@@ -103,7 +139,7 @@ function PaceCard(props: { forecast: Forecast | null; tone: Tone; budgetLabel: s
 
 /** The whole view. With a host it is the sidebar panel; without one, the popover. */
 function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
-  const { plan, error, loading } = useStore();
+  const { plan, shared, error, loading } = useStore();
   const now = useNow();
   const [opening, setOpening] = useState(false);
 
@@ -122,20 +158,20 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
   const fiveTone: Tone = s?.full ? 'error' : (s?.atReset ?? 0) >= 90 ? 'warning' : 'success';
 
   let forecast: Forecast | null = null;
-  if (week?.rolled) forecast = { icon: 'restart_alt', value: 'New week', note: 'Nothing used yet' };
-  else if (week && p?.full) forecast = { icon: 'trending_up', value: `Runs out ${when(p.full)}`, note: `${span(Date.parse(week.resets) - Date.parse(p.full))} before the reset` };
-  else if (p) forecast = { icon: 'check_circle', value: `Ends near ${Math.round(p.atReset)}%`, note: 'Lasts until the reset' };
+  if (week?.rolled) forecast = { icon: 'restart_alt', value: t.newWeek, note: t.nothingUsed };
+  else if (week && p?.full) forecast = { icon: 'trending_up', value: t.runsOut(when(p.full)), note: t.beforeReset(span(Date.parse(week.resets) - Date.parse(p.full))) };
+  else if (p) forecast = { icon: 'check_circle', value: t.endsNear(Math.round(p.atReset)), note: t.lastsUntilReset };
 
   let fiveForecast: Forecast | null = null;
-  if (s?.full && five?.resets) fiveForecast = { icon: 'trending_up', value: `Runs out ${clock(s.full)}`, note: `${span(Date.parse(five.resets) - Date.parse(s.full))} before the reset` };
-  else if (s) fiveForecast = { icon: 'check_circle', value: `Ends near ${Math.round(s.atReset)}%`, note: 'Lasts until the reset' };
+  if (s?.full && five?.resets) fiveForecast = { icon: 'trending_up', value: t.runsOut(clock(s.full)), note: t.beforeReset(span(Date.parse(five.resets) - Date.parse(s.full))) };
+  else if (s) fiveForecast = { icon: 'check_circle', value: t.endsNear(Math.round(s.atReset)), note: t.lastsUntilReset };
 
   return (
     <div className="up" data-usage-plan>
       <style>{CSS}</style>
       <div className="up-head">
-        <span className="up-title">Usage Plan</span>
-        <button className="up-iconbtn" onClick={refresh} disabled={loading} title="Refresh" aria-label="Refresh">
+        <span className="up-title">{t.title}</span>
+        <button className="up-iconbtn" onClick={refresh} disabled={loading} title={t.refresh} aria-label={t.refresh}>
           <Sym name="refresh" className={loading ? 'up-spin' : ''} />
         </button>
       </div>
@@ -143,17 +179,18 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
       {week && (
         <>
           <div className="up-group">
-            <Limit name="Weekly" sub={week.today == null ? '7-day window' : `7-day window · ${Math.round(week.today)}% today`} used={week.used} resets={week.resets} length={WEEK_MS} tone={tone} now={now} />
-            <PaceCard forecast={forecast} tone={tone} budgetLabel="Daily budget" budget={week.budget} pace={p ? p.perDay : null} unit="a day" />
+            <Limit name={t.weekly} sub={week.today == null ? t.window7 : t.window7Today(Math.round(week.today))} used={week.used} resets={week.resets} length={WEEK_MS} tone={tone} now={now} />
+            <PaceCard forecast={forecast} tone={tone} budgetLabel={t.dailyBudget} budget={week.budget} pace={p ? p.perDay : null} unit={t.unitDay} />
           </div>
           <div className="up-group">
-            <Limit name="Session" sub="5-hour window" used={s ? (five?.used ?? 0) : null} resets={five?.resets} length={FIVE_MS} tone={fiveTone} now={now} />
-            {s && <PaceCard forecast={fiveForecast} tone={fiveTone} budgetLabel="Hourly budget" budget={s.budget} pace={s.perHour} unit="an hour" />}
+            <Limit name={t.session} sub={t.window5} used={s ? (five?.used ?? 0) : null} resets={five?.resets} length={FIVE_MS} tone={fiveTone} now={now} />
+            {s && <PaceCard forecast={fiveForecast} tone={fiveTone} budgetLabel={t.hourlyBudget} budget={s.budget} pace={s.perHour} unit={t.unitHour} />}
           </div>
+          {shared?.setUp && shared.members?.length ? <SharedUse members={shared.members} /> : null}
         </>
       )}
-      {plan && !ok && <div className="up-empty">No plan numbers recorded yet.</div>}
-      {!plan && !error && <div className="up-empty">Loading…</div>}
+      {plan && !ok && <div className="up-empty">{t.noPlan}</div>}
+      {!plan && !error && <div className="up-empty">{t.loading}</div>}
 
       <div className="up-foot">
         {error && <div className="up-error">{error}</div>}
@@ -167,9 +204,9 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
           }}
         >
           <Sym name="open_in_new" />
-          {opening ? 'Opening…' : 'Full dashboard'}
+          {opening ? t.opening : t.fullDashboard}
         </button>
-        {plan?.at && <div className="up-updated">Updated {clock(plan.at)}</div>}
+        {plan?.at && <div className="up-updated">{t.updated(clock(plan.at))}</div>}
       </div>
     </div>
   );
@@ -191,19 +228,19 @@ function UsagePlanGutterButton({ isActive, onActivate }: PanelGutterButtonProps)
   const p = ok ? pace(ok) : null;
   const lines = week
     ? [
-        `Week: ${Math.round(week.used)}% used (resets ${span(Date.parse(week.resets) - now)})`,
-        week.today == null ? '' : `Today: ${Math.round(week.today)}% of the week`,
-        p?.full ? `Runs out ${when(p.full)} at this pace` : p ? `Ends near ${Math.round(p.atReset)}% at this pace` : '',
-        ok?.five?.open ? `Session: ${Math.round(ok.five.used ?? 0)}% used` : '',
+        t.weekUsed(Math.round(week.used), span(Date.parse(week.resets) - now)),
+        week.today == null ? '' : t.todayOfWeek(Math.round(week.today)),
+        p?.full ? t.runsOutAtPace(when(p.full)) : p ? t.endsNearAtPace(Math.round(p.atReset)) : '',
+        ok?.five?.open ? t.sessionUsed(Math.round(ok.five.used ?? 0)) : '',
       ]
-    : ['Usage Plan'];
+    : [t.title];
 
   return (
     <button
       className="nav-button group relative w-9 h-9 flex items-center justify-center border-none rounded-md cursor-pointer transition-all duration-150 p-0 active:scale-95 focus-visible:outline-2 focus-visible:outline-[var(--nim-primary)] focus-visible:outline-offset-2 text-nim-muted hover:bg-nim-tertiary hover:text-nim"
       style={{ position: 'relative', width: 36, height: 36, padding: 0, border: 0, borderRadius: 6, cursor: 'pointer', ...(isActive ? { background: 'var(--nim-bg-tertiary)' } : {}) }}
       title={lines.filter(Boolean).join('\n')}
-      aria-label="Usage Plan"
+      aria-label={t.title}
       aria-pressed={isActive}
       onClick={onActivate}
     >

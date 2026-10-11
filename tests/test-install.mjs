@@ -272,6 +272,18 @@ ok("a hook wired from an older place in ~/.claude is pointed at the installed co
   [[`node "${fwd(path.join(moved, ".claude", "hooks", "handoff-brief.mjs"))}" --hook`], true, true]);
 ok("the run after it repoints nothing", install(moved).out.includes("hook repointed"), false);
 
+// ---- a hook whose example matcher changed: the old matcher is replaced, one the user changed is left alone
+const nudgeEvent = Object.keys(example.hooks).find((e) => JSON.stringify(example.hooks[e]).includes("build-nudge.mjs"));
+const nudgeEntries = (home) => (json(path.join(home, ".claude", "settings.json")).hooks[nudgeEvent] || []).filter((g) => g.hooks.some((h) => h.command.includes("build-nudge.mjs")));
+for (const [name, matcher, want] of [["oldmatch", "Edit|MultiEdit|Write|NotebookEdit|Read|Grep|Glob|WebFetch|WebSearch", "*"], ["ownmatch", "Edit|Write", "Edit|Write"]]) {
+  const home = path.join(tmp, name);
+  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { [nudgeEvent]: [{ matcher,
+    hooks: [{ type: "command", command: `node "${fwd(path.join(home, ".claude", "hooks", "build-nudge.mjs"))}"` }] }] } }));
+  install(home);
+  ok(`build-nudge wired with matcher ${matcher}: it ends as ${want}, in one entry`, [nudgeEntries(home).map((g) => g.matcher), nudgeEntries(home).length], [[want], 1]);
+}
+
 // ---- with Nimbalyst there, the run builds an extension and puts it into Nimbalyst's folder
 if (process.platform === "win32") {
   const themeDist = path.join(REPO, "extensions", "ink-themes", "dist");
@@ -319,11 +331,11 @@ installWith(shellPath, plugHome, "--plugins", "yes");
 ok("the next run only retries the one that failed", toldLines().filter((l) => l.startsWith("plugin install")), ["plugin install context7@claude-plugins-official"]);
 ok("without the claude command the run says so", installWith(emptyPath, path.join(tmp, "no-claude"), "--plugins", "yes").out.includes("plugins not installed: the claude command is not on the PATH"));
 
-// ---- the steps left for a chat are named until one is put on record as done
-ok("the run names the steps left for a chat", /Left for a chat, once.*steps 8 and 9.*--done chat-steps/.test(plug.out));
+// ---- the steps left for a chat are named by the first install only
+ok("the first install names the steps left for a chat", /Left for a chat, once.*steps 8 and 9/.test(plug.out));
+ok("a later run no longer names them, with nothing put on record", [install(plugHome).out.includes("Left for a chat"), "done" in json(path.join(plugHome, ".claude", "setup-state.json"))], [false, false]);
 const marked = install(plugHome, "--done", "chat-steps");
-ok("--done puts them on record and changes nothing else", [marked.out.trim(), json(path.join(plugHome, ".claude", "setup-state.json")).done], ["on record as done: chat-steps", ["chat-steps"]]);
-ok("and the next run no longer names them", install(plugHome).out.includes("Left for a chat"), false);
+ok("--done from an older version's text still only puts them on record", [marked.out.trim(), json(path.join(plugHome, ".claude", "setup-state.json")).done], ["on record as done: chat-steps", ["chat-steps"]]);
 
 // ---- broken settings are left alone
 const broken = path.join(tmp, "broken");

@@ -51,4 +51,4 @@ for (const [name, run] of cases) {
     console.log(`FAIL ${name}: ${(e as Error).message}`);
   }
 }
-process.exit(failed ? 1 : 0);
+process.exitCode = failed ? 1 : 0;

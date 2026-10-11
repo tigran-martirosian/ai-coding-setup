@@ -111,8 +111,12 @@ export const asksUserToRun = (text) => {
 const NEEDS_SESSION =
   /\b(needs?|requires?|has to run in|must run in|only (runs?|works?|loads?) in)\b[^.\n]{0,100}\b(session|skills?|hooks?|MCP|plugins?)\b/i;
 
+// The reply says the prompt is for another person, to use on their own computer: nothing here can reach it
+const OTHER_PERSON =
+  /\b(his|her|their|friend'?s?|other maker'?s?|someone else'?s?|another person'?s?)\s+(own\s+)?(computer|pc|machine|laptop|chat)\b/i;
+
 export const handsOverPrompt = (text) => {
-  if (!text || NEEDS_SESSION.test(text)) return false;
+  if (!text || NEEDS_SESSION.test(text) || OTHER_PERSON.test(text)) return false;
   return codeCandidates(text).some((c) => {
     if (!shellLike(c.code) || !forOtherProject(text, c)) return false;
     return /\b(paste|type|send|give)\b/i.test(text.slice(Math.max(0, c.at - 300), c.at));

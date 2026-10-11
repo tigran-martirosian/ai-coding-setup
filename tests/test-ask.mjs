@@ -58,7 +58,7 @@ check("web: nothing set up: exit 3, the skip explained", r.code === 3 && r.err.i
 r = ask(["read big.txt"], { have: ["codex", "agy"], env: { FAKE_CODEX: "ok", FAKE_AGY: "ok" } });
 check("local: Codex first when it works", r.code === 0 && r.out.includes("codex answer") && !r.out.includes("--search"), show(r));
 r = ask(["read big.txt"], { have: ["codex", "agy"], env: { FAKE_CODEX: "fail", FAKE_AGY: "ok" } });
-check("local: Codex fails, Antigravity takes over and both are named", r.code === 0 && r.out.includes("agy answer: -p read big.txt --mode plan --model")
+check("local: Codex fails, Antigravity takes over and both are named", r.code === 0 && r.out.includes("agy answer: -p ") && r.out.includes("read big.txt --mode plan --model")
   && r.err.includes("codex failed: codex broke") && r.err.includes("answered by Antigravity") && !existsSync(join(r.home, "cooldown.json")), show(r));
 r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "fail" } });
 check("local: no worker answers: exit 3 and Claude is pointed to", r.code === 3 && r.out === "" && r.err.includes("Grep and Read"), show(r));
@@ -72,9 +72,13 @@ check("--think drops Codex's low effort setting", r.code === 0 && !r.out.include
 
 const taskFile = join(root, "task.txt"); writeFileSync(taskFile, "task from a file\n");
 r = ask([taskFile], { have: ["agy"], env: { FAKE_AGY: "ok" } });
-check("a task file is read", r.code === 0 && r.out.includes("-p task from a file --mode"), show(r));
+check("a task file is read", r.code === 0 && r.out.includes("task from a file --mode"), show(r));
+check("Antigravity is told before the task to use its file tools and no shell command",
+  /-p Rules for this run:[\s\S]*Never run a shell command[\s\S]*\n\ntask from a file --mode/.test(r.out), show(r));
 r = ask(['say "hi" $HOME `x`'], { have: ["agy"], env: { FAKE_AGY: "ok" } });
-check("quotes and $ in the task arrive unchanged", r.out.includes('-p say "hi" $HOME `x` --mode'), show(r));
+check("quotes and $ in the task arrive unchanged", r.out.includes('say "hi" $HOME `x` --mode'), show(r));
+r = ask(["read big.txt"], { have: ["codex"], env: { FAKE_CODEX: "ok" } });
+check("Codex gets the task without those rules", r.code === 0 && !r.out.includes("Rules for this run"), show(r));
 
 r = ask([]);
 check("no task: exit 2", r.code === 2, show(r));

@@ -10,6 +10,7 @@ import { run, visible } from './commands';
 import type { Command } from './commands';
 import { installPopover, removePopover } from './popover';
 import { CSS } from './styles';
+import { t } from './strings';
 
 type Api = { invoke: (channel: string, args: unknown) => Promise<unknown> };
 const api = () => (window as unknown as { electronAPI: Api }).electronAPI;
@@ -42,8 +43,8 @@ function CommandsPanel({ host }: Partial<PanelHostProps>) {
     <div className="cb" data-command-buttons>
       <style>{CSS}</style>
       <div className="cb-head">
-        <div className="cb-title">Commands</div>
-        <div className="cb-sub">Each one starts a new session in this project</div>
+        <div className="cb-title">{t.title}</div>
+        <div className="cb-sub">{t.subtitle}</div>
       </div>
       <div className="cb-list">
         {commands.map((c) => {
@@ -55,7 +56,7 @@ function CommandsPanel({ host }: Partial<PanelHostProps>) {
               </span>
               <div>
                 <div className="cb-label">{c.label}</div>
-                <div className="cb-note">{busy === c.id ? 'Starting…' : done ? 'Started: see the sessions list' : c.note}</div>
+                <div className="cb-note">{busy === c.id ? t.starting : done ? t.started : c.note}</div>
               </div>
             </button>
           );

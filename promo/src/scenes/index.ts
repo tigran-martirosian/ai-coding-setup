@@ -10,7 +10,9 @@ import { Handoff } from "./Handoff";
 import { Install } from "./Install";
 import { Intro } from "./Intro";
 import { Lead } from "./Lead";
+import { More } from "./More";
 import { Permission } from "./Permission";
+import { Phone } from "./Phone";
 import { Picture } from "./Picture";
 import { Projects } from "./Projects";
 import { Rules } from "./Rules";
@@ -34,6 +36,7 @@ export const SCENES: SceneEntry[] = [
   { id: "Lead", component: Lead, durationInFrames: 230 },
   { id: "Btw", component: Btw, durationInFrames: 180 },
   { id: "Handoff", component: Handoff, durationInFrames: 230 },
+  { id: "Phone", component: Phone, durationInFrames: 270 },
   { id: "Usage", component: Usage, durationInFrames: 200 },
   { id: "Dashboard", component: Dashboard, durationInFrames: 220 },
   { id: "Projects", component: Projects, durationInFrames: 220 },
@@ -43,6 +46,7 @@ export const SCENES: SceneEntry[] = [
   { id: "Themes", component: Themes, durationInFrames: 300 },
   { id: "Voice", component: Voice, durationInFrames: 180 },
   { id: "Install", component: Install, durationInFrames: 210 },
+  { id: "More", component: More, durationInFrames: 190 },
   { id: "Update", component: Update, durationInFrames: 210 },
   { id: "EndCard", component: EndCard, durationInFrames: 110 },
 ];

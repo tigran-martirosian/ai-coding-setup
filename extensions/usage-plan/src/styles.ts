@@ -56,6 +56,10 @@ export const CSS = `
 .up-error { font-size: 12px; color: var(--nim-error); white-space: pre-wrap; overflow-wrap: anywhere; }
 .up-empty { color: var(--nim-text-muted); }
 .up-group { display: flex; flex-direction: column; gap: 10px; }
+.up-who { display: grid; grid-template-columns: 1fr 40px 40px; align-items: baseline; gap: 4px 8px; }
+.up-col { text-align: right; font-size: 10px; color: var(--nim-text-faint); }
+.up-who-num { text-align: right; font-variant-numeric: tabular-nums; }
+.up-dim { color: var(--nim-text-faint); }
 
 #usage-plan-popover { position: fixed; z-index: 10000; width: 290px; max-height: calc(100vh - 16px); overflow-y: auto;
   border: 1px solid var(--nim-border); border-radius: 12px; background: var(--nim-bg); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); }

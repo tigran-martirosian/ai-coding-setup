@@ -1,6 +1,7 @@
 ---
 name: btw
 description: Add something to, or correct, the task a Claude session is busy with in this same folder, without stopping it — it reads the note before its next step and keeps doing everything else. Use when the user types /btw <note>, or says "tell the other session to also…".
+disable-model-invocation: true
 ---
 
 # Add to or correct the busy session's task

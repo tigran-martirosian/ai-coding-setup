@@ -88,6 +88,10 @@ Each one names: what was seen (the number), the change, what it should move and 
 before offering it: a decision the user made stands unless the number behind it changed, and then the
 option says "decided on <date>, the number is now <x>". At most 12, the largest effect first.
 
+**Sort a repeated correction before offering it.** One that a script can check (a fixed pattern, a
+banned command, where a file goes) is offered as a hook with its test. One that needs judgment is
+offered as a rule. A rule is for what no script can check.
+
 | Kind | Offer it when | Where the number comes from |
 |---|---|---|
 | **Another split between models** (who leads, who does the work) | always, as one question | the what-if table, as it is; say that it assumes the same requests |

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.22",
-  "date": "2026-10-08",
-  "summary": "A real design reference is opened before any design work, in every project."
+  "version": "1.0.41",
+  "date": "2026-10-10",
+  "summary": "/watch works on a Mac with Homebrew: it uses ffmpeg-full, and says so when only the plain ffmpeg is there."
 }

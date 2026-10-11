@@ -3,6 +3,7 @@ import { callBackend } from './bridge';
 import { player, usePlayer } from './player';
 import { DEFAULTS, updateSetting, useSettings, VOICES, type ReadAloudSettings } from './settings';
 import { setAutoRead } from './autoRead';
+import { t } from './strings';
 
 interface WorkerStatus {
   worker: 'stopped' | 'starting' | 'ready' | 'error';
@@ -75,17 +76,16 @@ export function ReadAloudSettingsPanel() {
   return (
     <div style={{ padding: '4px 0', maxWidth: 640 }}>
       <p style={hint}>
-        Reads agent replies aloud with Kokoro running on this computer. Nothing is sent over the network and there are no
-        per-use costs.
+        {t.intro}
       </p>
 
       <div style={row}>
-        <span style={label}>Enable Read Aloud</span>
+        <span style={label}>{t.enable}</span>
         <input type="checkbox" checked={s.enabled} onChange={(e) => set('enabled', e.target.checked)} />
       </div>
 
       <div style={row}>
-        <span style={label}>Hands-free (auto-read)</span>
+        <span style={label}>{t.handsFree}</span>
         <input
           type="checkbox"
           checked={s.autoRead}
@@ -94,23 +94,23 @@ export function ReadAloudSettingsPanel() {
             setAutoRead(e.target.checked);
           }}
         />
-        <span style={hint}>Reads each finished reply and each question aloud. Also: /voice in chat.</span>
+        <span style={hint}>{t.handsFreeHint}</span>
       </div>
 
       <div style={row}>
-        <span style={label}>Voice</span>
+        <span style={label}>{t.voice}</span>
         <select style={btn} value={s.voice} onChange={(e) => set('voice', e.target.value)}>
           {VOICES.map((v) => (
             <option key={v} value={v}>
-              {v === DEFAULTS.voice ? `${v} (default)` : v}
+              {v === DEFAULTS.voice ? `${v} (${t.defaultWord})` : v}
             </option>
           ))}
         </select>
-        <span style={hint}>American English</span>
+        <span style={hint}>{t.voiceHint}</span>
       </div>
 
       <div style={row}>
-        <span style={label}>Speed</span>
+        <span style={label}>{t.speed}</span>
         <input
           type="range"
           min={0.5}
@@ -123,41 +123,41 @@ export function ReadAloudSettingsPanel() {
         <span style={{ ...hint, width: 40 }}>{s.speed.toFixed(2)}x</span>
         {s.speed !== DEFAULTS.speed && (
           <button style={btn} onClick={() => set('speed', DEFAULTS.speed)}>
-            Reset
+            {t.reset}
           </button>
         )}
       </div>
 
       <div style={row}>
-        <span style={label}>Skip code blocks</span>
+        <span style={label}>{t.skipCode}</span>
         <input type="checkbox" checked={s.skipCodeBlocks} onChange={(e) => set('skipCodeBlocks', e.target.checked)} />
       </div>
 
       <div style={row}>
-        <span style={label}>Skip terminal output and diffs</span>
+        <span style={label}>{t.skipTerminal}</span>
         <input type="checkbox" checked={s.skipTerminalOutput} onChange={(e) => set('skipTerminalOutput', e.target.checked)} />
       </div>
 
       <div style={row}>
-        <span style={label}>Local TTS folder</span>
+        <span style={label}>{t.ttsFolder}</span>
         <input style={input} value={dirDraft} onChange={(e) => setDirDraft(e.target.value)} />
         {dirDraft !== s.ttsDirectory && (
           <button style={btn} onClick={() => set('ttsDirectory', dirDraft.trim() || DEFAULTS.ttsDirectory)}>
-            Save
+            {t.save}
           </button>
         )}
       </div>
-      <p style={hint}>Expects venv\Scripts\python.exe, kokoro-v1.0.onnx and voices-v1.0.bin inside this folder.</p>
+      <p style={hint}>{t.folderHint}</p>
 
       <div style={{ ...row, marginTop: 18 }}>
         <button style={btn} disabled={!s.enabled} onClick={() => (testing ? player.stop() : player.play('settings-test', SAMPLE))}>
-          {testing ? 'Stop test' : 'Test voice'}
+          {testing ? t.stopTest : t.testVoice}
         </button>
         <button style={btn} disabled={busy} onClick={() => act('warmup')}>
-          Start worker
+          {t.startWorker}
         </button>
         <button style={btn} disabled={busy} onClick={() => act('shutdown_worker')}>
-          Stop worker
+          {t.stopWorker}
         </button>
       </div>
       {testError && <p style={{ ...hint, color: 'var(--nim-error)' }}>{testError}</p>}
@@ -167,13 +167,13 @@ export function ReadAloudSettingsPanel() {
         {status && (
           <>
             <div>
-              Worker: <b>{status.worker}</b>
-              {status.pid ? ` (pid ${status.pid}, up ${status.uptimeSec}s, ${status.requestsServed} requests)` : ''}
-              {status.loadMs != null ? `, model loaded in ${status.loadMs} ms` : ''}
+              {t.worker}: <b>{status.worker}</b>
+              {status.pid ? t.workerInfo(status.pid, status.uptimeSec, status.requestsServed) : ''}
+              {status.loadMs != null ? t.modelLoaded(status.loadMs) : ''}
             </div>
             {status.missing.map((m) => (
               <div key={m} style={{ color: 'var(--nim-error)' }}>
-                Missing {m}
+                {t.missing(m)}
               </div>
             ))}
             {status.lastError && <div style={{ color: 'var(--nim-error)' }}>{status.lastError}</div>}

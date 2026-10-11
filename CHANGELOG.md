@@ -2,6 +2,98 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.41, October 10, 2026
+
+- **`/watch` on a Mac.** Homebrew's plain `ffmpeg` is built without the filter that writes text on a picture, so `/watch` stopped there with "ffmpeg made no sheets". The Mac run of the tests on GitHub showed it once the workflow installed ffmpeg. The script now uses Homebrew's `ffmpeg-full` when it is installed (Homebrew keeps it off the PATH, so the script looks in its folder), and when only the plain one is there it says what to install: `brew install ffmpeg-full`. The full install does that on a Mac. Nothing changes on Windows.
+
+## Version 1.0.40, October 10, 2026
+
+- **The tests pass on GitHub again.** The last several versions showed a red mark on GitHub for two reasons that were in the tests and not in what you install. On macOS the phone bot's test put the bot's lock, a socket file, at a path longer than the 104 characters macOS allows; the test now uses a short folder and name there. `tests/test-watch.mjs` draws its test video with ffmpeg, which GitHub's machines do not have; the workflow installs it first.
+- **The tour video caught up.** It was last rendered on October 5 and showed none of the week's additions. A new scene shows `/phone-bot` and `/watch`, and another lists `/plan-first`, `/full-review`, the planner agent, `/shared-usage` and the Russian version.
+- **A shorter "What's new" in the README.** The paragraph for October 10 had grown to about 900 words; it now names the main changes and leaves the rest to this file. "What's inside" lists `/watch` and `/shared-usage`.
+- **`docs/full-install.md` says four extensions.** The closing report of the full install still counted three.
+
+## Version 1.0.39, October 10, 2026
+
+- **`build-nudge` counts a session's requests.** The rule from 1.0.38 (the session you talk in leads and does not build) now has a check behind it. Once a main session on Opus or Fable has made 15 requests since your last message, the next tool call carries a note: hand what is left to a helper as small jobs, and put what only this session can do into as few steps as possible. The note comes once per turn and blocks nothing; the call goes through. `BUILD_NUDGE_REQUESTS` changes the number.
+- **The check now runs before every tool call**, not only before edits and lookups, because shell commands count as requests too. `/update-setup` changes that setting for you if you still have the old one; a tool list you changed yourself is left alone.
+
+## Version 1.0.38, October 10, 2026
+
+- **The session you talk in leads; it does not build.** A new rule in `rules/CLAUDE.md`. Every request a session makes re-sends everything in it, so what a session costs is the number of requests times its size. In one project, over one week, 91M of 95M tokens were spent by the main sessions and 4M by their helpers. The session you talk in now writes the brief, reads the helper's report and the diff, and reports to you, in as few requests as it can. It still makes one or two edits itself, and it is not moved to a fresh session only for being long.
+- **Helpers get smaller jobs.** One small job per helper instead of a whole step of a plan, and a budget of about 10 tool calls instead of about 20; a job that needs more is split in two. Eight helpers in one measured session had averaged 1.25M tokens each.
+- **`run-yourself` lets a prompt for another person through.** When a reply hands you a prompt that someone else has to paste on their own computer, the check no longer sends the reply back with "do it yourself": nothing on your computer can reach theirs. Two new cases in `tests/test-run-yourself.mjs`.
+- If you never changed your rules file, `/update-setup` replaces it and keeps a dated copy of the old one. If you did change it, yours is kept and you are told once that a newer version exists.
+
+## Version 1.0.37, October 10, 2026
+
+- **The global rules are half as long.** `rules/CLAUDE.md` went from about 20 KB to about 10 KB. The file is read again at every step of every session, so each step now reads roughly 2,500 fewer tokens. What stayed: every preference, every path and command, and one line for each thing a hook refuses. What went: the explanations of why a rule exists, the lists of which job goes to which helper, and advice a current model follows without being told. In a small test (16 runs of two coding tasks) rules cut even further gave the same results in the same time as the long ones. If you never changed your rules file, `/update-setup` replaces it and keeps a dated copy of the old one. If you did change it, yours is kept and you are told once that a newer version exists.
+
+## Version 1.0.36, October 10, 2026
+
+- **The phone bot's assistant finds Claude Code by itself on Windows.** A message typed to the bot could come back with "the claude program was not found" although Claude Code was installed. The bot looked for `claude.exe` only in the folders on the PATH, so it missed an install whose folder is not on the PATH and one made with npm. It now also looks in `.local\bin` in your home folder and inside npm's folder, and when it finds nothing it says where it looked. `/update-setup` brings the fix; then ask Claude to restart the phone bot, because a running bot keeps the old code.
+
+## Version 1.0.35, October 10, 2026
+
+- **`/watch` starts by itself more often.** Send a video and say to use it as a reference (for a design, a look, a move, a feature) and Claude now reaches for `/watch` without being told. Before, it was only named for questions about what a video says or shows.
+
+## Version 1.0.34, October 10, 2026
+
+- **`/watch`: give Claude a YouTube link or a video file and a question.** A script fetches the subtitles and makes sheets of timed stills, either an overview of the whole video or about 5 stills a second for one stretch. A cheap model reads them, so a video costs a few thousand tokens to look through. It needs ffmpeg; for links it also uses yt-dlp, which it runs through uvx when it is not installed.
+
+## Version 1.0.33, October 10, 2026
+
+- **On a Mac the `/shared-usage` background program starts again after a restart.** It used to come back by itself only on Windows; on a Mac it stayed off after a restart until you ran `ccpool daemon start`, and your usage was counted under "unknown" in the meantime. The command now sets up a launch agent on macOS, through a new script, `skills/shared-usage/logon-start.mjs`, which also writes the Windows start file. If you set it up before this version, type `/shared-usage` once more: it adds the start at log-on and shows the view. Tested on Windows; the macOS part was checked in a dry run, not on a Mac. On Linux you still start it yourself after a restart.
+
+## Version 1.0.32, October 10, 2026
+
+- **The phone bot shows buttons for every question with options.** A session can ask through two tools, Claude Code's own and Nimbalyst's. Nimbalyst reports only the first to outside programs, so a question asked through the second reached the phone as "a form, answer it at the computer". The bot now also reads the waiting question from the session's Claude Code transcript on your computer, and the buttons answer it the same way. A form with tick boxes or text fields still has to be answered at the computer.
+
+## Version 1.0.31, October 10, 2026
+
+- **`/phone-bot`: your own Telegram bot that saves what you send from the phone and talks to your sessions.** You create the bot in Telegram (@BotFather, `/newbot`) and paste its token; a small program on your computer does the rest and starts again at log-on. Photos, files, links, notes, albums and voice notes sent to the bot are saved in `~/phone-inbox`, and `/phone` in any session looks at them. Plain text is a chat with Claude Haiku on your own subscription, about 1,500 tokens a message. It can pass a request to a Nimbalyst session or start a new one, always after a tap on Send, and the session's answer comes back to the phone. When a session asks a question with options, or asks for permission to run something, the options arrive as buttons and a tap answers it; a typed reply to that message works too. A form with tick boxes or text fields still has to be answered at the computer, so a prompt sent from the phone asks the session to use plain option questions. Only the first person who writes to the bot can use it. What you send passes through Telegram's servers; files, the token and the inbox stay on your computer. Voice notes become text when `uv` is installed. The command starts only when you type it. Tested on Windows; the start at log-on for macOS is written but was not tested on a Mac.
+
+## Version 1.0.30, October 10, 2026
+
+- **The usage pop-up shows who used how much.** On a computer where `/shared-usage` was set up, the pop-up behind the usage ring gets one more block, "Who used it": a row per person with their share of the 5-hour and the weekly limit, and a "Not counted" row for usage from before the setup or from claude.ai. The numbers come from `ccpool status`, read by a new script, `skills/usage-report/shared-usage.mjs`. Without ccpool the pop-up looks as before. Restart Nimbalyst once after the update.
+
+## Version 1.0.29, October 10, 2026
+
+- **`/shared-usage`: who used how much of a shared subscription.** Claude shows one number for the whole account. When more than one person works on it, `/shared-usage` sets up [ccpool](https://github.com/hexxt-git/ccpool), someone else's open-source tool, which splits the 5-hour and weekly limits per person. The command installs it, asks for your name, the group password and a password of your own, joins the group and, on Windows, makes its background program start at log-on. Each person types the command on their own computer with the same group password. It says before it starts what leaves the computer: token counts per reply, the model name, the limit percentages and your name go to the tool author's server; chat text, file names and the Claude login do not. Usage is counted from the moment it runs. The command starts only when you type it.
+
+## Version 1.0.28, October 10, 2026
+
+- **A language choice, English or Russian.** `/update-setup` asks once which language you want; `/update-setup russian` or `/update-setup english` changes it later without a question. With Russian, Claude answers in Russian in every chat (`"language": "russian"` in `settings.json`, and Nimbalyst's preferred language), and the setup's own extensions are built with Russian text: the command buttons, the usage panel with its dates and units, and the read-aloud controls and settings. Restart Nimbalyst once after a change. A first install asks in its opening form, or takes `install.mjs --language russian`. Nimbalyst's own menus and the voices of read-aloud stay as they are, and the session a command button starts is named in the chosen language. Because the language is now part of what the installer compares, every extension is rebuilt once on the first update to this version.
+
+## Version 1.0.27, October 10, 2026
+
+Three rules that came out of a `/full-review` of one week.
+
+- **Tests and automation run out of your sight.** A game window or a browser used only to check the agent's own work no longer opens on your screen: it runs headless, in the background or in Nimbalyst's own browser. A window opens only for something you have to click or asked to see.
+- **Your own projects are read before they are described.** When the agent writes about how one of your projects or tools works, also when the job is only to reword a sentence, it opens that project's files first. In the measured week the same sentence about a tool was rewritten five times from a guess.
+- **A helper that used up its turns is not sent on.** The `worker` helper stops after 25 turns, but a follow-up message gave it 25 more on top of everything it had gathered: one run made 49 requests. The agent now takes the report and briefs a fresh helper for what is left.
+
+## Version 1.0.26, October 10, 2026
+
+- **The free Gemini worker answers when asked to read files.** A task that named several files often came back with no answer and the message "a tool required the command permission". The cause: run without a window, Antigravity cannot ask for a permission, so the first shell command the model tries (it reached for one just to list the folder) is refused, and that ends the whole run. `ask.mjs` now tells it before the task to use its own file tools and no shell command. On the same four files the call failed 3 times out of 3 before and answered 5 times out of 5 after.
+
+## Version 1.0.25, October 10, 2026
+
+- **An update is quiet.** `/update-setup` used to finish the steps a script can't do whenever they were not on record as done: it opened the four project folders in Nimbalyst again, asked which theme you want and asked about voice typing, also on a computer where all of that was set up long ago. Now only the first install names those steps. A computer that has a version on record gets its files updated and nothing else: no folder is opened and nothing is asked about the theme, the default model or voice typing.
+- **The first install leaves a Handy that is already there alone.** When Handy was installed before the setup, the install no longer walks you through its first-start setup or rewrites its settings.
+
+## Version 1.0.24, October 10, 2026
+
+- **Commands you always type no longer take up room in every session.** `/plan-first`, `/ask` and `/btw` now start only when you type them (`disable-model-invocation: true`), so their descriptions are not loaded into each session. Typing the command works as before.
+
+## Version 1.0.23, October 10, 2026
+
+Three small additions taken from reading Matt Pocock's [skills](https://github.com/mattpocock/skills).
+
+- **The reviewer in `/lead` reports under two headings.** "Against the request" lists what is missing, what was built that nobody asked for and what looks wrong; "Quality" lists what the checks found. The lead keeps the two apart, because a piece can pass one and fail the other.
+- **A handoff brief carries no secrets and names the skills to use next.** In the summary a key, token or password is written as `<REDACTED>`, since another model may read the brief.
+- **`/full-review` sorts a repeated correction before offering it.** One that a script can check is offered as a hook with its test; one that needs judgment is offered as a rule.
+
 ## Version 1.0.22, October 8, 2026
 
 - **A real reference before design work.** One rule added in `rules/CLAUDE.md`: before designing or redesigning anything a person looks at (a page, an app screen, a README, the look of a video), the agent opens one real reference and says which one it used. Three are named: Component Gallery (how real design systems build one element), Refero Styles (the type and colour of real products) and DESIGNmd (a design system as one `DESIGN.md` file to drop into the project). Nothing to install.

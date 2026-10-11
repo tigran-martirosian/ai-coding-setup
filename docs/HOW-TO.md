@@ -140,6 +140,29 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   and starts only after your yes.
 - **`/next-move`:** names the one most useful thing to do next. It reads your goals from
   `~/.claude/goals.md`, so write a few lines there first (what you want to reach this year).
+- **`/watch`: you have a video.** Give Claude a YouTube link or a video file and a question. A script fetches the subtitles and makes sheets of timed stills (an overview of the whole video, or about 5 stills a second for one stretch); a cheap model reads them, so a video costs a few thousand tokens to look through. Needs ffmpeg.
+- **`/shared-usage`: more than one person works on the subscription.** It sets up
+  [ccpool](https://github.com/hexxt-git/ccpool), someone else's open-source tool, and shows how much of
+  the limits each person used. It asks for your name and two passwords. Each person types the command on
+  their own computer with the same group password. The token counts go to the tool author's server;
+  chat text and file names stay on your computer. Its background program starts with the computer on
+  Windows and macOS.
+
+## From your phone
+
+- **`/phone-bot`: your own Telegram bot on your computer.** Claude walks you through making the bot
+  in Telegram (@BotFather) and starts it here. It starts again at log-on. Only the first person who
+  writes to it becomes its owner; everyone else is ignored.
+- **What you can send:** photos, files, links, notes, albums and voice notes. Each is saved in
+  `~/phone-inbox`, with one line per item in `index.md`. Voice notes become text when `uv` is installed.
+- **Commands in the bot:** `/help`, `/last [n]` (the latest items), `/undo` (remove the last one),
+  `/new` (the chat starts afresh) and `/chat on|off` (off means save only).
+- **Plain text is a chat.** Claude Haiku answers on your own subscription. It can hand a request to
+  a Nimbalyst session, but only after you tap Send.
+- **Questions from a session** (a choice or a permission prompt) appear as buttons in Telegram. A form
+  still has to be answered at the computer.
+- **`/phone`:** in any session, looks at what you sent from the phone and carries on with it.
+- **To stop:** `node ~/.claude/skills/phone-bot/setup.mjs --remove`. Your inbox folder stays.
 
 ## How much of the plan is used
 

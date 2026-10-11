@@ -9,7 +9,9 @@
 //      memory and handoff notes) are not counted and never denied.
 //   2. Lookups: a read, search or page fetch that comes after BUILD_NUDGE_LOOKUPS (4) lookup-only steps
 //      in a row is denied once, pointing to the free worker or a Haiku subagent.
-// Each reminder comes once per turn: repeating the call goes through. Calls sent together with the
+//   3. Requests: once the turn has BUILD_NUDGE_REQUESTS (15) steps with tool calls, the next tool call of any
+//      kind gets a note, once per turn. It is not a denial: the call goes through.
+// Reminders 1 and 2 come once per turn: repeating the call goes through. Calls sent together with the
 // denied one (within BUILD_NUDGE_WINDOW_MS, 3000) are denied with it. Subagents and sessions on a
 // cheaper model are left alone. It only sees about the last 400 KB of the transcript.
 // Fails open: any problem lets the call through silently. BUILD_NUDGE=off disables it.
@@ -19,6 +21,7 @@ import path from "node:path";
 
 const EDITS = Number(process.env.BUILD_NUDGE_EDITS) || 3;
 const LOOKUPS = Number(process.env.BUILD_NUDGE_LOOKUPS) || 4;
+const REQUESTS = Number(process.env.BUILD_NUDGE_REQUESTS) || 15;
 const WINDOW_MS = Number(process.env.BUILD_NUDGE_WINDOW_MS ?? 3000);
 const TAIL_BYTES = 400 * 1024;
 const EDIT_TOOLS = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
@@ -53,6 +56,11 @@ const LOOKUP = (n) => [
   `If more gathering is still to come, hand it over in one go: the free worker (~/.claude/workers/ask.mjs "<question, with the files or folders named>"), or a subagent with subagent_type "worker" and model "haiku" given the question, where to look and a short answer format with paths and line numbers.`,
   `If this is the last lookup or two, or you need the exact text in front of you, repeat the call and it goes through. This reminder comes once per turn.`,
 ].join("\n");
+const REQUEST = (n) => [
+  `[build-nudge] This turn has already made ${n} requests on the main model, and each one re-sends the whole conversation.`,
+  `The session the user talks in leads; it does not build. If work is still to come, hand it over as small jobs, one per helper: subagent_type "worker" (Sonnet, or model "haiku" for mechanical work) with the files, the exact structure to write, what must not change, the one check that proves it and a budget of about 10 tool calls. Gathering goes to the free worker (~/.claude/workers/ask.mjs).`,
+  `What only this session can do (reading a report and the diff, the final check, the reply) goes into as few steps as possible: send independent tool calls together. This note comes once per turn and blocks nothing.`,
+].join("\n");
 
 try {
   if ((process.env.BUILD_NUDGE || "").toLowerCase() === "off") process.exit(0);
@@ -60,7 +68,6 @@ try {
   if (event.agent_id) process.exit(0);
   const name = event.tool_name;
   const kind = isBuildEdit(name, event.tool_input) ? "build" : LOOKUP_TOOLS.includes(name) ? "lookup" : null;
-  if (!kind) process.exit(0);
   if (!event.transcript_path || !fs.existsSync(event.transcript_path)) process.exit(0);
 
   // The steps after the last real user message, and the model of the latest reply
@@ -83,8 +90,7 @@ try {
   const all = [...steps.values()].filter((s) => s.length);
   let count = 0;
   if (kind === "build") count = all.filter((s) => s.some((t) => isBuildEdit(t.name, t.input))).length;
-  else for (let i = all.length - 1; i >= 0 && all[i].every((t) => LOOKUP_TOOLS.includes(t.name)); i--) count++;
-  if (count < (kind === "build" ? EDITS : LOOKUPS)) process.exit(0);
+  else if (kind === "lookup") for (let i = all.length - 1; i >= 0 && all[i].every((t) => LOOKUP_TOOLS.includes(t.name)); i--) count++;
 
   // Once per turn; calls sent together with the denied one are denied with it
   const dir = path.join(os.tmpdir(), "build-nudge");
@@ -92,14 +98,28 @@ try {
   const file = path.join(dir, `${String(event.session_id || "none").replace(/[^\w-]/g, "")}.json`);
   let state = {};
   try { state = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
-  const last = state[kind];
   // A long turn pushes the user's message out of the tail: then an earlier reminder counts as this turn's
-  const sameTurn = !!last && (last.turn === turn || turn === "cut");
-  if (sameTurn && Date.now() - last.at >= WINDOW_MS) process.exit(0);
-  if (!sameTurn) fs.writeFileSync(file, JSON.stringify({ ...state, [kind]: { turn, at: Date.now() } }));
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: (kind === "build" ? BUILD : LOOKUP)(count) },
-  }));
+  const sameTurnAs = (last) => !!last && (last.turn === turn || turn === "cut");
+
+  if (kind && count >= (kind === "build" ? EDITS : LOOKUPS)) {
+    const last = state[kind];
+    const sameTurn = sameTurnAs(last);
+    if (!sameTurn || Date.now() - last.at < WINDOW_MS) {
+      if (!sameTurn) fs.writeFileSync(file, JSON.stringify({ ...state, [kind]: { turn, at: Date.now() } }));
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: (kind === "build" ? BUILD : LOOKUP)(count) },
+      }));
+      process.exit(0);
+    }
+  }
+
+  // Requests: a note, never a denial
+  if (all.length >= REQUESTS && !sameTurnAs(state.requests)) {
+    fs.writeFileSync(file, JSON.stringify({ ...state, requests: { turn, at: Date.now() } }));
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: REQUEST(all.length) },
+    }));
+  }
 } catch {
   // Fail open
 }
