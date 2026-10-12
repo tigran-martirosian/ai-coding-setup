@@ -15,7 +15,7 @@ For Claude: the user ran one command and expects the rest to happen by itself. D
 2. **Never lose the user's own config.** `install.mjs` and `scripts/app-settings.mjs` merge and keep dated copies. Where you edit a file by hand, keep a copy too.
 3. **If something fails,** try once more with an obvious fix, then note it for step 10 and go on. The one exception is Node in step 2: without it nothing here works.
 4. **One short line to the user per step**, in the language they write in. No long explanations until step 10.
-5. From step 3 on, a hook wants every shell command to end with an empty line and then a last line that starts with `# WHAT THIS DOES: ` and says in plain words what the command does. In Nimbalyst it also wants commands short (about 7 lines) and run with the Bash tool. Write your commands that way from the start.
+5. From step 3 on, a hook wants every shell command to end with an empty line and then a last line that starts with `# WHAT THIS DOES: ` and says in plain words what the command does. In Nimbalyst it also wants commands run with the Bash tool, not the PowerShell tool. Write your commands that way from the start.
 6. **No git in the user's projects.** Git is installed only because the plugin installer downloads with it.
 7. On a Mac, **never use `sudo` yourself**: your shell can't show a password prompt.
 

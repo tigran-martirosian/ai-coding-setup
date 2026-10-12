@@ -1,5 +1,5 @@
 {
-  "version": "1.0.50",
-  "date": "2026-10-11",
-  "summary": "What you type into a form outweighs what you tick, and a brief for a helper has to quote your words before it calls something decided."
+  "version": "1.0.52",
+  "date": "2026-10-12",
+  "summary": "The global rules are about 280 tokens shorter, checked by a 60-run answer-quality test that found no drop."
 }

@@ -2,13 +2,12 @@
 // context-guard: UserPromptSubmit and Stop hook. Every tool call re-sends the whole conversation, so
 // in a big session a one-line edit costs as much as the context (measured 2026-09-30: 109 small edits
 // at 274-485k context cost 35M tokens for a font, a background and some copy).
-// It only WARNS. The one rule that stops a session lives in turn-cap (after 15 steps at over 100k tokens
-// the session is cut and restarts from a note in ~/.claude/handoffs/); until 2026-10-11 this hook also
-// held the reply at 200k and ordered an automatic handoff, which turn-cap then refused (its Bash step).
+// It only WARNS and never stops a session; until 2026-10-11 this hook also held the reply at 200k and
+// ordered an automatic handoff.
 //   UserPromptSubmit: when the last context is over the limit (CONTEXT_GUARD_K, default 150 = 150k
 //     tokens), it warns the user and tells Claude to batch the work. Silent for /commands.
 //   Stop: when a reply ends over the warning limit (CONTEXT_GUARD_AUTO_K, default 200), it shows the
-//     user one line with turn-cap's rule. Once per session, then again every further 100k. Silent when
+//     user one line about the size. Once per session, then again every further 100k. Silent when
 //     this turn already handed off. CONTEXT_GUARD_AUTO=off silences that line.
 // Fails open. CONTEXT_GUARD=off disables it.
 import fs from "node:fs";
@@ -18,8 +17,8 @@ import path from "node:path";
 const LIMIT_K = Number(process.env.CONTEXT_GUARD_K) || 150;
 const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || 200;
 const AUTO = process.env.CONTEXT_GUARD_AUTO !== "off";
-// turn-cap's rule, in plain words (the numbers are turn-cap's SESSION_STEPS and SESSION_K)
-const RULE = "after 15 more steps at over 100k the session is cut; write the restart note into ~/.claude/handoffs/ and spawn a CHILD JOB session.";
+// What the warnings tell Claude to do, in plain words
+const RULE = "keep the steps few and batch the changes.";
 
 // The last lines of the transcript (up to 4 MB)
 function tail(file) {
@@ -80,7 +79,7 @@ process.stdin.on("end", () => {
       mark();
       if (handedOffThisTurn(lines)) return;
       process.stdout.write(JSON.stringify({
-        systemMessage: `[context-guard] This session holds ~${k}k tokens, and every further message re-sends all of it. turn-cap's rule: ${RULE}`,
+        systemMessage: `[context-guard] This session holds ~${k}k tokens, and every further message re-sends all of it. Tip: ${RULE}`,
       }));
       return;
     }
@@ -94,10 +93,10 @@ process.stdin.on("end", () => {
     if (AUTO && k >= AUTO_K) {
       context.push(done
         ? `- The user was already warned at ~${handedAt}k and kept going here; don't raise it again unless they ask.`
-        : `- This session is past ${AUTO_K}k. turn-cap's rule: ${RULE} Don't open a new session on your own for this; just keep the steps few.`);
+        : `- This session is past ${AUTO_K}k. Tip: ${RULE} Don't open a new session on your own for this.`);
     }
     process.stdout.write(JSON.stringify({
-      systemMessage: `Context is ~${k}k tokens: every step re-sends all of it.${AUTO ? ` Past ${AUTO_K}k, turn-cap cuts a long run of steps and the work restarts in a fresh session.` : " For tweaks or new work, /compact or a new session is much cheaper."}`,
+      systemMessage: `Context is ~${k}k tokens: every step re-sends all of it.${AUTO ? ` Past ${AUTO_K}k, batch the work into few steps.` : " For tweaks or new work, /compact or a new session is much cheaper."}`,
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context.join("\n") },
     }));
   } catch {

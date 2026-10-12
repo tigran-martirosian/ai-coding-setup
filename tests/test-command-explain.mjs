@@ -44,16 +44,11 @@ const cases = [
   ["Nimbalyst: PowerShell with a note is denied", B(`Get-ChildItem${NOTE}`, "PowerShell"), "Bash tool", NIMBALYST],
   ["Nimbalyst without Git Bash: PowerShell with a note passes", B(`Get-ChildItem${NOTE}`, "PowerShell"), false, { ...NIMBALYST, COMMAND_EXPLAIN_BASH: "no" }],
   ["Nimbalyst without Git Bash: bare PowerShell is denied", B("Get-ChildItem", "PowerShell"), MISSING, { ...NIMBALYST, COMMAND_EXPLAIN_BASH: "no" }],
-  ["Nimbalyst: a 14-line command is denied", B(`${echoes(12)}${NOTE}`), "too long", NIMBALYST],
-  ["Nimbalyst: one 1000-character line is denied", B(`echo ${"x".repeat(1000)}${NOTE}`), "too long", NIMBALYST],
-  ["Nimbalyst: 7 lines in all pass", B(`${echoes(5)}${NOTE}`), false, NIMBALYST],
-  ["Nimbalyst: 8 lines in all are denied", B(`${echoes(6)}${NOTE}`), "too long", NIMBALYST],
-  ["Nimbalyst: the too-long message says the command gets 5 lines", B(`${echoes(6)}${NOTE}`), "the command itself gets 5", NIMBALYST],
-  ["Nimbalyst: the too-long message gives the two steps", B(`${echoes(6)}${NOTE}`), "with the Write tool; 2. run that file", NIMBALYST],
-  ["Nimbalyst: the too-long message shows the file-first example", B(`${echoes(6)}${NOTE}`), "# WHAT THIS DOES: Runs the saved script that does X", NIMBALYST],
-  ["Nimbalyst: one 300-character line passes", B(`echo ${"x".repeat(300)}${NOTE}`), false, NIMBALYST],
-  ["Nimbalyst: COMMAND_EXPLAIN_LINES raises the limit", B(`${echoes(12)}${NOTE}`), false, { ...NIMBALYST, COMMAND_EXPLAIN_LINES: "20" }],
-  ["Nimbalyst: a long command with no note gets the note message first", B(echoes(12)), MISSING, NIMBALYST],
+  ["Nimbalyst: a 14-line command with a note passes (no line limit)", B(`${echoes(12)}${NOTE}`), false, NIMBALYST],
+  ["Nimbalyst: a 200-line command with a note passes", B(`${echoes(198)}${NOTE}`), false, NIMBALYST],
+  ["Nimbalyst: one 1000-character line with a note passes", B(`echo ${"x".repeat(1000)}${NOTE}`), false, NIMBALYST],
+  ["Nimbalyst: a heredoc script followed by a note passes", B(`node - <<'EOF'\n${echoes(20)}\nEOF${NOTE}`), false, NIMBALYST],
+  ["Nimbalyst: a long command with no note is denied", B(echoes(12)), MISSING, NIMBALYST],
 ];
 let fail = 0;
 for (const [name, input, deny, env] of cases) {

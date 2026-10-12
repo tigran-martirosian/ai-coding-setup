@@ -4,21 +4,17 @@
 // to the user who has to allow it. Every command must therefore end with one comment line that says
 // in plain words what it does. The note goes last, never first: Nimbalyst builds its "Always allow"
 // rule from the command's first word, and a leading "#" would turn that into "allow everything".
-// Inside Nimbalyst two more things would hide the note, so they are blocked as well (2026-10-01):
-// - the popup's command box shows about 7 lines of about 120 characters and then scrolls (read off
-//   a screenshot), so a longer Bash command pushes its last line out of sight
-//   (COMMAND_EXPLAIN_LINES and COMMAND_EXPLAIN_WIDTH change the estimate);
-// - for the PowerShell tool the popup shows only the word "PowerShell", so that tool is blocked when
-//   the Bash tool can be used instead (COMMAND_EXPLAIN_BASH=yes|no overrides the check for Git Bash).
+// Inside Nimbalyst the popup shows only the word "PowerShell" for the PowerShell tool, so that tool
+// is blocked when the Bash tool can be used instead (COMMAND_EXPLAIN_BASH=yes|no overrides the check
+// for Git Bash) (2026-10-01).
 // The popup draws the note in the same font and colour as the command, so it read as more code.
 // It therefore has to follow an empty line and start with "# WHAT THIS DOES:" (2026-10-01).
+// There is no limit on a command's length: the limit of 7 popup lines (2026-10-01) was taken out on
+// 2026-10-12, after it made 295 of the hook's 335 refusals in 8 days.
 // The hook only blocks; it never changes a command. Added 2026-09-30.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-
-const MAX_LINES = Number(process.env.COMMAND_EXPLAIN_LINES) || 7;
-const WIDTH = Number(process.env.COMMAND_EXPLAIN_WIDTH) || 120;
 
 const deny = (reason) => process.stdout.write(JSON.stringify({
   hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `command-explain: ${reason}` },
@@ -65,20 +61,6 @@ try {
       `Example:\nnpm install && npm test\n\n# WHAT THIS DOES: Installs the project's packages, then runs its tests. Changes only node_modules.`,
     );
     process.exit(0);
-  }
-
-  if (event.tool_name === "Bash" && inNimbalyst) {
-    const shown = lines.reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / WIDTH)), 0);
-    if (shown > MAX_LINES) {
-      deny(
-        `this command is too long: it takes about ${shown} lines in the permission popup, which shows about ${MAX_LINES} before it scrolls, ` +
-        `so the explanation on the last line would be hidden. The empty line and the note take 2 of the ${MAX_LINES}, so the command itself gets ${MAX_LINES - 2} ` +
-        `(a line over ${WIDTH} characters counts as more than one). Do it in two steps: 1. save the script or the long text to a file with the Write tool; ` +
-        `2. run that file with one short command, then the empty line and the "# WHAT THIS DOES: " line. Don't trim the command line by line and try again. ` +
-        `Next time decide before the first try: a heredoc, a script with its own line breaks, or a python -c / node -e that spans more than one line goes into a file first. ` +
-        `Example: Write tool: save the script as ~/.claude/tmp/job.mjs. Then Bash, two lines and the note:\nnode ~/.claude/tmp/job.mjs\n\n# WHAT THIS DOES: Runs the saved script that does X; changes only Y.`,
-      );
-    }
   }
 } catch {
   process.exit(0);

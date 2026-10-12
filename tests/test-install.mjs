@@ -272,17 +272,24 @@ ok("a hook wired from an older place in ~/.claude is pointed at the installed co
   [[`node "${fwd(path.join(moved, ".claude", "hooks", "handoff-brief.mjs"))}" --hook`], true, true]);
 ok("the run after it repoints nothing", install(moved).out.includes("hook repointed"), false);
 
-// ---- a hook whose example matcher changed: the old matcher is replaced, one the user changed is left alone
-const nudgeEvent = Object.keys(example.hooks).find((e) => JSON.stringify(example.hooks[e]).includes("build-nudge.mjs"));
-const nudgeEntries = (home) => (json(path.join(home, ".claude", "settings.json")).hooks[nudgeEvent] || []).filter((g) => g.hooks.some((h) => h.command.includes("build-nudge.mjs")));
-for (const [name, matcher, want] of [["oldmatch", "Edit|MultiEdit|Write|NotebookEdit|Read|Grep|Glob|WebFetch|WebSearch", "*"], ["ownmatch", "Edit|Write", "Edit|Write"]]) {
-  const home = path.join(tmp, name);
-  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
-  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { [nudgeEvent]: [{ matcher,
-    hooks: [{ type: "command", command: `node "${fwd(path.join(home, ".claude", "hooks", "build-nudge.mjs"))}"` }] }] } }));
-  install(home);
-  ok(`build-nudge wired with matcher ${matcher}: it ends as ${want}, in one entry`, [nudgeEntries(home).map((g) => g.matcher), nudgeEntries(home).length], [[want], 1]);
-}
+// ---- hooks the setup switched off (build-nudge, turn-cap): the entry goes, a script from another folder stays
+const wiredText = JSON.stringify(example.hooks);
+ok("the example settings wire neither build-nudge nor turn-cap", [wiredText.includes("build-nudge.mjs"), wiredText.includes("turn-cap.mjs")], [false, false]);
+const off = path.join(tmp, "retired");
+fs.mkdirSync(path.join(off, ".claude"), { recursive: true });
+const ownTurnCap = "node /elsewhere/turn-cap.mjs";
+fs.writeFileSync(path.join(off, ".claude", "settings.json"), JSON.stringify({ hooks: {
+  PreToolUse: [
+    { matcher: "*", hooks: [{ type: "command", command: "node ~/.claude/hooks/build-nudge.mjs", timeout: 5 }] },
+    { matcher: "*", hooks: [{ type: "command", command: `node "${fwd(path.join(off, ".claude", "hooks", "turn-cap.mjs"))}"`, timeout: 10 },
+      { type: "command", command: ownTurnCap }] },
+  ] } }));
+const offRun = install(off);
+const offCmds = commandsIn(json(path.join(off, ".claude", "settings.json")));
+ok("an install that had the two wired loses both entries, and says so",
+  [offCmds.some((c) => c.includes("build-nudge.mjs")), offCmds.some((c) => c.includes(".claude/hooks/turn-cap.mjs")), offCmds.includes(ownTurnCap), offRun.out.includes("hook removed: PreToolUse")],
+  [false, false, true, true]);
+ok("the run after it removes nothing", install(off).out.includes("hook removed"), false);
 
 // ---- with Nimbalyst there, the run builds an extension and puts it into Nimbalyst's folder
 if (process.platform === "win32") {

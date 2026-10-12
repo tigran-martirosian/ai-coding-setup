@@ -7,14 +7,9 @@ description: Act as the lead/parent session in Nimbalyst — break a substantial
 
 You own the outcome. Children do pieces; you plan, route, judge and verify. Needs Nimbalyst's `spawn_session` tool — if it's missing (plain terminal), do the work yourself or with Agent subagents instead.
 
-## 1. Decide whether to split (default: don't)
+## 1. What goes to a child (a whole separate job)
 
-Split only if at least one is true:
-- two or more parts are **independent** and touch different files, so each can be one small job in a fresh session;
-- a part needs a lot of its own reading (research, asset hunting, a big audit) that would bloat this session;
-- the work needs an **independent reviewer** (meaningful code/design changes).
-
-Don't split if you could finish in a few minutes, or if explaining the job costs more than doing it. A child is a full session that starts cold (~30–60k tokens of base context), so each one must earn that. One-shot lookups go to a cheap outside worker such as the Codex command-line tool, not a child.
+The session the user talks in builds. A child gets a whole workstream of a big request: one with its own files and its own check (about 20 steps), started fresh, which this session does not have to watch. Pieces of the job in hand stay here. One-shot lookups still go to the free worker (see CLAUDE.md), not a child.
 
 ## 2. Set up the parent
 
@@ -55,9 +50,9 @@ Use `spawn_session` with `notifyOnComplete: true` and a short `title`. The brief
 - **Budget:** keep tool calls lean; stop and report if blocked instead of guessing.
 
 Rules:
-- Model: the thinking (the plan, the design, the diagnosis, the final review) is done in this session before any child starts; children build. Every child gets `claude-code:sonnet` with `effortLevel` `medium`, or `claude-code:haiku` with `low` for mechanical jobs. A child with no `model` gets the app default, Opus, and the turn-cap hook refuses it, as it refuses Opus, Fable and `high`; a child whose job is itself a judgment (how a model or an animation looks) gets them with an `OPUS BECAUSE: <reason>` line in its prompt.
+- Model: the thinking (the plan, the design, the diagnosis, the final review) is done in this session before any child starts; children build. Every child gets `claude-code:sonnet` with `effortLevel` `medium`, or `claude-code:haiku` with `low` for mechanical jobs. A child with no `model` gets the app default, Opus, so always name the model; a child whose job is itself a judgment (how a model or an animation looks) gets Opus with an `OPUS BECAUSE: <reason>` line in its prompt.
 - Unrelated side jobs: `isolated: true`, so they don't join this workstream.
-- Children run one after the other: start the next when the previous one has reported. Side by side, each pays a full start and re-reads the same files, and the turn-cap hook refuses a second helper while the first runs (`TURN_CAP_HELPERS` raises the limit; with a higher limit, two children still never edit the same file at the same time).
+- Children run one after the other: start the next when the previous one has reported. Side by side, each pays a full start and re-reads the same files, and two children never edit the same file at the same time.
 
 ## 4. Coordinate
 

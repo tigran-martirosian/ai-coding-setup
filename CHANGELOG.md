@@ -2,6 +2,19 @@
 
 What changed, newest first, and what it gives you.
 
+## Version 1.0.52, October 12, 2026
+
+- **The global rules are about 280 tokens shorter.** Four passages are tighter: the gathering section (one paragraph and two bullets instead of a paragraph and five bullets), the `worker` line, the "keep the global setup small" line and the list of commands to suggest. Before cutting, an answer-quality test replayed 20 prompts where an answer had once gone wrong, 3 runs each, headless: the shorter file passed 60 of 60, the file before it 59 of 60. The cases are one-prompt replays and easy, so the test shows no drop, not an improvement. Cost per run was $0.138 against $0.153.
+
+
+## Version 1.0.51, October 12, 2026
+
+- **`turn-cap` and `build-nudge` are switched off.** Measured on one person's chats over 8 days: a day with the step cap on cost 264.4M tokens for 66 commits, the day before without it 250.6M tokens for 120 commits, so the cap did not make the work cheaper. `settings.example.json` no longer wires them, and the installer and `/update-setup` take the two entries out of an existing `settings.json` (an entry that points at a script of the same name in another folder is left alone). The hook files and their tests stay in the repo, so you can wire them again by hand
+- **The session you talk in builds again.** The delegation rule in the global rules and the `lead` skill now say: a helper gets gathering, or a whole separate job with its own files and its own check, about 20 tool calls, which the session does not have to watch; pieces of the job in hand stay in the session. The rules no longer say the talking session only leads, and `/lead` no longer names a cap or a limit on helpers running at once
+- **`command-explain` has no length limit.** The limit of about 7 popup lines made 295 of the hook's 335 refusals in the same 8 days. The explanation line at the end of every command stays required, and in Nimbalyst the PowerShell tool is still refused when the Bash tool can be used. The rule "the command itself gets five lines at most" is gone from the global rules; `COMMAND_EXPLAIN_LINES` and `COMMAND_EXPLAIN_WIDTH` do nothing any more
+- **`context-guard` has no turn-cap wording.** Its warnings at 150k and 200k tokens now end with the tip to keep the steps few and batch the changes
+- Tests: `tests/test-command-explain.mjs` follows the hook (no length cases), `tests/test-install.mjs` checks that the two entries are removed, the user's own script of the same name stays and a second run removes nothing
+
 ## Version 1.0.50, October 11, 2026
 
 - **A tick no longer counts as a decision against your own words.** A new rule, "Read the whole answer": in a form answer, what you typed outweighs what you ticked. A tick that goes against your typed text, your last message or an earlier decision is put next to them and you are asked which you mean, and a tick is reported as "you ticked: <the option's full text>", with anything it would undo named in the same question.

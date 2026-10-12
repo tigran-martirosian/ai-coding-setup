@@ -216,9 +216,31 @@ if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), f
 // A script named as ~/.claude/... is the one in ~/.claude, any other path is inside the project folder.
 // A hook whose example matcher changed: an install that still has exactly the old one gets the new one.
 // A matcher the user changed themselves is not in this list and is left alone.
-const OLD_MATCHERS = {
-  "build-nudge.mjs": ["Edit|MultiEdit|Write|NotebookEdit|Read|Grep|Glob|WebFetch|WebSearch"],
-};
+const OLD_MATCHERS = {};
+// Hooks the setup switched off (the files stay in hooks/): an install that has one wired from ~/.claude loses
+// that entry on the next run. The same script from another folder is the user's own and stays.
+const RETIRED = ["build-nudge.mjs", "turn-cap.mjs"];
+function retire(target) {
+  const root = fwd(CLAUDE).toLowerCase();
+  const retired = (h) => {
+    const cmd = fwd(String(h.command || "")).replace(/(^|[\s"'])~\//g, `$1${fwd(home)}/`).toLowerCase();
+    return RETIRED.some((name) => cmd.includes(`${root}/hooks/${name}`));
+  };
+  let removed = 0;
+  for (const [event, groups] of Object.entries(target.hooks || {})) {
+    if (!Array.isArray(groups)) continue;
+    target.hooks[event] = groups.filter((group) => {
+      const before = (group.hooks || []).length;
+      if (!before) return true;
+      group.hooks = group.hooks.filter((h) => !retired(h));
+      removed += before - group.hooks.length;
+      if (group.hooks.length) return true;
+      say(`hook removed: ${event} ${group.matcher || ""} (switched off in this version)`.replace("  ", " "));
+      return false;
+    });
+  }
+  return removed;
+}
 function wire(target, hooks, folder, where = "") {
   let added = 0;
   for (const [event, groups] of Object.entries(hooks || {})) {
@@ -262,7 +284,8 @@ function wire(target, hooks, folder, where = "") {
 }
 const example = JSON.parse(fs.readFileSync(path.join(REPO, "settings.example.json"), "utf8"));
 const settingsWas = JSON.stringify(settings);
-const wired = wire(settings, example.hooks, CLAUDE);
+const retiredHooks = retire(settings);
+const wired = wire(settings, example.hooks, CLAUDE) + retiredHooks;
 if (!wired) say(`hooks already wired in ${fwd(settingsFile)}`);
 // Claude Code's own settings go into the same file: what is set there already stays
 const own = addClaudeCodeSettings(settings, WIN);
