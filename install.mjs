@@ -462,7 +462,7 @@ const extDir = path.join(REPO, "extensions");
 const extensions = fs.existsSync(extDir) ? fs.readdirSync(extDir).filter((n) => fs.existsSync(path.join(extDir, n, "package.json"))) : [];
 const appData = process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "";
 const extHome = path.join(appData, "@nimbalyst", "electron");
-const EXT_FOLDER = { "ink-themes": "inktheme", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud" };
+const EXT_FOLDER = { "ink-themes": "inktheme", "agents-panel": "agentspanel", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud" };
 // --home is another home folder (the tests), where the real Nimbalyst is not the one to install into
 const wantExt = opt("extensions") === "no" ? false : opt("extensions") === "yes" ? true : opt("home") === null;
 const sourceOf = (dir, base = dir) => fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !["node_modules", "dist"].includes(e.name))
@@ -478,7 +478,7 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
     const target = path.join(extHome, "extensions", EXT_FOLDER[name] || name);
     if (name === "read-aloud" && !fs.existsSync(target)) { say(`extension left out: read-aloud (it needs its own speech program; see ${fwd(path.join(dir, "README.md"))})`); continue; }
     if (builtExt[name] === printOf(dir) && fs.existsSync(target)) { say(`extension unchanged: ${name}`); continue; }
-    const plain = name === "ink-themes"; // builds with Node alone
+    const plain = ["ink-themes", "agents-panel"].includes(name); // build with Node alone
     if (!plain && !onPath("npm")) { say(`extension not built: ${name} (npm is not on the PATH; install Node.js with npm and run this again)`); continue; }
     if (DRY) { say(`extension would be built and installed: ${name}`); continue; }
     const steps = plain ? [[process.execPath, ["build.mjs"]], [process.execPath, ["build.mjs", "--install"]]]

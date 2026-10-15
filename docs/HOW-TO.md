@@ -71,6 +71,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   Graphite, Tide, Ember, Noir, Cobalt, Neon) and three light ones (Ink Bone, Frost, Blossom).
   Press the **Theme** button at the bottom of the left gutter, press **Ink themes** to unfold the
   list and pick one.
+- **The agents list.** The `agents-panel` extension needs no npm: in its folder run
+  `node build.mjs --install`, then restart Nimbalyst. You should see the **Agents & commands** list
+  in the right sidebar with running items on top and finished ones folded behind an "N finished" line.
 - **Voice typing** is Handy, a free program that runs on the computer (no account). On Windows:
   `winget install --id cjpais.Handy -e`; other systems: https://handy.computer. Open it once, allow
   the microphone and download the **Parakeet V3** model. In its settings choose push to talk on
@@ -97,6 +100,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   extension). It opens a short list: board cleanup, next move, project scan, setup audit, usage
   report, new project. Press one and a new chat starts in the open project with that command. You
   should see the new chat in the sessions list.
+- **The Agents & commands list** (right sidebar, from the `agents-panel` extension) shows the helpers
+  and background commands Claude has started. Each row is named after its job, for example
+  `Web search: library sign-in steps`; hover a row to see the full command. Click "N finished" to
+  open or fold the finished ones, and drag the list's bottom edge to make it taller.
 - **A second opinion that uses none of the Claude plan** (with Codex or Antigravity installed).
   Before building from a design or a plan, say "get a second opinion on this". The first free
   worker that is ready gives it.

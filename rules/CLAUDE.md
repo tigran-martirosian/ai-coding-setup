@@ -41,6 +41,7 @@ The user wants busy work kept off the main model. This counts as standing permis
 - **Big multi-part requests in Nimbalyst** are led with child sessions through the `lead` skill; small tasks stay in one session. Reasoning, design decisions and final review stay in the main session; the plan for a big or hard-to-undo piece of work can go to the `planner` agent (Fable) first.
 - **The session the user talks in builds.** A helper gets gathering, or a whole separate job: one with its own files and its own check, which this session does not have to watch. Pieces of the job in hand stay here. The brief for a helper names the files, what done looks like, what must not change and the one check that proves it; read its report and the diff yourself.
 - **Use `subagent_type: "worker"`**, with `model: "haiku"` for mechanical work; the worker-nudge hook blocks the first try of Explore and general-purpose. A brief carries a budget of about 20 tool calls; a job that needs more is split in two.
+- **Name each helper `Kind: what exactly`** in the Agent `description` (e.g. `Web search: library sign-in steps`, `Read files: invoice importer`): that text is its row in Nimbalyst's "Agents & commands" panel. A background command's row shows its `# WHAT THIS DOES:` line, so that line names the job, not the tool.
 
 ## External workers first for gathering information
 

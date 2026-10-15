@@ -21,11 +21,20 @@ function el(tag, className, text) {
   return node;
 }
 
+/** "+  " and the label of the app's top-bar create button. */
+function createLabel() {
+  const label = document.querySelector('.window-top-bar__create-primary')?.getAttribute('aria-label');
+  if (!label) throw new Error('the top-bar create button has no label');
+  return `+  ${label}`;
+}
+
 /** The button and the switch, inside the side panel's header (project name and path). */
 function buildTop() {
   const top = el('div', 'ink-top');
   if (document.querySelector('.window-top-bar__create-primary')) {
-    const add = el('button', 'ink-new', '+  New session');
+    // Pressing it presses the app's top-bar create button, whose label follows the mode
+    // (New session, New file, ...); sync() keeps this label the same as that one.
+    const add = el('button', 'ink-new', createLabel());
     add.type = 'button';
     add.onclick = () => document.querySelector('.window-top-bar__create-primary')?.click();
     top.append(add);
@@ -164,6 +173,13 @@ function sync() {
   for (const b of document.querySelectorAll('.ink-seg-btn')) {
     const on = !!byTest(b.dataset.mode)?.classList.contains('active');
     if (b.classList.contains('on') !== on) b.classList.toggle('on', on);
+  }
+  const news = document.querySelectorAll('.ink-new');
+  if (news.length) {
+    const label = createLabel();
+    for (const b of news) {
+      if (b.textContent !== label) b.textContent = label;
+    }
   }
   document.querySelectorAll('.ink-usage').forEach(paintUsage);
 

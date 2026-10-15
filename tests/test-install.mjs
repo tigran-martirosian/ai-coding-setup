@@ -301,6 +301,12 @@ if (process.platform === "win32") {
     { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath, APPDATA: appData, SETUP_EXTENSIONS: "ink-themes" } }).stdout;
   ok("the theme extension is built and installed", [withExt().includes("extension installed: ink-themes"), fs.existsSync(path.join(appData, "@nimbalyst", "electron", "extensions", "inktheme", "manifest.json"))], [true, true]);
   ok("the next run leaves it alone", withExt().includes("extension unchanged: ink-themes"));
+  const panelDist = path.join(REPO, "extensions", "agents-panel", "dist");
+  const hadPanelDist = fs.existsSync(panelDist);
+  const panelRun = spawnSync(process.execPath, [INSTALL, "--home", path.join(tmp, "ext-home"), "--extensions", "yes"],
+    { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath, APPDATA: appData, SETUP_EXTENSIONS: "agents-panel" } }).stdout;
+  ok("the agents panel is built and installed without npm", [panelRun.includes("extension installed: agents-panel"), fs.existsSync(path.join(appData, "@nimbalyst", "electron", "extensions", "agentspanel", "dist", "style.css"))], [true, true]);
+  if (!hadPanelDist) fs.rmSync(panelDist, { recursive: true, force: true });
   ok("--extensions no leaves the extensions out", install(path.join(tmp, "ext-home"), "--extensions", "no").out.includes("extensions are not installed by this script"));
   // the build writes its output next to the source; a folder this test made goes again
   if (!hadDist) fs.rmSync(themeDist, { recursive: true, force: true });

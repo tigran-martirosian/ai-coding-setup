@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.56 (Oct 15, 2026): A new `agents-panel` extension makes the Agents & commands list readable and keeps the commit panel inside a narrow sidebar, the theme's New session button follows the Sessions / Files switch, and helpers are named after their job.
 - 1.0.55 (Oct 15, 2026): The licence is shorter: personal, noncommercial use, and you may change your own copy but not publish, share or sell it.
 - 1.0.54 (Oct 15, 2026): The how-to no longer lists find-skills and claude-code-setup as left out (the installer adds them), and the tour video is fixed.
 - 1.0.53 (Oct 15, 2026): The two switched-off checks, `turn-cap` and `build-nudge`, are removed; the README and the changelog are shorter; Antigravity now does web research and no longer stops on files outside its folder.
