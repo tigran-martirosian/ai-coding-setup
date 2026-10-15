@@ -11,8 +11,9 @@ unless you chose another one). The copy of this page the installer puts into
 ## Installing
 
 You need Node.js 18 or newer and Claude Code. Codex, Antigravity, Nimbalyst and Handy (voice typing)
-are optional, and the installer does not install them. It does install the plugins and add the
-Claude Code settings. To have the programs put in place too, on Windows or a Mac, use
+are optional, and the installer does not install them. It does install the plugins
+(`claude-code-setup` among them) and the `find-skills` skill, unless you add `--plugins no`, and it
+adds the Claude Code settings. To have the programs put in place too, on Windows or a Mac, use
 [full-install.md](full-install.md) instead.
 
 Download the repository as a zip from its GitHub page (the green **Code** button, then **Download
@@ -62,8 +63,6 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **Optional extras the rules mention.** The installer does not install these; where one is missing
   the rule that names it simply doesn't apply.
   - **uv** (provides `uvx`): converts PDF, Word and Excel files to text; also reads videos and feeds.
-  - **The `find-skills` skill**: looks for a skill that does what you ask.
-  - **The `claude-code-setup` plugin**: suggests hooks and skills for a project.
   - **FFmpeg**: only the picture skill's careful run needs it.
 - **The Nimbalyst extensions** are built from source. In each folder under `extensions`:
   `npm install`, `npm run build`, `npm run install-ext`, then restart Nimbalyst. You should see a
