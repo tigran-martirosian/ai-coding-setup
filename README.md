@@ -6,7 +6,7 @@ Professionals in finance, data engineering and government IT installed it and us
 
 <a href="docs/img/promo.mp4"><img src="docs/img/promo.gif" width="800" alt="A tour of the setup, one part at a time, each with a short caption. Click for the sharper video."></a>
 
-Every change, one line per version: [CHANGELOG.md](CHANGELOG.md).
+Changes in versions: [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
