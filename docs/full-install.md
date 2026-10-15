@@ -26,7 +26,7 @@ One form, four questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in 
 | Question | What a yes adds |
 |---|---|
 | Do you have a paid **ChatGPT** subscription? | The **Codex** worker: long reading, folder sweeps, web research; a GPT seat in the court; generated pictures. |
-| Do you have a **Google AI** subscription (Gemini)? | The **Antigravity** worker (`agy`): very large files, second opinions; a Gemini seat in the court. |
+| Do you have a **Google AI** subscription (Gemini)? | The **Antigravity** worker (`agy`): very large files, web research, second opinions; a Gemini seat in the court. |
 | Where should the projects folder go? | Four small project folders are made in it. The default is `Projects` in the home folder; any folder works. |
 | Which **language**: English or Русский? | With Русский, Claude answers in Russian in every chat and the setup's Nimbalyst extensions show Russian text. |
 

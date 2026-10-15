@@ -207,6 +207,18 @@ for (const name of ["codex", "agy"]) {
   if (!have[name]) put(off, Buffer.from(`Not used on this computer. Run install.mjs with --${name} yes to use this worker.\n`), { keep: true });
   else if (fs.existsSync(off)) { if (!DRY) fs.rmSync(off); say(`removed ${fwd(off)}`); }
 }
+// Antigravity run headless can't ask for a permission, so a tool that needs one ends the run with no
+// answer: read_url for the web, read_file for a file outside the folder it starts in. These allow-rules
+// let it read web pages and the projects and ~/.claude folders; its own rules stay as they are.
+if (have.agy) {
+  const agyFile = path.join(home, ".gemini", "antigravity-cli", "settings.json");
+  const agySettings = readSettings(agyFile);
+  const was = JSON.stringify(agySettings);
+  const allow = agySettings.permissions?.allow || [];
+  const want = ["read_url(*)", `read_file(${fwd(PROJECTS)})`, `read_file(${fwd(CLAUDE)})`].filter((r) => !allow.includes(r));
+  agySettings.permissions = { ...agySettings.permissions, allow: [...allow, ...want] };
+  putJson(agyFile, agySettings, want.length ? null : was);
+}
 // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
 const shared = path.join(REPO, "projects", "shared");
 if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), fit(rel, fs.readFileSync(path.join(shared, rel))), { own: true });
@@ -217,7 +229,7 @@ if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), f
 // A hook whose example matcher changed: an install that still has exactly the old one gets the new one.
 // A matcher the user changed themselves is not in this list and is left alone.
 const OLD_MATCHERS = {};
-// Hooks the setup switched off (the files stay in hooks/): an install that has one wired from ~/.claude loses
+// Hooks the setup retired (their files are gone): an install that has one wired from ~/.claude loses
 // that entry on the next run. The same script from another folder is the user's own and stays.
 const RETIRED = ["build-nudge.mjs", "turn-cap.mjs"];
 function retire(target) {

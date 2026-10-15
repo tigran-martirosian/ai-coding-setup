@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // repeat-guard: a PreToolUse hook that stops two kinds of looping inside one turn (a turn is everything
 // done since the user's last message). It reads the transcript backwards, in 2 MB chunks, until the
-// user's last message is found (the way turn-cap does), so a long turn with big pictures is still seen
+// user's last message is found, so a long turn with big pictures is still seen
 // from its start. A background-task notification (<task-notification>, [System: background task) arrives
 // as a user message but is not a new turn: it does not reset the counts.
 //   1. Repeat-error gate: when the last three tool results of the turn are all errors from the same tool

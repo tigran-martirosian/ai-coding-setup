@@ -1,5 +1,5 @@
 {
-  "version": "1.0.52",
-  "date": "2026-10-12",
-  "summary": "The global rules are about 280 tokens shorter, checked by a 60-run answer-quality test that found no drop."
+  "version": "1.0.53",
+  "date": "2026-10-15",
+  "summary": "The two switched-off checks are removed and the README and changelog are shorter."
 }

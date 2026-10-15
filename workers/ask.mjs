@@ -7,8 +7,12 @@
 //   ask.mjs [--web] [--think] <path to a text file holding the task>
 //   ask.mjs --status                      which workers are usable right now, and why not
 //
-// --web    web research. Codex (ChatGPT login) is the one free worker that can search the web.
+// --web    web research. Order: Codex, then Antigravity (Gemini login, search_web and read_url).
 // (none)   local files and code. Order: Codex, then Antigravity (Gemini login). Name the files in the task.
+//
+// Antigravity headless needs allow-rules in ~/.gemini/antigravity-cli/settings.json: read_url(*) for
+// the web, read_file(<folder>) for files outside the folder it starts in. command(...) rules do not
+// take effect headless, so the rules below steer it to its file tools instead of the shell.
 // --think  a hard question: Codex runs with its default reasoning effort instead of low.
 //
 // What a person has is detected, not configured:
@@ -71,10 +75,16 @@ function runBash(script, args) {
 // Run with -p, Antigravity cannot ask for a permission: the first shell command the model tries (it
 // reaches for one to list the folder) is refused and the run ends with no answer. Its file tools need none.
 const AGY_RULES = [
-  "Rules for this run: you are running without a terminal. Never run a shell command (no run_command,",
-  "no PowerShell, no ls, dir, cat, Get-ChildItem or Get-Content): it is refused and the whole run ends",
-  "with no answer. Use only your file tools to list folders, find files and read them. If a file named",
-  "in the task is missing, say so and carry on. Do not write or change any file.",
+  "Rules for this run: you are running without a terminal. Never call run_command (no PowerShell, no ls,",
+  "dir, cat, Get-ChildItem or Get-Content): it is refused and the whole run ends with no answer.",
+  "To list a folder call list_dir, to find files call find_by_name, to search text call grep_search,",
+  "to read a file call view_file. If a file named in the task is missing, say so and carry on.",
+  "Do not write or change any file. Do the work yourself: never launch a subagent.",
+].join("\n");
+const AGY_WEB_RULES = [
+  "Rules for this run: you are running without a terminal. Never call run_command: it is refused and",
+  "the whole run ends with no answer. Use search_web to search and read_url to read pages. Give the",
+  "source URL for each fact. Do not read, write or change any local file.",
 ].join("\n");
 
 const ROUTES = {
@@ -87,14 +97,14 @@ const ROUTES = {
   },
   agy: {
     label: `Antigravity (${AGY_MODEL})`,
-    run({ task }) {
-      return runBash(`agy -p "$1" --mode plan --model "$2" < /dev/null`, [`${AGY_RULES}\n\n${task}`, AGY_MODEL]);
+    run({ task, web }) {
+      return runBash(`agy -p "$1" --mode plan --model "$2" --print-timeout 300s < /dev/null`,
+        [`${web ? AGY_WEB_RULES : AGY_RULES}\n\n${task}`, AGY_MODEL]);
     },
   },
 };
 
-// Antigravity is not in the web list: headless, it is denied the commands it tries and loops for minutes
-const ORDER = { web: ["codex"], local: ["codex", "agy"] };
+const ORDER = { web: ["codex", "agy"], local: ["codex", "agy"] };
 const CLAUDE_INSTEAD = {
   web: `Do it with Claude instead: a "worker" subagent (Sonnet) with a budget of about 15 tool calls, or WebSearch for one quick fact.`,
   local: `Do it with Claude instead: Grep and Read with offset/limit, or a "worker" subagent with a budget of about 15 tool calls.`,

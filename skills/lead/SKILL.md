@@ -1,6 +1,6 @@
 ---
 name: lead
-description: Act as the lead/parent session in Nimbalyst — break a substantial request into workstreams, run child sessions one after the other, route results between them, get an independent review, send fixes back, and report the validated result. Use when a request is big enough to split (several independent parts, needs research + build + review, or would flood this session's context), when the user says "lead this", "orchestrate", "use child sessions", or runs /lead. Skip for small tasks.
+description: Act as the lead/parent session in Nimbalyst — break a substantial request into workstreams, run child sessions (side by side when their files don't overlap), route results between them, get an independent review, send fixes back, and report the validated result. Use when a request is big enough to split (several independent parts, needs research + build + review, or would flood this session's context), when the user says "lead this", "orchestrate", "use child sessions", or runs /lead. Skip for small tasks.
 ---
 
 # Lead
@@ -52,7 +52,7 @@ Use `spawn_session` with `notifyOnComplete: true` and a short `title`. The brief
 Rules:
 - Model: the thinking (the plan, the design, the diagnosis, the final review) is done in this session before any child starts; children build. Every child gets `claude-code:sonnet` with `effortLevel` `medium`, or `claude-code:haiku` with `low` for mechanical jobs. A child with no `model` gets the app default, Opus, so always name the model; a child whose job is itself a judgment (how a model or an animation looks) gets Opus with an `OPUS BECAUSE: <reason>` line in its prompt.
 - Unrelated side jobs: `isolated: true`, so they don't join this workstream.
-- Children run one after the other: start the next when the previous one has reported. Side by side, each pays a full start and re-reads the same files, and two children never edit the same file at the same time.
+- Children whose files don't overlap run side by side; it costs no more tokens, only uses the usage window faster. A child that needs another's result, or edits the same files, starts after that one has reported: two children never edit the same file at the same time.
 
 ## 4. Coordinate
 

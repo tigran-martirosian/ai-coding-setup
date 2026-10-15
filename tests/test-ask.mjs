@@ -41,9 +41,12 @@ let r = ask(["--web", "who won"], { have: ["codex", "agy"], env: { FAKE_CODEX: "
 check("web: Codex answers, with its search flag", r.code === 0 && r.out.includes("codex answer") && r.out.includes("--search") && r.err.includes("answered by Codex"), show(r));
 
 r = ask(["--web", "who won"], { have: ["codex", "agy"], env: { FAKE_CODEX: "limit", FAKE_AGY: "ok" } });
-check("web: Codex out of usage: exit 3, the reason is named, Claude is pointed to, Antigravity is not tried",
-  r.code === 3 && r.out === "" && /codex failed \(out of usage\)/.test(r.err) && r.err.includes('"worker" subagent') && !r.err.includes("agy"), show(r));
+check("web: Codex out of usage: the reason is named and Antigravity answers with its web rules",
+  r.code === 0 && /codex failed \(out of usage\)/.test(r.err) && r.err.includes("answered by Antigravity")
+  && /-p Rules for this run:[\s\S]*search_web[\s\S]*read_url[\s\S]*\n\nwho won --mode/.test(r.out), show(r));
 check("web: Codex gets a cooldown", existsSync(join(r.home, "cooldown.json")) && "codex" in JSON.parse(readFileSync(join(r.home, "cooldown.json"), "utf8")));
+r = ask(["--web", "who won"], { have: ["agy"], env: { FAKE_AGY: "fail" } });
+check("web: no worker answers: exit 3 and Claude is pointed to", r.code === 3 && r.out === "" && r.err.includes('"worker" subagent'), show(r));
 
 r = ask(["--web", "who won"], { have: ["codex"], env: { FAKE_CODEX: "ok" }, files: { "cooldown.json": JSON.stringify({ codex: Date.now() + 60000 }) } });
 check("web: a worker in cooldown is skipped", r.code === 3 && /codex skipped: out of usage/.test(r.err), show(r));
@@ -74,7 +77,7 @@ const taskFile = join(root, "task.txt"); writeFileSync(taskFile, "task from a fi
 r = ask([taskFile], { have: ["agy"], env: { FAKE_AGY: "ok" } });
 check("a task file is read", r.code === 0 && r.out.includes("task from a file --mode"), show(r));
 check("Antigravity is told before the task to use its file tools and no shell command",
-  /-p Rules for this run:[\s\S]*Never run a shell command[\s\S]*\n\ntask from a file --mode/.test(r.out), show(r));
+  /-p Rules for this run:[\s\S]*Never call run_command[\s\S]*list_dir[\s\S]*never launch a subagent\.\n\ntask from a file --mode/.test(r.out), show(r));
 r = ask(['say "hi" $HOME `x`'], { have: ["agy"], env: { FAKE_AGY: "ok" } });
 check("quotes and $ in the task arrive unchanged", r.out.includes('say "hi" $HOME `x` --mode'), show(r));
 r = ask(["read big.txt"], { have: ["codex"], env: { FAKE_CODEX: "ok" } });
