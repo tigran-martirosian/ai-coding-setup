@@ -102,4 +102,4 @@ Each hook runs as a separate process on made-up session logs, the installer runs
 
 ## License
 
-All rights reserved. You may download it, use it and change your own installed copy, but not publish, distribute or sell it, and not present a changed version as mine. See [LICENSE](LICENSE).
+See [LICENSE](LICENSE).
