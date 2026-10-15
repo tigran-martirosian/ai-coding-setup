@@ -1,7 +1,5 @@
 # Changelog
 
-One line per version, newest first: what you get.
-
 - 1.0.53 (Oct 15, 2026): The two switched-off checks, `turn-cap` and `build-nudge`, are removed; the README and the changelog are shorter; Antigravity now does web research and no longer stops on files outside its folder.
 - 1.0.52 (Oct 12, 2026): Shorter global rules.
 - 1.0.51 (Oct 12, 2026): `turn-cap` and `build-nudge` are switched off, and `command-explain` has no length limit.
