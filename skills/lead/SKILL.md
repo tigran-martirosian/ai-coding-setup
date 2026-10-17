@@ -66,11 +66,11 @@ Rules:
 
 ## 5. Validate independently
 
-For meaningful changes, a **separate reviewer child** checks the result against the original request — it doesn't redo the work and changes no files. Give it the request, the changed files, and what to check (build/tests/type errors, runtime errors, desktop + mobile layout, broken images/assets, content accuracy, regressions). It returns a list of problems with file:line, or "pass".
+For meaningful changes, a **separate reviewer child** checks the result against the original request — it doesn't redo the work and changes no files. It runs on `claude-code:opus` (`OPUS BECAUSE: review`; in a test on real bugs a Sonnet reviewer explained a failing check away). Give it the request, the changed files, and what to check (build/tests/type errors, runtime errors, desktop + mobile layout, broken images/assets, content accuracy, regressions); for code it runs `/code-review` (the `code-review` skill) on the changes. It returns a list of problems with file:line, or "pass".
 
 Its report has two headings, and you keep them apart instead of merging them into one list:
 - **Against the request:** what was asked for and is missing or only partly there; what was built that nobody asked for; what is there but looks wrong. Each with the words of the request it concerns.
-- **Quality:** what the checks above found.
+- **Quality:** what the checks above and `/code-review` found, each tagged Important (a bug the change brings in), Nit, or Pre-existing (already wrong before it), so an old bug isn't sent back as the child's fault.
 
 A piece can pass one and fail the other, and one merged list hides that.
 

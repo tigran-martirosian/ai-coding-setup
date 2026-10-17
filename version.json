@@ -1,5 +1,5 @@
 {
-  "version": "1.0.56",
-  "date": "2026-10-15",
-  "summary": "A readable Agents & commands list, a commit panel that fits a narrow sidebar, and helpers named after their job."
+  "version": "1.0.57",
+  "date": "2026-10-16",
+  "summary": "A code review before done on bigger changes, small clear jobs handed to a Sonnet helper, and repeat-guard working inside helpers."
 }
