@@ -1,5 +1,5 @@
 {
-  "version": "1.0.57",
-  "date": "2026-10-16",
-  "summary": "A code review before done on bigger changes, small clear jobs handed to a Sonnet helper, and repeat-guard working inside helpers."
+  "version": "1.0.58",
+  "date": "2026-10-26",
+  "summary": "File links that open in Nimbalyst, a code review before a bigger turn ends, questions that always let you type, and commands that run with a stand-in note instead of being refused."
 }

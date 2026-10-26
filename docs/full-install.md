@@ -160,7 +160,7 @@ Steps 8 and 9 belong to this first install only. Nothing has to be put on record
 Run each check once; fix an obvious failure, report any other with its output. Build the JSON in a file or a small Node script, a shell can mangle the quotes.
 
 1. `node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no> --dry-run` prints no line starting with `[dry run] copied`, `replaced`, `wrote` or `hook added`.
-2. Pipe `{"tool_name":"Bash","tool_input":{"command":"ls -la"}}` into `node ~/.claude/hooks/command-explain.mjs`: the output contains `"deny"`.
+2. Pipe `{"tool_name":"Bash","tool_input":{"command":"ls -la"}}` into `node ~/.claude/hooks/command-explain.mjs`: the output contains `(no note given)`.
 3. Write a temp text file of 400 lines and pipe `{"tool_name":"Read","tool_input":{"file_path":"<that file>"}}` into `node ~/.claude/hooks/big-read-gate.mjs`: the output contains `"deny"`. Delete the file.
 4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: with a worker, the output contains `"deny"`; with none, no output.
 5. `node ~/.claude/skills/usage-report/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.

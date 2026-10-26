@@ -53,12 +53,12 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When | Hook | Rule it enforces |
 |---|---|---|
 | Before a file read or shell command | `big-read-gate` | Read large files in parts |
-| Before a subagent starts | `worker-nudge` | Searching goes to the first free worker that is ready (Codex or Gemini) |
-| Before a shell command | `command-explain` | Explain the command in plain words |
+| Before a subagent starts | `worker-nudge` | Searching goes to the first free worker that is ready (Codex or Gemini); an uncapped Explore, general-purpose or claude helper is refused every time, so other jobs go to the capped `worker` agent |
+| Before a shell command | `command-explain` | Explain the command in plain words; a command without that line runs with a stand-in line, and the agent is reminded |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |
 | Before a picture is shown in the chat | `picture-in-project` | The file is inside the open project, so a click opens it enlarged instead of an empty box |
-| Before a question to me | `question-other` | Every choice lets me type my own answer, and a recommendation that says "Checked:" must match a lookup in the session log |
+| Before a question to me | `question-other` | Every question lets me type my own answer, a question about something to look at links to it, and a recommendation that says "Checked:" must match a lookup in the session log |
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn |
 | When I send a message | `context-guard` | Warn when the session passes 150k tokens |
@@ -69,6 +69,8 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
 | While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
 | Before a reply goes out | `link-gate` | No link that wasn't opened in this session |
+| Before a reply goes out | `file-link-gate` | File links are written in the form Nimbalyst's chat can open (an absolute path with forward slashes) |
+| Before a reply goes out | `code-review-gate` | A turn that changed three or more code files runs `/code-review` before it ends |
 | Before a reply goes out | `run-yourself` | A reply that tells me to run a command is sent back once, so the agent runs it |
 | After each reply | `handoff-brief` | Keep a brief so a new session can continue |
 | Before a helper starts or a handoff note is written | `decided-quote` | A brief that says I decided something quotes my own words next to it; the first try is refused, the identical retry goes through |

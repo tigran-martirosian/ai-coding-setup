@@ -228,7 +228,7 @@ if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), f
 // A script named as ~/.claude/... is the one in ~/.claude, any other path is inside the project folder.
 // A hook whose example matcher changed: an install that still has exactly the old one gets the new one.
 // A matcher the user changed themselves is not in this list and is left alone.
-const OLD_MATCHERS = {};
+const OLD_MATCHERS = { "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput"] };
 // Hooks the setup retired (their files are gone): an install that has one wired from ~/.claude loses
 // that entry on the next run. The same script from another folder is the user's own and stays.
 const RETIRED = ["build-nudge.mjs", "turn-cap.mjs"];

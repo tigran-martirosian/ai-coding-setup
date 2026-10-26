@@ -61,6 +61,10 @@ const settingsFile = path.join(claude, "settings.json");
 const settings = json(settingsFile);
 settings.model = "opus";
 settings.hooks.Stop.push({ hooks: [{ type: "command", command: "node my-own-hook.mjs" }] });
+// as an older version wired it: question-other on PromptForUserInput only, no code-review or file-link gate
+for (const g of settings.hooks.PreToolUse) if (JSON.stringify(g).includes("question-other.mjs")) g.matcher = "mcp__nimbalyst__PromptForUserInput";
+for (const g of settings.hooks.Stop) g.hooks = g.hooks.filter((h) => !/code-review-gate|file-link-gate/.test(h.command));
+settings.hooks.Stop = settings.hooks.Stop.filter((g) => g.hooks.length);
 fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
 const profile = path.join(home, "Projects", "internet-search", "profile.md");
 fs.writeFileSync(profile, "# My profile\n");
@@ -84,6 +88,9 @@ check("rules the user never changed are brought up to date", fs.readFileSync(pat
 check("the user's own skill is untouched", fs.readFileSync(ownSkill, "utf8") === "# My own skill\n");
 const after = json(settingsFile);
 check("the user's own model and hook stay", after.model === "opus" && JSON.stringify(after.hooks.Stop).includes("my-own-hook.mjs"));
+check("an older install gets the new Stop gates and question-other's wider matcher",
+  ["code-review-gate.mjs", "file-link-gate.mjs"].every((h) => JSON.stringify(after.hooks.Stop).includes(h))
+  && after.hooks.PreToolUse.some((g) => g.matcher === "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion" && JSON.stringify(g).includes("question-other.mjs")));
 check("the user's notes stay", fs.readFileSync(profile, "utf8") === "# My profile\n");
 check("the answers about the workers are remembered", ["codex.off", "agy.off"].every((f) => fs.existsSync(path.join(claude, "workers", f))) && /Codex CLI \(GPT\): not used, optional \(as answered before\)/.test(done.out));
 check("the changed extension is named, the others are not", done.out.includes("extension changed: commands") && !done.out.includes("extension changed: usage-plan"));
