@@ -165,11 +165,19 @@ const SOURCES = {
   async nuget(name) {
     const d = await getJson(`https://api.nuget.org/v3-flatcontainer/${name.toLowerCase()}/index.json`);
     const all = d.versions || [];
+    // The flat index is ascending and holds pre-releases, so its last entry is often an rc. Naming that
+    // as "latest" is the mistake this whole tool exists to stop.
+    const newest = all.at(-1);
+    const stable = all.filter((v) => !isPreRelease(v)).at(-1);
     return {
       source: `https://www.nuget.org/packages/${name}`,
       label: `${name} (NuGet)`,
       versions: all,
-      lines: [`  latest ${all.at(-1)}`, `  ${all.length} versions in all`],
+      lines: [
+        stable ? `  latest ${stable}` : `  latest ${newest}   PRE-RELEASE (no stable release in this list)`,
+        ...(stable && newest !== stable ? [`  newest ${newest}   PRE-RELEASE`] : []),
+        `  ${all.length} versions in all`,
+      ],
     };
   },
 };
@@ -202,7 +210,7 @@ const clean = (v) => String(v).replace(/^v/i, "");
 // A version nobody should be told is "available" without the word pre-release next to it.
 // Covers npm/semver (`-rc1`, `-beta.2`), PEP 440 (`4.0.0a1`, `5.0.0.dev1`) and Maven (`-SNAPSHOT`).
 export const isPreRelease = (v) =>
-  /[-._](?:alpha|beta|rc|dev|pre|next|canary|nightly|snapshot)[.\d]*\b/i.test(clean(v)) ||
+  /[-._](?:alpha|beta|rc|dev|pre|preview|next|canary|nightly|snapshot)[.\d]*\b/i.test(clean(v)) ||
   /-(?:a|b)[.\d]/i.test(clean(v)) ||
   /\d+(?:a|b|rc|dev)\d+/i.test(clean(v));
 
