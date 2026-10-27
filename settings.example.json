@@ -3,74 +3,213 @@
     "PreToolUse": [
       {
         "matcher": "Read|Bash|PowerShell",
-        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/big-read-gate.mjs", "timeout": 10 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/big-read-gate.mjs",
+            "timeout": 10
+          }
+        ]
       },
       {
         "matcher": "Agent|Task",
-        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/worker-nudge.mjs", "timeout": 10 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/worker-nudge.mjs",
+            "timeout": 10
+          }
+        ]
       },
       {
         "matcher": "Agent|Task|Write|mcp__nimbalyst-host__spawn_session|mcp__nimbalyst-host__create_session|mcp__nimbalyst-host__send_prompt",
-        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/decided-quote.mjs", "timeout": 10 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/decided-quote.mjs",
+            "timeout": 10
+          }
+        ]
       },
       {
         "matcher": "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion",
-        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/question-other.mjs", "timeout": 5 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/question-other.mjs",
+            "timeout": 5
+          }
+        ]
       },
       {
         "matcher": "mcp__nimbalyst__display_to_user",
-        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/picture-in-project.mjs", "timeout": 5 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/picture-in-project.mjs",
+            "timeout": 5
+          }
+        ]
       },
       {
         "matcher": "Edit|MultiEdit|Write|Read|Bash|PowerShell",
-        "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/repeat-guard.mjs", "timeout": 5 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/repeat-guard.mjs",
+            "timeout": 5
+          }
+        ]
       },
       {
         "matcher": "Bash|PowerShell",
         "hooks": [
-          { "type": "command", "command": "node ~/.claude/hooks/command-explain.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/sql-guard.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/opencli-readonly.mjs", "timeout": 15 }
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/command-explain.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/sql-guard.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/opencli-readonly.mjs",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/web-worker-gate.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/slow-output-gate.mjs",
+            "timeout": 5
+          }
         ]
       },
       {
         "hooks": [
-          { "type": "command", "command": "node ~/.claude/hooks/loop-warn.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/skills/steer/steer.mjs --hook", "timeout": 5 }
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/loop-warn.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/skills/steer/steer.mjs --hook",
+            "timeout": 5
+          }
         ]
       }
     ],
     "PostToolUse": [
       {
         "hooks": [
-          { "type": "command", "command": "node ~/.claude/skills/steer/steer.mjs --hook", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/plan-usage-logger.mjs", "timeout": 5 }
+          {
+            "type": "command",
+            "command": "node ~/.claude/skills/steer/steer.mjs --hook",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/plan-usage-logger.mjs",
+            "timeout": 5
+          }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "node ~/.claude/hooks/context-guard.mjs", "timeout": 10 },
-          { "type": "command", "command": "node ~/.claude/hooks/board-nudge.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/cold-cache.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/update-check.mjs", "timeout": 10 },
-          { "type": "command", "command": "node ~/.claude/hooks/usage-dashboard-hook.mjs" },
-          { "type": "command", "command": "node ~/.claude/hooks/plan-usage-logger.mjs", "timeout": 5 }
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/context-guard.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/board-nudge.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/cold-cache.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/update-check.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/usage-dashboard-hook.mjs"
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/plan-usage-logger.mjs",
+            "timeout": 5
+          }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "node ~/.claude/hooks/link-gate.mjs", "timeout": 10 },
-          { "type": "command", "command": "node ~/.claude/hooks/handoff-brief.mjs --hook", "timeout": 15 },
-          { "type": "command", "command": "node ~/.claude/hooks/plan-usage-logger.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/run-yourself.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/code-review-gate.mjs", "timeout": 10 },
-          { "type": "command", "command": "node ~/.claude/hooks/file-link-gate.mjs", "timeout": 5 },
-          { "type": "command", "command": "node ~/.claude/hooks/context-guard.mjs", "timeout": 10 },
-          { "type": "command", "command": "node ~/.claude/skills/steer/steer.mjs --hook", "timeout": 5 }
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/link-gate.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/handoff-brief.mjs --hook",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/plan-usage-logger.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/run-yourself.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/code-review-gate.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/file-link-gate.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/context-guard.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/skills/steer/steer.mjs --hook",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/web-answer-gate.mjs",
+            "timeout": 10
+          }
         ]
       }
     ]

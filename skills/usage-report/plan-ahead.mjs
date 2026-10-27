@@ -91,7 +91,9 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
   // ---- the week
   const rolled = reset <= now; // the week has started over since the last reading
   if (rolled) { reset += Math.ceil((now - reset + 1) / WEEK) * WEEK; used = 0; }
-  const start = reset - WEEK, left = Math.max(reset - now, HOUR);
+  // after an early reset (a plan change) the week so far starts at the reset, not a week before the end
+  const start = !rolled && last.week.g ? S.find((s) => sameWindow(s.week, last.week)).ms : reset - WEEK;
+  const left = Math.max(reset - now, HOUR);
   const week = res.week = {
     used, resets: iso(reset), rolled, daysLeft: round(left / DAY, 2),
     budget: round(Math.max(0, 100 - used) / (left / DAY)), average: null, recent: null, share: null,
@@ -133,7 +135,7 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
     const a = S.find((s) => s.ms >= last.ms - 30 * MIN && sameWindow(s.five, last.five));
     const perHour = last.ms - a.ms >= 10 * MIN
       ? (last.five.u - a.five.u) / ((last.ms - a.ms) / HOUR)
-      : last.five.u / (Math.max(last.ms - (r5 - FIVE), 10 * MIN) / HOUR);
+      : last.five.u / (Math.max(last.ms - (last.five.g ? S.find((s) => sameWindow(s.five, last.five)).ms : r5 - FIVE), 10 * MIN) / HOUR);
     Object.assign(five, { open: true, used: last.five.u, resets: iso(r5), ...line(last.five.u, perHour, last.ms, r5) });
   }
 
@@ -143,7 +145,7 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
   for (let i = 1; i < S.length; i++) {
     const a = S[i - 1], b = S[i];
     const [dW] = rise(a.week, b.week), [dF, wholeF] = rise(a.five, b.five);
-    if (wholeF && sameWindow(a.week, b.week)) { sumW += dW; sumF += dF; }
+    if (wholeF && sameWindow(a.week, b.week) && b.era === last.era) { sumW += dW; sumF += dF; } // the current plan only
     for (let t = a.ms; t < b.ms;) {
       const d = new Date(t);
       const end = Math.min(new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() + 1).getTime(), b.ms);
@@ -153,10 +155,10 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
       t = end;
     }
   }
-  if (plan?.perUnit) {
-    for (const [min, units] of cost) {
-      if (min * MIN >= S[0].ms && min * MIN < last.ms) hours[new Date(min * MIN).getHours()].mine += plan.perUnit * units;
-    }
+  // each minute at the scale of the plan it fell in
+  for (const [min, units] of plan?.eras ? cost : []) {
+    const perUnit = plan.eras.findLast((e) => e.after < min * MIN + 30000)?.perUnit; // the stretch rule in planUse
+    if (perUnit && min * MIN >= S[0].ms && min * MIN < last.ms) hours[new Date(min * MIN).getHours()].mine += perUnit * units;
   }
   // a full 5-hour window, in points of the week
   res.window = sumW >= 4 && sumF >= 20 ? { points: round(100 * sumW / sumF), left: round(Math.max(0, 100 - used) / (100 * sumW / sumF)) } : null;

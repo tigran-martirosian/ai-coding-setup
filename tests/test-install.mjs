@@ -118,7 +118,7 @@ const withCodex = install(home, "--codex", "yes", "--agy", "no");
 ok("install with Codex exits cleanly", withCodex.code, 0);
 ok("the user's profile is kept as it is", text("internet-search", "profile.md"), "# Profile for hunts\n\n- **Country:** somewhere\n");
 ok("only the worker section of the user's rules changes",
-  [rules().includes("- My own rule."), rules().includes("## External workers first"), rules().includes("Claude alone"), rules().includes("~/.claude/workers/ask.mjs")], [true, true, false, true]);
+  [rules().includes("- My own rule."), rules().includes("## The free workers read local files, not the web"), rules().includes("Claude alone"), rules().includes("~/.claude/workers/ask.mjs")], [true, true, false, true]);
 ok("the installer says once that this version's rules differ from the user's", withCodex.out.includes("rules: new in this version, yours were kept"));
 const inWorkers = (name) => fs.existsSync(path.join(claude, "workers", name));
 ok("a worker that is not used is switched off for the worker command", [inWorkers("ask.mjs"), inWorkers("codex.off"), inWorkers("agy.off")], [true, false, true]);

@@ -167,6 +167,7 @@ const ASK_NIM = { tool_name: "mcp__nimbalyst__AskUserQuestion", tool_input: { qu
 const PHONE_PROMPT = "fix the header (Sent from the phone. If you need to ask something, use AskUserQuestion with plain options rather than a form: only that can be answered from the phone.)";
 for (const [name, entries, deny] of [
   ["AskUserQuestion in a turn sent from the phone passes", [user(PHONE_PROMPT), text("Two ways to do it.")], false],
+  ["a background task's notice in a phone turn keeps it a phone turn", [user(PHONE_PROMPT), text("Started."), user("<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"), text("Two ways to do it.")], false],
   ["AskUserQuestion after a phone turn, in a typed turn, is denied", [user(PHONE_PROMPT), text("Done."), user("now ask me")], true],
 ]) {
   const out = withTurn(entries, ASK_NIM);
@@ -178,5 +179,5 @@ const missing = run({ ...form(WHY), transcript_path: join(dir, "missing.jsonl") 
 if (!missing) fail++;
 console.log(`${missing ? "PASS" : "FAIL"} a missing session record fails open`);
 rmSync(dir, { recursive: true, force: true });
-console.log(fail ? `${fail} failed` : `all ${cases.length + recordCases.length + linkCases.length + 9} passed`);
+console.log(fail ? `${fail} failed` : `all ${cases.length + recordCases.length + linkCases.length + 10} passed`);
 process.exit(fail ? 1 : 0);

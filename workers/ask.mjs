@@ -172,12 +172,29 @@ while (args.length && args[0].startsWith("--")) {
 }
 
 if (status) {
-  for (const kind of ["web", "local"]) {
-    console.log(`${kind === "web" ? "Web research (--web)" : "Local files"}, in this order:`);
-    for (const route of ORDER[kind]) console.log(`  ${route}: ${unusable(route) || "ready"}`);
-    console.log(`  then Claude itself`);
-  }
+  console.log(`Web research (--web): retired 2026-10-27, this command refuses it.`);
+  console.log(`  use versions.mjs for a version fact, a site's own API for a list, WebFetch for a page,`);
+  console.log(`  WebSearch (mode "extended") for open research.`);
+  console.log(`Local files, in this order:`);
+  for (const route of ORDER.local) console.log(`  ${route}: ${unusable(route) || "ready"}`);
+  console.log(`  then Claude itself`);
   process.exit(0);
+}
+
+// The web route is retired (2026-10). Measured over 30 days of real use: of the 72
+// --web calls that were waited on, 29 gave nothing usable, 20 runs were cut off mid-search by the
+// 5-minute ceiling, and the median took 224s - while one WebFetch or one catalogue API call answered the
+// same questions in seconds. The web-worker-gate hook refuses it too; this refusal is here as well so a
+// skill or a script cannot route round the hook.
+if (web) {
+  note(`--web is retired. Of the 72 such calls waited on over 30 days, 29 gave nothing usable and 20 were`);
+  note(`cut off mid-search by its 5-minute ceiling. Do the research with Claude's own tools instead:`);
+  note(`  a version, release or "does X exist" question -> node ~/.claude/workers/versions.mjs <target> [--has <v>]`);
+  note(`  a list of things from one site -> that site's own catalogue API (Modrinth, npm, PyPI, crates, GitHub search)`);
+  note(`  a page whose answer you need -> WebFetch that URL`);
+  note(`  open-ended research -> WebSearch with mode "extended", several differently-worded queries at once`);
+  note(`This command still reads local files: drop --web and name the files.`);
+  process.exit(2);
 }
 
 if (args.length !== 1 || !args[0]) {

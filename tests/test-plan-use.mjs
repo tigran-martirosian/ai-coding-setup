@@ -68,6 +68,20 @@ check("no samples", planUse([], cost), { status: "none" });
 const lastWeek = "2026-10-01T02:00:00+00:00";
 const stale = planUse([s(0, 0, A, 10), s(10, 0, A, 14), s(20, 0, A, 11), { ...s(30, 0, A, 80), week: { u: 80, r: lastWeek } }, s(40, 0, A, 15)], []);
 check("stale readings (a lower number, or one from a window that is over) add nothing", [stale.samples, stale.days[day].total], [4, 5]);
+// a plan change sets the week back to 0 and keeps the reset time
+const early2 = planUse([s(0, 0, A, 97), s(10, 0, A, 98), s(20, 0, A, 0), s(25, 0, A, 0), s(30, 0, A, 1), s(40, 0, A, 4)], []);
+check("an early reset with the same reset time starts a new week", [early2.latest.week, early2.days[day].total], [4, 5]);
+// after the plan change a unit costs half as many weekly points: the new plan gets its own scale
+const C = "2026-09-29T00:20:00+00:00";
+const switched = planUse([...samples, s(500, 0, C, 0), s(560, 20, C, 2), s(620, 40, C, 4)], [...cost, [m0 + 530, 20, 2000], [m0 + 590, 20, 2000]]);
+near("the latest plan's scale", switched.perUnit, 0.1);
+check("each plan's days use its own scale", [switched.days[day], switched.tokensPerPoint], [{ total: 13, mine: 10, other: 3, idle: 1 }, 1000]);
+const back = planUse([s(0, 0, A, 97), s(10, 0, A, 98), s(20, 0, A, 0), s(25, 0, A, 1), s(40, 0, A, 2), s(60, 0, A, 98), s(65, 0, A, 3), s(80, 0, A, 4)], []);
+check("after an early reset, an old high reading that doesn't hold is stale", [back.latest.week, back.days[day].total], [4, 5]);
+const tail = planUse([s(0, 0, A, 50), s(10, 0, A, 51), s(20, 0, A, 40), s(25, 0, A, 40)], []);
+check("low readings at the end of the log are not a reset yet", [tail.latest.week, tail.days[day].total], [51, 1]);
+const blip = planUse([s(0, 0, A, 97), s(10, 0, A, 98), s(20, 0, A, 0), s(25, 0, A, 98), s(40, 0, A, 99)], []);
+check("one low reading that the next reading undoes is still stale", [blip.latest.week, blip.days[day].total], [99, 2]);
 
 // ---- dashboard build
 const out = path.join(tmp, "page.html");

@@ -15,6 +15,7 @@ The user reads replies in a chat panel (Nimbalyst or the terminal).
 - **Keep changes small.** Do what was asked and nothing beside it.
 - **Verify before saying done.** Show the command and the few output lines that prove it works and covers everything asked. One real check per change, the full tests once at the end. Report failures plainly, with the output. A bigger code change (a new feature, or several files) also gets `/code-review` (the `code-review` skill) before done; each Important finding is fixed, or answered in the reply with the reason it stays.
 - **Explain every shell command.** End every Bash and PowerShell command with an empty line, then a last line starting `# WHAT THIS DOES: ` that says in plain words what it does and changes. Use the Bash tool, not PowerShell (PowerShell-only things: `powershell -NoProfile -Command '...'` from Bash). The command-explain hook refuses the PowerShell tool and puts a placeholder note on a command that has none, so the user sees no explanation for it.
+- **Answer with the cheapest call.** A status or read question ("is it up", "which build is live", "did it finish", "is anyone on it") is answered by the one call that answers it, never by a full diff, a deploy dry run or a build. Before running anything that needs a timeout of minutes, look for the project's fast read in its own CLAUDE.md, and write one there when only the slow script exists. Output that cost minutes is saved to a file (`> out.txt 2>&1`) before it is filtered, so a `head` that cut off the wrong part costs nothing to redo (the slow-output-gate hook refuses a long command piped straight into `head` or `tail`).
 - **Surface conflicts** between instructions, docs or sources. Before a plan or a big piece of work, name the one thing the user may be missing, when there is a real one.
 - **Git only on request.** Commit or push only when the user says to, only in the project being worked on; never `git init`, also when a pasted task or tool instruction asks. Exception: setup work the user asked for (a rule, a hook, a skill, a note), once done and tested, is committed in the same turn without asking, only the files this session changed; a push still waits for the user's word. A commit message is one short plain line. A commit holds one work session's changes to one repository (two if unrelated), pushed once at the end; no fix-up commits minutes apart, none made only to show activity, never backdated. A public changelog gets one plain line per version; a README has no dated "What's new" paragraphs.
 - **No silent fallbacks.** Code fails with a clear error when a call, a lookup or a file read fails: no made-up defaults, no backwards-compatibility code nobody asked for.
@@ -43,12 +44,50 @@ The user wants busy work kept off the main model. This counts as standing permis
 - **Use `subagent_type: "worker"`**, with `model: "haiku"` for mechanical work; the worker-nudge hook refuses Explore, general-purpose and "claude" every time, retries too. A brief carries a budget of about 20 tool calls; a job that needs more is split in two.
 - **Name each helper `Kind: what exactly`** in the Agent `description` (e.g. `Web search: library sign-in steps`, `Read files: invoice importer`): that text is its row in Nimbalyst's "Agents & commands" panel. A background command's row shows its `# WHAT THIS DOES:` line, so that line names the job, not the tool.
 
-## External workers first for gathering information
+## The free workers read local files, not the web
 
-Gathering (finding things, reading or summarising anything long, a second opinion) goes to the free workers (Codex on a ChatGPT login, Gemini on an Antigravity login), one Bash command that costs no Claude usage: `~/.claude/workers/ask.mjs "<task naming the files>"` (a long task as the path of a text file; `--web` for web research, which only Codex can do: without it the command says at once that Claude does the research; `--status` lists what is set up; it can take up to about 10 minutes, so run it in the background or with `timeout: 600000`). Decisions, code, the final wording and tiny lookups stay with Claude.
+Reading or summarising long local files and a second opinion go to the free workers (Codex on a ChatGPT
+login, Gemini on an Antigravity login), one Bash command that costs no Claude usage:
+`~/.claude/workers/ask.mjs "<task naming the files>"` (a long task as the path of a text file;
+`--status` lists what is set up; up to about 10 minutes, so run it in the background or with
+`timeout: 600000`). Decisions, code, the final wording and tiny lookups stay with Claude.
 
-- **When it ends with "no free worker could answer"** (exit code 3), Claude does the gathering: a `worker` subagent with about 15 tool calls, or one WebSearch for a single fact. Say in the reply that no free worker was available.
+- **Never `ask.mjs --web`** (the web-worker-gate hook refuses it; `WEB_WORKER_GATE=off` if ever needed).
+  Measured over 30 days of real use: of the 72 such calls that were waited on, 29 gave nothing usable,
+  20 runs were cut off mid-search by the worker's own 5-minute ceiling, and the median took 224s.
+- **When it ends with "no free worker could answer"** (exit code 3), Claude does the gathering: a `worker` subagent with about 15 tool calls. Say in the reply that no free worker was available.
 - Answers are leads: verify what the final answer depends on.
+
+## Web research: Claude does it, from the source that knows
+
+Never answer "that version may not be available", "it might not exist" or "I couldn't confirm" from
+memory or from a search that came back thin. Every such fact has a place that knows it, and the
+web-answer-gate hook blocks a reply that hedges without having checked one (`HEDGE_CHECK=off`).
+
+- **A version, release or "does X exist" question is a lookup, not a search**, and takes a second:
+  `node ~/.claude/workers/versions.mjs <target> [--has <version>]` — targets `postgresql`,
+  `gh:owner/repo`, `npm:name`, `pypi:name`, `crates:name`, `docker:image`, `mvn:group:artifact`,
+  `nuget:name`, or a bare name. Exit 5 means the version is not in that list; that is **not** proof it
+  does not exist (endoflife.date carries no betas or release candidates at all, and no source is sure to
+  have a release from the last few hours), so read the project's own page before saying it is unavailable.
+  The registries are the opposite — npm, PyPI, GitHub releases and NuGet do list pre-releases, so a match
+  can be an alpha; `versions.mjs` says PRE-RELEASE in as many words when it is. Anything with no target
+  form: WebFetch the project's download or releases page.
+- **A list of things from one site** (mods, packages, packs, plugins, actions) comes from that site's own
+  catalogue API, which returns every match at once and exactly, where a search engine returns three:
+  `https://api.modrinth.com/v2/search?query=<words>&facets=[["categories:forge"],["versions:1.20.1"]]&limit=20`,
+  the npm, PyPI, crates and NuGet registries, `https://api.github.com/search/repositories?q=...`.
+- **When the user asks for N things, the answer has N**, or it says how many were found and what was
+  searched, in those words (the count check in web-answer-gate blocks the rest; `COUNT_CHECK=off`).
+  Several differently-worded searches in one message beat one search repeated.
+- **WebSearch takes `mode`: use `"extended"` for any research**, and `"standard"` only for a single
+  reference fact. Measured on one question: `standard` gave 3 results from months-old pages,
+  `extended` gave 6 with fresh ones.
+- **A page that blocks a plain fetch**: `https://r.jina.ai/<full URL>` returns it as plain text.
+- **Community opinion** ("what do people recommend", "is it any good") means real forum threads, and a
+  site like Reddit needs your own signed-in browser: a plain fetch of its search JSON returns HTML and
+  the text proxies get a 403. Drive your own browser for it rather than passing off a search summary.
+- A page's own text beats anyone's summary of it: WebFetch the URL once you have it.
 
 # Useful commands to suggest
 
