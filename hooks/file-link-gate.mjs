@@ -9,6 +9,12 @@
 // broken forms, listing each with the fixed `/C:/...` (or `/Users/...`) form (a relative one resolved
 // against the session cwd). Web links, mailto:, nimbalyst://, other schemes, #anchors, images and Nimbalyst embeds
 // (a "width=... height=..." title) are left alone.
+// Since 2026-10-29 one more kind is blocked: a link in a working form to a local file OUTSIDE the session's
+// project folder (project root = the nearest ancestor of the input's cwd with a CLAUDE.md or .git, else the
+// cwd), because Nimbalyst opens a link only for a file inside the open project. Its fix line suggests the
+// file's path in inline code instead. A link already in a broken form keeps its /C:/ fix as before; paths
+// inside the project, web links, nimbalyst:// and embeds are left alone. Without a cwd, or for a root-relative
+// "/x" target under a Windows cwd (it cannot be placed), nothing is flagged.
 // Silent when stop_hook_active is set (no loops). Fails open. FILE_LINK_GATE=off disables it.
 import fs from "node:fs";
 import os from "node:os";
@@ -110,13 +116,55 @@ export function fixedTarget(target, cwd) {
   return `/${t[0].toUpperCase()}${t.slice(1).replace(/ /g, "%20")}${suffix}`;
 }
 
+const gitBashPath = (p) => p.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:");
+
+// The nearest ancestor of cwd holding a CLAUDE.md or .git, else cwd itself
+export function projectRoot(cwd) {
+  // CLAUDE_PROJECT_DIR is the open project; the hook's cwd follows Bash `cd` and can sit elsewhere
+  const envDir = process.env.CLAUDE_PROJECT_DIR;
+  try { if (envDir && fs.existsSync(envDir)) return gitBashPath(envDir.replace(/\\/g, "/")); } catch {}
+  try {
+    for (let d = cwd; ; ) {
+      if (fs.existsSync(path.join(d, "CLAUDE.md")) || fs.existsSync(path.join(d, ".git"))) return d;
+      const up = path.dirname(d);
+      if (up === d) return cwd;
+      d = up;
+    }
+  } catch { return cwd; }
+}
+
+// A working-form target (/C:/..., C:/..., /Users/...) that points outside the project: its path as it
+// would be written in code; null when it is inside, not a local absolute path, or cannot be placed
+export function outsideCode(link, cwd) {
+  if (!cwd || !link) return null;
+  let t = link.replace(LINE_SUFFIX, "");
+  if (!/^\/?[A-Za-z]:\//.test(t) && !(t.startsWith("/") && !t.startsWith("//"))) return null;
+  try { t = decodeURIComponent(t); } catch { t = t.replace(/%20/gi, " "); }
+  t = t.replace(/^\/([A-Za-z]:\/)/, "$1");
+  const base = gitBashPath(cwd.replace(/\\/g, "/"));
+  if (t.startsWith("/") && /^[A-Za-z]:\//.test(base)) return null; // a Mac path under a Windows cwd: unplaceable
+  const norm = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const a = norm(t), r = norm(projectRoot(base));
+  return a === r || a.startsWith(r + "/") ? null : t;
+}
+
 export function badLinks(text, cwd) {
   const out = [], seen = new Set();
   for (const l of findLinks(visibleProse(text || ""))) {
+    if (seen.has(l.raw)) continue;
     const form = brokenForm(l.target);
-    if (!form || seen.has(l.raw)) continue;
+    if (!form) {
+      const code = outsideCode(l.target, cwd);
+      if (!code) continue;
+      seen.add(l.raw);
+      out.push({ raw: l.raw, target: l.target, form: "outside the project", fixed: null, code });
+      continue;
+    }
     seen.add(l.raw);
-    out.push({ raw: l.raw, target: l.target, form, fixed: fixedTarget(l.target, cwd) });
+    const fixed = fixedTarget(l.target, cwd);
+    // A broken-form link to a file outside the project: the fix is its path in code, not a /C:/ link
+    const code = fixed ? outsideCode(fixed, cwd) : null;
+    out.push(code ? { raw: l.raw, target: l.target, form, fixed: null, code } : { raw: l.raw, target: l.target, form, fixed });
   }
   return out;
 }
@@ -157,10 +205,10 @@ export function turnText(transcriptPath) {
 export function reason(bad) {
   const lines = [`[file-link-gate] ${bad.length} file link(s) in this reply will not open in Nimbalyst's chat panel (relative, backslash and file:/// targets don't open; an absolute path with forward slashes, /C:/... or /Users/..., does):`];
   for (const b of bad.slice(0, MAX_LISTED)) {
-    lines.push(`- ${b.raw} (${b.form}) -> ${b.fixed ? `(${b.fixed})` : "use the file's absolute path with forward slashes (/C:/... or /Users/...)"}`);
+    lines.push(`- ${b.raw} (${b.form}) -> ${b.code ? `a link opens only for a file inside the open project; write its path in code: \`${b.code}\`` : b.fixed ? `(${b.fixed})` : "use the file's absolute path with forward slashes (/C:/... or /Users/...)"}`);
   }
   if (bad.length > MAX_LISTED) lines.push(`- and ${bad.length - MAX_LISTED} more`);
-  lines.push("Send a short follow-up that gives these files again as working links (the whole reply again only if it is short). Write file links this way from now on: [name](/C:/path/to/file.md), %20 for spaces, :line at the end.");
+  lines.push("Send a short follow-up that gives these files again as working links (the whole reply again only if it is short). Write file links this way from now on: [name](/C:/path/to/file.md), %20 for spaces, :line at the end, for a file inside the open project; a file outside it is named as its path in inline code.");
   return lines.join("\n");
 }
 

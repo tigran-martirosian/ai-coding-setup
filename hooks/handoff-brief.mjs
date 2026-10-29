@@ -62,7 +62,11 @@ function readSession(file) {
       const cmd = text.match(/<command-name>([^<]*)<\/command-name>/);
       if (cmd) text = cmd[1] + " " + (text.match(/<command-args>([^<]*)<\/command-args>/)?.[1] ?? "");
       text = text.trim();
-      if (text && !text.startsWith("<") && !text.startsWith("[System")) prompts.push(text);
+      // Only what the user typed: system and hook injections, task notifications and the child
+      // reports Nimbalyst delivers as prompts ("[Child Session Update]", forwarded "[report]") are left out.
+      // steer's own wake prompts (delivered from its outbox) are left out too.
+      if (text && !text.startsWith("<") && !/^\[(system|child session update|report)\b/i.test(text)
+        && !/^(A child session's report was forwarded to you|A message that reached the session you took over from was forwarded to you)/.test(text)) prompts.push(text);
     }
     if (j.type === "assistant" && Array.isArray(content)) {
       const u = j.message.usage;

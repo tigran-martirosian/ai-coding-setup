@@ -11,7 +11,29 @@ in `src/own.ts`, and `npm run build:share` builds the extension without them, wh
 to other people.
 
 What a button cannot do: reach a session that is already running. The app has no call for that, so
-commands that belong to a running chat stay typed.
+commands that belong to a running chat stay typed. The Note button below does reach one.
+
+### Note button and wake bridge
+
+A host component (`NoteBridge`, `src/host.tsx`, mounted by the app outside any panel) puts a **Note** button
+beside the Send button of every chat box. Type text, press Note: it is written to
+`~/.claude/steer/button-note.txt` and sent with `steer.mjs send --to <session id>`, so a busy session reads
+it before its next step without being interrupted; if the session is idle (exit code 3) the text is sent
+to it as a queued prompt (`ai:createQueuedPrompt`), which starts it at once. The box is cleared and a short
+status shows beside the button (the error text if it failed). The session is the `data-session-id` of the
+chat box's nearest ancestor. This reads the app's own page markup (`src/find.ts` lists the selectors), so an
+app update may break it: then the button does not appear and the console says why. It needs
+`~/.claude/skills/steer/steer.mjs`; without it the status shows the error.
+
+The same component polls `~/.claude/steer/outbox.jsonl` every 3 seconds. Each line
+`{"id","ts","session","prompt"}` newer than 10 minutes and not yet delivered goes to `ai:createQueuedPrompt`
+(up to 3 tries; failures are logged to the console). Delivered ids are kept in `outbox-done.json` (2 hours),
+so a restart does not deliver twice. The extension never writes `outbox.jsonl`. Two app windows open at once
+would each poll it.
+
+The button calls the app's `extensions:ai-send-prompt` directly, the same call the SDK's `sendPrompt`
+makes, because the pop-up is drawn outside a panel (see `src/popover.tsx`). If an app update changes that
+call, the pop-up shows the app's error under the list.
 
 The button calls the app's `extensions:ai-send-prompt` directly, the same call the SDK's `sendPrompt`
 makes, because the pop-up is drawn outside a panel (see `src/popover.tsx`). If an app update changes that

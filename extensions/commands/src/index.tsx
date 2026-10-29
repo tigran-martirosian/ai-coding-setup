@@ -11,6 +11,7 @@ import type { Command } from './commands';
 import { installPopover, removePopover } from './popover';
 import { CSS } from './styles';
 import { t } from './strings';
+import { NoteBridge } from './host';
 
 type Api = { invoke: (channel: string, args: unknown) => Promise<unknown> };
 const api = () => (window as unknown as { electronAPI: Api }).electronAPI;
@@ -82,3 +83,5 @@ if (typeof window !== 'undefined') installPopover(() => <CommandsPanel />);
 export const panels = {
   commands: { component: CommandsPanel },
 };
+
+export const hostComponents = { NoteBridge };

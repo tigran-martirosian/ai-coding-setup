@@ -7,7 +7,8 @@ description: Review the user's recent chats on this computer to see what they wo
 
 Fits the setup to what the user really does. A script and a free worker do the reading; you
 judge, look up what exists, and ask. **Change nothing until the user has ticked it.** No chat text
-goes into a rule, a skill, a report or a web search, and no report is sent to anyone. The only
+goes into a rule, a skill or a web search, and no report is sent to anyone. The findings report
+(step 7) is the one place that holds the user's own words, at most 12 per quote. The only
 reader besides you is the free worker that also reads long files (Codex from OpenAI, or Gemini from
 Google, whichever is set up): it reads the chat digests, so tell the user that before the scan.
 
@@ -44,7 +45,28 @@ label, then Read those lines.
 "never" about it; or a question whose options missed (once is enough: the fix is cheap). A one-off
 slip that no rule would have prevented is listed under "seen, nothing to change", not turned into a rule.
 
-Give each finding that counts exactly one remedy, the smallest that fixes it:
+**Incident categories.** Give each incident (a place where the user corrected, repeated, interrupted
+or was kept waiting) exactly one of these eight, and count incidents per category:
+
+| Category | Definition |
+|---|---|
+| ask ignored | An ask was not done, half done, or done differently from what was said |
+| slow | Tests, reviews or silent waits took longer than the user wanted |
+| stale info | Old notes, wrong copy or a confident wrong fact stated without a check |
+| bad reply | The reply was hard to use: links that don't open, jargon, a long table for a spoken question |
+| overstep | Work nobody asked for, a small ask turned big, or a call that was Claude's pushed back to the user |
+| unanswered | A question the user asked got a status line, a handoff or a note instead of an answer |
+| repeat | The user had to say the same thing again |
+| misheard | A dictated word was decoded wrongly and cost a round trip |
+
+An incident that fits none (a shipped defect, say) goes under the nearest category by its cause;
+whatever stays unplaced is listed with the count under "seen, nothing to change".
+
+Find the cause behind the incidents of a category, not only the count: several categories often share
+one cause (a long dictated message that loses parts feeds ask ignored, unanswered and repeat).
+
+Give each cause that counts exactly one remedy, the smallest that fixes it. The report's fix per
+cause is one of rule, hook, skill or note, as the table gives:
 
 | What was seen | Remedy |
 |---|---|
@@ -63,7 +85,7 @@ In this order, and stop at the first that fits:
 1. Installed but turned off: `claude plugin list`.
 2. Skills: `npx skills find "<two or three plain words for the kind of task>"`.
 3. One web lookup: WebSearch with `mode: "extended"` for "skills, plugins or tools for <kind of task> in
-   Claude Code" (the free worker's `--web` route is refused).
+   Claude Code" (the free worker's `--web` route is refused since 2026-10-27).
 
 Search words describe the kind of task in general words; never a name, a table, a file or a
 sentence from the chats. Before proposing a find, read its own page or `SKILL.md`: what it does,
@@ -95,7 +117,10 @@ If nothing counted, say so plainly and ask nothing. Don't pad the list.
 ## 7. Save and reply
 
 Write `~/.claude/reports/chat-review/findings-<yyyy-mm-dd>.md`: for each project one line on what
-the work is, then the findings in your own words (no quotes from the chats), then a **Decided** table
+the work is, then a **Categories** table ranking the eight incident categories by incident count
+(category | count | chats), with two or three of the user's own words quoted (chat label on each) for
+each of the top three, then the findings in your own words, each with its cause and its fix (rule,
+hook, skill or note), then a **Decided** table
 (proposal | ticked or declined | where it went), then a section "Earlier fixes" (fix | held, came
 back or did not come up | chat label), then "seen, nothing to change".
 

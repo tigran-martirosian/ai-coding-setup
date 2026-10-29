@@ -1,4 +1,4 @@
-// Tests for hooks/context-guard.mjs. Run: node test-context-guard.mjs
+// Tests for hooks/context-guard.mjs. Run: node tests/test-context-guard.mjs
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
@@ -53,20 +53,32 @@ const w210 = stop(over);
 check("stop at 210k: warns, does not hold the reply (the limit is 200k)", /~210k/.test(warn(w210)) && !blocked(w210));
 clear();
 check("prompt between the limits: batches, no handoff line", /one Edit/.test(ctx(mid)) && !/fresh session/.test(ctx(mid)));
-check("prompt over the limit: tip to batch, no cap wording, no automatic handoff", /keep the steps few and batch the changes/.test(ctx(big)) && !/CHILD JOB/.test(ctx(big)) && !/without asking/.test(ctx(big)));
+check("prompt over the limit: no turn-cap wording, no automatic handoff", !/turn-cap|CHILD JOB/.test(ctx(big)) && !/without asking/.test(ctx(big)));
+// Past the limit: warm cache -> queue /compact with the focus line; cold (idle over 60 min) -> fresh session
+const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+const warmT = transcript("warm.jsonl", [asst(300000, { timestamp: ago(3) })]);
+const coldT = transcript("cold.jsonl", [asst(300000, { timestamp: ago(90) })]);
+const warmCtx = ctx(warmT);
+check("warm cache: queue /compact onto itself with the focus line", /compact-self\.mjs/.test(warmCtx) && /Keep every message the user typed, quoted/.test(warmCtx) && /unconfirmed/.test(warmCtx) && !/fresh session/.test(warmCtx));
+const coldCtx = ctx(coldT);
+check("cold cache: fresh session, no /compact", /fresh session/.test(coldCtx) && /~90 min/.test(coldCtx) && !/compact-self/.test(coldCtx));
+check("CONTEXT_GUARD_COLD_MIN moves the cold line", /compact-self/.test((() => { try { return JSON.parse(run({ prompt: "x", transcript_path: coldT, session_id: sid }, { CONTEXT_GUARD_COLD_MIN: "120" })).hookSpecificOutput.additionalContext; } catch { return ""; } })()));
+check("user line says what happens", /compacts this session/.test(JSON.parse(run({ prompt: "x", transcript_path: warmT })).systemMessage) && /cache is cold/.test(JSON.parse(run({ prompt: "x", transcript_path: coldT })).systemMessage));
 check("stop while a stop hook is already running: silent", stop(big, { stop_hook_active: true }) === "");
 check("CONTEXT_GUARD_AUTO=off: stop is silent", stop(big, {}, { CONTEXT_GUARD_AUTO: "off" }) === "");
 check("CONTEXT_GUARD_AUTO_K raises the handoff limit", stop(big, {}, { CONTEXT_GUARD_AUTO_K: "500" }) === "");
 const held = stop(big);
-check("stop over the limit: only warns, tip to batch, no cap wording", !blocked(held) && /~420k/.test(warn(held)) && /keep the steps few and batch the changes/.test(warn(held)) && !/CHILD JOB/.test(warn(held)));
+check("stop over the limit: only warns, tip to batch, no turn-cap wording", !blocked(held) && /~420k/.test(warn(held)) && /keep the steps few and batch the changes/.test(warn(held)) && !/turn-cap|CHILD JOB/.test(warn(held)));
 check("second stop: silent", stop(big) === "");
-check("prompt after a warning: don't raise it again", /already warned at ~420k/.test(ctx(big)));
+check("prompt after a warning: still says to compact (or move)", /compact-self|fresh session/.test(ctx(big)) && !/already warned/.test(ctx(big)));
+check("prompt back under the limit clears the warning, so the next cycle warns again", (run({ prompt: "x", transcript_path: small, session_id: sid }), !fs.existsSync(path.join(os.tmpdir(), "context-guard", `${sid}.json`))) && /~420k/.test(warn(stop(big))));
+clear();
 check("+100k later: warns again", /~530k/.test(warn(stop(bigger))));
 clear();
 // A turn that already handed off (the user ran /handoff) is not held
 const call = (cmd) => JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5", content: [{ type: "tool_use", name: "Bash", input: { command: cmd } }], usage: { input_tokens: 2, cache_read_input_tokens: 300000, cache_creation_input_tokens: 0 } } });
-const handed = transcript("handed.jsonl", [user("/handoff"), call("node ~/.claude/skills/handoff/handoff-brief.mjs"), asst(300000)]);
-const earlier = transcript("earlier.jsonl", [user("x"), call("node ~/.claude/skills/handoff/handoff-brief.mjs"), user("go on"), call("ls"), asst(300000)]);
+const handed = transcript("handed.jsonl", [user("/handoff"), call("node hooks/handoff-brief.mjs"), asst(300000)]);
+const earlier = transcript("earlier.jsonl", [user("x"), call("node hooks/handoff-brief.mjs"), user("go on"), call("ls"), asst(300000)]);
 check("this turn already handed off: silent", stop(handed) === "");
 clear();
 check("a handoff in an earlier turn doesn't count", /~300k/.test(warn(stop(earlier))));

@@ -80,7 +80,7 @@ The other hooks keep sessions cheap and safe:
 | `repeat-guard` | Refuses a retry of the same call after the same error came back three times |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
 | `cold-cache` | Warns when you come back to a big session after the prompt cache has expired |
-| `context-guard` | Warns when a session gets long (150k and 200k tokens) |
+| `context-guard` | Warns when a session gets long (150k and 200k tokens) and says whether to compact it or move to a fresh one |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `decided-quote` | Refuses a helper's brief that calls something decided without quoting your words |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |

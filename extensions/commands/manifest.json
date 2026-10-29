@@ -2,15 +2,17 @@
   "id": "com.local.commandbuttons",
   "name": "Commands",
   "version": "0.1.0",
-  "description": "The setup's utility commands as buttons. Each one starts a new session in the open project.",
+  "description": "The setup's utility commands as buttons. Each one starts a new session in the open project. Also a Note button in the chat box.",
   "author": "Local",
   "main": "dist/index.js",
   "apiVersion": "1.0.0",
   "defaultEnabled": true,
   "permissions": {
-    "ai": true
+    "ai": true,
+    "filesystem": true
   },
   "contributions": {
+    "hostComponents": ["NoteBridge"],
     "panels": [
       {
         "id": "commands",

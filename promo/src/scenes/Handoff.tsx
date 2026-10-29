@@ -93,7 +93,7 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
       tag="automatic handoff · /board-cleanup"
       caption={
         <span>
-          Automatic handoff: a brief is rewritten after every reply, and a long session moves to a fresh one by itself.{" "}
+          Automatic handoff: a brief is rewritten after every reply, and a long session compacts itself while its cache is warm, or moves to a fresh one after an hour idle.{" "}
           <span style={{ whiteSpace: "nowrap" }}>/board-cleanup</span> tidies the board.
         </span>
       }
@@ -127,7 +127,7 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
           <Appear at={40}>
             <div style={{ border: `1.5px solid ${color.amber}88`, borderRadius: 12, padding: "14px 18px", background: `${color.amber}14` }}>
               <div style={{ fontSize: 24, lineHeight: 1.35 }}>
-                <span style={{ fontFamily: mono, color: color.amber }}>context-guard</span> This session is long. Moving the work
+                <span style={{ fontFamily: mono, color: color.amber }}>context-guard</span> This session is long and has been idle. Moving the work
                 to a fresh one.
               </div>
               <Appear at={YES_AT}>
