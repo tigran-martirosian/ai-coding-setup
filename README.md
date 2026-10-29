@@ -4,7 +4,9 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-<a href="docs/img/promo.mp4"><img src="docs/img/promo.gif" width="800" alt="A tour of the setup, one part at a time, each with a short caption. Click for the sharper video."></a>
+https://github.com/user-attachments/assets/482b5ce0-193e-483b-92b9-d57b72199710
+
+No player above (the GitHub app)? [Watch the tour video](https://github.com/user-attachments/assets/482b5ce0-193e-483b-92b9-d57b72199710).
 
 Changes in versions: [CHANGELOG.md](CHANGELOG.md).
 
