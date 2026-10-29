@@ -117,7 +117,7 @@ process.stdin.on("end", () => {
     if (cold) {
       context.push(`- The cache went cold (last reply ~${idle} min ago), so a /compact would re-send all ~${k}k at full price. Unless only quick questions remain, move the work to a fresh session now with the handoff skill.`);
     } else {
-      context.push(`- Once this request is done, unless only quick questions remain, queue a /compact onto this session while the cache is warm: \`node ~/.claude/skills/steer/compact-self.mjs\` with this focus line on stdin: "${FOCUS}" (in a plain terminal, put \`/compact <that focus line>\` in "Needs you" instead).`);
+      context.push(`- Once this request is done, unless only quick questions remain, queue a /compact onto this session while the cache is warm: \`node ~/.claude/skills/steer/compact-self.mjs\` with this focus line on stdin: "${FOCUS}" (in a plain terminal, put \`/compact <that focus line>\` in "Needs you" instead). When you queue it, end the reply with one line saying so: "This session compacts itself now (about a minute); a message you send meanwhile waits for it."`);
     }
     process.stdout.write(JSON.stringify({
       systemMessage: `Context is ~${k}k tokens: every step re-sends all of it. ${cold ? "The cache is cold: Claude moves the work to a fresh session." : "Claude compacts this session when this request is done, unless only quick questions are left."}`,

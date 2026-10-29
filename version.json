@@ -1,5 +1,5 @@
 {
-  "version": "1.0.61",
+  "version": "1.0.62",
   "date": "2026-10-29",
-  "summary": "The Note button now stays level with the Send button when the chat box grows, and the README tour video is a real player with a seek bar."
+  "summary": "A session that compacts itself now says so at the end of its reply, so the /compact that follows is no surprise."
 }
