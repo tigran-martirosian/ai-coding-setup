@@ -1,5 +1,5 @@
 {
-  "version": "1.0.62",
+  "version": "1.0.63",
   "date": "2026-10-29",
-  "summary": "A session that compacts itself now says so at the end of its reply, so the /compact that follows is no surprise."
+  "summary": "With several Nimbalyst windows open, a queued /compact or forwarded note now arrives once instead of once per window, and a lead session stops messaging finished helpers, so their reports no longer come back again."
 }

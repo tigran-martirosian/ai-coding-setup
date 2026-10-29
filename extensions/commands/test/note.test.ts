@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { findComposers } from '../src/find.ts';
 import { sendNote } from '../src/note.ts';
-import { pollOutbox, newState, MAX_TRIES } from '../src/bridge.ts';
+import { pollOutbox, newState as slowState, MAX_TRIES, LOCK_MS } from '../src/bridge.ts';
 
 let n = 0;
 const ok = (name: string) => console.log(`ok ${++n} ${name}`);
@@ -130,6 +130,7 @@ const OUT = 'C:/h/.claude/steer/outbox.jsonl';
 const DONE = 'C:/h/.claude/steer/outbox-done.json';
 const line = (id: string, age: number, session = 's1') => JSON.stringify({ id, ts: NOW - age, session, prompt: `p-${id}` });
 const quiet = () => {};
+const newState = () => ({ ...slowState(), wait: async () => {} });
 
 let w = world({});
 assert.equal(await pollOutbox(w.invoke, 'C:/h', newState(), NOW, quiet), 0);
@@ -161,3 +162,18 @@ const st3 = newState();
 await pollOutbox(w.invoke, 'C:/h', st3, NOW, quiet);
 assert.equal(await pollOutbox(w.invoke, 'C:/h', st3, NOW + 3000, quiet), 1);
 ok('a failed delivery is logged with its id and retried, at most 3 times');
+
+w = world({ [OUT]: line('e', 1000) + '\n' });
+const winA = newState(), winB = newState();
+const both = await Promise.all([pollOutbox(w.invoke, 'C:/h', winA, NOW, quiet), pollOutbox(w.invoke, 'C:/h', winB, NOW, quiet)]);
+assert.deepEqual(w.delivered, [['s1', 'p-e']], 'two windows starting together: one delivery');
+assert.equal(both[0] + both[1], 1);
+const lead = both[0] ? winA : winB, other = both[0] ? winB : winA;
+w.files[OUT] += line('f', 500) + '\n';
+assert.equal(await pollOutbox(w.invoke, 'C:/h', other, NOW + 3000, quiet), 0, 'the other window leaves a fresh lock alone');
+assert.equal(await pollOutbox(w.invoke, 'C:/h', lead, NOW + 3000, quiet), 1);
+w.files[OUT] += line('g', 500) + '\n';
+const later = NOW + 3000 + LOCK_MS + 1;
+assert.equal(await pollOutbox(w.invoke, 'C:/h', other, later, quiet), 1, 'a lock not refreshed for LOCK_MS is taken over');
+assert.deepEqual(w.delivered.map((d) => d[1]), ['p-e', 'p-f', 'p-g'], 'the new holder does not re-deliver what the old one sent');
+ok('two windows: only the lock holder delivers; a stale lock is taken over without repeats');
