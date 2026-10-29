@@ -1,5 +1,5 @@
 {
-  "version": "1.0.60",
+  "version": "1.0.61",
   "date": "2026-10-29",
-  "summary": "A long session now compacts itself while its cache is warm and moves to a fresh one only after an hour idle, a message typed in a session you handed off follows the work to the new one, and a Note button next to Send reaches a busy chat."
+  "summary": "The Note button now stays level with the Send button when the chat box grows, and the README tour video is a real player with a seek bar."
 }
