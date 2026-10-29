@@ -165,8 +165,16 @@ const nimbalystRow = async (id) => {
 const fromNimbalyst = async (id) => {
   const row = await nimbalystRow(id);
   if (!row) return null;
-  const p = path.join(HOME, ".claude", "projects", key(row.ws), `${row.sid}.jsonl`);
-  if (!fs.existsSync(p)) return null;
+  // A session in a git worktree keeps its transcript under the worktree's folder, not row.ws
+  // (2026-10-29: a Note to a worktree session was refused as "not active"), so look in every project.
+  const projects = path.join(HOME, ".claude", "projects");
+  let p = path.join(projects, key(row.ws), `${row.sid}.jsonl`);
+  if (!fs.existsSync(p)) {
+    let dirs = [];
+    try { dirs = fs.readdirSync(projects); } catch {}
+    p = dirs.map((d) => path.join(projects, d, `${row.sid}.jsonl`)).find((f) => fs.existsSync(f));
+    if (!p) return null;
+  }
   const f = describe({ id: row.sid, p, t: fs.statSync(p).mtimeMs });
   return { ...f, name: f.name || String(row.title || "").slice(0, 60), row };
 };

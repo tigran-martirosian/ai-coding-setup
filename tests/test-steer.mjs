@@ -163,6 +163,14 @@ r = run(["send", "--to", "dddddddd", "hi"], nimb);
 ok("the Claude session id finds the same Nimbalyst row", r.code === 3 && r.out.includes("is idle"));
 r = run(["send", "--to", "ffffffff", "hi"], nimb);
 ok("an id in neither place sends nothing", r.code === 2 && r.out.startsWith("NOT SENT"));
+// A session in a git worktree: Nimbalyst records the main folder, the transcript is under the worktree's
+db.prepare("INSERT INTO ai_sessions VALUES (?, ?, ?, ?, ?, ?)").run("5a051ea1-nimb", "lane: bugs", "running", "eeeeeeee-lane", childWs, "2026-10-29");
+const laneDir = path.join(home, ".claude", "projects", key(childWs + "_worktrees/moving-comet"));
+fs.mkdirSync(laneDir, { recursive: true });
+fs.writeFileSync(path.join(laneDir, "eeeeeeee-lane.jsonl"), JSON.stringify({ type: "assistant", message: { stop_reason: "tool_use", content: [{ type: "tool_use", name: "Bash", input: {} }] } }) + "\n");
+r = run(["send", "--to", "5a051ea1", "hi"], nimb);
+ok("a session in a git worktree is found by its transcript in the worktree's folder",
+  r.code === 0 && r.out === 'Sent to "lane: bugs". It reads the note before its next step.' && left().at(-1).to === "eeeeeeee-lane");
 
 // 24-30: send_prompt to a session Nimbalyst says is busy is held and turned into a steer note; to an
 // idle one it goes through. A session not in Nimbalyst keeps the /btw check (held until steer was tried).
