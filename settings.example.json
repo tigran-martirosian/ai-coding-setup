@@ -111,6 +111,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/context-guard.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "node ~/.claude/skills/steer/steer.mjs --hook",
             "timeout": 5
           },

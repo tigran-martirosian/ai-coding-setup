@@ -1,5 +1,5 @@
 {
-  "version": "1.0.68",
+  "version": "1.0.69",
   "date": "2026-10-30",
-  "summary": "Long lines in chat tool cards now wrap, and the Note button sends pasted images and files, works in a new tab and says Sent only once the note has arrived."
+  "summary": "A long-running session past 300k tokens is now told to finish the step it is on and stop, and another session can no longer pile new work onto it, so one job can't quietly eat your usage."
 }

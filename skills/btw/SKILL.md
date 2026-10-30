@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Run this once, with the user's note exactly as written:
 
-`node ~/.claude/skills/steer/steer.mjs send - <<'EOF'`
+`node ~/.claude/skills/steer/steer.mjs send --user - <<'EOF'`
 `<note>`
 `EOF`
 
