@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.66 (Oct 30, 2026): A note sent to a busy session now counts as delivered only when it is really in that session: one lost to a cancelled tool call is sent again, the sender's message says Delivered or Queued instead of Sent, and the sender is told about any note that didn't arrive. A picture shown in the chat stays there: it is shown from the project's `shown` folder, so cleaning up a scratch folder no longer leaves "File not found".
 - 1.0.64 (Oct 29, 2026): The Note button now reaches a session that runs in a git worktree; it used to refuse it as not active.
 - 1.0.63 (Oct 29, 2026): With several Nimbalyst windows open, a queued /compact or forwarded note now arrives once instead of once per window, and a lead session stops messaging finished helpers, so their reports no longer come back again.
 - 1.0.62 (Oct 29, 2026): A session that compacts itself now says so at the end of its reply, so the /compact that follows is no surprise.

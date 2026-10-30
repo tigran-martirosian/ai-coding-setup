@@ -19,7 +19,7 @@ fs.mkdirSync(projDir, { recursive: true });
 
 const run = (args, { input = "", env = {}, cwd = work } = {}) => {
   const r = spawnSync(process.execPath, [STEER, ...args], { input, cwd, encoding: "utf8",
-    env: { ...process.env, USERPROFILE: home, HOME: home, CLAUDE_CODE_SESSION_ID: "", STEER_NIMBALYST_DB: path.join(home, "no-nimbalyst.sqlite"), ...env } });
+    env: { ...process.env, USERPROFILE: home, HOME: home, CLAUDE_CODE_SESSION_ID: "", STEER_WAIT: "0", STEER_NIMBALYST_DB: path.join(home, "no-nimbalyst.sqlite"), ...env } });
   return { out: r.stdout.trim(), code: r.status };
 };
 const hook = (ev, extra = {}, env = {}) => {
@@ -99,7 +99,7 @@ transcript("aaaaaaaa-self", "tool_use");
 transcript("bbbbbbbb-busy", "tool_use");
 let r = run(["send", "hello"], { env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" } });
 ok("the sending session is not offered as a target; an unnamed target is called by its last request",
-  r.code === 0 && r.out === 'Sent to the session last asked "request of bbbbbbbb-busy". It reads the note before its next step.');
+  r.code === 0 && r.out.startsWith('Queued for the session last asked "request of bbbbbbbb-busy", not delivered yet.'));
 ok("the note is queued for the busy session", left().length === 1 && left()[0].to === "bbbbbbbb-busy");
 transcript("bbbbbbbb-busy", "end_turn");
 r = run(["send", "hello again"], { env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" } });
@@ -108,7 +108,7 @@ ok("a finished session: the note is left, with the 20 minute limit",
 transcript("cccccccc-busy", "tool_use");
 r = run(["send", "which one"], { env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" } });
 ok("several targets, none named: the busy one gets the note, not the finished one",
-  r.code === 0 && r.out.startsWith('Sent to the session last asked "request of cccccccc-busy". ') && left().at(-1).to === "cccccccc-busy");
+  r.code === 0 && r.out.startsWith('Queued for the session last asked "request of cccccccc-busy", ') && left().at(-1).to === "cccccccc-busy");
 
 // 14-17: the target is called by the name on its tab, so the user can tell where the note went.
 const self = { env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" } };
@@ -117,17 +117,17 @@ transcript("bbbbbbbb-busy", "tool_use", [
   { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-meta-1", content: [{ type: "text", text: JSON.stringify({ after: { name: "Juicer hunt" } }) }] }] } },
 ]);
 r = run(["send", "--to", "bbbbbbbb", "hi"], self);
-ok("a session is called by its Nimbalyst tab name", r.code === 0 && r.out === 'Sent to "Juicer hunt". It reads the note before its next step.');
+ok("a session is called by its Nimbalyst tab name", r.code === 0 && r.out.startsWith('Queued for "Juicer hunt", not delivered yet.'));
 transcript("cccccccc-busy", "tool_use", [{ type: "ai-title", aiTitle: "Title from Claude Code" }]);
 r = run(["send", "--to", "cccccccc", "hi"], self);
-ok("without a tab name, Claude Code's own title is used", r.code === 0 && r.out.startsWith('Sent to "Title from Claude Code". '));
+ok("without a tab name, Claude Code's own title is used", r.code === 0 && r.out.startsWith('Queued for "Title from Claude Code", '));
 r = run(["send", "which one"], self);
-ok("several busy targets: the most recently active one gets the note", r.code === 0 && r.out.startsWith('Sent to "Title from Claude Code". '));
+ok("several busy targets: the most recently active one gets the note", r.code === 0 && r.out.startsWith('Queued for "Title from Claude Code", '));
 r = run(["send", "--to", "zzzzzzzz", "hi"], self);
 ok("an unknown id sends nothing and lists the sessions by name", r.code === 2 && r.out.includes("NOT SENT") && r.out.includes('bbbbbbbb  "Juicer hunt"  busy') && r.out.includes('cccccccc  "Title from Claude Code"  busy'));
 transcript("cccccccc-busy", "tool_use", Array.from({ length: 40 }, () => ({ type: "assistant", message: { content: [{ type: "text", text: "x".repeat(100000) }] } })));
 r = run(["send", "--to", "cccccccc", "hi"], self);
-ok("a long session whose only request is at the start is still called by it", r.code === 0 && r.out.startsWith('Sent to the session last asked "request of cccccccc-busy". '));
+ok("a long session whose only request is at the start is still called by it", r.code === 0 && r.out.startsWith('Queued for the session last asked "request of cccccccc-busy", '));
 
 // 18-23: --to with a Nimbalyst session id (a lead's child, in another folder) finds its transcript,
 // and Nimbalyst's status decides how the note goes, not the transcript's last line.
@@ -145,12 +145,12 @@ const nimb = { env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self", STEER_NIMBALYST_D
 childT("tool_use");
 r = run(["send", "--to", "e13360ea", "wine ages faster"], nimb);
 ok("a Nimbalyst id reaches the busy child in another folder, named by its title",
-  r.code === 0 && r.out === 'Sent to "job 3b: base design". It reads the note before its next step.' && left().at(-1).to === "dddddddd-child");
+  r.code === 0 && r.out.startsWith('Queued for "job 3b: base design", not delivered yet.') && left().at(-1).to === "dddddddd-child");
 childT("end_turn");
 let before = left().length;
 r = run(["send", "--to", "e13360ea", "wine ages faster"], nimb);
 ok("reply ended but Nimbalyst says running (a background job): the note is queued, not refused",
-  r.code === 0 && r.out.startsWith("Sent to ") && left().length === before + 1);
+  r.code === 0 && r.out.startsWith("Queued for ") && left().length === before + 1);
 status("waiting_for_input");
 r = run(["send", "--to", "e13360ea", "pick blue"], nimb);
 ok("waiting for the user's answer: queued, and it says the note comes after that answer", r.code === 0 && r.out.includes("waiting for an answer"));
@@ -170,7 +170,7 @@ fs.mkdirSync(laneDir, { recursive: true });
 fs.writeFileSync(path.join(laneDir, "eeeeeeee-lane.jsonl"), JSON.stringify({ type: "assistant", message: { stop_reason: "tool_use", content: [{ type: "tool_use", name: "Bash", input: {} }] } }) + "\n");
 r = run(["send", "--to", "5a051ea1", "hi"], nimb);
 ok("a session in a git worktree is found by its transcript in the worktree's folder",
-  r.code === 0 && r.out === 'Sent to "lane: bugs". It reads the note before its next step.' && left().at(-1).to === "eeeeeeee-lane");
+  r.code === 0 && r.out.startsWith('Queued for "lane: bugs", not delivered yet.') && left().at(-1).to === "eeeeeeee-lane");
 
 // 24-30: send_prompt to a session Nimbalyst says is busy is held and turned into a steer note; to an
 // idle one it goes through. A session not in Nimbalyst keeps the /btw check (held until steer was tried).
@@ -285,6 +285,46 @@ ok("STEER_FORWARD=off still forwards child reports", JSON.parse(o.out || "{}").d
 ok("no temp files are left in the steer folder", !fs.readdirSync(inboxDir).some((n) => n.endsWith(".tmp")));
 db.close();
 
+// Delivery receipts: a note stays until its marker is in the session's transcript (2026-10-30).
+{
+  const inbox = path.join(home, ".claude", "steer");
+  const tp2 = path.join(home, "receipt-transcript.jsonl");
+  const box = path.join(inbox, "receipt-test.jsonl");
+  const rc = () => { try { return JSON.parse(fs.readFileSync(path.join(inbox, "receipts.json"), "utf8")); } catch { return []; } };
+  const sid = { session_id: "rcpt-1", transcript_path: tp2 };
+  const put = (e) => { fs.mkdirSync(inbox, { recursive: true }); fs.writeFileSync(box, JSON.stringify(e) + "\n"); };
+  const inBox = () => fs.existsSync(box) ? fs.readFileSync(box, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+  const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1700);
+  fs.writeFileSync(tp2, "");
+  put({ ts: Date.now(), id: "n1", to: "rcpt-1", from: "lead-1", msg: "keep the clouds" });
+  let x = hook("PreToolUse", sid);
+  ok("the held call carries the note with its marker", x?.hookSpecificOutput?.permissionDecisionReason.includes("[note n1] keep the clouds"));
+  ok("handing it over does not count as delivered", inBox().length === 1 && inBox()[0].tries === 1 && !rc().some((r) => r.id === "n1"));
+  pause();
+  // The call was cancelled: nothing reached the transcript.
+  ok("a lost hold does not hold the next call", hook("PreToolUse", sid) === null);
+  x = hook("PostToolUse", sid);
+  ok("a lost note rides with the next tool result", x?.hookSpecificOutput?.additionalContext.includes("[note n1] keep the clouds") && inBox()[0].tries === 2);
+  fs.writeFileSync(tp2, JSON.stringify({ text: "[note n1] keep the clouds" }) + "\n");
+  pause();
+  x = hook("PreToolUse", sid);
+  ok("once the marker is in the transcript the note is done", x === null && inBox().length === 0 && rc().find((r) => r.id === "n1")?.state === "delivered");
+  fs.writeFileSync(tp2, "");
+  put({ ts: Date.now(), id: "n2", to: "rcpt-1", from: "lead-1", msg: "never lands", seen: Date.now() - 5000, tries: 4 });
+  ok("after the last try it is marked failed", hook("PostToolUse", sid) === null && rc().find((r) => r.id === "n2")?.state === "failed");
+  x = hook("PostToolUse", { session_id: "lead-1" });
+  ok("the sender is told once a note failed", x?.hookSpecificOutput?.additionalContext.includes("NOT been confirmed") && x.hookSpecificOutput.additionalContext.includes("never lands"));
+  ok("and only once", hook("PostToolUse", { session_id: "lead-1" }) === null);
+  put({ ts: Date.now() - 11 * 60e3, id: "n3", to: "rcpt-9", from: "lead-1", msg: "slow one" });
+  x = hook("PostToolUse", { session_id: "lead-1" });
+  ok("the sender is warned about a note still waiting after 10 minutes", x?.hookSpecificOutput?.additionalContext.includes("slow one"));
+  ok("that warning comes once too", hook("PostToolUse", { session_id: "lead-1" }) === null && inBox().length === 1);
+  r = run(["status"], { env: { CLAUDE_CODE_SESSION_ID: "lead-1" } });
+  ok("status lists what is waiting and what failed", r.out.includes("slow one") && r.out.includes("FAILED") && r.out.includes("never lands"));
+  fs.rmSync(box, { force: true });
+}
+
 fs.rmSync(home, { recursive: true, force: true });
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

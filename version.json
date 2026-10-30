@@ -1,5 +1,5 @@
 {
-  "version": "1.0.64",
-  "date": "2026-10-29",
-  "summary": "The Note button now reaches a session that runs in a git worktree; it used to refuse it as not active."
+  "version": "1.0.66",
+  "date": "2026-10-30",
+  "summary": "A note sent to a busy session now counts as delivered only when it is really in that session: one lost to a cancelled tool call is sent again, the sender's message says Delivered or Queued instead of Sent, and the sender is told about any note that didn't arrive. A picture shown in the chat stays there: it is shown from the project's `shown` folder, so cleaning up a scratch folder no longer leaves \"File not found\"."
 }
