@@ -132,6 +132,11 @@
           },
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/file-link-gate.mjs --remind",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "node ~/.claude/hooks/board-nudge.mjs",
             "timeout": 5
           },
