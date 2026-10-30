@@ -7,7 +7,7 @@
 //           24 hours on record, and how many points a day last until the reset (1 point = 1% of the week)
 //   five    whether the open 5-hour window fills up before it resets
 //   days    the days left in this week: the percentage at the end of each, at this pace and on budget
-//   hours   recorded use per local hour of the day, with this computer's part
+//   hours   recorded use per local hour of the day, with this computer's part if the cost is given
 //   otherUse  when other use of the account is usually on (from the config), and the clear stretches
 //   tips    the same in short lines
 //
@@ -17,7 +17,9 @@
 // the split into this computer and other use.
 //
 // Run it directly for a text version:
-//   node plan-ahead.mjs [--days N] [--plan FILE] [--config FILE] [--root DIR] [--now ISO] [--json]
+//   node plan-ahead.mjs [--plan FILE] [--config FILE] [--now ISO] [--json] [--cost [--days N] [--root DIR]]
+// --cost adds this computer's part to the JSON (week.share, hours[].mine) from a transcript scan, half a
+// minute on a long history. The week, 5-hour and budget numbers don't need it, and the panel allows 30 seconds.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -217,12 +219,16 @@ if (process.argv[1] && same(process.argv[1], fileURLToPath(import.meta.url))) {
     return i === -1 ? def : args[i + 1];
   };
   const log = path.join(os.homedir(), ".claude", "usage-log");
-  const scanArgs = [path.join(here, "usage-scan.mjs"), "--json", "--cost", "--days", String(opt("days", 30))];
-  if (opt("root")) scanArgs.push("--root", opt("root"));
-  const cost = JSON.parse(execFileSync(process.execPath, scanArgs, { encoding: "utf8", maxBuffer: 1 << 30 })).cost ?? [];
+  const withCost = args.includes("--cost");
+  let cost = [];
+  if (withCost) {
+    const scanArgs = [path.join(here, "usage-scan.mjs"), "--json", "--cost", "--days", String(opt("days", 30))];
+    if (opt("root")) scanArgs.push("--root", opt("root"));
+    cost = JSON.parse(execFileSync(process.execPath, scanArgs, { encoding: "utf8", maxBuffer: 1 << 30 })).cost ?? [];
+  }
   const samples = readSamples(opt("plan", path.join(log, "plan-usage.jsonl")));
   const now = opt("now") ? Date.parse(opt("now")) : Date.now();
-  const A = planAhead(samples, cost, planUse(samples, cost), readConfig(opt("config", path.join(log, "plan-hours.json"))), now);
+  const A = planAhead(samples, cost, withCost ? planUse(samples, cost) : null, readConfig(opt("config", path.join(log, "plan-hours.json"))), now);
   if (args.includes("--json")) console.log(JSON.stringify(A, null, 2));
   else if (A.status === "none") console.log("No plan percentages have been recorded yet. Recording starts with the next Claude Code session on this computer.");
   else {

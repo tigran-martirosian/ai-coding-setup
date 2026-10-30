@@ -94,6 +94,18 @@ const common = ["--plan", log, "--root", root];
 const text = execFileSync(process.execPath, [path.join(SKILL, "plan-ahead.mjs"), ...common, "--config", cfg, "--now", "2026-10-03T02:00:00Z"], { encoding: "utf8" });
 check("text version: week line, 5-hour line, budget and the days table, no get on or off", [/Week: 40% used/.test(text), /5-hour window: 40%, resets/.test(text), /Budget: /.test(text), /Get o(n|ff)/.test(text), /on budget 100%/.test(text)],
   [true, true, true, false, true]);
+// A plain run starts no scan: this folder has no usage-scan.mjs, and --cost fails on that
+const noScanDir = path.join(fs.realpathSync(tmp), "no-scan"); // the script's main-file check needs the real path (macOS)
+fs.mkdirSync(noScanDir);
+for (const f of ["plan-ahead.mjs", "plan-use.mjs"]) fs.copyFileSync(path.join(SKILL, f), path.join(noScanDir, f));
+const ahead = (dir, ...more) => JSON.parse(execFileSync(process.execPath, [path.join(dir, "plan-ahead.mjs"), ...common, "--config", cfg, "--now", "2026-10-03T02:00:00Z", "--json", ...more], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+const panelPart = (a) => ({ status: a.status, at: a.at, week: { ...a.week, share: null }, five: a.five, tips: a.tips });
+const plain = ahead(noScanDir);
+const costly = planAhead(samples, [[Math.floor(Date.parse(samples[1].t) / 60000), 5, 1000]], { status: "ok", days: { a: { total: 10, mine: 4 } }, eras: [{ after: 0, perUnit: 1 }], perUnit: 1 }, null, Date.parse("2026-10-03T02:00:00Z"));
+check("no scan by default: this computer's part stays empty, the panel's numbers match a run with the cost", [plain.week.share, plain.hours.every((h) => h.mine === null), costly.week.share, panelPart(plain)], [null, true, 0.4, panelPart(costly)]);
+let missing = "";
+try { ahead(noScanDir, "--cost"); } catch (e) { missing = String(e.stderr); }
+check("--cost: this folder does need the scan", /usage-scan/.test(missing), true);
 const page = path.join(tmp, "page.html");
 execFileSync(process.execPath, [path.join(SKILL, "usage-dashboard.mjs"), ...common, "--ahead", cfg, "--codex", path.join(tmp, "x"), "--gemini", path.join(tmp, "y"), "--out", page, "--no-open"], { encoding: "utf8" });
 const html = fs.readFileSync(page, "utf8");

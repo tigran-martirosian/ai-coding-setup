@@ -1,7 +1,9 @@
 // One shared copy of the planner's numbers for the gutter button and the panel.
 
 import { script } from './command';
+import { failureLine } from './format';
 import type { Plan } from './format';
+import { t } from './strings';
 
 interface ExecResult {
   success: boolean;
@@ -45,8 +47,6 @@ const set = (patch: Partial<State>) => {
   for (const listener of listeners) listener();
 };
 
-const lastLine = (r: ExecResult) => r.stderr.trim().split('\n').pop() || `exit ${r.exitCode}`;
-
 export const getState = () => state;
 
 export function subscribe(listener: () => void) {
@@ -66,10 +66,10 @@ export async function refresh() {
   set({ loading: true });
   try {
     const r = await exec(script('plan-ahead.mjs', '--json'), { timeout: 30_000 });
-    if (!r.success) throw new Error(lastLine(r));
+    if (!r.success) throw new Error(failureLine(r.stderr, t.refreshFailed));
     set({ plan: JSON.parse(r.stdout), error: '' });
     const sh = await exec(script('shared-usage.mjs'), { timeout: 30_000 });
-    if (!sh.success) throw new Error(lastLine(sh));
+    if (!sh.success) throw new Error(failureLine(sh.stderr, t.refreshFailed));
     set({ shared: JSON.parse(sh.stdout), loading: false });
   } catch (e) {
     set({ error: e instanceof Error ? e.message : String(e), loading: false });
@@ -80,7 +80,7 @@ export async function refresh() {
 export async function openDashboard() {
   try {
     const r = await exec(script('usage-dashboard.mjs'), { timeout: 120_000 });
-    if (!r.success) set({ error: lastLine(r) });
+    if (!r.success) set({ error: failureLine(r.stderr, t.dashboardFailed) });
   } catch (e) {
     set({ error: e instanceof Error ? e.message : String(e) });
   }
