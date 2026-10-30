@@ -22,6 +22,10 @@ const english = {
     oddId: (id: string) => `Not sent: odd session id "${id}"`,
     noBox: 'Not sent: could not find the chat box',
     noSession: 'Not sent: could not tell which session this is',
+    fileBusy: 'a file is still being added, try again in a moment',
+    fileNoPath: 'could not read the path of an attached file',
+    fileLeft: 'Note sent, but its file is still in the chat box',
+    waiting: 'Note on its way, not confirmed yet',
   },
   commands: {
     boardCleanup: { label: 'Board cleanup', note: 'Move finished sessions to Complete' },
@@ -54,6 +58,10 @@ const russian: Strings = {
     oddId: (id: string) => `Не отправлено: странный id сессии "${id}"`,
     noBox: 'Не отправлено: не найдено поле чата',
     noSession: 'Не отправлено: не удалось определить сессию',
+    fileBusy: 'файл ещё добавляется, попробуйте через секунду',
+    fileNoPath: 'не удалось прочитать путь прикреплённого файла',
+    fileLeft: 'Заметка отправлена, но её файл остался в поле чата',
+    waiting: 'Заметка в пути, доставка ещё не подтверждена',
   },
   commands: {
     boardCleanup: { label: 'Уборка доски', note: 'Перенести завершённые сессии в Complete' },

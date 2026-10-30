@@ -163,6 +163,12 @@ r = run(["send", "--to", "dddddddd", "hi"], nimb);
 ok("the Claude session id finds the same Nimbalyst row", r.code === 3 && r.out.includes("is idle"));
 r = run(["send", "--to", "ffffffff", "hi"], nimb);
 ok("an id in neither place sends nothing", r.code === 2 && r.out.startsWith("NOT SENT"));
+// A new tab: Nimbalyst has its row, Claude has no session yet
+db.prepare("INSERT INTO ai_sessions VALUES (?, ?, ?, ?, ?, ?)").run("56b89c3d-new", "New Session", "idle", null, childWs, "2026-10-30");
+before = left().length;
+r = run(["send", "--to", "56b89c3d-new", "first words"], nimb);
+ok("a session that has never run: nothing queued, told to send_prompt so the first message starts it",
+  r.code === 3 && r.out.includes("send_prompt to it") && r.out.includes("56b89c3d-new") && left().length === before);
 // A session in a git worktree: Nimbalyst records the main folder, the transcript is under the worktree's
 db.prepare("INSERT INTO ai_sessions VALUES (?, ?, ?, ?, ?, ?)").run("5a051ea1-nimb", "lane: bugs", "running", "eeeeeeee-lane", childWs, "2026-10-29");
 const laneDir = path.join(home, ".claude", "projects", key(childWs + "_worktrees/moving-comet"));

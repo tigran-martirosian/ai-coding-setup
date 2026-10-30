@@ -1,7 +1,8 @@
 # Commands (Nimbalyst extension)
 
 A gutter button that opens a small pop-up list of the commands I use most: board cleanup, next move,
-project scan, setup audit, usage report and new project. Pressing one starts a new session in the open
+project scan, setup audit, usage report, new project and update setup (seven). In the `claude-settings`
+folder it also lists chat review and full review, nine in all. Pressing one starts a new session in the open
 project, on Sonnet, with the command as its first message.
 
 The commands are the skills in [skills](../../skills); the extension only starts them. The list is in
@@ -13,13 +14,18 @@ to other people.
 What a button cannot do: reach a session that is already running. The app has no call for that, so
 commands that belong to a running chat stay typed. The Note button below does reach one.
 
+### Long lines in tool cards
+
+`src/chat-wrap.css` wraps long lines in the chat's tool cards (new-file previews, diffs, any code or preformatted text). The app draws them
+on one line and hides what sticks out, so the end of a long line could not be read.
+
 ### Note button and wake bridge
 
 A host component (`NoteBridge`, `src/host.tsx`, mounted by the app outside any panel) puts a **Note** button
 beside the Send button of every chat box. Type text, press Note: it is written to
-`~/.claude/steer/button-note.txt` and sent with `steer.mjs send --to <session id>`, so a busy session reads
+`~/.claude/steer/button-note-<session id>.txt` and sent with `steer.mjs send --to <session id>`, so a busy session reads
 it before its next step without being interrupted; if the session is idle (exit code 3) the text is sent
-to it as a queued prompt (`ai:createQueuedPrompt`), which starts it at once. The box is cleared and a short
+to it as a queued prompt (`ai:createQueuedPrompt`), which starts it at once. A file in the chat box (a pasted image, say) goes along: its path is added to the note, and an idle session also gets it as an attachment. The box is cleared and a short
 status shows beside the button (the error text if it failed). The session is the `data-session-id` of the
 chat box's nearest ancestor. This reads the app's own page markup (`src/find.ts` lists the selectors), so an
 app update may break it: then the button does not appear and the console says why. It needs

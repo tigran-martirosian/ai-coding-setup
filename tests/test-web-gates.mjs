@@ -12,7 +12,7 @@ const WORKER_HOOK = fileURLToPath(new URL("../hooks/web-worker-gate.mjs", import
 const ANSWER_HOOK = fileURLToPath(new URL("../hooks/web-answer-gate.mjs", import.meta.url));
 const { offending, reason: workerReason } = await import(pathToFileURL(WORKER_HOOK).href);
 const {
-  hedgeProblem, countProblem, wantedCount, listedCount, checkedASource, visibleProse,
+  hedgeProblem, countProblem, wantedCount, listedCount, checkedASource, visibleProse, harnessPrompt,
 } = await import(pathToFileURL(ANSWER_HOOK).href);
 
 let pass = 0, fail = 0;
@@ -262,6 +262,54 @@ ok("listedCount ignores a fenced block", listedCount("```\n- not an item\n- nor 
   const { out } = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir });
   ok("an injected ask does not arm the count check", out === "", out.slice(0, 140));
 }
+
+// Count check: only text a person typed counts as the ask. A turn that a background task's notification or an
+// automated judge prompt started has no typed ask, so no number is read out of that text.
+{
+  const dir = mkdtempSync(join(tmpdir(), "web-gate-harness-"));
+  const hook = (name, entries) => {
+    const t = join(dir, name);
+    writeFileSync(t, entries.map((o) => JSON.stringify(o)).join("\n"));
+    return runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir }).out;
+  };
+  const NOTE = "<task-notification>\n<task-id>adb0c9294dfffce7c</task-id>\n<tool-use-id>toolu_01RK1vvBLXX6nH6NAwSuH3aD</tool-use-id>\n<output-file>/tmp/tasks/adb0c9294dfffce7c.output</output-file>\n<status>completed</status>\n<result>Find 20 examples of error messages and list them.</result>\n</task-notification>";
+  const JUDGE = "You are judging two assistant replies to the same message from a user, blind. The message was: \"find 12 plugins for this editor\". Score A and B.";
+  const said = { type: "assistant", message: { content: [{ type: "text", text: "The first report is back; the other four are still running." }] } };
+
+  ok("harnessPrompt: a task notification", harnessPrompt({ promptSource: "system", origin: { kind: "task-notification" } }, NOTE));
+  ok("harnessPrompt: the notification text alone", harnessPrompt({}, NOTE));
+  ok("harnessPrompt: a judge prompt", harnessPrompt({ promptSource: "sdk" }, JUDGE));
+  ok("harnessPrompt: a typed prompt is not", !harnessPrompt({ promptSource: "sdk" }, "find 12 plugins for this editor"));
+
+  ok("a task notification does not arm the count check",
+    hook("n1.jsonl", [{ type: "user", message: { content: NOTE } }, said]) === "");
+  // The notification turn is read against the last typed prompt (the ask is still open), but a status line
+  // that lists nothing is not an answer; a reply that lists some items is.
+  const notif = { type: "user", promptSource: "system", origin: { kind: "task-notification" }, message: { content: NOTE } };
+  const ask10 = { type: "user", message: { content: "find 10 SQL linters" } };
+  const helpers = { type: "assistant", message: { content: [{ type: "tool_use", name: "Agent", input: {} }, { type: "text", text: "Four readers are working on it." }] } };
+  const reply = (text) => ({ type: "assistant", message: { content: [{ type: "text", text }] } });
+  ok("a notification turn that lists 0 items is a status line: silent",
+    hook("n2.jsonl", [ask10, helpers, notif, said]) === "");
+  const three = hook("n4.jsonl", [ask10, helpers, notif, reply("- SQLFluff\n- sqruff\n- sqlfmt")]);
+  ok("a notification turn that answers with 3 of 10 items is checked", /asked for 10; this reply lists 3/.test(three), three.slice(0, 120));
+  ok("a notification turn that lists all 10 items is silent",
+    hook("n5.jsonl", [ask10, helpers, notif, reply(Array.from({ length: 10 }, (_, i) => `- linter ${i + 1}`).join("\n"))]) === "");
+  ok("a notification mid-turn does not drop the tools recorded before it",
+    hook("n6.jsonl", [{ type: "user", message: { content: "is postgres 19 out?" } },
+      { type: "assistant", message: { content: [{ type: "tool_use", name: "WebFetch", input: { url: "https://www.postgresql.org/" } }] } },
+      notif, reply("19 may not be available as a stable release yet.")]) === "");
+  ok("the same hedge with no tool before the notification is still blocked",
+    /may not be available/.test(hook("n7.jsonl", [{ type: "user", message: { content: "is postgres 19 out?" } }, notif, reply("19 may not be available as a stable release yet.")])));
+  ok("an automated judge prompt does not arm the count check",
+    hook("j1.jsonl", [{ type: "user", promptSource: "sdk", message: { content: JUDGE } }, { type: "assistant", message: { content: [{ type: "text", text: "{\"A\": 2, \"B\": 3}" }] } }]) === "");
+  // The rule still fires for a person's ask that comes after a notification
+  const after = hook("n3.jsonl", [{ type: "user", message: { content: NOTE } }, said,
+    { type: "user", message: { content: "give me 10 examples of open source SQL linters" } },
+    { type: "assistant", message: { content: [{ type: "text", text: "- SQLFluff\n- sqruff" }] } }]);
+  ok("a person's ask after a notification is still checked", /asked for 10/.test(after), after.slice(0, 120));
+}
+
 
 // A hedging reply with a tool call recorded in the transcript must pass
 {

@@ -61,7 +61,9 @@ write(settingsFile, settings, settingsWas);
 // are picked in Handy's own first-start setup and stay as they are.
 const HANDY = {
   shortcut_activation: "push_to_talk",
-  paste_method: "direct",
+  // Ctrl+V, not "direct": direct typing sends every letter as its own keystroke, so a dictation that
+  // lands while the wrong part of an app has focus fires one shortcut per letter.
+  paste_method: "ctrl_v",
   clipboard_handling: "dont_modify",
   append_trailing_space: true,
   filler_word_removal_enabled: true,

@@ -32,6 +32,15 @@ export const visibleProse = (text) => {
   return out.join("\n");
 };
 
+// A user entry the harness or a script made, not a person: a finished background task's notification
+// (origin.kind "task-notification", promptSource "system", text opening <task-notification>) and the
+// setup-replay judge runs. The judge runs carry no marker: they are `claude -p` runs whose first entry
+// looks like a typed prompt (promptSource "sdk", turnOrigin "sdk", entrypoint "sdk-cli", the same as a
+// Nimbalyst session), so only their opening words identify them.
+export const harnessPrompt = (e, text) =>
+  e.promptSource === "system" || e.origin?.kind === "task-notification" ||
+  /^\s*<task-notification>/i.test(text) || /^\s*You are judging two assistant repl(?:y|ies)\b/i.test(text);
+
 // This turn: the assistant's visible text, the tools it called, and the user's prompt that started it
 export function turn(transcriptPath) {
   const fd = fs.openSync(transcriptPath, "r");
@@ -47,7 +56,7 @@ export function turn(transcriptPath) {
   }
   const lines = chunk.split("\n");
   const parts = [], tools = [];
-  let prompt = "";
+  let prompt = "", harness = false;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (!line.includes('"user"') && !line.includes('"assistant"')) continue;
@@ -64,6 +73,9 @@ export function turn(transcriptPath) {
         : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text).join("\n") : "";
       if (!text) continue;
       if (/^\s*(?:<synthetic>|\[(?:Stop hook|System|Child Session|Request interrupted)|Stop hook feedback:|Caveat: The messages below)/i.test(text)) continue;
+      // A notification or a judge prompt is not an ask: skip it and keep reading back to the last typed
+      // prompt, so the text and tools gathered so far stay, and note that the harness started this turn.
+      if (harnessPrompt(e, text)) { harness = true; continue; }
       prompt = text;
       break;
     }
@@ -73,7 +85,7 @@ export function turn(transcriptPath) {
       else if (b.type === "tool_use") tools.unshift({ name: b.name || "", input: b.input || {} });
     }
   }
-  return { prose: parts.join("\n"), tools, prompt };
+  return { prose: parts.join("\n"), tools, prompt, harness };
 }
 
 // ---------- check 1: a hedge about availability with nothing behind it ----------
@@ -180,13 +192,15 @@ export function listedCount(prose) {
 const SAID_HOW_MANY = /\b(?:found|turned\s+up|there\s+(?:are|were)|got|lists?)\s+(?:only\s+)?(?:just\s+)?\d{1,2}\b|\bonly\s+\d{1,2}\b|\b\d{1,2}\s+of\s+the\s+\d{1,2}\b/i;
 const SAID_WHERE = /\b(?:searched|checked|looked\s+(?:at|in|through|on)|I\s+went\s+through|sources?\s*:|queries\s*:|what\s+I\s+searched)\b/i;
 
-export function countProblem(prompt, prose, tools) {
+export function countProblem(prompt, prose, tools, harness = false) {
   const want = wantedCount(prompt);
   if (!want) return null;
   // A turn that stops to ask the user is not an answer yet
   if (tools.some((t) => /AskUserQuestion|PromptForUserInput|ExitPlanMode/.test(t.name))) return null;
   const got = listedCount(prose);
   if (got >= want) return null;
+  // A turn a notification started that lists nothing is a status line, not an answer
+  if (harness && got < 1) return null;
   const text = visibleProse(prose);
   if (SAID_HOW_MANY.test(text) && SAID_WHERE.test(text)) return null;
   return { want, got };
@@ -228,7 +242,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
       if ((process.env.WEB_ANSWER_GATE || "").toLowerCase() === "off") return;
       const input = JSON.parse(raw);
       if (input.stop_hook_active) return;
-      let t = { prose: "", tools: [], prompt: "" };
+      let t = { prose: "", tools: [], prompt: "", harness: false };
       if (input.transcript_path) {
         try { t = turn(input.transcript_path); } catch {}
       }
@@ -236,7 +250,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
       if (last && !t.prose.includes(last)) t.prose = t.prose ? `${t.prose}\n${last}` : last;
       const off = (name) => (process.env[name] || "").toLowerCase() === "off";
       const hedge = off("HEDGE_CHECK") ? null : hedgeProblem(t.prose, t.tools);
-      const count = off("COUNT_CHECK") ? null : countProblem(t.prompt, t.prose, t.tools);
+      const count = off("COUNT_CHECK") ? null : countProblem(t.prompt, t.prose, t.tools, t.harness);
       if (hedge || count) {
         process.stdout.write(JSON.stringify({ decision: "block", reason: reason({ hedge, count }) }));
       }

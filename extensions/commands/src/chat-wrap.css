@@ -1,0 +1,18 @@
+/* Long lines in the chat's tool cards wrap, in every card that shows code or preformatted text. The app
+   draws a new file's preview and an edit's diff on one line per line, in a message that hides what sticks out, so the end of a long line could not be read
+   or scrolled to. Read from the app's renderer code (Nimbalyst 2026-10-30); !important because the
+   code highlighter sets white-space on the element itself. */
+.rich-transcript-tool-container code,
+.rich-transcript-tool-container pre {
+  white-space: pre-wrap !important;
+  overflow-wrap: break-word;
+}
+.rich-transcript-tool-container .diff-content-inner {
+  display: block;
+}
+.rich-transcript-tool-container .diff-line,
+.rich-transcript-tool-container .diff-line-content {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-width: 0;
+}

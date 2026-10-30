@@ -2,7 +2,7 @@
 // bridge. This reaches into the app's own markup (see find.ts), so an app update may break it; when
 // it does the button just does not appear, and the reason is in the console.
 import { pollOutbox, newState, POLL_MS } from './bridge';
-import { findComposers } from './find';
+import { findComposers, readFiles, removeFiles } from './find';
 import type { El } from './find';
 import { homeDir, sendNote } from './note';
 import { t } from './strings';
@@ -53,14 +53,21 @@ function build(invoke: Invoke): HTMLElement {
     e.preventDefault();
     e.stopPropagation();
     const row = wrap.parentElement;
-    const sessionId = wrap.closest('[data-session-id]')?.getAttribute('data-session-id');
+    const panel = wrap.closest('[data-session-id]');
+    const sessionId = panel?.getAttribute('data-session-id');
     const box = row?.querySelector('textarea');
     if (!row || !box) return say(false, t.note.noBox);
-    if (!sessionId) return say(false, t.note.noSession);
+    if (!panel || !sessionId) return say(false, t.note.noSession);
     button.disabled = true;
     try {
-      const outcome = await sendNote(box.value, sessionId, await homeDir(invoke), invoke);
-      if (outcome.ok) clearTextarea(row);
+      // Read together and before any wait: what is added while the note goes out stays in the box
+      const text = box.value;
+      const files = readFiles(panel, text);
+      const outcome = await sendNote(text, sessionId, await homeDir(invoke), invoke, files);
+      if (outcome.ok) {
+        if (box.value === text) clearTextarea(row);
+        if (!removeFiles(panel, files)) return say(false, t.note.fileLeft);
+      }
       say(outcome.ok, outcome.message);
     } catch (err) {
       say(false, t.note.notSent(String((err as Error)?.message ?? err)));
