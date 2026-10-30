@@ -1,100 +1,113 @@
-# AI coding setup for Claude Code, Codex and Gemini
+# AI coding setup for Claude Code
 
-The rules, checks and skills I run AI coding agents with for all my development. The checks compare what an agent says with the log of what it did: a reply that links a page it never opened is rejected, and so is "checked" with no lookup behind it. Claude Code writes the code; Codex (GPT) and Gemini do the searching and long reading.
+I run all my development through Claude Code. These are the rules, checks and tools I built around it. The checks compare what the agent says with the log of what it did, and send the reply back to the agent when the two don't match.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/482b5ce0-193e-483b-92b9-d57b72199710
+https://github.com/user-attachments/assets/76e2dfca-ad85-480f-b1ab-b0b98fbc1a56
 
-No player above (the GitHub app)? [Watch the tour video](https://github.com/user-attachments/assets/482b5ce0-193e-483b-92b9-d57b72199710).
+If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/76e2dfca-ad85-480f-b1ab-b0b98fbc1a56).
 
-Changes in versions: [CHANGELOG.md](CHANGELOG.md).
+## How it compares
 
-## Install
+Claude Code gives you hooks and skills. This is what I built with them.
 
-Needs Claude Code, installed and signed in. Download the ZIP or clone the repository, then in its folder:
+| | Claude Code with a few skills | With this setup |
+|---|---|---|
+| Its claims | Nothing checks them | Hooks compare them with the log of what it did |
+| Commands | It may ask you to run them | It runs them itself |
+| Long chats | Compact when nearly full, or by hand | Compact themselves early, while the prompt cache is warm |
+| Big jobs | Subagents you arrange | `/lead`: sessions side by side, then a separate review |
+| Spending | `/usage`: the last 7 days | Per project, with a forecast of when the limit runs out |
+
+## What it does
+
+### Checks
+
+Claude Code logs every tool call. A hook is a small script that runs before or after a step. It can read that log, compare it with the reply and stop the step. [hooks/link-gate.mjs](hooks/link-gate.mjs) is a good first example.
+
+These go back to the agent:
+
+- a reply with a link it never opened
+- "now run this in a terminal", when it can run that itself
+- a turn that changed three or more code files with no `/code-review`
+
+`DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
+
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 24 hooks are listed in [docs/features.md](docs/features.md#hooks).
+
+### Cost
+
+- A hook refuses a read of a whole large file, so the agent reads the part it needs. It refused 607 in those 30 days.
+- A long chat compacts itself while the prompt cache is warm. In one audit that cost about 44k tokens; after a long pause, when the cache has expired, about 590k.
+- Typing `usage` opens a dashboard with this week's token use and a forecast for your plan limit. It makes no model call.
+
+### Long work
+
+- A hook rewrites a short handoff note after every reply, so a fresh session can start from it.
+- I hand big jobs to `/lead`. It splits the work across sessions in Nimbalyst, and a separate session reviews the result.
+
+## What changes on day one
+
+- Replies lead with the answer, and shell commands end with a line saying what they do in plain words.
+- The agent runs commands itself instead of asking you to paste them, except for passwords and decisions that are yours.
+- Some replies are sent back, and the agent does the missing step first.
+- In Nimbalyst, a choice question always has a box for your own answer.
+- If you have set no model, it sets Sonnet.
+- Every 12 hours you may see one line saying a newer version is out. Nothing downloads until you type `/update-setup`.
+
+## Install and undo
+
+You need Claude Code, installed and signed in. Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions, the session board and `/lead` don't. Download the ZIP or clone the repository, then in its folder:
 
 ```
 claude "Read docs/full-install.md and carry out every step in it."
 ```
 
-Claude Code asks which subscriptions you have (ChatGPT for Codex, Google AI for Gemini; both optional), then installs what is missing. The steps are in [docs/full-install.md](docs/full-install.md).
-
-Only the setup files, with Node.js 18 or newer:
+It asks which subscriptions you have, then installs what is missing. For only the setup files, with Node.js 18 or newer (22.5 or newer for the automatic compact):
 
 ```
 node install.mjs --dry-run
 node install.mjs
 ```
 
-Your own hooks and skills stay as they are; a file the installer replaces is kept as `<name>.before-install-<date>`. Without Nimbalyst the rules, hooks and skills still work; the extensions, the session board and `/lead` need it. More: [Install details](docs/features.md#install-details) and [docs/HOW-TO.md](docs/HOW-TO.md), which says what to type and what you should see.
+`--dry-run` prints what would change and changes nothing. Your own hooks and skills stay as they are, and a file the installer replaces is kept as `<name>.before-install-<date>`. If your `CLAUDE.md` already has your own rules, it stays and the rules here are not added until you pass `--replace-rules`.
 
-## Updating
+```
+node install.mjs --uninstall
+```
 
-Every 12 hours the setup asks GitHub whether a newer version is out and says so in one line. Nothing is downloaded until you type `/update-setup`, which installs it and keeps the files you changed. Details: [Updating details](docs/features.md#updating-details).
+This takes the setup's hooks out of `settings.json` and the project folders' settings, removes its files unless you changed them, and restores files of yours that the installer replaced. Your work in the project folders stays, and so do the plugins, the extensions and the setup's permission, model and language settings. The run prints how to remove each.
 
-![An update announced in one line, then installed with one command](docs/img/clip-update.gif)
+Every hook in `hooks/` has an off switch, an environment variable set in your shell or system, such as `LINK_GATE=off`. [docs/HOW-TO.md](docs/HOW-TO.md) says what to type and what you should see.
 
-## What's inside
+## What leaves your computer
 
-| Part | What it does | Where |
-|---|---|---|
-| Rules | How the agent replies, asks, delegates and finishes work | [rules](rules) |
-| Hooks | Scripts that check each step and can send it back | [hooks](hooks) |
-| Skills | Commands for repeated jobs: `/court`, `/lead`, `/handoff`, `/btw`, `/setup-audit` and others | [skills](skills) |
-| Starter projects | Four folders, each with its own rules and tools | [projects](projects) |
-| Editor extensions | Usage pop-up, Read Aloud, a commands button, eleven colour themes and a readable agents list for Nimbalyst | [extensions](extensions) |
-| Worker agent | A cheaper subagent for routine edits | [agents](agents) |
-| Planner agent | The strongest model writes the plan for big or hard-to-undo work, and changes nothing | [agents](agents) |
-| Worker command | One short command for searching and long reading. The first free worker that is set up answers (Codex, then Gemini); Claude does the job when none can | [workers](workers) |
-| Installer | Puts the files in place and keeps a copy of what it replaces | [install.mjs](install.mjs) |
-| Updater | Says when a newer version is out; `/update-setup` installs it and keeps your own files | [skills/update-setup](skills/update-setup) |
-| Phone bot | `/phone-bot` sets up your own Telegram bot that talks to your sessions | [skills/phone-bot](skills/phone-bot) |
-| Watch | `/watch` answers a question about a video, read by a cheap model | [skills/watch](skills/watch) |
-| Shared usage | `/shared-usage` shows who used how much of a shared subscription | [skills/shared-usage](skills/shared-usage) |
-| Tour video | The Remotion source of the video above | [promo](promo) |
+Claude Code itself sends your work to Anthropic, as it does without this setup. On top of that:
 
+| What | Where it goes | When | Off switch |
+|---|---|---|---|
+| Your saved Claude sign-in, to read your plan percentages | api.anthropic.com | At most every 5 minutes, during a session | `PLAN_USAGE_LOGGER=off` |
+| A request for the latest version number | GitHub | Every 12 hours | `UPDATE_CHECK=off` |
+| Project and package names, when the agent looks up a version | endoflife.date, GitHub, npm, PyPI, crates.io, Docker Hub, Maven Central, NuGet | When it checks a version | None |
+| Files the agent gives a free worker | Codex or Gemini | Only if you set them up | Don't set them up |
+| Messages to and from your sessions | Telegram | Only if you run `/phone-bot` | Don't run it |
+| Your name, token counts, model and limit percentages | ccpool.hexxt.dev, someone else's server | Only if you set up `/shared-usage` | Don't set it up |
 
-## Checks
+The tools in the starter projects that read web pages open the pages you ask for.
 
-![A command explained in plain words, a reply sent back, and two claims checked against the log](docs/img/clip-checks.gif)
+The installer adds rules that stop Claude Code reading saved sign-ins for Claude, Codex and Gemini, or SSH keys, through its own tools, and that ask before a `.env` file. A script that reaches a file without naming it is not stopped. These rules bind Claude Code only: if you set up Gemini, its own rules let it read your projects folder and `~/.claude`.
 
-Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and the first two hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](hooks/link-gate.mjs).
+## Limits
 
-| Hook | What it sends back |
-|---|---|
-| `link-gate` | A reply with a link the agent remembered or saw in search results but never opened |
-| `question-other` | A question with no box to type my own answer, a "look at this" question with no link to it, or a recommended option that says "Checked:" when no file read or search in the log matches it |
-| `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder |
-| `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`) |
-| `code-review-gate` | A turn that changed three or more code files and is about to end without a `/code-review` |
-| `picture-in-project` | A picture shown in the chat from a path that can be cleaned up later or that Nimbalyst can't open enlarged; it copies the picture to the project's `shown` folder and gives the path to use |
-| `run-yourself` | A reply that ends with "now open a terminal and run this"; the agent runs it itself |
-| `opencli-readonly` | Posting, liking or following from my logged-in accounts through OpenCLI |
+- A check knows a page was opened, not what it said. An agent that opens the page and still gets it wrong passes.
+- A hook that hits an error lets the call through, so a broken check stops nothing.
+- Only some rules have a check behind them. "Lead with the answer" is text the model reads and can ignore. The rules file adds about 4,200 tokens to every session.
+- Checks are sometimes wrong: a send-back can be a false alarm. I measure that and fix the checks that cause it.
 
-The other hooks keep sessions cheap and safe:
+## Everything else
 
-| Hook | What it does |
-|---|---|
-| `big-read-gate` | Large files are read in parts, not whole |
-| `worker-nudge` | Sends searching to the first free worker that is ready (Codex, Gemini), and other helper jobs to the capped `worker` agent |
-| `loop-warn` | Tells the agent when it repeats the same call |
-| `repeat-guard` | Refuses a retry of the same call after the same error came back three times |
-| `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
-| `cold-cache` | Warns when you come back to a big session after the prompt cache has expired |
-| `context-guard` | Warns when a session gets long (150k and 200k tokens) and says whether to compact it or move to a fresh one |
-| `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
-| `decided-quote` | Refuses a helper's brief that calls something decided without quoting your words |
-| `board-nudge` | Offers a board cleanup when many sessions have piled up |
-| `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
-| `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
-| `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
-
-A hook that hits an error lets the call through. `link-gate` knows that a page was opened, not what it said.
-
-## More
-
-[docs/features.md](docs/features.md) describes the three models and the court, sessions and handoff, the usage forecast and dashboard, the starter projects, the editor extensions and voice typing, with their clips and screenshots.
+Asking three models the same hard question (`/court`), four starter projects, a planner agent, a capped worker agent, reading videos (`/watch`), a phone bot, voice typing, Read Aloud and colour themes are in [docs/features.md](docs/features.md). Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tests
 
@@ -106,4 +119,4 @@ Each hook runs as a separate process on made-up session logs, the installer runs
 
 ## License
 
-See [LICENSE](LICENSE).
+This is not open source. You may use this code and change your own copy, at home or at work. You may not publish, share or sell it, or present it as your own, without my written permission. See [LICENSE](LICENSE).

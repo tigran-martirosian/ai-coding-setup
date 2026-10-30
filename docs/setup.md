@@ -7,7 +7,7 @@ flowchart TD
   me["Me<br>task, rules, review"]
   hooks["Hooks<br>check each tool call"]
   main["Claude Code<br>main session"]
-  ext["GPT (Codex CLI) and Gemini (Antigravity CLI)<br>search, long reading"]
+  ext["GPT (Codex CLI) and Gemini (Antigravity CLI)<br>long local reading, second opinions"]
   worker["worker subagent<br>routine edits"]
   me --> main
   hooks -.-> main
@@ -24,16 +24,16 @@ flowchart TD
 
 ## What I hand to each tool
 
-The rule: searching and long reading go to GPT (through the Codex CLI) and Gemini (through the Antigravity CLI), which run on my other subscriptions. Design and code stay with Claude. One command, [workers/ask.mjs](../workers/ask.mjs), picks the worker: the first one that is set up and working. It moves to the next when one is out of usage, says which one answered, and hands the job back to Claude when none can.
+The rule: long reading of local files and second opinions go to GPT (through the Codex CLI) and Gemini (through the Antigravity CLI), which run on my other subscriptions. Searching the web, design and code stay with Claude. One command, [workers/ask.mjs](../workers/ask.mjs), picks the worker: the first one that is set up and working. It moves to the next when one is out of usage, says which one answered, and hands the job back to Claude when none can.
 
 | Tool | What I use it for | Limits I set |
 |---|---|---|
 | Claude Code in the Nimbalyst editor (the main session) | Planning a change with me, writing and editing the code, running the checks | It does what I asked and nothing else: no unrelated refactoring, no extra features |
-| GPT (Codex CLI) and Gemini (Antigravity CLI) | Searching a project, reading long files and logs, web research, a second opinion on a plan or a diff | They never edit files, and their answers are leads that get checked |
+| GPT (Codex CLI) and Gemini (Antigravity CLI) | Reading long files and logs, sweeping a project folder, a second opinion on a plan or a diff | They never edit files, and their answers are leads that get checked |
 | `worker` subagent ([agents/worker.md](../agents/worker.md)) | Routine edits that follow a clear plan | A smaller model, and it stops after 25 turns |
 | `planner` subagent ([agents/planner.md](../agents/planner.md)) | The plan for a big or hard-to-undo piece of work, written by the strongest model before the main session starts on it | It reads files and changes nothing, stops after 15 turns, and gets the situation without the main session's own idea of the answer |
 
-Searching and long reading cost the most on the main model, which is why they go to the other two. For a hard question, where one model's answer isn't enough, I ask all three with the [court skill](../skills/court/SKILL.md): GPT, Gemini and Claude answer on their own, GPT and Gemini review the answers without knowing who wrote them, and a Claude chair sums up. I read the verdict and decide. For a larger task I use a [skill](../skills/lead/SKILL.md) that splits the work across child sessions (research, build, an independent review, fixes), so what comes back to me has already been checked once.
+Long reading costs the most on the main model, which is why it goes to the other two. Web research stays with Claude, which reads the page or the catalogue that knows the answer. For a hard question or a claim, where one model's answer isn't enough, I ask all three with the [court skill](../skills/court/SKILL.md): GPT, Gemini and Claude answer on their own, GPT and Gemini review the answers without knowing who wrote them, and a Claude chair sums up. I read the verdict and decide. For a larger task I use a [skill](../skills/lead/SKILL.md) that splits the work across child sessions (research, build, an independent review, fixes), so what comes back to me has already been checked once.
 
 ## The rules I wrote
 
@@ -42,7 +42,7 @@ A global instruction file holds the rules for every session. The file is [rules/
 - Ask when a requirement is unclear and the choice matters. For a small, reversible choice, pick a default and say so.
 - Do what was asked: no unrelated refactoring, no features nobody asked for.
 - Nothing is called done without a real check and its output.
-- Searching and long reading go to a cheaper tool. Planning and the final check of the work stay in the main session.
+- Long reading of local files goes to a cheaper tool. Web research, planning and the final check of the work stay in the main session.
 - Every subagent gets the inputs it needs and a budget of tool calls, and reports back when the budget runs out.
 - Large files are read in parts, and big command output is processed outside the conversation.
 
@@ -53,7 +53,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When | Hook | Rule it enforces |
 |---|---|---|
 | Before a file read or shell command | `big-read-gate` | Read large files in parts |
-| Before a subagent starts | `worker-nudge` | Searching goes to the first free worker that is ready (Codex or Gemini); an uncapped Explore, general-purpose or claude helper is refused every time, so other jobs go to the capped `worker` agent |
+| Before a subagent starts | `worker-nudge` | Long local reading goes to the first free worker that is ready (Codex or Gemini), and other helper jobs go to the capped `worker` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
 | Before a shell command | `command-explain` | Explain the command in plain words; a command without that line runs with a stand-in line, and the agent is reminded |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |

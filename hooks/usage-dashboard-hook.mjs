@@ -7,6 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
+if ((process.env.USAGE_DASHBOARD || "").toLowerCase() === "off") process.exit(0);
+
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 let prompt = "";

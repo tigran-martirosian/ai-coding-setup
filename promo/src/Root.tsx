@@ -1,20 +1,25 @@
 import React from "react";
 import { Composition, Folder } from "remotion";
 import { Promo } from "./Promo";
-import { ALL_SCENE_IDS, CLIPS, SCENES, totalFrames } from "./scenes";
+import { Film } from "./film/Film";
+import { CHECKS_CLIP, clipFrames, FILM_FRAMES } from "./film";
+import { FPS as FILM_FPS, frames, SCRIPT } from "./film/script";
+import { ShotView } from "./film/Shots";
+import { CLIPS, SCENES, totalFrames } from "./scenes";
 import { FPS, HEIGHT, WIDTH } from "./theme";
 
 const size = { width: WIDTH, height: HEIGHT, fps: FPS };
+const filmSize = { ...size, fps: FILM_FPS };
 
 export const RemotionRoot: React.FC = () => (
   <>
-    <Composition
-      id="Promo"
-      component={Promo}
-      defaultProps={{ sceneIds: ALL_SCENE_IDS }}
-      durationInFrames={totalFrames(ALL_SCENE_IDS)}
-      {...size}
-    />
+    <Composition id="Promo" component={Film} durationInFrames={FILM_FRAMES} {...filmSize} />
+    <Composition id="clip-checks" component={Film} defaultProps={{ shots: CHECKS_CLIP }} durationInFrames={clipFrames(CHECKS_CLIP)} {...filmSize} />
+    <Folder name="Shots">
+      {SCRIPT.map((shot) => (
+        <Composition key={shot.id} id={shot.id} component={ShotView} defaultProps={{ shot }} durationInFrames={frames(shot)} {...filmSize} />
+      ))}
+    </Folder>
     <Folder name="Clips">
       {CLIPS.map((clip) => (
         <Composition

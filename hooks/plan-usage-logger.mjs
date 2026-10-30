@@ -18,6 +18,8 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const EVERY_MS = 5 * 60000;
+if ((process.env.PLAN_USAGE_LOGGER || "").toLowerCase() === "off") process.exit(0);
+
 const dir = process.env.PLAN_USAGE_DIR || path.join(os.homedir(), ".claude", "usage-log");
 const stamp = path.join(dir, "plan-usage.stamp");
 const log = path.join(dir, "plan-usage.jsonl");

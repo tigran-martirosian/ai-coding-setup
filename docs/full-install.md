@@ -25,8 +25,8 @@ One form, four questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in 
 
 | Question | What a yes adds |
 |---|---|
-| Do you have a paid **ChatGPT** subscription? | The **Codex** worker: long reading, folder sweeps, web research; a GPT seat in the court; generated pictures. |
-| Do you have a **Google AI** subscription (Gemini)? | The **Antigravity** worker (`agy`): very large files, web research, second opinions; a Gemini seat in the court. |
+| Do you have a paid **ChatGPT** subscription? | The **Codex** worker: long reading and folder sweeps; a GPT seat in the court; generated pictures. |
+| Do you have a **Google AI** subscription (Gemini)? | The **Antigravity** worker (`agy`): very large files and second opinions; a Gemini seat in the court. |
 | Where should the projects folder go? | Four small project folders are made in it. The default is `Projects` in the home folder; any folder works. |
 | Which **language**: English or Русский? | With Русский, Claude answers in Russian in every chat and the setup's Nimbalyst extensions show Russian text. |
 
@@ -121,7 +121,7 @@ It sets `"model": "sonnet"` in `~/.claude/settings.json` if no model is set, and
 
 ## 6. Sign in to the workers
 
-Skip a worker whose answer is no. Searching and long reading then go through one command, `~/.claude/workers/ask.mjs`, which uses the first worker that is set up and working; `~/.claude/workers/ask.mjs --status` lists them.
+Skip a worker whose answer is no. Long reading of local files then goes through one command, `~/.claude/workers/ask.mjs`, which uses the first worker that is set up and working; `~/.claude/workers/ask.mjs --status` lists them.
 
 - **Codex:** `codex login status`. If it is not signed in, run `codex login` in the background; a browser page opens and the user finishes there. Check from `<projects>`: `codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort="low" "Reply with the single word: ready" < /dev/null` (on Windows add `-c 'windows.sandbox="unelevated"'` after `read-only`). The output must contain `ready`.
 - **Antigravity:** `agy models`. If it is not signed in, the sign-in runs in the program's own window: the user opens a new terminal, types `agy`, signs in with Google and closes it (on a Mac open it for them: `osascript -e 'tell application "Terminal" to do script "$HOME/.local/bin/agy"' -e 'tell application "Terminal" to activate'`). If `agy models` doesn't list `gemini-3.8-flash-medium`, set `env.BIG_READ_AGY_MODEL` in `~/.claude/settings.json` to the newest `*-flash-medium` model it lists: the worker command reads it from there.

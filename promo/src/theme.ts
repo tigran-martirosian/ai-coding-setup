@@ -4,6 +4,7 @@ import { loadFont as loadMono } from "@remotion/google-fonts/JetBrainsMono";
 export const sans = loadSans("normal", { weights: ["400", "500", "600", "700"], subsets: ["latin"] }).fontFamily;
 export const mono = loadMono("normal", { weights: ["400", "600"], subsets: ["latin"] }).fontFamily;
 
+/** The older scenes are timed in raw frames at this rate. The film has its own, in film/script.ts. */
 export const FPS = 30;
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
