@@ -22,6 +22,15 @@
 //                            result. Notes older than 2 hours are dropped. Also holds a
 //                            send_prompt that carries a /btw note (the queue waits for the end of
 //                            the target's turn) until steer.mjs send was tried this turn.
+//   --watch                  Stop hook that runs in the background (asyncRewake): a session waiting
+//                            for a background job makes no tool calls and has ended its reply, so
+//                            --hook never runs. When a job is still running this waits for a
+//                            note and hands it over by waking the session (exit code 2, text on
+//                            stderr). Ends quietly when the session starts a new turn, since
+//                            --hook covers that, when its Claude is gone, and after
+//                            STEER_WATCH_MAX seconds (default 7100). Forwarded reports are left
+//                            alone: an idle session is woken for those through the outbox.
+//                            STEER_WATCH=off turns it off.
 //   status                   this session's notes that are still on their way or that failed
 //   btw [--to <id>] <q>      print the recent part of that session's live transcript for /ask
 //   moved --to <id>          this session handed its work to Nimbalyst session <id> (the handoff
@@ -40,6 +49,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { spawnSync } from "child_process";
 
 const HOME = os.homedir();
 const DIR = path.join(HOME, ".claude", "steer");
@@ -112,6 +122,22 @@ const tailOf = (p, n = 2e6) => {
     fs.closeSync(fd);
     return b.toString("utf8");
   } catch { return ""; }
+};
+// The command line this session's Claude was started with, "" when it can't be read.
+const claudeArgs = () => {
+  if (process.env.STEER_WATCH_ARGS !== undefined) return process.env.STEER_WATCH_ARGS;
+  const pid = Number(process.env.CLAUDE_PID);
+  if (!pid) return "";
+  const r = process.platform === "win32"
+    ? spawnSync("powershell", ["-NoProfile", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`], { encoding: "utf8", timeout: 15000, windowsHide: true })
+    : spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8", timeout: 5000 });
+  return (r.stdout || "").trim();
+};
+// A background command or agent leaves its id in the transcript when it starts and again in a
+// <task-id> line when it ends. A job missed here means no watcher, so notes wait as they used to.
+const jobRunning = (text) => {
+  const started = [...text.matchAll(/"backgroundTaskId":"([^"]+)"|"status":"async_launched","agentId":"([^"]+)"/g)].map((m) => m[1] || m[2]);
+  return started.some((id) => !text.includes(`<task-id>${id}</task-id>`));
 };
 const stdin = () => new Promise((r) => { let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => r(s)); });
 const chunk = (p, fromEnd, n) => {
@@ -466,6 +492,12 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
           if (now - e.ts > MAX_AGE) { if (e.to) receipt(e, e.transcript && tailOf(e.transcript).includes(`[note ${e.id}]`) ? "delivered" : "failed"); continue; }
           if (late(e)) { warnings.push(e); e = { ...e, warned: true }; }
           if (e.to !== inp.session_id) { keep.push(e); continue; }
+          // The wake-up is queued in the session and carries the note itself, so it isn't handed over
+          // again here; only one that never showed up after WARN is treated as lost.
+          if (e.via === "watch" && now - e.seen <= WARN) {
+            if (arrived(e)) receipt(e, "delivered"); else keep.push(e);
+            continue;
+          }
           if (e.seen && now - e.seen <= HOLD) { if (ev === "PreToolUse") held.push(e); keep.push(e); continue; }
           if (e.seen) {
             if (arrived(e)) { receipt(e, "delivered"); continue; }
@@ -510,6 +542,57 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
         ? `[btw] The user sent this while you were working. ${RULES}\n${notes}${rep}` : rep.trim()) + (warnText ? `\n${warnText}` : "") } });
     } else if (warnText && ev === "PostToolUse") {
       out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: warnText } });
+    }
+  } catch {}
+} else if (mode === "--watch") {
+  try {
+    if (process.env.STEER_WATCH === "off") process.exit(0);
+    const inp = JSON.parse(await stdin());
+    const tp = inp.transcript_path;
+    // Without a transcript a handed-over note can't be confirmed, and a subagent's Stop is not the session's.
+    if (inp.agent_id || !inp.session_id || !tp || !fs.existsSync(DIR)) process.exit(0);
+    const start = fs.statSync(tp).size;
+    if (!jobRunning(tailOf(tp))) process.exit(0);
+    // Claude only runs this hook in the background for a session that takes streaming input; a plain
+    // claude -p waits for it (measured 2026-10-31), so there it must end at once. Not sure means ending too.
+    const args = claudeArgs(), bare = args.replace(/"(\\"|[^"])*"|'[^']*'/g, " ");
+    if (!args || (/(^|\s)(-p|--print)(\s|$)/.test(bare) && !/--input-format[= ]stream-json/.test(bare))) process.exit(0);
+    const tick = Number(process.env.STEER_WATCH_TICK ?? 2) * 1000;
+    const end = Date.now() + Number(process.env.STEER_WATCH_MAX ?? 7100) * 1000;
+    const pid = Number(process.env.CLAUDE_PID);
+    const gone = () => { if (!pid) return false; try { process.kill(pid, 0); return false; } catch { return true; } };
+    // Hooks and the app add their own lines after a reply ends; only a message that starts a turn
+    // counts. A compact, a local command or an interrupt writes a user line and no Stop follows it.
+    const newTurn = () => {
+      const size = fs.statSync(tp).size;
+      if (size <= start) return false;
+      const fd = fs.openSync(tp, "r"), b = Buffer.alloc(size - start);
+      fs.readSync(fd, b, 0, size - start, start);
+      fs.closeSync(fd);
+      return b.toString("utf8").split("\n").some((l) => /"type":"(user|assistant)"/.test(l)
+        && !/"(isSidechain|isMeta|isCompactSummary|isApiErrorMessage)":true|<local-command|<command-name>|\[Request interrupted/.test(l));
+    };
+    for (;;) {
+      // Waits first: a note that came in as the reply ended belongs to --hook, which runs at the same moment.
+      sleep(tick);
+      if (Date.now() > end || gone() || newTurn()) process.exit(0);
+      const got = [], mine = (e) => e.to === inp.session_id && !e.seen && !e.kind && Date.now() - e.ts <= MAX_AGE;
+      for (const n of fs.readdirSync(DIR)) {
+        if (!n.endsWith(".jsonl")) continue;
+        const f = path.join(DIR, n);
+        if (!read(f).some(mine)) continue;
+        locked(() => {
+          const all = read(f);
+          write(f, all.map((e) => {
+            if (!mine(e)) return e;
+            got.push(e);
+            return { ...e, seen: Date.now(), via: "watch", transcript: tp, tries: (e.tries || 0) + 1 };
+          }));
+        });
+      }
+      if (!got.length) continue;
+      fs.writeSync(2, `${RULES}\n${got.map((e) => `- ${mark(e)}${e.msg}`).join("\n")}`);
+      process.exit(2);
     }
   } catch {}
 } else if (mode === "btw") {

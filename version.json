@@ -1,5 +1,5 @@
 {
-  "version": "1.0.71",
+  "version": "1.0.72",
   "date": "2026-10-31",
-  "summary": "Long chats now compact themselves while they work and leave finished chats alone, the Note button shows a press at once and says when the note arrives, and a file you name in a prompt can be read whole once past the size guard."
+  "summary": "A note sent to a session waiting on a background job now reaches it within seconds, and the job keeps running."
 }

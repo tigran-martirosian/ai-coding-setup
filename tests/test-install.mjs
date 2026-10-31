@@ -76,6 +76,8 @@ for (const [event, groups] of Object.entries(example.hooks)) {
     ok(`${event} hooks keep the matcher ${g.matcher}`, wired >= 1);
   }
 }
+const watcher = Object.values(settings.hooks).flat().flatMap((g) => g.hooks).find((h) => /steer.mjs" --watch$/.test(h.command));
+ok("the note watcher stays a background hook", [watcher?.asyncRewake, watcher?.timeout, !!watcher?.rewakeMessage], [true, 7200, true]);
 ok("the handoff hook keeps its --hook argument", commands.some((c) => /handoff-brief\.mjs" --hook$/.test(c)));
 
 // ---- the rules and the project folders, with no worker installed

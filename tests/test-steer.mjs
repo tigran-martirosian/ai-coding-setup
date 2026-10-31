@@ -1,12 +1,11 @@
-// Tests for skills/steer/steer.mjs (the /btw and /ask script): when a note reaches the
+// Tests for ~/.claude/skills/steer/steer.mjs (the /btw and /ask script): when a note reaches the
 // busy session, and who it is sent to. Runs against a throwaway home folder; touches nothing real.
-import { fileURLToPath } from "node:url";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 
-const STEER = fileURLToPath(new URL("../skills/steer/steer.mjs", import.meta.url));
+const STEER = path.join(os.homedir(), ".claude", "skills", "steer", "steer.mjs");
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "steer-test-"));
 const work = path.join(home, "work");
 fs.mkdirSync(work);
@@ -386,6 +385,95 @@ r = run(["send", "--to", "dddddddd", "next step"], self);
 ok("a session under the limit takes notes", r.code === 0 && r.out.startsWith("Queued for"));
 r = run(["send", "--to", "dddddddd", "next step"], { env: { ...self.env, STEER_MAX_K: "200" } });
 ok("STEER_MAX_K lowers the limit", r.code === 4);
+
+// --watch: the background Stop hook that wakes a session waiting on a background job.
+{
+  const tp = path.join(home, "watch.jsonl");
+  const line = (o) => JSON.stringify(o) + "\n";
+  const job = line({ type: "user", toolUseResult: { backgroundTaskId: "job1" } }) + line({ type: "assistant", message: { content: "waiting" } });
+  fs.writeFileSync(tp, job);
+  const env = { ...process.env, USERPROFILE: home, HOME: home, STEER_WATCH_TICK: "0.05", STEER_WATCH_MAX: "1", STEER_WATCH_ARGS: "claude --input-format stream-json --print" };
+  const payload = (extra = {}) => JSON.stringify({ hook_event_name: "Stop", session_id: "busy-1", cwd: work, transcript_path: tp, ...extra });
+  const watch = (input = payload(), more = {}) => {
+    const r = spawnSync(process.execPath, [STEER, "--watch"], { input, cwd: work, encoding: "utf8", env: { ...env, ...more } });
+    return { code: r.status, err: r.stderr };
+  };
+  const later = (ms, fn) => new Promise((done) => {
+    const c = spawn(process.execPath, [STEER, "--watch"], { cwd: work, env });
+    const t0 = Date.now();
+    let err = "";
+    c.stderr.on("data", (d) => (err += d));
+    c.on("close", (code) => done({ code, err, ms: Date.now() - t0 }));
+    c.stdin.end(payload());
+    setTimeout(fn, ms);
+  });
+  fs.rmSync(inbox, { force: true });
+  let w = watch();
+  ok("watch: no note, it ends quietly at its time limit", w.code === 0 && w.err === "");
+  put([note("waiting note", { id: "w1" }), note("for someone else", { id: "w2", to: "other" })]);
+  w = watch();
+  ok("watch: a note wakes the session with exit 2 and its text", w.code === 2 && w.err.includes("waiting note") && w.err.includes("[note w1]"));
+  ok("watch: another session's note stays out of it", !w.err.includes("for someone else"));
+  const box = left(), w1 = box.find((e) => e.id === "w1");
+  ok("watch: the note stays until its marker is in the transcript", w1?.seen > 0 && w1.tries === 1 && w1.transcript === tp);
+  ok("watch: the other session's note is untouched", !box.find((e) => e.id === "w2").seen);
+  ok("watch: a note already handed over does not wake it twice", watch().code === 0);
+  fs.rmSync(inbox, { force: true });
+  put([note("off", { id: "w3" })]);
+  ok("watch: STEER_WATCH=off does nothing", watch(payload(), { STEER_WATCH: "off" }).code === 0 && !left()[0].seen);
+  ok("watch: a plain claude -p ends at once, it would be held up", watch(payload(), { STEER_WATCH_ARGS: "claude -p hello" }).code === 0 && !left()[0].seen);
+  ok("watch: an unreadable command line ends at once", watch(payload(), { STEER_WATCH_ARGS: "" }).code === 0 && !left()[0].seen);
+  ok("watch: a terminal session is watched", watch(payload(), { STEER_WATCH_ARGS: "claude" }).code === 2);
+  put([note("off", { id: "w3" })]);
+  ok("watch: a subagent's stop does nothing", watch(payload({ agent_id: "a1" })).code === 0 && !left()[0].seen);
+  ok("watch: no transcript, no wake", watch(payload({ transcript_path: undefined })).code === 0 && !left()[0].seen);
+  fs.rmSync(inbox, { force: true });
+  let g = await later(150, () => fs.appendFileSync(tp, line({ type: "user", message: { content: "next" } })));
+  ok("watch: a new turn ends it, since --hook takes over", g.code === 0 && g.ms < 900);
+  g = await later(150, () => { fs.appendFileSync(tp, line({ type: "system", subtype: "stop_hook_summary" })); setTimeout(() => put([note("after a system line", { id: "w4" })]), 100); });
+  ok("watch: a hook's system line does not end it", g.code === 2 && g.err.includes("after a system line"));
+  fs.rmSync(inbox, { force: true });
+  put([note("a report", { id: "w5", kind: "report" })]);
+  w = watch();
+  ok("watch: a forwarded report is left to the outbox wake-up", w.code === 0 && !left()[0].seen);
+  fs.rmSync(inbox, { force: true });
+  for (const [what, l] of [["a compact summary", { type: "user", isCompactSummary: true }], ["a meta line", { type: "user", isMeta: true }], ["an interrupt", { type: "user", message: { content: "[Request interrupted by user]" } }], ["a local command", { type: "user", message: { content: "<local-command-stdout>x</local-command-stdout>" } }]]) {
+    g = await later(150, () => { fs.appendFileSync(tp, line(l)); setTimeout(() => put([note("still watching", { id: "w6" })]), 100); });
+    ok(`watch: ${what} does not end it`, g.code === 2);
+    fs.rmSync(inbox, { force: true });
+  }
+  put([note("no job", { id: "w7" })]);
+  const done = job + line({ type: "user", message: { content: "<task-notification><task-id>job1</task-id></task-notification>" } });
+  fs.writeFileSync(tp, done);
+  ok("watch: every job finished, no watcher", watch().code === 0 && !left()[0].seen);
+  fs.writeFileSync(tp, line({ type: "assistant", message: { content: "plain reply" } }));
+  ok("watch: no job at all, no watcher", watch().code === 0 && !left()[0].seen);
+  fs.writeFileSync(tp, line({ type: "user", toolUseResult: { isAsync: true, status: "async_launched", agentId: "ag1" } }));
+  ok("watch: a background agent counts as a job", watch().code === 2);
+  fs.rmSync(inbox, { force: true });
+  fs.writeFileSync(tp, job);
+  put([note("gone", { id: "w8" })]);
+  const dead = spawnSync(process.execPath, ["-p", "process.pid"], { encoding: "utf8" }).stdout.trim();
+  ok("watch: its Claude is gone, it ends and leaves the note", watch(payload(), { CLAUDE_PID: dead }).code === 0 && !left()[0].seen);
+  ok("watch: quoted prompt text is not a flag", watch(payload(), { STEER_WATCH_ARGS: 'claude "why does -p fail"' }).code === 2);
+  put([note("q", { id: "w9" })]);
+  ok("watch: a -p prompt that names stream-json still ends at once", watch(payload(), { STEER_WATCH_ARGS: 'claude -p "explain --input-format stream-json"' }).code === 0 && !left()[0].seen);
+  fs.rmSync(inbox, { force: true });
+  // After a wake-up: --hook must not repeat the note or hold a tool call with a false message.
+  const hookT = path.join(home, "hook.jsonl");
+  fs.writeFileSync(hookT, line({ type: "assistant", message: { content: "x" } }));
+  const sid = { transcript_path: hookT };
+  put([note("woken", { id: "w10", seen: Date.now(), via: "watch", tries: 1, transcript: hookT })]);
+  ok("after a wake-up: a tool call is not held", hook("PreToolUse", sid) === null);
+  sleep(1700);
+  ok("after a wake-up: a tool result does not repeat the note", hook("PostToolUse", sid) === null && left().length === 1);
+  fs.appendFileSync(hookT, line({ type: "user", message: { content: "[note w10] woken" } }));
+  ok("after a wake-up: the marker confirms it", hook("PostToolUse", sid) === null && left().length === 0);
+  put([note("lost", { id: "w11", seen: Date.now() - 11 * 60e3, via: "watch", tries: 1, transcript: hookT })]);
+  o = hook("PostToolUse", sid);
+  ok("after a wake-up: one that never showed is carried again", o?.hookSpecificOutput?.additionalContext?.includes("lost"));
+  fs.rmSync(inbox, { force: true });
+}
 
 fs.rmSync(home, { recursive: true, force: true });
 
