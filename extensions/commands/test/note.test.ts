@@ -1,7 +1,7 @@
 // node --experimental-strip-types test/note.test.ts
 import assert from 'node:assert/strict';
 import { findComposers, readFiles, removeFiles } from '../src/find.ts';
-import { sendNote } from '../src/note.ts';
+import { endMessage, GIVE_UP_MS, noteEnds, sendNote } from '../src/note.ts';
 import type { Attachment } from '../src/note.ts';
 import { pollOutbox, newState as slowState, MAX_TRIES, LOCK_MS } from '../src/bridge.ts';
 
@@ -85,8 +85,8 @@ assert.deepEqual(r.calls.map((c) => c[0]), ['extensions:write-file', 'extension:
 assert.deepEqual(r.calls[0].slice(1), ['C:/Users/you/.claude/steer/button-note-sess-1.txt', 'look at X']);
 const exec = r.calls[1][1] as { extensionId: string; command: string };
 assert.equal(exec.extensionId, 'com.local.commandbuttons');
-assert.equal(exec.command, 'node "C:/Users/you/.claude/skills/steer/steer.mjs" send --to sess-1 - < "C:/Users/you/.claude/steer/button-note-sess-1.txt"');
-assert.deepEqual(r.outcome, { ok: true, message: 'Note sent' });
+assert.equal(exec.command, 'node "C:/Users/you/.claude/skills/steer/steer.mjs" send --to sess-1 - --nowait < "C:/Users/you/.claude/steer/button-note-sess-1.txt"');
+assert.equal(r.outcome.ok, true);
 ok('a busy session (exit 0): the file is written, steer.mjs runs, nothing is queued');
 
 r = await run(3);
@@ -138,11 +138,36 @@ assert.equal(removeFiles(scope(chip('attachment-preview', shot, false)), [shot])
 assert.equal(removeFiles(scope(), [shot]), false);
 ok('only the sent files leave the chat box; a chip that cannot be removed is reported');
 
-r = await run(0, undefined, 'x', [], 'Queued for it, not delivered yet.');
-assert.deepEqual(r.outcome, { ok: true, message: 'Note on its way, not confirmed yet' });
-r = await run(0, undefined, 'x', [], 'Delivered to it: the note is in its session.');
-assert.deepEqual(r.outcome, { ok: true, message: 'Note sent' });
-ok('the status says sent only when steer says delivered');
+r = await run(0, undefined, 'x', [], 'Queued for it, not delivered yet.\nNote id: mvw123\n');
+assert.deepEqual(r.outcome, { ok: true, message: 'Note on its way', noteId: 'mvw123' });
+r = await run(0, undefined, 'x', [], 'Sent.');
+assert.equal(r.outcome.noteId, undefined);
+assert.match(r.outcome.message, /cannot follow it/);
+ok('steer answers at once: the note counts as on its way with its id, and a missing id is said');
+
+const NOTE = (id: string, ts = 1000) => ({ id, session: 's1', home: 'C:/h', ts, text: 'look at X' });
+const receipts = (text?: string, code = 'ENOENT') => async (channel: string, file: unknown) => {
+  assert.equal(channel, 'extensions:read-file');
+  assert.equal(file, 'C:/h/.claude/steer/receipts.json');
+  if (text === undefined) throw new Error(`Error invoking remote method: Error: ${code}: nope`);
+  return text;
+};
+const two = JSON.stringify([{ id: 'a', state: 'delivered' }, { id: 'b', state: 'failed' }]);
+assert.deepEqual((await noteEnds([NOTE('a'), NOTE('b'), NOTE('c')], receipts(two), 2000)).map((e) => [e.note.id, e.state]), [['a', 'delivered'], ['b', 'failed']]);
+assert.deepEqual(await noteEnds([NOTE('c')], receipts(), 2000), [], 'no receipts file yet: still waiting');
+assert.deepEqual((await noteEnds([NOTE('c')], receipts('[]'), 1000 + GIVE_UP_MS + 1)).map((e) => e.state), ['unconfirmed']);
+assert.deepEqual(await noteEnds([], receipts('not read'), 2000), []);
+const seen: string[] = [];
+const say = (m: string) => seen.push(m);
+assert.deepEqual(await noteEnds([NOTE('c')], receipts(undefined, 'EBUSY'), 2000, say), []);
+assert.deepEqual(await noteEnds([NOTE('c')], receipts('half{'), 2000, say), []);
+assert.deepEqual(await noteEnds([NOTE('c')], receipts('{}'), 2000, say), []);
+assert.equal(seen.length, 3, 'each bad read is logged');
+assert.deepEqual((await noteEnds([NOTE('a')], receipts('[null,{"id":"a","state":"delivered"}]'), 2000, say)).map((e) => e.state), ['delivered'], 'a bad line does not stop the rest');
+assert.deepEqual((await noteEnds([NOTE('c')], receipts(undefined, 'EBUSY'), 1000 + GIVE_UP_MS + 1, say)).map((e) => e.state), ['unconfirmed'], 'bad reads still end at the limit');
+assert.deepEqual(endMessage('delivered', 'look at X'), { ok: true, message: 'Note delivered' });
+for (const state of ['failed', 'unconfirmed']) assert.deepEqual(endMessage(state, 'look at X'), { ok: false, message: 'Not confirmed, send it again if needed: "look at X"' });
+ok('a note ends on its receipt or at the time limit, even when the receipts cannot be read; a failure names the note');
 
 // ---- wake bridge
 const NOW = 1_000_000_000_000;

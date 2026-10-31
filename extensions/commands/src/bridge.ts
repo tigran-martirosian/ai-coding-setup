@@ -58,7 +58,7 @@ export function parseOutbox(text: string): OutboxEntry[] {
 }
 
 /** The file's text, or null when it does not exist. Any other failure throws. */
-async function readOrNull(invoke: Invoke, file: string): Promise<string | null> {
+export async function readOrNull(invoke: Invoke, file: string): Promise<string | null> {
   try {
     return String(await invoke('extensions:read-file', file));
   } catch (e) {

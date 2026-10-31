@@ -25,8 +25,10 @@ A host component (`NoteBridge`, `src/host.tsx`, mounted by the app outside any p
 beside the Send button of every chat box. Type text, press Note: it is written to
 `~/.claude/steer/button-note-<session id>.txt` and sent with `steer.mjs send --to <session id>`, so a busy session reads
 it before its next step without being interrupted; if the session is idle (exit code 3) the text is sent
-to it as a queued prompt (`ai:createQueuedPrompt`), which starts it at once. A file in the chat box (a pasted image, say) goes along: its path is added to the note, and an idle session also gets it as an attachment. The box is cleared and a short
-status shows beside the button (the error text if it failed). The session is the `data-session-id` of the
+to it as a queued prompt (`ai:createQueuedPrompt`), which starts it at once. A file in the chat box (a pasted image, say) goes along: its path is added to the note, and an idle session also gets it as an attachment. A
+press shows "Sending…" at once and dims the button. Steer runs with `--nowait`, so the box clears as soon as the
+note is in the inbox; a dot on the button stays until `~/.claude/steer/receipts.json` holds the note's id, then
+"Note delivered" shows, or "Not confirmed" with the start of the note, kept for when a tab that was left is opened again. The session is the `data-session-id` of the
 chat box's nearest ancestor. This reads the app's own page markup (`src/find.ts` lists the selectors), so an
 app update may break it: then the button does not appear and the console says why. It needs
 `~/.claude/skills/steer/steer.mjs`; without it the status shows the error.

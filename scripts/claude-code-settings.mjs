@@ -18,10 +18,13 @@ const ASK = [
 export function addClaudeCodeSettings(settings, win = process.platform === "win32") {
   const model = !settings.model;
   if (model) settings.model = "sonnet";
+  // Compact at about 200k, mid-work or before the next message, so a finished chat is left alone
+  const compact = settings.autoCompactWindow === undefined;
+  if (compact) settings.autoCompactWindow = 230000;
   let added = 0;
   for (const [kind, rules] of [["deny", DENY], ["ask", ASK]]) {
     const list = ((settings.permissions ??= {})[kind] ??= []);
     for (const rule of rules.filter((r) => win || !r.startsWith("PowerShell("))) if (!list.includes(rule)) { list.push(rule); added++; }
   }
-  return { model, added };
+  return { model, added, compact };
 }

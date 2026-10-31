@@ -3,6 +3,8 @@
 // to end (Nimbalyst queues messages until then). Used by the /btw and /ask skills.
 //   list                     sessions in this folder active in the last 10 min (not this one)
 //   send [--to <id>] <note>  queue a note for one session (the only active one, or --to);
+//                            --nowait does not wait for the receipt and prints "Note id: <id>",
+//                            so a caller (the Note button) can watch receipts.json itself.
 //                            with several active and no --to: a busy one, else the most recent.
 //                            --to also takes a Nimbalyst session id (a child or another tab, in
 //                            any folder), looked up in Nimbalyst's database. Another session's note
@@ -10,7 +12,7 @@
 //                            refused: new work goes to a fresh session. --last passes a note that
 //                            only finishes the job in hand, --user one the user wrote (/btw). The
 //                            Note button runs outside a session and is never refused.
-//   --hook                   PreToolUse, PostToolUse and Stop hook: hand this session the notes
+//   --hook                  PreToolUse, PostToolUse and Stop hook: hand this session the notes
 //                            addressed to it at the first chance. Before a tool call the call is
 //                            held (denied once) so the note is read first; after a tool call the
 //                            note rides along with the result; at the end of a reply the session
@@ -270,6 +272,9 @@ if (mode === "list") {
   const t = one || (bad ? null : list.find((f) => !f.done) || list[0]);
   const passes = ["--last", "--user"].filter((f) => rest.includes(f));
   for (const f of passes) rest.splice(rest.indexOf(f), 1);
+  // Only where a flag can be: a note that mentions the word keeps it
+  const noWait = rest[0] === "--nowait" || (rest[0] === "-" && rest[1] === "--nowait");
+  if (noWait) rest.splice(rest.indexOf("--nowait"), 1);
   const msg = (rest[0] === "-" ? await stdin() : rest.join(" ")).trim();
   if (!msg) { console.log("usage: steer.mjs send [--to <id>] <note>"); process.exit(1); }
   if (!t) {
@@ -302,7 +307,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
   const id = newId();
   locked(() => fs.appendFileSync(inboxOf(), JSON.stringify({ ts: Date.now(), id, to: t.id, from: process.env.CLAUDE_CODE_SESSION_ID || undefined, msg }) + "\n"));
   // "Sent" used to mean only "put in the inbox" and was reported as delivered. Wait for the receipt.
-  const end = Date.now() + (busy ? WAIT : 0);
+  const end = Date.now() + (busy && !noWait ? WAIT : 0);
   let got = null;
   while (Date.now() < end && !(got = receipts().find((r) => r.id === id))) sleep(500);
   if (got?.state === "delivered") console.log(`Delivered to ${label(t)}: the note is in its session.`);
@@ -311,6 +316,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     : row?.status === "waiting_for_input"
       ? `Queued for ${label(t)}, not delivered yet. It is waiting for an answer in its tab; it reads the note right after that answer.`
       : `Queued for ${label(t)}, not delivered yet. It reads the note before its next step; you are told if that isn't confirmed within ${WARN / 60e3} minutes. Check with: steer.mjs status`);
+  if (noWait) console.log(`Note id: ${id}`);
 } else if (mode === "status") {
   const me = process.env.CLAUDE_CODE_SESSION_ID;
   const waiting = fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((n) => n.endsWith(".jsonl")).flatMap((n) => read(path.join(DIR, n))).filter((e) => e.id && e.from === me) : [];
@@ -442,6 +448,10 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
       tail ??= tailOf(inp.transcript_path);
       return tail.includes(`[note ${e.id}]`);
     };
+    // Tool calls run while their reply is still coming and their results land later, so a missing marker
+    // says nothing until the call that carried the note has its result in the file (2026-10-31: four
+    // hand-overs in 11 s of one reply, marked failed, and it had arrived). A Stop means the reply is over.
+    const landed = (e) => ev === "Stop" || !e.call || tail.includes(`"tool_use_id":"${e.call}"`);
     const warnings = [];
     const late = (e) => e.id && e.from === inp.session_id && !e.warned && now - e.ts > WARN;
     for (const n of fs.readdirSync(DIR)) {
@@ -452,19 +462,21 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
         const before = read(f), keep = [];
         for (const e0 of before) {
           let e = e0;
-          if (now - e.ts > MAX_AGE) { if (e.to) receipt(e, "failed"); continue; }
+          // Any session's hook can reach this, so a handed-over note is looked for in its own session's transcript.
+          if (now - e.ts > MAX_AGE) { if (e.to) receipt(e, e.transcript && tailOf(e.transcript).includes(`[note ${e.id}]`) ? "delivered" : "failed"); continue; }
           if (late(e)) { warnings.push(e); e = { ...e, warned: true }; }
           if (e.to !== inp.session_id) { keep.push(e); continue; }
           if (e.seen && now - e.seen <= HOLD) { if (ev === "PreToolUse") held.push(e); keep.push(e); continue; }
           if (e.seen) {
             if (arrived(e)) { receipt(e, "delivered"); continue; }
+            if (!landed(e)) { keep.push(e); continue; }
             if ((e.tries || 0) >= TRIES) { receipt(e, "failed"); continue; }
             // Lost once while holding a call: this time it rides with the call's result.
             if (ev === "PreToolUse") { keep.push(e); continue; }
           }
           fresh.push(e);
           if (ev !== "PreToolUse" && !inp.transcript_path) receipt(e, "delivered");
-          else keep.push({ ...e, seen: now, tries: (e.tries || 0) + 1 });
+          else keep.push({ ...e, seen: now, call: inp.tool_use_id, transcript: inp.transcript_path, tries: (e.tries || 0) + 1 });
         }
         if (JSON.stringify(keep) !== JSON.stringify(before)) write(f, keep);
       });

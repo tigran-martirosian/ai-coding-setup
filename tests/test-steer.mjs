@@ -303,11 +303,13 @@ db.close();
   const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1700);
   fs.writeFileSync(tp2, "");
   put({ ts: Date.now(), id: "n1", to: "rcpt-1", from: "lead-1", msg: "keep the clouds" });
-  let x = hook("PreToolUse", sid);
+  const result = (call) => JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: call }] } }) + "\n";
+  let x = hook("PreToolUse", { ...sid, tool_use_id: "call-1" });
   ok("the held call carries the note with its marker", x?.hookSpecificOutput?.permissionDecisionReason.includes("[note n1] keep the clouds"));
   ok("handing it over does not count as delivered", inBox().length === 1 && inBox()[0].tries === 1 && !rc().some((r) => r.id === "n1"));
   pause();
-  // The call was cancelled: nothing reached the transcript.
+  // The call was cancelled: its result landed without the note.
+  fs.appendFileSync(tp2, result("call-1"));
   ok("a lost hold does not hold the next call", hook("PreToolUse", sid) === null);
   x = hook("PostToolUse", sid);
   ok("a lost note rides with the next tool result", x?.hookSpecificOutput?.additionalContext.includes("[note n1] keep the clouds") && inBox()[0].tries === 2);
@@ -315,6 +317,35 @@ db.close();
   pause();
   x = hook("PreToolUse", sid);
   ok("once the marker is in the transcript the note is done", x === null && inBox().length === 0 && rc().find((r) => r.id === "n1")?.state === "delivered");
+  // Tool calls run while their reply is still coming and their results land later (2026-10-31: a note was
+  // handed over four times in 11 s of one reply and marked failed, yet it had arrived). Other lines land meanwhile.
+  fs.writeFileSync(tp2, "");
+  put({ ts: Date.now(), id: "n4", to: "rcpt-1", from: "lead-1", msg: "mid reply" });
+  hook("PreToolUse", { ...sid, tool_use_id: "call-4" });
+  pause();
+  const later = Array.from({ length: 6 }, (_, i) => {
+    fs.appendFileSync(tp2, JSON.stringify({ type: "last-prompt" }) + "\n" + result(`other-${i}`));
+    return hook("PostToolUse", sid);
+  });
+  ok("before its call has a result: no repeat of the note, whatever else lands", later.every((v) => v === null) && inBox()[0].tries === 1);
+  ok("and no failed receipt", !rc().some((r) => r.id === "n4"));
+  fs.appendFileSync(tp2, JSON.stringify({ text: "[note n4] mid reply" }) + "\n");
+  ok("the reply ends with the note in it: delivered", hook("PostToolUse", sid) === null && rc().find((r) => r.id === "n4")?.state === "delivered");
+  // A Stop is the last chance: the reply is over, so a note still missing is carried again.
+  fs.writeFileSync(tp2, "");
+  put({ ts: Date.now(), id: "n5", to: "rcpt-1", from: "lead-1", msg: "at the end" });
+  hook("PreToolUse", { ...sid, tool_use_id: "call-5" });
+  pause();
+  x = hook("Stop", sid);
+  ok("a note still missing at Stop is carried again", x?.decision === "block" && x.reason.includes("[note n5] at the end") && inBox()[0].tries === 2);
+  // The 2 hour limit is reached from any session's hook, so it looks in the receiver's transcript.
+  fs.writeFileSync(tp2, JSON.stringify({ text: "[note n6] read long ago" }) + "\n");
+  put({ ts: Date.now() - 3 * 3600e3, id: "n6", to: "rcpt-1", msg: "read long ago", seen: Date.now() - 3 * 3600e3, transcript: tp2, tries: 1 });
+  hook("PostToolUse", { session_id: "someone-else" });
+  ok("past the limit, a note in its transcript counts as delivered", rc().find((r) => r.id === "n6")?.state === "delivered");
+  put({ ts: Date.now() - 3 * 3600e3, id: "n7", to: "rcpt-1", msg: "never read", seen: Date.now() - 3 * 3600e3, transcript: tp2, tries: 1 });
+  hook("PostToolUse", { session_id: "someone-else" });
+  ok("past the limit, a note not in it has failed", rc().find((r) => r.id === "n7")?.state === "failed");
   fs.writeFileSync(tp2, "");
   put({ ts: Date.now(), id: "n2", to: "rcpt-1", from: "lead-1", msg: "never lands", seen: Date.now() - 5000, tries: 4 });
   ok("after the last try it is marked failed", hook("PostToolUse", sid) === null && rc().find((r) => r.id === "n2")?.state === "failed");
@@ -341,6 +372,15 @@ r = run(["send", "--to", "dddddddd", "--user", "the note the user wrote"], self)
 ok("--user passes the size check", r.code === 0 && r.out.startsWith("Queued for"));
 r = run(["send", "--to", "dddddddd", "from the Note button"]);
 ok("the Note button, outside a session, is never refused", r.code === 0 && r.out.startsWith("Queued for"));
+const started = Date.now();
+r = run(["send", "--to", "dddddddd", "--nowait", "do not wait"], { env: { STEER_WAIT: "5" } });
+ok("--nowait answers at once with the note's id", r.code === 0 && Date.now() - started < 4000 && /^Note id: \w+$/m.test(r.out));
+r = run(["send", "--to", "dddddddd", "-", "--nowait"], { input: "from stdin" });
+ok("--nowait works after the - the button sends", r.code === 0 && /^Note id: \w+$/m.test(r.out));
+r = run(["send", "--to", "dddddddd", "why", "--nowait", "fails"]);
+ok("a note that mentions --nowait keeps the word and waits as usual", r.code === 0 && !/Note id/.test(r.out));
+fs.readdirSync(path.join(home, ".claude", "steer")).filter((n) => n.endsWith(".jsonl")).forEach((n) => { const f = path.join(home, ".claude", "steer", n); fs.writeFileSync(f, fs.readFileSync(f, "utf8").split("\n").filter((l) => !l.includes("why --nowait fails")).join("\n")); });
+ok("--nowait is not part of the note",!fs.readdirSync(path.join(home, ".claude", "steer")).filter((n) => n.endsWith(".jsonl")).some((n) => fs.readFileSync(path.join(home, ".claude", "steer", n), "utf8").includes("--nowait")));
 transcript("dddddddd-busy", "tool_use", [huge(250000)]);
 r = run(["send", "--to", "dddddddd", "next step"], self);
 ok("a session under the limit takes notes", r.code === 0 && r.out.startsWith("Queued for"));

@@ -2,6 +2,9 @@
 // step; an idle session is started with the text instead.
 
 import { t } from './strings.ts';
+
+import { readOrNull } from './bridge.ts';
+
 export type Invoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
 /** A file in the chat box, as the app saved it (only the fields used here are named). */
 export interface Attachment {
@@ -13,7 +16,21 @@ export const EXT_ID = 'com.local.commandbuttons';
 export interface Outcome {
   ok: boolean;
   message: string;
+  /** steer's id for a note that is still on its way */
+  noteId?: string;
 }
+/** A note on its way to a session: `home` is where its receipt will be. */
+export interface Pending {
+  id: string;
+  session: string;
+  home: string;
+  ts: number;
+  /** the start of the note, so a message about it can say which one */
+  text: string;
+}
+// steer drops a note after 2 hours and a session's next hook writes "failed"; a session that never
+// runs again writes nothing, so the button stops waiting a little after that.
+export const GIVE_UP_MS = 130 * 60_000;
 type Exec = { success: boolean; stdout?: string; stderr?: string; exitCode?: number | string };
 
 const fail = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']*': (Error: )?/, '');
@@ -41,11 +58,15 @@ export async function sendNote(text: string, sessionId: string, home: string, in
     await invoke('extensions:write-file', file, note);
     const r = (await invoke('extension:exec', {
       extensionId: EXT_ID,
-      command: `node "${home}/.claude/skills/steer/steer.mjs" send --to ${sessionId} - < "${file}"`,
+      // --nowait comes after the "-": a steer.mjs too old to know it must still read the note from the file
+      command: `node "${home}/.claude/skills/steer/steer.mjs" send --to ${sessionId} - --nowait < "${file}"`,
       timeout: 30000,
     })) as Exec;
-    // exit 0 also means "queued, not delivered yet": only steer's Delivered line is a delivery
-    if (r.success && Number(r.exitCode ?? 0) === 0) return { ok: true, message: /^Delivered/m.test(r.stdout ?? '') ? t.note.sent : t.note.waiting };
+    // exit 0 means "in the inbox": the receipt that says it arrived is watched by noteEnds
+    if (r.success && Number(r.exitCode ?? 0) === 0) {
+      const noteId = /^Note id: (\S+)/m.exec(r.stdout ?? '')?.[1];
+      return { ok: true, message: noteId ? t.note.waiting : t.note.untracked, noteId };
+    }
     if (Number(r.exitCode) === 3) {
       await invoke('ai:createQueuedPrompt', sessionId, text.trim() || note, files);
       return { ok: true, message: t.note.queued };
@@ -56,3 +77,29 @@ export async function sendNote(text: string, sessionId: string, home: string, in
     return { ok: false, message: t.note.notSent(fail(e)) };
   }
 }
+
+/**
+ * The notes in `pending` that have an end, read from steer's receipts.json. A file that cannot be read
+ * is logged and counts as no news, so the time limit still ends a note and the polling stops.
+ */
+export async function noteEnds(pending: Pending[], invoke: Invoke, now = Date.now(), log: (m: string) => void = console.warn) {
+  if (!pending.length) return [];
+  let receipts: { id: string; state: string }[] = [];
+  try {
+    const list = JSON.parse((await readOrNull(invoke, `${pending[0].home}/.claude/steer/receipts.json`)) ?? '[]');
+    if (!Array.isArray(list)) throw new Error('receipts.json is not a list');
+    receipts = list;
+  } catch (e) {
+    log(`[commandbuttons] note receipts: ${fail(e)}`);
+  }
+  return pending.flatMap((note) => {
+    const state = receipts.find((r) => r?.id === note.id)?.state;
+    if (state === 'delivered' || state === 'failed') return [{ note, state }];
+    return now - note.ts > GIVE_UP_MS ? [{ note, state: 'unconfirmed' }] : [];
+  });
+}
+
+// "failed" can also mean the session read the note and went quiet before steer saw it there, so the
+// message never says it was not read
+export const endMessage = (state: string, text: string): Outcome =>
+  state === 'delivered' ? { ok: true, message: t.note.delivered } : { ok: false, message: t.note.notConfirmed(text) };

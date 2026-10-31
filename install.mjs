@@ -457,13 +457,14 @@ if (!wired) say(`hooks already wired in ${fwd(settingsFile)}`);
 // Claude Code's own settings go into the same file: what is set there already stays
 const own = addClaudeCodeSettings(settings, WIN);
 if (own.model) say(`model: set to sonnet in ${fwd(settingsFile)} (none was set)`);
+if (own.compact) say(`compact: long chats compact themselves at about 200k, set in ${fwd(settingsFile)}`);
 if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins and SSH keys can't be read, a .env file is asked about)`);
 // Claude Code's own reply-language setting follows the language. english removes only the "russian"
 // this setup wrote: a language the person set to something else stays.
 let langChanged = false;
 if (LANG === "russian" && settings.language !== "russian") { settings.language = "russian"; langChanged = true; say(`language: russian set in ${fwd(settingsFile)}`); }
 else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
-if (wired || own.model || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
+if (wired || own.model || own.compact || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
 
 // ---- 2. the global rules, with the worker section that fits
 // Every heading the worker section has ever carried: an older rules file on disk still has an old one.

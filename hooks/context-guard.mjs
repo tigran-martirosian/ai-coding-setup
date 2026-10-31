@@ -1,33 +1,39 @@
 #!/usr/bin/env node
-// context-guard: UserPromptSubmit and Stop hook. Every tool call re-sends the whole conversation, so
-// in a big session a one-line edit costs as much as the context (measured 2026-09-30: 109 small edits
-// at 274-485k context cost 35M tokens for a font, a background and some copy).
+// context-guard: UserPromptSubmit, PreCompact, Stop and PostToolUse hook. Every tool call re-sends the
+// whole conversation, so in a big session a one-line edit costs as much as the context (measured
+// 2026-09-30: 109 small edits at 274-485k context cost 35M tokens for a font, a background and some copy).
 // It only WARNS and never stops a session; until 2026-10-11 this hook also held the reply at 200k and
 // ordered an automatic handoff.
-//   UserPromptSubmit: when the last context is over the limit (CONTEXT_GUARD_K, default 150 = 150k
-//     tokens), it warns the user and tells Claude to batch the work, then: with a warm cache, to queue
-//     a /compact with a focus line onto its own session once the request is done (compact-self.mjs);
-//     with a cold one (last reply over CONTEXT_GUARD_COLD_MIN, default 60 minutes), to move to a fresh
-//     session instead. Silent for /commands.
-//   Stop: when a reply ends over the warning limit (CONTEXT_GUARD_AUTO_K, default 200), it shows the
+// Claude Code itself compacts at COMPACT_K (autoCompactWindow in settings.json): mid-turn, or before the
+// next message of an idle session, so a finished session is left alone (2026-10-31: 23 of 49 compacts
+// queued at the end of a request went on sessions that never ran again, one was cancelled in the chat
+// and its session ran on to 357k, one raced a message and bought nothing). This hook does not compact.
+//   UserPromptSubmit: over the limit (CONTEXT_GUARD_K, default 150 = 150k tokens) and under COMPACT_K, it
+//     warns the user and tells Claude to batch the work; with a cold cache (last reply over
+//     CONTEXT_GUARD_COLD_MIN, default 60 minutes), to move to a fresh session too. At COMPACT_K or more it
+//     only says the session compacts first. Silent for /commands.
+//   PreCompact: gives an automatic compact the focus line (a /compact by hand has its own).
+//   Stop: when a reply ends at COMPACT_K or more (CONTEXT_GUARD_AUTO_K moves that line), it shows the
 //     user one line about the size. Once per session, then again every further 100k. Silent when
 //     this turn already handed off. CONTEXT_GUARD_AUTO=off silences that line.
-//   PostToolUse: a session that never ends its turn never reaches the two above (2026-10-30: a child
-//     steered by notes went from 306k to 598k with no warning). Over CONTEXT_GUARD_RUN_K (default 300)
-//     it tells Claude to finish the step in hand, save its state and end the turn, starting nothing
-//     new. Once, then again every further 100k.
+//   PostToolUse: the safety net for an automatic compact that did not run. Over CONTEXT_GUARD_RUN_K
+//     (default 300) it tells Claude to finish the step in hand, save its state, queue a /compact and end
+//     the turn, starting nothing new. Once, then again every further 100k.
+// The size is the last API call's, unless a compact came after it: then the compact's own figure, so
+// the first message after a compact is not warned about the size the compact just removed.
 // Fails open. CONTEXT_GUARD=off disables it.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const LIMIT_K = Number(process.env.CONTEXT_GUARD_K) || 150;
-const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || 200;
 const AUTO = process.env.CONTEXT_GUARD_AUTO !== "off";
 const RUN_K = Number(process.env.CONTEXT_GUARD_RUN_K) || 300;
-// What the warnings tell Claude to do, in plain words
-const RULE = "keep the steps few and batch the changes.";
-// Past the limit: a warm session compacts, a cold one (idle over COLD_MIN) moves to a fresh session
+// Where Claude Code compacts by itself: autoCompactWindow 230000 less the 33k it keeps free is 197k,
+// and the size here leaves out the last reply and the next message
+const COMPACT_K = Number(process.env.CONTEXT_GUARD_COMPACT_K) || 190;
+const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || COMPACT_K;
+// Between the limit and COMPACT_K, a cold session (idle over COLD_MIN) moves to a fresh session
 // (user, 2026-10-29; audits/compact-vs-handoff-2026-10-29: warm compact ~44k, cold ~590k)
 const COLD_MIN = Number(process.env.CONTEXT_GUARD_COLD_MIN) || 60;
 const FOCUS = "Keep every message the user typed, quoted; open asks and decisions; child session ids; the next step. Mark Claude's own estimates as unconfirmed.";
@@ -54,9 +60,14 @@ function tail(file, max = 4 * 1024 * 1024) {
   fs.closeSync(fd);
   return buf.toString("utf8").split("\n");
 }
-// Context size of the last main-conversation API call
+// Context size of the last main-conversation API call, or what a later compact left
 function lastContext(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes('"compact_boundary"')) {
+      let b;
+      try { b = JSON.parse(lines[i]); } catch { continue; }
+      if (b.type === "system" && b.subtype === "compact_boundary" && !b.isSidechain) return b.compactMetadata?.postTokens ?? 0;
+    }
     if (!lines[i].includes('"usage"')) continue;
     let j;
     try { j = JSON.parse(lines[i]); } catch { continue; }
@@ -82,21 +93,29 @@ process.stdin.on("end", () => {
   try {
     if (process.env.CONTEXT_GUARD === "off") return;
     const input = JSON.parse(raw);
+    if (input.hook_event_name === "PreCompact") {
+      if (input.trigger === "auto") process.stdout.write(FOCUS);
+      return;
+    }
     if (input.hook_event_name === "PostToolUse") {
+      // A subagent's hook gets the main transcript: the size is not its own, and the order is not for it
+      if (input.agent_id) return;
       // Runs on every tool call: 1 MB holds the last usage line, except just after a huge tool result
       if (!input.transcript_path || !fs.existsSync(input.transcript_path)) return;
       const k = Math.round(lastContext(tail(input.transcript_path, 1024 * 1024)) / 1000);
-      if (k < RUN_K) return;
       const dir = path.join(os.tmpdir(), "context-guard");
       const file = path.join(dir, `run-${String(input.session_id || "none").replace(/[^\w-]/g, "")}.json`);
+      if (!k) return; // no usage line in the tail says nothing about the size
+      // Back under the limit (after a /compact): forget the last warning, so the next climb warns again
+      if (k < RUN_K) { try { fs.rmSync(file, { force: true }); } catch {} return; }
       let warnedAt = 0;
       try { warnedAt = JSON.parse(fs.readFileSync(file, "utf8")).warnedAt || 0; } catch {}
       if (warnedAt && k < warnedAt + 100) return;
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(file, JSON.stringify({ warnedAt: k }));
       process.stdout.write(JSON.stringify({
-        systemMessage: `This session holds ~${k}k tokens and is still running: every step re-sends all of it. Claude is told to finish the step in hand and stop.`,
-        hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: `[context-guard] This session holds ~${k}k tokens and every tool call re-sends all of it. Finish the step in hand, save what a next session needs in a file, report and end your turn. Start nothing new here: new work goes to a fresh session. Only a person's message telling you to carry on overrides this.` },
+        systemMessage: `This session holds ~${k}k tokens and its automatic compact has not run: every step re-sends all of it. Claude is told to finish the step in hand and stop.`,
+        hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: `[context-guard] This session holds ~${k}k tokens, its automatic compact has not run, and every tool call re-sends all of it. Finish the step in hand, save what a next session needs in a file, report and end your turn. Start nothing new here. Before you end the turn, queue a /compact onto this session: \`node ~/.claude/skills/steer/compact-self.mjs\` with this focus line on stdin: "${FOCUS}" (in a plain terminal, put \`/compact <that focus line>\` in "Needs you" instead), and say so at the end of the reply. Only a person's message telling you to carry on overrides this.` },
       }));
       return;
     }
@@ -106,6 +125,7 @@ process.stdin.on("end", () => {
     if (!input.transcript_path || !fs.existsSync(input.transcript_path)) return;
     const lines = tail(input.transcript_path);
     const k = Math.round(lastContext(lines) / 1000);
+    if (!k) return; // no usage line in the tail says nothing about the size
     // handedAt: the size at which the user was last warned (or the work was moved to a fresh session)
     const stateDir = path.join(os.tmpdir(), "context-guard");
     const stateFile = path.join(stateDir, `${String(input.session_id || "none").replace(/[^\w-]/g, "")}.json`);
@@ -114,7 +134,8 @@ process.stdin.on("end", () => {
     if (k < (stop ? AUTO_K : LIMIT_K)) return;
     let handedAt = 0;
     try { handedAt = JSON.parse(fs.readFileSync(stateFile, "utf8")).handedAt || 0; } catch {}
-    const done = handedAt && k < handedAt + 100;
+    // A size under the last warning means a compact came between: this is a new climb
+    const done = handedAt && k >= handedAt && k < handedAt + 100;
     const mark = () => { try { fs.mkdirSync(stateDir, { recursive: true }); fs.writeFileSync(stateFile, JSON.stringify({ handedAt: k })); } catch {} };
 
     if (stop) {
@@ -122,8 +143,15 @@ process.stdin.on("end", () => {
       mark();
       if (handedOffThisTurn(lines)) return;
       process.stdout.write(JSON.stringify({
-        systemMessage: `[context-guard] This session holds ~${k}k tokens, and every further message re-sends all of it. Tip: ${RULE}`,
+        systemMessage: `[context-guard] This session holds ~${k}k tokens${k >= RUN_K ? " and its automatic compact has not run" : ". It compacts itself before the next message, about a minute"}.`,
       }));
+      return;
+    }
+
+    // Claude Code compacts before it answers, so advice about this size would be out of date by then.
+    // At RUN_K or more it has already failed to, so the advice below is what is left.
+    if (k >= COMPACT_K && k < RUN_K) {
+      process.stdout.write(JSON.stringify({ systemMessage: `This session holds ~${k}k tokens: it compacts itself first, about a minute, then answers.` }));
       return;
     }
 
@@ -135,15 +163,9 @@ process.stdin.on("end", () => {
     ];
     const idle = idleMinutes(lines);
     const cold = idle !== null && idle > COLD_MIN;
-    // The Stop warning ("done") only stops the size line repeating; the compact or move step stays,
-    // because that is what brings the session back under the limit (compact-self skips a duplicate)
-    if (cold) {
-      context.push(`- The cache went cold (last reply ~${idle} min ago), so a /compact would re-send all ~${k}k at full price. Unless only quick questions remain, move the work to a fresh session now with the handoff skill.`);
-    } else {
-      context.push(`- Once this request is done, unless only quick questions remain, queue a /compact onto this session while the cache is warm: \`node ~/.claude/skills/steer/compact-self.mjs\` with this focus line on stdin: "${FOCUS}" (in a plain terminal, put \`/compact <that focus line>\` in "Needs you" instead). When you queue it, end the reply with one line saying so: "This session compacts itself now (about a minute); a message you send meanwhile waits for it."`);
-    }
+    if (cold) context.push(`- The cache went cold (last reply ~${idle} min ago). Unless only quick questions remain, move the work to a fresh session now with the handoff skill.`);
     process.stdout.write(JSON.stringify({
-      systemMessage: `Context is ~${k}k tokens: every step re-sends all of it. ${cold ? "The cache is cold: Claude moves the work to a fresh session." : "Claude compacts this session when this request is done, unless only quick questions are left."}`,
+      systemMessage: `Context is ~${k}k tokens: every step re-sends all of it. ${cold ? "The cache is cold: Claude moves the work to a fresh session." : k >= RUN_K ? "Its automatic compact has not run." : "It compacts itself at about 200k."}`,
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context.join("\n") },
     }));
   } catch {

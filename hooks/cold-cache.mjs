@@ -1,10 +1,12 @@
 // cold-cache: a UserPromptSubmit hook that warns when the prompt cache has gone cold on a big session.
-// Measured over two days: 33 requests re-created over half their context after an idle gap (median 74
-// min). After the cache lifetime the next message pays the whole context at full price. This adds a
-// warning to the prompt (it does not block) so the user or Claude can restart from a short note in a
-// fresh session.
+// Measured 2026-10-10 to 11: 33 requests re-created over half their context after an idle gap (median 74
+// min); the largest was 752k tokens created again in an 854k-context session. After the cache lifetime
+// the next message pays the whole context at full price. This adds a warning to the prompt (it does not
+// block) so the maker or Claude can restart from a short note in a fresh session.
 // Warns when the last assistant request is over COLD_CACHE_MINUTES (55) old AND its context is over
-// COLD_CACHE_K (100) thousand tokens. Subagent events are skipped. Fails open. COLD_CACHE=off disables it.
+// COLD_CACHE_K (100) thousand tokens. From 190k to 300k it stays silent: Claude Code compacts such a session
+// before it answers (autoCompactWindow, see context-guard), so the size would be out of date by then.
+// Subagent events are skipped. Fails open. COLD_CACHE=off disables it.
 import fs from "node:fs";
 
 const MINUTES = Number(process.env.COLD_CACHE_MINUTES) || 55;
@@ -58,9 +60,10 @@ try {
 	const u = last.message.usage;
 	const context = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
 	const idle = Math.round((Date.now() - at) / 60000);
-	if (idle > MINUTES && context > CONTEXT_K * 1000) {
+	const compactsFirst = context >= 190000 && context < 300000;
+	if (idle > MINUTES && context > CONTEXT_K * 1000 && !compactsFirst) {
 		const k = Math.round(context / 1000);
-		const text = `[cold-cache] The prompt cache expired: this session is ~${k}k tokens and was idle ${idle} minutes; the next request re-creates all of it at full price. If the job is not nearly done, say so to the user and offer to continue from a short restart note in a fresh session (write it into ~/.claude/handoffs/).`;
+		const text = `[cold-cache] The prompt cache expired: this session is ~${k}k tokens and was idle ${idle} minutes; the next request re-creates all of it at full price. If the job is not nearly done, say so to the maker and offer to continue from a short restart note in a fresh session (write it into ~/.claude/handoffs/).`;
 		process.stdout.write(JSON.stringify({
 			hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: text },
 		}));
