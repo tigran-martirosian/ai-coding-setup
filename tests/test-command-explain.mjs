@@ -73,5 +73,8 @@ const note = JSON.parse(run(long)).hookSpecificOutput.updatedInput.command.split
 report(note === "# WHAT THIS DOES: (no note given) cd app && npm install echo 1 echo 2 echo 3 echo 4 echo 5 ech", "stand-in note is one line: the command's first 60 characters, spaces squeezed");
 const fixed = JSON.parse(run(B("ls -la"))).hookSpecificOutput.updatedInput.command;
 report(run(B(fixed)) === "", "a command with the stand-in note passes unchanged");
-console.log(fail ? `${fail} failed` : `all ${cases.length + 3} passed`);
+const helper = JSON.parse(run({ ...B("ls -la"), agent_id: "sub-1" })).hookSpecificOutput;
+report(/no note given/.test(helper.updatedInput.command) && !helper.additionalContext, "a helper gets the stand-in without the reminder");
+report(JSON.parse(run(B("ls -la"))).hookSpecificOutput.additionalContext?.startsWith("command-explain:"), "the main session still gets the reminder");
+console.log(fail ? `${fail} failed` : `all ${cases.length + 5} passed`);
 process.exit(fail ? 1 : 0);

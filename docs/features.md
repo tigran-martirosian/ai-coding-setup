@@ -27,7 +27,7 @@ Every 12 hours the setup asks GitHub whether a newer version is released ([hooks
 
 ## Three models
 
-Long reading of local files and a second opinion go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Searching the web stays with Claude, which reads the source that knows the answer. Design and code stay with Claude. `worker-nudge` holds the agent to that: when an uncapped Explore, general-purpose or claude helper is about to start, it is refused and the agent is pointed at one command, [workers/ask.mjs](../workers/ask.mjs), for long local reading, or at the capped `worker` agent for other jobs. That command tries the workers in order (Codex, then Antigravity), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single helper subagents using 0.6 to 4.3 million tokens.
+Long reading of local files and a second opinion go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Searching the web stays with Claude, which reads the source that knows the answer. Design and code stay with Claude. `worker-nudge` holds the agent to that: when an uncapped Explore, general-purpose or claude helper is about to start, it is refused and the agent is pointed at one command, [workers/ask.mjs](../workers/ask.mjs), for long local reading, or at the capped `worker` agent for other jobs (`worker-full` when a job needs a skill or an MCP tool). That command tries the workers in order (Codex, then Antigravity), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single helper subagents using 0.6 to 4.3 million tokens.
 
 ```mermaid
 flowchart TD
@@ -43,26 +43,44 @@ flowchart TD
 ```
 
 - **The court.** For a hard question or a claim I want tested, I ask all three with [skills/court](../skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. There is a quick court and a full one, and I pick at the start of each run. I read the verdict and decide. For a piece of writing there is the reader court (`/court readers <file>`): a few readers with different jobs, say a recruiter, an engineer and an outsider, each read it alone and say how it lands with them, and the chair sums up where they agree and what to change.
-- **The lead.** For a big task, [skills/lead](../skills/lead/SKILL.md) splits the work across child sessions in Nimbalyst, side by side when their files don't overlap, has a separate session review the result, sends the fixes back and reports what it checked.
-- **The blind review.** After a big piece of work, [skills/blind-review](../skills/blind-review/SKILL.md) (also `/blind-review`) hands it to fresh reviewers who see only the original request and the finished result, or only screenshots for a page or screen, never the author's reasoning. Code, a plan, a design, a text, a data result or a screen all work. The reviewers rank the flaws, the author fixes the serious ones, and a new reviewer looks again, up to three rounds, until nothing serious is left.
+- **The lead.** For a big task, [skills/lead](../skills/lead/SKILL.md) makes the main session the planner: it writes a numbered job list, hands each step to a `worker` agent that knows the goal of the whole job, answers a worker that gets stuck, has one `reviewer` agent check the result and reports what it checked. A child session in Nimbalyst is kept for a step that needs your input, has to run past the turn, or is a part big enough for a job list of its own.
+- **The blind review.** After a big piece of work, [skills/blind-review](../skills/blind-review/SKILL.md) (also `/blind-review`) hands it to one reviewer who sees only the original request and the finished result, or only screenshots for a page or screen, never the author's reasoning. Code, a plan, a design, a text, a data result or a screen all work. The reviewer ranks the flaws, the author fixes the serious ones, and the same reviewer looks again, up to two rounds, until nothing serious is left.
 
 The rules I give the models are described in [docs/setup.md](setup.md).
+
+## Agents
+
+Five agents in [agents](../agents). The main session starts them with the Agent tool, and `worker-nudge` sends it to them instead of to an uncapped helper.
+
+| Agent | What it does |
+|---|---|
+| `planner` | Writes the plan for a big or hard-to-undo piece of work on the strongest model. It reads files and changes nothing, and gets the situation without the main session's own idea of the answer |
+| `worker` | Does one numbered step of a job, or one clear one-off job, on Sonnet, and stops after 80 turns. It knows the goal of the whole job. It starts without the `CLAUDE.md` files and with file, shell and web tools only, so its brief names the project commands it needs. It stays inside the files it was given, reports anything else it notices, and stops with a `BLOCKED` line when what it finds contradicts the plan |
+| `worker-full` | The same worker with every tool and the `CLAUDE.md` files loaded. It costs much more to start, so it is for a step that needs a skill or an MCP tool such as the browser |
+| `reviewer` | One independent read-only pass over a finished bigger change, on Opus. It reads the request first and the code after it, and reports under two headings: what is missing or wrong against the request, and the quality of the change, each problem tagged Important, Nit or Pre-existing. One is enough on any change |
+| `rec-check` | A second look at a recommended option before a question reaches me. It tries to break the pick: is it a smaller or safer path than I asked for, is an option missing, does the reason rest on a note instead of the live thing, should it have been decided and not asked. It answers `keep` or `change` in six lines at most |
+
+## Systems map
+
+A project with 100 or more code files gets a dictionary of its parts and what connects to what, in `.claude/systems-map.json`. A part is something a person would name out loud (a feature, a service, a screen, a data store, a background job), not a folder. A link says that changing one part means looking at the other, and names the code that does it. [skills/systems-map](../skills/systems-map/SKILL.md) builds the map, refreshes it when files have moved, and looks things up with `map.mjs`: `--scan` to start a build, `--near <word>` for a part with its links, `--check` for listed paths that no longer exist.
+
+Two hooks run it. `map-nudge` notices a big project without a map and has the agent start a background worker that builds one, so nobody has to ask. `map-brief` adds to each helper's brief only the lines for the parts that brief is about, so the helper doesn't search for files or load a whole graph.
 
 ## Hooks
 
 ![A reply that links a page it never opened is sent back, then three more checks](img/clip-checks.gif)
 
-Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 24 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook.
+Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 27 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook.
 
 ### Checks that can send a step back
 
 | Hook | What it sends back |
 |---|---|
 | `link-gate` | A reply with a link the agent remembered or saw in search results but never opened |
-| `question-other` | A question with no box to type my own answer, a "look at this" question with no link to it, or a recommended option that says "Checked:" when no file read or search in the log matches it |
+| `question-other` | A question with no box to type my own answer, a choice with only one option, a "look at this" question with no link to it, a recommended option that says "Checked:" when no file read or search in the log matches it, or a recommended option that no `rec-check` agent has looked at |
 | `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder |
 | `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`) |
-| `code-review-gate` | A turn that changed three or more code files and is about to end without a `/code-review` |
+| `code-review-gate` | A turn that changed five or more code files, or in which two or more helpers edited code, and is about to end without a `reviewer` agent. It counts the helpers' edits and asks for one reviewer by itself |
 | `picture-in-project` | A picture shown in the chat from a path that can be cleaned up later or that Nimbalyst can't open enlarged; it copies the picture to the project's `shown` folder and gives the path to use |
 | `run-yourself` | A reply that ends with "now open a terminal and run this"; the agent runs it itself |
 | `opencli-readonly` | Posting, liking or following from my logged-in accounts through OpenCLI |
@@ -75,7 +93,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | Hook | What it does |
 |---|---|
 | `big-read-gate` | Large files are read in parts, not whole |
-| `worker-nudge` | Sends long local reading to a free worker if one is set up, and other helper jobs to the capped `worker` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
+| `worker-nudge` | Sends long local reading to a free worker if one is set up, a build or a check to the capped `worker` agent (`worker-full` when it needs a skill or an MCP tool) and a review of a finished job to the `reviewer` agent. It reminds the agent that a worker starts without `CLAUDE.md`, so the brief names the project commands. An uncapped Explore, general-purpose or claude helper is refused every time |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `repeat-guard` | Refuses a retry of the same call after the same error came back three times |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
@@ -83,7 +101,10 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `context-guard` | Warns when a session passes 150k tokens, and after an hour idle it says to move to a fresh session. At about 200k Claude Code compacts the session by itself, and this hook gives it the focus line |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `decided-quote` | Refuses a helper's brief that calls something decided without quoting your words |
+| `map-brief` | Adds to a helper's brief (worker, worker-full, reviewer or planner) the lines of the project's systems map for the parts that brief touches, and only those; a project with no map gets nothing |
+| `map-nudge` | In a project with 100 or more code files and no systems map, has the agent start a background worker that builds one; it asks at most three times, a week apart, and does the same once a week for a map whose files are mostly gone |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
+| `pc-tidy-nudge` | On Windows, says to restart Nimbalyst after 12 hours open and points to `/pc-tidy` |
 | `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
 | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
@@ -96,7 +117,7 @@ A hook that hits an error lets the call through. `link-gate` knows that a page w
 
 - **A note to a busy session.** Nimbalyst holds a new message until the running reply ends. With [skills/steer](../skills/steer/steer.mjs), `/btw <note>` in a second chat leaves a note that the busy session reads before its next step, a session waiting on a background job is woken to read it without stopping the job, and `/ask <question>` answers a question about that session without touching its work. The Commands extension also puts a **Note** button next to Send in every chat box, which sends the typed text the same way.
 - **Handoff.** Every step re-sends the whole conversation, so a long session gets expensive. `handoff-brief` rewrites a short brief after every reply, `context-guard` warns at 150k tokens (at about 200k a session compacts itself, mid-work or before the next message, with a focus line that keeps your messages; one under that size idle for over an hour moves on), and `/handoff` moves the work to a fresh session that starts from the brief, so the next message doesn't re-send the long history. The brief also lets the work go on in a GPT or Gemini session when the Claude plan runs out.
-- **The board.** Nimbalyst shows every conversation as a card on a board, and Claude moves its own card from Planning to Complete as the work goes. `/board-cleanup` moves the finished ones that were left behind.
+- **The board.** Nimbalyst shows every conversation as a card on a board, and Claude moves its own card from Planning to Complete as the work goes. `/board-cleanup` moves the finished ones that were left behind. On Windows, `/pc-tidy` shows what is holding the computer's memory and stops what finished sessions left behind.
 
 <details>
 <summary>Screenshot of the board</summary>
@@ -148,7 +169,7 @@ Five extensions for Nimbalyst. The first three are written in TypeScript and Rea
 
 - [usage-plan](../extensions/usage-plan/README.md) is the ring and the pop-up from the usage section.
 - [read-aloud](../extensions/read-aloud/README.md) reads replies aloud with Kokoro, a voice model that runs on the computer. It cleans a reply for speech (no code, no Markdown), and a Python worker speaks it sentence by sentence.
-- [commands](../extensions/commands/README.md) puts seven commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report, new project and update setup. In the `claude-settings` folder it also shows chat review and full review, nine in all. A press starts a new session in the open project with that command.
+- [commands](../extensions/commands/README.md) puts eight commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report, PC tidy, new project and update setup. In the `claude-settings` folder it also shows chat review and full review, ten in all. A press starts a new session in the open project with that command.
 - [ink-themes](../extensions/ink-themes/README.md) adds eleven colour themes with their own fonts and rounder shapes, eight dark and three light, under one **Ink themes** row of the Theme menu.
 - [agents-panel](../extensions/agents-panel/README.md) makes the **Agents & commands** list in the right sidebar readable: running helpers and commands on top, finished ones folded behind one line, a taller list you can resize, and each row titled in plain words (a command by its `# WHAT THIS DOES:` line). It also keeps the commit panel below it inside the sidebar when the sidebar is narrow.
 

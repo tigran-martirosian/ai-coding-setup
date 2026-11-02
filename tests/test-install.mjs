@@ -66,6 +66,7 @@ ok("every file arrived byte for byte",
   shipped.filter((f) => !fs.existsSync(path.join(claude, f)) || !fs.readFileSync(path.join(claude, f)).equals(asInstalled(f))), []);
 const settings = json(path.join(claude, "settings.json"));
 const commands = commandsIn(settings);
+ok("helpers keep their prompt cache for an hour", settings.subagentPromptCacheTtl, "1h");
 const times = (list, s) => list.filter((x) => x.includes(path.basename(s))).length;
 ok("each hook is wired as often as the example has it", scripts.map((s) => times(commands, s)), scripts.map((s) => times(scripts, s)));
 ok("each command runs the installed copy by its full path",

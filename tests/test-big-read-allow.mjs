@@ -72,6 +72,11 @@ check("a prompt rewrites the corrupt file and the named file passes", !denied(re
 fs.writeFileSync(path.join(dir, "small.txt"), "one line\n");
 check("small file passes", !denied(read("s1", path.join(dir, "small.txt"))));
 
+// A helper has no Agent tool, so its refusal does not offer one
+const helperOut = run({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: other }, session_id: "s9", cwd: dir, agent_id: "sub-1" });
+check("a helper's refusal offers no subagent", denied(helperOut) && !helperOut.includes("Agent tool"));
+check("the main session's refusal still does", read("s9", other).includes("Agent tool"));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fail ? 1 : 0);

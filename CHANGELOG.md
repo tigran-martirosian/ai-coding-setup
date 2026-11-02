@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.73 (Nov 2, 2026): Workers start lean and take the project's rules from their brief, every recommended option gets a second look before you see it, one reviewer runs by itself on bigger changes, a systems map tells helpers what their work connects to, and on Windows /pc-tidy and a new Commands button show what is holding the computer's memory and stop what finished sessions left behind, with a reminder to restart Nimbalyst after 12 hours open.
 - 1.0.72 (Oct 31, 2026): A note sent to a session waiting on a background job now reaches it within seconds, and the job keeps running.
 - 1.0.71 (Oct 31, 2026): Long chats now compact themselves while they work and leave finished chats alone, the Note button shows a press at once and says when the note arrives, and a file you name in a prompt can be read whole once past the size guard.
 - 1.0.70 (Oct 30, 2026): A new tour film and a rewritten README show the whole setup, node install.mjs --uninstall takes it out again, the licence now allows use at work, /blind-review checks any big piece of work and not only pictures, and /btw can name the session a note goes to.

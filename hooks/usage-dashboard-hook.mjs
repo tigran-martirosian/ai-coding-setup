@@ -18,8 +18,9 @@ if (!/^\/?usage( dashboard)?[.!]?$/i.test(prompt.trim()) || prompt.trim().toLowe
 const script = path.join(os.homedir(), ".claude", "skills", "usage-report", "usage-dashboard.mjs");
 let reason;
 try {
+  // A year of chats takes about a minute to read, more on a busy machine
   const args = process.env.USAGE_DASH_NO_OPEN ? [script, "--no-open"] : [script];
-  execFileSync(process.execPath, args, { encoding: "utf8", timeout: 60000 });
+  execFileSync(process.execPath, args, { encoding: "utf8", timeout: 180000 });
   reason = "Usage dashboard opened in your browser. No tokens were used.";
 } catch (e) {
   reason = `The usage dashboard could not be built: ${String(e.stderr || e.message).trim().split("\n").pop()}`;

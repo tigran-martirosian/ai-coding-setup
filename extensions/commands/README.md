@@ -1,8 +1,8 @@
 # Commands (Nimbalyst extension)
 
 A gutter button that opens a small pop-up list of the commands I use most: board cleanup, next move,
-project scan, setup audit, usage report, new project and update setup (seven). In the `claude-settings`
-folder it also lists chat review and full review, nine in all. Pressing one starts a new session in the open
+project scan, setup audit, usage report, new project, update setup and PC tidy (eight). In the `claude-settings`
+folder it also lists chat review and full review, ten in all. Pressing one starts a new session in the open
 project, on Sonnet, with the command as its first message.
 
 The commands are the skills in [skills](../../skills); the extension only starts them. The list is in

@@ -8,7 +8,7 @@ Picture reviewers get sections 2 to 5 and the pictures, nothing else: no code, n
 |---|---|---|---|
 | 4 | Blocker | A user cannot read, use or understand it: cut off, overlapped, off-screen, misleading. Almost everyone sees it. | Fix |
 | 3 | Major | Noticed within seconds, looks broken or amateur (hard-to-read text, cramped, misaligned by several px, inconsistent), or fails at one of the shot sizes. | Fix |
-| 2 | Minor | A picky user notices on a second look (1-2 px off, uneven gap, a shade off). | Fix only if both reviewers raised it and it is cheap |
+| 2 | Minor | A picky user notices on a second look (1-2 px off, uneven gap, a shade off). | Fix only if it is cheap |
 | 1 | Cosmetic | Only a designer would mention it; another valid choice. | List only |
 | 0 | Out of scope | Taste, a feature idea, content or business logic, something outside the screen, a deliberate platform look. | OUT-OF-SCOPE list |
 
@@ -81,7 +81,7 @@ DENSITY: Is it too dense or crammed? yes/no, why. Tightest shot still not cramme
 OUT-OF-SCOPE: one line each, no severity.
 ```
 
-## 5. Follow-up round (fresh reviewer; paste above section 4)
+## 5. Follow-up round (the same reviewer; paste above section 4)
 
 ```
 Follow-up review. Claimed fixed: [check # + where + one line each]. You get BEFORE and AFTER pictures.
@@ -97,14 +97,14 @@ Then the DENSITY answer as in round 1.
 
 Covers code, a design doc, a plan, written text, a data or research result, a review report. The reviewer gets the original request, the finished result and a short word list of the product's terms, nothing more: no author reasoning, drafts or chat.
 
-Every reviewer answers these, from the result and the request:
+The reviewer answers these, from the result and the request:
 - Does it do what the request asked? List each ask and mark it done / partly / missing.
 - Does it hold together? Contradictions, steps that depend on something not there.
 - What breaks at the edges? Code: wrong or missing handling of empty, huge, malformed input and failed calls, and tests that do not test the claim. Data: numbers that do not add up, a method that cannot give this answer. Text and plans: claims without a source, a reader who gets lost.
 - What is missing, and what is in it that nobody asked for?
 - What is the riskiest assumption?
 
-Lenses, one per reviewer when two are used: **A, what breaks** (correctness, edges, failure paths, the riskiest assumption); **B, fit and reader** (every ask answered, what is missing or extra, how it reads to someone new). One reviewer covers both.
+Two lenses, in turn: **A, what breaks** (correctness, edges, failure paths, the riskiest assumption); **B, fit and reader** (every ask answered, what is missing or extra, how it reads to someone new).
 
 Rules: judge the result, not the effort. Every finding quotes the place (file and line, section, row), says what goes wrong and for whom, gives one concrete fix, and says what the fix could break. A claim of fact is marked FALSE only with a quoted contradicting source, otherwise UNVERIFIED. At most 12 findings, worst first; "no issues" is a good answer; unsure = say so and rate minor. No scores, no praise, no "start over".
 
@@ -120,7 +120,7 @@ RISKIEST ASSUMPTION: one line.
 OUT-OF-SCOPE: one line each, no severity.
 ```
 
-## 7. Follow-up round for work that is not a picture (fresh reviewer; paste above section 6's output format)
+## 7. Follow-up round for work that is not a picture (the same reviewer; paste above section 6's output format)
 
 ```
 Follow-up review. Claimed fixed: [finding + where + one line each]. You get the BEFORE and the AFTER result and the original request.

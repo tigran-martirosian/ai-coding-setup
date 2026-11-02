@@ -42,7 +42,7 @@ check("lead: own solution stays out", /Keep out of the brief: your own idea of t
 check("lead: no rules or step lists in the brief", /step lists and "do X, not Y" rules/.test(lead));
 check("lead: differences are told to the user", /tell the user where they differ/.test(lead));
 check("lead: a failed call is said, not hidden", /say so and write the plan yourself/.test(lead));
-check("lead: sections keep their numbers", /## 3\. Brief each child/.test(lead) && /## 6\. Finish/.test(lead));
+check("lead: sections keep their numbers", /## 3\. The job list and the briefs/.test(lead) && /## 6\. Finish/.test(lead));
 
 const rulesFile = ["CLAUDE.md", path.join("rules", "CLAUDE.md")].map((f) => path.join(ROOT, f)).find((f) => fs.existsSync(f));
 check("the rules file exists", !!rulesFile);
