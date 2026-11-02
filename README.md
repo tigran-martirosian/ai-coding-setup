@@ -4,9 +4,9 @@ I run all my development through Claude Code. These are the rules, checks and to
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/76e2dfca-ad85-480f-b1ab-b0b98fbc1a56
+https://github.com/user-attachments/assets/a5926bf3-6b56-4bac-9549-a24f8956cee7
 
-If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/76e2dfca-ad85-480f-b1ab-b0b98fbc1a56).
+If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/a5926bf3-6b56-4bac-9549-a24f8956cee7).
 
 ## How it compares
 
