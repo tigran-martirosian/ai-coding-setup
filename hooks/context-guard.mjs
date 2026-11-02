@@ -36,7 +36,7 @@ const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || COMPACT_K;
 // Between the limit and COMPACT_K, a cold session (idle over COLD_MIN) moves to a fresh session
 // (user, 2026-10-29; audits/compact-vs-handoff-2026-10-29: warm compact ~44k, cold ~590k)
 const COLD_MIN = Number(process.env.CONTEXT_GUARD_COLD_MIN) || 60;
-const FOCUS = "Keep every message the user typed, quoted; open asks and decisions; child session ids; the next step. Mark Claude's own estimates as unconfirmed.";
+const FOCUS = "Keep every message the user typed, quoted; open asks and decisions; the next step. Mark Claude's own estimates as unconfirmed.";
 
 // Minutes since the last main-conversation assistant entry, or null when there is none
 function idleMinutes(lines) {

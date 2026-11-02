@@ -11,8 +11,8 @@ unless you chose another one). The copy of this page the installer puts into
 ## Installing
 
 You need Node.js 18 or newer and Claude Code. Codex, Antigravity, Nimbalyst and Handy (voice typing)
-are optional, and the installer does not install them. It does install the plugins
-(`claude-code-setup` among them) and the `find-skills` skill, unless you add `--plugins no`, and it
+are optional, and the installer does not install them. It does install the `claude-hud` plugin and
+the `find-skills` skill, unless you add `--plugins no`, and it
 adds the Claude Code settings. To have the programs put in place too, on Windows or a Mac, use
 [full-install.md](full-install.md) instead.
 
@@ -64,9 +64,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   the rule that names it simply doesn't apply.
   - **uv** (provides `uvx`): converts PDF, Word and Excel files to text; also reads videos and feeds.
   - **FFmpeg**: only the picture skill's careful run needs it.
-- **The Nimbalyst extensions** are built from source. In each folder under `extensions`:
-  `npm install`, `npm run build`, `npm run install-ext`, then restart Nimbalyst. You should see a
-  new button in Nimbalyst's left gutter.
+- **The Nimbalyst extensions** are built from source. In the `usage-plan` and `commands` folders under
+  `extensions`: `npm install`, `npm run build`, `npm run install-ext`, then restart Nimbalyst. You should
+  see a new button in Nimbalyst's left gutter. The `ink-themes` extension needs only
+  `npm run build` and `npm run install-ext`, and `agents-panel` needs no npm (both below).
 - **Colour themes.** The `ink-themes` extension adds eleven: eight dark ones (Ink Aurora, Ivy,
   Graphite, Tide, Ember, Noir, Cobalt, Neon) and three light ones (Ink Bone, Frost, Blossom).
   Press the **Theme** button at the bottom of the left gutter, press **Ink themes** to unfold the
@@ -82,8 +83,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 
 ## While you work
 
-- **Just describe the task.** You never have to name a skill: Claude picks the matching one by
-  itself.
+- **Just describe the task.** You rarely have to name a skill: Claude picks the matching one by
+  itself. Three run only when you type them: `/btw`, `/phone-bot` and `/shared-usage`.
 - **Permission popups.** Every command Claude wants to run ends with a line that starts with
   `# WHAT THIS DOES:` and says in plain words what it does and what it changes. Read that line, then
   click Allow. If it describes something you did not ask for, click Deny and tell Claude why.
@@ -98,7 +99,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   a copy box, with where it goes and what you should see afterwards.
 - **The Commands button** (a lightning bolt in Nimbalyst's left gutter, from the `commands`
   extension). It opens a short list: board cleanup, next move, project scan, setup audit, usage
-  report, new project. Press one and a new chat starts in the open project with that command. You
+  report, PC tidy, new project, update setup (and chat review and full review in the
+  `claude-settings` folder). Press one and a new chat starts in the open project with that command. You
   should see the new chat in the sessions list.
 - **The Agents & commands list** (right sidebar, from the `agents-panel` extension) shows the helpers
   and background commands Claude has started. Each row is named after its job, for example
@@ -110,23 +112,22 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 
 ## When a chat is busy or long
 
-- **`/btw <note>`: add or correct something while Claude is working.** Open a second chat in the same
-  project folder and type, for example, `/btw also keep the old column names`. You should see one
-  line naming the chat the note went to. The busy chat reads the note before its next step and keeps
-  going.
-- **`/ask <question>`: ask about the busy chat without disturbing it.** In a second chat in the same
-  folder: `/ask what are you doing right now`. You get a few lines about that chat; its work is not
-  touched.
+- **`/btw <note or question>`: add or correct something while Claude is working, or ask what it is
+  doing, without disturbing it.** Open a second chat in the same project folder and type, for
+  example, `/btw also keep the old column names` or `/btw what are you doing right now`. You should
+  see one line naming the chat the note went to, or a few lines about that chat; its work is not
+  touched by a question.
 - **`/handoff`: continue in a fresh chat.** A long chat is slower and uses more of the plan. Type
   `/handoff`, or say yes when Claude offers it. It writes a short brief and opens a new chat that
   carries on from it. You should see the new chat on the Sessions board.
-- **`/lead`: a big job with several parts.** One chat plans the work, runs a child chat for each
-  part, has the result checked separately and reports. Claude also offers this by itself. The child
-  chats show up on the board under the first one.
+- **`/lead`: a big job with several parts.** One chat plans the work, hands each part to a subagent
+  that knows the goal, has the result checked separately and reports. Claude also offers this by
+  itself.
 
 ## Models
 
-- A new chat starts on the model you chose, and stays on it: the rules don't steer you to another
+- With no model set, a fresh install sets Opus at medium effort. A new chat starts on the model you
+  chose, and stays on it: the rules don't steer you to another
   model and Claude doesn't ask to switch. In the terminal that is `"model"` in
   `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
 - Sonnet uses less of the plan than Opus. Routine jobs still go to a Sonnet helper and to the free
@@ -142,8 +143,6 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   them, select the cards in the Complete column and choose Archive selected; Claude cannot archive
   for you.
 - **`/project-scan`:** checks one project's Claude setup and saves a report.
-- **`/plan-first`:** for a big or vague request. Claude says what it understood, shows the plan in a form
-  and starts only after your yes.
 - **`/next-move`:** names the one most useful thing to do next. It reads your goals from
   `~/.claude/goals.md`, so write a few lines there first (what you want to reach this year).
 - **`/watch`: you have a video.** Give Claude a YouTube link or a video file and a question. A script fetches the subtitles and makes sheets of timed stills (an overview of the whole video, or about 5 stills a second for one stretch); a cheap model reads them, so a video costs a few thousand tokens to look through. Needs ffmpeg.
@@ -152,11 +151,11 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   the limits each person used. It asks for your name and two passwords. Each person types the command on
   their own computer with the same group password. The token counts go to the tool author's server;
   chat text and file names stay on your computer. Its background program starts with the computer on
-  Windows and macOS.
+  Windows and macOS. An add-on: `node install.mjs --with shared-usage` adds it.
 
 ## From your phone
 
-- **`/phone-bot`: your own Telegram bot on your computer.** Claude walks you through making the bot
+- **`/phone-bot`: your own Telegram bot on your computer.** An add-on: `node install.mjs --with phone-bot` adds it. Claude walks you through making the bot
   in Telegram (@BotFather) and starts it here. It starts again at log-on. Only the first person who
   writes to it becomes its owner; everyone else is ignored.
 - **What you can send:** photos, files, links, notes, albums and voice notes. Each is saved in
@@ -181,9 +180,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   reset, and when each runs out.
 - **Where the percentages come from.** The `plan-usage-logger` hook reads your saved Claude login
   (`~/.claude/.credentials.json`) and asks api.anthropic.com for the plan percentages every 5
-  minutes; the login goes to Anthropic only and is not written to the log. It has no switch: to turn
-  it off, delete its three entries from `~/.claude/settings.json` (a later `node install.mjs` adds
-  them back). On a Mac the login is in the Keychain, not in that file, so the forecast stays empty.
+  minutes; the login goes to Anthropic only and is not written to the log. To turn it off, set
+  `PLAN_USAGE_LOGGER=off` in the environment. On a Mac the login is in the Keychain, not in that file, so the forecast stays empty.
 - **`/usage-report`:** the detailed numbers, saved as a file.
 
 ## The four folders for side work

@@ -75,7 +75,7 @@ function readSession(file) {
       for (const c of content) {
         if (c.type === "text" && c.text.trim()) lastReply = c.text.trim();
         const f = c.type === "tool_use" && (c.input?.file_path || c.input?.notebook_path);
-        if (f && /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(c.name)) {
+        if (f && /^(Edit|Write|NotebookEdit)$/.test(c.name)) {
           const i = edited.indexOf(f);
           if (i >= 0) edited.splice(i, 1);
           edited.push(f);

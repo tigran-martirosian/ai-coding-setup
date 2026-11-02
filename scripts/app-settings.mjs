@@ -53,7 +53,7 @@ const settingsFile = path.join(home, ".claude", "settings.json");
 const settings = read(settingsFile);
 const settingsWas = JSON.stringify(settings);
 const did = addClaudeCodeSettings(settings, WIN);
-say(did.model ? `model: set to sonnet (none was set)` : `model: left as it is (${settings.model})`);
+say(did.model ? `model: set to opus at medium effort (none was set)` : `model: left as it is (${settings.model})`);
 say(`permissions: ${did.added} rule(s) added`);
 write(settingsFile, settings, settingsWas);
 

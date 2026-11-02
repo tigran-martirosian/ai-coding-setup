@@ -1,4 +1,4 @@
-// Tests for ~/.claude/skills/steer/steer.mjs (the /btw and /ask script): when a note reaches the
+// Tests for ~/.claude/skills/steer/steer.mjs (the /btw script and the Note button): when a note reaches the
 // busy session, and who it is sent to. Runs against a throwaway home folder; touches nothing real.
 import fs from "fs";
 import os from "os";

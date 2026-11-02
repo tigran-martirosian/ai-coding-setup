@@ -60,6 +60,12 @@ const saved = JSON.parse(fs.readFileSync(ALLOW_FILE, "utf8"));
 check("names that are not files are not recorded", !JSON.stringify(saved).includes("example") && !JSON.stringify(saved).includes("file.txt"));
 check("sessions with no allowances left are dropped", Object.values(saved).every((l) => l.length > 0));
 
+// Claude Code's own saved tool result is read where it tells the session to
+const toolOut = path.join(dir, ".claude", "projects", "p", "s", "tool-results", "out.txt");
+fs.mkdirSync(path.dirname(toolOut), { recursive: true });
+fs.copyFileSync(big, toolOut);
+check("a saved tool result is not refused", !denied(read("s9", toolOut)));
+
 // A corrupt allowance file still blocks, says so on stderr, and the next prompt rewrites it
 fs.writeFileSync(ALLOW_FILE, '{"s1":[]}garbage');
 const corrupt = spawnSync("node", [HOOK], { input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: big }, session_id: "s1", cwd: dir }), encoding: "utf8", env: { ...process.env, BIG_READ_GATE: "", BIG_READ_ALLOW_FILE: ALLOW_FILE } });

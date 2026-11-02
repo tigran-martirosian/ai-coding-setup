@@ -29,7 +29,7 @@ Run in the project folder: `node ~/.claude/skills/systems-map/map.mjs <command>`
 - `--scan` prints what a builder needs to start: code files by folder, biggest files, entry points.
 - `--near` lists every thing; `--near <word>...` prints those things with their links, the code behind each link and the things one step further. A word is a thing's id or name, a word of its description, or a file path.
 - `--check` lists listed paths that no longer exist and mistakes in the JSON; exit 1 when anything is wrong.
-- `--brief` reads a brief on stdin and prints the lines of the (at most 3) things it is about; the hook uses it.
+- `--brief` reads a brief on stdin and prints the lines of the things it is about (the top 3 in full, one line for each further match, at most 7,000 characters); the hook uses it.
 
 ## Build a map
 

@@ -94,20 +94,17 @@ If the run ends with a list under `Kept as yours`, the user already had files wi
 
 ## 4. Plugins and skills
 
-The installer in step 3 did this when it printed `plugin installed:` or `plugin already there:` for each of the four plugins; go on to the warm-ups at the end of this step. Only for a line `plugin failed`, `skill failed` or `plugins not installed`: run `claude plugin list`, note which plugins are already installed, then run these one at a time, skipping what is there:
+The installer in step 3 did this when it printed `plugin installed:` or `plugin already there:` for the `claude-hud` plugin; go on to the warm-up at the end of this step. Only for a line `plugin failed`, `skill failed` or `plugins not installed`: run `claude plugin list`, note which plugins are already installed, then run these one at a time, skipping what is there:
 
 ```
-claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin marketplace add jarrodwatts/claude-hud
 claude plugin install claude-hud@claude-hud
-claude plugin install claude-code-setup@claude-plugins-official
-claude plugin install superpowers@claude-plugins-official
-claude plugin install context7@claude-plugins-official
 npx -y skills add vercel-labs/skills --skill find-skills -g -y
-npx -y repomix --version
 ```
 
-`claude-hud` stays on everywhere. The other three load into every session when they are on, so turn each one **that this run installed** off again with `claude plugin disable <name>@claude-plugins-official`; `/new-project` turns them on for the project that needs them. One the user already had stays as they had it. If `uvx` is there, warm up the document converter: `uvx --from "markitdown[all]" markitdown --help`.
+`claude-hud` stays on everywhere. If `uvx` is there, warm up the document converter: `uvx --from "markitdown[all]" markitdown --help`.
+
+The `phone-bot` skill, the `shared-usage` skill and the `read-aloud` extension are add-ons, left out of step 3's run. To add any of them, run step 3 again with `--with phone-bot,shared-usage,read-aloud` (any subset); a copy already in place stays and keeps being updated by a plain run.
 
 ## 5. Claude Code settings
 
@@ -117,7 +114,7 @@ The installer in step 3 made these already. To make them alone:
 node scripts/app-settings.mjs
 ```
 
-It sets `"model": "sonnet"` in `~/.claude/settings.json` if no model is set, and adds permission rules: the agent can't read the saved sign-ins of Claude, Codex and Gemini or the SSH keys, and asks before it reads a `.env` file. It ends with `settings done`.
+It sets `"model": "opus"` at medium effort in `~/.claude/settings.json` if no model is set, keeps transcripts 120 days if no time is set, and adds permission rules: the agent can't read the saved sign-ins of Claude, Codex and Gemini or the SSH keys, and asks before it reads a `.env` file. It ends with `settings done`.
 
 ## 6. Sign in to the workers
 
@@ -130,14 +127,14 @@ A sign-in that isn't finished now is noted for step 10. Nothing else waits on it
 
 ## 7. The Nimbalyst extensions
 
-For `usage-plan` and `commands`, in `<repo>/extensions/<name>`: `npm install`, `npm run build`, `npm run install-ext`. The last one copies the build to `<extensions>` and prints `installed to` and the folder. For `ink-themes` (five colour themes; it only adds them to the theme list, the look changes when the user picks one): `npm run build`, `npm run install-ext`, no `npm install`. `read-aloud` is optional and Windows only: it needs a voice model and Python, see [its README](../extensions/read-aloud/README.md). Nimbalyst loads extensions when it starts; don't close it yourself, step 10 tells the user.
+For `usage-plan` and `commands`, in `<repo>/extensions/<name>`: `npm install`, `npm run build`, `npm run install-ext`. The last one copies the build to `<extensions>` and prints `installed to` and the folder. For `agents-panel` (no npm needed): `node build.mjs --install`. For `ink-themes` (eleven colour themes; it only adds them to the theme list, the look changes when the user picks one): `npm run build`, `npm run install-ext`, no `npm install`. `read-aloud` is optional and Windows only: it needs a voice model and Python, see [its README](../extensions/read-aloud/README.md). Nimbalyst loads extensions when it starts; don't close it yourself, step 10 tells the user.
 
 ## 8. Nimbalyst settings
 
 Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__nimbalyst-host__...`). Otherwise skip to step 9; step 10 gives the user a prompt for it.
 
 1. `workspace_open` once for each of the four folders under `<projects>`, so each shows up as a project.
-2. `settings_get_overview`, then `ai_set_default_model` with `providerModel: "claude-code:sonnet"`. If LANGUAGE is `russian`, also `ai_set_preferred_language` with `ru`.
+2. `settings_get_overview`, then `ai_set_default_model` with `providerModel: "claude-code:opus"`. If LANGUAGE is `russian`, also `ai_set_preferred_language` with `ru`.
 3. Turn on **worktrees** and **terminal** if they are off: `features_toggle` with `bucket: "alpha"`, the feature's tag from the overview, `enabled: true`. If the call answers `requiresUserAction: "developer-mode"`, tell the user: "Turn on Developer Mode in Nimbalyst: Settings > Advanced. Then say done." and call it again.
 4. **The look.** If `<extensions>/inktheme/manifest.json` is there, ask once which theme they want: Ink Aurora, Ink Ivy, Ink Graphite, Ink Tide, Ink Ember, Ink Noir, Ink Cobalt, Ink Neon (dark), Ink Bone, Ink Frost, Ink Blossom (light), or the one they have now. For one of the eleven: `appearance_set_theme` with `com.local.inktheme:<id>`, the id being the name in small letters with a dash (`ink-aurora`, `ink-frost` and so on). If the call fails, the extension was installed in this run and loads when Nimbalyst starts: tell them to quit Nimbalyst, open it again and pick the theme with the Theme button at the bottom of the side bar.
 5. Leave the sounds, the permission mode and everything else as the user has them. If a tool is missing or a call fails, change nothing and note it for step 10.
@@ -149,7 +146,7 @@ Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__n
 Otherwise: Handy writes its settings file on first start, so tell the user: "Open Handy, follow its first-start setup (allow the microphone, pick the model Parakeet V3), then quit it from its tray or menu bar icon and say done." On a Mac it also needs System Settings > Privacy & Security > Accessibility.
 
 - **Windows:** after their "done", run `node scripts/app-settings.mjs --handy`. It sets push to talk on Right Alt, text typed directly with a space after it, the clipboard left alone, filler words removed, the model kept loaded, and a hidden start with Windows. A dated copy of the old file is kept.
-- **Mac:** show the user the table under "Voice typing" in the [README](../README.md) and let them set those in Handy's own window; the key to hold is theirs to pick.
+- **Mac:** tell the user to set these in Handy's own window: push to talk (the key to hold is theirs to pick), text typed directly, the clipboard left alone, the model kept loaded.
 
 If the user doesn't want to do it now, note it for step 10.
 
@@ -162,7 +159,7 @@ Run each check once; fix an obvious failure, report any other with its output. B
 1. `node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no> --dry-run` prints no line starting with `[dry run] copied`, `replaced`, `wrote` or `hook added`.
 2. Pipe `{"tool_name":"Bash","tool_input":{"command":"ls -la"}}` into `node ~/.claude/hooks/command-explain.mjs`: the output contains `(no note given)`.
 3. Write a temp text file of 400 lines and pipe `{"tool_name":"Read","tool_input":{"file_path":"<that file>"}}` into `node ~/.claude/hooks/big-read-gate.mjs`: the output contains `"deny"`. Delete the file.
-4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: with a worker, the output contains `"deny"`; with none, no output.
+4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: the output contains `"deny"` with or without a worker; with none, its reason points to the `worker` subagent instead of a worker script.
 5. `node ~/.claude/skills/usage-report/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
 6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
 7. `node ~/.claude/skills/court/court.mjs` with no arguments prints a line starting with `Usage: node court.mjs`.
