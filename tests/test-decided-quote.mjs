@@ -78,4 +78,25 @@ assert.equal(r.status, 2);
 assert.match(r.stderr, /decided-quote/);
 console.log("ok 7: unreadable input exits 2 with a message");
 
+// 8. Russian (`--language russian`): the same claim needs the user's own words
+const RU_DECIDED = `РЕШЕНО пользователем в форме (записать в DECISIONS.md отдельной записью сверху):
+1. Кнопки атаки как в Def Jam: удар рукой и ногой.
+2. Один общий набор приёмов для всех бойцов.`;
+const RU_QUOTED = `РЕШЕНО пользователем в форме. Его слова: «каждый боец потом получит свой особый приём и одну фирменную серию».`;
+r = run(spawn(`${HEAD}\n\n${RU_DECIDED}`));
+assert.equal(r.denied, true);
+r = run(spawn(`${HEAD}\n\n${RU_QUOTED}`));
+assert.equal(r.denied, false);
+r = run(spawn(`${HEAD}\n\nТигран выбрал вариант с двумя кнопками.`));
+assert.equal(r.denied, true);
+r = run(spawn(`${HEAD}\n\nРешено пользователем: «одна кнопка удара и одна кнопка блока».`));
+assert.equal(r.denied, false);
+r = run(spawn(`${HEAD}\n\nПредложено, но не подтверждено пользователем: схема на четыре кнопки.`));
+assert.equal(r.denied, false);
+r = run(spawn(`${HEAD}\n\nНе решено, какую схему брать; в плане стоит «РЕШЕНО» как слово из шаблона.`));
+assert.equal(r.denied, false);
+r = run(spawn(`${HEAD}\n\nПростая схема выбрана для первого прототипа, детали ещё открыты.`));
+assert.equal(r.denied, false); // no claim that the user decided it
+console.log("ok 8: Russian claims need a quote; quoted, negated and mentioned ones pass");
+
 console.log("all decided-quote tests passed");

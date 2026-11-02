@@ -1,4 +1,4 @@
-// Tests for hooks/usage-dashboard-hook.mjs. The hook runs ~/.claude/skills/usage-report/usage-dashboard.mjs,
+// Tests for hooks/usage-dashboard-hook.mjs. The hook runs ~/.claude/skills/setup-audit/scripts/usage-dashboard.mjs,
 // so the test gives it a temp home with a stand-in script there (the real dashboard has its own test
 // with the skill). Nothing here touches a real ~/.claude or opens a browser.
 // Run: node tests/test-usage-dashboard-hook.mjs
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(new URL("../hooks/usage-dashboard-hook.mjs", import.meta.url));
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "usage-hook-test-"));
-const skillDir = path.join(home, ".claude", "skills", "usage-report");
+const skillDir = path.join(home, ".claude", "skills", "setup-audit", "scripts");
 fs.mkdirSync(skillDir, { recursive: true });
 const marker = path.join(home, "ran.txt");
 // Records its arguments, so the test can see the hook asked for a build without opening a browser

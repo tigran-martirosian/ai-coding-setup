@@ -28,6 +28,17 @@
 // input with agent_id is skipped too. A headless -p run can't be told apart from a Nimbalyst session
 // (both are "sdk-cli" with the same input and transcript fields, checked 2026-10-26), so a script that
 // runs claude -p on code sets CODE_REVIEW_GATE=off. Fails open.
+// Three arms, one file. No argument: the Stop hook above. `--pre` (PreToolUse, Bash): the same `due` decision (assess below) when the
+// command is a `git push`, `gh release` or `npm publish`, or matches REVIEW_PUSH_PATTERN (env, or env in the project's settings): a Stop hook
+// can't stop a push already made. It denies while a review is due and none ran since; it counts helpers and files since the last review,
+// not just this turn, and the once-per-turn marker doesn't apply. `--start` (SessionStart): stores git's HEAD and the dirty files.
+// Counting from git, in addition to the transcript: sed, a merge, a generator or a script change files with no Edit in the transcript.
+// At Stop and `--pre`, the files that changed since the stored baseline count: working-tree files that differ from the baseline's dirty
+// set, and the files of the user's own commits since the baseline's HEAD (git log --no-merges --author=<user.email>: a merged helper
+// branch counts, a `git pull` of other people's commits doesn't). After a review only files written after it count (the baseline moves to
+// the review). A turn that changed nothing asks about git files only when some are new since the last stop. No git, or a git call that
+// fails or takes over 3 seconds: the transcript count alone. CODE_REVIEW_GATE=led counts no git files.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -177,13 +188,192 @@ export function helperEdits(transcript, sinceMs, untilMs = Infinity) {
   return { files, steps };
 }
 
-// The switch can sit in the project's settings: settings env may not reach a hook process
-function gateMode() {
-  if (process.env.CODE_REVIEW_GATE) return process.env.CODE_REVIEW_GATE.toLowerCase();
+// A switch can sit in the project's settings: settings env may not reach a hook process
+function setting(name) {
+  if (process.env[name]) return process.env[name];
   try {
     const file = path.join(process.env.CLAUDE_PROJECT_DIR || process.cwd(), ".claude", "settings.json");
-    return String(JSON.parse(fs.readFileSync(file, "utf8")).env?.CODE_REVIEW_GATE || "").toLowerCase();
+    return String(JSON.parse(fs.readFileSync(file, "utf8")).env?.[name] || "");
   } catch { return ""; }
+}
+const gateMode = () => setting("CODE_REVIEW_GATE").toLowerCase();
+
+// Counting from git. Every call is short and any failure throws, which callers turn into "no git files"
+const GIT_TIMEOUT = 3000;
+const runGit = (cwd, args) => {
+  const opts = { cwd, encoding: "utf8", timeout: GIT_TIMEOUT, windowsHide: true, maxBuffer: 32 * 1024 * 1024 };
+  // On Windows git may be a .cmd shim, which only a shell finds
+  const r = process.platform === "win32" ? spawnSync(`git ${args.map((a) => `"${a}"`).join(" ")}`, { ...opts, shell: true }) : spawnSync("git", args, opts);
+  if (r.error || r.status !== 0) throw new Error(`git ${args[0]} gave no answer`);
+  return r.stdout;
+};
+const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } };
+const fileSig = (abs) => { try { const s = fs.statSync(abs); return `${s.mtimeMs}:${s.size}`; } catch { return "gone"; } };
+
+// Where the repo is, its HEAD and the files that are dirty now, each with a signature (time and size) to tell a further change from none
+function gitNow(cwd) {
+  const [top, head] = runGit(cwd, ["rev-parse", "--show-toplevel", "HEAD"]).split("\n").map((s) => s.trim());
+  if (!top || !head) throw new Error("git gave no top or HEAD");
+  const dirty = {}, parts = runGit(top, ["status", "--porcelain", "-z", "--untracked-files=all"]).split("\0");
+  for (let i = 0; i < parts.length; i++) {
+    const e = parts[i];
+    if (e.length < 4) continue;
+    if (/[RC]/.test(e.slice(0, 2))) i++; // a rename lists the old name after the new one
+    dirty[e.slice(3)] = fileSig(path.join(top, e.slice(3)));
+  }
+  return { top, head, dirty, at: Date.now(), seen: [] };
+}
+const writeBase = (file, base) => fs.writeFileSync(file, JSON.stringify(base));
+
+// The code and setup files that changed since the baseline, by key, and the ones not seen at an earlier stop.
+// With `since` (the last review) only files written after it count. `store`: the Stop arm keeps the baseline and what it has seen
+function gitChanges(cwd, baseFile, since, store) {
+  const none = { all: new Map(), fresh: new Map(), save() {} };
+  try {
+    const now = gitNow(cwd), base = readJson(baseFile);
+    if (!base || base.top !== now.top) { if (store) writeBase(baseFile, now); return none; } // a session with no baseline starts one now
+    const changed = new Set(Object.entries(now.dirty).filter(([rel, sig]) => base.dirty[rel] !== sig).map(([rel]) => rel));
+    // A commit of a file that was dirty at the start and hasn't changed since is not new work
+    if (now.head !== base.head) {
+      const email = runGit(now.top, ["config", "user.email"]).trim();
+      if (!email) throw new Error("git has no user.email");
+      const log = runGit(now.top, ["-c", "core.quotepath=false", "log", "--no-merges", "--fixed-strings", `--author=<${email}>`, "--name-only", "--pretty=format:", `${base.head}..HEAD`]);
+      for (const rel of log.split("\n").map((r) => r.trim())) if (rel && base.dirty[rel] !== fileSig(path.join(now.top, rel))) changed.add(rel);
+    }
+    const all = new Map();
+    for (const rel of changed) {
+      if (!isCode(rel) && !isSetup(rel)) continue; // the repo's own path, so a repo inside a temp folder still counts
+      const abs = path.join(now.top, rel);
+      if (since) { try { if (fs.statSync(abs).mtimeMs <= since) continue; } catch { continue; } }
+      all.set(fileKey(abs), path.basename(rel));
+    }
+    const seen = new Set(base.seen);
+    const fresh = new Map([...all].filter(([k]) => !seen.has(k)));
+    return { all, fresh, save() { if (store && fresh.size) writeBase(baseFile, { ...base, seen: [...all.keys()] }); } };
+  } catch { return none; }
+}
+
+// SessionStart: the baseline. A resumed or compacted session keeps the one it has
+function startBaseline(input) {
+  const file = path.join(os.tmpdir(), `code-review-gate-${String(input.session_id).replace(/[^\w-]/g, "_")}.base.json`);
+  if (fs.existsSync(file)) return;
+  try { writeBase(file, gitNow(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd())); } catch {
+    // no git repo here: the transcript count alone
+  }
+}
+
+// What the gate knows of a session's work, for the Stop arm and for the push check (`pre`).
+// Returns { typed } for a turn the user typed /code-review in, { due: false }, or { due, files, setupFiles, helpers, ... }
+function assess(input, mode, pre) {
+  const text = fs.readFileSync(input.transcript_path, "utf8");
+  const lines = text.split("\n");
+  const { start, entries } = currentTurn(lines);
+  const tmp = os.tmpdir();
+  const marker = path.join(tmp, `code-review-gate-${String(input.session_id).replace(/[^\w-]/g, "_")}.txt`);
+  const held = marker.replace(/\.txt$/, ".held.json");
+  const baseFile = marker.replace(/\.txt$/, ".base.json");
+  const ctx = { start, tmp, marker, held };
+  if (start && typedReview(start)) return { ...ctx, typed: true };
+  if (!pre && helperRunning(text, input.transcript_path)) return { ...ctx, due: false }; // the push is happening now, a helper or not
+  let asked = 0, typedEnd = 0; // helpers from before the last block were asked about then; only a review starts the file count again
+  try { asked = fs.statSync(marker).mtimeMs; if (fs.readFileSync(marker, "utf8").startsWith("typed ")) typedEnd = asked; } catch {}
+  const notRun = unfinishedReviews(input.transcript_path);
+  // The push check asks what is unreviewed in the whole session, not what the last block left over
+  const from = pre ? 0 : Math.max((Date.parse(start?.timestamp) || Date.now()) - NOTE_WINDOW, asked);
+  const main = editsSinceReview(entries, notRun);
+  if (main.reviewedWork || (main.reviewedAt && helperEdits(input.transcript_path, from, main.reviewedAt).files.size)) return { ...ctx, due: false };
+  const { at: reviewedAt, brief } = lastReview(lines, notRun);
+  const since = Math.max(reviewedAt, typedEnd);
+  // What was due when a reply ended in a question stays due after the answer, until a review
+  let heldWork = null;
+  try { heldWork = JSON.parse(fs.readFileSync(held, "utf8")); } catch {}
+  if (heldWork && since >= heldWork.at) { fs.rmSync(held, { force: true }); heldWork = null; }
+  const helpers = helperEdits(input.transcript_path, Math.max(from, reviewedAt));
+  const git = mode === "led" ? { all: new Map(), fresh: new Map(), save() {} } : gitChanges(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd(), baseFile, since, !pre);
+  git.save();
+  // A file git shows as changed is this turn's work only if the turn could have changed it: another session, an editor
+  // or a generator can dirty the repo while a turn only reads
+  const couldChange = entries.some((e) => Array.isArray(e.message?.content) && e.message.content.some((b) => b.type === "tool_use" && /^(Bash|PowerShell|Agent|Task)$/.test(b.name)));
+  // nothing changed in this turn, by the helpers of its window or in git since the last stop
+  if (!pre && !main.files.size && !helpers.files.size && !heldWork && !(git.fresh.size && couldChange)) return { ...ctx, due: false };
+  // Small turns add up, in the main session and in helpers, since the last review. Led mode counts jobs only
+  const earlier = mode === "led" ? [] : [...editsSinceReview(inWindow(editEntries(lines), since), notRun).files, ...helperEdits(input.transcript_path, since).files, ...git.all];
+  // After a review, a setup file its brief named is a fix of what it found. One it didn't name is new work
+  const said = brief.replace(/\\+/g, "/").toLowerCase();
+  const newSetup = [...main.files, ...helpers.files, ...git.all].filter(([k]) => isSetup(k) && !said.includes(k.toLowerCase().split("/").slice(-2).join("/"))).map(([, name]) => name);
+  const setupFiles = [...new Set([...(heldWork?.setup || []), ...newSetup])];
+  const files = [...new Set([...(heldWork?.files || []), ...new Map([...main.files, ...helpers.files, ...earlier]).values()])];
+  const big = files.length >= MIN_FILES, several = helpers.steps >= MIN_STEPS, setup = setupFiles.length > 0;
+  const job = several && files.length >= NEW_JOB_FILES;
+  // Setup files after a review earlier in the session still count: a broken hook costs every later session. Fixes in the review's own turn don't
+  const due = !!(heldWork || (reviewedAt ? job : several) || (mode !== "led" && (big || (setup && !main.reviewedAt))));
+  return { ...ctx, due, files, setupFiles, helpers, notRun, heldWork, big, several, setup };
+}
+
+const nameList = (names) => names.length > 6 ? `${names.slice(0, 6).join(", ")} and ${names.length - 6} more` : names.join(", ");
+const countOf = (n, what = "") => `${n} ${what}file${n === 1 ? "" : "s"}`;
+
+// A command that publishes work: a push, a release or a package publish, in a longer command too (GH_TOKEN=x git push ...).
+// Quoted text is not looked at, so a commit message that says "git push" passes; a shell started with -c is looked at whole
+const LEAD = "(?:^|[\\s;&|(`\"'/\\\\])"; // a slash for /usr/bin/git
+const PUBLISH = [new RegExp(`${LEAD}git(?:\\.exe)?(?:\\s+-\\S+(?:\\s+[^\\s-]\\S*)?)*\\s+push\\b`), new RegExp(`${LEAD}gh(?:\\.exe)?\\s+release\\s+(?:create|upload|edit)\\b`), new RegExp(`${LEAD}npm(?:\\.cmd)?\\s+publish\\b`)];
+function isPush(text) {
+  const command = text.replace(/^\s*#.*$/gm, ""); // a comment line, such as the one that explains the command, is not a command
+  const wrapped = /\b(?:bash|sh|zsh|pwsh|powershell|cmd)(?:\.exe)?\s+(?:-\w*c\b|\/c\b)/i.test(command);
+  const bare = wrapped ? command : command.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
+  if (PUBLISH.some((re) => re.test(bare))) return true;
+  const own = setting("REVIEW_PUSH_PATTERN");
+  if (!own) return false;
+  try { return new RegExp(own, "i").test(command); } catch { return false; } // a pattern that doesn't parse is no pattern
+}
+
+// PreToolUse (Bash, PowerShell): no push, release or publish while a review is due and none ran since, by a helper either
+function pushCheck(input, mode) {
+  if (!/^(Bash|PowerShell)$/.test(input.tool_name) || !isPush(String(input.tool_input?.command || ""))) return;
+  const r = assess(input, mode, true);
+  if (r.typed || !r.due) return;
+  const names = r.files.length ? r.files : r.setupFiles;
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: `code-review-gate: a review is due before this push: ${countOf(names.length)} changed (${nameList(names)}) and no reviewer has looked since. ` +
+        `Run one reviewer agent first (Agent tool, subagent_type "reviewer", with the request in the user's own words, every changed file by path and the checks that ran), fix what it finds, then push again. ` +
+        `To turn this check off for this run: CODE_REVIEW_GATE=off (env, or env in the project's .claude/settings.json).`,
+    },
+  }));
+}
+
+// Stop: one block per turn when a review is due
+function stopArm(input, mode) {
+  const r = assess(input, mode, false);
+  const { start, tmp, marker, held } = r;
+  // A typed review is this turn, with its fixes: the marker starts the count again after it
+  if (r.typed) { fs.writeFileSync(marker, `typed ${start.uuid || start.timestamp}`); return; }
+  if (!r.due) return;
+  const { files, setupFiles, helpers, notRun, heldWork, big, several, setup } = r;
+  // Once per turn: the temp file holds the turn this hook last blocked; files older than two days go
+  const turnKey = start?.uuid || start?.timestamp || "no-typed-message";
+  if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === turnKey) return;
+  if (/\?\s*$/.test(String(input.last_assistant_message || ""))) { fs.writeFileSync(held, JSON.stringify({ at: heldWork?.at || Date.now(), files, setup: setupFiles })); return; }
+  fs.writeFileSync(marker, turnKey); // throws when it can't be written, so no block that could repeat
+  fs.rmSync(held, { force: true });
+  const codeText = big || several || !setup;
+  const total = codeText ? files.length : setupFiles.length;
+  process.stdout.write(JSON.stringify({
+    decision: "block",
+    reason: `code-review-gate: ${codeText ? `this work changed ${countOf(files.length, "code ")} (${nameList(files)})${helpers.steps ? ` over ${helpers.steps} helper steps` : ""}` : `${heldWork ? "this work" : "this turn"} changed ${countOf(setupFiles.length)}: hooks, rules, settings or CI files (${setupFiles.join(", ")})`} and no reviewer has looked since. ` +
+      `Run one reviewer now: Agent tool, subagent_type "reviewer", with the request in the user's own words, every changed file by path (${countOf(total)}) and the checks that ran. ` +
+      `One is enough; don't start a second. Fix each Important finding or say in the reply why it stays, then finish.` +
+      `${notRun.size ? " A reviewer that stopped without a report counts as not run: ask it once with SendMessage for what it has before starting another." : ""}`,
+  }));
+  try {
+    for (const f of fs.readdirSync(tmp).filter((f) => f.startsWith("code-review-gate-") && !f.startsWith(path.basename(marker, ".txt")))) {
+      if (Date.now() - fs.statSync(path.join(tmp, f)).mtimeMs > 2 * 86400000) fs.unlinkSync(path.join(tmp, f));
+    }
+  } catch {
+    // a leftover file is harmless
+  }
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
@@ -191,63 +381,10 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
     const mode = gateMode();
     if (mode === "off") process.exit(0);
     const input = JSON.parse(fs.readFileSync(0, "utf8"));
-    if (input.agent_id || !input.transcript_path || !input.session_id) process.exit(0);
-    const text = fs.readFileSync(input.transcript_path, "utf8");
-    const lines = text.split("\n");
-    const { start, entries } = currentTurn(lines);
-    const tmp = os.tmpdir();
-    const marker = path.join(tmp, `code-review-gate-${String(input.session_id).replace(/[^\w-]/g, "_")}.txt`);
-    const held = marker.replace(/\.txt$/, ".held.json");
-    // A typed review is this turn, with its fixes: the marker starts the count again after it
-    if (start && typedReview(start)) { fs.writeFileSync(marker, `typed ${start.uuid || start.timestamp}`); process.exit(0); }
-    if (helperRunning(text, input.transcript_path)) process.exit(0);
-    let asked = 0, typedEnd = 0; // helpers from before the last block were asked about then; only a review starts the file count again
-    try { asked = fs.statSync(marker).mtimeMs; if (fs.readFileSync(marker, "utf8").startsWith("typed ")) typedEnd = asked; } catch {}
-    const notRun = unfinishedReviews(input.transcript_path);
-    const from = Math.max((Date.parse(start?.timestamp) || Date.now()) - NOTE_WINDOW, asked);
-    const main = editsSinceReview(entries, notRun);
-    if (main.reviewedWork || (main.reviewedAt && helperEdits(input.transcript_path, from, main.reviewedAt).files.size)) process.exit(0);
-    const { at: reviewedAt, brief } = lastReview(lines, notRun);
-    const since = Math.max(reviewedAt, typedEnd);
-    // What was due when a reply ended in a question stays due after the answer, until a review
-    let heldWork = null;
-    try { heldWork = JSON.parse(fs.readFileSync(held, "utf8")); } catch {}
-    if (heldWork && since >= heldWork.at) { fs.rmSync(held, { force: true }); heldWork = null; }
-    const helpers = helperEdits(input.transcript_path, Math.max(from, reviewedAt));
-    if (!main.files.size && !helpers.files.size && !heldWork) process.exit(0); // nothing changed in this turn or by the helpers of its window
-    // Small turns add up, in the main session and in helpers, since the last review. Led mode counts jobs only
-    const earlier = mode === "led" ? [] : [...editsSinceReview(inWindow(editEntries(lines), since), notRun).files, ...helperEdits(input.transcript_path, since).files];
-    // After a review, a setup file its brief named is a fix of what it found. One it didn't name is new work
-    const said = brief.replace(/\\+/g, "/").toLowerCase();
-    const newSetup = [...main.files, ...helpers.files].filter(([k]) => isSetup(k) && !said.includes(k.toLowerCase().split("/").slice(-2).join("/"))).map(([, name]) => name);
-    const setupFiles = [...new Set([...(heldWork?.setup || []), ...newSetup])];
-    const files = [...new Set([...(heldWork?.files || []), ...new Map([...main.files, ...helpers.files, ...earlier]).values()])];
-    const big = files.length >= MIN_FILES, several = helpers.steps >= MIN_STEPS, setup = setupFiles.length > 0;
-    const job = several && files.length >= NEW_JOB_FILES;
-    // Setup files after a review earlier in the session still count: a broken hook costs every later session. Fixes in the review's own turn don't
-    const due = heldWork || (reviewedAt ? job : several) || (mode !== "led" && (big || (setup && !main.reviewedAt)));
-    if (!due) process.exit(0);
-    // Once per turn: the temp file holds the turn this hook last blocked; files older than two days go
-    const turnKey = start?.uuid || start?.timestamp || "no-typed-message";
-    if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === turnKey) process.exit(0);
-    if (/\?\s*$/.test(String(input.last_assistant_message || ""))) { fs.writeFileSync(held, JSON.stringify({ at: heldWork?.at || Date.now(), files, setup: setupFiles })); process.exit(0); }
-    fs.writeFileSync(marker, turnKey); // throws when it can't be written, so no block that could repeat
-    fs.rmSync(held, { force: true });
-    const names = files.length > 6 ? `${files.slice(0, 6).join(", ")} and ${files.length - 6} more` : files.join(", ");
-    process.stdout.write(JSON.stringify({
-      decision: "block",
-      reason: `code-review-gate: ${big || several || !setup ? `this work changed ${files.length} code files (${names})${helpers.steps ? ` over ${helpers.steps} helper steps` : ""}` : `${heldWork ? "this work" : "this turn"} changed hooks, rules, settings or CI files (${setupFiles.join(", ")})`} and no reviewer has looked since. ` +
-        `Run one reviewer now: Agent tool, subagent_type "reviewer", with the request in the user's own words, every changed file by path and the checks that ran. ` +
-        `One is enough; don't start a second. Fix each Important finding or say in the reply why it stays, then finish.` +
-        `${notRun.size ? " A reviewer that stopped without a report counts as not run: ask it once with SendMessage for what it has before starting another." : ""}`,
-    }));
-    try {
-      for (const f of fs.readdirSync(tmp).filter((f) => f.startsWith("code-review-gate-") && !f.startsWith(path.basename(marker, ".txt")))) {
-        if (Date.now() - fs.statSync(path.join(tmp, f)).mtimeMs > 2 * 86400000) fs.unlinkSync(path.join(tmp, f));
-      }
-    } catch {
-      // a leftover file is harmless
-    }
+    if (process.argv.includes("--start")) { if (input.session_id) startBaseline(input); }
+    else if (!input.transcript_path || !input.session_id) process.exit(0);
+    else if (process.argv.includes("--pre")) pushCheck(input, mode);
+    else if (!input.agent_id) stopArm(input, mode);
   } catch (err) {
     // fail open, with a trace: a dead gate must not look like a quiet one
     try {

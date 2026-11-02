@@ -338,5 +338,42 @@ ok("listedCount ignores a fenced block", listedCount("```\n- not an item\n- nor 
   ok("the block names versions.mjs", /versions\.mjs/.test(parsed?.reason || ""));
 }
 
+// ---------------- web-answer-gate: Russian (`--language russian`) ----------------
+
+const RU_HEDGING = [
+  "Версия PostgreSQL 18 может быть недоступна для вашей системы.",
+  "Эта версия, скорее всего, не вышла для Forge 1.20.1.",
+  "У мода может не быть сборки под 1.20.1.",
+  "Я не смог подтвердить, существует ли сборка для Forge.",
+  "Пакет, похоже, не существует в npm.",
+  "Релиз пока недоступен для Windows.",
+];
+for (const text of RU_HEDGING) {
+  ok(`ru hedge caught: ${text.slice(0, 40)}`, hedgeProblem(text, NO_TOOLS) !== null);
+  ok(`ru hedge allowed once checked: ${text.slice(0, 28)}`, hedgeProblem(text, CHECKED) === null);
+}
+const RU_FINE = [
+  "Версия 22 вышла, я проверил это на сайте проекта.",
+  "Директория может не существовать, поэтому она создаётся.",
+  "Я не смог подтвердить, выполнился ли хук, лог пуст.",
+  "Сборка прошла, все тесты зелёные.",
+];
+for (const text of RU_FINE) ok(`ru no false hedge: ${text.slice(0, 44)}`, hedgeProblem(text, NO_TOOLS) === null, `blocked on "${hedgeProblem(text, NO_TOOLS)}"`);
+ok("ru hedge inside a code block is not this reply's claim",
+  hedgeProblem("Вот лог:\n```\nпакет может быть недоступен\n```\nВсё в порядке.", NO_TOOLS) === null);
+ok("ru hedge with a source link is not a guess",
+  hedgeProblem("Версия 19 может быть недоступна, см. https://endoflife.date/postgresql", NO_TOOLS) === null);
+
+ok("ru wantedCount: найди 10 примеров", wantedCount("Найди 10 примеров линтеров для SQL") === 10);
+ok("ru wantedCount: a range takes the lower end", wantedCount("Подбери 8-12 модов для Forge 1.20.1") === 8);
+ok("ru wantedCount: 'до' range", wantedCount("Нужно от 5 до 7 альтернатив sqlfluff") === 5);
+ok("ru wantedCount ignores: 5 строк таблицы", wantedCount("Покажи 5 строк из этой таблицы") === 0);
+ok("ru wantedCount ignores: 10 причин", wantedCount("Дай 10 причин, почему это тормозит") === 0);
+ok("ru wantedCount ignores: поправь 3 теста", wantedCount("Поправь 3 упавших теста") === 0);
+const RU_ASK = "Найди 10 примеров линтеров для SQL";
+ok("ru count problem: 3 listed of 10", countProblem(RU_ASK, "Вот три:\n- a\n- b\n- c", NO_TOOLS)?.want === 10);
+ok("ru count problem silent: said how many and where it looked",
+  countProblem(RU_ASK, "Нашёл только 3, искал в npm и на GitHub.\n- a\n- b\n- c", NO_TOOLS) === null);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

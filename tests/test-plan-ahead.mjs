@@ -1,4 +1,4 @@
-// Tests for the "Plan ahead" forecast: skills/usage-report/plan-ahead.mjs, its text
+// Tests for the "Plan ahead" forecast: skills/setup-audit/scripts/plan-ahead.mjs, its text
 // version and the dashboard build. Made-up samples in a temp folder; the real log is not touched.
 // Checks use fixed instants, so they hold in any time zone.
 // Run: node tests/test-plan-ahead.mjs
@@ -8,7 +8,7 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const SKILL = fileURLToPath(new URL("../skills/usage-report", import.meta.url));
+const SKILL = fileURLToPath(new URL("../skills/setup-audit/scripts", import.meta.url));
 const { planAhead, readConfig } = await import(pathToFileURL(path.join(SKILL, "plan-ahead.mjs")).href);
 
 let pass = 0, fail = 0;

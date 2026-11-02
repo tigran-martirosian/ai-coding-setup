@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // review-scan: what the usage scan does not measure, from the Claude Code chat records (~/.claude/projects),
-// for the full-review skill. No model is called and nothing is sent anywhere. Main chats only; the helpers' own records are read only for the "Helper rework" section.
+// for the setup-audit full command. No model is called and nothing is sent anywhere. Main chats only; the helpers' own records are read only for the "Helper rework" section.
 //   - kind of work: what each request did (look, edit, run, delegate, ask, talk), how much of it ran in
 //     stretches a helper could have taken, and what-if totals for other ways to split the work between models
 //   - time: where the minutes of each turn went (the model, the shell, subagents, waiting for the user)
@@ -8,7 +8,7 @@
 //   - thinking: how much hidden thinking there was (its text is not stored in the records)
 //   - tool errors: which tools fail, how often, with what
 // A "request" is one API call; a "turn" is one message the user typed with everything done for it.
-// "Weight" is the rough plan weight of usage-report/usage-scan.mjs (cache reads 0.1x, output 5x).
+// "Weight" is the rough plan weight of usage-scan.mjs (cache reads 0.1x, output 5x).
 //   - helper rework: for each helper run (Agent call), whether its work had to be touched again (see below)
 // Options: --days N (default 7)   --project TEXT (only folders whose path contains it)
 //          --top N rows per list (default 8)   --root DIR (default ~/.claude/projects)
@@ -36,7 +36,7 @@ const weightOf = (u, model) => {
 };
 const tokensOf = (u) => (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.output_tokens ?? 0);
 
-// Lines that look like a message but were written by a program (same list as chat-review/chat-scan.mjs)
+// Lines that look like a message but were written by a program (same list as chat-scan.mjs)
 const MACHINE = /^(<(?!command-)[a-z-]+[ >]|\[System:|\[Child Session|\[\d+ messages? arrived|Stop hook feedback|The PermissionDeni|Another Claude ses|Base directory for|Condense the tool|Caveat: |\[Image: |Use the Bash tool )/;
 const INTERRUPTED = /^\[Request interrupted by user/;
 const NOT_A_FAILURE = /hook (?:blocking )?error|The user doesn't want to|interrupted by user/i;

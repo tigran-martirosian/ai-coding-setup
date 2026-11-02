@@ -1,7 +1,7 @@
 /**
  * Usage Plan: the Claude plan numbers and forecast, as a gutter button and a sidebar panel.
  *
- * All numbers come from ~/.claude/skills/usage-report/plan-ahead.mjs --json (see store.ts).
+ * All numbers come from ~/.claude/skills/setup-audit/scripts/plan-ahead.mjs --json (see store.ts).
  * This file only draws them.
  */
 

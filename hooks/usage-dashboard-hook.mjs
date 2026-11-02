@@ -15,7 +15,7 @@ let prompt = "";
 try { prompt = String(JSON.parse(input).prompt ?? ""); } catch {}
 if (!/^\/?usage( dashboard)?[.!]?$/i.test(prompt.trim()) || prompt.trim().toLowerCase() === "/usage") process.exit(0);
 
-const script = path.join(os.homedir(), ".claude", "skills", "usage-report", "usage-dashboard.mjs");
+const script = path.join(os.homedir(), ".claude", "skills", "setup-audit", "scripts", "usage-dashboard.mjs");
 let reason;
 try {
   // A year of chats takes about a minute to read, more on a busy machine

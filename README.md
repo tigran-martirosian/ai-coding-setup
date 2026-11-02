@@ -35,7 +35,7 @@ These go back to the agent:
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 28 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 30 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 
@@ -79,6 +79,8 @@ node install.mjs
 
 `--dry-run` prints what would change and changes nothing. Your own hooks and skills stay as they are, and a file the installer replaces is kept as `<name>.before-install-<date>`. If your `CLAUDE.md` already has your own rules, it stays and the rules here are not added until you pass `--replace-rules`.
 
+Windows is what the setup is run on. On macOS the repository's tests run, but the installer and the full install have not been run on a real Mac: on a Mac, pass `--node "$(command -v node)"` so the hooks start with Node by its full path.
+
 ```
 node install.mjs --uninstall
 ```
@@ -94,7 +96,8 @@ Claude Code itself sends your work to Anthropic, as it does without this setup. 
 | What | Where it goes | When | Off switch |
 |---|---|---|---|
 | Your saved Claude sign-in, to read your plan percentages | api.anthropic.com | At most every 5 minutes, during a session | `PLAN_USAGE_LOGGER=off` |
-| A request for the latest version number | GitHub | Every 12 hours | `UPDATE_CHECK=off` |
+| A request for the latest version number | GitHub | Every 12 hours; an hour after a failed try | `UPDATE_CHECK=off` |
+| The project's files, read by the systems map's background worker (a Claude helper, about 60 tool calls per build or refresh) | Anthropic, as for any Claude work | In a project with 100 or more code files and no map, at most three tries a week apart, and a refresh at most once a week | `MAP_NUDGE=off` |
 | Project and package names, when the agent looks up a version | endoflife.date, GitHub, npm, PyPI, crates.io, Docker Hub, Maven Central, NuGet | When it checks a version | None |
 | Files the agent gives a free worker | Codex or Gemini | Only if you set them up | Don't set them up |
 | Messages to and from your sessions | Telegram | Only if you add `/phone-bot` and run it | Don't run it |
@@ -102,7 +105,7 @@ Claude Code itself sends your work to Anthropic, as it does without this setup. 
 
 The tools in the starter projects that read web pages open the pages you ask for.
 
-The installer adds rules that stop Claude Code reading saved sign-ins for Claude, Codex and Gemini, or SSH keys, through its own tools, and that ask before a `.env` file. A script that reaches a file without naming it is not stopped. These rules bind Claude Code only: if you set up Gemini, its own rules let it read your projects folder and the setup's hooks, skills and agents. It can't read web pages or the rest of `~/.claude`.
+The installer adds rules that stop Claude Code reading saved sign-ins for Claude, Codex and Gemini, or SSH keys, through its own tools, and that ask before a `.env` file. A script that reaches a file without naming it is not stopped. These rules bind Claude Code only: if you set up Gemini, its own rules let it read your projects folder and the setup's hooks, skills and agents. It can't search the web or read web pages, it can't read the rest of `~/.claude`, and it reads a `.env` file only on a run Claude starts with `--allow-env`, which it does when you ask for that file to be read.
 
 ## Limits
 

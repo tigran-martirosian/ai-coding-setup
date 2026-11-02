@@ -1,10 +1,11 @@
 // Tests for hooks/code-review-gate.mjs. Run: node tests/test-code-review-gate.mjs
 // Each case writes a small transcript and runs the hook on it as a Stop event.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync, utimesSync, existsSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, utimesSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
+delete process.env.REVIEW_PUSH_PATTERN; // a project that sets one must not reach the test through this shell
 
 const HOOK = fileURLToPath(new URL("../hooks/code-review-gate.mjs", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "test-code-review-gate-"));
@@ -160,7 +161,8 @@ report(blocks(withHelpers([at(typed("build"), 40 * MIN), ...aged(ONE("a"), 35 * 
 const one = (file) => run([typed("change it"), ...edit(file)], REAL);
 for (const f of ["C:/p/.claude/settings.json", "C:/p/.claude/settings.local.json", "C:/p/.claude/hooks/x.mjs", "C:/p/.github/workflows/ci.yml", "C:/p/.gitlab-ci.yml", "C:/p/.circleci/config.yml", "C:/p/.husky/pre-commit", "C:/p/settings.example.json"])
   report(blocks(one(f)), `a setup file is reviewed at one file: ${f.slice(5)}`);
-report(/hooks, rules, settings or CI files \(ci\.yml\)/.test(one("C:/p/.github/workflows/ci.yml")), "the block names the setup file");
+report(/changed 1 file: hooks, rules, settings or CI files \(ci\.yml\)/.test(one("C:/p/.github/workflows/ci.yml")), "the block names the setup file and says how many");
+report(/every changed file by path \(1 file\)/.test(one("C:/p/.github/workflows/ci.yml")) && /every changed file by path \(3 files\)/.test(run([typed("build"), ...THREE])), "the brief hint says how many files to name");
 report(one("C:/p/src/hooks/useThing.js") === "", "a web project's src/hooks file is ordinary code");
 report(one("D:/work/Temp/.claude/hooks/x.mjs") === "", "a setup file in a temp folder is a throwaway");
 report(run([typed("change it"), ...edit("C:/p/.claude/settings.json")], { env: { CODE_REVIEW_MIN_FILES: "", CODE_REVIEW_GATE: "led" } }) === "", "led mode: a setup file alone passes");
@@ -212,7 +214,7 @@ report(run([...ASKED, typed("thanks"), say("Done.")], { session: "held", input: 
 run(ASKED, { session: "held2", input: reply("Deploy it?") });
 report(run([...ASKED, typed("yes"), at(tool("Agent", { subagent_type: "reviewer", prompt: "x" }), -60000), result(), say("Reviewed.")], { session: "held2", input: reply("Reviewed.") }) === "", "a review after the question ends the hold");
 run([typed("change it"), ...edit("C:/p/.claude/hooks/x.mjs"), say("Ship it?")], { session: "held3", input: reply("Ship it?") });
-report(/this work changed hooks, rules, settings or CI files \(x\.mjs\)/.test(run([typed("change it"), ...edit("C:/p/.claude/hooks/x.mjs"), say("Ship it?"), typed("yes"), say("Shipped.")], { session: "held3", input: reply("Shipped.") })), "a held setup file is named after the answer");
+report(/this work changed 1 file: hooks, rules, settings or CI files \(x\.mjs\)/.test(run([typed("change it"), ...edit("C:/p/.claude/hooks/x.mjs"), say("Ship it?"), typed("yes"), say("Shipped.")], { session: "held3", input: reply("Shipped.") })), "a held setup file is named after the answer");
 const NAMED = [at(typed("build"), 40 * MIN), at(tool("Agent", { subagent_type: "reviewer", prompt: "Changed: C:\\p\\.claude\\hooks\\x.mjs" }), 30 * MIN), at(result(), 29 * MIN), at(typed("fix that"), 5 * MIN)];
 report(withHelpers([...NAMED, ...aged(edit("C:/p/.claude/hooks/x.mjs"), MIN)], []) === "", "a fix to a setup file the review's brief named: no second review");
 report(blocks(withHelpers([...NAMED, ...aged(edit("C:/p/.claude/hooks/y.mjs"), MIN)], [])), "a setup file the review's brief didn't name still asks");
@@ -222,6 +224,142 @@ report(blocks(run(blocked, { input: { last_assistant_message: "Done." } })), "a 
 const wake = { type: "user", message: { role: "user", content: "<task-notification>build done</task-notification>" } };
 report(blocks(withHelpers([STARTED, say("Done.")], [["a", [at(typed("step 1"), 4 * MIN), ...aged(ONE("a"), 3 * MIN), at(typed("step 2"), 2 * MIN), ...aged(ONE("b"), MIN)]]])), "a reused worker's two briefs are two steps");
 report(withHelpers([STARTED, say("Done.")], [["a", [at(typed("step 1"), 4 * MIN), ...aged(ONE("a"), 3 * MIN), at(wake, 2 * MIN), ...aged(ONE("b"), MIN)]]]) === "", "a wake-up from its own build is not a step");
+// The push check: --pre, PreToolUse on Bash. THREE files are due at the test threshold of 3
+const hookEnv = (env = {}) => ({ ...process.env, CODE_REVIEW_GATE: "", CODE_REVIEW_MIN_FILES: "", CLAUDE_PROJECT_DIR: dir, TEMP: dir, TMP: dir, TMPDIR: dir, ...env });
+const pre = (entries, command, { env = {}, session, input = {}, tool_name = "Bash" } = {}) => {
+  const sid = session || `p${++n}`, file = join(dir, `${sid}-${++n}.jsonl`);
+  writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  const event = { session_id: sid, transcript_path: file, hook_event_name: "PreToolUse", tool_name, tool_input: { command }, ...input };
+  return spawnSync(process.execPath, [HOOK, "--pre"], { input: JSON.stringify(event), env: hookEnv({ CODE_REVIEW_MIN_FILES: "3", ...env }), encoding: "utf8" }).stdout;
+};
+const denied = (out) => out.includes('"permissionDecision":"deny"');
+const DUE = [typed("build"), ...THREE, say("Done.")];
+const pushOut = pre(DUE, "git push origin main");
+report(denied(pushOut) && /one reviewer agent/.test(pushOut) && /CODE_REVIEW_GATE=off/.test(pushOut) && /3 files/.test(pushOut), "due: git push is denied, with the reviewer and the off switch in the text");
+report(pre([typed("build"), ...THREE, ...reviewer(), say("Done.")], "git push origin main") === "", "reviewed: git push is allowed");
+report(pre([typed("build"), ...THREE, ...review(), say("Done.")], "git push origin main") === "", "reviewed by the code-review skill: git push is allowed");
+report(pre(DUE, 'git commit -m "build it"') === "", "due: git commit is untouched");
+report(pre(DUE, 'git commit -m "then git push it"') === "", "due: a commit message that says git push is untouched");
+report(pre(DUE, "git status && git diff") === "", "due: other git commands are untouched");
+report(denied(pre(DUE, "GH_TOKEN=x git push origin main")), "due: a push with a prefix is denied");
+report(denied(pre(DUE, "cd /p && git add -A && git commit -m x && git push")), "due: a push at the end of a chain is denied");
+report(denied(pre(DUE, "git -C /p push origin main")), "due: git -C dir push is denied");
+report(denied(pre(DUE, "gh release create v1 --notes x")) && denied(pre(DUE, "npm publish")), "due: gh release and npm publish are denied");
+report(denied(pre(DUE, 'bash -c "git push"')), "due: a push inside bash -c is denied");
+report(pre([typed("build"), ...THREE, say("Done."), typed("push it"), say("Pushing.")], "git push") !== "", "work from an earlier turn, a push in a turn with no edits: still denied");
+report(pre([typed("fix"), ...edit("C:/p/a.js"), say("Done.")], "git push") === "", "not due: git push is allowed");
+report(pre(DUE, "git push", { env: { CODE_REVIEW_GATE: "off" } }) === "", "CODE_REVIEW_GATE=off: git push is allowed");
+report(pre(DUE, "git push", { tool_name: "Read" }) === "", "only shell tools are checked");
+report(/"deny"/.test(pre(DUE, "git push", { input: { agent_id: "a1" } })), "a helper's push is checked too");
+report(/"deny"/.test(pre(DUE, "git push", { tool_name: "PowerShell" })), "a push from PowerShell is checked too");
+report(/"deny"/.test(pre([...DUE, launched("bg1")], "git push")), "a helper running in the background doesn't open the push");
+report(["/usr/bin/git push", "git.exe push origin main", "C:/Git/bin/git.exe push"].every((c) => /"deny"/.test(pre(DUE, c))), "git with a path or .exe is a push");
+report(pre(DUE, "git status\n\n# WHAT THIS DOES: shows what git push would send") === "", "a comment line that says git push is not one");
+report(pre(DUE, "gh release view v1") === "" && /"deny"/.test(pre(DUE, "gh release create v1")), "reading a release passes, making one is checked");
+report(pre(DUE, "git push", { input: { transcript_path: join(dir, "missing.jsonl") } }) === "", "a missing transcript fails open on a push");
+report(spawnSync(process.execPath, [HOOK, "--pre"], { input: "not json", encoding: "utf8" }).stdout === "", "bad JSON fails open on a push");
+report(pre(DUE, "./deploy.sh") === "" && denied(pre(DUE, "./deploy.sh", { env: { REVIEW_PUSH_PATTERN: "deploy\\.sh$" } })), "REVIEW_PUSH_PATTERN in the env adds a command");
+mkdirSync(join(dir, ".claude"), { recursive: true });
+writeFileSync(join(dir, ".claude", "settings.json"), JSON.stringify({ env: { REVIEW_PUSH_PATTERN: "deploy\\.sh$" } }));
+report(denied(pre(DUE, "./deploy.sh")), "REVIEW_PUSH_PATTERN in the project's settings adds a command");
+writeFileSync(join(dir, ".claude", "settings.json"), JSON.stringify({ env: { REVIEW_PUSH_PATTERN: "(" } }));
+report(pre(DUE, "./deploy.sh") === "" && denied(pre(DUE, "git push")), "a pattern that doesn't parse is ignored");
+rmSync(join(dir, ".claude"), { recursive: true, force: true });
+const afterPush = (() => { pre(DUE, "git push", { session: "samepush" }); return run(DUE, { session: "samepush" }); })();
+report(blocks(afterPush), "a denied push doesn't use up the Stop arm's one block of the turn");
+
+// Counting from git. A stub `git` on PATH answers the few calls the hook makes from a file the test writes
+const PATHKEY = Object.keys(process.env).find((k) => k.toLowerCase() === "path") || "PATH";
+const stubDir = join(dir, "stub-bin"), stubTop = join(dir, "stub-repo");
+mkdirSync(stubDir); mkdirSync(stubTop);
+writeFileSync(join(stubDir, "git-stub.mjs"), [
+  'import fs from "node:fs";',
+  'const cfg = JSON.parse(fs.readFileSync(new URL("./stub.json", import.meta.url), "utf8"));',
+  "if (cfg.fail) process.exit(1);",
+  "let a = process.argv.slice(2);",
+  'while (a[0] === "-c") a = a.slice(2);',
+  'if (a[0] === "rev-parse") process.stdout.write(cfg.top + "\\n" + cfg.head + "\\n");',
+  'else if (a[0] === "status") process.stdout.write(cfg.status.map((f) => " M " + f + "\\0").join(""));',
+  'else if (a[0] === "config") process.stdout.write(cfg.email + "\\n");',
+  'else if (a[0] === "log") { const who = (a.find((x) => x.startsWith("--author=")) || "").slice(9); process.stdout.write(cfg.commits.filter((c) => who === "<" + c.author + ">").flatMap((c) => c.files).join("\\n") + "\\n"); }',
+  "else process.exit(1);",
+].join("\n"));
+if (process.platform === "win32") writeFileSync(join(stubDir, "git.cmd"), `@"${process.execPath}" "%~dp0git-stub.mjs" %*\r\n`);
+else { writeFileSync(join(stubDir, "git"), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/git-stub.mjs" "$@"\n`); chmodSync(join(stubDir, "git"), 0o755); }
+const stub = (o = {}) => writeFileSync(join(stubDir, "stub.json"), JSON.stringify({ top: stubTop, head: "aaa", status: [], email: "me@x", commits: [], ...o }));
+const STUB = { [PATHKEY]: stubDir + delimiter + process.env[PATHKEY] };
+const startHook = (session, env = {}) => spawnSync(process.execPath, [HOOK, "--start"], { input: JSON.stringify({ session_id: session, hook_event_name: "SessionStart", source: "startup" }), env: hookEnv(env), encoding: "utf8" });
+const baseOf = (session) => join(dir, `code-review-gate-${session}.base.json`);
+const TWELVE = Array.from({ length: 12 }, (_, i) => `src/f${i}.js`);
+const SED = [typed("rename it everywhere with sed"), { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "sed1", name: "Bash", input: { command: "sed -i s/a/b/ src/*.js" } }] } }, say("Done.")];
+const READING = [typed("what does this file do?"), say("It starts the server.")];
+stub();
+report(startHook("g1", STUB).stdout === "" && existsSync(baseOf("g1")), "the start arm stores a baseline and prints nothing");
+stub({ status: TWELVE });
+const g1 = run(SED, { session: "g1", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } });
+report(blocks(g1) && /12 code files/.test(g1), "12 code files changed by sed, none in the transcript: blocked at Stop");
+stub();
+startHook("g-read", STUB);
+stub({ status: TWELVE });
+report(run(READING, { session: "g-read", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } }) === "", "a turn that only read: files another session changed are not its work");
+report(run([...SED, typed("thanks"), say("ok")], { session: "g1", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } }) === "", "the next turn that changed nothing doesn't ask about the same git files again");
+report(denied(pre(SED, "git push", { session: "g1", env: STUB })), "the push check counts the git files too");
+stub(); startHook("g2", STUB); stub({ status: TWELVE.slice(0, 9) });
+report(run(SED, { session: "g2", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } }) === "", "9 git files are below the threshold");
+stub(); startHook("g3", STUB); stub({ status: [...TWELVE.slice(0, 9), "docs/a.md", "docs/b.md", "docs/c.md"] });
+report(run(SED, { session: "g3", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } }) === "", "git files are filtered by the code list: 9 code files and 3 .md pass");
+stub({ status: [] }); startHook("g4", STUB); stub({ status: TWELVE });
+report(blocks(run([typed("edit"), ...THREE.slice(0, 4), say("ok")], { session: "g4", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } })), "git files add to the transcript's: 2 edited and 12 changed by sed");
+stub({ status: TWELVE }); startHook("g5", STUB); // dirty at the start: not this session's work
+report(run(SED, { session: "g5", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } }) === "", "files dirty at the session start don't count");
+stub({ status: [...TWELVE] });
+report(run(SED, { session: "g6", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } }) === "" && existsSync(baseOf("g6")), "a session with no baseline stores one at its first Stop and counts nothing from git");
+stub({ head: "aaa" }); startHook("g7", STUB); startHook("g8", STUB);
+stub({ head: "bbb", commits: [{ author: "other@x", files: TWELVE }] });
+report(run(SED, { session: "g7", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } }) === "", "a pull of another author's 12 commits' files doesn't count");
+stub({ head: "bbb", commits: [{ author: "other@x", files: TWELVE }, { author: "me@x", files: TWELVE }] });
+report(blocks(run(SED, { session: "g8", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } })), "the user's own commits count, the other's beside them don't");
+stub({ fail: true });
+report(blocks(run([typed("build"), ...THREE], { session: "g9", env: STUB })) && run([typed("fix"), ...edit("C:/p/a.js")], { session: "g10", env: STUB }) === "", "a git that fails: the transcript count, as before");
+report(startHook("g11", STUB).stdout === "" && !existsSync(baseOf("g11")), "a failing git leaves no baseline and no output");
+startHook("g12");
+report(!existsSync(baseOf("g12")) && blocks(run([typed("build"), ...THREE], { session: "g12" })) && !existsSync(baseOf("g12")), "no git repo: no baseline, today's count");
+report(startHook("g13", { CODE_REVIEW_GATE: "off" }).stdout === "" && !existsSync(baseOf("g13")), "off: the start arm stores nothing");
+
+// The same with real git, in a repository the test makes. A review after the changes ends their count
+const repo = join(dir, "repo");
+mkdirSync(repo);
+const git = (...args) => { const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`); return r.stdout; };
+const as = (who) => ["-c", `user.email=${who}@x`, "-c", `user.name=${who}`, "-c", "commit.gpgsign=false"];
+const touch = (names, text) => names.forEach((f) => { mkdirSync(join(repo, "src"), { recursive: true }); writeFileSync(join(repo, f), text); });
+const real = (session, entries = SED) => run(entries, { session, env: { CLAUDE_PROJECT_DIR: repo, CODE_REVIEW_MIN_FILES: "" } });
+const realStart = (session) => startHook(session, { CLAUDE_PROJECT_DIR: repo });
+git("init", "-q"); git("config", "user.email", "me@x"); git("config", "user.name", "me");
+touch(TWELVE, "a\n"); git("add", "-A"); git(...as("me"), "commit", "-q", "-m", "first");
+realStart("r1"); realStart("r2"); realStart("r3");
+touch(TWELVE, "b\n"); git("add", "-A"); git(...as("other"), "commit", "-q", "-m", "their work", "--author=other <other@x>");
+report(real("r1") === "", "real git: a pull of another author's commits to 12 code files doesn't count");
+touch(TWELVE, "c\n"); git("add", "-A"); git(...as("me"), "commit", "-q", "-m", "my work");
+const r2 = real("r2");
+report(blocks(r2) && /12 code files/.test(r2), "real git: the user's own commits to 12 code files count");
+const REVIEWED_LATER = [...SED.slice(0, 1), { ...reviewer()[0], timestamp: new Date(Date.now() + 60000).toISOString() }, result(), say("Reviewed.")];
+report(real("r3", REVIEWED_LATER) === "", "real git: a review after the changes: they don't count");
+realStart("r4");
+touch(TWELVE, "d\n");
+report(blocks(real("r4")), "real git: 12 tracked files changed in the working tree (sed) count");
+git("checkout", "--", ".");
+realStart("r5");
+const mainBranch = git("rev-parse", "--abbrev-ref", "HEAD").trim();
+git("checkout", "-q", "-b", "helper"); touch(TWELVE, "e\n"); git("add", "-A"); git(...as("me"), "commit", "-q", "-m", "helper work");
+git("checkout", "-q", mainBranch); git(...as("me"), "merge", "-q", "--no-ff", "helper", "-m", "merge the helper");
+report(blocks(real("r5")), "real git: merging a helper's branch counts its commits");
+touch(TWELVE, "ccc\n"); realStart("r6");
+git("add", "-A"); git(...as("me"), "commit", "-q", "-m", "reviewed work from before this session");
+report(real("r6") === "", "real git: committing files that were dirty at the start, unchanged, is not new work");
+touch(TWELVE, "dddd\n"); realStart("r7"); touch(TWELVE, "eeeee\n");
+git("add", "-A"); git(...as("me"), "commit", "-q", "-m", "more work on them");
+report(blocks(real("r7")), "real git: a file dirty at the start and changed again before the commit counts");
+
 // A crash leaves a line
 const crashHome = join(dir, "crash-home");
 spawnSync(process.execPath, [HOOK], { input: "not json", env: { ...process.env, CODE_REVIEW_GATE: "", USERPROFILE: crashHome, HOME: crashHome, CLAUDE_PROJECT_DIR: dir }, encoding: "utf8" });

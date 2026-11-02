@@ -73,8 +73,11 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
 | While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
 | Before a reply goes out | `link-gate` | No link that wasn't opened in this session |
-| Before a reply goes out | `file-link-gate` | File links are written in the form Nimbalyst's chat can open (an absolute path with forward slashes) |
+| Before a reply goes out | `file-link-gate` | File links are written in the form Nimbalyst's chat can open (an absolute path with forward slashes); only inside Nimbalyst |
 | Before a reply goes out | `code-review-gate` | Work that changed 10 or more code files over a session, in which two or more helpers edited code, or that changed hooks, settings or CI files gets one `reviewer` agent before it ends |
+| Before a reply goes out | `verify-gate` | A turn that edited a code file ends only after a build or test ran following the last edit; the gate asks once per turn and never runs the command itself (`VERIFY_GATE=off` and `VERIFY_PATTERN` for a project's own commands) |
+| Before a push or release | `code-review-gate` | A `git push`, `gh release` or `npm publish` is refused while the work since the last review is due one (`REVIEW_PUSH_PATTERN` adds commands) |
+| When a session starts | `nimbalyst-notes` | Inside Nimbalyst, the agent is told two quirks of its tools; nothing in the terminal (`NIMBALYST_NOTES=off`) |
 | Before a reply goes out | `run-yourself` | A reply that tells me to run a command is sent back once, so the agent runs it |
 | After each reply | `handoff-brief` | Keep a brief so a new session can continue |
 | Before a helper starts or a handoff note is written | `decided-quote` | A brief that says I decided something quotes my own words next to it; the first try is refused, the identical retry goes through |

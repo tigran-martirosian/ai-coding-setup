@@ -67,10 +67,46 @@ check("UPDATE_CHECK=off: silent, asks nobody", (await run(off, { UPDATE_CHECK: "
 
 const down = home("down", "1.0.0");
 const offline = await run(down, { SETUP_UPDATE_BASE: "http://127.0.0.1:9" });
-check("GitHub not reachable: silent, exits cleanly, tries again next time", offline.out === "" && offline.code === 0 && kept(down) === null);
-const missing = await run(down, { SETUP_UPDATE_BASE: `${BASE}/nowhere` });
-check("an address that answers 404: silent and nothing recorded", missing.out === "" && missing.code === 0 && kept(down) === null);
+check("GitHub not reachable: silent, exits cleanly", offline.out === "" && offline.code === 0);
+check("the failure and its reason are kept, no check is recorded", !!kept(down)?.failedAt && /\S/.test(kept(down)?.error || "") && !kept(down)?.checkedAt);
+const missing = home("missing", "1.0.0");
+const notFound = await run(missing, { SETUP_UPDATE_BASE: `${BASE}/nowhere` });
+check("an address that answers 404: silent, and the reason (HTTP 404) is kept", notFound.out === "" && notFound.code === 0 && kept(missing)?.error === "HTTP 404");
 
+// An address that never answers (a dropped connection, as with no network): a prompt must not wait long
+let hung = 0;
+const hang = http.createServer(() => { hung++; });
+await new Promise((r) => hang.listen(0, "127.0.0.1", r));
+const HANG = `http://127.0.0.1:${hang.address().port}`;
+const stuck = home("stuck", "1.0.0");
+let t0 = Date.now();
+const slow = await run(stuck, { SETUP_UPDATE_BASE: HANG });
+const firstMs = Date.now() - t0;
+check(`no answer: the first prompt waits under a second (${firstMs} ms), silent, exit 0`, firstMs < 1000 && slow.out === "" && slow.code === 0);
+check("no answer: the reason is kept", /no answer in time/.test(kept(stuck)?.error || ""));
+const hungBefore = hung;
+t0 = Date.now();
+const again = await run(stuck, { SETUP_UPDATE_BASE: HANG });
+const againMs = Date.now() - t0;
+check(`the next prompts do not ask again for an hour (${againMs} ms, no request)`, again.out === "" && hung === hungBefore && againMs < 500);
+fs.writeFileSync(path.join(stuck, ".claude", "update-check.json"), JSON.stringify({ failedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), error: "no answer in time" }));
+await run(stuck, { SETUP_UPDATE_BASE: HANG });
+check("two hours after a failure it asks again", hung === hungBefore + 1);
+fs.writeFileSync(path.join(stuck, ".claude", "update-check.json"), JSON.stringify({ failedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), error: "no answer in time" }));
+const back = await run(stuck);
+check("a good answer after a failure announces the update and clears the failure", /1\.10\.0/.test(back.out) && kept(stuck)?.latest === "1.10.0" && !kept(stuck)?.failedAt);
+hang.closeAllConnections?.();
+hang.close();
+
+// A slow line: an answer that takes 1.2 seconds is missed at the short wait and heard on the try after a timeout
+const slowLine = http.createServer((req, res) => setTimeout(() => res.end(JSON.stringify({ version: "1.11.0" })), 1200));
+await new Promise((r) => slowLine.listen(0, "127.0.0.1", r));
+const SLOW = `http://127.0.0.1:${slowLine.address().port}`;
+const late = home("late-line", "1.0.0");
+fs.writeFileSync(path.join(late, ".claude", "update-check.json"), JSON.stringify({ failedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), error: "no answer in time" }));
+const heard = await run(late, { SETUP_UPDATE_BASE: SLOW });
+check("after a timeout the next try waits longer, so a slow line still hears of an update", /1\.11\.0/.test(heard.out) && kept(late)?.latest === "1.11.0");
+slowLine.closeAllConnections?.(); slowLine.close();
 server.close();
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fail ? `${fail} failed, ${pass} passed` : `all ${pass} passed`);

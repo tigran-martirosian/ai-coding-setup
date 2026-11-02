@@ -145,22 +145,20 @@ const FLAWS: { x: number; y: number; round: number; text: string }[] = [
   { x: 150, y: 262, round: 1, text: "Unclear name" },
   { x: 500, y: 372, round: 1, text: "Edge case" },
   { x: 60, y: 468, round: 1, text: "Stale claim" },
-  { x: 390, y: 60, round: 2, text: "Slow query" },
-  { x: 240, y: 372, round: 2, text: "Vague heading" },
 ];
 
-/** Reviewers go over the work; flaws pin on, get fixed and drop away; a later round finds fewer, then nothing serious. */
+/** One reviewer goes over the work; flaws pin on, get fixed and drop away; the second round finds nothing serious. */
 export const BlindReview: React.FC<{ shot: Shot }> = ({ shot }) => {
   const t = useTick();
   const { rounds, clean } = need(shot.body, "review");
-  const starts = [4, 32, 60];
+  const starts = [4, 46];
   const span = 24;
-  const round = t < starts[1] ? 0 : t < starts[2] ? 1 : 2;
+  const round = t < starts[1] ? 0 : 1;
   const beam = (t - starts[round]) / span;
-  const done = t >= starts[2] + span;
+  const done = t >= starts[1] + span;
   return (
     <Field bg={violet.bg}>
-      <Camera jolts={[{ at: starts[2] + span, size: 8 }]}>
+      <Camera jolts={[{ at: starts[1] + span, size: 8 }]}>
         <Head title={shot.title} sub={shot.sub} size={84} style={{ top: 34 }} subStyle={{ fontSize: 40 }} />
         <div style={{ position: "absolute", left: MARGIN, top: 226, width: 940, height: 760, transform: `translateY(${(1 - pop(t, 0)) * 900}px)` }}>
           <Window label="The work" style={{ height: "100%" }} bodyStyle={{ padding: 28 }}>
@@ -191,12 +189,12 @@ export const BlindReview: React.FC<{ shot: Shot }> = ({ shot }) => {
             return (
               <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "14px 26px", marginBottom: 12, borderRadius: 14, background: on ? color.white : color.ink, color: on ? color.ink : color.white, fontSize: 84, fontWeight: 700, letterSpacing: TIGHT, transform: `translateX(${(1 - land) * 900}px)` }}>
                 {name}
-                <span style={{ fontFamily: mono, fontSize: 34, fontWeight: 400, letterSpacing: 0 }}>{t >= starts[i] + span ? (i < 2 ? "fixed" : "clear") : ""}</span>
+                <span style={{ fontFamily: mono, fontSize: 34, fontWeight: 400, letterSpacing: 0 }}>{t >= starts[i] + span ? (i < 1 ? "fixed" : "clear") : ""}</span>
               </div>
             );
           })}
           {done ? (
-            <div style={{ marginTop: 26, background: color.lime, color: color.ink, borderRadius: 14, padding: "20px 26px", fontSize: 84, fontWeight: 700, lineHeight: 1, letterSpacing: TIGHT, transform: `scale(${1 + (1 - pop(t, starts[2] + span)) * 0.5})` }}>{clean}</div>
+            <div style={{ marginTop: 26, background: color.lime, color: color.ink, borderRadius: 14, padding: "20px 26px", fontSize: 84, fontWeight: 700, lineHeight: 1, letterSpacing: TIGHT, transform: `scale(${1 + (1 - pop(t, starts[1] + span)) * 0.5})` }}>{clean}</div>
           ) : null}
         </div>
       </Camera>

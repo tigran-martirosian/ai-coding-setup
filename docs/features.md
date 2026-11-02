@@ -16,7 +16,7 @@ If you already have a Claude Code setup, yours stays. A hook or skill of yours w
 
 ## Updating details
 
-Every 12 hours the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](../hooks/update-check.mjs)) and says so in one line. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](../skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
+Every 12 hours the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](../hooks/update-check.mjs)) and says so in one line. With no network it waits under a second, writes why it failed into `~/.claude/update-check.json`, and asks again only after an hour. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](../skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
 
 ![An update announced in one line, then installed with one command](img/clip-update.gif)
 
@@ -72,7 +72,7 @@ Two hooks run it. `map-nudge` notices a big project without a map and has the ag
 
 ![A reply that links a page it never opened is sent back, then three more checks](img/clip-checks.gif)
 
-Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 27 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook.
+Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 30 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
 
 ### Checks that can send a step back
 
@@ -81,9 +81,10 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `link-gate` | A reply with a link the agent remembered or saw in search results but never opened |
 | `question-other` | A question with no box to type my own answer, a choice with only one option, a "look at this" question with no link to it, a recommended option that says "Checked:" when no file read or search in the log matches it, or a recommended option that no `rec-check` agent has looked at |
 | `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder |
-| `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`) |
+| `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`). Only inside Nimbalyst: in the terminal it never refuses |
+| `verify-gate` | A turn that edited a code file and ended with no build or test run after the last edit; it asks for one run and never runs a command itself |
 | `transcript-check` | At the start of a session, says out loud when a new Claude Code changed the transcript format the hooks read |
-| `code-review-gate` | A piece of work about to end with no `reviewer` agent having looked: 10 or more code files over a session, two or more helpers that edited code, or hooks, settings or CI files. It reads the transcript, so nobody has to remember or ask well, and it asks for one reviewer by itself |
+| `code-review-gate` | A piece of work about to end with no `reviewer` agent having looked: 10 or more code files over a session, two or more helpers that edited code, or hooks, settings or CI files. It reads the transcript and git, so nobody has to remember or ask well, and it asks for one reviewer by itself. A `git push`, `gh release` or `npm publish` with such work and no review since is refused too |
 | `picture-in-project` | A picture shown in the chat from a path that can be cleaned up later or that Nimbalyst can't open enlarged; it copies the picture to the project's `shown` folder and gives the path to use |
 | `run-yourself` | A reply that ends with "now open a terminal and run this"; the agent runs it itself |
 | `opencli-readonly` | Posting, liking or following from my logged-in accounts through OpenCLI |
@@ -106,6 +107,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `decided-quote` | Refuses a helper's brief that calls something decided without quoting your words |
 | `map-brief` | Adds to a helper's brief (worker, worker-full, reviewer or planner) the lines of the project's systems map for the parts that brief touches, and only those; a project with no map gets nothing |
 | `map-nudge` | In a project with 100 or more code files and no systems map, has the agent start a background worker that builds one; it asks at most three times, a week apart, and does the same once a week for a map whose files are mostly gone |
+| `nimbalyst-notes` | At the start of a session inside Nimbalyst, tells the agent two quirks of Nimbalyst's tools, so they don't sit in the rules of every session. Silent in the terminal |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
 | `pc-tidy-nudge` | On Windows, says to restart Nimbalyst after 12 hours open and points to `/pc-tidy` |
 | `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
@@ -113,6 +115,22 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
 
 A hook that hits an error lets the call through. `link-gate` knows that a page was opened, not what it said.
+
+### Hook settings
+
+Set these in your shell or system environment. The first four are also read from `env` in a project's `.claude/settings.json`, so one project can differ.
+
+| Setting | What it does |
+|---|---|
+| `VERIFY_GATE=off` | Turns off `verify-gate`, for a project whose build or test is slow |
+| `VERIFY_PATTERN` | A regular expression, matched without regard to case against the whole shell command; it replaces `verify-gate`'s list of build and test commands |
+| `CODE_REVIEW_GATE=off` | Turns off `code-review-gate` (for a script that runs `claude -p` on code); `led` counts no git files |
+| `REVIEW_PUSH_PATTERN` | A regular expression for more commands that `code-review-gate` treats as a push, next to `git push`, `gh release` and `npm publish` |
+| `NIMBALYST_NOTES=off` | Turns off `nimbalyst-notes` |
+| `MAP_NUDGE=off` | Turns off `map-nudge`, which has the agent start a background worker to build or refresh a project's systems map |
+| `BIG_READ_MAX_LINES` | The longest file `big-read-gate` lets be read whole, in lines; the default is 350 |
+| `BIG_READ_MAX_BYTES` | The same in characters; the default is 20000 |
+| `UPDATE_CHECK=off` | Turns off the version check |
 
 ## Sessions
 
@@ -134,7 +152,7 @@ A hook that hits an error lets the call through. `link-gate` knows that a page w
 ![The usage pop-up with its forecast, then the dashboard with projects, models, days and chats](img/clip-usage.gif)
 
 - **The forecast.** [extensions/usage-plan](../extensions/usage-plan/README.md) puts a ring on the editor's side bar with the week's usage. Its pop-up shows the weekly and 5-hour limits, the day and hour the week runs out at the current pace, and the daily budget that would make it last.
-- **The dashboard.** Typing `usage` opens one HTML file built by [skills/usage-report](../skills/usage-report/SKILL.md) from the logs on the computer, so opening it uses no tokens. It shows tokens by project, model, day and chat, the main chat apart from its subagents, the Codex and Gemini runs each chat started, what the same work would cost at API prices, and this computer's use apart from other use of the same account.
+- **The dashboard.** Typing `usage` opens one HTML file built by [skills/setup-audit](../skills/setup-audit/usage.md) from the logs on the computer, so opening it uses no tokens. It shows tokens by project, model, day and chat, the main chat apart from its subagents, the Codex and Gemini runs each chat started, what the same work would cost at API prices, and this computer's use apart from other use of the same account.
 
 For the forecast, `plan-usage-logger` reads your saved Claude login, `~/.claude/.credentials.json`, and asks api.anthropic.com for the plan percentages.
 
@@ -153,7 +171,7 @@ The installer creates four project folders ([projects](../projects)). A request 
 
 | Project | For | Its own tools |
 |---|---|---|
-| `claude-settings` | Changing and checking the setup itself | `/setup-audit`, `/usage-report`, `/chat-review`, `/full-review` |
+| `claude-settings` | Changing and checking the setup itself | `/setup-audit` with `usage`, `chat`, `full`, `scan`, `outcomes` |
 | `ask-anything` | General questions | The court, the picture skill, reading web pages and videos |
 | `internet-search` | Finding things online | A finder skill with a fixed order, and its own link gate that accepts only pages that were opened |
 | `quick-tasks` | One-off file jobs | A dated folder per job, work on copies, the picture skill |
@@ -188,4 +206,4 @@ I speak most of my prompts. [Handy](https://handy.computer) types what I say whe
 winget install --id cjpais.Handy -e
 ```
 
-On a Mac: `brew install --cask handy`. On Windows the full install sets Handy up.
+On a Mac: `brew install --cask handy`; the Mac side is untested. On Windows the full install sets Handy up.

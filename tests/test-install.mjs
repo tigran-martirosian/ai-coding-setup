@@ -94,10 +94,16 @@ ok("the rules name the real projects folder", [rules().includes("<projects>"), r
 ok("each project folder has its notes and its model",
   HOMES.map((h) => [fs.existsSync(path.join(projects, h, "CLAUDE.md")), text(h, "CLAUDE.md").includes("<projects>"), json(path.join(projects, h, ".claude", "settings.json")).model]),
   [[true, false, "opus"], [true, false, "opus"], [true, false, "opus"], [true, false, "sonnet"]]);
-const expected = ["ask-anything/.claude/skills/read-web/SKILL.md", "claude-settings/.claude/skills/chat-review/SKILL.md", "claude-settings/.claude/skills/full-review/SKILL.md","claude-settings/HOW-TO.md",
+const expected = ["ask-anything/.claude/skills/read-web/SKILL.md", "claude-settings/HOW-TO.md",
   "internet-search/.claude/skills/finder/SKILL.md", "internet-search/.claude/hooks/link-gate.mjs", "internet-search/tools/peek.mjs",
   "internet-search/profile.md", "internet-search/finds/INDEX.md"];
 ok("the skills, the link gate, the tools and the starter notes are there", expected.filter((f) => !fs.existsSync(path.join(projects, f))), []);
+ok("the one audit skill arrives with its sub-commands and scripts", ["SKILL.md", "chat.md", "full.md", "usage.md", "scan.md", "outcomes.md", "scripts/outcomes.mjs", "scripts/usage-scan.mjs"].filter((f) => !fs.existsSync(path.join(claude, "skills", "setup-audit", f))), []);
+const NESTED = ["skills/lead/reference.md", "hooks/nimbalyst-notes.mjs", "hooks/verify-gate.mjs", "workers/agy-gate.mjs"];
+ok("files in folders below a skill, and the newer hooks and workers, are in the repo and arrive",
+  [...NESTED, ...walk(path.join(REPO, "skills", "setup-audit", "scripts")).map((f) => fwd(path.relative(REPO, f)))]
+    .filter((f) => !fs.existsSync(path.join(REPO, f)) || !fs.existsSync(path.join(claude, f))), []);
+ok("the scripts of the audit skill are more than a few", walk(path.join(REPO, "skills", "setup-audit", "scripts")).length > 3);
 const gate = commandsIn(json(path.join(projects, "internet-search", ".claude", "settings.json")));
 ok("the link gate is wired once, to the copy inside its folder", gate, [`node "${fwd(path.join(projects, "internet-search", ".claude", "hooks", "link-gate.mjs"))}"`]);
 ok("without Codex the picture skill and its gate are left out",
@@ -446,6 +452,204 @@ ok("--node starts every hook with that Node", withNode.filter((c) => !c.startsWi
 
 ok("--node is remembered for later runs", json(path.join(nodeHome, ".claude", "setup-state.json")).node, fwd(process.execPath));
 
+// ---- the newer gates: an old settings file ends with each entry once, a second run adds nothing, --uninstall takes them out
+// The five scripts as wired, each as [event, matcher, if, script and its arguments]
+const GATES = /^(verify-gate|code-review-gate|nimbalyst-notes|opencli-readonly|web-worker-gate)\.mjs/;
+const gateShape = (s) => Object.entries(s.hooks || {}).flatMap(([event, groups]) => groups.flatMap((g) => (g.hooks || []).map((h) =>
+  [event, g.matcher || "", h.if || "", h.command.replace(/^.*[\\/]([\w-]+\.mjs)"?\s*/, "$1 ").trim()]))).filter((e) => GATES.test(e[3])).map((e) => JSON.stringify(e)).sort();
+const friend = path.join(tmp, "friend-wiring");
+const friendCmd = (script, args = "") => `node "${fwd(path.join(friend, ".claude", "hooks", script))}"${args}`;
+fs.mkdirSync(path.join(friend, ".claude"), { recursive: true });
+fs.writeFileSync(path.join(friend, ".claude", "settings.json"), JSON.stringify({ hooks: {
+  SessionStart: [{ hooks: [{ type: "command", command: friendCmd("code-review-gate.mjs"), timeout: 10 }] }], // plain, in an event where --start belongs too
+  Stop: [{ hooks: [{ type: "command", command: friendCmd("code-review-gate.mjs"), timeout: 10 }] }],
+  PreToolUse: [{ matcher: "Bash|PowerShell", hooks: [
+    { type: "command", command: friendCmd("opencli-readonly.mjs"), timeout: 15 },
+    { type: "command", command: friendCmd("web-worker-gate.mjs"), timeout: 5 },
+    { type: "command", command: "node /elsewhere/opencli-readonly.mjs" }] }],
+} }));
+const wiredRun = install(friend);
+const friendSettings = () => json(path.join(friend, ".claude", "settings.json"));
+const WANT = [
+  ["SessionStart", "", "", "code-review-gate.mjs"], ["SessionStart", "", "", "code-review-gate.mjs --start"], ["SessionStart", "", "", "nimbalyst-notes.mjs"],
+  ["Stop", "", "", "code-review-gate.mjs"], ["Stop", "", "", "verify-gate.mjs"],
+  ["PreToolUse", "Bash|PowerShell", "", "code-review-gate.mjs --pre"],
+  ["PreToolUse", "Bash|PowerShell", "", "opencli-readonly.mjs"], // the user's own, from another folder
+  ["PreToolUse", "Bash|PowerShell", "Bash(*opencli*)", "opencli-readonly.mjs"], ["PreToolUse", "Bash|PowerShell", "PowerShell(*opencli*)", "opencli-readonly.mjs"],
+  ["PreToolUse", "Bash|PowerShell", "Bash(*ask.mjs*)", "web-worker-gate.mjs"], ["PreToolUse", "Bash|PowerShell", "PowerShell(*ask.mjs*)", "web-worker-gate.mjs"],
+].map((e) => JSON.stringify(e)).sort();
+ok("an old settings file gets each newer entry once: --start, --pre and the plain one stay apart, the old unguarded handlers are replaced", gateShape(friendSettings()), WANT);
+const quiet = path.join(tmp, "quiet-friend");
+fs.mkdirSync(path.join(quiet, ".claude"), { recursive: true });
+fs.writeFileSync(path.join(quiet, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "node \"" + fwd(path.join(quiet, ".claude", "hooks", "verify-gate.mjs")) + "\" 2>/dev/null", timeout: 10 }] }] } }));
+install(quiet);
+ok("a hook the user added a redirect to is not wired a second time", json(path.join(quiet, ".claude", "settings.json")).hooks.Stop.flatMap((g) => g.hooks).filter((h) => h.command.includes("verify-gate.mjs")).length, 1);
+ok("the handlers with an `if` carry the timeout of the example", friendSettings().hooks.PreToolUse.flatMap((g) => g.hooks).filter((h) => h.if).map((h) => [h.if.startsWith("Bash(") || h.if.startsWith("PowerShell("), h.timeout]),
+  [[true, 15], [true, 15], [true, 5], [true, 5]]);
+ok("the run says it replaced the two old handlers", [wiredRun.out.includes("hook replaced: PreToolUse opencli-readonly.mjs"), wiredRun.out.includes("hook replaced: PreToolUse web-worker-gate.mjs")], [true, true]);
+const wiredBefore = fs.readFileSync(path.join(friend, ".claude", "settings.json"), "utf8");
+const wiredAgain = install(friend);
+ok("a second run changes nothing in the settings and adds or replaces no hook",
+  [fs.readFileSync(path.join(friend, ".claude", "settings.json"), "utf8") === wiredBefore, /hook (added|replaced|repointed)/.test(wiredAgain.out)], [true, false]);
+const unwired = install(friend, "--uninstall");
+ok("--uninstall takes all of them out and leaves the user's own", [unwired.code, gateShape(friendSettings())], [0, [JSON.stringify(["PreToolUse", "Bash|PowerShell", "", "opencli-readonly.mjs"])]]);
+
+// ---- skills the setup retired go on an update, one line each; one the user changed stays and is named
+const retiredHome = path.join(tmp, "retired-skills");
+install(retiredHome);
+const retiredSkills = path.join(retiredHome, ".claude", "skills");
+const retiredProject = path.join(retiredHome, "Projects", "claude-settings", ".claude", "skills");
+for (const [file, text] of [
+  [path.join(retiredSkills, "usage-report", "SKILL.md"), "an older usage report"], [path.join(retiredSkills, "usage-report", "scripts", "scan.mjs"), "an older script"],
+  [path.join(retiredSkills, "project-scan", "SKILL.md"), "an older scan"],
+  [path.join(retiredProject, "chat-review", "SKILL.md"), "an older chat review"], [path.join(retiredProject, "full-review", "SKILL.md"), "an older full review"],
+]) recordAs(retiredHome, file, text);
+fs.appendFileSync(path.join(retiredSkills, "project-scan", "SKILL.md"), "\nmy own line\n");
+const retiredRun = install(retiredHome);
+const removedLines = retiredRun.out.split("\n").filter((l) => l.startsWith("removed the retired skill"));
+ok("the four retired skills are gone from the friend's skills and from the claude-settings project, except the one file the user changed",
+  [["usage-report", "chat-review", "full-review"].map((n) => fs.existsSync(path.join(n === "usage-report" ? retiredSkills : retiredProject, n))), fs.readFileSync(path.join(retiredSkills, "project-scan", "SKILL.md"), "utf8").endsWith("my own line\n")],
+  [[false, false, false], true]);
+ok("each removal is one line that names the skill and where it went",
+  [removedLines.length, removedLines.some((l) => l.includes("skills/usage-report (2 files; it is now /setup-audit usage)")), removedLines.some((l) => l.includes("chat-review") && l.includes("/setup-audit chat")), removedLines.some((l) => l.includes("full-review") && l.includes("/setup-audit full"))],
+  [3, true, true, true]);
+ok("the one the user changed is kept and listed, and the setup's own skills stay", [retiredRun.out.includes(`kept yours ${fwd(path.join(retiredSkills, "project-scan", "SKILL.md"))} (a retired skill`), fs.existsSync(path.join(retiredSkills, "setup-audit", "SKILL.md"))], [true, true]);
+ok("the run after it removes no skill", install(retiredHome).out.includes("removed the retired skill"), false);
+
+// ---- Git Bash on Windows: without it every guard fails, and the install says so
+const bashOf = (...p) => { const f = path.join(tmp, "gitbash", ...p); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, ""); return f; };
+const noBashHome = path.join(tmp, "no-bash-home");
+const bare = path.join(tmp, "no-git"); // stands in for Program Files and the local programs folder
+fs.mkdirSync(bare);
+// Windows names are not case sensitive but this object's keys are (PROGRAMFILES and ProgramFiles would both reach the child)
+const without = (names) => Object.fromEntries(Object.entries(process.env).filter(([k]) => !names.includes(k.toLowerCase())));
+const withEnv = (home, extra = {}, PATH = emptyPath) => spawnSync(process.execPath, [INSTALL, "--home", home, "--dry-run"],
+  { encoding: "utf8", env: { ...without(["path", "programfiles", "programfiles(x86)", "programw6432", "localappdata", "claude_code_git_bash_path"]),
+    PATH, ProgramFiles: bare, "ProgramFiles(x86)": bare, ProgramW6432: bare, LOCALAPPDATA: bare, CLAUDE_CODE_GIT_BASH_PATH: "", ...extra } }).stdout;
+const MISSING = "Git Bash was not found";
+if (process.platform === "win32") {
+  const missing = withEnv(noBashHome);
+  ok("without Git Bash the install says so plainly, with the two ways to fix it, at the start and again at the end",
+    [missing.split(MISSING).length - 1, missing.includes("every guard of this setup fails"), missing.includes("git-scm.com"), missing.includes("CLAUDE_CODE_GIT_BASH_PATH")], [2, true, true, true]);
+  ok("the install goes on after that", missing.includes("Nothing was changed."));
+  ok("a bash.exe named in CLAUDE_CODE_GIT_BASH_PATH counts", withEnv(noBashHome, { CLAUDE_CODE_GIT_BASH_PATH: bashOf("custom", "bash.exe") }).includes(MISSING), false);
+  fs.mkdirSync(path.join(tmp, "bash-in-settings", ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "bash-in-settings", ".claude", "settings.json"), JSON.stringify({ env: { CLAUDE_CODE_GIT_BASH_PATH: bashOf("fromsettings", "bash.exe") } }));
+  ok("so does one named in the env of settings.json", withEnv(path.join(tmp, "bash-in-settings")).includes(MISSING), false);
+  bashOf("fakepf", "Git", "bin", "bash.exe"); // Windows gives a 64-bit process ProgramFiles from ProgramW6432, so that one is faked
+  ok("so does Git in Program Files", withEnv(noBashHome, { ProgramW6432: path.join(tmp, "gitbash", "fakepf") }).includes(MISSING), false);
+  fs.mkdirSync(path.join(tmp, "gitbash", "onpath", "Git", "cmd"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "gitbash", "onpath", "Git", "cmd", "git.exe"), "");
+  bashOf("onpath", "Git", "bin", "bash.exe");
+  ok("so does a git.exe on the PATH with its bash.exe next to it", withEnv(noBashHome, {}, path.join(tmp, "gitbash", "onpath", "Git", "cmd")).includes(MISSING), false);
+} else {
+  ok("off Windows Git Bash is not asked for", withEnv(noBashHome).includes(MISSING), false);
+}
+
+// ---- Node: below 18 the install refuses; below 22.5 it says which parts stay off
+const atNode = (v) => spawnSync(process.execPath, [INSTALL, "--home", path.join(tmp, "node-version"), "--dry-run"],
+  { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath, SETUP_NODE_VERSION: v } });
+const node16 = atNode("16.20.0");
+ok("Node 16 is refused with the version", [node16.status, node16.stdout.trim()], [1, "Node.js 18 or newer is needed; this is v16.20.0."]);
+const node20 = atNode("20.11.0");
+ok("Node 20 installs and the run names the three parts that need 22.5",
+  [node20.status, node20.stdout.includes("older than 22.5"), node20.stdout.includes("skills/steer"), node20.stdout.includes("compact-self"), node20.stdout.includes("usage dashboard")], [0, true, true, true, true]);
+ok("Node 22.4 still says it", atNode("22.4.1").stdout.includes("older than 22.5"));
+ok("Node 22.5 and 24 say nothing about it", [atNode("22.5.0").stdout.includes("older than 22.5"), atNode("24.1.0").stdout.includes("older than 22.5")], [false, false]);
+
+// ---- a run that stops part way leaves the old record, says so, and running it again finishes the job
+const stops = path.join(tmp, "stops");
+install(stops);
+const stopsState = path.join(stops, ".claude", "setup-state.json");
+const asOld = { ...json(stopsState), version: "1.0.70" };
+fs.writeFileSync(stopsState, JSON.stringify(asOld));
+const stopsNotes = path.join(stops, "Projects", "quick-tasks", "CLAUDE.md");
+fs.rmSync(stopsNotes);
+fs.mkdirSync(stopsNotes); // a folder where a file belongs: the run fails in the middle of the project folders
+const halted = install(stops);
+ok("a run that fails part way exits with an error, says what happened and that running again is safe",
+  [halted.code, halted.out.includes("The install stopped part way:"), halted.out.includes("still says version 1.0.70"), halted.out.includes("running it again is safe")], [1, true, true, true]);
+ok("and the old record is exactly as it was", fs.readFileSync(stopsState, "utf8"), JSON.stringify(asOld));
+fs.rmSync(stopsNotes, { recursive: true });
+const finished = install(stops);
+ok("running it again finishes and records the new version", [finished.code, json(stopsState).version, fs.existsSync(stopsNotes)], [0, json(path.join(REPO, "version.json")).version, true]);
+
+// ---- an old install with "model": "sonnet" from the old installer moves to opus at medium effort
+const modelHome = (name, version, own) => {
+  const h = path.join(tmp, name);
+  install(h);
+  const st = path.join(h, ".claude", "setup-state.json");
+  fs.writeFileSync(st, JSON.stringify({ ...json(st), version }));
+  const sf = path.join(h, ".claude", "settings.json");
+  const s = json(sf);
+  delete s.model;
+  delete s.modelSettings;
+  fs.writeFileSync(sf, JSON.stringify({ ...s, ...own }));
+  return { h, st: () => json(st), s: () => json(sf), setVersion: (v) => fs.writeFileSync(st, JSON.stringify({ ...json(st), version: v })) };
+};
+const oldSonnet = modelHome("model-old", "1.0.70", { model: "sonnet" });
+const movedModel = install(oldSonnet.h);
+ok("version 1.0.70 with sonnet moves to opus at medium effort, and the run says so loudly with the undo",
+  [oldSonnet.s().model, oldSonnet.s().modelSettings, oldSonnet.st().model, movedModel.out.includes("MODEL CHANGED"), movedModel.out.includes(`install.mjs" --keep-model --home "${fwd(oldSonnet.h)}"`)],
+  ["opus", { "claude-opus-5": { effortLevel: "medium" }, "claude-opus-5-5": { effortLevel: "medium" } }, "moved", true, true]);
+ok("it stays opus on the next run, which says nothing about it", [install(oldSonnet.h).out.includes("MODEL CHANGED"), oldSonnet.s().model], [false, "opus"]);
+const undone = install(oldSonnet.h, "--keep-model");
+ok("--keep-model after the move is the undo: sonnet is back, with the effort settings the move added gone, and it is on record",
+  [oldSonnet.s().model, "modelSettings" in oldSonnet.s(), oldSonnet.st().model, undone.out.includes("sonnet is back")], ["sonnet", false, "kept", true]);
+oldSonnet.setVersion("1.0.70");
+install(oldSonnet.h);
+ok("and later runs keep it, even on a record that looks old", oldSonnet.s().model, "sonnet");
+const lastSonnet = modelHome("model-last", "1.0.74", { model: "sonnet" });
+const movedLast = install(lastSonnet.h);
+ok("version 1.0.74 with sonnet moves too: its installer kept what an older one set, and the undo is printed", [lastSonnet.s().model, movedLast.out.includes("MODEL CHANGED")], ["opus", true]);
+const newSonnet = modelHome("model-new", "1.0.75", { model: "sonnet" });
+const keptNew = install(newSonnet.h);
+ok("version 1.0.75 with sonnet is kept: a person chose it", [newSonnet.s().model, "modelSettings" in newSonnet.s(), keptNew.out.includes("MODEL CHANGED")], ["sonnet", false, false]);
+const noRecord = modelHome("model-none", "1.0.75", { model: "opus" });
+ok("--keep-model with no move on record says so", install(noRecord.h, "--keep-model").out.includes("found no move on record"), true);
+const keepFlag = modelHome("model-keep", "1.0.70", { model: "sonnet" });
+const keptFlag = install(keepFlag.h, "--keep-model");
+ok("1.0.70 with --keep-model keeps sonnet and puts the choice on record", [keepFlag.s().model, keepFlag.st().model, keptFlag.out.includes("MODEL CHANGED")], ["sonnet", "kept", false]);
+keepFlag.setVersion("1.0.70");
+install(keepFlag.h);
+ok("and a later run without the flag keeps it", keepFlag.s().model, "sonnet");
+const otherModel = modelHome("model-other", "1.0.70", { model: "haiku" });
+const keptOther = install(otherModel.h);
+ok("a friend on another model keeps it", [otherModel.s().model, "modelSettings" in otherModel.s(), keptOther.out.includes("MODEL CHANGED")], ["haiku", false, false]);
+const customSonnet = modelHome("model-custom", "1.0.70", { model: "sonnet", modelSettings: { "claude-sonnet-5": { effortLevel: "high" } } });
+install(customSonnet.h);
+ok("sonnet with model settings of their own is kept", customSonnet.s().model, "sonnet");
+
+// ---- every run ends with the list of what is the user's and on an older version, each with a line that takes the setup's
+const yoursHome = path.join(tmp, "yours");
+install(yoursHome);
+const yoursPeek = path.join(yoursHome, "Projects", "internet-search", "tools", "peek.mjs");
+fs.appendFileSync(path.join(yoursHome, ".claude", "hooks", "sql-guard.mjs"), "\n// my change\n");
+fs.appendFileSync(yoursPeek, "\n// my change\n");
+fs.writeFileSync(path.join(yoursHome, ".claude", "CLAUDE.md"), "# My own rules\n");
+const closing = install(yoursHome);
+const closingLines = closing.out.split("\n").filter(Boolean);
+const closingAt = closingLines.findIndex((l) => l.startsWith("Yours, on old versions"));
+const closingList = closingLines.slice(closingAt + 1);
+ok("the run ends with the list, a line for each file and for the rules, and one for all",
+  [closingAt >= 0, closingList.length, closingList.every((l) => l.startsWith("  ")),
+    closingList.some((l) => l.startsWith("  hooks/sql-guard.mjs: node ") && l.includes(" --replace hooks/sql-guard.mjs --home ")),
+    closingList.some((l) => l.startsWith(`  ${fwd(yoursPeek)}: node `) && l.includes(` --replace ${fwd(yoursPeek)} --home `)),
+    closingList.some((l) => l.startsWith("  the rules (CLAUDE.md): node ") && l.includes(" --replace-rules --home ")),
+    closingList.some((l) => l.startsWith("  all of them and the rules at once: node ") && l.includes(" --replace-all --home "))],
+  [true, 4, true, true, true, true, true]);
+// the printed lines are run as they stand, with a PATH that has Node and nothing else, so no worker is found
+const nodeOnly = path.dirname(process.execPath);
+const runPrinted = (line) => spawnSync(line.slice(line.indexOf(": node ") + 2), { shell: true, encoding: "utf8", env: { ...process.env, PATH: nodeOnly, Path: nodeOnly } });
+const printed = closingList.filter((l) => l.includes(": node ") && !l.includes("--replace-all"));
+const ran = printed.map(runPrinted);
+ok("every printed line runs and takes the setup's version",
+  [ran.map((r) => r.status), fs.readFileSync(path.join(yoursHome, ".claude", "hooks", "sql-guard.mjs")).equals(fs.readFileSync(path.join(REPO, "hooks", "sql-guard.mjs"))),
+    fs.readFileSync(yoursPeek).equals(fs.readFileSync(path.join(REPO, "projects", "internet-search", "tools", "peek.mjs"))),
+    fs.readFileSync(path.join(yoursHome, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies")],
+  [[0, 0, 0], true, true, true]);
+ok("the run after that has nothing to list", install(yoursHome).out.includes("Yours, on old versions"), false);
+
 fs.rmSync(tmp, { recursive: true, force: true });
-console.log(fails ? `${fails} failed` : "all passed");
+console.log(fails ?`${fails} failed` : "all passed");
 process.exit(fails ? 1 : 0);

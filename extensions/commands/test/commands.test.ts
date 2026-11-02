@@ -13,11 +13,11 @@ const ok = (name: string) => console.log(`ok ${++n} ${name}`);
 const skills = path.join(os.homedir(), '.claude', 'skills');
 const installed = fs.existsSync(path.join(skills, 'board-cleanup'));
 for (const c of COMMANDS) {
-  assert.match(c.prompt, /^\/[a-z-]+$/, c.id);
+  assert.match(c.prompt, /^\/[a-z-]+( [a-z]+)?$/, c.id);
   // a button tied to one project may start a skill that lives in that project's own folder
   // inside the setup's repository, the skill may be one the repository ships and this computer doesn't have
   const places = [skills, path.join(import.meta.dirname, '..', '..', '..', 'skills')];
-  if (installed && !c.only) assert.ok(places.some((p) => fs.existsSync(path.join(p, c.prompt.slice(1), 'SKILL.md'))), `no skill for ${c.prompt}`);
+  if (installed && !c.only) assert.ok(places.some((p) => fs.existsSync(path.join(p, c.prompt.slice(1).split(' ')[0], 'SKILL.md'))), `no skill for ${c.prompt}`);
 }
 ok(installed ? 'every button has an installed skill' : 'every button names a skill (the skills are not installed here, so that was not checked)');
 

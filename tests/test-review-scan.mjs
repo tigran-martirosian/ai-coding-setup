@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Test for projects/claude-settings/.claude/skills/full-review/review-scan.mjs: builds a small chats folder and checks the report.
+// Test for skills/setup-audit/scripts/review-scan.mjs: builds a small chats folder and checks the report.
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SCAN = fileURLToPath(new URL("../projects/claude-settings/.claude/skills/full-review/review-scan.mjs", import.meta.url));
+const SCAN = fileURLToPath(new URL("../skills/setup-audit/scripts/review-scan.mjs", import.meta.url));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "review-scan-"));
 const dir = path.join(root, "C--Projects-demo");
 fs.mkdirSync(dir);

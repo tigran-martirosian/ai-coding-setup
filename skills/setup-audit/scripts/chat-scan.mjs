@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // chat-scan: turns the recent Claude Code chats on this computer (~/.claude/projects) into one short
-// digest per project, for the chat-review skill. No model is called and nothing is sent anywhere.
+// digest per project, for the setup-audit chat command. No model is called and nothing is sent anywhere.
 // Each digest (<out>/<project>.md) holds:
 //   - numbers: chats, requests, tools, skills and slash commands used, kinds of file written
 //   - signals: questions where the user typed their own answer instead of picking an option, replies

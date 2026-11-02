@@ -8,8 +8,8 @@ Nimbalyst draws an extension's gutter button itself and ignores a panel's `gutte
 is a style rule on the app's button (`src/gutter.ts`). If an app update changes that button, the plain icon
 shows instead.
 
-The numbers come from `~/.claude/skills/usage-report/plan-ahead.mjs --json`, refreshed every 5 minutes
-(`src/store.ts`). That script is [skills/usage-report/plan-ahead.mjs](../../skills/usage-report/plan-ahead.mjs), part of the usage-report skill in this repository; the extension
+The numbers come from `~/.claude/skills/setup-audit/scripts/plan-ahead.mjs --json`, refreshed every 5 minutes
+(`src/store.ts`). That script is [skills/setup-audit/scripts/plan-ahead.mjs](../../skills/setup-audit/scripts/plan-ahead.mjs), part of the setup-audit skill in this repository; the extension
 draws what it returns.
 
 ## Build and install
