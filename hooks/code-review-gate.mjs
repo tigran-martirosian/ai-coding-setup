@@ -36,7 +36,9 @@
 // At Stop and `--pre`, the files that changed since the stored baseline count: working-tree files that differ from the baseline's dirty
 // set, and the files of the user's own commits since the baseline's HEAD (git log --no-merges --author=<user.email>: a merged helper
 // branch counts, a `git pull` of other people's commits doesn't). After a review only files written after it count (the baseline moves to
-// the review). A turn that changed nothing asks about git files only when some are new since the last stop. No git, or a git call that
+// the review). A file another session's transcript (or its helpers') edited since this session started is that session's work and
+// doesn't count here (2026-11-03: a reviewer was forced on another session's CLAUDE.md edits); a sed or script of the other session
+// still does. A turn that changed nothing asks about git files only when some are new since the last stop. No git, or a git call that
 // fails or takes over 3 seconds: the transcript count alone. CODE_REVIEW_GATE=led counts no git files.
 import { crashLog } from "./crash-log.mjs";
 import { spawnSync } from "node:child_process";
@@ -189,6 +191,60 @@ export function helperEdits(transcript, sinceMs, untilMs = Infinity) {
   return { files, steps };
 }
 
+// Every other session's transcript and its helpers', in every project, since a session in one project can edit another's files.
+// None when the transcript isn't in Claude Code's <config>/projects/<project>/<session>.jsonl
+function otherTranscripts(transcript) {
+  if (!transcript) return [];
+  const root = path.dirname(path.dirname(transcript)), own = path.resolve(transcript.replace(/\.jsonl$/, ""));
+  if (path.basename(root).toLowerCase() !== "projects") return [];
+  const list = (dir) => { try { return fs.readdirSync(dir); } catch { return []; } };
+  const files = [];
+  for (const project of list(root)) {
+    for (const name of list(path.join(root, project))) {
+      const p = path.join(root, project, name);
+      if (name.endsWith(".jsonl")) { if (path.resolve(p) !== path.resolve(transcript)) files.push(p); continue; }
+      if (path.resolve(p) !== own) for (const s of list(path.join(p, "subagents"))) if (s.endsWith(".jsonl")) files.push(path.join(p, "subagents", s));
+    }
+  }
+  return files;
+}
+// Their sizes when this session starts: what they held then is older than the session, so it is never read
+const transcriptSizes = (transcript) => Object.fromEntries(otherTranscripts(transcript).map((f) => { try { return [f, fs.statSync(f).size]; } catch { return [f, 0]; } }));
+
+// Which of these files another session or its helpers edited since sinceMs. Git shows them dirty here, but they are that
+// session's work. Only what was added to each transcript since the session started (startSizes) or the last stop (the cache) is
+// read: a busy day's transcripts can be hundreds of MB. An edit refused in a later read than its call still counts as made (it only leaves a file out)
+export function othersEdits(transcript, sinceMs, keys, cacheFile, startSizes = {}) {
+  let cache = cacheFile && readJson(cacheFile);
+  if (!cache || cache.since !== sinceMs) cache = { since: sinceMs, offsets: { ...startSizes }, edited: [] };
+  const edited = new Set(cache.edited);
+  for (const file of otherTranscripts(transcript)) {
+    let size;
+    try { const st = fs.statSync(file); if (st.mtimeMs < sinceMs) continue; size = st.size; } catch { continue; }
+    let from = cache.offsets[file] || 0;
+    if (from > size) from = 0; // the file was written anew
+    if (from === size) continue;
+    // A transcript removed or cut while it is read, or one too big for a string, is left out, not the whole git count
+    let text, end;
+    try {
+      const buf = Buffer.alloc(size - from), fd = fs.openSync(file, "r");
+      try { fs.readSync(fd, buf, 0, buf.length, from); } finally { fs.closeSync(fd); }
+      end = buf.lastIndexOf(10) + 1; // whole lines only; a line being written is read at the next stop
+      text = buf.subarray(0, end).toString("utf8");
+    } catch { continue; }
+    if (!end) continue;
+    cache.offsets[file] = from + end;
+    const entries = inWindow(editEntries(text.split("\n")), sinceMs), refused = new Set();
+    for (const e of entries) for (const b of Array.isArray(e.message?.content) ? e.message.content : []) if (b.type === "tool_result" && b.is_error) refused.add(b.tool_use_id);
+    for (const e of entries) for (const b of Array.isArray(e.message?.content) ? e.message.content : []) {
+      const p = b.type === "tool_use" && EDIT_TOOLS.test(b.name) && !refused.has(b.id) && (b.input?.file_path || b.input?.notebook_path);
+      if (p) edited.add(fileKey(p));
+    }
+  }
+  if (cacheFile) fs.writeFileSync(cacheFile, JSON.stringify({ ...cache, edited: [...edited] }));
+  return new Set([...keys].filter((k) => edited.has(k)));
+}
+
 // A switch can sit in the project's settings: settings env may not reach a hook process
 function setting(name) {
   if (process.env[name]) return process.env[name];
@@ -228,11 +284,11 @@ const writeBase = (file, base) => fs.writeFileSync(file, JSON.stringify(base));
 
 // The code and setup files that changed since the baseline, by key, and the ones not seen at an earlier stop.
 // With `since` (the last review) only files written after it count. `store`: the Stop arm keeps the baseline and what it has seen
-function gitChanges(cwd, baseFile, since, store) {
+function gitChanges(cwd, baseFile, since, store, transcript) {
   const none = { all: new Map(), fresh: new Map(), save() {} };
   try {
     const now = gitNow(cwd), base = readJson(baseFile);
-    if (!base || base.top !== now.top) { if (store) writeBase(baseFile, now); return none; } // a session with no baseline starts one now
+    if (!base || base.top !== now.top) { if (store) writeBase(baseFile, { ...now, others: transcriptSizes(transcript) }); return none; } // a session with no baseline starts one now
     const changed = new Set(Object.entries(now.dirty).filter(([rel, sig]) => base.dirty[rel] !== sig).map(([rel]) => rel));
     // A commit of a file that was dirty at the start and hasn't changed since is not new work
     if (now.head !== base.head) {
@@ -248,6 +304,8 @@ function gitChanges(cwd, baseFile, since, store) {
       if (since) { try { if (fs.statSync(abs).mtimeMs <= since) continue; } catch { continue; } }
       all.set(fileKey(abs), path.basename(rel));
     }
+    // A file another session edited is its work, not this one's; one this session edited too counts from its own transcript
+    if (all.size) for (const k of othersEdits(transcript, base.at, new Set(all.keys()), baseFile.replace(/\.base\.json$/, ".others.json"), base.others)) all.delete(k);
     const seen = new Set(base.seen);
     const fresh = new Map([...all].filter(([k]) => !seen.has(k)));
     return { all, fresh, save() { if (store && fresh.size) writeBase(baseFile, { ...base, seen: [...all.keys()] }); } };
@@ -258,7 +316,7 @@ function gitChanges(cwd, baseFile, since, store) {
 function startBaseline(input) {
   const file = path.join(os.tmpdir(), `code-review-gate-${String(input.session_id).replace(/[^\w-]/g, "_")}.base.json`);
   if (fs.existsSync(file)) return;
-  try { writeBase(file, gitNow(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd())); } catch {
+  try { writeBase(file, { ...gitNow(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd()), others: transcriptSizes(input.transcript_path) }); } catch {
     // no git repo here: the transcript count alone
   }
 }
@@ -290,7 +348,7 @@ function assess(input, mode, pre) {
   try { heldWork = JSON.parse(fs.readFileSync(held, "utf8")); } catch {}
   if (heldWork && since >= heldWork.at) { fs.rmSync(held, { force: true }); heldWork = null; }
   const helpers = helperEdits(input.transcript_path, Math.max(from, reviewedAt));
-  const git = mode === "led" ? { all: new Map(), fresh: new Map(), save() {} } : gitChanges(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd(), baseFile, since, !pre);
+  const git = mode === "led" ? { all: new Map(), fresh: new Map(), save() {} } : gitChanges(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd(), baseFile, since, !pre, input.transcript_path);
   git.save();
   // A file git shows as changed is this turn's work only if the turn could have changed it: another session, an editor
   // or a generator can dirty the repo while a turn only reads

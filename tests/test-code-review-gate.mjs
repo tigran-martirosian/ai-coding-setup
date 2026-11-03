@@ -360,6 +360,35 @@ report(real("r6") === "", "real git: committing files that were dirty at the sta
 touch(TWELVE, "dddd\n"); realStart("r7"); touch(TWELVE, "eeeee\n");
 git("add", "-A"); git(...as("me"), "commit", "-q", "-m", "more work on them");
 report(blocks(real("r7")), "real git: a file dirty at the start and changed again before the commit counts");
+git("checkout", "--", ".");
+
+// Another session's edits: git shows them dirty here, but they are that session's work. Transcripts in Claude Code's layout
+const projects = join(dir, "projects"), now = () => new Date().toISOString();
+const session = (rel, entries) => { const f = join(projects, rel); mkdirSync(join(f, ".."), { recursive: true }); writeFileSync(f, entries.map((e) => JSON.stringify({ ...e, timestamp: e.timestamp || now() })).join("\n") + "\n"); return f; };
+const realIn = (sessionId, entries) => spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ session_id: sessionId, transcript_path: session(`here/${sessionId}.jsonl`, entries), hook_event_name: "Stop", stop_hook_active: false }), env: hookEnv({ CLAUDE_PROJECT_DIR: repo }), encoding: "utf8" }).stdout;
+const OTHERS = TWELVE.flatMap((f) => edit(join(repo, f)));
+realStart("r8"); session("elsewhere/other.jsonl", [typed("their task"), ...OTHERS]); touch(TWELVE, "f\n");
+report(realIn("r8", SED) === "", "real git: 12 files another session (another project's folder) edited don't count here");
+git("checkout", "--", ".");
+realStart("r9"); session("here/other2/subagents/agent-x.jsonl", [typed("their step"), ...OTHERS]); touch(TWELVE, "g\n");
+report(realIn("r9", SED) === "", "real git: the same for another session's helper");
+git("checkout", "--", ".");
+realStart("r10"); session("elsewhere/other3.jsonl", [typed("their task"), ...TWELVE.flatMap((f) => edit(join(repo, f), false))]); touch(TWELVE, "h\n");
+report(blocks(realIn("r10", SED)), "real git: edits the other session had refused don't take the files away");
+git("checkout", "--", ".");
+// The start stores every other transcript's size: what they held then is never read, even with a current time on it
+const startAt = (sessionId) => spawnSync(process.execPath, [HOOK, "--start"], { input: JSON.stringify({ session_id: sessionId, transcript_path: join(projects, "here", `${sessionId}.jsonl`), hook_event_name: "SessionStart", source: "startup" }), env: hookEnv({ CLAUDE_PROJECT_DIR: repo }), encoding: "utf8" });
+const early = session("elsewhere/early.jsonl", [typed("their task"), ...OTHERS]);
+startAt("r13"); touch(TWELVE, "k\n");
+report(blocks(realIn("r13", SED)), "real git: what another transcript held when this session started is not read");
+git("checkout", "--", ".");
+startAt("r14"); touch(TWELVE, "l\n");
+realIn("r14", [typed("look"), ...SED.slice(1)]);
+writeFileSync(early, OTHERS.map((e) => JSON.stringify({ ...e, timestamp: now() })).join("\n") + "\n", { flag: "a" });
+report(realIn("r14", [typed("look again"), ...SED.slice(1)]) === "", "real git: edits added to it after the start are read at the next stop");
+git("checkout", "--", ".");
+realStart("r11"); session("elsewhere/other4.jsonl", [typed("their task"), ...OTHERS.map((e) => ({ ...e, timestamp: new Date(Date.now() - 3600000).toISOString() }))]); touch(TWELVE, "i\n");
+report(blocks(realIn("r11", SED)), "real git: the other session's edits from before this session started don't take them away");
 
 // A crash leaves a line
 const crashHome = join(dir, "crash-home");
