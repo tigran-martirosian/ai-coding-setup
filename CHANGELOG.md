@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.82 (Nov 3, 2026): The review-gate fix of 1.0.81 now also works where the temp folder has two names (macOS, short Windows paths).
 - 1.0.81 (Nov 3, 2026): The review gate no longer asks for a review of files another open session edited, so running several sessions at once stops costing a reviewer for work this one never touched.
 - 1.0.80 (Nov 3, 2026): A procedure done a third time now becomes a skill with one line in the project's CLAUDE.md saying when to call it, and a new hook reminds the agent to add that line whenever a skill is written.
 - 1.0.79 (Nov 3, 2026): The rules file is about a quarter shorter, Nimbalyst-only notes now load only in Nimbalyst, and a helper job over 50 tool calls is refused and has to be split.
