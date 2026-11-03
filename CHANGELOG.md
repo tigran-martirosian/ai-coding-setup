@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.78 (Nov 2, 2026): Voice typing now tells you to pick Whisper Large v3 Turbo in Handy, which transcribes more accurately at about the same speed and handles Russian as well as English.
 - 1.0.77 (Nov 2, 2026): Long reading now goes to Claude's own capped Sonnet helpers instead of outside workers that often failed, and an update removes those workers and the Antigravity hook they needed; the planner writes the job list with each step's helper, the reviewer names what triggers each Important finding, and blind-review is now blind-screen-review, for screens only.
 - 1.0.76 (Nov 2, 2026): /court is gone and an update removes it, a hook that crashes now leaves a trace and the next session tells you, and the rules file is a little shorter.
 - 1.0.75 (Nov 2, 2026): Code edited with no build or test after it now stops the session once, a big change is reviewed before a push, one /setup-audit replaces the five audit skills and can show how your questions and reviews really went, the rules are shorter, hooks that watch your wording now hear Russian too, an update moves a Sonnet install to Opus medium with a one-line undo, the installer checks Git Bash and Node, and the free worker reads a .env file only when you ask for it.

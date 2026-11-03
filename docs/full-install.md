@@ -141,7 +141,7 @@ Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__n
 
 **If step 2's check found Handy already installed, skip this step:** the user has it set up their way. Say in one line that voice typing was already there, and change nothing in it.
 
-Otherwise: Handy writes its settings file on first start, so tell the user: "Open Handy, follow its first-start setup (allow the microphone, pick the model Parakeet V3), then quit it from its tray or menu bar icon and say done." On a Mac it also needs System Settings > Privacy & Security > Accessibility.
+Otherwise: Handy writes its settings file on first start, so tell the user: "Open Handy, follow its first-start setup (allow the microphone, pick the model Whisper Large v3 Turbo), then quit it from its tray or menu bar icon and say done." On a Mac it also needs System Settings > Privacy & Security > Accessibility.
 
 - **Windows:** after their "done", run `node scripts/app-settings.mjs --handy`. It sets push to talk on Right Alt, text typed directly with a space after it, the clipboard left alone, filler words removed, the model kept loaded, and a hidden start with Windows. A dated copy of the old file is kept. Right Alt is AltGr on many non-US keyboards, so typing letters and symbols breaks while it is bound: if the user's keyboard is one, tell them to pick another key to hold in Handy's own window (Right Ctrl, for one).
 - **Mac:** tell the user to set these in Handy's own window: push to talk (the key to hold is theirs to pick), text typed directly, the clipboard left alone, the model kept loaded.
