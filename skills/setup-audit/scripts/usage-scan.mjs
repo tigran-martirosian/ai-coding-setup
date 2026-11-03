@@ -102,6 +102,11 @@ const textOf = (content) =>
 const emptyWaste = () => ({ reqs: new Map(), turns: [], streaks: [], blocks: [], unmatched: 0 });
 const WASTE_HOOK_RE = /hook (?:error|blocking error)[^:]*:\s*(?:\[[^\]]*\]:?\s*)?([a-z][a-z-]+):/i;
 const BOARD_RE = /update_session_meta|update_session_board/;
+const WAKE_RE = /^\s*(?:\[System: background task|<task-notification>)/;
+// A commit, tag or public-repo push, or a release skill: after it the work of the session is done
+const COMMIT_RE = new RegExp(AT_CMD + String.raw`(?:git\s+(?:-C\s+(?:"[^"]*"|'[^']*'|\S+)\s+)?(?:commit|tag)\b|(?:bash\s+)?\S*repo-push\.sh\b)`, "m");
+const isCommit = (x) => (x.name === "Bash" && COMMIT_RE.test(String(x.input.command ?? "")))
+  || (x.name === "Skill" && /^(?:[\w-]+:)?(?:release-setup|deploy)$/.test(String(x.input.skill ?? "")));
 const ctxOf = (u = {}) => (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
 
 // Scan one transcript file. `window` limits by time; returns null if nothing in it. `sub`: a subagent file.
@@ -148,7 +153,12 @@ function scan(file, window, sub = false) {
     } else if (l.type === "user") {
       const c = l.message?.content;
       const text = typeof c === "string" ? c : Array.isArray(c) ? c.find((x) => x.type === "text")?.text : undefined;
-      if (text !== undefined && !l.isMeta && !sub) { endRun(); turn = { ids: [], text }; waste.turns.push(turn); }
+      if (text !== undefined && !l.isMeta && !sub) {
+        endRun();
+        // wake-up: the harness started this turn itself (a background task or agent finished), not the user
+        turn = { ids: [], text, wake: l.origin?.kind === "task-notification" || WAKE_RE.test(text) };
+        waste.turns.push(turn);
+      }
       if (!Array.isArray(c)) return;
       for (const x of c) {
         if (x.type !== "tool_result") continue;
@@ -210,7 +220,9 @@ function scan(file, window, sub = false) {
         if (c.type !== "tool_result") continue;
         const use = toolUses.get(c.tool_use_id);
         const text = textOf(c.content);
-        const hm = text.match(HOOK_RE);
+        // Some refusals arrive as the hook's bare text, "[big-read-gate] ...", with no "PreToolUse:" prefix
+        const bare = !text.match(HOOK_RE) && c.is_error === true && use ? text.match(/^\[([a-z]+(?:-[a-z]+)+)\]/) : null;
+        const hm = text.match(HOOK_RE) ?? (bare && [bare[0], use.name, bare[1]]);
         if (hm) {
           hooks.push({ hook: hm[2], tool: hm[1], detail: use?.name === "Agent" || use?.name === "Task"
             ? use.input.subagent_type ?? "untyped" : "" , t, toolUseId: c.tool_use_id });
@@ -366,7 +378,9 @@ const shortName = (p) => p === homeKey.slice(0, -1) ? "~" : (p.startsWith(homeKe
 // and the token split also from subagents.
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
 const wasted = { tokens: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 }, requests: 0, turns: [], perProject: {}, streaks: [],
-  hooks: {}, commandExplain: {}, unmatched: 0, boardOnly: { complete: { n: 0, tokens: 0 }, other: { n: 0, tokens: 0 } }, toolSearchOnly: { n: 0, tokens: 0 } };
+  hooks: {}, commandExplain: {}, unmatched: 0, boardOnly: { complete: { n: 0, tokens: 0 }, other: { n: 0, tokens: 0 } }, toolSearchOnly: { n: 0, tokens: 0 },
+  wake: { n: 0, tokens: 0, perProject: {} }, background: { n: 0, perProject: {} },
+  afterCommit: { sessions: 0, withCommit: 0, requests: 0, tokens: 0 }, bigSubagents: { n: 0, tokens: 0, share: 0 } };
 for (const s of all) {
   const W = s.waste;
   const main = sessions.includes(s);
@@ -383,6 +397,11 @@ for (const s of all) {
       wasted.boardOnly[k].n++; wasted.boardOnly[k].tokens += t;
     }
     if (r.tools.every((x) => x.name === "ToolSearch")) { wasted.toolSearchOnly.n++; wasted.toolSearchOnly.tokens += t; }
+    for (const x of r.tools) {
+      if (!["Bash", "Agent", "Task"].includes(x.name) || x.input.run_in_background !== true) continue;
+      const pn = shortName(s.project);
+      wasted.background.n++; wasted.background.perProject[pn] = (wasted.background.perProject[pn] ?? 0) + 1;
+    }
   }
   wasted.unmatched += W.unmatched;
   for (const b of W.blocks) {
@@ -401,6 +420,20 @@ for (const s of all) {
     wasted.turns.push(row);
     const p = (wasted.perProject[row.project] ??= []);
     p.push(row.requests);
+    if (t.wake) {
+      const wp = (wasted.wake.perProject[row.project] ??= { n: 0, tokens: 0 });
+      wp.n++; wp.tokens += row.tokens; wasted.wake.n++; wasted.wake.tokens += row.tokens;
+    }
+  }
+  if (s.maxContext > 100e3) {
+    const ids = [...W.reqs.keys()];
+    const last = ids.findLastIndex((id) => W.reqs.get(id).tools.some(isCommit));
+    wasted.afterCommit.sessions++;
+    if (last >= 0) {
+      wasted.afterCommit.withCommit++;
+      wasted.afterCommit.requests += ids.length - 1 - last;
+      wasted.afterCommit.tokens += sum(ids.slice(last + 1), reqCtx);
+    }
   }
   for (const k of W.streaks) wasted.streaks.push({ project: shortName(s.project), session: s.id.slice(0, 8), n: k.n, tool: k.tool });
 }
@@ -411,6 +444,8 @@ wasted.perProject = Object.fromEntries(Object.entries(wasted.perProject).map(([k
 wasted.streakCount = wasted.streaks.length;
 wasted.longestStreak = Math.max(0, ...wasted.streaks.map((k) => k.n));
 wasted.worstStreaks = [...wasted.streaks].sort((a, b) => b.n - a.n).slice(0, 5);
+const subRuns = sessions.flatMap((s) => s.subagents), bigSubs = subRuns.filter((a) => a.maxContext > 150e3);
+wasted.bigSubagents = { n: bigSubs.length, tokens: sum(bigSubs, (a) => a.tokens), share: sum(bigSubs, (a) => a.tokens) / (sum(subRuns, (a) => a.tokens) || 1) };
 delete wasted.turns; delete wasted.streaks;
 const report = {
   window: sessionPrefix ? { session: sessionPrefix, minutes: minutes || null }
@@ -509,4 +544,13 @@ if (X.unmatched) out.push(`- ${X.unmatched} blocks could not be matched to their
 const B = X.boardOnly, S = X.toolSearchOnly;
 out.push(``, `**Requests that only set the board entry:** set to complete ${B.complete.n} (${M(B.complete.tokens)}), other ${B.other.n} (${M(B.other.tokens)}).`,
   `**Requests that only called ToolSearch:** ${S.n} (${M(S.tokens)}).`);
+const byProj = (o, f) => {
+  const rows = Object.entries(o).sort((a, b) => (b[1].n ?? b[1]) - (a[1].n ?? a[1]));
+  const rest = rows.slice(6).reduce((a, [, v]) => a + (v.n ?? v), 0);
+  return rows.slice(0, 6).map(([k, v]) => `${k} ${f(v)}`).join(", ") + (rows.length > 6 ? `, ${rows.length - 6} more projects ${rest}` : "") || "none";
+};
+out.push(``, `**Wake-up turns** (the harness started the turn: a background task or agent finished; main chats): ${X.wake.n} turns, ${M(X.wake.tokens)}. By project: ${byProj(X.wake.perProject, (v) => `${v.n} (${M(v.tokens)})`)}.`,
+  `**Background launches** (Bash, Agent or Task with run_in_background; main chats): ${X.background.n}. By project: ${byProj(X.background.perProject, (v) => v)}.`,
+  `**After-commit tail** (main chats that grew past 100k context: ${X.afterCommit.sessions}, ${X.afterCommit.withCommit} with a commit, tag, repo-push.sh or release-setup/deploy skill): ${X.afterCommit.requests} requests after the last one, ${M(X.afterCommit.tokens)}.`,
+  `**Big subagent runs** (context past 150k): ${X.bigSubagents.n} of ${subRuns.length} runs, ${M(X.bigSubagents.tokens)}, ${pct(X.bigSubagents.tokens, sum(subRuns, (a) => a.tokens))} of all subagent tokens.`);
 console.log(out.join("\n"));

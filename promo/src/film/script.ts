@@ -102,7 +102,7 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "tiles",
       tiles: [
-        { name: "30 hooks", note: "Small scripts that check each step" },
+        { name: "33 hooks", note: "Small scripts that check each step" },
         { name: "16 skills", note: "Commands like /lead and /handoff" },
         { name: "5 extensions", note: "Panels for the Nimbalyst editor" },
         { name: "4 projects", note: "Ready-made folders" },
@@ -353,7 +353,7 @@ export const SCRIPT: Shot[] = [
       stats: [
         { value: 11042, unit: "replies checked in 30 days" },
         { value: 360, unit: "sent back" },
-        { value: 62, unit: "test files, run on every push" },
+        { value: 65, unit: "test files, run on every push" },
       ],
       line: "People in finance, data engineering and government IT use it at work too.",
     },
