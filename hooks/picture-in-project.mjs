@@ -10,6 +10,7 @@
 // the card keeps the one Claude wrote (tested 2026-10-30). Same bytes, same copy. The folder
 // ignores itself in git. Added 2026-10-05, shown/ since 2026-10-30.
 // It fails open, so any error or odd input lets the call through. PICTURE_IN_PROJECT=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -66,6 +67,7 @@ try {
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: lines.join("\n") },
     }));
   }
-} catch {
+} catch (err) {
+  crashLog("picture-in-project", err);
   process.exit(0);
 }

@@ -19,6 +19,7 @@
 // rules ask for the note, so the line changed nothing there (2026-11-02).
 // The PowerShell-tool refusal stays. Added 2026-09-30.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -69,6 +70,7 @@ try {
     process.stdout.write(JSON.stringify({ hookSpecificOutput: output }));
     process.exit(0);
   }
-} catch {
+} catch (err) {
+  crashLog("command-explain", err);
   process.exit(0);
 }

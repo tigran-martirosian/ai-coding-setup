@@ -143,7 +143,7 @@ const HOMES = fs.readdirSync(path.join(REPO, "projects"), { withFileTypes: true 
 const homeSettings = Object.fromEntries(HOMES.map((h) => [h, readSettings(path.join(PROJECTS, h, ".claude", "settings.json"))]));
 
 // The outside workers are optional: without them the rules send gathering to Claude's cheaper models,
-// the court sits with its Claude seats only and the picture skill (it needs Codex) is left out.
+// the picture skill (it needs Codex) is left out.
 const onPath = (name) => (process.env.PATH || "").split(path.delimiter)
   .some((d) => d && ["", ".cmd", ".exe", ".ps1"].some((e) => fs.existsSync(path.join(d, name + e))));
 // A yes or no given once is remembered, so a later run (an update) doesn't turn a worker back on
@@ -458,12 +458,13 @@ if (have.agy) {
 // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
 const shared = path.join(REPO, "projects", "shared");
 if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), fit(rel, fs.readFileSync(path.join(shared, rel))), { own: true });
-// Skills the setup retired (each is now /setup-audit <part>): the files an earlier run wrote there go, one
+// Skills the setup retired (most are now /setup-audit <part>; null means no replacement): the files an earlier run wrote there go, one
 // line for each skill. A file the user changed stays and is named, as below. These run before the loop
 // below, which would otherwise say it once for every file.
 const RETIRED_SKILLS = [
   [path.join(CLAUDE, "skills", "usage-report"), "/setup-audit usage"],
   [path.join(CLAUDE, "skills", "project-scan"), "/setup-audit scan"],
+  [path.join(CLAUDE, "skills", "court"), null],
   [path.join(PROJECTS, "claude-settings", ".claude", "skills", "chat-review"), "/setup-audit chat"],
   [path.join(PROJECTS, "claude-settings", ".claude", "skills", "full-review"), "/setup-audit full"],
 ];
@@ -479,8 +480,8 @@ for (const [dir, now] of RETIRED_SKILLS) {
     if (!DRY) fs.rmSync(f);
     gone++;
   }
-  if (gone) say(`removed the retired skill ${short(dir)} (${gone} file${gone === 1 ? "" : "s"}; it is now ${now})`);
-  if (unknown.length) say(`kept yours ${fwd(dir)} (a retired skill, now ${now}; there is no record that the setup wrote ${unknown.length === 1 ? "its file" : "these files"}, so ${unknown.length === 1 ? "it stays" : "they stay"}; delete the folder by hand when not needed)`);
+  if (gone) say(`removed the retired skill ${short(dir)} (${gone} file${gone === 1 ? "" : "s"}; ${now ? `it is now ${now}` : "the setup no longer has it"})`);
+  if (unknown.length) say(`kept yours ${fwd(dir)} (a retired skill${now ? `, now ${now}` : ""}; there is no record that the setup wrote ${unknown.length === 1 ? "its file" : "these files"}, so ${unknown.length === 1 ? "it stays" : "they stay"}; delete the folder by hand when not needed)`);
   if (!DRY) { // folders left empty go, deepest first
     const prune = (d) => {
       for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.isDirectory()) prune(path.join(d, e.name));

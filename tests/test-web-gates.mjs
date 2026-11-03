@@ -2,6 +2,7 @@
 // Tests for web-worker-gate (PreToolUse: refuses ask.mjs --web) and web-answer-gate (Stop: refuses a
 // reply that hedges about availability without checking, or lists fewer things than were asked for).
 // Run: node test-web-gates.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";

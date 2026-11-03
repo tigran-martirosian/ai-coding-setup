@@ -3,12 +3,14 @@
 // (or "usage dashboard"), build and open the usage dashboard and stop the prompt,
 // so no model call is made and no tokens are spent. Anything else passes through untouched.
 // USAGE_DASH_NO_OPEN=1 builds without opening the browser (for tests).
+import { crashLog } from "./crash-log.mjs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 if ((process.env.USAGE_DASHBOARD || "").toLowerCase() === "off") process.exit(0);
 
+try {
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 let prompt = "";
@@ -26,3 +28,8 @@ try {
   reason = `The usage dashboard could not be built: ${String(e.stderr || e.message).trim().split("\n").pop()}`;
 }
 console.log(JSON.stringify({ decision: "block", reason }));
+} catch (err) {
+  crashLog("usage-dashboard-hook", err);
+  process.stderr.write(`${err?.stack || err}\n`);
+  process.exit(1);
+}

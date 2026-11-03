@@ -12,6 +12,7 @@
 //
 // Both fail open, both are silent when stop_hook_active is set, and each has its own off switch:
 // WEB_ANSWER_GATE=off turns off the file, HEDGE_CHECK=off and COUNT_CHECK=off turn off one check.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 
 // Russian twins of the English patterns below (for `--language russian`). \b does not see Cyrillic letters,
@@ -287,7 +288,8 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
       if (hedge || count) {
         process.stdout.write(JSON.stringify({ decision: "block", reason: reason({ hedge, count }) }));
       }
-    } catch {
+    } catch (err) {
+      crashLog("web-answer-gate", err);
       // fail open
     }
   });

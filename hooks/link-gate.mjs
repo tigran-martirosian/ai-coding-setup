@@ -6,6 +6,7 @@
 // opened. Links the user typed are never questioned, and neither are local or example addresses.
 // It blocks the same reply at most 3 times, then lets it through, so it can't loop.
 // Fails open. LINK_GATE=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -131,7 +132,8 @@ if (isMain) {
       }
       fs.writeFileSync(stateFile, JSON.stringify({ blocks: blocks + 1 }));
       process.stdout.write(JSON.stringify({ decision: "block", reason: reason(bad) }));
-    } catch {
+    } catch (err) {
+      crashLog("link-gate", err);
       // fail open
     }
   });

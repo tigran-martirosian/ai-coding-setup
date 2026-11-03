@@ -1,4 +1,5 @@
 // Tests for hooks/picture-in-project.mjs. Run: node tests/test-picture-in-project.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

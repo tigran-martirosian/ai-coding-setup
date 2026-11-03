@@ -1,6 +1,7 @@
 // Tests for hooks/plan-usage-logger.mjs, against a local stand-in for Anthropic's endpoint with a
 // made-up login. Nothing here touches a real login or a real log.
 // Run: node tests/test-plan-usage-logger.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

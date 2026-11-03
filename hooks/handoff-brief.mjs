@@ -9,6 +9,7 @@
 // --hook: Stop hook mode. Reads the hook JSON from stdin and silently rewrites
 // ~/.claude/handoffs/<folder>-latest.md after every reply, so a brief exists even when Claude
 // usage runs out (then continue in a GPT or Gemini session from that file). Fails open.
+import { crashLog } from "./crash-log.mjs";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -93,7 +94,7 @@ if (!transcript || !fs.existsSync(transcript)) {
   process.exit(1);
 }
 let s;
-try { s = readSession(transcript); } catch (e) { if (hook) process.exit(0); throw e; }
+try { s = readSession(transcript); } catch (e) { if (hook) { crashLog("handoff-brief", e); process.exit(0); } throw e; }
 const work = s.sessionCwd || cwd;
 const first = s.prompts[0] ?? "(none)";
 const recent = s.prompts.slice(1).slice(-8);
@@ -155,7 +156,7 @@ try {
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(out, brief);
   if (hook) writeLatest();
-} catch (e) { if (hook) process.exit(0); throw e; }
+} catch (e) { if (hook) { crashLog("handoff-brief", e); process.exit(0); } throw e; }
 if (!hook) {
   fs.rmSync(summaryFile, { force: true });
   console.log(out);

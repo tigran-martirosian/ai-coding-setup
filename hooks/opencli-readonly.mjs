@@ -5,6 +5,7 @@
 // site command [read] or [write] in `opencli <site> --help`; this hook asks OpenCLI itself and lets
 // only [read] commands through, so new commands are covered without a list here.
 // It fails open, so any error or odd input lets the call through. OPENCLI_READONLY=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
@@ -43,6 +44,7 @@ try {
       ? `\`opencli ${site} ${sub}\` is a [write] command. The user's accounts are for searching and reading only: never post, comment, like, follow, save, delete or log in. Use a [read] command (see \`opencli ${site} --help\`), or tell the user what you wanted to do.`
       : `\`opencli ${site} ${sub}\` is not listed as a [read] command in \`opencli ${site} --help\`, so it is not allowed. Only [read] commands may be run on the user's accounts.`);
   }
-} catch {
+} catch (err) {
+  crashLog("opencli-readonly", err);
   process.exit(0);
 }

@@ -19,6 +19,7 @@
 // Silent outside an app: links only matter in Nimbalyst, which runs Claude with CLAUDE_CODE_ENTRYPOINT
 // "sdk-..."; the terminal sets "cli", so a terminal user is never refused or reminded (same test as command-explain).
 // Silent when stop_hook_active is set (no loops). Fails open. FILE_LINK_GATE=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -244,7 +245,8 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
       if (last && !text.includes(last)) text = text ? `${text}\n${last}` : last;
       const bad = badLinks(text, input.cwd);
       if (bad.length) process.stdout.write(JSON.stringify({ decision: "block", reason: reason(bad) }));
-    } catch {
+    } catch (err) {
+      crashLog("file-link-gate", err);
       // fail open
     }
   });

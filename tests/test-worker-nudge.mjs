@@ -1,4 +1,5 @@
 // Tests for hooks/worker-nudge.mjs. Run: node test-worker-nudge.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";

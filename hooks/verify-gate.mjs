@@ -12,6 +12,7 @@
 // Blocks at most once per turn, remembered in a temp file per session: stop_hook_active alone is not enough,
 // since a block by any other Stop hook sets it too. The turn starts at the user's last typed message.
 // Fails open; a crash leaves a line in hooks/state/hook-errors.log.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -99,7 +100,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
   try {
     if (setting("VERIFY_GATE").toLowerCase() === "off") process.exit(0);
     const input = JSON.parse(fs.readFileSync(0, "utf8"));
-    if (input.agent_id || !input.transcript_path || !input.session_id) process.exit(0);
+    if (input.agent_id || !input.transcript_path || !input.session_id || !fs.existsSync(input.transcript_path)) process.exit(0);
     const { start, entries } = currentTurn(fs.readFileSync(input.transcript_path, "utf8").split("\n"));
     const custom = setting("VERIFY_PATTERN");
     const { files, due } = unverified(entries, custom ? new RegExp(custom, "i") : null); // a bad pattern throws: logged, fails open
@@ -125,12 +126,6 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
     }
   } catch (err) {
     // fail open, with a trace: a dead gate must not look like a quiet one
-    try {
-      const log = path.join(os.homedir(), ".claude", "hooks", "state", "hook-errors.log");
-      fs.mkdirSync(path.dirname(log), { recursive: true });
-      fs.appendFileSync(log, `${new Date().toISOString()} verify-gate: ${err?.message || err}\n`);
-    } catch {
-      // nothing more to do
-    }
+    crashLog("verify-gate", err);
   }
 }

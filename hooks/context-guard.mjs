@@ -22,6 +22,7 @@
 // The size is the last API call's, unless a compact came after it: then the compact's own figure, so
 // the first message after a compact is not warned about the size the compact just removed.
 // Fails open. CONTEXT_GUARD=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -168,7 +169,8 @@ process.stdin.on("end", () => {
       systemMessage: `Context is ~${k}k tokens: every step re-sends all of it. ${cold ? "The cache is cold: Claude moves the work to a fresh session." : k >= RUN_K ? "Its automatic compact has not run." : "It compacts itself at about 200k."}`,
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context.join("\n") },
     }));
-  } catch {
+  } catch (err) {
+    crashLog("context-guard", err);
     // fail open
   }
 });

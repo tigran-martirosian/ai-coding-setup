@@ -3,6 +3,7 @@
 // they are sent here instead of living in CLAUDE.md for every session. No variable names Nimbalyst
 // for a hook; CLAUDE_CODE_ENTRYPOINT is "sdk-..." when an app runs Claude and "cli" in the terminal
 // (same test as command-explain). Silent in the terminal. NIMBALYST_NOTES=off disables it.
+import { crashLog } from "./crash-log.mjs";
 const NOTES = [
   "[nimbalyst-notes] Nimbalyst quirks:",
   "- The first `browser_screenshot` after a page load fails with `UnknownVizError`; the second works.",
@@ -13,6 +14,7 @@ try {
   if ((process.env.NIMBALYST_NOTES || "").toLowerCase() === "off") process.exit(0);
   if (!/^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "")) process.exit(0);
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: NOTES } }));
-} catch {
+} catch (err) {
+  crashLog("nimbalyst-notes", err);
   process.exit(0);
 }

@@ -16,6 +16,7 @@
 // session there for (a skill, hook or MCP server that only loads in that project), or the prompt is the
 // handoff skill's own ("... continue the work from "Where we are"").
 // Fails open. RUN_YOURSELF=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 
 // Russian twins of the English patterns below (for `--language russian`). \b does not see Cyrillic letters,
@@ -289,7 +290,8 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
       if (asksUserToRun(text)) process.stdout.write(JSON.stringify({ decision: "block", reason: REASON }));
       else if (vagueNeedsYou(text)) process.stdout.write(JSON.stringify({ decision: "block", reason: REASON_VAGUE }));
       else if (handsOverPrompt(text) && !userAskedForHandoff(input)) process.stdout.write(JSON.stringify({ decision: "block", reason: REASON_HANDOVER }));
-    } catch {
+    } catch (err) {
+      crashLog("run-yourself", err);
       // fail open
     }
   });

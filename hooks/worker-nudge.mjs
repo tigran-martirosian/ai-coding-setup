@@ -7,6 +7,7 @@
 // does anything these types do, including editing files. Until 2026-10-21 an identical retry went
 // through; in 3 days of one project that let 14 general-purpose runs on Opus spend 21M tokens.
 // It fails open, so any error or odd input lets the call through. WORKER_NUDGE=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { readFileSync, existsSync, writeSync } from "node:fs";
 import { join, delimiter } from "node:path";
 
@@ -52,7 +53,8 @@ try {
   writeSync(1, JSON.stringify({
     hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
   }));
-} catch {
+} catch (err) {
+  crashLog("worker-nudge", err);
   // Fail open
 }
 process.exit(0);

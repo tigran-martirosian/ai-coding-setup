@@ -10,6 +10,7 @@
 // is written into update-check.json (failedAt and error, cleared by the next good answer) and the check is not tried
 // again for an hour, so an offline prompt costs one file read, not a wait for every prompt.
 // Fails open. UPDATE_CHECK=off disables it. SETUP_UPDATE_BASE points it at another address (tests).
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -61,9 +62,9 @@ if (process.env.UPDATE_CHECK !== "off") {
       } catch (e) {
         // Remember the failure (and why) instead of trying again on every prompt
         fs.writeFileSync(stateFile, JSON.stringify({ ...last, failedAt: new Date().toISOString(), error: String(e.message || e) }) + "\n");
-        throw e;
+        latest = null; // offline, a timeout or an HTTP error: kept in update-check.json above, and not a crash
       }
-      if (latest.version) {
+      if (latest?.version) {
         const installed = json(path.join(CLAUDE, "setup-state.json")).version || "0";
         fs.writeFileSync(stateFile, JSON.stringify({ checkedAt: new Date().toISOString(), latest: latest.version }) + "\n");
         if (newer(latest.version, installed)) {
@@ -80,7 +81,8 @@ if (process.env.UPDATE_CHECK !== "off") {
         }
       }
     }
-  } catch {
+  } catch (err) {
+    crashLog("update-check", err);
     // fail open
   }
 }

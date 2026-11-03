@@ -1,4 +1,5 @@
 // node tests/test-pc-tidy-nudge.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

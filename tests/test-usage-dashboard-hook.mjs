@@ -2,6 +2,7 @@
 // so the test gives it a temp home with a stand-in script there (the real dashboard has its own test
 // with the skill). Nothing here touches a real ~/.claude or opens a browser.
 // Run: node tests/test-usage-dashboard-hook.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

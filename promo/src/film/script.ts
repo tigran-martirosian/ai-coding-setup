@@ -61,7 +61,7 @@ export const HOOKS = [
   "usage-dashboard-hook", "verify-gate", "web-answer-gate", "web-worker-gate", "worker-nudge",
 ];
 export const SKILLS = [
-  "/blind-review", "/board-cleanup", "/btw", "/court", "/handoff", "/lead", "/new-project", "/next-move", "/pc-tidy",
+  "/blind-review", "/board-cleanup", "/btw", "/handoff", "/lead", "/new-project", "/next-move", "/pc-tidy",
   "/phone-bot", "/setup-audit", "/shared-usage", "/steer", "/systems-map", "/update-setup", "/watch", "/web-research",
 ];
 export const EXTENSIONS = ["usage-plan", "commands", "agents-panel", "ink-themes", "read-aloud"];
@@ -103,7 +103,7 @@ export const SCRIPT: Shot[] = [
       kind: "tiles",
       tiles: [
         { name: "30 hooks", note: "Small scripts that check each step" },
-        { name: "17 skills", note: "Commands like /lead and /court" },
+        { name: "16 skills", note: "Commands like /lead and /handoff" },
         { name: "5 extensions", note: "Panels for the Nimbalyst editor" },
         { name: "4 projects", note: "Ready-made folders" },
         { name: "5 agents", note: "A planner, capped helpers, a reviewer" },
@@ -224,15 +224,6 @@ export const SCRIPT: Shot[] = [
     body: { kind: "flow", flow: [["/lead"], ["Search", "Build", "Tests"], ["Separate review"]] },
   },
   {
-    id: "court",
-    part: "Big jobs",
-    title: "/court asks three models one question",
-    sub: "Each answers alone. They review each other blind.",
-    ticks: 96,
-    enter: "left",
-    body: { kind: "flow", flow: [["/court"], ["Claude", "GPT", "Gemini"], ["Verdict: you decide"]] },
-  },
-  {
     id: "review",
     part: "Big jobs",
     title: "/blind-review checks any big work",
@@ -313,7 +304,7 @@ export const SCRIPT: Shot[] = [
       kind: "tiles",
       tiles: [
         { name: "internet-search", note: "Finds things online, cites only pages it opened" },
-        { name: "ask-anything", note: "General questions, /court and pictures" },
+        { name: "ask-anything", note: "General questions and pictures" },
         { name: "quick-tasks", note: "One-off file jobs, done on copies" },
         { name: "claude-settings", note: "Change and check the setup itself" },
       ],

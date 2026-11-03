@@ -197,15 +197,6 @@ something unrelated inside another project, Claude names the right folder and op
 ### `<projects>\ask-anything`: anything you want to know
 
 - Ask in plain words. Sources are named with their links.
-- **`/court <question>`: a hard or contested question.** Several models answer alone and a chair
-  gives the verdict. It asks first which court you want: the quick one (three answers, then the
-  verdict) for an everyday question, or the full one (five answers, a blind review, then the
-  verdict) when the answer has real stakes. The full court uses much more of the plan. Without
-  Codex and Antigravity the court sits with its Claude seats only.
-- **`/court readers <file>`: how a piece reads to different people.** For a resume, a README, a
-  post or a page. Name the readers or let Claude propose three whose jobs differ (for a resume: the
-  recruiter, the engineer, an outsider). Each reads it alone and says what works, what loses them
-  and the one change they would make; a chair sums it up.
 - **A video or a page that will not open.** Paste a YouTube link and ask what the video says, or
   give the address of a page: Claude reads the subtitles or the page's text. Videos and feeds need
   the program uv.

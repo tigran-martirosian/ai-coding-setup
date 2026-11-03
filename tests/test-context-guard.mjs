@@ -1,4 +1,5 @@
 // Tests for hooks/context-guard.mjs. Run: node tests/test-context-guard.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";

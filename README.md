@@ -110,13 +110,13 @@ The installer adds rules that stop Claude Code reading saved sign-ins for Claude
 ## Limits
 
 - A check knows a page was opened, not what it said. An agent that opens the page and still gets it wrong passes.
-- A hook that hits an error lets the call through, so a broken check stops nothing.
-- Only some rules have a check behind them. "Lead with the answer" is text the model reads and can ignore. The rules file adds about 4,700 tokens to every session.
+- A hook that hits an error lets the call through, so a broken check stops nothing; the crash is logged in `~/.claude/hooks/state/hook-errors.log` and the next session says so (`HOOK_CRASH_ALARM=off` silences that).
+- Only some rules have a check behind them. "Lead with the answer" is text the model reads and can ignore. The rules file adds about 4,600 tokens to every session.
 - Checks are sometimes wrong: a send-back can be a false alarm. I measure that and fix the checks that cause it.
 
 ## Everything else
 
-Asking three models the same hard question (`/court`), four starter projects, a planner agent, capped worker agents, a reviewer, a checker for recommended answers, a map of big projects, reading videos (`/watch`), a phone bot, voice typing, Read Aloud and colour themes are in [docs/features.md](docs/features.md). Changes per version are in [CHANGELOG.md](CHANGELOG.md).
+Four starter projects, a planner agent, capped worker agents, a reviewer, a checker for recommended answers, a map of big projects, reading videos (`/watch`), a phone bot, voice typing, Read Aloud and colour themes are in [docs/features.md](docs/features.md). Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tests
 

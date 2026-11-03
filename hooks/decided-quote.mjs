@@ -8,6 +8,7 @@
 // next paragraph when the claim line stands alone as a heading). The first try is refused; the identical
 // retry goes through. Unreadable input is an error (exit 2), never a silent pass.
 // DECIDED_QUOTE=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { readFileSync, writeFileSync, mkdirSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -119,4 +120,12 @@ function main() {
 }
 
 import { fileURLToPath } from "node:url";
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) process.exit(main());
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  try {
+    process.exit(main());
+  } catch (err) {
+    crashLog("decided-quote", err);
+    process.stderr.write(`${err?.stack || err}\n`);
+    process.exit(1);
+  }
+}

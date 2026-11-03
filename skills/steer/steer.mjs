@@ -46,6 +46,7 @@
 //                            session, so the user can keep working in the old one; child reports
 //                            are still forwarded.
 // Fails open: any hook error means no output.
+import { crashLog } from "../../hooks/crash-log.mjs";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -543,7 +544,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     } else if (warnText && ev === "PostToolUse") {
       out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: warnText } });
     }
-  } catch {}
+  } catch (err) { crashLog("steer", err); }
 } else if (mode === "--watch") {
   try {
     if (process.env.STEER_WATCH === "off") process.exit(0);
@@ -594,7 +595,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
       fs.writeSync(2, `${RULES}\n${got.map((e) => `- ${mark(e)}${e.msg}`).join("\n")}`);
       process.exit(2);
     }
-  } catch {}
+  } catch (err) { crashLog("steer", err); }
 } else if (mode === "btw") {
   const { t, list } = await pickTarget(rest);
   if (!t || !t.p) {

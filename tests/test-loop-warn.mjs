@@ -1,5 +1,6 @@
 // Tests for hooks/loop-warn.mjs. Run: node tests/test-loop-warn.mjs
 // The hook keeps its state under the temp folder; the tests point TEMP at a throwaway folder.
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

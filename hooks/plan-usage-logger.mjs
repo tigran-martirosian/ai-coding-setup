@@ -11,6 +11,7 @@
 //
 // For tests: PLAN_USAGE_DIR (log folder), PLAN_USAGE_CREDS (login file), PLAN_USAGE_URL
 // (endpoint; ignored unless PLAN_USAGE_CREDS is set too, so the real login can't go elsewhere).
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -72,4 +73,6 @@ try {
   note(true, `5-hour ${rec.five?.u ?? "?"}%, week ${rec.week?.u ?? "?"}%`);
 } catch (e) {
   note(false, String(e.message ?? e));
+  // no network and a slow answer are the status file's business, not a crash
+  if (e?.message !== "fetch failed" && e?.name !== "TimeoutError") crashLog("plan-usage-logger", e);
 }

@@ -23,25 +23,6 @@ The place for anything the user just wants to know: quick facts, everyday questi
 - **No files unless asked.** A long answer the user wants to keep goes to `answers/<yyyy-mm-dd>-<slug>.md`;
   what was downloaded for it goes to `answers/sources/<topic>/`.
 
-## The court
-
-`/court <question>` puts **any** hard question (a decision, advice with stakes, strategy, a diagnosis, a
-contested fact, history with competing readings) to seats that answer alone: GPT as researcher,
-Gemini as analyst, and Claude seats on Opus (sceptic, pragmatist, wildcard). An Opus chair gives the
-verdict (skill `court`; runs kept in `court/`).
-
-- **There are two courts, and the skill asks which one at the start of every run.** The quick court:
-  GPT, Gemini and the sceptic, then the chair. The full court: all five seats, a blind review of the
-  answers by GPT and Gemini, then the chair (about 180k Opus tokens).
-- The seats are **jobs, not topics**, so they fit any subject. Four more join when the user names
-  them: `specialist` (answers as a working expert in the field of the question), `verifier` (checks
-  the claims the answer hangs on against sources), `steelman` and `ethicist`. All are in
-  `~/.claude/skills/court/roles.md`; a new seat is one more section there.
-- **Offer the court in one line after your own answer** when the question is contested, has real
-  stakes (money, health, career, relationships) or depends on which school of thought is right. Don't
-  offer it for a plain fact.
-- There is one court. Don't build a second council beside it; add a seat instead.
-
 ## Not for here
 
 - Finding things to buy, listings and prices: `<projects>\internet-search`.

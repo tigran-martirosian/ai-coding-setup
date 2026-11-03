@@ -1,4 +1,5 @@
 // Tests for the prompt allowances in ~/.claude/hooks/big-read-gate.mjs. Run: node tests/test-big-read-allow.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

@@ -1,4 +1,5 @@
 // Tests for hooks/command-explain.mjs. Run: node test-command-explain.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";

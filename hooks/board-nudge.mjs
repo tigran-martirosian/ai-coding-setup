@@ -5,6 +5,7 @@
 // more it tells the user and has Claude offer /board-cleanup, at most once a day per project.
 // Running /board-cleanup (or /planning:session-cleanup) resets the count. Only inside Nimbalyst.
 // Silent for other /commands. Fails open. BOARD_NUDGE=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -56,7 +57,8 @@ process.stdin.on("end", () => {
       systemMessage: `Sessions board: about ${count} new sessions since the last cleanup. /board-cleanup tidies it.`,
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context },
     }));
-  } catch {
+  } catch (err) {
+    crashLog("board-nudge", err);
     // fail open
   }
 });

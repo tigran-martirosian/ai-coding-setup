@@ -1,6 +1,7 @@
 // Tests for hooks/opencli-readonly.mjs. Run: node tests/test-opencli-readonly.mjs
 // The hook asks `opencli <site> --help` which commands are [read]. A fake opencli on the PATH answers
 // here, so the test needs no OpenCLI, no browser and no account.
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
