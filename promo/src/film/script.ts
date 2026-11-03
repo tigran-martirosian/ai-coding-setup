@@ -353,7 +353,7 @@ export const SCRIPT: Shot[] = [
       stats: [
         { value: 11042, unit: "replies checked in 30 days" },
         { value: 360, unit: "sent back" },
-        { value: 59, unit: "test files, run on every push" },
+        { value: 62, unit: "test files, run on every push" },
       ],
       line: "People in finance, data engineering and government IT use it at work too.",
     },
