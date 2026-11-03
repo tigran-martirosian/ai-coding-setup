@@ -15,7 +15,7 @@ You own the outcome. The `planner` agent writes the plan and the job-list rows, 
 - **A 2-3 call change** you can already see: do it here. Beyond that this session doesn't build: workers do the steps, whole, on the helper their row names.
 - **A long step runs in the background.** A worker can't ask the user, so its question comes back to you as a `BLOCKED` line and you ask.
 - **One-shot lookups** go where CLAUDE.md sends them.
-- **A worker that stopped is not done.** A notice "stopped at its N-turn limit" or an empty report: SendMessage it once, "report what is done and what is left", then compare the files yourself. A cut or empty reviewer is NOT RUN. Reuse a worker only under about 150k context.
+- **A worker that stopped is not done.** A notice "stopped at its N-turn limit" or an empty report: SendMessage it once, "report what is done and what is left", then compare the files yourself. A cut or empty reviewer is NOT RUN. Reuse a worker only when its tool calls so far (`tool_uses` in its notice) plus the new step's budget stay under 80, and under about 150k context; otherwise start a fresh worker and paste the old one's report into the brief (a 70-call step once used 115, and the next step sent to that worker was refused).
 
 ## 2. Set up the plan
 

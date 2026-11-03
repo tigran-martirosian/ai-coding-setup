@@ -23,7 +23,8 @@ const BINARY = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico"
 const native = (p) => (process.platform === "win32" ? p.replace(/^\/([a-zA-Z])(\/|$)/, "$1:/") : p);
 
 function measure(path) {
-  const st = statSync(path);
+  let st;
+  try { st = statSync(path); } catch (e) { if (e.code === "ENOENT") return null; throw e; } // no such file: the Read tool says so itself
   if (!st.isFile() || BINARY.has(extname(path).toLowerCase())) return null;
   if (st.size > 20e6) return { lines: Math.ceil(st.size / 40), bytes: st.size }; // too big to count quickly
   const buf = readFileSync(path);

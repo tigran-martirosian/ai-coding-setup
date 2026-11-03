@@ -89,7 +89,7 @@ const rules = () => fs.readFileSync(path.join(claude, "CLAUDE.md"), "utf8");
 const text = (...p) => fs.readFileSync(path.join(projects, ...p), "utf8");
 ok("the rules are written with the section on gathering information",
   [rules().startsWith("# How to format replies"), rules().includes("## Gathering information\n"), rules().includes("ask.mjs")], [true, true, false]);
-ok("the rules keep the sections after the section on gathering information", rules().includes("# Useful commands to suggest"));
+ok("the rules keep the sections after the section on gathering information", rules().includes("# Web research"));
 ok("the rules name the real projects folder", [rules().includes("<projects>"), rules().includes(path.join(projects, "ask-anything"))], [false, true]);
 ok("each project folder has its notes and its model",
   HOMES.map((h) => [fs.existsSync(path.join(projects, h, "CLAUDE.md")), text(h, "CLAUDE.md").includes("<projects>"), json(path.join(projects, h, ".claude", "settings.json")).model]),
@@ -127,7 +127,7 @@ ok("second run leaves every file as it was", [...snap(claude), ...snap(projects)
 fs.writeFileSync(path.join(projects, "internet-search", "profile.md"), "# Profile for hunts\n\n- **Country:** somewhere\n");
 fs.writeFileSync(path.join(projects, "ask-anything", "CLAUDE.md"), text("ask-anything", "CLAUDE.md").replace("# ask-anything", "# ask-anything\n\nMy own line."));
 fs.writeFileSync(path.join(claude, "CLAUDE.md"), rules().replace("# How to work", "# How to work\n\n- My own rule.")
-  .replace(/## Gathering information\n[\s\S]*?(?=\n## Web research)/, "## The free workers read local files, not the web\n\n- Run `node ~/.claude/workers/ask.mjs`.\n"));
+  .replace(/## Gathering information\n[\s\S]*?(?=\n# Web research)/, "## The free workers read local files, not the web\n\n- Run `node ~/.claude/workers/ask.mjs`.\n"));
 // the switches an older version wrote for the outside workers
 for (const name of ["codex", "agy"]) fs.writeFileSync(path.join(claude, "workers", `${name}.off`), `Not used on this computer. Run install.mjs with --${name} yes to use this worker.\n`);
 const withCodex = install(home, "--codex", "yes");
