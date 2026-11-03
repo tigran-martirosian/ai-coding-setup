@@ -69,7 +69,7 @@ Two hooks run it. `map-nudge` notices a big project without a map and has the ag
 
 ![A reply that links a page it never opened is sent back, then three more checks](img/clip-checks.gif)
 
-Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 29 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
+Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 30 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
 
 ### Checks that can send a step back
 
@@ -80,6 +80,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder |
 | `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`). Only inside Nimbalyst: in the terminal it never refuses |
 | `verify-gate` | A turn that edited a code file and ended with no build or test run after the last edit; it asks for one run and never runs a command itself |
+| `skill-pointer` | When a project's `SKILL.md` is written and that project's `CLAUDE.md` names the skill nowhere, tells the agent to add one line saying when to call it, or the skill is rarely used. The rule behind it: a procedure done a third time becomes a skill. `SKILL_POINTER=off` turns it off |
 | `transcript-check` | At the start of a session, says out loud when a new Claude Code changed the transcript format the hooks read |
 | `code-review-gate` | A piece of work about to end with no `reviewer` agent having looked: 10 or more code files over a session, two or more helpers that edited code, or hooks, settings or CI files. It reads the transcript and git, so nobody has to remember or ask well, and it asks for one reviewer by itself. A `git push`, `gh release` or `npm publish` with such work and no review since is refused too |
 | `picture-in-project` | A picture shown in the chat from a path that can be cleaned up later or that Nimbalyst can't open enlarged; it copies the picture to the project's `shown` folder and gives the path to use |
@@ -122,6 +123,7 @@ Set these in your shell or system environment. The first four are also read from
 | `VERIFY_PATTERN` | A regular expression, matched without regard to case against the whole shell command; it replaces `verify-gate`'s list of build and test commands |
 | `CODE_REVIEW_GATE=off` | Turns off `code-review-gate` (for a script that runs `claude -p` on code); `led` counts no git files |
 | `REVIEW_PUSH_PATTERN` | A regular expression for more commands that `code-review-gate` treats as a push, next to `git push`, `gh release` and `npm publish` |
+| `SKILL_POINTER=off` | Turns off `skill-pointer` |
 | `NIMBALYST_NOTES=off` | Turns off `nimbalyst-notes` |
 | `MAP_NUDGE=off` | Turns off `map-nudge`, which has the agent start a background worker to build or refresh a project's systems map |
 | `BIG_READ_MAX_LINES` | The longest file `big-read-gate` lets be read whole, in lines; the default is 350 |

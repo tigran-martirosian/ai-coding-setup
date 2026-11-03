@@ -190,6 +190,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/skill-pointer.mjs",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

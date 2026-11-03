@@ -57,7 +57,7 @@ export const CATCH = {
 export const HOOKS = [
   "big-read-gate", "board-nudge", "code-review-gate", "cold-cache", "command-explain", "context-guard", "decided-quote", "file-link-gate",
   "handoff-brief", "link-gate", "loop-warn", "map-brief", "map-nudge", "nimbalyst-notes", "opencli-readonly", "pc-tidy-nudge", "picture-in-project",
-  "plan-usage-logger", "question-other", "repeat-guard", "run-yourself", "slow-output-gate", "sql-guard", "transcript-check", "update-check",
+  "plan-usage-logger", "question-other", "repeat-guard", "run-yourself", "skill-pointer", "slow-output-gate", "sql-guard", "transcript-check", "update-check",
   "usage-dashboard-hook", "verify-gate", "web-answer-gate", "worker-nudge",
 ];
 export const SKILLS = [
@@ -102,7 +102,7 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "tiles",
       tiles: [
-        { name: "29 hooks", note: "Small scripts that check each step" },
+        { name: "30 hooks", note: "Small scripts that check each step" },
         { name: "16 skills", note: "Commands like /lead and /handoff" },
         { name: "5 extensions", note: "Panels for the Nimbalyst editor" },
         { name: "4 projects", note: "Ready-made folders" },
