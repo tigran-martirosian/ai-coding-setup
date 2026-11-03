@@ -97,10 +97,7 @@ export const Reads: React.FC<{ shot: Shot }> = ({ shot }) => {
                   </span>
                 ) : null}
                 {i === 2 ? (
-                  <span style={{ fontSize: 130 }}>
-                    <div>GPT</div>
-                    <div style={{ color: color.white, fontSize: 120 }}>Gemini</div>
-                  </span>
+                  <span style={{ fontSize: 130 }}>{row.big}</span>
                 ) : null}
               </div>
               <div style={{ position: "absolute", left: 30, right: 30, bottom: 26, fontSize: 44, fontWeight: 500, lineHeight: 1.1 }}>

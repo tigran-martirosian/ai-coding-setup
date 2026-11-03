@@ -280,8 +280,8 @@ p(`**Context size:** an average request sent ${M(sum(reqs, ctxOf) / reqs.length)
 // What-if totals. Same requests and context sizes; only who runs them changes.
 const to = (r, fam) => r.w * Math.min(fam, r.fam) / r.fam;
 const whatIf = [
-  ["Looking stretches go to a free worker (one request per stretch stays)", total - sum(lookRest, (r) => r.w)],
-  ["That, and the building stretches run on Sonnet helpers", total - sum(lookRest, (r) => r.w) - sum(build, (r) => r.w - to(r, 3))],
+  ["Looking stretches run on Sonnet `worker` helpers (one request per stretch stays)", total - sum(lookRest, (r) => r.w - to(r, 3))],
+  ["That, and the building stretches run on Sonnet helpers", total - sum(lookRest, (r) => r.w - to(r, 3)) - sum(build, (r) => r.w - to(r, 3))],
   ["Opus leads (talks, asks, delegates), Sonnet does all the work requests", sum(reqs, (r) => LEAD_KINDS.has(r.kind) ? r.w : to(r, 3))],
   ["Fable leads, Sonnet does all the work requests", sum(reqs, (r) => LEAD_KINDS.has(r.kind) ? r.w * 12.5 / r.fam : to(r, 3))],
   ["Sonnet runs everything", sum(reqs, (r) => to(r, 3))],

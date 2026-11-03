@@ -33,6 +33,14 @@ check("description has no colon-space (would break the frontmatter)", !/: /.test
 check("body asks for the alternatives", /other ways you weighed/.test(body));
 check("body asks for pushback", /push back/.test(body));
 check("body treats a steering brief as an opinion", /one opinion/.test(body));
+check("body: reads only the folder the brief names", /Read code only in those folders/.test(body));
+check("body: looks up map parts the brief missed", /systems-map\.json/.test(body));
+check("body: lists the helpers with model and effort", ["`worker`", "`worker-full`", "`reviewer`", "Haiku", "Opus"].every((s) => body.includes(s)));
+check("body: rows carry helper, runs and budget", /\| Helper \| Runs \| Budget \|/.test(body));
+check("body: says which folders and commits it read", /\*\*Read:\*\* the folders and commits/.test(body));
+check("body: names what the review gate forces", /2 or more workers edit code/.test(body) && /10 or more code files/.test(body) && /rule, agent, skill/.test(body));
+check("body: makes the review call", /\*\*Review:\*\* yes or no/.test(body));
+check("description: brief names the folder and commit", /project folders and their commits/.test(front.description || ""));
 
 const lead = fs.readFileSync(path.join(ROOT, "skills", "lead", "SKILL.md"), "utf8");
 check("lead names the planner", /subagent_type: "planner"/.test(lead));
@@ -42,6 +50,11 @@ check("lead: own solution stays out", /Keep out of the brief: your own idea of t
 check("lead: no rules or step lists in the brief", /step lists and "do X, not Y" rules/.test(lead));
 check("lead: differences are told to the user", /tell the user where they differ/.test(lead));
 check("lead: a failed call is said, not hidden", /say so and write the plan yourself/.test(lead));
+check("lead: brief names the folder and commit", /rev-parse --short HEAD/.test(lead));
+check("lead: rows are pasted unchanged", /Paste its rows unchanged/.test(lead));
+check("lead: a changed row is named to the user", /named to the user with the reason/.test(lead));
+check("lead: a wrong plan goes back to the planner", /goes back to the planner/.test(lead));
+check("lead: job list has the planner's columns", /\| Helper \| Runs \| Budget \| State \|/.test(lead));
 check("lead: sections keep their numbers", /## 3\. The job list and the briefs/.test(lead) && /## 6\. Finish/.test(lead));
 
 const rulesFile = ["CLAUDE.md", path.join("rules", "CLAUDE.md")].map((f) => path.join(ROOT, f)).find((f) => fs.existsSync(f));

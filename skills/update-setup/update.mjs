@@ -13,7 +13,7 @@
 //   --home <folder>                  work on <folder>/.claude instead of the home folder's (tests)
 // How: the newest version is the one in version.json on the repository's main branch. Its files are
 // the tag v<version>, downloaded as one archive and unpacked to ~/.claude/setup-source/v<version>.
-// Then that folder's install.mjs runs. It takes the projects folder, the answers about the workers
+// Then that folder's install.mjs runs. It takes the projects folder, the answer about Codex
 // and Node from ~/.claude/setup-state.json, so nothing is asked again, and it only writes the setup's
 // own files: anything else in ~/.claude (other skills, hooks, settings) stays as it is, and so does
 // one of the setup's files that the user changed (the installer lists those at the end).

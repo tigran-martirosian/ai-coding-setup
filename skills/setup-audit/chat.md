@@ -1,11 +1,11 @@
 # Chat review
 
-Fits the setup to what the user really does. A script and a free worker do the reading; you
+Fits the setup to what the user really does. A script and `worker` subagents (Sonnet) do the reading; you
 judge, look up what exists, and ask. **Change nothing until the user has ticked it.** No chat text
 goes into a rule, a skill or a web search, and no report is sent to anyone. The findings report
 (step 7) is the one place that holds the user's own words, at most 12 per quote. The only
-reader besides you is the free worker that also reads long files (Codex from OpenAI, or Gemini from
-Google, whichever is set up): it reads the chat digests, so tell the user that before the scan.
+readers besides you are the `worker` subagents: they read the chat digests, so tell the user that
+before the scan.
 
 `$S` below is `~/.claude/skills/setup-audit/scripts`. Work from your `claude-settings` project folder: `DECISIONS.md` and `audits/` live there.
 
@@ -20,20 +20,21 @@ is one: what was declined is not offered again, and what was set up is checked, 
 
 ## 2. Read the digests
 
-`node $S/read-digests.mjs <digest folder> --earlier <the newest findings file>` when step 1 found one
-(Bash, timeout 600000). It gives each digest to the
-worker command (`~/.claude/workers/ask.mjs`), with the fixed questions in `reader-task.txt`, and writes
-`<project>.findings.md` next to each digest. A project with fewer than 5 requests is skipped.
-Each `.findings.md` then ends with "I. EARLIER FIXES": for every fix ticked last time, whether it held,
-came back or did not come up.
+Run `node $S/read-digests.mjs <digest folder> --earlier <the newest findings file>` (leave out
+`--earlier` when step 1 found no findings file). It writes a `<project>.task.md` next to each digest
+(the fixed questions of `reader-task.txt`, the project's earlier-fix rows and the digest's path) and
+prints one line per project. A project with fewer than 5 requests is skipped.
 
-Read only the `.findings.md` files. If a project is reported as FAILED (no worker is set up, or it
-could not answer), give one `worker` subagent
-that digest and the text of `reader-task.txt` (it reads the digest in parts), and say that it was used.
+Then start one `worker` subagent (Sonnet) per task file, in the background beside each other, each
+told: "Read the task file `<full path of <project>.task.md>` and do what it says. It names the digest
+to read and the `<project>.findings.md` to write, in the task's format." Each `.findings.md` ends with "I. EARLIER FIXES" when the task had
+earlier fixes: for every fix ticked last time, whether it held, came back or did not come up.
+
+Read only the `.findings.md` files. A project whose subagent wrote none: run it again once.
 
 ## 3. Judge (this stays with you)
 
-The worker's lines are leads. Before a finding becomes a proposal, check it in the digest: Grep the chat
+The workers' lines are leads. Before a finding becomes a proposal, check it in the digest: Grep the chat
 label, then Read those lines.
 
 **What counts:** something seen in two or more chats; or once, when the user said "always" or
@@ -80,7 +81,7 @@ In this order, and stop at the first that fits:
 1. Installed but turned off: `claude plugin list`.
 2. Skills: `npx skills find "<two or three plain words for the kind of task>"`.
 3. One web lookup: WebSearch with `mode: "extended"` for "skills, plugins or tools for <kind of task> in
-   Claude Code" (the free worker's `--web` route is refused since 2026-10-27).
+   Claude Code".
 
 Search words describe the kind of task in general words; never a name, a table, a file or a
 sentence from the chats. Before proposing a find, read its own page or `SKILL.md`: what it does,
@@ -123,5 +124,5 @@ Reply short: what was set up and where, what was declined, and which of it needs
 in a `CLAUDE.md` is read when a chat starts; skills and hooks are picked up by running chats). Add
 one line to the setup project's `DECISIONS.md` per change. Reply in the language the user writes in.
 
-Budget: about 30 tool calls. The scan and the worker do the reading; you read only findings and the
+Budget: about 30 tool calls. The scan and the `worker` subagents do the reading; you read only findings and the
 digest lines you check.

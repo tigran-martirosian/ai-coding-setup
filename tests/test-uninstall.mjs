@@ -1,5 +1,5 @@
 // Tests for install.mjs --uninstall on a blank temporary home folder. Nothing outside that folder is
-// touched and no worker (Codex, Antigravity) has to be installed. Run: node tests/test-uninstall.mjs
+// touched and Codex doesn't have to be installed. Run: node tests/test-uninstall.mjs
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";

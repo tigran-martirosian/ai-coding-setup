@@ -120,7 +120,7 @@ report(run([typed("fix"), ...NINE], REAL) === "", "by default 9 code files pass"
 report(blocks(run([typed("build"), ...TEN], REAL)), "by default 10 code files are blocked");
 report(run([typed("build"), ...THREE, ...reviewer()]) === "", "a reviewer agent counts as a review");
 report(blocks(run([typed("build"), ...THREE, ...reviewer({ subagent_type: "worker", prompt: "review it" })])), "another agent type is no review");
-report(run([typed("build"), ...THREE, ...review("blind-review")]) === "", "the blind-review skill counts as a review");
+report(run([typed("build"), ...THREE, ...review("blind-screen-review")]) === "", "the blind-screen-review skill counts as a review");
 report(/Run one reviewer/.test(run(blocked)) && /don't start a second/.test(run(blocked)), "the block asks for one reviewer and no second");
 report(blocks(withHelpers([STARTED, say("Done.")], [["a", TEN]])), "one helper's 10 files count");
 report(blocks(withHelpers([STARTED, say("Done.")], [["a", ONE("a")], ["b", ONE("b")]])), "2 helpers that edited code: a job of several steps");

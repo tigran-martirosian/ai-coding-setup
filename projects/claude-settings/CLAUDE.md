@@ -10,18 +10,14 @@ happen here.
   One of the setup's files that was changed here stays too: the run lists it under `Kept as yours`,
   and `--replace <name>` or `--replace-all` takes the setup's version.
   `node install.mjs --dry-run` prints what it would do and changes nothing.
-- **Adding a worker later.** With a ChatGPT subscription: install the Codex CLI
-  (`npm i -g @openai/codex`) and run `codex login`. With a Google subscription: install the
-  Antigravity CLI and sign in by running `agy` once. Then run `node install.mjs` again: it finds the
-  workers that are installed (or takes `--codex yes|no --agy yes|no`), rewrites the worker section
-  of `~/.claude/CLAUDE.md` and, with Codex, adds the picture skill to two of the folders (without
+- **Adding Codex later.** With a ChatGPT subscription: install the Codex CLI
+  (`npm i -g @openai/codex`) and run `codex login`. Then run `node install.mjs` again: it finds
+  Codex (or takes `--codex yes|no`) and adds the picture skill to two of the folders (without
   Codex it takes it out again). Afterwards:
-  - check the sign-in (`codex login status`, `agy models`);
-  - Antigravity: if `agy models` doesn't list the model `workers/ask.mjs` names (env
-    `BIG_READ_AGY_MODEL`, else its default), set `BIG_READ_AGY_MODEL` to the newest `*-flash-medium` model it lists;
-  - Codex: offer to install FFmpeg (only the picture skill's slower "careful run" needs it).
+  - check the sign-in (`codex login status`);
+  - offer to install FFmpeg (only the picture skill's slower "careful run" needs it).
 - **`/setup-audit chat` fits the setup to the real work.** It reads the recent chats of every project on
-  this computer (a script and the first free worker, Codex or Gemini, do the reading), finds where Claude got in the way
+  this computer (a script and `worker` subagents, which run on Claude, do the reading), finds where Claude got in the way
   and which skills or tools are missing, shows a tick list and sets up only what is ticked, in the
   project it belongs to. Run it after a few weeks of work, or when the same problem keeps coming back.
 - **`/setup-audit full` is the one review that ends in choices.** It runs the usage scanner, a second scanner (the kind of work per request, what another split between models would have cost, where the time of each turn went, failed tool calls, context size) and the chat reading together, writes a report to `audits/`, and asks once which of the measured options to carry out. Run it every week or two.

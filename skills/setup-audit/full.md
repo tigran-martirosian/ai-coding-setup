@@ -4,9 +4,9 @@ The one review that ends in choices. `/setup-audit usage` gives numbers only, `/
 setup is healthy, `/setup-audit chat` fits skills to the work; this runs their scanners together, adds what
 they don't measure, and turns the result into options with a number behind each.
 
-Scripts and a free worker do the reading; you judge and ask. **Change nothing until the user has
-ticked it.** Never open chat records yourself. The free worker (Gemini or Codex, whichever is set up)
-reads the chat digests: say so before step 3. No sentence from a chat goes into a rule, a skill, a web
+Scripts and `worker` subagents (Sonnet) do the reading; you judge and ask. **Change nothing until the
+user has ticked it.** Never open chat records yourself. The `worker` subagents
+read the chat digests: say so before step 3. No sentence from a chat goes into a rule, a skill, a web
 search or the report.
 
 `$S` is `~/.claude/skills/setup-audit/scripts`. Work from your `claude-settings` project folder: `audits/`, `DECISIONS.md` and `HANDOFF.md` live there. Days
@@ -46,16 +46,17 @@ run the scanner again with other options (`--project`, `--top`, usage-scan's `--
 
 ## 3. Chats (start it, then go on with step 4)
 
-`node $S/chat-scan.mjs --days N`, then `node $S/read-digests.mjs <digest folder>` in the background
-(timeout 600000). It writes `<project>.findings.md` next to each digest. Headings B (went wrong),
+`node $S/chat-scan.mjs --days N`, then `node $S/read-digests.mjs <digest folder>`. It writes a
+`<project>.task.md` next to each digest. Start one `worker` subagent (Sonnet) per task file, in the
+background beside each other, each told to read its task file (full path) and do what it says: it
+names the digest to read and the `<project>.findings.md` to write. Headings B (went wrong),
 C (questions that missed), G (reasoning) and H (pace: LONG or SHORT) are the ones this review uses.
-A project reported as FAILED: give one `worker` subagent that digest and `$S/reader-task.txt`.
 
 ## 4. Health
 
 Step 3 of `audit.md` (next to SKILL.md), in as few shell calls as possible: every test suite
 (`bash audits/run-all-suites.sh`; `HANDOFF.md` says which failures are expected), the hook files that
-`~/.claude/settings.json` names exist, `~/.claude/workers/ask.mjs --status`.
+`~/.claude/settings.json` names exist, `~/.claude/agents/worker.md` exists.
 
 ## 5. Judge (this stays with you)
 
@@ -67,7 +68,7 @@ numbers don't show a cause, write "cause not measured" instead of guessing one.
 1. **Where the usage went:** the total against last time, the top projects and sessions, main chats
    against subagents, the share that is the context sent again.
 2. **Who did the work:** the share per model; subagents by type and model (which ran on the leading
-   model that a cheaper one could have run); did the free workers take the gathering; the looking and
+   model that a cheaper one could have run); did `worker` subagents take the gathering; the looking and
    building stretches; the "Helper rework" table. A model whose tokens per clean run are higher than a
    dearer model's, on at least 10 file-changing runs each, is an option to put on the list; fewer runs
    than that are reported as too few to judge.
@@ -96,7 +97,7 @@ offered as a rule. A rule is for what no script can check.
 | Kind | Offer it when | Where the number comes from |
 |---|---|---|
 | **Another split between models** (who leads, who does the work) | always, as one question | the what-if table, as it is; say that it assumes the same requests |
-| **More work for helpers** (free worker for looking, Sonnet helpers or `/lead` for building) | looking stretches over 5% of the weight, or building stretches over 25% | "Could have gone to a helper", the low and the high end |
+| **More work for helpers** (`worker` subagents for looking, Sonnet helpers or `/lead` for building) | looking stretches over 5% of the weight, or building stretches over 25% | "Could have gone to a helper", the low and the high end |
 | **A cheaper model for a subagent type** | a type that ran on the leading model with routine work | usage-scan, "Subagents by type" |
 | **A plugin, skill or tool to add** | a kind of work nothing in the setup covers, seen in two or more chats (reader heading E, or a tool that keeps failing) | look it up as in step 4 of `chat.md` (`claude plugin list`, `npx skills find`, one web lookup); read its own page before offering it |
 | **A setup change** (a rule, a hook, what is loaded) | a hook whose blocks cost more than the mistakes it stops; a rule that causes requests; a correction made twice | "Wasted requests", reader headings B and F |
@@ -135,5 +136,5 @@ install. Then fill the **Decided** table, add one line per decision to `DECISION
 The verdict in two sentences, then one short section per heading of step 5 that has a finding (skip
 the empty ones), then what was done, then what waits on the user. Link the report.
 
-Budget: about 35 tool calls. The scanners and the worker do the reading; you read only the numbers
+Budget: about 35 tool calls. The scanners and the `worker` subagents do the reading; you read only the numbers
 file, the findings and the digest lines you check.

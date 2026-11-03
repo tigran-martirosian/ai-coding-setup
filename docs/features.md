@@ -27,25 +27,23 @@ Every 12 hours the setup asks GitHub whether a newer version is released ([hooks
 - **Installed before version 1.0.0?** Download the repository once more and run the install again; from then on it updates itself.
 - **Off switch:** set `UPDATE_CHECK=off` to stop the check.
 
-## Three models
+## Where the work goes
 
-Long reading of local files and a second opinion go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Searching the web stays with Claude, which reads the source that knows the answer. Design and code stay with Claude. `worker-nudge` holds the agent to that: when an uncapped Explore, general-purpose or claude helper is about to start, it is refused and the agent is pointed at one command, [workers/ask.mjs](../workers/ask.mjs), for long local reading, or at the capped `worker` agent for other jobs (`worker-full` when a job needs a skill or an MCP tool). That command tries the workers in order (Codex, then Antigravity), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single helper subagents using 0.6 to 4.3 million tokens.
+Long reading of local files and a second opinion go to the capped `worker` agent, which runs Sonnet. Outside command-line workers used to do this; they often failed or ran out of time and the job went back to Claude anyway, so the work now goes straight to Claude's own helpers. Searching the web stays with the main session, which reads the source that knows the answer. Design and code stay there too. `worker-nudge` holds the agent to that: when an uncapped Explore, general-purpose or claude helper is about to start, it is refused and the agent is pointed at the capped `worker` agent (`worker-full` when a job needs a skill or an MCP tool). So the setup needs no subscription besides Claude. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single helper subagents using 0.6 to 4.3 million tokens.
 
 ```mermaid
 flowchart TD
   me["Me<br>task, rules, review"]
   hooks["Hooks<br>check each tool call"]
   main["Claude Code<br>main session"]
-  ext["GPT (Codex CLI) and Gemini (Antigravity CLI)<br>long local reading, second opinions"]
-  worker["worker subagent<br>routine edits"]
+  worker["worker subagent<br>long reading, routine edits"]
   me --> main
   hooks -.-> main
-  main --> ext
   main --> worker
 ```
 
 - **The lead.** For a big task, [skills/lead](../skills/lead/SKILL.md) runs a big task from the main session: the `planner` agent writes the plan, and the session turns it into a numbered job list, hands each step to a `worker` agent that knows the goal of the whole job, answers a worker that gets stuck, has one `reviewer` agent check the result and reports what it checked. Everything runs in that main session and its subagents; parallel steps in one folder are subagents in their own git worktree.
-- **The blind review.** After a big piece of work, [skills/blind-review](../skills/blind-review/SKILL.md) (also `/blind-review`) hands it to one reviewer who sees only the original request and the finished result, or only screenshots for a page or screen, never the author's reasoning. Code, a plan, a design, a text, a data result or a screen all work. The reviewer ranks the flaws, the author fixes the serious ones, and the same reviewer looks again, up to two rounds, until nothing serious is left.
+- **The blind screen review.** After building or changing a page, screen, menu or chart, [skills/blind-screen-review](../skills/blind-screen-review/SKILL.md) (also `/blind-screen-review`) hands it to one reviewer who sees only screenshots of every state, never the author's reasoning. Code, plans and text go to the `reviewer` agent instead. The reviewer ranks the flaws, the author fixes the serious ones, and the same reviewer looks again, up to two rounds, until nothing serious is left.
 
 The rules I give the models are described in [docs/setup.md](setup.md).
 
@@ -58,7 +56,7 @@ Five agents in [agents](../agents). The main session starts them with the Agent 
 | `planner` | Writes the plan for a build or design request, in every project, on the strongest model. It reads files and changes nothing, and gets the situation without the main session's own idea of the answer |
 | `worker` | Does one numbered step of a job, or one clear one-off job, on Sonnet, and stops after 80 turns. It knows the goal of the whole job. It starts without the `CLAUDE.md` files and with file, shell and web tools only, so its brief names the project commands it needs. It stays inside the files it was given, reports anything else it notices, and stops with a `BLOCKED` line when what it finds contradicts the plan |
 | `worker-full` | The same worker with every tool and the `CLAUDE.md` files loaded. It costs much more to start, so it is for a step that needs a skill or an MCP tool such as the browser |
-| `reviewer` | One independent read-only pass over a finished bigger change, on Opus. It reads the request first and the code after it, and reports under two headings: what is missing or wrong against the request, and the quality of the change, each problem tagged Important, Nit or Pre-existing. One is enough on any change |
+| `reviewer` | One independent read-only pass over a finished bigger change, on Opus. It reads the request first and the code after it, and reports under two headings: what is missing or wrong against the request, and the quality of the change, each problem tagged Important (a bug the change brings in, with the realistic input or use that triggers it), Nit (a small thing, or a bug that needs an unlikely chain of events) or Pre-existing (already wrong before the change). One is enough on any change |
 | `rec-check` | A second look at a recommended option before a question reaches me. It tries to break the pick: is it a smaller or safer path than I asked for, is an option missing, does the reason rest on a note instead of the live thing, should it have been decided and not asked. It answers `keep` or `change` in six lines at most |
 
 ## Systems map
@@ -71,7 +69,7 @@ Two hooks run it. `map-nudge` notices a big project without a map and has the ag
 
 ![A reply that links a page it never opened is sent back, then three more checks](img/clip-checks.gif)
 
-Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 30 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
+Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 29 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
 
 ### Checks that can send a step back
 
@@ -88,7 +86,6 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `run-yourself` | A reply that ends with "now open a terminal and run this"; the agent runs it itself |
 | `opencli-readonly` | Posting, liking or following from my logged-in accounts through OpenCLI |
 | `web-answer-gate` | A reply that says a version or release "may not be available" or "could not be confirmed" when nothing was checked, and a reply that lists two things when I asked for ten; the message names the lookup that answers it |
-| `web-worker-gate` | A web search handed to a free worker. Web research stays with Claude, which reads the source that knows the answer: the project's own page, or the site's catalogue API |
 | `slow-output-gate` | A command that runs for minutes with its output piped straight into `head` or `tail`, so a cut-off part means running it again; the output is saved to a file first |
 
 ### Hooks that keep sessions cheap and safe
@@ -96,7 +93,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | Hook | What it does |
 |---|---|
 | `big-read-gate` | Large files are read in parts, not whole |
-| `worker-nudge` | Sends long local reading to a free worker if one is set up, a build or a check to the capped `worker` agent (`worker-full` when it needs a skill or an MCP tool) and a review of a finished job to the `reviewer` agent. It reminds the agent that a worker starts without `CLAUDE.md`, so the brief names the project commands. An uncapped Explore, general-purpose or claude helper is refused every time |
+| `worker-nudge` | Sends long local reading, a build or a check to the capped `worker` agent (Sonnet; `worker-full` when it needs a skill or an MCP tool) and a review of a finished job to the `reviewer` agent. It reminds the agent that a worker starts without `CLAUDE.md`, so the brief names the project commands. An uncapped Explore, general-purpose or claude helper is refused every time |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `repeat-guard` | Refuses a retry of the same call after the same error came back three times |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
@@ -151,7 +148,7 @@ Set these in your shell or system environment. The first four are also read from
 ![The usage pop-up with its forecast, then the dashboard with projects, models, days and chats](img/clip-usage.gif)
 
 - **The forecast.** [extensions/usage-plan](../extensions/usage-plan/README.md) puts a ring on the editor's side bar with the week's usage. Its pop-up shows the weekly and 5-hour limits, the day and hour the week runs out at the current pace, and the daily budget that would make it last.
-- **The dashboard.** Typing `usage` opens one HTML file built by [skills/setup-audit](../skills/setup-audit/usage.md) from the logs on the computer, so opening it uses no tokens. It shows tokens by project, model, day and chat, the main chat apart from its subagents, the Codex and Gemini runs each chat started, what the same work would cost at API prices, and this computer's use apart from other use of the same account.
+- **The dashboard.** Typing `usage` opens one HTML file built by [skills/setup-audit](../skills/setup-audit/usage.md) from the logs on the computer, so opening it uses no tokens. It shows tokens by project, model, day and chat, the main chat apart from its subagents, the Codex and Gemini use found on the computer, what the same work would cost at API prices, and this computer's use apart from other use of the same account.
 
 For the forecast, `plan-usage-logger` reads your saved Claude login, `~/.claude/.credentials.json`, and asks api.anthropic.com for the plan percentages.
 

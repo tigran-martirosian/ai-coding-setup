@@ -1,5 +1,5 @@
 // Tests for install.mjs on a blank temporary home folder. Nothing outside that folder is touched and
-// no worker (Codex, Antigravity) has to be installed. Run: node tests/test-install.mjs
+// Codex doesn't have to be installed. Run: node tests/test-install.mjs
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -16,7 +16,7 @@ const ok = (name, got, want = true) => {
   console.log(`${pass ? "PASS" : "FAIL"} ${name}${pass ? "" : `: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`}`);
 };
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "install-test-"));
-// The installer looks for the workers on the PATH; the tests give it a PATH with nothing on it
+// The installer looks for Codex on the PATH; the tests give it a PATH with nothing on it
 const emptyPath = path.join(tmp, "empty-path");
 fs.mkdirSync(emptyPath);
 const installWith = (PATH, home, ...flags) => {
@@ -51,7 +51,7 @@ const globalHooks = (out) => out.split("\n").filter((l) => l.includes("hook adde
 ok("dry run exits cleanly", dry.code, 0);
 ok("dry run lists every file it would copy", shipped.every((f) => dry.out.includes(f.replace(/\\/g, "/"))));
 ok("dry run lists every hook it would wire", globalHooks(dry.out).length, scripts.length);
-ok("dry run lists the rules file", dry.out.includes(`rules: wrote ${fwd(path.join(claude, "CLAUDE.md"))} (workers: Claude alone)`));
+ok("dry run lists the rules file", dry.out.includes(`rules: wrote ${fwd(path.join(claude, "CLAUDE.md"))}`));
 ok("dry run lists the four project folders", HOMES.map((h) => dry.out.includes(`copied ${fwd(path.join(projects, h, "CLAUDE.md"))}`)), HOMES.map(() => true));
 ok("dry run lists each folder's settings and the link gate's wiring",
   [...HOMES.map((h) => dry.out.includes(`wrote ${fwd(path.join(projects, h, ".claude", "settings.json"))}`)), dry.out.includes("hook added: Stop link-gate.mjs in internet-search")],
@@ -84,12 +84,12 @@ const watcher = Object.values(settings.hooks).flat().flatMap((g) => g.hooks).fin
 ok("the note watcher stays a background hook", [watcher?.asyncRewake, watcher?.timeout], [true, 7200]);
 ok("the handoff hook keeps its --hook argument", commands.some((c) => /handoff-brief\.mjs" --hook$/.test(c)));
 
-// ---- the rules and the project folders, with no worker installed
+// ---- the rules and the project folders, without Codex
 const rules = () => fs.readFileSync(path.join(claude, "CLAUDE.md"), "utf8");
 const text = (...p) => fs.readFileSync(path.join(projects, ...p), "utf8");
-ok("the rules are written with the section for Claude alone",
-  [rules().startsWith("# How to format replies"), rules().includes("## Gathering information on Claude alone"), rules().includes("## External workers first")], [true, true, false]);
-ok("the rules keep the sections after the worker section", rules().includes("# Useful commands to suggest"));
+ok("the rules are written with the section on gathering information",
+  [rules().startsWith("# How to format replies"), rules().includes("## Gathering information\n"), rules().includes("ask.mjs")], [true, true, false]);
+ok("the rules keep the sections after the section on gathering information", rules().includes("# Useful commands to suggest"));
 ok("the rules name the real projects folder", [rules().includes("<projects>"), rules().includes(path.join(projects, "ask-anything"))], [false, true]);
 ok("each project folder has its notes and its model",
   HOMES.map((h) => [fs.existsSync(path.join(projects, h, "CLAUDE.md")), text(h, "CLAUDE.md").includes("<projects>"), json(path.join(projects, h, ".claude", "settings.json")).model]),
@@ -99,7 +99,7 @@ const expected = ["ask-anything/.claude/skills/read-web/SKILL.md", "claude-setti
   "internet-search/profile.md", "internet-search/finds/INDEX.md"];
 ok("the skills, the link gate, the tools and the starter notes are there", expected.filter((f) => !fs.existsSync(path.join(projects, f))), []);
 ok("the one audit skill arrives with its sub-commands and scripts", ["SKILL.md", "chat.md", "full.md", "usage.md", "scan.md", "outcomes.md", "scripts/outcomes.mjs", "scripts/usage-scan.mjs"].filter((f) => !fs.existsSync(path.join(claude, "skills", "setup-audit", f))), []);
-const NESTED = ["skills/lead/reference.md", "hooks/nimbalyst-notes.mjs", "hooks/verify-gate.mjs", "workers/agy-gate.mjs"];
+const NESTED = ["skills/lead/reference.md", "hooks/nimbalyst-notes.mjs", "hooks/verify-gate.mjs", "workers/versions.mjs"];
 ok("files in folders below a skill, and the newer hooks and workers, are in the repo and arrive",
   [...NESTED, ...walk(path.join(REPO, "skills", "setup-audit", "scripts")).map((f) => fwd(path.relative(REPO, f)))]
     .filter((f) => !fs.existsSync(path.join(REPO, f)) || !fs.existsSync(path.join(claude, f))), []);
@@ -122,18 +122,22 @@ ok("second run exits cleanly", second.code, 0);
 ok("second run copies nothing and wires nothing", CHANGED.test(second.out), false);
 ok("second run leaves every file as it was", [...snap(claude), ...snap(projects)], before);
 
-// ---- what the user wrote in the notes files stays, also when a worker is added
+// ---- what the user wrote in the notes files stays, also when Codex is added; rules from an older version
+// keep the user's own lines and get this version's section on gathering information
 fs.writeFileSync(path.join(projects, "internet-search", "profile.md"), "# Profile for hunts\n\n- **Country:** somewhere\n");
 fs.writeFileSync(path.join(projects, "ask-anything", "CLAUDE.md"), text("ask-anything", "CLAUDE.md").replace("# ask-anything", "# ask-anything\n\nMy own line."));
-fs.writeFileSync(path.join(claude, "CLAUDE.md"), rules().replace("# How to work", "# How to work\n\n- My own rule."));
-const withCodex = install(home, "--codex", "yes", "--agy", "no");
+fs.writeFileSync(path.join(claude, "CLAUDE.md"), rules().replace("# How to work", "# How to work\n\n- My own rule.")
+  .replace(/## Gathering information\n[\s\S]*?(?=\n## Web research)/, "## The free workers read local files, not the web\n\n- Run `node ~/.claude/workers/ask.mjs`.\n"));
+// the switches an older version wrote for the outside workers
+for (const name of ["codex", "agy"]) fs.writeFileSync(path.join(claude, "workers", `${name}.off`), `Not used on this computer. Run install.mjs with --${name} yes to use this worker.\n`);
+const withCodex = install(home, "--codex", "yes");
 ok("install with Codex exits cleanly", withCodex.code, 0);
 ok("the user's profile is kept as it is", text("internet-search", "profile.md"), "# Profile for hunts\n\n- **Country:** somewhere\n");
-ok("only the worker section of the user's rules changes",
-  [rules().includes("- My own rule."), rules().includes("## The free workers read local files, not the web"), rules().includes("Claude alone"), rules().includes("~/.claude/workers/ask.mjs")], [true, true, false, true]);
+ok("only the old section of the user's rules changes",
+  [rules().includes("- My own rule."), rules().includes("## Gathering information\n"), rules().includes("## The free workers read local files"), rules().includes("ask.mjs")], [true, true, false, false]);
 ok("the installer says once that this version's rules differ from the user's", withCodex.out.includes("rules: new in this version, yours were kept"));
 const inWorkers = (name) => fs.existsSync(path.join(claude, "workers", name));
-ok("a worker that is not used is switched off for the worker command", [inWorkers("ask.mjs"), inWorkers("codex.off"), inWorkers("agy.off")], [true, false, true]);
+ok("the old worker switches go and no worker command arrives", [inWorkers("ask.mjs"), inWorkers("codex.off"), inWorkers("agy.off")], [false, false, false]);
 ok("the user's own line stays and the note about Codex goes", [text("ask-anything", "CLAUDE.md").includes("My own line."), text("ask-anything", "CLAUDE.md").includes("Codex is not set up")], [true, false]);
 ok("the changed files are kept as dated copies", [copiesIn(claude).includes("CLAUDE.md"), copiesIn(projects).includes("CLAUDE.md"), copiesIn(projects).includes("profile.md")], [true, true, false]);
 const shared = path.join(claude, "shared-skills", "picture");
@@ -149,28 +153,28 @@ for (const h of ["ask-anything", "quick-tasks"]) {
 }
 ok("the other two folders get no picture gate", ["internet-search", "claude-settings"].map((h) => fs.readFileSync(path.join(projects, h, ".claude", "settings.json"), "utf8").includes("picture-gate")), [false, false]);
 const beforeAgain = [...snap(claude), ...snap(projects)];
-const again = install(home, "--codex", "yes", "--agy", "no");
+const again = install(home, "--codex", "yes");
 ok("the next run doesn't say it again", again.out.includes("rules: new in this version"), false);
 ok("a second run with Codex changes nothing", [CHANGED.test(again.out), JSON.stringify([...snap(claude), ...snap(projects)]) === JSON.stringify(beforeAgain)], [false, true]);
 
 // ---- Codex taken away again: the link and the gate's wiring go, the shared files are not deleted through the link
-ok("install without Codex again exits cleanly", install(home, "--codex", "no", "--agy", "no").code, 0);
+ok("install without Codex again exits cleanly", install(home, "--codex", "no").code, 0);
 ok("the links and the gate's wiring are gone", ["ask-anything", "quick-tasks"].map((h) =>
   [fs.existsSync(path.join(projects, h, ".claude", "skills", "picture")), fs.readFileSync(path.join(projects, h, ".claude", "settings.json"), "utf8").includes("picture-gate")]), [[false, false], [false, false]]);
 ok("the shared skill's files are still there", fs.existsSync(path.join(shared, "SKILL.md")));
 ok("the link gate's wiring stays", commandsIn(json(path.join(projects, "internet-search", ".claude", "settings.json"))).length, 1);
 
-// ---- a worker on the PATH is found without a flag
+// ---- Codex on the PATH is found without a flag
 const bin = path.join(tmp, "bin");
 fs.mkdirSync(bin);
 fs.writeFileSync(path.join(bin, "codex"), "");
 const found = installWith(bin, path.join(tmp, "never-asked"), "--dry-run");
-ok("codex on the PATH is found", [found.out.includes("Codex CLI (GPT): used (found on the PATH)"), found.out.includes("Codex only")], [true, true]);
+ok("codex on the PATH is found", found.out.includes("Codex CLI (GPT): used (found on the PATH)"));
 
 ok("an answer given once wins over the PATH on a later run", installWith(bin, home, "--dry-run").out.includes("Codex CLI (GPT): not used, optional (as answered before)"));
 ok("the answers, the version and Node are on record", (() => {
   const s = json(path.join(claude, "setup-state.json"));
-  return [s.codex, s.agy, s.version === json(path.join(REPO, "version.json")).version, "node" in s];
+  return [s.codex, "agy" in s, s.version === json(path.join(REPO, "version.json")).version, "node" in s];
 })(), [false, false, true, false]);
 
 // ---- an update: files the user never changed are replaced by the newer version's, changed ones stay
@@ -452,7 +456,7 @@ ok("--node starts every hook with that Node", withNode.filter((c) => !c.startsWi
 ok("--node is remembered for later runs", json(path.join(nodeHome, ".claude", "setup-state.json")).node, fwd(process.execPath));
 
 // ---- the newer gates: an old settings file ends with each entry once, a second run adds nothing, --uninstall takes them out
-// The five scripts as wired, each as [event, matcher, if, script and its arguments]
+// The five scripts as wired (web-worker-gate is retired: none of its entries may stay), each as [event, matcher, if, script and its arguments]
 const GATES = /^(verify-gate|code-review-gate|nimbalyst-notes|opencli-readonly|web-worker-gate)\.mjs/;
 const gateShape = (s) => Object.entries(s.hooks || {}).flatMap(([event, groups]) => groups.flatMap((g) => (g.hooks || []).map((h) =>
   [event, g.matcher || "", h.if || "", h.command.replace(/^.*[\\/]([\w-]+\.mjs)"?\s*/, "$1 ").trim()]))).filter((e) => GATES.test(e[3])).map((e) => JSON.stringify(e)).sort();
@@ -475,17 +479,16 @@ const WANT = [
   ["PreToolUse", "Bash|PowerShell", "", "code-review-gate.mjs --pre"],
   ["PreToolUse", "Bash|PowerShell", "", "opencli-readonly.mjs"], // the user's own, from another folder
   ["PreToolUse", "Bash|PowerShell", "Bash(*opencli*)", "opencli-readonly.mjs"], ["PreToolUse", "Bash|PowerShell", "PowerShell(*opencli*)", "opencli-readonly.mjs"],
-  ["PreToolUse", "Bash|PowerShell", "Bash(*ask.mjs*)", "web-worker-gate.mjs"], ["PreToolUse", "Bash|PowerShell", "PowerShell(*ask.mjs*)", "web-worker-gate.mjs"],
 ].map((e) => JSON.stringify(e)).sort();
-ok("an old settings file gets each newer entry once: --start, --pre and the plain one stay apart, the old unguarded handlers are replaced", gateShape(friendSettings()), WANT);
+ok("an old settings file gets each newer entry once: --start, --pre and the plain one stay apart, the old unguarded handler is replaced, the retired web-worker-gate goes", gateShape(friendSettings()), WANT);
 const quiet = path.join(tmp, "quiet-friend");
 fs.mkdirSync(path.join(quiet, ".claude"), { recursive: true });
 fs.writeFileSync(path.join(quiet, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "node \"" + fwd(path.join(quiet, ".claude", "hooks", "verify-gate.mjs")) + "\" 2>/dev/null", timeout: 10 }] }] } }));
 install(quiet);
 ok("a hook the user added a redirect to is not wired a second time", json(path.join(quiet, ".claude", "settings.json")).hooks.Stop.flatMap((g) => g.hooks).filter((h) => h.command.includes("verify-gate.mjs")).length, 1);
 ok("the handlers with an `if` carry the timeout of the example", friendSettings().hooks.PreToolUse.flatMap((g) => g.hooks).filter((h) => h.if).map((h) => [h.if.startsWith("Bash(") || h.if.startsWith("PowerShell("), h.timeout]),
-  [[true, 15], [true, 15], [true, 5], [true, 5]]);
-ok("the run says it replaced the two old handlers", [wiredRun.out.includes("hook replaced: PreToolUse opencli-readonly.mjs"), wiredRun.out.includes("hook replaced: PreToolUse web-worker-gate.mjs")], [true, true]);
+  [[true, 15], [true, 15]]);
+ok("the run says it replaced the old handler and removed the retired one", [wiredRun.out.includes("hook replaced: PreToolUse opencli-readonly.mjs"), wiredRun.out.includes("hook removed: PreToolUse web-worker-gate.mjs")], [true, true]);
 const wiredBefore = fs.readFileSync(path.join(friend, ".claude", "settings.json"), "utf8");
 const wiredAgain = install(friend);
 ok("a second run changes nothing in the settings and adds or replaces no hook",

@@ -17,7 +17,7 @@
 // A setup file the last review's brief named is a fix of what it found; one it didn't name still asks.
 // This turn's helpers count by each entry's time: since the last review or the last block, or else from 30 minutes
 // before the user's last message, so a note typed while a job finishes doesn't hide the job.
-// A review is a `reviewer` agent that came back with a report, the code-review or blind-review skill, or /code-review
+// A review is a `reviewer` agent that came back with a report, the code-review or blind-screen-review skill, or /code-review
 // typed by the user. A reviewer cut at its limit or empty reviewed nothing. A reply ending in a question passes, and what was
 // due stays due after the answer (in a file beside the marker) until a review. A crash fails open and leaves a line in hooks/state/hook-errors.log.
 // CODE_REVIEW_GATE=led (env, or env in the project's .claude/settings.json): only a job of several helper
@@ -62,7 +62,7 @@ const isSetup = (p) => {
   const f = String(p).replace(/\\/g, "/");
   return !/\/(temp|tmp|scratch)\//i.test(f) && /(^|\/)(\.claude\/(hooks\/|agents\/|rules\/|skills\/|settings[^/]*\.json$)|CLAUDE\.md$|\.github\/workflows\/|\.gitlab-ci\.ya?ml$|\.circleci\/|\.husky\/|settings\.example\.json$)/i.test(f);
 };
-const isReview = (b) => (b.name === "Skill" && /(^|:)(code-review|blind-review)$/.test(String(b.input?.skill || "").trim().replace(/^\//, "")))
+const isReview = (b) => (b.name === "Skill" && /(^|:)(code-review|blind-screen-review)$/.test(String(b.input?.skill || "").trim().replace(/^\//, "")))
   || (/^(Agent|Task)$/.test(b.name) && b.input?.subagent_type === "reviewer");
 const fileKey = (p) => {
   const k = path.resolve(String(p)).replace(/\\/g, "/");

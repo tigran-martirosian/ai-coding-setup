@@ -183,7 +183,7 @@ export const Dashboard: React.FC<SceneProps> = ({ durationInFrames }) => {
                       }}
                     >
                       Opus · largest context 212k ·{" "}
-                      <span style={{ color: color.text }}>6 Codex and Gemini runs started from this chat</span>
+                      <span style={{ color: color.text }}>6 helpers started from this chat</span>
                     </div>
                   </Appear>
                 ) : null}

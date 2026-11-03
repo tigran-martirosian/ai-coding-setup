@@ -116,13 +116,10 @@ function deny(path, m) {
     fit >= 1
       ? `1. Locate the part you need (Grep with line numbers), then Read with offset/limit, at most ${fit} lines.`
       : `1. Its lines are very long (about ${Math.round(perLine)} characters each): Grep with a narrow pattern (-o with some context), not a Read.`,
-    `2. To understand or summarise it, hand the reading to a cheap worker and keep only its answer:`,
-    // ask.mjs uses the first free worker that is set up and working and says which
-    `   - A free worker: ~/.claude/workers/ask.mjs "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number. Do not edit anything."`,
     IN_HELPER
-      ? `   - If that ends with "no free worker could answer": answer it yourself from targeted reads.`
-      : `   - If that ends with "no free worker could answer": a subagent with subagent_type: "worker", model: "haiku" (Agent tool) that answers from targeted reads.`,
-    `   Ask one specific question per call. Treat the answer as a lead, not ground truth.`,
+      ? `2. To understand or summarise it, answer from targeted reads (Grep, then Read with offset/limit).`
+      : `2. To understand or summarise it, hand the reading to a subagent with subagent_type: "worker", model: "sonnet" (Agent tool), naming ${path} and one specific question, and keep only its answer. Ask for terse bullets, each starting with the line number.`,
+    `   Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,
   ].join("\n");
   writeSync(1, JSON.stringify({

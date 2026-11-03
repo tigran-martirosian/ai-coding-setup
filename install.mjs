@@ -2,8 +2,7 @@
 // Installs this setup. Safe to run again: it adds what is missing and a second run changes nothing.
 //   1. ~/.claude: the hooks, the agents and the skills, and the hook wiring from
 //      settings.example.json merged into settings.json
-//   2. ~/.claude/CLAUDE.md: the global rules from rules/, with the section about outside workers that
-//      fits what is installed (Codex, Antigravity, both or neither)
+//   2. ~/.claude/CLAUDE.md: the global rules from rules/
 //   3. the base project folders from projects/ (ask-anything, internet-search, quick-tasks,
 //      claude-settings), each with its skills, hooks, tools and its own .claude/settings.json
 //   4. Claude Code's own settings (a default model when none is set, permission rules for the saved
@@ -27,9 +26,9 @@
 //                               it only prints what it would do
 //   --projects <folder>         where the project folders go (default: Projects in the home folder;
 //                               the folder given once is remembered for later runs)
-//   --codex yes|no              whether the Codex CLI is used (default: the answer given before, else
+//   --codex yes|no              whether the Codex CLI is used, for the picture skill and the web sweeps of
+//                               ask-anything and internet-search (default: the answer given before, else
 //                               yes when `codex` is on the PATH)
-//   --agy yes|no                the same for the Antigravity CLI (`agy`)
 //   --replace-rules             replace a ~/.claude/CLAUDE.md that has other content (a dated copy is kept)
 //   --replace <file>            take the setup's version of one file the user changed, named as the run
 //                               lists it (hooks/sql-guard.mjs); can be given several times
@@ -142,11 +141,11 @@ const HOMES = fs.readdirSync(path.join(REPO, "projects"), { withFileTypes: true 
   .filter((e) => e.isDirectory() && e.name !== "shared").map((e) => e.name);
 const homeSettings = Object.fromEntries(HOMES.map((h) => [h, readSettings(path.join(PROJECTS, h, ".claude", "settings.json"))]));
 
-// The outside workers are optional: without them the rules send gathering to Claude's cheaper models,
-// the picture skill (it needs Codex) is left out.
+// Codex is optional: without it the picture skill (it needs Codex) is left out and the folders' notes say
+// what Claude does instead.
 const onPath = (name) => (process.env.PATH || "").split(path.delimiter)
   .some((d) => d && ["", ".cmd", ".exe", ".ps1"].some((e) => fs.existsSync(path.join(d, name + e))));
-// A yes or no given once is remembered, so a later run (an update) doesn't turn a worker back on
+// A yes or no given once is remembered, so a later run (an update) doesn't turn Codex back on
 const answer = (name) => (opt(name) === "yes" ? true : opt(name) === "no" ? false : typeof state[name] === "boolean" ? state[name] : null);
 const worker = (name) => answer(name) ?? onPath(name);
 // Claude Code on Windows starts the hooks through Git Bash: without it every guard of this setup fails.
@@ -163,8 +162,7 @@ const gitBashFound = () => {
 };
 const GIT_BASH_MISSING = `Git Bash was not found on this computer. Claude Code on Windows starts the hooks through it, so without it every guard of this setup fails. Install Git for Windows (https://git-scm.com/download/win), or, when it is installed in an unusual place, set CLAUDE_CODE_GIT_BASH_PATH to the full path of its bash.exe in the "env" part of ${fwd(settingsFile)}. The install goes on; run it again after that.`;
 const WORKERS = path.join(CLAUDE, "workers");
-const have = { codex: worker("codex"), agy: worker("agy") };
-const which = have.codex && have.agy ? "Codex and Antigravity" : have.codex ? "Codex only" : have.agy ? "Antigravity only" : "Claude alone";
+const have = { codex: worker("codex") };
 
 // A dated copy of a file as it is now, made before it is changed. A copy already made today stays as
 // it is (it is the older one); a second change on the same day gets -2, -3, ...
@@ -242,7 +240,7 @@ function fit(rel, data) {
 }
 const repoText = (rel) => fit(rel, fs.readFileSync(path.join(REPO, rel))).toString("utf8").replace(/\r\n/g, "\n");
 
-const RETIRED = ["build-nudge.mjs", "turn-cap.mjs"];
+const RETIRED = ["build-nudge.mjs", "turn-cap.mjs", "web-worker-gate.mjs"];
 // The folder each extension (named as in the repo) has in Nimbalyst's extensions folder
 const EXT_FOLDER = { "ink-themes": "inktheme", "agents-panel": "agentspanel", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud" };
 // Add-ons: left out of a default install. --with name[,name,...] adds any of them; a copy already in
@@ -255,18 +253,36 @@ if (badWith.length) { console.log(`--with ${badWith.join(",")}: not an add-on. T
 // A file under an add-on skill is left out unless it was asked for with --with, or a copy is already there
 const addonSkip = (rel) => Object.entries(ADDONS).some(([name, kind]) => kind === "skill" && fwd(rel).startsWith(fwd(path.join("skills", name)) + "/")
   && !withNames.includes(name) && !fs.existsSync(path.join(CLAUDE, "skills", name, "SKILL.md")));
-// The allow-rules the setup adds to Antigravity's settings; state.agyAdded records which ones it really added
-const AGY_RULES = [`read_file(${fwd(PROJECTS)})`, ...["hooks", "skills", "agents"].map((d) => `read_file(${fwd(CLAUDE)}/${d})`)];
-// Earlier versions added these. An update takes them out: what it reads can carry a planted line, ~/.claude holds the
-// Claude login, and read_url could send it anywhere
-const AGY_RETIRED = ["read_url(*)", `read_file(${fwd(CLAUDE)})`];
-// Antigravity's settings can't refuse web search or a file by pattern, so its hooks file gets a PreToolUse hook
-// (workers/agy-gate.mjs): in the worker command's runs it refuses web search and subagents, and .env files unless
-// the task names .env. The command has no quotes: Antigravity passes them on to node, which then can't find the file.
+// Versions before 1.0.77 gave long reading to outside workers and set Antigravity up for it: allow-rules in its
+// settings (state.agyAdded records the ones the setup really added) and the hook ask-worker-gate in its hooks
+// file. An update and --uninstall take both out; the user's own rules and hooks stay.
 const AGY_HOOK = "ask-worker-gate";
+const agyFile = path.join(home, ".gemini", "antigravity-cli", "settings.json");
 const agyHooksFile = path.join(home, ".gemini", "config", "hooks.json");
-const agyGateFile = `${fwd(CLAUDE)}/workers/agy-gate.mjs`;
-let agyAdded = [...(state.agyAdded || [])];
+// What those versions could add; with no record they are only named (kept: the list --uninstall prints)
+const AGY_RULES = [`read_file(${fwd(PROJECTS)})`, ...["hooks", "skills", "agents"].map((d) => `read_file(${fwd(CLAUDE)}/${d})`), "read_url(*)", `read_file(${fwd(CLAUDE)})`];
+function dropAgy(kept = null) {
+  if (fs.existsSync(agyFile) && (state.agyAdded?.length || kept)) {
+    const agy = readSettings(agyFile);
+    const allow = agy.permissions?.allow || [];
+    const added = (state.agyAdded || []).filter((r) => allow.includes(r));
+    if (added.length) {
+      agy.permissions.allow = allow.filter((r) => !added.includes(r));
+      putJson(agyFile, agy, null);
+      say(`removed the allow rules the setup added from ${fwd(agyFile)}: ${added.join(", ")}`);
+    } else if (kept && !state.agyAdded && AGY_RULES.some((r) => allow.includes(r))) {
+      kept.push(`${fwd(agyFile)}: allow rules (${AGY_RULES.filter((r) => allow.includes(r)).join(", ")}) that the setup may have added; remove them by hand if they are not yours`);
+    }
+  }
+  if (fs.existsSync(agyHooksFile) && fs.readFileSync(agyHooksFile, "utf8").includes(AGY_HOOK)) {
+    const hooks = readSettings(agyHooksFile);
+    if (!(AGY_HOOK in hooks)) return;
+    delete hooks[AGY_HOOK];
+    if (DRY) say(`would remove the hook ${AGY_HOOK} from ${fwd(agyHooksFile)}`);
+    else if (Object.keys(hooks).length) { putJson(agyHooksFile, hooks, null); say(`removed the hook ${AGY_HOOK} from ${fwd(agyHooksFile)}`); }
+    else { fs.rmSync(agyHooksFile); say(`removed ${fwd(agyHooksFile)} (it held only the setup's hook)`); }
+  }
+}
 
 // ---- --uninstall: takes the setup out again and ends the run
 if (args.includes("--uninstall")) {
@@ -372,30 +388,8 @@ if (args.includes("--uninstall")) {
       kept.push(`${short(copy)} (${i === first ? "a file with that name is there" : isUsers(copy) ? "a later copy" : "no record that it is yours: it may be an older version of the setup's own file"})`);
     });
   }
-  // 4. Antigravity's allow-rules: the ones the install recorded as added go; without a record they are only named
-  const agyFile = path.join(home, ".gemini", "antigravity-cli", "settings.json");
-  if (fs.existsSync(agyFile)) {
-    const agy = readSettings(agyFile);
-    const allow = agy.permissions?.allow || [];
-    const added = (state.agyAdded || []).filter((r) => allow.includes(r));
-    if (added.length) {
-      agy.permissions.allow = allow.filter((r) => !added.includes(r));
-      putJson(agyFile, agy, null);
-      say(`removed the allow rules the setup added from ${fwd(agyFile)}: ${added.join(", ")}`);
-    } else if (!state.agyAdded && [...AGY_RULES, ...AGY_RETIRED].some((r) => allow.includes(r))) {
-      kept.push(`${fwd(agyFile)}: allow rules (${[...AGY_RULES, ...AGY_RETIRED].filter((r) => allow.includes(r)).join(", ")}) that the setup may have added; remove them by hand if they are not yours`);
-    }
-  }
-  // 5. Antigravity's hook for the worker command
-  if (fs.existsSync(agyHooksFile)) {
-    const hooks = readSettings(agyHooksFile);
-    if (AGY_HOOK in hooks) {
-      delete hooks[AGY_HOOK];
-      if (DRY) say(`would remove the hook ${AGY_HOOK} from ${fwd(agyHooksFile)}`);
-      else if (Object.keys(hooks).length) putJson(agyHooksFile, hooks, null);
-      else { fs.rmSync(agyHooksFile); say(`removed ${fwd(agyHooksFile)} (it held only the setup's hook)`); }
-    }
-  }
+  // 4. what an older version set up in Antigravity
+  dropAgy(kept);
   if (!DRY) fs.rmSync(stateFile);
   say(`removed ${fwd(stateFile)} (the record of this install)`);
   // 5. what stays, and how to take it out
@@ -422,39 +416,20 @@ for (const rel of files) {
   if (addonSkip(rel)) continue;
   let data = fs.readFileSync(path.join(REPO, rel));
   // a shell script needs Unix line ends and has to be runnable; off Windows Codex's Windows-only sandbox flag goes
-  const script = rel.endsWith(".sh") || rel === path.join("workers", "ask.mjs"); // started by its own name
+  const script = rel.endsWith(".sh"); // started by its own name
   if (script) data = Buffer.from(data.toString("utf8").replace(/\r\n/g, "\n").replace(WIN ? "" : ` -c 'windows.sandbox="unelevated"'`, ""));
   put(path.join(CLAUDE, rel), data, { own: true });
   if (script && !DRY) fs.chmodSync(path.join(CLAUDE, rel), 0o755);
 }
-// The worker command (workers/ask.mjs) leaves out a worker that has a file <name>.off next to it
+// Versions before 1.0.77 wrote workers/<name>.off for an outside worker that was not used: those go, and so
+// does what they set up in Antigravity (the worker files themselves go with the files no longer shipped, below)
 for (const name of ["codex", "agy"]) {
   const off = path.join(WORKERS, `${name}.off`);
-  if (!have[name]) put(off, Buffer.from(`Not used on this computer. Run install.mjs with --${name} yes to use this worker.\n`), { keep: true });
-  else if (fs.existsSync(off)) { if (!DRY) fs.rmSync(off); say(`removed ${fwd(off)}`); }
+  if (!fs.existsSync(off) || !fs.readFileSync(off, "utf8").startsWith("Not used on this computer.")) continue;
+  if (!DRY) fs.rmSync(off);
+  say(`removed ${fwd(off)} (no longer part of the setup)`);
 }
-// Antigravity run headless can't ask for a permission, so a tool that needs one ends the run with no
-// answer: read_file for a file outside the folder it starts in. These allow-rules let it read the projects
-// folder and the setup's own hooks, skills and agents; its own rules stay as they are.
-if (have.agy) {
-  const agyFile = path.join(home, ".gemini", "antigravity-cli", "settings.json");
-  const agySettings = readSettings(agyFile);
-  const was = JSON.stringify(agySettings);
-  const had = agySettings.permissions?.allow || [];
-  const allow = had.filter((r) => !AGY_RETIRED.includes(r));
-  if (allow.length !== had.length) say(`removed from ${fwd(agyFile)}: ${had.filter((r) => AGY_RETIRED.includes(r)).join(", ")} (they let a file it reads send your login out)`);
-  const want = AGY_RULES.filter((r) => !allow.includes(r));
-  agyAdded = [...new Set([...agyAdded.filter((r) => !AGY_RETIRED.includes(r)), ...want])]; // on record, so --uninstall takes out only these
-  agySettings.permissions = { ...agySettings.permissions, allow: [...allow, ...want] };
-  putJson(agyFile, agySettings, want.length || allow.length !== had.length ? null : was);
-  if (/\s/.test(agyGateFile)) say(`NOT registered: ${agyGateFile} has a space in it, which Antigravity's hooks can't run. The worker command will not start Antigravity until the setup is in a folder without spaces.`);
-  else {
-    const hooks = readSettings(agyHooksFile);
-    const wasHooks = JSON.stringify(hooks);
-    hooks[AGY_HOOK] = { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: `node ${agyGateFile}`, timeout: 10 }] }] };
-    putJson(agyHooksFile, hooks, wasHooks);
-  }
-}
+dropAgy();
 // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
 const shared = path.join(REPO, "projects", "shared");
 if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), fit(rel, fs.readFileSync(path.join(shared, rel))), { own: true });
@@ -528,11 +503,10 @@ function retire(target) {
     target.hooks[event] = groups.filter((group) => {
       const before = (group.hooks || []).length;
       if (!before) return true;
+      for (const h of group.hooks.filter(retired)) say(`hook removed: ${event} ${RETIRED.find((name) => fwd(String(h.command)).includes(`/hooks/${name}`)) || ""} (no longer part of the setup)`);
       group.hooks = group.hooks.filter((h) => !retired(h));
       removed += before - group.hooks.length;
-      if (group.hooks.length) return true;
-      say(`hook removed: ${event} ${group.matcher || ""} (switched off in this version)`.replace("  ", " "));
-      return false;
+      return group.hooks.length > 0;
     });
   }
   return removed;
@@ -659,11 +633,11 @@ if (LANG === "russian" && settings.language !== "russian") { settings.language =
 else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
 if (wired || own.model || modelChanged || own.compact || own.cache || own.logs || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
 
-// ---- 2. the global rules, with the worker section that fits
-// Every heading the worker section has ever carried: an older rules file on disk still has an old one.
-const HEAD = /^## (External workers first for gathering information|Gathering information on Claude alone|The free workers? reads? local files, not the web)$/;
-// Puts the worker section in place of the one the text has (from its heading to the next "# " heading)
-function withWorkers(text, section) {
+// ---- 2. the global rules
+// Every heading the section on gathering information has ever carried: an older rules file on disk still has an old one.
+const HEAD = /^## (Gathering information|External workers first for gathering information|Gathering information on Claude alone|The free workers? reads? local files, not the web)$/;
+// Puts this version's section in place of the one the text has (from its heading to the next "# " heading)
+function withSection(text, section) {
   const lines = text.split("\n");
   const i = lines.findIndex((l) => HEAD.test(l));
   if (i === -1) return null;
@@ -672,33 +646,31 @@ function withWorkers(text, section) {
   lines.splice(i, j - i, ...section.replace(/\n+$/, "").split("\n"), "");
   return lines.join("\n");
 }
-const full = repoText("rules/CLAUDE.md");
-// One section fits every mix of workers: its command (ask.mjs) picks the worker. With none, the section for Claude alone
-const section = have.codex || have.agy ? null : repoText("rules/workers-none.md");
-const built = section ? withWorkers(full, section) : full;
-// A renamed heading in rules/CLAUDE.md used to end here as "writeFileSync received null": say so instead.
-if (built === null) throw new Error(`rules/CLAUDE.md has no worker section heading matching ${HEAD} - add the new heading to HEAD in install.mjs`);
+const built = repoText("rules/CLAUDE.md");
+// A renamed heading in rules/CLAUDE.md would leave an older rules file's section in place: say so instead.
+const headAt = built.split("\n").findIndex((l) => HEAD.test(l));
+if (headAt === -1) throw new Error(`rules/CLAUDE.md has no section heading matching ${HEAD} - add the new heading to HEAD in install.mjs`);
 const rulesFile = path.join(CLAUDE, "CLAUDE.md");
 const mine =fs.existsSync(rulesFile) ? fs.readFileSync(rulesFile, "utf8").replace(/\r\n/g, "\n") : null;
-// Only the worker section of an existing rules file is the installer's to change
-const ownSection = section || full.split("\n").slice(full.split("\n").findIndex((l) => HEAD.test(l))).join("\n").split(/\n(?=# )/)[0];
-const swapped = mine === null ? null : withWorkers(mine, ownSection);
+// Only the section on gathering information of an existing rules file is the installer's to change
+const ownSection = built.split("\n").slice(headAt).join("\n").split(/\n(?=# )/)[0];
+const swapped = mine === null ? null : withSection(mine, ownSection);
 const writeRules = (text) => { if (!DRY) { fs.mkdirSync(CLAUDE, { recursive: true }); fs.writeFileSync(rulesFile, text); } };
 // state.rules: the rules as a run last wrote them. A file that still matches was not changed by the
 // user, so a newer version replaces it. state.rulesOffered: the newer rules the user was last told about.
 const marks = { rules: state.rules, rulesOffered: state.rulesOffered };
-if (mine === null) { writeRules(built); say(`rules: wrote ${fwd(rulesFile)} (workers: ${which})`); }
-else if (mine === built) say(`rules: unchanged ${fwd(rulesFile)} (workers: ${which})`);
+if (mine === null) { writeRules(built); say(`rules: wrote ${fwd(rulesFile)}`); }
+else if (mine === built) say(`rules: unchanged ${fwd(rulesFile)}`);
 else if (args.includes("--replace-rules") || replaceAll || state.rules === sha(mine)) {
   const backup = keepCopy(rulesFile, onRecord && state.rules !== sha(mine));
   writeRules(built);
-  say(`rules: replaced ${fwd(rulesFile)} (workers: ${which}; old copy: ${backup})`);
+  say(`rules: replaced ${fwd(rulesFile)} (old copy: ${backup})`);
 } else {
-  if (mine === swapped) say(`rules: unchanged ${fwd(rulesFile)} (workers: ${which})`);
+  if (mine === swapped) say(`rules: unchanged ${fwd(rulesFile)}`);
   else if (swapped !== null) {
     const backup = keepCopy(rulesFile, onRecord);
     writeRules(swapped);
-    say(`rules: wrote the worker section of ${fwd(rulesFile)} (${which}); the rest is left as it was (old copy: ${backup})`);
+    say(`rules: wrote the section on gathering information of ${fwd(rulesFile)}; the rest is left as it was (old copy: ${backup})`);
   } else {
     say(`rules: left alone, ${fwd(rulesFile)} has other content. Run again with --replace-rules to take these rules (a dated copy is kept), or merge rules/CLAUDE.md by hand.`);
   }
@@ -795,23 +767,23 @@ for (const name of HOMES) {
   putJson(file, s, was);
 }
 // Remembered for later runs: the projects folder, the folder of this setup (a chat can find it again),
-// its version, the answers about the workers and Node, and what the rules and notes files were written as
+// its version, the answers about Codex and Node, and what the rules and notes files were written as
 const version = JSON.parse(fs.readFileSync(path.join(REPO, "version.json"), "utf8")).version;
 const nextState = { ...state, projects: PROJECTS, repo: REPO, version, ...marks, written, files: filesWritten };
 if (modelMark) nextState.model = modelMark;
 if (userCopies.size) nextState.userCopies = [...userCopies].sort();
-if (agyAdded.length) nextState.agyAdded = agyAdded;
-for (const name of ["codex", "agy"]) if (answer(name) !== null) nextState[name] = answer(name);
+// what an older version recorded about the outside workers is gone with them (dropAgy above)
+delete nextState.agyAdded;
+delete nextState.agy;
+if (answer("codex") !== null) nextState.codex = answer("codex");
 if (nodeFile) nextState.node = nodeFile;
 if (LANG) nextState.language = LANG;
 for (const key of Object.keys(nextState)) if (nextState[key] === undefined) delete nextState[key];
 // (nextState is written once, after the extensions and plugins below: a run that stops before then
 // leaves the old record, version included)
 
-for (const [tool, what] of [["codex", "Codex CLI (GPT)"], ["agy", "Antigravity CLI (Gemini)"]]) {
-  const why = opt(tool) ? "" : answer(tool) !== null ? " (as answered before)" : onPath(tool) ? " (found on the PATH)" : " (not found on the PATH)";
-  say(`${what}: ${have[tool] ? "used" : "not used, optional"}${why}`);
-}
+const codexWhy = opt("codex") ? "" : answer("codex") !== null ? " (as answered before)" : onPath("codex") ? " (found on the PATH)" : " (not found on the PATH)";
+say(`Codex CLI (GPT): ${have.codex ? "used" : "not used, optional"}${codexWhy}; it makes the pictures and runs the web sweeps in ask-anything and internet-search`);
 // The editor extensions are built from source and installed into Nimbalyst's own extensions folder,
 // when Nimbalyst is there. One whose source is as at the last run is left alone. read-aloud needs a
 // speech program of its own, so it is only built with --with read-aloud or where it is installed already.
@@ -915,7 +887,7 @@ const fullInstall = fwd(path.join(REPO, "docs", "full-install.md"));
 if (!state.version && !(state.done || []).includes("chat-steps")) {
   say(`Left for a chat, once: Nimbalyst's settings and voice typing. In a Claude chat (inside Nimbalyst where it is used) carry out steps 8 and 9 of ${fullInstall}. This is named now only; an update never asks for it.`);
 }
-say(`The programs (Nimbalyst, Git, uv, the outside workers) are the full install: ${fullInstall}`);
+say(`The programs (Nimbalyst, Git, uv, Codex) are the full install: ${fullInstall}`);
 
 // ---- what this run did to files that were already there, and what looks left over
 // A hook in settings.json that starts a script by its full path, where that script is not there

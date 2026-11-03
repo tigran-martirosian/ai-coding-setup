@@ -10,7 +10,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "language-test-"));
 let pass = 0, fail = 0;
 const check = (name, ok) => { ok ? pass++ : fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); };
 const json = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
-const install = (home, ...flags) => spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", home, "--codex", "no", "--agy", "no", ...flags], { encoding: "utf8" });
+const install = (home, ...flags) => spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", home, "--codex", "no", ...flags], { encoding: "utf8" });
 
 const home = path.join(tmp, "home");
 const state = () => json(path.join(home, ".claude", "setup-state.json"));

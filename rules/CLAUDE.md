@@ -43,25 +43,22 @@ The user reads replies in a chat panel (Nimbalyst or the terminal).
 The user wants busy work kept off the main model. This counts as standing permission to use subagents for it.
 
 - **Model and effort.** Sessions run Opus at medium effort unless the project's settings name another model. Effort goes up before the model changes: high for hard bugs, reviews of what a person looks at, and design or balance calls; xhigh for jobs that run for hours. Fable only for a plan (the `planner` agent) or after Opus at high effort failed twice on the same problem. Sonnet for data edits, ports and gathering; Haiku for scans. A session on the wrong model for its work says so and hands off to a session on the right one.
-- **A build or design request goes to the `planner` agent first**, in every project: a new feature, system, screen, design or job of several steps, however loosely it is worded; the user's words are its brief. This session judges the plan, then runs it through the `lead` skill: `worker` subagents do the numbered steps, one `reviewer` agent checks the end, and the user is asked only about a hard-to-undo choice or a matter of taste. A small edit, a fix with a clear cause, a data change or a question skips the planner and stays in one session.
+- **A build or design request goes to the `planner` agent first**, in every project: a new feature, system, screen, design or job of several steps, however loosely it is worded; the user's words are its brief. It writes the job-list rows (each step's helper, model and budget, and whether a `reviewer` checks the end); this session runs them unchanged through the `lead` skill, names any change to the user, and asks only about a hard-to-undo choice or a matter of taste. A small edit, a fix with a clear cause, a data change or a question skips the planner and stays in one session.
 - **Main sessions and subagents, no child sessions.** Work beyond what the session the user talks in builds goes to subagents, in the background when it runs long; they keep the 1-hour cache (`subagentPromptCacheTtl`), so a long wait inside one costs no reread. Parallel work in one folder is subagents with `isolation: "worktree"`. A question a subagent can't settle comes back to this session, which asks the user.
-- **The session the user talks in builds** whatever isn't led. A helper gets gathering, or a whole separate job: one with its own files and its own check, which this session does not have to watch; also a small change whose request is clear and that a test or check proves (a Sonnet `worker` does these as well as Opus at about half the cost). Unclear requests and pieces of the job in hand stay here. The brief for a helper names the goal of the whole job, the files, what done looks like, what must not change, the one check that proves it and the project commands it needs (a `worker` starts without CLAUDE.md); read its report, compare the files it changed with the brief, and read the diff yourself.
+- **The session the user talks in builds** whatever isn't led. A helper gets gathering, or a whole separate job: one with its own files and its own check, which this session does not have to watch; also a small change whose request is clear and that a test or check proves. Unclear requests and pieces of the job in hand stay here. The brief for a helper names the goal of the whole job, the files, what done looks like, what must not change, the one check that proves it and the project commands it needs (a `worker` starts without CLAUDE.md); read its report, compare the files it changed with the brief, and read the diff yourself.
 - **A helper that stopped is not finished.** A notice "stopped at its N-turn limit" or an empty report means half-done work: SendMessage it once for what is done and what is left, then compare the files yourself. A cut or empty `reviewer` is NOT RUN. A worker is reused only under about 150k context.
-- **Helpers stay in the brief and talk only to their planner.** A worker fixes what is inside its step, reports anything outside the brief instead of fixing it, and stops with a `BLOCKED` line when what it finds contradicts the plan. What another step needs goes in the job list.
 - **Use `subagent_type: "worker"`**, with `model: "haiku"` for mechanical work, and `worker-full` (every tool and the CLAUDE.md files, much more to start) only when the job needs a skill or an MCP tool. A brief carries a budget in tool calls; the cap is 80 turns, and a job that needs more is split in two.
 - **Name each helper `Kind: what exactly`** in the Agent `description` (e.g. `Web search: library sign-in steps`, `Read files: invoice importer`, `S3: rename the config keys`): that text is its row in Nimbalyst's "Agents & commands" panel. A background command's row shows its `# WHAT THIS DOES:` line, so that line names the job, not the tool.
 
-## The free workers read local files, not the web
+## Gathering information
 
-Reading or summarising long local files and a second opinion go to the free workers (Codex on a ChatGPT
-login, Gemini on an Antigravity login), one Bash command that costs no Claude usage:
-`~/.claude/workers/ask.mjs "<task naming the files>"` (a long task as the path of a text file;
-`--status` lists what is set up; up to about 10 minutes, so run it in the background or with
-`timeout: 600000`). Decisions, code, the final wording and tiny lookups stay with Claude.
+**Big gathering goes to a budgeted subagent; thinking stays in the main session.** Either way the gathering happens: never skip a lookup to save tokens.
 
-- **Never `ask.mjs --web`** (the web-worker-gate hook refuses it; `WEB_WORKER_GATE=off` if ever needed).
-- **When it ends with "no free worker could answer"** (exit code 3), Claude does the gathering: a `worker` subagent with about 15 tool calls. Say in the reply that no free worker was available.
-- Answers are leads: verify what the final answer depends on.
+- **Send to a subagent** (`subagent_type: "worker"`, which runs Sonnet; give it about 15 tool calls; the Agent tool's `model: "haiku"` only for pure searching and listing): sweeping a folder or project, reading or summarising anything long (big files, logs, docs, converted PDFs, long command output), a second opinion, bulk drafting that Claude then checks and edits. "A cheap worker" in these rules means this.
+- **Keep in the main session:** decisions, design, diagnosing bugs, writing or editing code, the final wording of the answer, anything that needs this conversation's context, and tiny lookups (one grep or one short file is faster than explaining it).
+- Ask the subagent for a short answer (with file paths and line numbers where relevant), and give it the budget described above.
+- **A task written to a file gets short lines:** about 100 characters or fewer. Nimbalyst's file card doesn't wrap a long line and draws it over the edge of its box.
+- Treat answers as leads: verify anything the final answer depends on.
 
 ## Web research
 

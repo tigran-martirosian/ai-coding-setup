@@ -43,7 +43,7 @@ showing the user those lines and getting a yes.
 ## 3. Pick the tools this project should use, and turn them on here only
 
 Check what's installed (`claude plugin list` shows each plugin as enabled or disabled,
-`claude mcp list`, `agy --version`, `codex login status`) and what could be added (the
+`claude mcp list`) and what could be added (the
 `find-skills` skill, if it is installed). Many plugins are off globally on purpose, so other sessions stay small.
 List your picks for the user, one line each on what it helps with, and ask once before turning
 anything on. Then, for each accepted pick:
@@ -65,14 +65,14 @@ picks:
 | has a web UI | Nimbalyst **Browser** to preview it and check it; if they are installed, **Playwright** to check it in a real browser and **Frontend Design** for the look; **Designeer** (https://www.designeer.xyz, a free list of design galleries, component libraries, and type and colour tools; nothing to install) for references before a new page or a redesign, with **Component Gallery** (https://component.gallery, how real design systems build one element), **Refero Styles** (https://styles.refero.design, the type and colour of real products) and **DESIGNmd** (https://designmd.ai, a design system as one `DESIGN.md` file to drop into the project) |
 | needs UI or architecture planning | Nimbalyst **MockupLM** mockups and **Excalidraw** diagrams before building |
 | has a database or data model | Nimbalyst **DataModelLM** (`.datamodel`) for the schema, kept in step with the DDL, and the matching database best-practices skill |
-| has large files or docs | The big-read gate is global. Name the biggest files here so sessions go straight to targeted reads or a cheap worker. |
+| has large files or docs | The big-read gate is global. Name the biggest files here so sessions go straight to targeted reads or a `worker` subagent. |
 | takes in PDFs, Word, PowerPoint or Excel | **MarkItDown**: convert to `.md` once, keep the `.md` next to the source, and read that |
 | is research-heavy | **NotebookLM** if it's set up, and any installed research agents |
 | has a plan and multiple steps | The `planner` agent, then `/lead`, and Nimbalyst **Planning** trackers |
 
-Also add any project-specific cheap-worker routing, for example "summaries of `logs/` go to
-agy or a haiku subagent". A design or plan is a good thing to get a second opinion on from
-Codex or agy before building.
+Also add any project-specific helper routing, for example "summaries of `logs/` go to
+a `worker` subagent (Sonnet)". A design or plan is a good thing to get a second opinion on from
+a `worker` subagent before building.
 
 ## 4. Finish
 
