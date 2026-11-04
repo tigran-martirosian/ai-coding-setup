@@ -1,8 +1,10 @@
 // background-tasks: UserPromptSubmit and PreToolUse hook. Every wake-up of the main session re-sends the whole
 // conversation: on real transcripts a long session had dozens of task-notification turns plus Nimbalyst
 // "[System: background task(s) you launched have settled: ...]" prompts, each re-sending the full context.
-//   UserPromptSubmit: blocks the settled prompt when every task it lists already had its task-notification,
-//     so no request is made for it. One unknown or unnotified task lets it through.
+//   UserPromptSubmit: when every task in the settled prompt already had its task-notification, lets it through
+//     with a note to answer in a few plain lines instead of handling the results again. One unknown or
+//     unnotified task lets it through with no note. It used to block it, but a blocked prompt shows in
+//     Nimbalyst as a warning quoting the whole raw list, and that warning, not a reply, was what the user read.
 //   PreToolUse (Bash, Agent, Task with run_in_background: true): adds a note on what background costs.
 // How a settled item maps to its notification, worked out on real transcripts:
 // an item is `- "<text>" <status>\n  Summary: ...`, where <text> is the Agent `description`, or the Bash
@@ -32,6 +34,8 @@ const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n  Summary:)/m;
 // command-explain.mjs appends this to a command without a note; the transcript keeps the command without it
 const STAND_IN = /\n\n# WHAT THIS DOES: \(no note given\) [\s\S]*$/;
 const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read. Use it only when another step runs beside this one; otherwise run it in the foreground (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once.";
+
+const DUPLICATE = "[background-tasks] This settled notice repeats results you already had in their task-notifications, and the user sees it as a raw list. Don't re-read or redo anything: reply in two or three plain sentences with where the work stands now (what is done, what still runs, what they need to decide). Never answer it with \"No response requested\".";
 
 const texts = (c) => typeof c === "string" ? [c] : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text || "") : [];
 const resultText = (c) => typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => b.text || "").join("\n") : "";
@@ -144,7 +148,7 @@ try {
 	if (!SETTLED.test(prompt)) process.exit(0);
 	if (!event.transcript_path || !fs.existsSync(event.transcript_path)) process.exit(0);
 	if (allNotified(prompt, event.transcript_path, event.session_id)) {
-		process.stdout.write(JSON.stringify({ decision: "block", reason: "[background-tasks] duplicate of the task notification already handled" }));
+		process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: DUPLICATE } }));
 	}
 } catch (err) {
 	crashLog("background-tasks", err);

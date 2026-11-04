@@ -1,5 +1,5 @@
 {
-  "version": "1.0.83",
+  "version": "1.0.84",
   "date": "2026-11-03",
-  "summary": "Fewer wasted turns: a \"background task settled\" prompt for work already reported is refused, helpers run in the foreground, a finished job points the next one to a fresh session, a helper that grew large is told to wrap up, and the usage report counts these."
+  "summary": "Hotfix: the \"background task settled\" prompt for work already reported now gets a short plain status reply instead of being refused, so Nimbalyst no longer shows a raw warning in place of a reply."
 }
