@@ -27,13 +27,21 @@ One file, `<project>/.claude/systems-map.json`. Paths are from the project root,
 - `type` (on a link) is one of `uses` (the default), `feeds`, `spends`, `opens`, `boosts`, `limits`; the brief shows it in the arrow (`feeds -> Pricing`, `<- limits from Cart`).
 - An `evidence` entry is a path, or `{ "file": path, "token": text }`. A token is the name of the function, key or string that does the link, so the map notices when it changes.
 
+**Generated files.** A file a script writes (text, data, a docs page) is listed at the top level, so there is one source and nobody edits the copy:
+
+```json
+"generated": [{ "files": ["data/road.json", "docs/steps.md"], "by": "tools/road.py", "run": "python tools/road.py", "inputs": ["data/ladder.json"] }]
+```
+
+`inputs` (optional) are files the script reads: a commit that changes one and reruns the script counts as a run. The `map-generated` hook refuses an Edit or Write of a listed file and names the script and its `run`; `--check` prints `HAND <file>` for a listed file changed by a commit after the last commit of its script or inputs (a hand edit its next run would undo); `--near` shows `Generated:` under a thing that lists such a file. A generator that is retired is not listed: its outputs are the source, and the script refuses to write them.
+
 ## Commands
 
 Run in the project folder: `node ~/.claude/skills/systems-map/map.mjs <command>` (`$HOME` instead of `~` in PowerShell).
 
 - `--scan` prints what a builder needs to start: code files by folder, biggest files, entry points.
 - `--near` lists every thing; `--near <word>...` prints those things with their links, the code behind each link and the things one step further. A word is a thing's id or name, a word of its description, or a file path.
-- `--check` lists listed paths that no longer exist, evidence that lost its token (`DRIFT`) and mistakes in the JSON; exit 1 when anything is wrong.
+- `--check` lists listed paths that no longer exist, evidence that lost its token (`DRIFT`), generated files edited by hand (`HAND`) and mistakes in the JSON; exit 1 when anything is wrong.
 - `--brief` reads a brief on stdin and prints the lines of the things it is about (the top 3 in full, one line for each further match, at most 7,000 characters); the hook uses it. For each thing it shows the 12 links nearest the brief's files.
 
 ## Build a map

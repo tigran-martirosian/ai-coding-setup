@@ -1,6 +1,6 @@
 {
-  "version": "1.0.92",
+  "version": "1.0.93",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "Nimbalyst's chats now run your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes the day they ship rather than days later with a Nimbalyst release."
+  "summary": "A file a script writes is listed in the project's systems map: a hand edit of it is refused with the script to change instead, and the map's check names one already edited by hand, so the next run can't bring old text back."
 }
