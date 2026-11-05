@@ -3,6 +3,8 @@
 // is refused: a worker stops at 80 turns, and steps run over their estimate when they read code nobody summarised
 // (a step briefed at 70 calls used 115, built nothing on the first run, and refused the next step it was handed).
 // Over 50 = split the step in two. A brief with no number passes.
+// A planner call gets a one-line notice for the user instead: a plan takes minutes and nothing shows until it
+// reports, so a long one looked stuck.
 // It fails open on any error. BUDGET_GATE=off disables it.
 import { crashLog } from "./crash-log.mjs";
 import { readFileSync, writeSync } from "node:fs";
@@ -33,10 +35,20 @@ export function decide(event) {
   return `[budget-gate] This ${type} brief states a budget of ${budget} tool calls; the most is ${MAX}. A worker stops at 80 turns, and reading code nobody summarised runs a step over its estimate (a 70-call step took 115). Split it into two steps (for example the server side and the screen), each with its own brief and budget of ${MAX} or less. BUDGET_GATE=off disables this.`;
 }
 
+/** The notice shown to the user when a planner starts, or null. */
+export function plannerNotice(event) {
+  if (!["Agent", "Task"].includes(event.tool_name)) return null;
+  if (String(event.tool_input?.subagent_type || "").toLowerCase() !== "planner") return null;
+  return "Planner started: a plan usually takes 5 to 30 minutes, and nothing shows here until it reports. Still running means still working; a message you send now waits until it is done.";
+}
+
 if (process.argv[1] && /(^|[\\/])budget-gate\.mjs$/.test(process.argv[1])) {
   try {
     if ((process.env.BUDGET_GATE || "").toLowerCase() === "off") process.exit(0);
-    const reason = decide(JSON.parse(readFileSync(0, "utf8")));
+    const event = JSON.parse(readFileSync(0, "utf8"));
+    const notice = plannerNotice(event);
+    if (notice) writeSync(1, JSON.stringify({ systemMessage: notice }));
+    const reason = decide(event);
     if (reason) {
       writeSync(1, JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }));
     }

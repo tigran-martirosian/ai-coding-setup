@@ -16,7 +16,12 @@ const check = (name, ok) => { ok ? pass++ : fail++; console.log(`${ok ? "ok  " :
 // The server answers /version.json with whatever `released` holds and counts the requests
 let released = { version: "1.2.0", summary: "A new thing." };
 let asked = 0;
+let changelog = null; // null: no CHANGELOG.md (404), as an old release had
 const server = http.createServer((req, res) => {
+  if (req.url === "/CHANGELOG.md") {
+    if (changelog === null) { res.statusCode = 404; return res.end(); }
+    return res.end(changelog);
+  }
   asked++;
   if (req.url !== "/version.json") { res.statusCode = 404; return res.end(); }
   res.end(JSON.stringify(released));
@@ -62,6 +67,33 @@ released = { version: "1.10.0" };
 check("1.10.0 is newer than 1.9.2", /version 1\.10\.0\. Type/.test((await run(home("nine", "1.9.2"))).out));
 check("a setup with no version on record counts as older", /an older one/.test((await run(home("none"))).out));
 
+// With the changelog: how far behind, and what came in since
+released = { version: "1.0.5", summary: "Hotfix for one thing." };
+changelog = ["# Changelog", "",
+  "- 1.0.6 (Nov 5, 2026): Not released yet, must not be counted.",
+  "- 1.0.5 (Nov 4, 2026): Hotfix for one thing.",
+  "- 1.0.4 (Nov 3, 2026): Reviews cost half as much.",
+  "- 1.0.3 (Nov 2, 2026): A new command that tidies the board.",
+  "- 1.0.2 (Nov 1, 2026): Installed already.", ""].join("\n");
+const behind = JSON.parse((await run(home("behind", "1.0.2"))).out || "{}");
+const ctx = behind.hookSpecificOutput?.additionalContext || "";
+check("three releases behind: the notice says how many and keeps the install line",
+  /version 1\.0\.5\. You are 3 releases behind \(on 1\.0\.2\).*Type \/update-setup to install it; your own files and skills are kept\./.test(behind.systemMessage || ""));
+check("Claude gets the release notes since the installed version, and only those",
+  /1\.0\.5: Hotfix/.test(ctx) && /1\.0\.4: Reviews cost half/.test(ctx) && /1\.0\.3: A new command/.test(ctx) && !/1\.0\.6/.test(ctx) && !/1\.0\.2:/.test(ctx));
+check("Claude is asked for a short calm list of what the update brings, and still not to install it",
+  /three to five plain bullets/.test(ctx) && /no alarm/.test(ctx) && /Don't install it unless the user asks/.test(ctx));
+const one = JSON.parse((await run(home("onebehind", "1.0.4"))).out || "{}");
+check("one release behind: the one-line notice with the summary, no list",
+  /version 1\.0\.5\. Hotfix for one thing\. Type \/update-setup/.test(one.systemMessage || "") && !/Release notes since/.test(one.hookSpecificOutput?.additionalContext || ""));
+changelog = Array.from({ length: 20 }, (_, i) => `- 1.0.${20 - i} (Nov 1, 2026): Change ${20 - i}.`).join("\n");
+released = { version: "1.0.20" };
+const far = JSON.parse((await run(home("far", "1.0.0"))).out || "{}").hookSpecificOutput?.additionalContext || "";
+check("twenty behind: the 12 newest notes are passed on, and the count says so",
+  /20 releases behind/.test(far) && /the 12 newest of 20/.test(far) && /1\.0\.20: Change 20/.test(far) && /1\.0\.9: Change 9/.test(far) && !/1\.0\.8: Change 8/.test(far));
+changelog = null;
+released = { version: "1.10.0" };
+
 const off = home("off", "1.0.0");
 const askedBeforeOff = asked;
 check("UPDATE_CHECK=off: silent, asks nobody", (await run(off, { UPDATE_CHECK: "off" })).out === "" && asked === askedBeforeOff && kept(off) === null);
@@ -82,7 +114,7 @@ check("a 404 and a refused connection leave no line in the crash log", !fs.exist
 
 // An address that never answers (a dropped connection, as with no network): a prompt must not wait long
 let hung = 0;
-const hang = http.createServer(() => { hung++; });
+const hang = http.createServer((req) => { if (req.url === "/version.json") hung++; }); // the changelog is asked beside it
 await new Promise((r) => hang.listen(0, "127.0.0.1", r));
 const HANG = `http://127.0.0.1:${hang.address().port}`;
 const stuck = home("stuck", "1.0.0");

@@ -29,5 +29,8 @@ const cases = [
 for (const [name, e, want] of cases) check(name, run(e).includes('"deny"') === want);
 check("BUDGET_GATE=off: allow", run(ev("worker", "Budget: 70"), { BUDGET_GATE: "off" }) === "");
 check("deny text says split in two", /Split it into two steps/.test(run(ev("worker", "Budget: 70"))));
+check("a planner start shows the user how long a plan takes, and is not refused",
+  /"systemMessage":"Planner started: a plan usually takes 5 to 30 minutes/.test(run(ev("planner", "Plan the feature."))) && !run(ev("planner", "Budget: 70")).includes('"deny"'));
+check("a worker start shows no planner notice", !/Planner started/.test(run(ev("worker", "Budget: 20"))));
 console.log(fail ? `${fail} failed` : "all passed");
 process.exit(fail ? 1 : 0);

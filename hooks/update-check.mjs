@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // update-check: UserPromptSubmit hook. Every 12 hours it asks GitHub whether a newer version of this
 // setup is released (version.json on the main branch) and, if so, says it in one line and has Claude
-// mention /update-setup. It never downloads or changes anything: the update itself is
+// mention /update-setup. It also reads CHANGELOG.md (at the same time, same wait) and says how many releases
+// the user is behind and what came in since, so someone weeks behind sees what the update brings, not one
+// line about the newest hotfix. No changelog in time: the one-line notice as before. It never downloads or changes anything: the update itself is
 // skills/update-setup/update.mjs, started by the user. The installed version is the one install.mjs
 // wrote to ~/.claude/setup-state.json; a setup with no version on record counts as older.
 // The answer is kept in ~/.claude/update-check.json, so every other prompt costs one file read.
@@ -19,7 +21,11 @@ import path from "node:path";
 
 const CLAUDE = path.join(process.env.SETUP_UPDATE_HOME || os.homedir(), ".claude");
 const BASE = process.env.SETUP_UPDATE_BASE;
-const VERSION_URL = BASE ? `${BASE}/version.json` : "https://raw.githubusercontent.com/tigran-martirosian/ai-coding-setup/main/version.json";
+const RAW = BASE || "https://raw.githubusercontent.com/tigran-martirosian/ai-coding-setup/main";
+const VERSION_URL = `${RAW}/version.json`;
+const CHANGES_URL = `${RAW}/CHANGELOG.md`;
+const NOTES_MAX = 12; // release lines handed to Claude, newest first
+const NOTE_CHARS = 240;
 const EVERY = 12 * 60 * 60 * 1000;
 const RETRY = 60 * 60 * 1000; // after a failed check
 const WAIT = 700; // ms a prompt may wait for GitHub
@@ -56,9 +62,13 @@ if (process.env.UPDATE_CHECK !== "off") {
     const last = json(stateFile);
     const within = (at, ms) => Date.now() - new Date(at || 0).getTime() < ms;
     if (!within(last.checkedAt, EVERY) && !within(last.failedAt, RETRY)) {
-      let latest;
+      let latest, changelog = "";
       try {
-        latest = JSON.parse(await get(VERSION_URL, last.error === TIMED_OUT ? WAIT_SLOW : WAIT));
+        const wait = last.error === TIMED_OUT ? WAIT_SLOW : WAIT;
+        const [v, c] = await Promise.allSettled([get(VERSION_URL, wait), get(CHANGES_URL, wait)]);
+        if (v.status === "rejected") throw v.reason;
+        latest = JSON.parse(v.value);
+        if (c.status === "fulfilled") changelog = String(c.value); // the changelog only adds detail
       } catch (e) {
         // Remember the failure (and why) instead of trying again on every prompt
         fs.writeFileSync(stateFile, JSON.stringify({ ...last, failedAt: new Date().toISOString(), error: String(e.message || e) }) + "\n");
@@ -69,13 +79,23 @@ if (process.env.UPDATE_CHECK !== "off") {
         fs.writeFileSync(stateFile, JSON.stringify({ checkedAt: new Date().toISOString(), latest: latest.version }) + "\n");
         if (newer(latest.version, installed)) {
           const what = latest.summary ? ` ${latest.summary}` : "";
+          const yours = installed === "0" ? "an older one" : installed;
+          // "- 1.0.84 (Nov 3, 2026): text" lines newer than the installed version, up to the released one
+          const missed = [...changelog.matchAll(/^- (\d+(?:\.\d+)*) \([^)]*\): (.+)$/gm)]
+            .filter(([, ver]) => newer(ver, installed) && !newer(ver, latest.version));
+          const many = missed.length >= 2;
+          const notes = missed.slice(0, NOTES_MAX).map(([, ver, text]) => `  - ${ver}: ${text.length > NOTE_CHARS ? text.slice(0, NOTE_CHARS) + "…" : text}`);
           const context = [
-            `[update-check] A newer version of the Claude Code setup is released: ${latest.version} (installed: ${installed === "0" ? "an older one" : installed}).${what}`,
-            `- Do the user's request first. At the end of your reply, say once, in one line, that a setup update is ready and that typing /update-setup installs it.`,
+            `[update-check] A newer version of the Claude Code setup is released: ${latest.version} (installed: ${yours}).${what}`,
+            many
+              ? `- The user is ${missed.length} releases behind. Do the user's request first. At the end of your reply, under a short "Setup update" heading, say in three to five plain bullets what the update brings them: the biggest changes from the release notes below, in what they gain (less usage, fewer mistakes, new commands). Then say that typing /update-setup installs it and keeps their own files and skills. Calm and concrete, no alarm.`
+              : `- Do the user's request first. At the end of your reply, say once, in one line, that a setup update is ready and that typing /update-setup installs it.`,
             `- Don't install it unless the user asks. This reminder comes at most every 12 hours; don't repeat it on later turns.`,
+            ...(many ? [`Release notes since ${yours}, newest first${missed.length > NOTES_MAX ? ` (the ${NOTES_MAX} newest of ${missed.length})` : ""}:`, ...notes] : []),
           ].join("\n");
+          const behind = many ? ` You are ${missed.length} releases behind (on ${yours}): fixes and improvements you don't have yet.` : what;
           process.stdout.write(JSON.stringify({
-            systemMessage: `Setup update ready: version ${latest.version}.${what} Type /update-setup to install it.`,
+            systemMessage: `Setup update ready: version ${latest.version}.${behind} Type /update-setup to install it; your own files and skills are kept.`,
             hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context },
           }));
         }

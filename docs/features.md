@@ -16,7 +16,7 @@ If you already have a Claude Code setup, yours stays. A hook or skill of yours w
 
 ## Updating details
 
-Every 12 hours the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](../hooks/update-check.mjs)) and says so in one line. With no network it waits under a second, writes why it failed into `~/.claude/update-check.json`, and asks again only after an hour. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](../skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
+Every 12 hours the setup asks GitHub whether a newer version is released ([hooks/update-check.mjs](../hooks/update-check.mjs)) and says so in one line. Two or more releases behind, it says how many and Claude lists in a few bullets what they bring. With no network it waits under a second, writes why it failed into `~/.claude/update-check.json`, and asks again only after an hour. Nothing is downloaded until you type `/update-setup`. That runs [update.mjs](../skills/update-setup/update.mjs): it downloads the release to `~/.claude/setup-source` and runs its installer with the answers you gave the first time.
 
 ![An update announced in one line, then installed with one command](img/clip-update.gif)
 
@@ -53,7 +53,7 @@ Five agents in [agents](../agents). The main session starts them with the Agent 
 
 | Agent | What it does |
 |---|---|
-| `planner` | Writes the plan for a build or design request, in every project, on the strongest model. It reads files and changes nothing, and gets the situation without the main session's own idea of the answer |
+| `planner` | Writes the plan for a build or design request, in every project, on the strongest model. It reads files and changes nothing, and gets the situation without the main session's own idea of the answer. When it starts, you see a line saying a plan takes 5 to 30 minutes |
 | `worker` | Does one numbered step of a job, or one clear one-off job, on Sonnet, and stops after 80 turns. It knows the goal of the whole job. It starts without the `CLAUDE.md` files and with file, shell and web tools only, so its brief names the project commands it needs. It stays inside the files it was given, reports anything else it notices, and stops with a `BLOCKED` line when what it finds contradicts the plan |
 | `worker-full` | The same worker with every tool and the `CLAUDE.md` files loaded. It costs much more to start, so it is for a step that needs a skill or an MCP tool such as the browser |
 | `reviewer` | One independent read-only pass over a finished bigger change, on Opus. It reads the request first and the code after it, and reports under two headings: what is missing or wrong against the request, and the quality of the change, each problem tagged Important (a bug the change brings in, with the realistic input or use that triggers it), Nit (a small thing, or a bug that needs an unlikely chain of events) or Pre-existing (already wrong before the change). One is enough on any change |

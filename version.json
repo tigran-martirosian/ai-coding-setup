@@ -1,5 +1,5 @@
 {
-  "version": "1.0.84",
-  "date": "2026-11-03",
-  "summary": "Hotfix: the \"background task settled\" prompt for work already reported now gets a short plain status reply instead of being refused, so Nimbalyst no longer shows a raw warning in place of a reply."
+  "version": "1.0.85",
+  "date": "2026-11-04",
+  "summary": "The update reminder now says how many releases you are behind and what they bring, so an update you skipped for weeks shows what you are missing. A short reply for you to type back is no longer taken for a shell command, and a starting planner says how long a plan takes."
 }
