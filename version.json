@@ -1,6 +1,6 @@
 {
-  "version": "1.0.87",
+  "version": "1.0.88",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "Fewer wasted tokens: helpers run in the foreground unless they really run beside other work, a helper near its context limit finishes and reports instead of compacting, the installer and /update-setup keep Claude Code itself up to date, notes from the Note button or /btw interrupt a busy session only where it matters, and the usage report shows where wake-ups and big helpers spend."
+  "summary": "Updating Claude Code from inside a Nimbalyst session works: Nimbalyst's own no-update setting no longer blocks the setup's update step."
 }

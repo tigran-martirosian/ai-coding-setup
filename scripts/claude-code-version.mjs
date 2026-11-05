@@ -35,11 +35,21 @@ export function nimbalystCandidates(platform, env, arch) {
 }
 
 // The real command runner; a path with a folder is run directly, a plain name through the shell (claude.cmd on Windows)
+// Nimbalyst sets DISABLE_UPDATES and DISABLE_AUTOUPDATER for its own bundled Claude Code; run from one of its sessions,
+// `claude update` inherits them and refuses ("Updates are disabled by your administrator"), so they are left out here.
+export function childEnv(env = process.env) {
+  const out = { ...env };
+  delete out.DISABLE_UPDATES;
+  delete out.DISABLE_AUTOUPDATER;
+  return out;
+}
+
 export function realRun(cmd, args, ms = 10 * 60 * 1000) {
   const direct = path.isAbsolute(cmd);
   const viaCmd = !direct && process.platform === "win32";
-  const r = viaCmd ? spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmd, ...args], { encoding: "utf8", timeout: ms })
-    : spawnSync(cmd, args, { encoding: "utf8", timeout: ms });
+  const opts = { encoding: "utf8", timeout: ms, env: childEnv() };
+  const r = viaCmd ? spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmd, ...args], opts)
+    : spawnSync(cmd, args, opts);
   return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "", error: r.error };
 }
 
