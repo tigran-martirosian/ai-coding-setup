@@ -48,13 +48,16 @@ const broken = [
   ["relative with a plain title", "See [plan](docs/plan.md \"the plan\").", "(/C:/Projects/my%20project/docs/plan.md)"],
   ["file:///", "Open [x](file:///C:/Projects/a.md).", "`C:/Projects/a.md`"],
   ["file:/// with %20", "Open [x](file:///C:/Program%20Files/a.txt).", "`C:/Program Files/a.txt`"],
-  ["home ~", "See [settings](~/.claude/settings.json).", "`" + os.homedir().replace(/\\/g, "/") + "/.claude/settings.json`"],
 ];
 for (const [name, text, fixed] of broken) {
   const r = reasonOf(stop([text]).out);
   check(`blocks ${name}`, !!r && r.includes(fixed));
   if (r && !r.includes(fixed)) console.log("     reason was:", r);
 }
+
+// ~ is the home folder, outside the project: the fix is its path in code (a project folder of this system's kind)
+const homeFix = reasonOf(run({ last_assistant_message: "See [settings](~/.claude/settings.json).", cwd: process.platform === "win32" ? CWD : "/Users/you/my project" }).out) || "";
+check("blocks home ~", homeFix.includes("`" + os.homedir().replace(/\\/g, "/") + "/.claude/settings.json`"));
 
 // A Mac or Linux session: relative links resolve against its cwd, with no drive letter
 const mac = reasonOf(run({ last_assistant_message: "See [x](docs/a.md).", cwd: "/Users/you/my project" }).out) || "";
@@ -97,7 +100,8 @@ const proj = path.join(dir, "proj");
 fs.mkdirSync(path.join(proj, "audits", "run"), { recursive: true });
 fs.writeFileSync(path.join(proj, "CLAUDE.md"), "x");
 const sub = path.join(proj, "audits", "run");
-const fwd = (p) => `/${p.replace(/\\/g, "/")}`;
+// A link to a real temp file: /C:/... on Windows, the path as it is elsewhere (/var/... already starts with /)
+const fwd = (p) => { const s = p.replace(/\\/g, "/"); return s.startsWith("/") ? s : `/${s}`; };
 check("cwd in a subfolder: a link to the project root's file passes", outsideReason(`See [c](${fwd(path.join(proj, "CLAUDE.md"))}).`, sub) === "");
 check("cwd in a subfolder: a link to a sibling folder of the project is flagged", outsideReason(`See [c](${fwd(path.join(dir, "elsewhere", "a.md"))}).`, sub).includes("outside the project"));
 // CLAUDE_PROJECT_DIR wins over the cwd walk: after `cd` elsewhere, links into the real project still pass

@@ -6,8 +6,9 @@ import os from "os";
 import path from "path";
 import { spawn, spawnSync } from "child_process";
 
-const STEER = path.join(os.homedir(), ".claude", "skills", "steer", "steer.mjs");
-const home = fs.mkdtempSync(path.join(os.tmpdir(), "steer-test-"));
+const STEER = path.join(import.meta.dirname, "..", "skills", "steer", "steer.mjs");
+// The real path: a script finds its own folder by it (macOS /var is /private/var), so the logs filed here match
+const home = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "steer-test-")));
 const work = path.join(home, "work");
 fs.mkdirSync(work);
 const key = (c) => String(c).replace(/[^a-zA-Z0-9]/g, "-");

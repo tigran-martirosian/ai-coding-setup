@@ -5,6 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// The hook asks Windows when Nimbalyst started and does nothing elsewhere, so this test is for Windows only
+if (process.platform !== "win32") { console.log("skipped: Windows only"); process.exit(0); }
 const HOOK = path.join(import.meta.dirname, "..", "hooks", "pc-tidy-nudge.mjs");
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "pc-tidy-nudge-"));
 const FILE = path.join(DIR, "pc-tidy-nudge.json");
