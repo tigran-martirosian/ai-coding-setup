@@ -107,3 +107,56 @@ export function checkClaudeCode(opts) {
   }
   return { stop: null };
 }
+
+// Nimbalyst's chats run the Claude Code it bundles, which moves only with a Nimbalyst release, days after a
+// Claude Code fix. Nimbalyst can run another one instead (its setting customClaudeCodePath, in
+// @nimbalyst/electron/ai-settings.json, which it reads at each session's start). This points it at the person's own
+// Claude Code, which `claude update` and every run of this install keep current. Safeguards:
+//   - only a native binary (claude.exe on Windows; on a Mac or Linux anything but a .js file) that answers --version
+//   - only when it is not older than the bundled one, and not below the setup's minimum
+//   - only within the bundled one's line (2.1.x with a bundled 2.1.x): the fixes of that line, never a new line
+//   - a path the person set themselves is never touched; the setup changes only an empty field or the path it set
+//   - when the own one falls behind the bundled one (a newer Nimbalyst), the field is emptied again
+// Off: SETUP_NIMBALYST_CLAUDE=off. opts: { file, min, previous, dry, run, exists, platform, arch, env, log }.
+// Returns { set }: the path now on record as the setup's (null when the setup set none), for setup-state.json.
+export function pointNimbalyst(opts) {
+  const { file, min, previous = null, dry = false, run = realRun, exists = fs.existsSync, platform = process.platform,
+    arch = process.arch, env = process.env, log = console.log, read = (f) => fs.readFileSync(f, "utf8"),
+    write = (f, text) => fs.writeFileSync(f, text) } = opts;
+  if (env.SETUP_NIMBALYST_CLAUDE === "off") { log("Nimbalyst's Claude Code: left as it is (SETUP_NIMBALYST_CLAUDE=off)."); return { set: previous }; }
+  if (!file || !exists(file)) return { set: previous }; // no Nimbalyst here, or it never opened
+  let ai;
+  try { ai = JSON.parse(read(file)); } catch (e) { log(`Nimbalyst's Claude Code: left as it is (${file} is not valid JSON: ${e.message}).`); return { set: previous }; }
+  const current = typeof ai.customClaudeCodePath === "string" ? ai.customClaudeCodePath : "";
+  if (current && current !== previous) { log(`Nimbalyst's Claude Code: left as it is (you set ${current} yourself).`); return { set: null }; }
+
+  const versionOf = (cmd) => { const r = run(cmd, ["--version"], 30000); return r.status === 0 && !r.error ? parseVersion(r.stdout) : null; };
+  const where = run(platform === "win32" ? "where" : "which", ["claude"]);
+  const lines = where.status === 0 ? where.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : [];
+  const own = platform === "win32" ? lines.find((l) => /\.exe$/i.test(l)) : lines.find((l) => !/\.js$/i.test(l));
+  const bundledPath = nimbalystCandidates(platform, env, arch).find((p) => exists(p));
+  const bundled = bundledPath ? versionOf(bundledPath) : null;
+  const mine = own ? versionOf(own) : null;
+
+  const save = (value, line) => {
+    if (dry) { log(`${line} (a real run sets it)`); return; }
+    ai.customClaudeCodePath = value;
+    write(file, JSON.stringify(ai, null, 2) + "\n");
+    log(line);
+  };
+  let why = "";
+  if (!own) why = "no native Claude Code on the PATH (a terminal install through npm can't be used here; `claude install` adds the native one)";
+  else if (!mine) why = `${own} gave no version`;
+  else if (min && compareVersions(mine, min) < 0) why = `your Claude Code ${mine} is older than ${min}`;
+  else if (bundled && compareVersions(mine, bundled) < 0) why = `your Claude Code ${mine} is older than Nimbalyst's own ${bundled}`;
+  // a new major or minor line may change what Nimbalyst talks to it with: wait for a Nimbalyst that ships it
+  else if (bundled && mine.split(".").slice(0, 2).join(".") !== bundled.split(".").slice(0, 2).join(".")) why = `your Claude Code ${mine} is a newer line than Nimbalyst's own ${bundled}; it is used once a Nimbalyst release ships that line`;
+  if (why) {
+    if (current && current === previous) { save("", `Nimbalyst's Claude Code: back to its own${bundled ? ` (${bundled})` : ""}, because ${why}.`); return { set: null }; }
+    log(`Nimbalyst's Claude Code: left on its own${bundled ? ` (${bundled})` : ""}, because ${why}.`);
+    return { set: null };
+  }
+  if (current === own) { log(`Nimbalyst's Claude Code: yours, ${mine}${bundled ? ` (its own is ${bundled})` : ""}.`); return { set: own }; }
+  save(own, `Nimbalyst's Claude Code: now yours, ${mine}${bundled ? `, instead of its own ${bundled}` : ""}, so its chats get Claude Code fixes on the day they ship. New chats use it; to undo, empty the custom Claude Code path in Nimbalyst's settings, or run the install with SETUP_NIMBALYST_CLAUDE=off.`);
+  return { set: dry ? previous : own };
+}

@@ -94,10 +94,20 @@ if (!newer(latest.version, installed)) {
     const mod = state.repo && path.join(state.repo, "scripts", "claude-code-version.mjs");
     if (!mod || !fs.existsSync(mod)) console.log("Claude Code: version check skipped (the setup's folder has no scripts/claude-code-version.mjs).");
     else {
-      const { checkClaudeCode } = await import(pathToFileURL(mod).href);
+      const { checkClaudeCode, pointNimbalyst } = await import(pathToFileURL(mod).href);
       const min = JSON.parse(fs.readFileSync(path.join(state.repo, "version.json"), "utf8")).claudeCodeMin;
       const { stop: tooOld } = checkClaudeCode({ min, dry: args.includes("--check") });
       if (tooOld) stop(tooOld);
+      // Nimbalyst on the Claude Code just checked, or back on its own after a newer Nimbalyst (as install.mjs does)
+      if (pointNimbalyst && homeAt === -1) {
+        const appData = process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "";
+        const { set } = pointNimbalyst({ file: appData && path.join(appData, "@nimbalyst", "electron", "ai-settings.json"), min, previous: state.nimbalystClaude || null, dry: args.includes("--check") });
+        if (!args.includes("--check") && (set || null) !== (state.nimbalystClaude || null)) {
+          const next = { ...state };
+          if (set) next.nimbalystClaude = set; else delete next.nimbalystClaude;
+          fs.writeFileSync(stateFile, JSON.stringify(next, null, 2) + "\n");
+        }
+      }
     }
   }
   process.exit(0);

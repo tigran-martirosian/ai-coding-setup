@@ -63,7 +63,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { addClaudeCodeSettings } from "./scripts/claude-code-settings.mjs";
-import { checkClaudeCode } from "./scripts/claude-code-version.mjs";
+import { checkClaudeCode, pointNimbalyst } from "./scripts/claude-code-version.mjs";
 import { setInkDefault, themeIsFresh } from "./scripts/ink-default.mjs";
 
 const REPO = path.dirname(fileURLToPath(import.meta.url));
@@ -403,6 +403,17 @@ if (args.includes("--uninstall")) {
   }
   // 4. what an older version set up in Antigravity
   dropAgy(kept);
+  // 4b. Nimbalyst back on its own Claude Code, when the path there is still the one the setup set
+  if (state.nimbalystClaude && opt("home") === null) {
+    const aiFile = path.join(process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "", "@nimbalyst", "electron", "ai-settings.json");
+    let ai = null;
+    try { ai = JSON.parse(fs.readFileSync(aiFile, "utf8")); } catch (e) { kept.push(`Nimbalyst's custom Claude Code path (${fwd(aiFile)} could not be read: ${e.message}); empty it in Nimbalyst's settings`); }
+    if (ai && ai.customClaudeCodePath === state.nimbalystClaude) {
+      ai.customClaudeCodePath = "";
+      if (!DRY) fs.writeFileSync(aiFile, JSON.stringify(ai, null, 2) + "\n");
+      say(`Nimbalyst back on its own Claude Code (${fwd(aiFile)})`);
+    }
+  }
   if (!DRY) fs.rmSync(stateFile);
   say(`removed ${fwd(stateFile)} (the record of this install)`);
   // 5. what stays, and how to take it out
@@ -870,6 +881,14 @@ else if (inkThere && (appData || opt("app-settings") !== null)) {
       }
     }
   }
+}
+
+// Nimbalyst's chats run the person's own Claude Code rather than the copy Nimbalyst bundles, so they get its fixes on
+// the day they ship (scripts/claude-code-version.mjs: pointNimbalyst, with its safeguards). --home is another home
+// folder (the tests), where the real Nimbalyst is not the one to change.
+if (opt("home") === null && appData) {
+  const { set } = pointNimbalyst({ file: path.join(extHome, "ai-settings.json"), min: JSON.parse(fs.readFileSync(path.join(REPO, "version.json"), "utf8")).claudeCodeMin, previous: state.nimbalystClaude || null, dry: DRY, log: say });
+  if (!DRY) { if (set) nextState.nimbalystClaude = set; else delete nextState.nimbalystClaude; }
 }
 
 // The plugins. Each is handled once and put on record: one the user removed or switched later stays

@@ -1,6 +1,6 @@
 {
-  "version": "1.0.91",
+  "version": "1.0.92",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "Claude no longer stops after one finished step when you asked for the whole job, catches a reply that says a helper is running when none is, notes each helper's model, explains every shell command in a short capitalised line, and shows a project's next-release notes when a session starts."
+  "summary": "Nimbalyst's chats now run your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes the day they ship rather than days later with a Nimbalyst release."
 }
