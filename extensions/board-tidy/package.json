@@ -1,0 +1,12 @@
+{
+  "name": "board-tidy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Archives old sessions on Nimbalyst's Sessions board, undoably.",
+  "scripts": {
+    "build": "node build.mjs",
+    "install-ext": "node build.mjs --install",
+    "test": "node test.mjs"
+  }
+}

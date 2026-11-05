@@ -5,8 +5,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+const HOME = os.homedir();
 const HOOK = fileURLToPath(new URL("../hooks/map-brief.mjs", import.meta.url));
 const MAP = fileURLToPath(new URL("../skills/systems-map/map.mjs", import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "map-brief-test-"));
@@ -215,6 +216,54 @@ r = cli(["--scan"], { cwd: many });
 check("--scan on a wide repo (720 files) still fits in about 8 KB", r.status === 0 && r.stdout.length <= 8100 && r.stdout.includes("720 tracked code files"), `length ${r.stdout.length}`);
 r = cli(["--scan"], { cwd: none });
 check("--scan outside a git repository: exit 1 and says so", r.status === 1 && /needs a git repository/.test(r.stderr));
+
+// ---- typed links, match words, tokened evidence, drift
+const TFILES = { "src/cart/cart.js": "export function cartTotal() {}", "src/price/price.js": "export const PRICE_TABLE = 1;", "src/old/gone.js": "x", "src/ship/ship.js": "x", "DECISIONS.md": "# Decisions\n- Shipping rule: free over 50.\n- Unrelated line.\nplain line about shipping\n- Tax is off.\n" };
+const TMAP = {
+  nodes: [
+    { id: "cart", name: "Shopping cart", what: "Holds the items.", files: ["src/cart/cart.js"], group: "shop" },
+    { id: "pricing", name: "Pricing", what: "Prices things.", files: ["src/price/price.js"] },
+    { id: "ship", name: "Parcel dispatch", what: "Sends parcels.", files: ["src/ship/ship.js"], words: ["\\bshipping\\b", "free over"] },
+  ],
+  links: [
+    { from: "pricing", to: "cart", type: "feeds", says: "Pricing feeds the cart total.", evidence: [{ file: "src/cart/cart.js", token: "cartTotal" }, "src/price/price.js"] },
+    { from: "ship", to: "cart", type: "limits", says: "Shipping limits the cart.", evidence: [{ file: "src/price/price.js", token: "NO_SUCH_TOKEN" }] },
+    { from: "cart", to: "ship", says: "Cart hands over to dispatch.", evidence: [{ file: "src/old/missing.js", token: "x" }] },
+  ],
+};
+const tdir = project("typed", TFILES, TMAP);
+r = cli(["--check"], { cwd: tdir });
+check("--check: DRIFT line for a token that is gone", /^DRIFT src\/price\/price\.js {2}\(link ship -> cart\): no longer has: NO_SUCH_TOKEN$/m.test(r.stdout), r.stdout);
+check("--check: a token that is present is not drift", !/DRIFT src\/cart/.test(r.stdout));
+check("--check: summary counts drifted, exit 1", r.status === 1 && /, 1 drifted$/m.test(r.stdout) && /GONE src\/old\/missing\.js/.test(r.stdout), r.stdout);
+const goodTdir = project("typed-good", TFILES, { ...TMAP, links: TMAP.links.slice(0, 1) });
+r = cli(["--check"], { cwd: goodTdir });
+check("--check: typed link with present token: ok, 0 drifted, exit 0", r.status === 0 && /^ok: .*, 0 drifted$/m.test(r.stdout), r.stdout);
+const badMap = { nodes: [{ id: "a", name: "A", what: "a", files: ["README.md"], group: 3, words: ["(", 5] }], links: [{ from: "a", to: "a", type: "bogus", says: "s", evidence: [{ file: "README.md", token: "" }] }] };
+r = cli(["--check"], { cwd: project("typed-bad", { "README.md": "x" }, badMap) });
+check("--check: BAD for unknown type", /BAD .*unknown type "bogus"/.test(r.stdout), r.stdout);
+check("--check: BAD for a regex that does not compile and a non-string word", /BAD .*words entry "\(" is not a valid regex/.test(r.stdout) && /BAD .*words entry 5/.test(r.stdout), r.stdout);
+check("--check: BAD for a non-string group and an empty token", /BAD .*group must be a string/.test(r.stdout) && /BAD .*evidence must be a list of paths or \{ file, token \}/.test(r.stdout), r.stdout);
+r = cli(["--near", "pricing"], { cwd: tdir });
+check("--near: out-link shows its type word", /- feeds -> Shopping cart: Pricing feeds the cart total\./.test(r.stdout), r.stdout);
+r = cli(["--near", "cart"], { cwd: tdir });
+check("--near: in-link shows <- type from", /- <- feeds from Pricing: /.test(r.stdout) && /- <- limits from Parcel dispatch: /.test(r.stdout), r.stdout);
+check("--near: untyped link keeps to/from", /- to Parcel dispatch: Cart hands over to dispatch\./.test(r.stdout));
+check("--near: a drifted link and a gone link get [CODE GONE], a sound one does not", /limits from Parcel dispatch: .*\[CODE GONE\]$/m.test(r.stdout) && /to Parcel dispatch: .*\[GONE\]\) \[CODE GONE\]$/m.test(r.stdout) && !/feeds from Pricing: .*CODE GONE/.test(r.stdout), r.stdout);
+r = cli(["--near", "ship"], { cwd: tdir });
+check("--near: Decided lines are the '- ' lines of DECISIONS.md that the words match", /Decided:\n- Shipping rule: free over 50\.\n/.test(r.stdout) && !/Unrelated line|plain line|Tax is off/.test(r.stdout), r.stdout);
+r = cli(["--near", "pricing"], { cwd: tdir });
+check("--near: a thing with no words has no Decided lines", !/Decided:/.test(r.stdout));
+r = cli(["--near", "ship"], { cwd: project("typed-nodec", Object.fromEntries(Object.entries(TFILES).filter(([k]) => k !== "DECISIONS.md")), TMAP) });
+check("--near: no DECISIONS.md, no Decided lines, no error", r.status === 0 && !/Decided:/.test(r.stdout), r.stderr);
+r = cli(["--brief"], { cwd: tdir, input: "Work on the shipping rules, nothing else." });
+check("--brief: a words hit finds the thing", /## Parcel dispatch \[ship\]/.test(r.stdout), r.stdout);
+r = cli(["--brief"], { cwd: tdir, input: "Fix the Pricing table.\nBudget: keep shipping costs out of it." });
+check("--brief: a words hit ranks below a thing the brief names", /## Pricing \[pricing\][\s\S]*## Parcel dispatch \[ship\]/.test(r.stdout), r.stdout);
+check("--brief: arrows show the type word", /- <- limits from|- limits -> |- <- feeds from|- feeds -> /.test(cli(["--brief"], { cwd: tdir, input: "Change src/cart/cart.js" }).stdout));
+r = cli(["--brief"], { cwd: tdir, input: "Change src/cart/cart.js" });
+check("--brief: evidence given as { file, token } still finds the thing by file", /## Shopping cart \[cart\]/.test(r.stdout), r.stdout);
+check("map.mjs exports drift()", (await import(pathToFileURL(MAP).href)).drift(TMAP, tdir).length === 1);
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);

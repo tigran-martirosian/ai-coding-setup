@@ -5,6 +5,7 @@
   "description": "Claude plan usage and forecast in a small pop-up. Reads the local setup-audit skill; nothing leaves this computer.",
   "author": "Local",
   "main": "dist/index.js",
+  "styles": "dist/index.css",
   "apiVersion": "1.0.0",
   "defaultEnabled": true,
   "permissions": {
@@ -18,7 +19,7 @@
         "icon": "data_usage",
         "placement": "sidebar",
         "order": 90,
-        "tooltip": "Claude plan: week and 5-hour use, the pace, and when each runs out."
+        "tooltip": "Claude plan: this week's use, the pace, and when it runs out"
       }
     ]
   }

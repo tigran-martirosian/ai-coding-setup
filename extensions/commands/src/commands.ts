@@ -67,3 +67,57 @@ export function run(command: Command, invoke: Invoke, wait = REFUSAL_MS): Promis
     new Promise<string>((resolve) => setTimeout(() => resolve(''), wait)),
   ]);
 }
+
+/** What the list shows: one command can be starting, or asking whether to start again. */
+export interface LauncherState {
+  /** The command whose session is being started; every row waits for it. */
+  starting: string;
+  /** When each started command was pressed (ms). Kept here, not in the popover, so closing it forgets nothing. */
+  started: Record<string, number>;
+  /** The started command whose second press is waiting for an answer. */
+  asking: string;
+  error: string;
+}
+
+/**
+ * The press logic apart from the drawing. A command already started asks first: the second press only
+ * opens the question, `confirm` starts it again.
+ */
+export function createLauncher(invoke: Invoke, now: () => number = Date.now, wait = REFUSAL_MS) {
+  let state: LauncherState = { starting: '', started: {}, asking: '', error: '' };
+  const listeners = new Set<() => void>();
+  const set = (patch: Partial<LauncherState>) => {
+    state = { ...state, ...patch };
+    listeners.forEach((l) => l());
+  };
+  const start = async (command: Command) => {
+    set({ starting: command.id, asking: '', error: '' });
+    const refused = await run(command, invoke, wait);
+    set(refused ? { starting: '', error: refused } : { starting: '', started: { ...state.started, [command.id]: now() } });
+  };
+  return {
+    get: () => state,
+    subscribe: (l: () => void) => (listeners.add(l), () => void listeners.delete(l)),
+    /** The row's button. Returns what it did, so the caller can move focus. */
+    async press(command: Command): Promise<'ignored' | 'asking' | 'started'> {
+      if (state.starting) return 'ignored';
+      if (state.started[command.id]) {
+        set({ asking: command.id, error: '' });
+        return 'asking';
+      }
+      await start(command);
+      return 'started';
+    },
+    async confirm(command: Command) {
+      if (state.starting || state.asking !== command.id) return;
+      await start(command);
+    },
+    cancel() {
+      if (state.asking) set({ asking: '' });
+    },
+  };
+}
+
+export const launcher = createLauncher((channel, args) =>
+  (window as unknown as { electronAPI: { invoke: (c: string, a: unknown) => Promise<unknown> } }).electronAPI.invoke(channel, args)
+);

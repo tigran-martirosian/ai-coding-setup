@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.89 (Nov 5, 2026): A Systems map panel in Nimbalyst shows your project's parts and links and marks the links whose code changed; Board Tidy archives finished sessions by itself; the Usage Plan pop-up is easier to read; Read Aloud shows one play strip per reply instead of one per paragraph; Commands asks before starting the same command twice; the Ink themes are refreshed.
 - 1.0.88 (Nov 5, 2026): Updating Claude Code from inside a Nimbalyst session works: Nimbalyst's own no-update setting no longer blocks the setup's update step.
 - 1.0.87 (Nov 5, 2026): Fewer wasted tokens: helpers run in the foreground unless they really run beside other work, a helper near its context limit finishes and reports instead of compacting, the installer and /update-setup keep Claude Code itself up to date, notes from the Note button or /btw interrupt a busy session only where it matters, and the usage report shows where wake-ups and big helpers spend.
 - 1.0.86 (Nov 5, 2026): Replies arrive in one piece: while background jobs still run, a finished job no longer gets its own small status update, and you get one complete answer when everything is done.

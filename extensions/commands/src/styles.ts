@@ -1,27 +1,44 @@
-// Panel styles. Colours come from Nimbalyst's theme variables, so the panel follows the app theme.
+// Panel styles. Everything derives from the shared tokens (../../shared/tokens.css, bundled by index.tsx),
+// so the panel follows the app theme and the Ink shell's type.
 export const CSS = `
-.cb { display: flex; flex-direction: column; gap: 10px; height: 100%; box-sizing: border-box; padding: 14px 10px 12px;
-  overflow-y: auto; font-size: 13px; line-height: 1.35; color: var(--nim-text); }
+.cb { display: flex; flex-direction: column; gap: var(--x-space-2); height: 100%; box-sizing: border-box; padding: var(--x-space-3) var(--x-space-2) var(--x-space-2);
+  overflow-y: auto; font: var(--x-body); color: var(--x-text); }
 .cb *, .cb *::before { box-sizing: border-box; }
-.cb-sym { font-size: 18px; line-height: 1; }
+.cb-sym { font-size: 16px; line-height: 1; font-variation-settings: var(--x-icon-settings); color: var(--x-text-muted); }
 
-.cb-head { padding: 0 4px; }
-.cb-title { font-size: 14px; font-weight: 600; }
-.cb-sub { font-size: 11px; color: var(--nim-text-faint); }
+.cb-title { padding: 0 var(--x-space-2); font: var(--x-title); }
 
-.cb-list { display: flex; flex-direction: column; gap: 2px; }
-.cb-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 8px;
-  background: transparent; color: var(--nim-text); font: inherit; text-align: left; cursor: pointer; }
-.cb-item:hover { background: var(--nim-bg-tertiary); }
-.cb-item:disabled { cursor: default; }
-.cb-badge { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px;
-  color: var(--nim-primary); background: color-mix(in srgb, var(--nim-primary) 14%, transparent); }
-.cb-item.started .cb-badge { color: var(--nim-success); background: color-mix(in srgb, var(--nim-success) 14%, transparent); }
-.cb-label { font-weight: 600; }
-.cb-note { font-size: 11px; color: var(--nim-text-faint); }
-.cb-error { padding: 0 4px; font-size: 12px; color: var(--nim-error); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cb-list { display: flex; flex-direction: column; gap: var(--x-space-1); }
+.cb-row { display: flex; align-items: center; gap: var(--x-space-2); width: 100%; min-height: 36px; padding: 0 var(--x-space-2); border: 0;
+  border-radius: var(--x-radius-control); background: transparent; color: var(--x-text); font: var(--x-body); text-align: left; cursor: pointer;
+  transition: background var(--x-motion-fast) var(--x-ease); }
+.cb-row:hover { background: var(--x-overlay-hover); }
+.cb-row:focus-visible { outline: none; box-shadow: var(--x-focus-ring); }
+.cb-row:active { background: var(--x-overlay-selected); box-shadow: inset 0 1px 0 var(--x-hairline); }
+.cb-row[aria-disabled='true'] { color: var(--x-text-muted); cursor: default; background: transparent; box-shadow: none; }
+.cb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-status { display: inline-flex; align-items: center; gap: var(--x-space-2); flex: none; font: var(--x-caption); color: var(--x-text-muted); }
+.cb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--x-success); }
 
-#command-buttons-popover { position: fixed; z-index: 10000; width: 290px; max-height: calc(100vh - 16px); overflow-y: auto;
-  border: 1px solid var(--nim-border); border-radius: 12px; background: var(--nim-bg); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); }
+.cb-ask { display: flex; align-items: center; gap: var(--x-space-2); padding: var(--x-space-2); border-radius: var(--x-radius-control); background: var(--x-surface-1);
+  border: 1px solid var(--x-hairline); }
+.cb-ask-text { flex: 1; min-width: 0; }
+.cb-ask-note { font: var(--x-caption); color: var(--x-text-muted); }
+.cb-btn { flex: none; height: 28px; padding: 0 var(--x-space-3); border: 1px solid var(--x-hairline); border-radius: var(--x-radius-control); background: transparent;
+  color: var(--x-text); font: var(--x-caption); cursor: pointer; transition: background var(--x-motion-fast) var(--x-ease); }
+.cb-btn:hover { background: var(--x-overlay-hover); }
+.cb-btn:focus-visible { outline: none; box-shadow: var(--x-focus-ring); }
+.cb-btn:active { background: var(--x-overlay-selected); box-shadow: inset 0 1px 0 var(--x-hairline); }
+.cb-btn.primary { border-color: transparent; background: var(--x-accent); color: var(--x-on-accent); }
+.cb-btn.primary:hover { background: color-mix(in oklab, var(--x-accent), var(--x-on-accent) 12%); }
+
+.cb-hint { min-height: 32px; padding: 0 var(--x-space-2); font: var(--x-caption); color: var(--x-text-muted); }
+.cb-error { padding: 0 var(--x-space-2); font: var(--x-caption); color: var(--x-error); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+#command-buttons-popover { position: fixed; z-index: 10000; width: 320px; max-height: calc(100vh - 16px); overflow-y: auto;
+  border: 1px solid var(--x-hairline); border-radius: var(--x-radius-window); background: var(--x-surface-0); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  animation: cb-rise var(--x-motion-base) var(--x-ease); }
+#command-buttons-popover:focus { outline: none; }
 #command-buttons-popover .cb { height: auto; }
+@keyframes cb-rise { from { opacity: 0; transform: translateY(4px); } }
 `;

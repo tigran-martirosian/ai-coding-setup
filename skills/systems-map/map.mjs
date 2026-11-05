@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // map.mjs: the Systems map of a project, a dictionary of its parts ("things") and what connects to what ("links").
 // The map is one file, <project>/.claude/systems-map.json:
-//   { "nodes": [{ "id", "name", "what", "files": [...], "notes": [...] }],
-//     "links": [{ "from", "to", "says", "evidence": ["path", ...] }] }
+//   { "nodes": [{ "id", "name", "what", "files": [...], "notes": [...], "group"?, "words"?: [regex, ...] }],
+//     "links": [{ "from", "to", "says", "type"?, "evidence": ["path" or { "file", "token" }, ...] }] }
+// type is one of uses (the default), feeds, spends, opens, boosts, limits. A token is text the evidence file must still hold; a file that
+// lacks it has drifted away from the link.
 // Commands, run in the project folder (or add --project <dir>):
 //   --near                 list every thing
 //   --near <word>...       those things: what they are, where to start, their links with the code behind them, the things one step further
 //   --brief                read a helper's brief on stdin; print the lines of the things it is about: the top 3 in full, one line for each further match, at most 7,000 characters
-//   --check                list files and evidence paths that no longer exist, and the JSON mistakes; exit 1 when anything is wrong
+//   --check                list files and evidence paths that no longer exist, evidence that lost its token (DRIFT), and the JSON mistakes; exit 1 when anything is wrong
 //   --scan                 what a builder needs to start a map: code files by folder, biggest files, entry points (at most about 8 KB)
 // The two hooks (map-brief.mjs, map-nudge.mjs) import this file. No dependencies; Node.js only.
 import fs from "node:fs";
@@ -57,10 +59,13 @@ const WHOLE_FILE = new RegExp("^(?:" + FILE_TEXT.source + ")$");
 const CLASS_FILE = /\.(?:java|kt|cs|ts|tsx|jsx|vue|svelte|swift|scala|dart|php)$/;
 const CLASS_EXTS = ["java", "kt", "cs", "ts", "tsx", "jsx", "vue", "svelte", "swift", "scala", "dart", "php"];
 
+export const LINK_TYPES = ["uses", "feeds", "spends", "opens", "boosts", "limits"];
+const DECIDED_MAX = 10; // DECISIONS.md lines under a thing in --near
+
 const arr = (x) => (Array.isArray(x) ? x : []);
 const str = (x) => (typeof x === "string" ? x : "");
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const exists = (dir, p) => fs.existsSync(path.join(dir, p));
+const exists = (dir, p) => fs.existsSync(path.resolve(dir, p));
 const isFile = (p) => {
   try { return fs.statSync(p).isFile(); } catch { return false; }
 };
@@ -79,6 +84,14 @@ export function loadMap(dir) {
   return JSON.parse(raw.replace(/^﻿/, ""));
 }
 
+/** One evidence entry in its normal shape { file, token? }, or null when it is neither a path string nor an object with a file. */
+export function evidenceOf(e) {
+  if (typeof e === "string") return e ? { file: e } : null;
+  if (e && typeof e === "object" && typeof e.file === "string" && e.file) return typeof e.token === "string" && e.token ? { file: e.file, token: e.token } : { file: e.file };
+  return null;
+}
+const evList = (l) => arr(l?.evidence).map(evidenceOf).filter(Boolean);
+
 /** Every path the map lists (files, notes, evidence): Map of path -> who lists it. */
 export function listedPaths(map) {
   const out = new Map();
@@ -88,7 +101,7 @@ export function listedPaths(map) {
     out.get(p).push(who);
   };
   for (const n of arr(map?.nodes)) for (const p of [...arr(n?.files), ...arr(n?.notes)]) add(p, `thing ${n.id}`);
-  for (const l of arr(map?.links)) for (const p of arr(l?.evidence)) add(p, `link ${l.from} -> ${l.to}`);
+  for (const l of arr(map?.links)) for (const { file: p } of evList(l)) add(p, `link ${l.from} -> ${l.to}`);
   return out;
 }
 
@@ -99,16 +112,43 @@ export function missingPaths(map, dir) {
   return { total: listed.size, gone };
 }
 
-/** Normal shape for the readers: plain strings, links between known things only. dropGone removes paths that no longer exist. */
+/** Links whose evidence file exists but no longer holds its token: [{ file, from, to, says, token, link }]. Each file is read once. */
+function driftOf(links, dir) {
+  const text = new Map();
+  const read = (f) => {
+    if (!text.has(f)) {
+      let t = null;
+      try { t = fs.readFileSync(path.resolve(dir, f), "utf8"); } catch {}
+      text.set(f, t);
+    }
+    return text.get(f);
+  };
+  const out = [];
+  for (const l of links) for (const e of l.evidence) {
+    if (!e.token) continue;
+    const t = read(e.file);
+    if (t !== null && !t.includes(e.token)) out.push({ file: e.file, from: l.from, to: l.to, says: l.says, token: e.token, link: l });
+  }
+  return out;
+}
+
+/** The tokened evidence whose file exists and no longer holds the token: [{ file, from, to, says, token }]. */
+export function drift(map, dir) {
+  const links = arr(map?.links).filter((l) => l && typeof l === "object").map((l) => ({ from: l.from, to: l.to, says: str(l.says), evidence: evList(l) }));
+  return driftOf(links, dir).map(({ link, ...d }) => d);
+}
+
+/** Normal shape for the readers: plain strings, evidence as { file, token? }, links between known things only. dropGone removes paths that no longer exist. */
 function prep(map, dir, dropGone) {
   const keep = (p) => typeof p === "string" && p && (!dropGone || exists(dir, p));
+  const wordRes = (n) => arr(n.words).flatMap((w) => { try { return typeof w === "string" && w ? [new RegExp(w, "i")] : []; } catch { return []; } });
   const nodes = arr(map?.nodes)
     .filter((n) => n && typeof n.id === "string" && n.id)
-    .map((n) => ({ id: n.id, name: str(n.name) || n.id, what: str(n.what), files: arr(n.files).filter(keep), notes: arr(n.notes).filter(keep) }));
+    .map((n) => ({ id: n.id, name: str(n.name) || n.id, what: str(n.what), files: arr(n.files).filter(keep), notes: arr(n.notes).filter(keep), group: str(n.group), words: wordRes(n) }));
   const ids = new Set(nodes.map((n) => n.id));
   const links = arr(map?.links)
     .filter((l) => l && ids.has(l.from) && ids.has(l.to))
-    .map((l) => ({ from: l.from, to: l.to, says: str(l.says), evidence: arr(l.evidence).filter(keep) }));
+    .map((l) => ({ from: l.from, to: l.to, says: str(l.says), type: LINK_TYPES.includes(l.type) ? l.type : "", evidence: evList(l).filter((e) => keep(e.file)) }));
   return { nodes, links };
 }
 
@@ -144,7 +184,7 @@ function writtenFolders(text) {
 export function briefFind(text, nodes, links, dir) {
   const own = new Map(), touch = new Map();
   for (const n of nodes) for (const f of n.files) { addTo(own, f, n.id); addTo(touch, f, n.id); }
-  for (const l of links) for (const e of l.evidence) { addTo(touch, e, l.from); addTo(touch, e, l.to); }
+  for (const l of links) for (const { file: e } of l.evidence) { addTo(touch, e, l.from); addTo(touch, e, l.to); }
   const named = new Set((text.match(FILE_TEXT) ?? []).map((m) => m.replace(/\\/g, "/").toLowerCase().replace(/^(?:\.?\/)+/, "")));
   const camel = new Set(text.match(CAMEL) ?? []);
   const got = new Set();
@@ -155,15 +195,19 @@ export function briefFind(text, nodes, links, dir) {
   }
   const score = new Map();
   const sc = (i) => {
-    if (!score.has(i)) score.set(i, [0, 0, 0]);
+    if (!score.has(i)) score.set(i, [0, 0, 0, 0]);
     return score.get(i);
   };
   for (const f of got) for (const i of touch.get(f)) sc(i)[0] += (own.get(f)?.has(i) ? 2 : 1) / touch.get(f).size;
   const flat = " " + text.toLowerCase().replace(/[-_\s]+/g, " ") + " ";
+  // A words hit ranks last: words are loose patterns, and a passing line of the brief ("Budget: 150k tokens") must not push out a thing
+  // the brief names.
   for (const n of nodes) {
-    let w = 0;
+    let w = 0, x = 0;
     for (const a of aliases(n)) if (new RegExp("(?<![a-z0-9])" + escapeRe(a) + "(?![a-z0-9])").test(flat)) w += a.includes(" ") ? 2 : 1;
+    for (const re of n.words) if (re.test(text)) x += 1;
     if (w) sc(n.id)[1] = w;
+    if (x) sc(n.id)[3] = x;
   }
   const bare = !score.size;
   // A written folder names the things that have a file in it (the folder itself, else the folders below it), unless more things sit
@@ -205,12 +249,14 @@ export function briefFind(text, nodes, links, dir) {
     for (const i of [...near.keys()].sort((a, b) => near.get(b) - near.get(a) || order.get(a) - order.get(b)).slice(0, BRIEF_FULL)) sc(i)[0] += near.get(i);
   }
   const ranked = [...score.keys()].sort(
-    (a, b) => score.get(b)[0] - score.get(a)[0] || score.get(b)[1] - score.get(a)[1] || score.get(b)[2] - score.get(a)[2] || order.get(a) - order.get(b),
+    (a, b) => score.get(b)[0] - score.get(a)[0] || score.get(b)[1] - score.get(a)[1] || score.get(b)[2] - score.get(a)[2] || score.get(b)[3] - score.get(a)[3] || order.get(a) - order.get(b),
   );
   return [ranked, got];
 }
 
-const arrow = (l, id, by) => (l.from === id ? `to ${by.get(l.to).name}` : `from ${by.get(l.from).name}`);
+/** A link seen from one end. A link with a type shows its word: `feeds -> Pricing`, `<- limits from Cart`. */
+const arrow = (l, id, by) =>
+  l.from === id ? `${l.type ? l.type + " ->" : "to"} ${by.get(l.to).name}` : `${l.type ? "<- " + l.type + " " : ""}from ${by.get(l.from).name}`;
 
 /** The map lines for the things a helper's brief is about, and only those. Empty string when none. */
 export function brief(text, map, dir) {
@@ -222,7 +268,7 @@ export function brief(text, map, dir) {
   const blocks = ids.map((i) => {
     const n = by.get(i);
     const mine = links.filter((l) => l.from === i || l.to === i);
-    mine.sort((a, b) => Number(!a.evidence.some((e) => got.has(e))) - Number(!b.evidence.some((e) => got.has(e))));
+    mine.sort((a, b) => Number(!a.evidence.some((e) => got.has(e.file))) - Number(!b.evidence.some((e) => got.has(e.file))));
     const lines = mine.map((l) => `- ${arrow(l, i, by)}: ${l.says}`);
     const files = [...n.files].sort((a, b) => Number(!got.has(a)) - Number(!got.has(b))).slice(0, BRIEF_FILES);
     return { name: n.name, id: i, what: n.what, files, notes: n.notes, lines };
@@ -281,7 +327,7 @@ function find(word, nodes, links) {
   const told = nodes.filter((n) => n.what.toLowerCase().includes(w));
   const ids = new Set();
   for (const n of nodes) if (n.files.some((f) => f.toLowerCase().includes(w))) ids.add(n.id);
-  for (const l of links) if (l.evidence.some((e) => e.toLowerCase().includes(w))) { ids.add(l.from); ids.add(l.to); }
+  for (const l of links) if (l.evidence.some((e) => e.file.toLowerCase().includes(w))) { ids.add(l.from); ids.add(l.to); }
   return exact.length ? exact : named.length ? named : told.length ? told : nodes.filter((n) => ids.has(n.id));
 }
 
@@ -297,6 +343,9 @@ export function near(words, map, dir) {
   }
   const by = new Map(nodes.map((n) => [n.id, n]));
   const mark = (p) => (exists(dir, p) ? p : `${p} [GONE]`);
+  const drifted = new Set(driftOf(links, dir).map((d) => d.link));
+  let decisions = null;
+  try { decisions = fs.readFileSync(path.join(dir, "DECISIONS.md"), "utf8").split(/\r?\n/).filter((x) => x.startsWith("- ")); } catch {}
   const out = [];
   for (const n of hits) {
     const mine = links.filter((l) => l.from === n.id || l.to === n.id);
@@ -304,7 +353,14 @@ export function near(words, map, dir) {
     if (n.files.length) out.push("Start in: " + n.files.map(mark).join(", "));
     if (n.notes.length) out.push("Read: " + n.notes.map(mark).join(", "));
     out.push(mine.length ? "Links:" : "Links: none");
-    for (const l of mine) out.push(`- ${arrow(l, n.id, by)}: ${l.says} (${l.evidence.map(mark).join(", ")})`);
+    for (const l of mine) {
+      const lost = drifted.has(l) || l.evidence.some((e) => !exists(dir, e.file));
+      out.push(`- ${arrow(l, n.id, by)}: ${l.says} (${l.evidence.map((e) => mark(e.file)).join(", ")})${lost ? " [CODE GONE]" : ""}`);
+    }
+    if (decisions && n.words.length) {
+      const hit = decisions.filter((x) => n.words.some((re) => re.test(x)));
+      if (hit.length) out.push("Decided:", ...hit.slice(0, DECIDED_MAX), ...(hit.length > DECIDED_MAX ? [`(${hit.length - DECIDED_MAX} more in DECISIONS.md)`] : []));
+    }
     const seen = new Set(mine.flatMap((l) => [l.from, l.to]));
     const two = new Set(links.filter((l) => seen.has(l.from) || seen.has(l.to)).flatMap((l) => [l.from, l.to]));
     for (const i of seen) two.delete(i);
@@ -315,11 +371,11 @@ export function near(words, map, dir) {
 
 // ---- --check --------------------------------------------------------------------------------------------------------------------------
 
-/** { bad: [mistakes in the JSON], gone: [[path, who]], total, things, links }. */
+/** { bad: [mistakes in the JSON], gone: [[path, who]], drifted: [drift()], total, things, links }. */
 export function checkMap(map, dir) {
   const bad = [];
   if (!map || typeof map !== "object" || Array.isArray(map)) {
-    return { bad: ["the file must hold one JSON object with nodes and links"], gone: [], total: 0, things: 0, links: 0 };
+    return { bad: ["the file must hold one JSON object with nodes and links"], gone: [], drifted: [], total: 0, things: 0, links: 0 };
   }
   if (!Array.isArray(map.nodes)) bad.push('"nodes" must be a list');
   if (!Array.isArray(map.links)) bad.push('"links" must be a list');
@@ -333,16 +389,25 @@ export function checkMap(map, dir) {
     for (const key of ["name", "what"]) if (typeof n[key] !== "string" || !n[key]) bad.push(`${at}: no ${key}`);
     if (!Array.isArray(n.files) || !n.files.length || n.files.some((f) => typeof f !== "string")) bad.push(`${at}: files must be a list of paths, at least one`);
     if (n.notes !== undefined && (!Array.isArray(n.notes) || n.notes.some((f) => typeof f !== "string"))) bad.push(`${at}: notes must be a list of paths`);
+    if (n.group !== undefined && typeof n.group !== "string") bad.push(`${at}: group must be a string`);
+    if (n.words !== undefined) {
+      if (!Array.isArray(n.words)) bad.push(`${at}: words must be a list of regex strings`);
+      else for (const w of n.words) {
+        try { if (typeof w !== "string" || !w) throw new Error("not a string"); new RegExp(w, "i"); } catch (e) { bad.push(`${at}: words entry ${JSON.stringify(w)} is not a valid regex (${e.message})`); }
+      }
+    }
   }
   for (const [k, l] of arr(map.links).entries()) {
     const at = `link ${k + 1}${l ? ` (${l.from} -> ${l.to})` : ""}`;
     if (!l || typeof l !== "object") { bad.push(`${at}: must be an object`); continue; }
     for (const key of ["from", "to"]) if (!ids.has(l[key])) bad.push(`${at}: ${key} is not the id of a thing`);
     if (typeof l.says !== "string" || !l.says) bad.push(`${at}: no says`);
-    if (!Array.isArray(l.evidence) || !l.evidence.length || l.evidence.some((e) => typeof e !== "string")) bad.push(`${at}: evidence must be a list of paths, at least one`);
+    if (l.type !== undefined && !LINK_TYPES.includes(l.type)) bad.push(`${at}: unknown type ${JSON.stringify(l.type)} (use ${LINK_TYPES.join(", ")})`);
+    const badEvidence = (e) => !evidenceOf(e) || (typeof e === "object" && e.token !== undefined && (typeof e.token !== "string" || !e.token));
+    if (!Array.isArray(l.evidence) || !l.evidence.length || l.evidence.some(badEvidence)) bad.push(`${at}: evidence must be a list of paths or { file, token }, at least one`);
   }
   const { total, gone } = missingPaths(map, dir);
-  return { bad, gone, total, things: arr(map.nodes).length, links: arr(map.links).length };
+  return { bad, gone, drifted: drift(map, dir), total, things: arr(map.nodes).length, links: arr(map.links).length };
 }
 
 // ---- --scan ---------------------------------------------------------------------------------------------------------------------------
@@ -519,9 +584,10 @@ function main(argv) {
   const r = checkMap(map, dir);
   for (const b of r.bad) console.log(`BAD  ${b}`);
   for (const [p, who] of r.gone) console.log(`GONE ${p}  (${[...new Set(who)].join("; ")})`);
+  for (const d of r.drifted) console.log(`DRIFT ${d.file}  (link ${d.from} -> ${d.to}): no longer has: ${d.token}`);
   const share = r.total ? ((100 * r.gone.length) / r.total).toFixed(1) : "0.0";
-  const wrong = r.bad.length + r.gone.length > 0;
-  console.log(`${wrong ? "FAIL" : "ok"}: ${r.things} things, ${r.links} links, ${r.total} listed paths, ${r.gone.length} gone (${share}%), ${r.bad.length} JSON mistakes`);
+  const wrong = r.bad.length + r.gone.length + r.drifted.length > 0;
+  console.log(`${wrong ? "FAIL" : "ok"}: ${r.things} things, ${r.links} links, ${r.total} listed paths, ${r.gone.length} gone (${share}%), ${r.bad.length} JSON mistakes, ${r.drifted.length} drifted`);
   return wrong ? 1 : 0;
 }
 

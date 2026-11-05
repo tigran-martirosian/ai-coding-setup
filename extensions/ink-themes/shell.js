@@ -1,6 +1,7 @@
 // Ink themes: the parts of the mockup that Nimbalyst does not have, added to its window.
-//   - a "New session" button and a Sessions / Files / Tracker switch at the top of the side panel
-//   - usage bars (this week, 5-hour window) at the bottom of the sessions panel
+//   - a "New session" button and a Sessions / Files / Tracker switch (tabs) at the top of the side panel
+//   - the project name for the empty chat heading, and the fold of the theme menu
+//   - a close button on the agent view's right pane, which has none of its own
 // Nothing of the app's own is changed or removed: every part presses or reads one of the app's own
 // buttons. If the app renames one, that part simply does not appear and the app's button stays.
 // Styles are in theme.src.css (.ink-*).
@@ -21,79 +22,68 @@ function el(tag, className, text) {
   return node;
 }
 
-/** "+  " and the label of the app's top-bar create button. */
-function createLabel() {
-  const label = document.querySelector('.window-top-bar__create-primary')?.getAttribute('aria-label');
+const LABELS = { 'new session': 'New session', 'new file': 'New file' };
+
+/** The button's label from the app's aria-label: the two known ones in sentence case, anything else as the app says it. */
+function labelFor(appLabel) {
+  const label = (appLabel ?? '').trim();
   if (!label) throw new Error('the top-bar create button has no label');
-  return `+  ${label}`;
+  return LABELS[label.toLowerCase()] ?? label;
 }
 
-/** The button and the switch, inside the side panel's header (project name and path). */
+function createLabel() {
+  return labelFor(document.querySelector('.window-top-bar__create-primary')?.getAttribute('aria-label'));
+}
+
+/** Write only when it differs, so the observer is not woken by our own writes. */
+function setText(node, text) {
+  if (node.textContent !== text) node.textContent = text;
+}
+function setAttr(node, name, value) {
+  if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+}
+
+/** The button and the tabs, inside the side panel's header (project name and path). */
 function buildTop() {
   const top = el('div', 'ink-top');
   if (document.querySelector('.window-top-bar__create-primary')) {
     // Pressing it presses the app's top-bar create button, whose label follows the mode
     // (New session, New file, ...); sync() keeps this label the same as that one.
-    const add = el('button', 'ink-new', createLabel());
+    const add = el('button', 'ink-new');
+    const icon = el('span', 'material-symbols-outlined ink-sym', 'add');
+    icon.setAttribute('aria-hidden', 'true');
+    add.append(icon, el('span', 'ink-new-label', createLabel()));
     add.type = 'button';
     add.onclick = () => document.querySelector('.window-top-bar__create-primary')?.click();
     top.append(add);
   }
   const seg = el('div', 'ink-seg');
+  seg.setAttribute('role', 'tablist');
+  seg.setAttribute('aria-label', 'Sidebar view');
   for (const [label, testId] of MODES) {
     if (!byTest(testId)) continue;
     const b = el('button', 'ink-seg-btn', label);
     b.type = 'button';
+    b.setAttribute('role', 'tab');
     b.dataset.mode = testId;
     b.onclick = () => {
       const real = byTest(testId);
       if (real && !real.classList.contains('active')) real.click();
     };
+    b.onkeydown = (e) => {
+      const tabs = [...seg.children];
+      const at = tabs.indexOf(b);
+      const target = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (target === undefined) return;
+      const next = tabs[(target + tabs.length) % tabs.length];
+      e.preventDefault();
+      next.focus();
+      next.click();
+    };
     seg.append(b);
   }
   if (seg.children.length) top.append(seg);
   return top;
-}
-
-function buildUsage() {
-  const box = el('div', 'ink-usage');
-  for (const [key, label] of [['week', 'This week'], ['five', '5-hour window']]) {
-    const row = el('div', 'ink-usage-row');
-    row.dataset.key = key;
-    const head = el('div', 'ink-usage-head');
-    head.append(el('span', '', label), el('b', 'ink-usage-pct'));
-    const bar = el('div', 'ink-usage-bar');
-    bar.append(el('i', 'ink-usage-fill'));
-    row.append(head, bar);
-    box.append(row);
-  }
-  return box;
-}
-
-/** The numbers the app's own side buttons already show: the Plan ring (week) and the Claude ring (5 hours). */
-function readUsage() {
-  const week = document.getElementById('usage-plan-gutter-ring')?.textContent.match(/content: "(\d+)%"/);
-  const five = byTest('claude-usage-indicator')?.getAttribute('title')?.match(/Session: (\d+)%/);
-  return { week: week ? Number(week[1]) : null, five: five ? Number(five[1]) : null };
-}
-
-function paintUsage(box) {
-  const usage = readUsage();
-  let shown = 0;
-  for (const row of box.children) {
-    const value = usage[row.dataset.key];
-    row.hidden = value === null;
-    if (value === null) continue;
-    shown++;
-    const text = `${value}%`;
-    const pct = row.querySelector('.ink-usage-pct');
-    if (pct.textContent !== text) {
-      pct.textContent = text;
-      row.querySelector('.ink-usage-fill').style.width = `${Math.min(100, value)}%`;
-      row.dataset.tone = value >= 90 ? 'error' : value >= 70 ? 'warning' : 'ok';
-    }
-  }
-  box.hidden = shown === 0;
 }
 
 /**
@@ -119,14 +109,21 @@ function foldMenu() {
     if (!name || !icon) return;
     while (name.nextSibling) name.nextSibling.remove();
     row.classList.add('ink-fold');
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
     name.textContent = 'Ink themes';
     const arrow = icon.cloneNode(false);
     arrow.classList.add('ink-fold-arrow');
+    arrow.setAttribute('aria-hidden', 'true');
     row.append(arrow);
-    row.onclick = (e) => {
+    const toggle = (e) => {
       e.stopPropagation();
       foldOpen = !foldOpen;
       foldMenu();
+    };
+    row.onclick = toggle;
+    row.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
     };
     items[0].before(row);
   }
@@ -142,7 +139,7 @@ function foldMenu() {
   for (const item of items) {
     const display = foldOpen ? '' : 'none';
     if (item.style.display !== display) item.style.display = display;
-    if (item.style.paddingLeft !== '26px') item.style.paddingLeft = '26px';
+    if (item.style.paddingLeft !== '24px') item.style.paddingLeft = '24px';
   }
 }
 
@@ -154,9 +151,63 @@ function unfoldMenu() {
   }
 }
 
+/**
+ * The agent view's right pane (edited files, review, chat, or the file viewer with no file open) has no close
+ * button; the app closes it only by Ctrl+Shift+A or a top-bar toggle that is not always drawn. The close button
+ * calls the app's own toggle, found on the agent view's ref (the same one the hotkey reaches).
+ */
+function paneToggle(from) {
+  const key = Object.keys(from).find((k) => k.startsWith('__reactFiber'));
+  for (let f = key && from[key]; f; f = f.return) {
+    const handle = f.ref?.current;
+    if (typeof handle?.toggleRightPanel === 'function') return () => handle.toggleRightPanel();
+  }
+  return null;
+}
+
+/** The header row of each open right pane: the file viewer's heading, else the first row of the pane's content. */
+function paneHeaders() {
+  const rows = [...document.querySelectorAll('.workstream-file-viewer-heading')];
+  for (const pane of document.querySelectorAll('.agent-workstream-right-panel')) {
+    const row = pane.firstElementChild?.firstElementChild;
+    if (row && pane.offsetParent !== null) rows.push(row);
+  }
+  return rows.filter((row) => row.offsetParent !== null);
+}
+
+let toggleMissingSaid = false;
+
+function addCloseButtons() {
+  for (const row of paneHeaders()) {
+    if (row.querySelector(':scope > .ink-close-pane')) continue;
+    const toggle = paneToggle(row);
+    if (!toggle) {
+      if (!toggleMissingSaid) console.error('[ink-themes] the right pane has no close: the app\'s toggleRightPanel was not found');
+      toggleMissingSaid = true;
+      continue;
+    }
+    const close = el('button', 'ink-close-pane');
+    const icon = el('span', 'material-symbols-outlined ink-sym', 'close');
+    icon.setAttribute('aria-hidden', 'true');
+    close.append(icon);
+    close.type = 'button';
+    close.title = 'Close panel (Ctrl+Shift+A)';
+    close.setAttribute('aria-label', 'Close panel');
+    close.onclick = toggle;
+    row.append(close);
+  }
+}
+
 function removeAll() {
-  document.querySelectorAll('.ink-top, .ink-usage').forEach((n) => n.remove());
+  document.querySelectorAll('.ink-top, .ink-close-pane').forEach((n) => n.remove());
+  document.querySelectorAll('[data-ink-project]').forEach((n) => n.removeAttribute('data-ink-project'));
   document.documentElement.classList.remove('ink-shell');
+}
+
+/** The project's name: the visible sidebar header's, else the top bar's. */
+function projectName() {
+  const visible = [...document.querySelectorAll('.workspace-summary-header-name')].find((n) => n.offsetParent !== null);
+  return (visible ?? document.querySelector('.window-top-bar__workspace-name'))?.textContent.trim() ?? '';
 }
 
 function sync() {
@@ -166,22 +217,29 @@ function sync() {
   for (const header of document.querySelectorAll('.workspace-summary-header')) {
     if (!header.querySelector(':scope > .ink-top')) header.append(buildTop());
   }
-  for (const panel of document.querySelectorAll('.session-history')) {
-    if (!panel.querySelector(':scope > .ink-usage')) panel.append(buildUsage());
-  }
 
-  for (const b of document.querySelectorAll('.ink-seg-btn')) {
-    const on = !!byTest(b.dataset.mode)?.classList.contains('active');
-    if (b.classList.contains('on') !== on) b.classList.toggle('on', on);
+  for (const seg of document.querySelectorAll('.ink-seg')) {
+    const tabs = [...seg.querySelectorAll('.ink-seg-btn')];
+    const active = tabs.map((b) => !!byTest(b.dataset.mode)?.classList.contains('active'));
+    // With no active mode the first tab stays reachable by keyboard
+    const focusable = active.includes(true) ? active.indexOf(true) : 0;
+    tabs.forEach((b, i) => {
+      setAttr(b, 'aria-selected', String(active[i]));
+      setAttr(b, 'tabindex', i === focusable ? '0' : '-1');
+    });
   }
   const news = document.querySelectorAll('.ink-new');
   if (news.length) {
     const label = createLabel();
-    for (const b of news) {
-      if (b.textContent !== label) b.textContent = label;
-    }
+    for (const b of news) setText(b.querySelector('.ink-new-label'), label);
   }
-  document.querySelectorAll('.ink-usage').forEach(paintUsage);
+  // The empty chat's heading is the project name; the style sheet draws it from this attribute
+  const project = projectName();
+  for (const empty of document.querySelectorAll('.rich-transcript-empty-extras')) {
+    if (empty.dataset.inkProject !== project) empty.dataset.inkProject = project;
+  }
+
+  addCloseButtons();
 
   // The three side icons are hidden only while a switch is really on screen, so there is always a way to change mode.
   const switchVisible = [...document.querySelectorAll('.ink-seg')].some((s) => s.offsetParent !== null);
@@ -212,8 +270,11 @@ function activate() {
     removeAll();
   }
   window.__inkShell = { deactivate };
-  observer = new MutationObserver(queue);
-  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-theme', 'title'] });
+  // Text edits count only inside the project name (a project switch rewrites it); other text, such as a streaming reply, does not wake the shell.
+  observer = new MutationObserver((mutations) => {
+    if (mutations.some((m) => m.type !== 'characterData' || m.target.parentElement?.closest('.workspace-summary-header-name, .window-top-bar__workspace-name'))) queue();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'data-theme'] });
   timer = setInterval(queue, 30_000);
   queue();
 }
@@ -226,4 +287,4 @@ function deactivate() {
   unfoldMenu();
 }
 
-export { activate, deactivate };
+export { activate, deactivate, labelFor };

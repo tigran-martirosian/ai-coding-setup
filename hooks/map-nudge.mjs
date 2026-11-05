@@ -87,14 +87,16 @@ process.stdin.on("end", async () => {
     rec.checkedAt = now;
     save();
     if (rec.staleNudgedAt && now - rec.staleNudgedAt < WEEK) return;
-    const { missingPaths } = await import(pathToFileURL(MAP_JS).href);
+    const { missingPaths, drift } = await import(pathToFileURL(MAP_JS).href);
     const { total, gone } = missingPaths(map, dir);
-    if (!total || gone.length / total <= STALE_SHARE) return;
+    const changed = drift(map, dir).length;
+    const stale = gone.length + changed;
+    if (!total || stale / total <= STALE_SHARE) return;
     rec.staleNudgedAt = now;
     save();
     emit(
       [
-        `[map-nudge] The Systems map of this project (.claude/systems-map.json) is out of date: ${gone.length} of the ${total} files it lists (${Math.round((100 * gone.length) / total)} %) no longer exist.`,
+        `[map-nudge] The Systems map of this project (.claude/systems-map.json) is out of date: ${stale} of the ${total} files it lists (${Math.round((100 * stale) / total)} %) are gone or changed under a link.`,
         `- Without asking, start one background worker now to refresh it: ${worker("refresh", dir)}`,
         "- Carry on with the user's request, and tell the user in one line that the map is being refreshed in the background.",
         "- Say this once; don't repeat it on later turns.",

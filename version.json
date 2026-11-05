@@ -1,6 +1,6 @@
 {
-  "version": "1.0.88",
+  "version": "1.0.89",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "Updating Claude Code from inside a Nimbalyst session works: Nimbalyst's own no-update setting no longer blocks the setup's update step."
+  "summary": "A Systems map panel in Nimbalyst shows your project's parts and links and marks the links whose code changed; Board Tidy archives finished sessions by itself; the Usage Plan pop-up is easier to read; Read Aloud shows one play strip per reply instead of one per paragraph; Commands asks before starting the same command twice; the Ink themes are refreshed."
 }

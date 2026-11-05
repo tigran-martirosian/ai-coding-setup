@@ -655,6 +655,29 @@ ok("every printed line runs and takes the setup's version",
   [[0, 0, 0], true, true, true]);
 ok("the run after that has nothing to list", install(yoursHome).out.includes("Yours, on old versions"), false);
 
+// The theme: Ink Cobalt only where nobody picked one (no key, or the app's default "system")
+const themeHome = path.join(tmp, "theme-home");
+const appAt = (name, data) => {
+  const f = path.join(tmp, `${name}.json`);
+  if (data !== undefined) fs.writeFileSync(f, JSON.stringify(data));
+  return f;
+};
+const themed = (file, ...flags) => ({ out: install(themeHome, "--app-settings", file, ...flags).out, s: fs.existsSync(file) ? json(file) : null });
+const fresh = themed(appAt("app-fresh", { zoom: 1, extensionSettings: { other: { enabled: false } } }));
+ok("theme, fresh: Ink Cobalt set, the extension on, other keys kept",
+  [fresh.s.theme, fresh.s.themeIsDark, fresh.s.themeBackgroundColor, fresh.s.extensionSettings["com.local.inktheme"].enabled, fresh.s.zoom, fresh.s.extensionSettings.other.enabled, /theme: set to Ink Cobalt/.test(fresh.out)],
+  ["com.local.inktheme:ink-cobalt", true, "#16171b", true, 1, false, true]);
+const sys = themed(appAt("app-system", { theme: "system", pendingThemeFallback: "dark" }));
+ok("theme, \"system\": counts as fresh, the fallback goes", [sys.s.theme, "pendingThemeFallback" in sys.s], ["com.local.inktheme:ink-cobalt", false]);
+ok("theme, no settings file yet: written", themed(path.join(tmp, "app-none.json")).s?.theme, "com.local.inktheme:ink-cobalt");
+const picked = themed(appAt("app-picked", { theme: "light" }));
+ok("theme, picked: untouched, and the run says so", [picked.s, /theme: left as it is \(light\)/.test(picked.out)], [{ theme: "light" }, true]);
+ok("theme, --no-theme: untouched", themed(appAt("app-flag", { theme: "system" }), "--no-theme").s, { theme: "system" });
+const themeOff = spawnSync(process.execPath, [INSTALL, "--home", themeHome, "--app-settings", appAt("app-env", {})], { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath, SETUP_THEME: "off" } });
+ok("theme, SETUP_THEME=off: untouched", [json(path.join(tmp, "app-env.json")), /SETUP_THEME=off/.test(themeOff.stdout)], [{}, true]);
+const themeDry = themed(appAt("app-dry", {}), "--dry-run");
+ok("theme, --dry-run: says it, writes nothing", [themeDry.s, /theme: would be set to Ink Cobalt/.test(themeDry.out)], [{}, true]);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fails ?`${fails} failed` : "all passed");
 process.exit(fails ? 1 : 0);

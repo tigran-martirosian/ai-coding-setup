@@ -3,7 +3,8 @@ import { callBackend } from './bridge';
 import { player, usePlayer } from './player';
 import { DEFAULTS, updateSetting, useSettings, VOICES, type ReadAloudSettings } from './settings';
 import { setAutoRead } from './autoRead';
-import { t } from './strings';
+import { formatSpeed, t } from './strings';
+import { TRANSCRIPT_CSS } from './transcript';
 
 interface WorkerStatus {
   worker: 'stopped' | 'starting' | 'ready' | 'error';
@@ -18,19 +19,13 @@ interface WorkerStatus {
 
 const SAMPLE = 'Read Aloud is working. This voice runs entirely on your computer.';
 
-const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0' };
-const label: React.CSSProperties = { width: 170, fontSize: 13, color: 'var(--nim-text)' };
-const hint: React.CSSProperties = { fontSize: 12, color: 'var(--nim-text-muted)' };
-const btn: React.CSSProperties = {
-  padding: '5px 12px',
-  borderRadius: 6,
-  border: '1px solid var(--nim-border)',
-  background: 'var(--nim-bg-secondary)',
-  color: 'var(--nim-text)',
-  cursor: 'pointer',
-  fontSize: 13,
-};
-const input: React.CSSProperties = { ...btn, cursor: 'text', flex: 1, maxWidth: 360 };
+const STATE_TEXT = {
+  stopped: t.stateStopped,
+  starting: t.stateStarting,
+  ready: t.stateReady,
+  error: t.stateError,
+} as const;
+const STATE_DOT = { stopped: '', starting: '', ready: ' live', error: ' error' } as const;
 
 export function ReadAloudSettingsPanel() {
   const s = useSettings();
@@ -39,6 +34,7 @@ export function ReadAloudSettingsPanel() {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dirDraft, setDirDraft] = useState(s.ttsDirectory);
+  const [details, setDetails] = useState(false);
 
   useEffect(() => setDirDraft(s.ttsDirectory), [s.ttsDirectory]);
 
@@ -74,111 +70,133 @@ export function ReadAloudSettingsPanel() {
   const testError = st.error?.key === 'settings-test' ? st.error.message : null;
 
   return (
-    <div style={{ padding: '4px 0', maxWidth: 640 }}>
-      <p style={hint}>
-        {t.intro}
-      </p>
+    <div className="ra-panel">
+      <style>{TRANSCRIPT_CSS}</style>
+      <p className="ra-intro">{t.intro}</p>
 
-      <div style={row}>
-        <span style={label}>{t.enable}</span>
-        <input type="checkbox" checked={s.enabled} onChange={(e) => set('enabled', e.target.checked)} />
-      </div>
+      <label className="ra-row">
+        <span className="ra-label">{t.enable}</span>
+        <input type="checkbox" role="switch" className="ra-switch" checked={s.enabled} onChange={(e) => set('enabled', e.target.checked)} />
+      </label>
 
-      <div style={row}>
-        <span style={label}>{t.handsFree}</span>
+      <label className="ra-row">
+        <span className="ra-label">{t.handsFree}</span>
         <input
           type="checkbox"
+          role="switch"
+          className="ra-switch"
           checked={s.autoRead}
           onChange={(e) => {
             set('autoRead', e.target.checked);
             setAutoRead(e.target.checked);
           }}
         />
-        <span style={hint}>{t.handsFreeHint}</span>
-      </div>
+      </label>
+      <p className="ra-hint ra-note">{t.handsFreeHint}</p>
 
-      <div style={row}>
-        <span style={label}>{t.voice}</span>
-        <select style={btn} value={s.voice} onChange={(e) => set('voice', e.target.value)}>
+      <div className="ra-row">
+        <label className="ra-label" htmlFor="ra-voice">
+          {t.voice}
+        </label>
+        <select id="ra-voice" className="ra-select" value={s.voice} onChange={(e) => set('voice', e.target.value)}>
           {VOICES.map((v) => (
             <option key={v} value={v}>
-              {v === DEFAULTS.voice ? `${v} (${t.defaultWord})` : v}
+              {v === DEFAULTS.voice ? `${t.voiceNames[v]} (${t.defaultWord})` : t.voiceNames[v]}
             </option>
           ))}
         </select>
-        <span style={hint}>{t.voiceHint}</span>
+        <span className="ra-hint">{t.voiceHint}</span>
       </div>
 
-      <div style={row}>
-        <span style={label}>{t.speed}</span>
+      <div className="ra-row">
+        <label className="ra-label" htmlFor="ra-speed">
+          {t.speed}
+        </label>
         <input
+          id="ra-speed"
           type="range"
+          className="ra-range"
           min={0.5}
           max={2}
           step={0.05}
           value={s.speed}
           onChange={(e) => set('speed', Number(e.target.value))}
-          style={{ flex: 1, maxWidth: 260 }}
         />
-        <span style={{ ...hint, width: 40 }}>{s.speed.toFixed(2)}x</span>
+        <span className="ra-speed-value">{formatSpeed(s.speed)}</span>
         {s.speed !== DEFAULTS.speed && (
-          <button style={btn} onClick={() => set('speed', DEFAULTS.speed)}>
+          <button type="button" className="ra-btn compact" onClick={() => set('speed', DEFAULTS.speed)}>
             {t.reset}
           </button>
         )}
       </div>
 
-      <div style={row}>
-        <span style={label}>{t.skipCode}</span>
-        <input type="checkbox" checked={s.skipCodeBlocks} onChange={(e) => set('skipCodeBlocks', e.target.checked)} />
-      </div>
+      <label className="ra-row">
+        <span className="ra-label">{t.skipCode}</span>
+        <input type="checkbox" role="switch" className="ra-switch" checked={s.skipCodeBlocks} onChange={(e) => set('skipCodeBlocks', e.target.checked)} />
+      </label>
 
-      <div style={row}>
-        <span style={label}>{t.skipTerminal}</span>
-        <input type="checkbox" checked={s.skipTerminalOutput} onChange={(e) => set('skipTerminalOutput', e.target.checked)} />
-      </div>
+      <label className="ra-row">
+        <span className="ra-label">{t.skipTerminal}</span>
+        <input type="checkbox" role="switch" className="ra-switch" checked={s.skipTerminalOutput} onChange={(e) => set('skipTerminalOutput', e.target.checked)} />
+      </label>
 
-      <div style={row}>
-        <span style={label}>{t.ttsFolder}</span>
-        <input style={input} value={dirDraft} onChange={(e) => setDirDraft(e.target.value)} />
+      <div className="ra-row">
+        <label className="ra-label" htmlFor="ra-folder">
+          {t.ttsFolder}
+        </label>
+        <input id="ra-folder" className="ra-input" value={dirDraft} onChange={(e) => setDirDraft(e.target.value)} />
         {dirDraft !== s.ttsDirectory && (
-          <button style={btn} onClick={() => set('ttsDirectory', dirDraft.trim() || DEFAULTS.ttsDirectory)}>
+          <button type="button" className="ra-btn" onClick={() => set('ttsDirectory', dirDraft.trim() || DEFAULTS.ttsDirectory)}>
             {t.save}
           </button>
         )}
       </div>
-      <p style={hint}>{t.folderHint}</p>
+      <p className="ra-hint ra-note">{t.folderHint}</p>
 
-      <div style={{ ...row, marginTop: 18 }}>
-        <button style={btn} disabled={!s.enabled} onClick={() => (testing ? player.stop() : player.play('settings-test', SAMPLE))}>
-          {testing ? t.stopTest : t.testVoice}
-        </button>
-        <button style={btn} disabled={busy} onClick={() => act('warmup')}>
-          {t.startWorker}
-        </button>
-        <button style={btn} disabled={busy} onClick={() => act('shutdown_worker')}>
-          {t.stopWorker}
-        </button>
-      </div>
-      {testError && <p style={{ ...hint, color: 'var(--nim-error)' }}>{testError}</p>}
+      <div className="ra-group">
+        <div className="ra-actions">
+          <button
+            type="button"
+            className="ra-btn primary"
+            disabled={!s.enabled}
+            onClick={() => (testing ? player.stop() : player.play('settings-test', SAMPLE))}
+          >
+            {testing ? t.stopTest : t.testVoice}
+          </button>
+          <button type="button" className="ra-btn" disabled={busy} onClick={() => act('warmup')}>
+            {t.startEngine}
+          </button>
+          <button type="button" className="ra-btn" disabled={busy} onClick={() => act('shutdown_worker')}>
+            {t.stopEngine}
+          </button>
+        </div>
+        {testError && <p className="ra-error">{testError}</p>}
 
-      <div style={{ ...hint, marginTop: 8, lineHeight: 1.6 }}>
-        {statusError && <div style={{ color: 'var(--nim-error)' }}>{statusError}</div>}
-        {status && (
-          <>
-            <div>
-              {t.worker}: <b>{status.worker}</b>
-              {status.pid ? t.workerInfo(status.pid, status.uptimeSec, status.requestsServed) : ''}
-              {status.loadMs != null ? t.modelLoaded(status.loadMs) : ''}
-            </div>
-            {status.missing.map((m) => (
-              <div key={m} style={{ color: 'var(--nim-error)' }}>
-                {t.missing(m)}
+        <div className="ra-status">
+          {statusError && <p className="ra-error">{statusError}</p>}
+          {status && (
+            <>
+              <div className="ra-status-line">
+                <span className="ra-label">{t.engine}</span>
+                <span className="ra-state">
+                  <span className={`ra-dot${STATE_DOT[status.worker]}`} />
+                  {STATE_TEXT[status.worker]}
+                </span>
+                <button type="button" className="ra-link" aria-expanded={details} onClick={() => setDetails(!details)}>
+                  {details ? t.hideDetails : t.showDetails}
+                </button>
               </div>
-            ))}
-            {status.lastError && <div style={{ color: 'var(--nim-error)' }}>{status.lastError}</div>}
-          </>
-        )}
+              {details && (
+                <p className="ra-hint ra-note">
+                  {t.engineDetails(status.uptimeSec, status.requestsServed)}
+                  {status.loadMs != null ? `. ${t.modelLoaded(status.loadMs)}` : ''}
+                </p>
+              )}
+              {status.missing.length > 0 && <p className="ra-error">{t.missingFiles}</p>}
+              {status.lastError && <p className="ra-error">{status.lastError}</p>}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

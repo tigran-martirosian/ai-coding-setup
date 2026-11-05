@@ -1,0 +1,389 @@
+/* Read Aloud: the control strip under assistant replies (.readaloud-*) and the settings page (.ra-*).
+   Everything derives from the shared tokens (../../shared/tokens.css), which are prepended to this file at build time
+   (see transcript.tsx). No raw colours: a theme changes colour only. */
+
+/* ---- Control strip -------------------------------------------------------------------------- */
+
+.readaloud-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--x-space-1);
+  margin-top: var(--x-space-1);
+  color: var(--x-text-muted);
+  font: var(--x-caption);
+}
+.readaloud-control[hidden] {
+  display: none;
+}
+/* One strip per turn: only the turn's last text block keeps it (data-turn-end, set in transcript.tsx),
+   plus the block that is playing right now. */
+.readaloud-control:not([data-turn-end]):not(.active) {
+  display: none;
+}
+
+/* Icon button: 28px hit box, muted at rest */
+.readaloud-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--x-radius-control);
+  background: transparent;
+  color: var(--x-text-muted);
+  cursor: pointer;
+  transition: background var(--x-motion-fast) var(--x-ease), color var(--x-motion-fast) var(--x-ease);
+}
+.readaloud-btn:hover {
+  background: var(--x-overlay-hover);
+  color: var(--x-text);
+}
+.readaloud-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.readaloud-btn:active {
+  background: var(--x-overlay-selected);
+  box-shadow: inset 0 1px 0 var(--x-hairline);
+}
+.readaloud-btn:disabled {
+  background: transparent;
+  box-shadow: none;
+  color: var(--x-text-muted);
+  cursor: default;
+}
+.readaloud-btn.on {
+  color: var(--x-accent);
+}
+.readaloud-btn .material-symbols-outlined {
+  font-size: 16px;
+  font-variation-settings: var(--x-icon-settings);
+}
+
+/* Status: a dot and one word */
+.readaloud-state,
+.ra-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--x-space-2);
+  color: var(--x-text-muted);
+  font: var(--x-caption);
+}
+.readaloud-state {
+  padding: 0 var(--x-space-1);
+}
+.readaloud-dot,
+.ra-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--x-text-muted);
+}
+.readaloud-dot.live,
+.ra-dot.live {
+  background: var(--x-accent);
+}
+.readaloud-dot.error,
+.ra-dot.error {
+  background: var(--x-error);
+}
+.readaloud-count {
+  color: var(--x-text-muted);
+  font: var(--x-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Speed: one range and its value */
+.readaloud-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--x-space-2);
+  height: 28px;
+  padding: 0 var(--x-space-1);
+}
+.readaloud-speed-value,
+.ra-speed-value {
+  min-width: 36px;
+  color: var(--x-text-muted);
+  font: var(--x-caption);
+  font-variant-numeric: tabular-nums;
+}
+.readaloud-speed-value {
+  text-align: right;
+}
+
+/* Error: a dot, the message, and a visible dismiss */
+.readaloud-error {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--x-space-2);
+  max-width: 100%;
+  padding-left: var(--x-space-1);
+  color: var(--x-error);
+  font: var(--x-caption);
+}
+
+/* ---- Range input (strip and settings) ------------------------------------------------------- */
+
+.readaloud-range,
+.ra-range {
+  appearance: none;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.readaloud-range {
+  width: 80px;
+}
+.ra-range {
+  flex: 1;
+  max-width: 240px;
+}
+.readaloud-range::-webkit-slider-runnable-track,
+.ra-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--x-surface-3);
+}
+.readaloud-range::-webkit-slider-thumb,
+.ra-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--x-accent);
+}
+.readaloud-range:focus-visible,
+.ra-range:focus-visible {
+  outline: none;
+}
+.readaloud-range:focus-visible::-webkit-slider-thumb,
+.ra-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--x-focus-ring);
+}
+.readaloud-range:disabled,
+.ra-range:disabled {
+  cursor: default;
+}
+.readaloud-range:disabled::-webkit-slider-thumb,
+.ra-range:disabled::-webkit-slider-thumb {
+  background: var(--x-text-muted);
+}
+
+/* ---- Settings page -------------------------------------------------------------------------- */
+
+.ra-panel {
+  max-width: 640px;
+  padding: var(--x-space-1) 0;
+  color: var(--x-text);
+  font: var(--x-body);
+}
+.ra-intro,
+.ra-hint {
+  margin: 0;
+  color: var(--x-text-muted);
+  font: var(--x-caption);
+}
+.ra-intro {
+  margin-bottom: var(--x-space-3);
+}
+.ra-row {
+  display: flex;
+  align-items: center;
+  gap: var(--x-space-3);
+  min-height: 36px;
+}
+.ra-label {
+  flex: none;
+  width: 176px;
+  color: var(--x-text);
+  font: var(--x-body);
+}
+.ra-note {
+  margin: 0 0 var(--x-space-3) 188px;
+}
+.ra-group {
+  margin-top: var(--x-space-4);
+  padding-top: var(--x-space-3);
+  border-top: 1px solid var(--x-hairline);
+}
+
+/* Switch */
+.ra-switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 32px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--x-surface-3);
+  cursor: pointer;
+  transition: background var(--x-motion-fast) var(--x-ease);
+}
+.ra-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--x-text);
+  transition: transform var(--x-motion-fast) var(--x-ease);
+}
+.ra-switch:checked {
+  background: var(--x-accent);
+}
+.ra-switch:checked::after {
+  background: var(--x-on-accent);
+  transform: translateX(12px);
+}
+.ra-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.ra-switch:disabled {
+  cursor: default;
+}
+
+/* Select and text field: one height, one radius */
+.ra-select,
+.ra-input {
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 var(--x-space-3);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: var(--x-surface-1);
+  color: var(--x-text);
+  font: var(--x-body);
+  transition: background var(--x-motion-fast) var(--x-ease);
+}
+.ra-select {
+  min-width: 160px;
+  cursor: pointer;
+}
+.ra-input {
+  flex: 1;
+  max-width: 360px;
+}
+.ra-select:hover,
+.ra-input:hover {
+  background: var(--x-surface-2);
+}
+.ra-select:focus-visible,
+.ra-input:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.ra-select:disabled,
+.ra-input:disabled {
+  background: var(--x-surface-1);
+  color: var(--x-text-muted);
+  cursor: default;
+}
+
+/* Buttons: one filled primary, the rest ghost */
+.ra-btn {
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 var(--x-space-3);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: transparent;
+  color: var(--x-text);
+  font: var(--x-body);
+  cursor: pointer;
+  transition: background var(--x-motion-fast) var(--x-ease);
+}
+.ra-btn:hover {
+  background: var(--x-overlay-hover);
+}
+.ra-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.ra-btn:active {
+  background: var(--x-overlay-selected);
+  box-shadow: inset 0 1px 0 var(--x-hairline);
+}
+.ra-btn.primary {
+  border-color: transparent;
+  background: var(--x-accent);
+  color: var(--x-on-accent);
+}
+.ra-btn.primary:hover {
+  background: color-mix(in oklab, var(--x-accent), var(--x-on-accent) 12%);
+}
+.ra-btn.primary:focus-visible {
+  box-shadow: var(--x-focus-ring);
+}
+.ra-btn.primary:active {
+  background: var(--x-accent);
+  box-shadow: inset 0 1px 0 var(--x-hairline);
+}
+.ra-btn:disabled,
+.ra-btn.primary:disabled {
+  border-color: var(--x-hairline);
+  background: transparent;
+  box-shadow: none;
+  color: var(--x-text-muted);
+  cursor: default;
+}
+.ra-btn.compact {
+  height: 28px;
+}
+.ra-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--x-space-2);
+}
+
+/* Engine status */
+.ra-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--x-space-1);
+  margin-top: var(--x-space-3);
+}
+.ra-status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--x-space-3);
+  min-height: 28px;
+}
+.ra-link {
+  padding: 0 var(--x-space-2);
+  height: 28px;
+  border: 0;
+  border-radius: var(--x-radius-control);
+  background: transparent;
+  color: var(--x-text-muted);
+  font: var(--x-caption);
+  cursor: pointer;
+}
+.ra-link:hover {
+  background: var(--x-overlay-hover);
+  color: var(--x-text);
+}
+.ra-link:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.ra-error {
+  margin: 0;
+  color: var(--x-error);
+  font: var(--x-caption);
+}

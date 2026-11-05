@@ -1,0 +1,17 @@
+{
+  "id": "com.local.boardtidy",
+  "name": "Board Tidy",
+  "version": "0.1.0",
+  "description": "Keeps the Sessions board to current work: archives sessions that are Complete and idle for 3 days, have no phase and are idle for 14 days, or sit in planning, validating or implementing for 30 days, in every project, once an hour. Pinned, running and worktree sessions stay. Nothing is deleted: Unarchive in the Archived view brings a session back, and Claude can undo the last run.",
+  "author": "Local",
+  "main": "dist/index.js",
+  "apiVersion": "1.0.0",
+  "defaultEnabled": true,
+  "permissions": {
+    "filesystem": true,
+    "ai": true
+  },
+  "contributions": {
+    "aiTools": ["board_tidy.archive", "board_tidy.undo"]
+  }
+}

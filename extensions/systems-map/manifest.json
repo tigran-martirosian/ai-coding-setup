@@ -1,0 +1,27 @@
+{
+  "id": "com.local.systemsmap",
+  "name": "Systems Map",
+  "version": "0.1.0",
+  "description": "Shows the project systems map (.claude/systems-map.json) as a full-screen graph: parts coloured by group, links typed, a card for each part, and a flag where code changed under a link. Reads local files; nothing leaves this computer.",
+  "author": "Local",
+  "main": "dist/index.js",
+  "styles": "dist/index.css",
+  "apiVersion": "1.0.0",
+  "defaultEnabled": true,
+  "permissions": {
+    "ai": true,
+    "filesystem": true
+  },
+  "contributions": {
+    "panels": [
+      {
+        "id": "systems-map",
+        "title": "Systems Map",
+        "icon": "hub",
+        "placement": "fullscreen",
+        "order": 92,
+        "tooltip": "The parts of this project and how they connect."
+      }
+    ]
+  }
+}

@@ -1,23 +1,23 @@
 /**
- * Usage Plan: the Claude plan numbers and forecast, as a gutter button and a sidebar panel.
+ * Usage Plan: the Claude plan numbers and forecast, as a popover next to a gutter button and a sidebar panel.
  *
  * All numbers come from ~/.claude/skills/setup-audit/scripts/plan-ahead.mjs --json (see store.ts).
- * This file only draws them.
+ * This file only draws them. The week's percent is not drawn on the gutter button: the app's own Claude ring shows it.
  */
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import type { PanelGutterButtonProps, PanelHostProps } from '@nimbalyst/extension-sdk';
-import { FIVE_MS, WEEK_MS, clock, pace, sessionPace, span, weekTone, when } from './format';
+import type { PanelHostProps } from '@nimbalyst/extension-sdk';
+import { FIVE_MS, WEEK_MS, HOUR_MS, clock, elapsedPercent, extraLimits, paceHours, pace, sessionPace, span, weekForecast, when } from './format';
 import type { Tone } from './format';
-import { clearGutter, paintGutter } from './gutter';
 import { installPopover, removePopover } from './popover';
 import { getState, openDashboard, refresh, setExec, start, stop, subscribe } from './store';
 import { CSS } from './styles';
+import '../../shared/tokens.css';
 import { t } from './strings';
 
 const useStore = () => useSyncExternalStore(subscribe, getState);
 
-/** Re-renders once a minute so "Resets in 2h 5m" stays right between refreshes. */
+/** Re-renders once a minute so "6 d 8 h left" stays right between refreshes. */
 function useNow() {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -27,86 +27,94 @@ function useNow() {
   return now;
 }
 
-const Sym = ({ name, className = '' }: { name: string; className?: string }) => (
-  <span className={`material-symbols-outlined up-sym ${className}`} aria-hidden="true">
+const Sym = ({ name }: { name: string }) => (
+  <span className="material-symbols-outlined up-sym" aria-hidden="true">
     {name}
   </span>
 );
 
-function Limit(props: { name: string; sub: string; used: number | null; resets?: string; length: number; tone: Tone; now: number }) {
-  const { name, sub, used, resets, length, tone, now } = props;
+/** One limit: its name and reset time, the figure, the bar with the labelled tick for the time that has passed, and the time left. */
+function Limit(props: { name: string; used: number | null; resets?: string; length: number; tick: (percent: number) => string; tone: Tone; now: number; size: 'large' | 'small'; note?: string }) {
+  const { name, used, resets, length, tick, tone, now, size, note } = props;
   const left = resets ? Date.parse(resets) - now : 0;
+  const passed = resets ? elapsedPercent(resets, length, now) : 0;
+  const tickText = tick(passed);
+  const shown = used !== null && !!resets;
   return (
-    <div className={tone}>
+    <section className={`up-limit ${size}`}>
       <div className="up-row">
-        <div>
-          <div className="up-name">{name}</div>
-          <div className="up-sub">{sub}</div>
+        <span className="up-label">{name}</span>
+        {shown && <span className="up-cap">{t.resetsAt(when(resets))}</span>}
+      </div>
+      <div className="up-figline">
+        <span className="up-fig">{used === null ? '–' : `${Math.round(used)}%`}</span>
+        {used !== null && <span className="up-unit">{t.used}</span>}
+      </div>
+      <div className="up-bar" role="img" aria-label={used === null ? name : t.barLabel(Math.round(used), tickText)}>
+        <div className="up-track">
+          <div className={`up-fill ${tone === 'error' ? 'error' : ''}`} style={{ transform: `scaleX(${Math.min(100, used ?? 0) / 100})` }} />
         </div>
-        <div>
-          <div className="up-pct">{used === null ? '–' : `${Math.round(used)}%`}</div>
-          {used !== null && <div className="up-used">{t.used}</div>}
+        {shown && <div className="up-tick" style={{ left: `${passed}%` }} title={tickText} />}
+      </div>
+      {shown && (
+        <div className="up-now">
+          <span style={{ left: `clamp(12px, ${passed}%, calc(100% - 12px))` }} title={tickText}>
+            {t.now}
+          </span>
         </div>
-      </div>
-      <div className="up-bar">
-        <div className="up-fill" style={{ width: `${Math.min(100, used ?? 0)}%` }} />
-        {used !== null && <div className="up-tick" style={{ left: `${Math.min(100, Math.max(0, 100 - (left / length) * 100))}%` }} />}
-      </div>
-      <div className="up-meta">
-        <Sym name="schedule" />
-        {used === null ? t.startsNext : t.resetsIn(span(left))}
-      </div>
-    </div>
+      )}
+      <div className="up-cap">{used === null ? t.startsNext : [t.left(span(left)), note].filter(Boolean).join(' · ')}</div>
+    </section>
   );
 }
 
-interface Forecast {
-  icon: string;
+interface Stat {
+  label: string;
   value: string;
-  note: string;
+  unit: string;
+  /** What the figure is based on, always said under a pace. */
+  basis: string;
+  /** Set when the pace is over the budget. */
+  tone?: Tone;
 }
 
-/** Where a limit ends at this pace, over the budget that lasts and the pace now. */
-function PaceCard(props: { forecast: Forecast | null; tone: Tone; budgetLabel: string; budget: number; pace: number | null; unit: string }) {
-  const { forecast, tone, budgetLabel, budget, pace, unit } = props;
+/** Budget and pace side by side read at one precision: a tenth below 10%, whole numbers above. */
+const pct = (v: number) => `${v < 10 ? Math.round(v * 10) / 10 : Math.round(v)}%`;
+
+/** What happens at this pace, as a tinted line, and the two numbers behind it side by side. */
+function Forecast(props: { tone: Tone; verdict: string; detail: string; stats: Stat[] }) {
+  const { tone, verdict, detail, stats } = props;
   return (
-    <div className="up-card">
-      {forecast && (
-        <div className={`up-item ${tone}`}>
-          <span className="up-badge">
-            <Sym name={forecast.icon} />
-          </span>
-          <div>
-            <div className="up-value">{forecast.value}</div>
-            <div className="up-note">{forecast.note}</div>
-          </div>
+    <>
+      <div className={`up-forecast ${tone}`}>
+        <span className="up-dot" />
+        <div>
+          <div className="up-verdict">{verdict}</div>
+          {detail && <div className="up-cap">{detail}</div>}
+        </div>
+      </div>
+      {stats.length > 0 && (
+        <div className="up-stats">
+          {stats.map((st) => (
+            <div className={`up-stat ${st.tone ?? ''}`} key={st.label}>
+              <span className="up-cap">{st.label}</span>
+              <span className="up-stat-fig">
+                {st.value}
+                <span className="up-unit">{st.unit}</span>
+              </span>
+              <span className="up-cap">{st.basis}</span>
+            </div>
+          ))}
         </div>
       )}
-      <div className="up-stats">
-        <div className="up-stat">
-          <div className="up-label">{budgetLabel}</div>
-          <div className="up-num">
-            {budget}% <small>{unit}</small>
-          </div>
-        </div>
-        {pace !== null && (
-          <div className="up-stat">
-            <div className="up-label">{t.yourPace}</div>
-            <div className={`up-num ${pace > budget ? 'over' : ''}`}>
-              {pace}% <small>{unit}</small>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+    </>
   );
 }
 
 /** The whole view. With a host it is the sidebar panel; without one, the popover. */
 function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
-  const { plan, error, loading } = useStore();
+  const { plan, error, loading, dashboard, dashboardError } = useStore();
   const now = useNow();
-  const [opening, setOpening] = useState(false);
 
   useEffect(() => {
     if (host) setExec((command, options) => host.exec(command, options));
@@ -116,149 +124,122 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
 
   const ok = plan?.status === 'ok' && plan.week ? plan : null;
   const week = ok?.week;
-  const five = ok?.five;
   const p = ok ? pace(ok) : null;
+  const hours = ok ? paceHours(ok) : null;
   const s = ok ? sessionPace(ok, now) : null;
-  const tone = ok ? weekTone(ok) : 'success';
-  const fiveTone: Tone = s?.full ? 'error' : (s?.atReset ?? 0) >= 90 ? 'warning' : 'success';
+  const fc = ok ? weekForecast(ok) : null;
+  const fiveTone: Tone = s?.full ? 'error' : s && s.atReset >= 90 ? 'warning' : 'success';
+  const over = (paceValue: number, budget: number, toneIfOver: Tone): Tone | undefined => (paceValue > budget ? toneIfOver : undefined);
 
-  let forecast: Forecast | null = null;
-  if (week?.rolled) forecast = { icon: 'restart_alt', value: t.newWeek, note: t.nothingUsed };
-  else if (week && p?.full) forecast = { icon: 'trending_up', value: t.runsOut(when(p.full)), note: t.beforeReset(span(Date.parse(week.resets) - Date.parse(p.full))) };
-  else if (p) forecast = { icon: 'check_circle', value: t.endsNear(Math.round(p.atReset)), note: t.lastsUntilReset };
-
-  let fiveForecast: Forecast | null = null;
-  if (s?.full && five?.resets) fiveForecast = { icon: 'trending_up', value: t.runsOut(clock(s.full)), note: t.beforeReset(span(Date.parse(five.resets) - Date.parse(s.full))) };
-  else if (s) fiveForecast = { icon: 'check_circle', value: t.endsNear(Math.round(s.atReset)), note: t.lastsUntilReset };
+  let weekForecastView = null;
+  if (week && fc) {
+    const stats: Stat[] = [{ label: t.budget, value: pct(week.budget), unit: t.unitDay, basis: t.budgetWeek }];
+    if (p && hours) {
+      const tone = fc.kind === 'runsOut' ? 'error' : fc.kind === 'ends' ? fc.tone : 'success';
+      stats.push({ label: t.yourPace, value: pct(p.perDay), unit: t.unitDay, basis: t.paceFrom(hours < 48 ? `${hours} ${t.hour}` : span(hours * HOUR_MS)), tone: over(p.perDay, week.budget, tone) });
+    }
+    const view =
+      fc.kind === 'new'
+        ? { tone: 'success' as Tone, verdict: t.newWeek, detail: '' }
+        : fc.kind === 'runsOut'
+          ? { tone: 'error' as Tone, verdict: t.runsOut(when(fc.full)), detail: t.beforeReset(span(fc.before)) }
+          : { tone: fc.tone, verdict: t.endsNear(fc.percent), detail: t.lastsUntilReset };
+    weekForecastView = <Forecast {...view} stats={fc.kind === 'new' ? [] : stats} />;
+  }
 
   return (
     <div className="up" data-usage-plan>
       <style>{CSS}</style>
       <div className="up-head">
         <span className="up-title">{t.title}</span>
+        {loading && <span className="up-busy">{t.updating}</span>}
         <button className="up-iconbtn" onClick={refresh} disabled={loading} title={t.refresh} aria-label={t.refresh}>
-          <Sym name="refresh" className={loading ? 'up-spin' : ''} />
+          <Sym name="refresh" />
         </button>
       </div>
 
-      {week && (
+      {ok && week && (
         <>
           <div className="up-group">
-            <Limit name={t.weekly} sub={week.today == null ? t.window7 : t.window7Today(Math.round(week.today))} used={week.used} resets={week.resets} length={WEEK_MS} tone={tone} now={now} />
-            <PaceCard forecast={forecast} tone={tone} budgetLabel={t.dailyBudget} budget={week.budget} pace={p ? p.perDay : null} unit={t.unitDay} />
+            <Limit
+              name={t.week}
+              used={week.used}
+              resets={week.resets}
+              length={WEEK_MS}
+              tick={t.tickWeek}
+              tone={fc?.kind === 'runsOut' ? 'error' : 'success'}
+              now={now}
+              size="large"
+              note={week.today == null ? (ok.at ? t.asOf(clock(ok.at)) : '') : t.todayAsOf(Math.round(week.today), clock(ok.at))}
+            />
+            {weekForecastView}
+            {extraLimits(ok).length > 0 && (
+              <div className="up-extras">
+                {extraLimits(ok).map((e) => (
+                  <div className="up-extra" key={e.name}>
+                    <span>{e.name}</span>
+                    <span className="up-cap">{e.resets ? t.resetsAt(when(e.resets)) : ''}</span>
+                    <span className="up-num">{Math.round(e.used)}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="up-group">
-            <Limit name={t.session} sub={t.window5} used={s ? (five?.used ?? 0) : null} resets={five?.resets} length={FIVE_MS} tone={fiveTone} now={now} />
-            {s && <PaceCard forecast={fiveForecast} tone={fiveTone} budgetLabel={t.hourlyBudget} budget={s.budget} pace={s.perHour} unit={t.unitHour} />}
-          </div>
+          {s && (
+            <div className="up-group">
+              <Limit name={t.five} used={ok.five?.used ?? 0} resets={ok.five?.resets} length={FIVE_MS} tick={t.tickFive} tone={fiveTone} now={now} size="small" />
+              <Forecast
+                tone={fiveTone}
+                verdict={s.full ? t.runsOut(clock(s.full)) : t.endsNear(Math.round(s.atReset))}
+                detail={s.full && ok.five?.resets ? t.beforeReset(span(Date.parse(ok.five.resets) - Date.parse(s.full))) : t.lastsUntilReset}
+                stats={[
+                  { label: t.budget, value: pct(s.budget), unit: t.unitHour, basis: t.budgetFive },
+                  { label: t.yourPace, value: pct(s.perHour), unit: t.unitHour, basis: t.paceFromFive, tone: over(s.perHour, s.budget, fiveTone) },
+                ]}
+              />
+            </div>
+          )}
         </>
       )}
       {plan && !ok && <div className="up-empty">{t.noPlan}</div>}
       {!plan && !error && <div className="up-empty">{t.loading}</div>}
 
       <div className="up-foot">
-        {error && <div className="up-error">{error}</div>}
-        <button
-          className="up-btn"
-          disabled={opening}
-          onClick={async () => {
-            setOpening(true);
-            await openDashboard();
-            setOpening(false);
-          }}
-        >
-          <Sym name="open_in_new" />
-          {opening ? t.opening : t.fullDashboard}
+        {error && (
+          <div className="up-error" role="alert">
+            <span>{error}</span>
+            <button onClick={refresh}>{t.retry}</button>
+          </div>
+        )}
+        {dashboardError && (
+          <div className="up-error" role="alert">
+            <span>{dashboardError}</span>
+            <button onClick={openDashboard}>{t.retry}</button>
+          </div>
+        )}
+        <button className="up-btn" disabled={dashboard === 'building'} onClick={openDashboard}>
+          <Sym name={dashboard === 'opened' ? 'check' : 'open_in_new'} />
+          <span role="status">{dashboard === 'building' ? t.building : dashboard === 'opened' ? t.opened : t.dashboard}</span>
         </button>
-        {plan?.at && <div className="up-updated">{t.updated(clock(plan.at))}</div>}
       </div>
     </div>
   );
 }
 
-const RING = 2 * Math.PI * 12;
-
-/**
- * The week's percent in a ring, like Nimbalyst's own usage buttons.
- * The app does not render this yet (see gutter.ts, which draws the same ring on the app's own button).
- */
-function UsagePlanGutterButton({ isActive, onActivate }: PanelGutterButtonProps) {
-  const { plan } = useStore();
-  const now = useNow();
-  useEffect(start, []);
-
-  const ok = plan?.status === 'ok' && plan.week ? plan : null;
-  const week = ok?.week;
-  const p = ok ? pace(ok) : null;
-  const lines = week
-    ? [
-        t.weekUsed(Math.round(week.used), span(Date.parse(week.resets) - now)),
-        week.today == null ? '' : t.todayOfWeek(Math.round(week.today)),
-        p?.full ? t.runsOutAtPace(when(p.full)) : p ? t.endsNearAtPace(Math.round(p.atReset)) : '',
-        ok?.five?.open ? t.sessionUsed(Math.round(ok.five.used ?? 0)) : '',
-      ]
-    : [t.title];
-
-  return (
-    <button
-      className="nav-button group relative w-9 h-9 flex items-center justify-center border-none rounded-md cursor-pointer transition-all duration-150 p-0 active:scale-95 focus-visible:outline-2 focus-visible:outline-[var(--nim-primary)] focus-visible:outline-offset-2 text-nim-muted hover:bg-nim-tertiary hover:text-nim"
-      style={{ position: 'relative', width: 36, height: 36, padding: 0, border: 0, borderRadius: 6, cursor: 'pointer', ...(isActive ? { background: 'var(--nim-bg-tertiary)' } : {}) }}
-      title={lines.filter(Boolean).join('\n')}
-      aria-label={t.title}
-      aria-pressed={isActive}
-      onClick={onActivate}
-    >
-      {week ? (
-        <>
-          <svg width="32" height="32" viewBox="0 0 32 32" style={{ transform: 'rotate(-90deg)', display: 'block', margin: 'auto' }}>
-            <circle cx="16" cy="16" r="12" fill="none" stroke="var(--nim-bg-tertiary)" strokeWidth="3" />
-            <circle
-              cx="16"
-              cy="16"
-              r="12"
-              fill="none"
-              stroke={`var(--nim-${weekTone(ok!)})`}
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeDasharray={RING}
-              strokeDashoffset={RING * (1 - Math.min(100, week.used) / 100)}
-              style={{ transition: 'stroke-dashoffset 0.3s' }}
-            />
-          </svg>
-          <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: 'var(--nim-text)' }}>
-            {Math.round(week.used)}%
-          </span>
-        </>
-      ) : (
-        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
-          data_usage
-        </span>
-      )}
-    </button>
-  );
-}
-
-let unpaint: (() => void) | undefined;
-
 export function activate() {
-  unpaint ??= subscribe(() => paintGutter(getState().plan));
-  paintGutter(getState().plan);
-  installPopover(() => <UsagePlanPanel />);
+  installPopover(() => <UsagePlanPanel />, t.title);
   start();
 }
 
 export function deactivate() {
   stop();
-  unpaint?.();
-  unpaint = undefined;
-  clearGutter();
   removePopover();
 }
 
 // The app reads `panels` when it loads the extension, so the button opens the popover from the
 // first click even if the app only activates the extension when its panel is opened.
-if (typeof window !== 'undefined') installPopover(() => <UsagePlanPanel />);
+if (typeof window !== 'undefined') installPopover(() => <UsagePlanPanel />, t.title);
 
 export const panels = {
-  'usage-plan': { component: UsagePlanPanel, gutterButton: UsagePlanGutterButton },
+  'usage-plan': { component: UsagePlanPanel },
 };

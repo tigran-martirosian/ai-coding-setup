@@ -35,6 +35,9 @@
 //   --replace-all               the same for every such file, and for the rules
 //   --extensions yes|no         build the Nimbalyst extensions and put them into Nimbalyst (default: yes
 //                               when Nimbalyst is installed; they change nothing until a theme is picked)
+//   --no-theme                  leave Nimbalyst's theme alone (also SETUP_THEME=off); by default a Nimbalyst
+//                               where no theme was picked yet gets Ink Cobalt, a picked theme always stays
+//   --app-settings <file>       Nimbalyst's settings file, when it is somewhere else (the tests)
 //   --plugins yes|no            install the plugins (default: yes; each is handled once, so one that was
 //                               removed or switched later stays as it is)
 //   --with <names>               add one or more add-ons left out of a default install: phone-bot,
@@ -61,6 +64,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { addClaudeCodeSettings } from "./scripts/claude-code-settings.mjs";
 import { checkClaudeCode } from "./scripts/claude-code-version.mjs";
+import { setInkDefault, themeIsFresh } from "./scripts/ink-default.mjs";
 
 const REPO = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -251,7 +255,7 @@ const repoText = (rel) => fit(rel, fs.readFileSync(path.join(REPO, rel))).toStri
 
 const RETIRED = ["build-nudge.mjs", "turn-cap.mjs", "web-worker-gate.mjs"];
 // The folder each extension (named as in the repo) has in Nimbalyst's extensions folder
-const EXT_FOLDER = { "ink-themes": "inktheme", "agents-panel": "agentspanel", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud" };
+const EXT_FOLDER = { "ink-themes": "inktheme", "agents-panel": "agentspanel", "board-tidy": "boardtidy", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud", "systems-map": "systemsmap" };
 // Add-ons: left out of a default install. --with name[,name,...] adds any of them; a copy already in
 // the target stays and keeps being updated by a plain run; --uninstall treats them like any other skill or extension.
 const ADDONS = { "phone-bot": "skill", "shared-usage": "skill", "read-aloud": "extension" };
@@ -816,7 +820,7 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
     const target = path.join(extHome, "extensions", EXT_FOLDER[name] || name);
     if (name === "read-aloud" && !withNames.includes("read-aloud") && !fs.existsSync(target)) { say(`extension left out: read-aloud (it needs its own speech program; see ${fwd(path.join(dir, "README.md"))}; add it with --with read-aloud)`); continue; }
     if (builtExt[name] === printOf(dir) && fs.existsSync(target)) { say(`extension unchanged: ${name}`); continue; }
-    const plain = ["ink-themes", "agents-panel"].includes(name); // build with Node alone
+    const plain = ["ink-themes", "agents-panel", "board-tidy"].includes(name); // build with Node alone
     if (!plain && !onPath("npm")) { say(`extension not built: ${name} (npm is not on the PATH; install Node.js with npm and run this again)`); continue; }
     if (DRY) { say(`extension would be built and installed: ${name}`); continue; }
     const steps = plain ? [[process.execPath, ["build.mjs"]], [process.execPath, ["build.mjs", "--install"]]]
@@ -836,6 +840,36 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
   if (!DRY && JSON.stringify(builtExt) !== JSON.stringify(state.extensions || {})) nextState.extensions = builtExt;
 } else if (extensions.length) {
   say(`Nimbalyst extensions are not installed by this script: ${extensions.join(", ")}. For each one, in ${fwd(path.join(REPO, "extensions"))}/<name>: npm install, npm run build, npm run install-ext, then restart Nimbalyst.`);
+}
+
+// The theme: Ink Cobalt for a Nimbalyst where nobody picked a theme yet (scripts/ink-default.mjs). A theme the
+// person picked stays. Nimbalyst rewrites its settings file from memory, so the file is written only while it
+// is closed; while it runs, the run names the one pick to make. --app-settings <file> is another settings file
+// (the tests), written as it is.
+const appFile = opt("app-settings") !== null ? path.resolve(opt("app-settings")) : path.join(extHome, "app-settings.json");
+const inkThere = opt("app-settings") !== null || (wantExt && fs.existsSync(path.join(extHome, "extensions", EXT_FOLDER["ink-themes"])));
+if (args.includes("--no-theme") || process.env.SETUP_THEME === "off") say("theme: left as it is (--no-theme or SETUP_THEME=off)");
+else if (inkThere && (appData || opt("app-settings") !== null)) {
+  let app = {};
+  if (fs.existsSync(appFile)) {
+    try { app = JSON.parse(fs.readFileSync(appFile, "utf8")); } catch (e) { app = null; say(`theme: left as it is (${fwd(appFile)} is not valid JSON: ${e.message})`); }
+  }
+  if (app && !themeIsFresh(app)) say(`theme: left as it is (${app.theme})`);
+  else if (app) {
+    const running = opt("app-settings") === null && (process.platform === "win32"
+      ? /Nimbalyst\.exe/i.test(spawnSync("tasklist", ["/FI", "IMAGENAME eq Nimbalyst.exe", "/NH"], { encoding: "utf8" }).stdout || "")
+      : spawnSync("pgrep", ["-x", "Nimbalyst"]).status === 0);
+    if (running) say("theme: Nimbalyst is open, so its theme was not set. Pick it once: the Theme button at the bottom of the left bar, Ink themes, Ink Cobalt.");
+    else {
+      setInkDefault(app);
+      if (DRY) say(`theme: would be set to Ink Cobalt in ${fwd(appFile)}`);
+      else {
+        const copy = fs.existsSync(appFile) ? keepCopy(appFile) : null;
+        fs.writeFileSync(appFile, JSON.stringify(app, null, 2) + "\n");
+        say(`theme: set to Ink Cobalt in ${fwd(appFile)}${copy ? ` (old copy: ${copy})` : ""}`);
+      }
+    }
+  }
 }
 
 // The plugins. Each is handled once and put on record: one the user removed or switched later stays

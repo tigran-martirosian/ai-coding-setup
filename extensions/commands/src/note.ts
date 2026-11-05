@@ -1,5 +1,5 @@
-// Sends a note to a running session: steer.mjs puts it where the session reads it before its next
-// step; an idle session is started with the text instead.
+// Sends a note to a running session: the steer script puts it where the session reads it before its
+// next step; an idle session is started with the text instead.
 
 import { t } from './strings.ts';
 
@@ -51,7 +51,7 @@ export async function sendNote(text: string, sessionId: string, home: string, in
   const note = withFiles(text, files);
   if (!note) return { ok: false, message: t.note.typeFirst };
   // the id goes into a shell command line
-  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return { ok: false, message: t.note.oddId(sessionId.slice(0, 40)) };
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return { ok: false, message: t.note.oddId };
   // one file per session: two chat boxes sending at once must not read each other's note
   const file = `${home}/.claude/steer/button-note-${sessionId}.txt`;
   try {
@@ -71,8 +71,8 @@ export async function sendNote(text: string, sessionId: string, home: string, in
       await invoke('ai:createQueuedPrompt', sessionId, text.trim() || note, files);
       return { ok: true, message: t.note.queued };
     }
-    const why = (r.stdout || r.stderr || '').trim().replace(/\s+/g, ' ').slice(0, 240);
-    return { ok: false, message: t.note.notSentCode(r.exitCode, why || 'no output') };
+    const why = (r.stdout || r.stderr || '').trim().replace(/\s+/g, ' ').replace(/^NOT SENT:?\s*/i, '').slice(0, 240);
+    return { ok: false, message: t.note.notSentWhy(why || 'no answer from the helper') };
   } catch (e) {
     return { ok: false, message: t.note.notSent(fail(e)) };
   }

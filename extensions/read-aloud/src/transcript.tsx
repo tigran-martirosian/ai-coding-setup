@@ -14,7 +14,9 @@ import { player, usePlayer } from './player';
 import { updateSetting, useSettings } from './settings';
 import { setAutoRead } from './autoRead';
 import { splitVoice } from './cleanText';
-import { t } from './strings';
+import { formatSpeed, t } from './strings';
+import tokensCss from '../../shared/tokens.css?inline';
+import panelCss from './panel.css?inline';
 
 export const CONTROL_TAG = 'readaloud-control';
 
@@ -61,8 +63,6 @@ function stripVoiceMarkers(node: HastNode) {
   node.children.forEach(stripVoiceMarkers);
 }
 
-const SPEEDS = [1, 1.25, 1.5, 2];
-
 export function rehypeReadAloud() {
   return (tree: HastNode, file: { value?: unknown }) => {
     const source = typeof file?.value === 'string' ? file.value : String(file?.value ?? '');
@@ -91,8 +91,39 @@ function isAssistantText(el: HTMLElement | null): boolean {
   return true;
 }
 
-function Icon({ name, spin }: { name: string; spin?: boolean }) {
-  return <span className={`material-symbols-outlined${spin ? ' readaloud-spin' : ''}`}>{name}</span>;
+/**
+ * Marks the last control before each user message (and the very last one) with data-turn-end,
+ * so a reply shows one strip at the end of its turn instead of one per text block.
+ * One observer for the whole window, recomputed once per frame while the transcript changes.
+ */
+let turnObserver: MutationObserver | null = null;
+let turnFrame = 0;
+
+function markTurnEnds() {
+  turnFrame = 0;
+  const items = document.querySelectorAll<HTMLElement>('.rich-transcript-message.user, .readaloud-control:not([hidden])');
+  items.forEach((el, i) => {
+    if (!el.classList.contains('readaloud-control')) return;
+    const next = items[i + 1];
+    const end = !next || !next.classList.contains('readaloud-control');
+    if (end !== el.hasAttribute('data-turn-end')) el.toggleAttribute('data-turn-end', end);
+  });
+}
+
+function watchTurnEnds() {
+  if (!turnFrame) turnFrame = requestAnimationFrame(markTurnEnds);
+  if (turnObserver) return;
+  turnObserver = new MutationObserver((records) => {
+    // our own attribute writes are not childList changes, so they do not loop back here
+    if (records.some((r) => r.type === 'childList' || r.attributeName === 'hidden') && !turnFrame) {
+      turnFrame = requestAnimationFrame(markTurnEnds);
+    }
+  });
+  turnObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+}
+
+function Icon({ name }: { name: string }) {
+  return <span className="material-symbols-outlined">{name}</span>;
 }
 
 export function ReadAloudControl(props: Record<string, unknown>) {
@@ -107,17 +138,13 @@ export function ReadAloudControl(props: Record<string, unknown>) {
   }, []);
 
   const visible = eligible && settings.enabled && !!key;
+  useLayoutEffect(watchTurnEnds, [visible]);
   const mine = !!key && st.key === key;
   const error = st.error && st.error.key === key ? st.error.message : null;
 
   const speech = speechForKey(key);
   const readAloud = (full: boolean) => {
     if (key && speech) player.play(key, full ? speech.full : speech.short);
-  };
-
-  const cycleSpeed = () => {
-    const next = SPEEDS.find((v) => v > settings.speed + 0.01) ?? SPEEDS[0];
-    void updateSetting('speed', next);
   };
 
   const toggleAuto = () => {
@@ -139,14 +166,9 @@ export function ReadAloudControl(props: Record<string, unknown>) {
         </button>
       )}
       {mine && st.status === 'synthesizing' && (
-        <>
-          <span className="readaloud-btn" title={t.preparing}>
-            <Icon name="progress_activity" spin />
-          </span>
-          <button type="button" className="readaloud-btn" title={t.pause} onClick={() => player.pause()}>
-            <Icon name="pause" />
-          </button>
-        </>
+        <button type="button" className="readaloud-btn" title={t.pause} aria-label={t.pause} onClick={() => player.pause()}>
+          <Icon name="pause" />
+        </button>
       )}
       {mine && st.status === 'playing' && (
         <button type="button" className="readaloud-btn on" title={t.pause} onClick={() => player.pause()}>
@@ -168,50 +190,52 @@ export function ReadAloudControl(props: Record<string, unknown>) {
           <Icon name="stop" />
         </button>
       )}
-      <button
-        type="button"
-        className="readaloud-btn readaloud-speed"
-        title={t.speedTip}
-        onClick={cycleSpeed}
-      >
-        {settings.speed}×
-      </button>
-      {mine && st.total > 1 && (
-        <span className="readaloud-status">
-          {st.chunk + 1}/{st.total}
+      {mine && (
+        <span className="readaloud-state">
+          <span className={`readaloud-dot${st.status === 'paused' ? '' : ' live'}`} />
+          {st.status === 'synthesizing' ? t.statePreparing : st.status === 'paused' ? t.statePaused : t.statePlaying}
+          {st.total > 1 && (
+            <span className="readaloud-count">
+              {st.chunk + 1}/{st.total}
+            </span>
+          )}
         </span>
       )}
+      {mine && <label className="readaloud-speed" title={t.speedLabel}>
+        <input
+          type="range"
+          className="readaloud-range"
+          aria-label={t.speedLabel}
+          min={0.5}
+          max={2}
+          step={0.05}
+          value={settings.speed}
+          onChange={(e) => void updateSetting('speed', Number(e.target.value))}
+        />
+        <span className="readaloud-speed-value">{formatSpeed(settings.speed)}</span>
+      </label>}
       <button
         type="button"
         className={`readaloud-btn readaloud-auto${settings.autoRead ? ' on' : ''}`}
         title={settings.autoRead ? t.autoOnTip : t.autoOffTip}
+        aria-label={settings.autoRead ? t.autoOnTip : t.autoOffTip}
+        aria-pressed={settings.autoRead}
         onClick={toggleAuto}
       >
         <Icon name="headphones" />
       </button>
       {error && (
-        <span className="readaloud-error" title={error} onClick={() => player.clearError()}>
-          <Icon name="error" /> {error}
+        <span className="readaloud-error">
+          <span className="readaloud-dot error" />
+          {error}
+          <button type="button" className="readaloud-btn" title={t.dismiss} aria-label={t.dismiss} onClick={() => player.clearError()}>
+            <Icon name="close" />
+          </button>
         </span>
       )}
     </span>
   );
 }
 
-export const TRANSCRIPT_CSS = `
-.readaloud-control { display: flex; align-items: center; gap: 2px; margin-top: 4px; opacity: 0.4; transition: opacity 120ms; flex-wrap: wrap; }
-.readaloud-control[hidden] { display: none; }
-.rich-transcript-message:hover .readaloud-control, .readaloud-control.active, .readaloud-control:focus-within { opacity: 1; }
-.readaloud-control .readaloud-auto, .readaloud-control .readaloud-speed { opacity: 0; }
-.rich-transcript-message:hover .readaloud-control .readaloud-auto, .readaloud-control .readaloud-auto.on,
-.rich-transcript-message:hover .readaloud-control .readaloud-speed, .readaloud-control.active .readaloud-speed { opacity: 1; }
-.readaloud-speed { font-size: 11px; min-width: 30px; }
-.readaloud-btn { display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; padding: 2px; border-radius: 4px; color: var(--nim-text-muted); cursor: pointer; line-height: 1; }
-.readaloud-btn:hover { background: var(--nim-bg-tertiary); color: var(--nim-text); }
-.readaloud-btn.on { color: var(--nim-primary); }
-.readaloud-btn .material-symbols-outlined, .readaloud-error .material-symbols-outlined { font-size: 16px; }
-.readaloud-status { font-size: 11px; color: var(--nim-text-faint); margin-left: 2px; }
-.readaloud-error { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--nim-error); margin-left: 4px; cursor: pointer; max-width: 100%; }
-.readaloud-spin { animation: readaloud-spin 1s linear infinite; }
-@keyframes readaloud-spin { to { transform: rotate(360deg); } }
-`;
+/** Tokens plus the panel stylesheet, handed to the host as css-text and also mounted by the settings page. */
+export const TRANSCRIPT_CSS = `${tokensCss}\n${panelCss}`;
