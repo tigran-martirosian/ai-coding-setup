@@ -114,8 +114,9 @@ export function missingPaths(map, dir) {
 }
 
 /** The generated entry that writes this project path ({ files, by, run, inputs }), or null. */
+const normPath = (p) => str(p).replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").toLowerCase();
 export function generatorOf(map, rel) {
-  return arr(map?.generated).find((g) => arr(g?.files).includes(rel)) || null;
+  return arr(map?.generated).find((g) => arr(g?.files).some((f) => normPath(f) === normPath(rel))) || null;
 }
 
 /** One line telling a session not to edit a generated file by hand. */
@@ -138,9 +139,11 @@ export function handEdits(map, dir) {
     const source = log([g.by, ...arr(g.inputs)]);
     if (source === null) return [];
     const last = source.length ? source[0].split(" ")[0] : null;
-    if (!last) continue;
+    if (!last) { out.push({ file: arr(g.files)[0] ?? g.by, by: g.by, commits: [`${g.by} has no commit yet, so its outputs cannot be checked`] }); continue; }
+    // a commit that also changed the script or an input is a run (a lane merged after the latest script commit, too)
+    const runs = new Set(source.map((c) => c.split(" ")[0]));
     for (const f of arr(g.files)) {
-      const after = (log([f], [`${last}..HEAD`]) || []).map((c) => c.slice(0, 7) + c.slice(40));
+      const after = (log([f], [`${last}..HEAD`]) || []).filter((c) => !runs.has(c.split(" ")[0])).map((c) => c.slice(0, 7) + c.slice(40));
       if (after.length) out.push({ file: f, by: g.by, commits: after });
     }
   }
