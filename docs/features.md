@@ -110,7 +110,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
 | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
-| `background-tasks` | When Nimbalyst's "background tasks have settled" prompt only repeats tasks already reported, tells the agent to answer it in two or three plain sentences instead of handling the results again, and adds a note on what background costs to every background launch |
+| `background-tasks` | When Nimbalyst's "background tasks have settled" prompt only repeats tasks already reported, tells the agent to reply with one line while work still runs and one complete answer when it is done, and adds a note to every background launch on what background costs and that a finished job's notice gets no reply of its own while other work runs |
 | `job-done` | After a commit, tag or push in a session over 100k tokens, points a new job to a fresh session, once per commit |
 | `worker-size` | Tells a helper whose context passed 150k tokens to finish the step in hand and report |
 

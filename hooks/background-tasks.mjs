@@ -2,7 +2,7 @@
 // conversation: on real transcripts a long session had dozens of task-notification turns plus Nimbalyst
 // "[System: background task(s) you launched have settled: ...]" prompts, each re-sending the full context.
 //   UserPromptSubmit: when every task in the settled prompt already had its task-notification, lets it through
-//     with a note to answer in a few plain lines instead of handling the results again. One unknown or
+//     with a note: one line while work still runs, one complete answer to the user's message when it is done. One unknown or
 //     unnotified task lets it through with no note. It used to block it, but a blocked prompt shows in
 //     Nimbalyst as a warning quoting the whole raw list, and that warning, not a reply, was what the user read.
 //   PreToolUse (Bash, Agent, Task with run_in_background: true): adds a note on what background costs.
@@ -33,9 +33,9 @@ const ITEM_END = /" [a-z][a-z ()0-9-]{0,30}\n  Summary:/g;
 const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n  Summary:)/m;
 // command-explain.mjs appends this to a command without a note; the transcript keeps the command without it
 const STAND_IN = /\n\n# WHAT THIS DOES: \(no note given\) [\s\S]*$/;
-const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read. Use it only when another step runs beside this one; otherwise run it in the foreground (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once.";
+const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read. Use it only when another step runs beside this one; otherwise run it in the foreground (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once. When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer).";
 
-const DUPLICATE = "[background-tasks] This settled notice repeats results you already had in their task-notifications, and the user sees it as a raw list. Don't re-read or redo anything: reply in two or three plain sentences with where the work stands now (what is done, what still runs, what they need to decide). Never answer it with \"No response requested\".";
+const DUPLICATE = "[background-tasks] This settled notice repeats results you already had in their task-notifications, and the user sees it as a raw list. Don't re-read or redo anything: no status snippet (a string of small updates doesn't read like an answer). If work for the user's last message still runs, reply with one line naming what still runs. When it is all finished, reply with one complete answer to that whole message, readable alone: every ask and its outcome, what was checked, what is left, any decision last. Never answer it with \"No response requested\".";
 
 const texts = (c) => typeof c === "string" ? [c] : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text || "") : [];
 const resultText = (c) => typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => b.text || "").join("\n") : "";
