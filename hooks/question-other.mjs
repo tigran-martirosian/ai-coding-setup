@@ -203,6 +203,28 @@ const REC_ASK = `This form recommends an option and no rec-check agent has looke
   `The user clicks the recommended option on trust and about a third of them missed. Call the Agent tool once, in the foreground, with subagent_type "rec-check". Its prompt: the user's own words on this, ` +
   `the question, every option with its reason, and what you looked at. Act on what it says, then send the form again. Fix anything it changes; if you overrule it, say why in the reply.`;
 
+// A form with no way to type an answer, fixed in place instead of refused: Nimbalyst draws a form as soon
+// as the call starts, so a refused form stays on screen beside the corrected one and the user sees it twice.
+// Each singleSelect gets allowOther: true, and a form with no field that takes typing gets an optional
+// "Anything else?" box. Returns the new input, or null when nothing needed adding.
+export function repair(input) {
+  let fields = input?.fields;
+  if (typeof fields === "string") try { fields = JSON.parse(fields); } catch { return null; }
+  if (!Array.isArray(fields)) return null;
+  let changed = false;
+  const out = fields.map((f) => {
+    if (f?.type === "singleSelect" && f.allowOther !== true) { changed = true; return { ...f, allowOther: true }; }
+    return f;
+  });
+  if (!out.some(typeable)) {
+    let id = "anythingElse";
+    while (out.some((f) => f?.id === id)) id += "_";
+    out.push({ type: "editText", id, label: "Anything else?", format: "plain", initialText: "", minLength: 0 });
+    changed = true;
+  }
+  return changed ? { ...input, fields: out } : null;
+}
+
 // The reasons to refuse one call (empty when it may go through). seen = readRecord(...) or null.
 export function review(event, seen) {
   const tool = String(event.tool_name || "");
@@ -290,8 +312,13 @@ if (process.argv[1] && resolve(fileURLToPath(import.meta.url)).toLowerCase() ===
     let seen = null; // no session record (or an unreadable one) lets "Checked:" and the link check through
     const needsRecord = /PromptForUserInput$|AskUserQuestion$/.test(String(event.tool_name || ""));
     try { if (needsRecord && event.transcript_path) seen = readRecord(event.transcript_path); } catch {}
-    const parts = review(event, seen);
-    if (parts.length) {
+    const fixed = /PromptForUserInput$/.test(String(event.tool_name || "")) ? repair(event.tool_input) : null;
+    const parts = review(fixed ? { ...event, tool_input: fixed } : event, seen);
+    if (fixed && !parts.length) {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: fixed },
+      }));
+    } else if (parts.length) {
       const again = /AskUserQuestion$/.test(String(event.tool_name || "")) ? "" : " Then call PromptForUserInput again.";
       process.stdout.write(JSON.stringify({
         hookSpecificOutput: {

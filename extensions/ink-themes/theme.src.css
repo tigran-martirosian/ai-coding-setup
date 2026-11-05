@@ -91,16 +91,19 @@ __S__ {
   /* Send button: the app's own primary, without a glow */
   .ai-chat-send-button { border-radius: var(--x-radius-control); box-shadow: none !important; }
 
-  /* Side buttons: a name under every icon (a name wider than the 48px gutter at 11px, "Commands", is left to the icon's tooltip). The Usage Plan button is left alone: its extension draws the week's percent in ::after. */
+  /* Side buttons: a short name under every icon, the extensions' too; each fits the 48px gutter at 11px ("Term", "Cmds"), the full name is in the tooltip. */
   .nav-button { border-radius: var(--x-radius-control); }
-  .nav-button:not([data-panel-id*="usageplan"]), [data-testid$="-usage-indicator"] { height: auto !important; min-height: 36px; flex-direction: column; gap: var(--x-space-1); padding: var(--x-space-1) 0 !important; }
-  .nav-button:not([data-panel-id*="usageplan"])::after, [data-testid$="-usage-indicator"]::after { font: var(--x-micro); color: var(--x-text-muted); white-space: nowrap; }
-  .nav-button.active:not([data-panel-id*="usageplan"])::after { color: inherit; }
+  .nav-button, [data-testid$="-usage-indicator"] { height: auto !important; min-height: 36px; flex-direction: column; gap: var(--x-space-1); padding: var(--x-space-1) 0 !important; }
+  .nav-button::after, [data-testid$="-usage-indicator"]::after { font: var(--x-micro); color: var(--x-text-muted); white-space: nowrap; }
+  .nav-button.active::after { color: inherit; }
   [data-testid="files-mode-button"]::after { content: "Files"; }
   [data-testid="agent-mode-button"]::after { content: "Agent"; }
   [data-testid="tracker-mode-button"]::after { content: "Tracker"; }
   .nav-button[aria-label="Project Graph"]::after { content: "Graph"; }
-  [data-testid="terminal-panel-button"]::after { content: "Terminal"; }
+  [data-testid="terminal-panel-button"]::after { content: "Term"; }
+  .nav-button[data-panel-id*="systemsmap"]::after { content: "Map"; }
+  .nav-button[data-panel-id*="usageplan"]::after { content: "Usage"; }
+  .nav-button[data-panel-id*="commandbuttons"]::after { content: "Cmds"; }
   .nav-button[aria-label="Git Log"]::after { content: "Git"; }
   [data-testid="claude-usage-indicator"]::after { content: "Claude"; }
   [data-testid="codex-usage-indicator"]::after { content: "Codex"; }
@@ -111,11 +114,9 @@ __S__ {
 
   /* The app centres these on the whole button; with a name underneath they belong on the icon (4px padding, 44px ring) */
   [data-testid$="-usage-indicator"] > span { inset: var(--x-space-1) 0 auto 0 !important; height: 44px; }
-  [data-testid$="-usage-indicator"], button[data-panel-id*="usageplan"] { width: 44px !important; margin: 0 -4px; flex-shrink: 0; }
-  button[data-panel-id*="usageplan"] { height: 44px !important; }
+  [data-testid$="-usage-indicator"] { width: 44px !important; margin: 0 -4px; flex-shrink: 0; }
   [data-testid$="-usage-indicator"] > svg { width: 44px; height: 44px; }
-  button[data-panel-id*="usageplan"]::before { inset: 6px !important; transform: scale(1.375); }
-  [data-testid$="-usage-indicator"] > span, button[data-panel-id*="usageplan"]::after { font: 550 11px/1 var(--x-font-ui) !important; letter-spacing: 0 !important; color: var(--x-text) !important; }
+  [data-testid$="-usage-indicator"] > span { font: 550 11px/1 var(--x-font-ui) !important; letter-spacing: 0 !important; color: var(--x-text) !important; }
   .trust-indicator-dot { bottom: auto !important; top: 19px; right: 5px !important; }
 
   /* Nothing to show */

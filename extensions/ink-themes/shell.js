@@ -143,6 +143,25 @@ function foldMenu() {
   }
 }
 
+/**
+ * The app closes its theme menu on every pick, so trying themes one after another meant reopening it each
+ * time. After a pick the menu opens again, with the Ink fold as it was; a click outside or Escape still closes it.
+ */
+function keepMenuOpen(e) {
+  const item = e.target instanceof Element ? e.target.closest(".theme-menu-item") : null;
+  if (!item || item.classList.contains("ink-fold")) return;
+  const fold = foldOpen;
+  setTimeout(() => {
+    if (document.querySelector(".theme-menu")) return;
+    const button = byTest("gutter-theme-button");
+    if (!button) return;
+    button.click();
+    // React draws the menu during the click; the fold state is set after it, since a sync with no menu resets it
+    foldOpen = fold;
+    queue();
+  }, 60);
+}
+
 function unfoldMenu() {
   document.querySelectorAll('.ink-fold').forEach((n) => n.remove());
   for (const item of document.querySelectorAll('.theme-menu-item')) {
@@ -276,6 +295,7 @@ function activate() {
   });
   observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'data-theme'] });
   timer = setInterval(queue, 30_000);
+  document.addEventListener("click", keepMenuOpen, true);
   queue();
 }
 
@@ -283,6 +303,7 @@ function deactivate() {
   observer?.disconnect();
   observer = undefined;
   clearInterval(timer);
+  document.removeEventListener("click", keepMenuOpen, true);
   removeAll();
   unfoldMenu();
 }

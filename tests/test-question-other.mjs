@@ -17,16 +17,16 @@ const LOOSE = "DECISIONS.md already picks this; choose Y if speed matters more."
 const ELSE = { type: "editText", id: "else", label: "Anything else?", initialText: "" };
 
 const cases = [
-  ["singleSelect without allowOther is denied", P([single()]), true],
-  ["singleSelect with allowOther:false is denied", P([single({ allowOther: false })]), true],
+  ["singleSelect without allowOther gets it added", P([single()]), "fix"],
+  ["singleSelect with allowOther:false gets it added", P([single({ allowOther: false })]), "fix"],
   ["singleSelect with allowOther passes", P([single({ allowOther: true })]), false],
   ["confirm plus an editText passes", P([{ type: "confirm", id: "c", label: "Remove unused options?" }, ELSE]), false],
-  ["confirm alone is denied (nothing to type in)", P([{ type: "confirm", id: "c", label: "Remove unused options?" }]), true],
-  ["multiSelect alone is denied (nothing to type in)", P([{ type: "multiSelect", id: "m", label: "m", items: [{ id: "a", title: "A" }] }]), true],
+  ["confirm alone gets an Anything else? box (nothing to type in)", P([{ type: "confirm", id: "c", label: "Remove unused options?" }]), "fix"],
+  ["multiSelect alone gets an Anything else? box (nothing to type in)", P([{ type: "multiSelect", id: "m", label: "m", items: [{ id: "a", title: "A" }] }]), "fix"],
   ["Nimbalyst's AskUserQuestion is denied", { tool_name: "mcp__nimbalyst__AskUserQuestion", tool_input: { questions: [{ header: "h", question: "Which?", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] } }, true],
   ["the built-in AskUserQuestion passes", { tool_name: "AskUserQuestion", tool_input: { questions: [{ header: "h", question: "Which?", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] } }, false],
   ["a path in the form with no session record fails open", P([single({ allowOther: true }), { type: "editText", id: "e", label: "Full draft: docs/plan.md. Anything else?", initialText: "" }]), false],
-  ["mixed: one good, one bad is denied", P([single({ allowOther: true }), single({ id: "b", label: "Which photo?" })]), true],
+  ["mixed: one good, one bad gets the bad one fixed", P([single({ allowOther: true }), single({ id: "b", label: "Which photo?" })]), "fix"],
   ["multiSelect/editText pass", P([{ type: "multiSelect", id: "m", label: "m", items: [] }, { type: "editText", id: "e", label: "e", initialText: "" }]), false],
   ["other tools pass", { tool_name: "Read", tool_input: { file_path: "x" } }, false],
   ["bad JSON fails open", "not json", false],
@@ -47,25 +47,35 @@ const cases = [
 let fail = 0;
 for (const [name, input, deny] of cases) {
   const out = run(input);
-  const ok = deny ? out.includes('"deny"') : out === "";
+  const ok = deny === "fix" ? out.includes('"allow"') && out.includes("updatedInput") : deny ? out.includes('"deny"') : out === "";
   if (!ok) fail++;
   console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
 }
 const off = run(P([single()]), { QUESTION_OTHER: "off" }) === "";
 if (!off) fail++;
 console.log(`${off ? "PASS" : "FAIL"} QUESTION_OTHER=off disables it`);
-const msg = run(P([single({ label: "Which photo?" })]));
-const named = msg.includes("Which photo?") && !msg.includes("No field in this form") && msg.includes("Anything else?");
+// A refused form stays on screen in Nimbalyst beside the resent one, so a missing typing box is added, never refused
+const fixedOf = (o) => JSON.parse(o).hookSpecificOutput.updatedInput.fields;
+const one = fixedOf(run(P([single({ label: "Which photo?" })])));
+const named = one.length === 1 && one[0].allowOther === true && one[0].label === "Which photo?";
 if (!named) fail++;
-console.log(`${named ? "PASS" : "FAIL"} deny message names the question (and does not also say no field takes typing)`);
+console.log(`${named ? "PASS" : "FAIL"} a singleSelect gets allowOther: true and nothing else is added`);
 const nim = run({ tool_name: "mcp__nimbalyst__AskUserQuestion", tool_input: { questions: [] } });
 const nimOk = nim.includes("mcp__nimbalyst__PromptForUserInput") && nim.includes("allowOther: true") && !nim.includes("call PromptForUserInput again");
 if (!nimOk) fail++;
 console.log(`${nimOk ? "PASS" : "FAIL"} Nimbalyst AskUserQuestion deny names PromptForUserInput with allowOther`);
-const typ = run(P([{ type: "confirm", id: "c", label: "Keep it?" }]));
-const typOk = typ.includes("Anything else?") && typ.includes("allowOther: true");
+const typ = fixedOf(run(P([{ type: "confirm", id: "c", label: "Keep it?" }])));
+const typOk = typ.length === 2 && typ[0].type === "confirm" && typ[1].type === "editText" && typ[1].label === "Anything else?" && typ[1].minLength === 0;
 if (!typOk) fail++;
-console.log(`${typOk ? "PASS" : "FAIL"} no-typing deny asks for an "Anything else?" editText or allowOther`);
+console.log(`${typOk ? "PASS" : "FAIL"} a form with nothing to type in gets an optional "Anything else?" editText`);
+const both = run(P([single({ label: "Which engine?", options: [rec(), { id: "y", label: "Y" }] })]));
+const bothOk = both.includes('"deny"') && both.includes("without a reason") && !both.includes("free-text");
+if (!bothOk) fail++;
+console.log(`${bothOk ? "PASS" : "FAIL"} a form with another fault is still refused, for that fault only`);
+const clash = fixedOf(run(P([{ type: "confirm", id: "anythingElse", label: "Keep it?" }])));
+const clashOk = clash[1].id !== "anythingElse";
+if (!clashOk) fail++;
+console.log(`${clashOk ? "PASS" : "FAIL"} the added box takes an id no field has`);
 const why = run(P([single({ allowOther: true, label: "Which engine?", options: [rec(), { id: "y", label: "Y" }] })]));
 const asksReason = why.includes("Which engine?") && why.includes("without a reason");
 if (!asksReason) fail++;

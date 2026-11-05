@@ -1,6 +1,6 @@
 {
-  "version": "1.0.89",
+  "version": "1.0.90",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "A Systems map panel in Nimbalyst shows your project's parts and links and marks the links whose code changed; Board Tidy archives finished sessions by itself; the Usage Plan pop-up is easier to read; Read Aloud shows one play strip per reply instead of one per paragraph; Commands asks before starting the same command twice; the Ink themes are refreshed."
+  "summary": "Every button in the Nimbalyst side bar has a short name under its icon, the extensions' too; the theme menu stays open while you try themes; a question form missing a box to type in gets one added instead of showing up twice."
 }
