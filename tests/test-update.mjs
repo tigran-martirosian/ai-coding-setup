@@ -8,6 +8,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// No network and no real Claude Code update from any installer this test starts (scripts/claude-code-version.mjs)
+process.env.SETUP_CC_CHECK = "off";
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const UPDATE = path.join(REPO, "skills", "update-setup", "update.mjs");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "update-test-"));
@@ -122,7 +124,7 @@ check("the update skill has no step that opens folders or asks about a theme or 
   !/Left for a chat|workspace_open|folders opened|the theme|voice typing|Handy|full-install/i.test(fs.readFileSync(path.join(REPO, "skills", "update-setup", "SKILL.md"), "utf8")));
 
 const again = await update(home);
-check("a second run says it is on the newest version and changes nothing", again.code === 0 && again.out.trim() === `Already on the newest version (${NEW}).`);
+check("a second run says it is on the newest version and changes nothing", again.code === 0 && again.out.trim().split("\n")[0] === `Already on the newest version (${NEW}).` && again.out.includes("version check skipped"));
 
 // ---- rules the user changed are kept, said once, and taken with --replace-rules
 const mine = path.join(tmp, "mine");

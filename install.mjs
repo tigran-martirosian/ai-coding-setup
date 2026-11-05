@@ -60,6 +60,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { addClaudeCodeSettings } from "./scripts/claude-code-settings.mjs";
+import { checkClaudeCode } from "./scripts/claude-code-version.mjs";
 
 const REPO = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -85,6 +86,14 @@ if (nodeMajor < 18) {
 // node:sqlite (Node 22.5) is used only to read Nimbalyst's database; the hooks themselves run on 18
 if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 5)) {
   say(`Node.js v${NODE_VERSION} is older than 22.5. Three things read Nimbalyst's database and need 22.5 or newer, so they stay off: notes between Nimbalyst sessions (skills/steer), compact-self and the Nimbalyst figures in the usage dashboard. Nothing else does. Install Node.js 22.5 or newer to turn them on.`);
+}
+
+// Claude Code itself: updated when behind npm's newest, and the install stops below the minimum this setup needs
+// (version.json: claudeCodeMin). Also Nimbalyst's bundled Claude Code. /update-setup reaches this through install.mjs.
+{
+  const min = JSON.parse(fs.readFileSync(path.join(REPO, "version.json"), "utf8")).claudeCodeMin;
+  const { stop } = checkClaudeCode({ min, dry: DRY, log: say });
+  if (stop) { console.log(stop); process.exit(1); }
 }
 
 // Every file under a repo folder, as paths from that folder
@@ -487,7 +496,7 @@ for (const name of Object.keys(ADDONS).filter((n) => ADDONS[n] === "skill" && ad
 // A script named as ~/.claude/... is the one in ~/.claude, any other path is inside the project folder.
 // A hook whose example matcher changed: an install that still has exactly the old one gets the new one.
 // A matcher the user changed themselves is not in this list and is left alone.
-const OLD_MATCHERS = { "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput", "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion"] };
+const OLD_MATCHERS = { "background-tasks.mjs": ["Bash|Agent|Task"], "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput", "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion"] };
 // Hooks the setup retired (their files are gone): an install that has one wired from ~/.claude loses
 // that entry on the next run. The same script from another folder is the user's own and stays.
 // (RETIRED itself is defined above the uninstall block, which needs it too.)

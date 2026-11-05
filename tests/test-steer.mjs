@@ -39,19 +39,39 @@ const transcript = (id, lastStop, middle = []) => fs.writeFileSync(path.join(pro
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; console.log(`${cond ? "ok  " : "FAIL"}  ${name}`); };
 
-// 1-3: before a tool call, the call is held with the note; calls of the same step are held too;
-// the retry a moment later goes through.
+// 1-3: before a call that runs long or starts something, the call is held with the note; such calls of
+// the same step are held too; the retry a moment later goes through. (Since 2026-11-05 only those are
+// held, so these name a helper launch; they used to pass no tool name.)
+const agentCall = { tool_name: "Agent", tool_input: { prompt: "build it" } };
 put([note("use the blue one")]);
-let o = hook("PreToolUse");
+let o = hook("PreToolUse", agentCall);
 ok("before a tool call: the call is held and carries the note",
   o?.hookSpecificOutput?.permissionDecision === "deny" && o.hookSpecificOutput.permissionDecisionReason.includes("use the blue one"));
-o = hook("PreToolUse");
+o = hook("PreToolUse", agentCall);
 ok("a second call of the same step is held too",
   o?.hookSpecificOutput?.permissionDecision === "deny" && o.hookSpecificOutput.permissionDecisionReason.includes("Held together"));
 ok("a tool result in that moment does not repeat the note", hook("PostToolUse") === null);
 sleep(1700);
-ok("the retry goes through", hook("PreToolUse") === null);
+ok("the retry goes through", hook("PreToolUse", agentCall) === null);
 ok("the delivered note is cleared", left().length === 0);
+
+// A quick call is not held: a held call does not run and is sent again, one more request (2026-11-05:
+// 22 of 112 held calls came back unchanged). Its result carries the note seconds later.
+put([note("use the red one")]);
+ok("a quick call runs: not held, and the note waits", hook("PreToolUse", { tool_name: "Read", tool_input: { file_path: "a" } }) === null && left().length === 1 && !left()[0].seen);
+o = hook("PostToolUse", { tool_name: "Read" });
+ok("its result carries the note", o?.hookSpecificOutput?.additionalContext.includes("use the red one") && left().length === 0);
+put([note("one at a time")]);
+ok("a plain Bash call is not held", hook("PreToolUse", { tool_name: "Bash", tool_input: { command: "ls" } }) === null);
+ok("a background Bash call is not held", hook("PreToolUse", { tool_name: "Bash", tool_input: { command: "x", run_in_background: true, timeout: 600000 } }) === null);
+o = hook("PreToolUse", { tool_name: "Bash", tool_input: { command: "npm test", timeout: 600000 } });
+ok("a Bash call with a timeout over 2 min is held, and says nothing in it ran",
+  o?.hookSpecificOutput?.permissionDecision === "deny" && o.hookSpecificOutput.permissionDecisionReason.includes("Nothing in it ran") && o.hookSpecificOutput.permissionDecisionReason.includes("again in full"));
+ok("a quick call of the same step is not held with it", hook("PreToolUse", { tool_name: "Read", tool_input: {} }) === null);
+ok("a question to the user in the same step is held with it", hook("PreToolUse", { tool_name: "mcp__nimbalyst__AskUserQuestion", tool_input: {} })?.hookSpecificOutput?.permissionDecisionReason.includes("Held together"));
+sleep(1700);
+hook("PostToolUse");
+fs.rmSync(inbox, { force: true });
 
 // 4: after a tool call, the note rides along with the result.
 put([note("skip step 3")]);
@@ -68,14 +88,23 @@ ok("and is cleared", left().length === 0);
 ok("finishing with no note: nothing happens", hook("Stop") === null);
 
 // 6: a helper agent inside the busy session must not take the note.
+// The copy goes only to a helper the session waits for (a foreground Agent call with no result yet), so
+// these name the session's transcript (since 2026-11-05; they used to pass none).
+const parentT = path.join(home, "parent.jsonl");
+const agentUse = (id) => JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Agent", input: {} }] } }) + "\n";
+fs.writeFileSync(parentT, agentUse("call-fg"));
+const sub = (id, tp = parentT) => ({ agent_id: id, transcript_path: tp });
 put([note("for the main session")]);
-ok("a subagent does not take the note", hook("PreToolUse", { agent_id: "sub-1" }) === null && left().length === 1);
-o = hook("PostToolUse", { agent_id: "sub-1" });
+ok("a subagent does not take the note", hook("PreToolUse", sub("sub-1")) === null && left().length === 1);
+o = hook("PostToolUse", sub("sub-1"));
 ok("a subagent gets a copy after a tool call, to pass on in its report",
   o?.hookSpecificOutput?.additionalContext.includes("for the main session") && o.hookSpecificOutput.additionalContext.includes("User note received:"));
-ok("only once per subagent", hook("PostToolUse", { agent_id: "sub-1" }) === null);
-ok("another subagent gets its own copy", hook("PostToolUse", { agent_id: "sub-2" })?.hookSpecificOutput?.additionalContext.includes("for the main session"));
+ok("only once per subagent", hook("PostToolUse", sub("sub-1")) === null);
+ok("another subagent gets its own copy", hook("PostToolUse", sub("sub-2"))?.hookSpecificOutput?.additionalContext.includes("for the main session"));
 ok("the note stays for the main session", left().length === 1 && !left()[0].seen);
+ok("a helper's own transcript path leads to its session's", hook("PostToolUse", sub("sub-3", path.join(home, "parent", "subagents", "agent-sub3.jsonl")))?.hookSpecificOutput?.additionalContext.includes("for the main session"));
+fs.writeFileSync(parentT, agentUse("call-bg") + JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "call-bg", content: "Async agent launched successfully." }] } }) + "\n");
+ok("a background helper gets no copy: the session reads the note itself", hook("PostToolUse", sub("sub-4")) === null && !(left()[0].relayed || []).includes("sub-4"));
 
 // 7: another session leaves it alone.
 ok("another session does not take the note", hook("PostToolUse", { session_id: "someone-else" }) === null && left().length === 1);
@@ -146,11 +175,19 @@ childT("tool_use");
 r = run(["send", "--to", "e13360ea", "wine ages faster"], nimb);
 ok("a Nimbalyst id reaches the busy child in another folder, named by its title",
   r.code === 0 && r.out.startsWith('Queued for "job 3b: base design", not delivered yet.') && left().at(-1).to === "dddddddd-child");
-childT("end_turn");
+// The transcript now has to show the background job (since 2026-11-05: a reply that ended with no job
+// left is idle whatever Nimbalyst says; notes there waited 6 and 20 min).
+fs.writeFileSync(path.join(childDir, "dddddddd-child.jsonl"), JSON.stringify({ type: "user", toolUseResult: { backgroundTaskId: "job9" } }) + "\n"
+  + JSON.stringify({ type: "assistant", message: { stop_reason: "end_turn", content: [{ type: "text", text: "waiting" }] } }) + "\n");
 let before = left().length;
 r = run(["send", "--to", "e13360ea", "wine ages faster"], nimb);
 ok("reply ended but Nimbalyst says running (a background job): the note is queued, not refused",
   r.code === 0 && r.out.startsWith("Queued for ") && left().length === before + 1);
+childT("end_turn");
+before = left().length;
+r = run(["send", "--to", "e13360ea", "wine ages faster"], nimb);
+ok("reply ended, no background job, Nimbalyst still says running: not queued, send_prompt it (the Note button does)",
+  r.code === 3 && r.out.includes("has finished its reply") && r.out.includes("send_prompt") && left().length === before);
 status("waiting_for_input");
 r = run(["send", "--to", "e13360ea", "pick blue"], nimb);
 ok("waiting for the user's answer: queued, and it says the note comes after that answer", r.code === 0 && r.out.includes("waiting for an answer"));
@@ -291,7 +328,8 @@ ok("STEER_FORWARD=off still forwards child reports", JSON.parse(o.out || "{}").d
 ok("no temp files are left in the steer folder", !fs.readdirSync(inboxDir).some((n) => n.endsWith(".tmp")));
 db.close();
 
-// Delivery receipts: a note stays until its marker is in the session's transcript (2026-10-30).
+// Delivery receipts: a note stays until its marker is in the session's transcript (2026-10-30). The holds
+// here name a helper launch, the kind of call still held since 2026-11-05.
 {
   const inbox = path.join(home, ".claude", "steer");
   const tp2 = path.join(home, "receipt-transcript.jsonl");
@@ -304,13 +342,13 @@ db.close();
   fs.writeFileSync(tp2, "");
   put({ ts: Date.now(), id: "n1", to: "rcpt-1", from: "lead-1", msg: "keep the clouds" });
   const result = (call) => JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: call }] } }) + "\n";
-  let x = hook("PreToolUse", { ...sid, tool_use_id: "call-1" });
+  let x = hook("PreToolUse", { ...sid, ...agentCall, tool_use_id: "call-1" });
   ok("the held call carries the note with its marker", x?.hookSpecificOutput?.permissionDecisionReason.includes("[note n1] keep the clouds"));
   ok("handing it over does not count as delivered", inBox().length === 1 && inBox()[0].tries === 1 && !rc().some((r) => r.id === "n1"));
   pause();
   // The call was cancelled: its result landed without the note.
   fs.appendFileSync(tp2, result("call-1"));
-  ok("a lost hold does not hold the next call", hook("PreToolUse", sid) === null);
+  ok("a lost hold does not hold the next call", hook("PreToolUse", { ...sid, ...agentCall }) === null);
   x = hook("PostToolUse", sid);
   ok("a lost note rides with the next tool result", x?.hookSpecificOutput?.additionalContext.includes("[note n1] keep the clouds") && inBox()[0].tries === 2);
   fs.writeFileSync(tp2, JSON.stringify({ text: "[note n1] keep the clouds" }) + "\n");
@@ -321,7 +359,7 @@ db.close();
   // handed over four times in 11 s of one reply and marked failed, yet it had arrived). Other lines land meanwhile.
   fs.writeFileSync(tp2, "");
   put({ ts: Date.now(), id: "n4", to: "rcpt-1", from: "lead-1", msg: "mid reply" });
-  hook("PreToolUse", { ...sid, tool_use_id: "call-4" });
+  hook("PreToolUse", { ...sid, ...agentCall, tool_use_id: "call-4" });
   pause();
   const later = Array.from({ length: 6 }, (_, i) => {
     fs.appendFileSync(tp2, JSON.stringify({ type: "last-prompt" }) + "\n" + result(`other-${i}`));
@@ -334,7 +372,7 @@ db.close();
   // A Stop is the last chance: the reply is over, so a note still missing is carried again.
   fs.writeFileSync(tp2, "");
   put({ ts: Date.now(), id: "n5", to: "rcpt-1", from: "lead-1", msg: "at the end" });
-  hook("PreToolUse", { ...sid, tool_use_id: "call-5" });
+  hook("PreToolUse", { ...sid, ...agentCall, tool_use_id: "call-5" });
   pause();
   x = hook("Stop", sid);
   ok("a note still missing at Stop is carried again", x?.decision === "block" && x.reason.includes("[note n5] at the end") && inBox()[0].tries === 2);
@@ -451,6 +489,16 @@ ok("STEER_MAX_K lowers the limit", r.code === 4);
   ok("watch: no job at all, no watcher", watch().code === 0 && !left()[0].seen);
   fs.writeFileSync(tp, line({ type: "user", toolUseResult: { isAsync: true, status: "async_launched", agentId: "ag1" } }));
   ok("watch: a background agent counts as a job", watch().code === 2);
+  fs.rmSync(inbox, { force: true });
+  fs.writeFileSync(tp, line({ type: "user", toolUseResult: { isAsync: true, status: "async_launched", agentId: "ag2" } })
+    + line({ type: "user", message: { content: "<task-notification><task-id>ag2</task-id></task-notification>" } })
+    + line({ type: "user", toolUseResult: { success: true, resumedAgentId: "ag2" } }));
+  put([note("resumed", { id: "w12" })]);
+  ok("watch: a helper resumed after it ended counts as a job", watch().code === 2);
+  fs.rmSync(inbox, { force: true });
+  fs.writeFileSync(tp, job + line({ type: "api-request-blob", blob: "x".repeat(2.5e6) }));
+  put([note("long", { id: "w13" })]);
+  ok("watch: a job started more than 2 MB back still counts", watch().code === 2);
   fs.rmSync(inbox, { force: true });
   fs.writeFileSync(tp, job);
   put([note("gone", { id: "w8" })]);

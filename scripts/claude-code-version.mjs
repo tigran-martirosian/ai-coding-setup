@@ -1,0 +1,99 @@
+// Keeps the Claude Code that runs this setup current. Used by install.mjs, which /update-setup runs too.
+//   - reads the CLI version, compares it with npm's newest, updates it when behind
+//   - below the minimum the setup needs (version.json: claudeCodeMin), after trying to update, the install stops
+//   - finds the Claude Code that Nimbalyst ships with itself and says when it is behind
+// A failed network check is said plainly and the install goes on. Commands go through `run`, so tests stub them.
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+export const NIMBALYST_NOTE = (v) =>
+  `Nimbalyst runs its own Claude Code (${v}). Install Nimbalyst updates as soon as they appear: its sessions get Claude Code fixes only through them.`;
+
+const SELF_UPDATE_FAILED = "Claude Code could not update itself while it is running. Close Claude, run `claude update` (or `npm i -g @anthropic-ai/claude-code@latest`) in a plain terminal, then run the install again.";
+
+// "2.1.312 (Claude Code)" -> "2.1.312"; anything else -> null
+export const parseVersion = (text) => (String(text || "").match(/\b(\d+\.\d+\.\d+)\b/) || [])[1] || null;
+
+// -1, 0 or 1
+export function compareVersions(a, b) {
+  const x = a.split(".").map(Number), y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0) ? -1 : 1;
+  return 0;
+}
+
+// Where Nimbalyst keeps its Claude Code on the default install paths
+export function nimbalystCandidates(platform, env, arch) {
+  const exe = platform === "win32" ? "claude.exe" : "claude";
+  const sub = path.posix.join("resources", "claude-runtime", `${platform}-${arch}`, exe);
+  const bases = platform === "win32"
+    ? (env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, "Programs", "Nimbalyst")] : [])
+    : platform === "darwin"
+      ? ["/Applications/Nimbalyst.app/Contents", path.join(env.HOME || "", "Applications", "Nimbalyst.app", "Contents")]
+      : ["/opt/Nimbalyst", "/opt/nimbalyst", path.join(env.HOME || "", ".local", "share", "nimbalyst")];
+  return bases.map((b) => path.join(b, sub));
+}
+
+// The real command runner; a path with a folder is run directly, a plain name through the shell (claude.cmd on Windows)
+export function realRun(cmd, args, ms = 10 * 60 * 1000) {
+  const direct = path.isAbsolute(cmd);
+  const viaCmd = !direct && process.platform === "win32";
+  const r = viaCmd ? spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmd, ...args], { encoding: "utf8", timeout: ms })
+    : spawnSync(cmd, args, { encoding: "utf8", timeout: ms });
+  return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "", error: r.error };
+}
+
+// Which command updates this install: npm when `claude` sits in an npm folder, else Claude Code's own `claude update`
+export function updateCommand(claudePath) {
+  if (claudePath && /node_modules|[\/]npm[\/]|[\/]npm$/i.test(claudePath)) return ["npm", ["i", "-g", "@anthropic-ai/claude-code@latest"]];
+  return ["claude", ["update"]];
+}
+
+// opts: { min, dry, run, exists, platform, arch, env, log }. Returns { stop: string|null }.
+export function checkClaudeCode(opts) {
+  const { min, dry = false, run = realRun, exists = fs.existsSync, platform = process.platform, arch = process.arch, env = process.env, log = console.log } = opts;
+  // SETUP_CC_CHECK=off skips the whole check (tests, offline use) with one line; "done" skips it silently
+  // (update.mjs sets it for an install.mjs it starts after it has checked itself).
+  if (env.SETUP_CC_CHECK === "off") { log("Claude Code: version check skipped (SETUP_CC_CHECK=off)."); return { stop: null }; }
+  if (env.SETUP_CC_CHECK === "done") return { stop: null };
+  const versionOf = (cmd) => { const r = run(cmd, ["--version"], 30000); return r.status === 0 && !r.error ? parseVersion(r.stdout) : null; };
+
+  let cur = versionOf("claude");
+  const npmOut = run("npm", ["view", "@anthropic-ai/claude-code", "version"]);
+  const latest = npmOut.status === 0 && !npmOut.error ? parseVersion(npmOut.stdout) : null;
+  if (!latest) log("Claude Code: could not ask npm for the newest version (no network or no npm), so it was not compared. Going on.");
+
+  if (!cur) {
+    log("Claude Code: its version could not be read (not found on the PATH, or no answer within 30 seconds), so it was not checked. Install it and run this again if you use it in a terminal.");
+  } else {
+    const behind = latest ? compareVersions(cur, latest) < 0 : compareVersions(cur, min) < 0;
+    if (!behind) {
+      log(`Claude Code ${cur}${latest ? ", the newest" : ""}.`);
+    } else if (dry) {
+      log(`Claude Code ${cur} is behind ${latest || `the minimum ${min}`}; a real run updates it.`);
+    } else {
+      const where = run(platform === "win32" ? "where" : "which", ["claude"]);
+      const [cmd, cargs] = updateCommand(where.status === 0 ? where.stdout.split(/\r?\n/)[0].trim() : "");
+      log(`Claude Code ${cur} is behind ${latest || `the minimum ${min}`}: running ${cmd} ${cargs.join(" ")}`);
+      const u = run(cmd, cargs);
+      if (u.status !== 0 || u.error) log(`${SELF_UPDATE_FAILED} (${u.error ? u.error.message : (u.stderr || u.stdout).trim().split("\n").pop() || `exit ${u.status}`})`);
+      cur = versionOf("claude") || cur;
+      log(`Claude Code is now ${cur}.`);
+    }
+    if (!dry && compareVersions(cur, min) < 0) {
+      return { stop: `Claude Code ${cur} is older than ${min}, which this setup needs (its agent files use autoCompactWindow). ${SELF_UPDATE_FAILED}` };
+    }
+    if (dry && compareVersions(cur, min) < 0) log(`Claude Code ${cur} is older than ${min}, which this setup needs; a real run stops until it is updated.`);
+  }
+
+  const bundled = nimbalystCandidates(platform, env, arch).find((p) => exists(p));
+  if (bundled) {
+    const nv = versionOf(bundled);
+    if (!nv) log("Nimbalyst's Claude Code: its version could not be read.");
+    else {
+      log(`Nimbalyst's Claude Code: ${nv}.`);
+      if (compareVersions(nv, min) < 0 || (latest && compareVersions(nv, latest) < 0)) log(NIMBALYST_NOTE(nv));
+    }
+  }
+  return { stop: null };
+}

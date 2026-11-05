@@ -64,7 +64,7 @@ In a project with 100 or more code files, the setup builds a map of it by itself
 
 ## Install and undo
 
-You need Claude Code, installed and signed in. Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions and the session board don't. `/lead` runs its steps as subagents, but keeps its job card in Nimbalyst's tracker. Download the ZIP or clone the repository, then in its folder:
+You need Claude Code, installed and signed in; the installer updates it to the newest version and stops below 2.1.296. Nimbalyst runs its own Claude Code, so install Nimbalyst updates as soon as they appear: its sessions get Claude Code fixes only through them. Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions and the session board don't. `/lead` runs its steps as subagents, but keeps its job card in Nimbalyst's tracker. Download the ZIP or clone the repository, then in its folder:
 
 ```
 claude "Read docs/full-install.md and carry out every step in it."

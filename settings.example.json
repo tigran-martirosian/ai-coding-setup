@@ -24,11 +24,21 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Agent|Task",
+        "matcher": "Bash|PowerShell|Agent|Task",
         "hooks": [
           {
             "type": "command",
             "command": "node ~/.claude/hooks/background-tasks.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/worker-size.mjs",
             "timeout": 5
           }
         ]

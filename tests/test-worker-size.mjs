@@ -96,7 +96,81 @@ const newId = () => { const id = `${tag}-${++n}`; ids.push(id); return id; };
 	run("no-transcript-path", 0, { input: JSON.stringify({ agent_id: id }) });
 }
 
-for (const id of ids) fs.rmSync(path.join(stateDir, id + ".json"), { force: true });
+// hard stop on PreToolUse
+const pre = (h, id, agent_type = "worker") => JSON.stringify({ hook_event_name: "PreToolUse", session_id: h.session, transcript_path: h.parent, agent_id: id, agent_type });
+// The older cases below test the refusal itself, so they run with no grace calls (WORKER_STOP_GRACE=0)
+function runStop(name, expectDeny, input, env = { WORKER_STOP_GRACE: "0" }) {
+	const r = spawnSync(process.execPath, [HOOK], { input, encoding: "utf8", env: { ...process.env, ...env } });
+	const out = r.stdout.trim();
+	let ok = r.status === 0;
+	if (expectDeny) {
+		try {
+			const o = JSON.parse(out).hookSpecificOutput;
+			ok = ok && o.hookEventName === "PreToolUse" && o.permissionDecision === "deny" &&
+				o.permissionDecisionReason.includes("stop and report now: files changed, the check run, what is left, any half-edited file");
+		} catch { ok = false; }
+	} else ok = ok && out === "";
+	if (!ok) failed++;
+	console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  -> status " + r.status + ", out: " + out.slice(0, 200)}`);
+}
+{
+	const id = newId(); const h = helper(id, [185000]);
+	runStop("stop-refuses-at-185k", true, pre(h, id));
+	run("note-still-at-185k-post", 185, { input: ev(h, id) });
+	fs.writeFileSync(h.file, [asst(185000), asst(150000), user()].join("\n") + "\n");
+	runStop("stop-150k-passes-pre", false, pre(h, id));
+	fs.rmSync(path.join(stateDir, id + ".json"), { force: true });
+	run("note-at-150k-post", 150, { input: ev(h, id) });
+	fs.writeFileSync(h.file, [asst(185000), asst(40000), user()].join("\n") + "\n");
+	runStop("stop-passes-40k-after-compaction", false, pre(h, id));
+	runStop("stop-main-session-untouched", false, JSON.stringify({ hook_event_name: "PreToolUse", session_id: h.session, transcript_path: h.parent }));
+}
+{
+	const id = newId(); const h = helper(id, [185000]);
+	runStop("stop-env-threshold-raised", false, pre(h, id), { WORKER_STOP_K: "200", WORKER_STOP_GRACE: "0" });
+	fs.writeFileSync(h.file, asst(120000) + "\n");
+	runStop("stop-env-threshold-lowered", true, pre(h, id), { WORKER_STOP_K: "100", WORKER_STOP_GRACE: "0" });
+	runStop("stop-off-switch", false, pre(h, id), { WORKER_STOP_K: "100", WORKER_SIZE: "off", WORKER_STOP_GRACE: "0" });
+}
+
+// agent type and grace calls
+const pre2 = (h, id, type, env = {}) => {
+	const r = spawnSync(process.execPath, [HOOK], { input: pre(h, id, type), encoding: "utf8", env: { ...process.env, WORKER_STOP_GRACE: "", ...env } });
+	const out = r.stdout.trim();
+	if (!out) return "pass";
+	const o = JSON.parse(out).hookSpecificOutput;
+	if (o.permissionDecision === "deny") return "deny";
+	const m = o.additionalContext.match(/in at most (\d+) more calls, then stop and report: files changed, the check run, what is left, any half-edited file/);
+	return m ? "note" + m[1] : "other";
+};
+const expectSeq = (name, got, want) => {
+	const ok = got.join(",") === want.join(",");
+	if (!ok) failed++;
+	console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  -> " + got.join(",") + " (want " + want.join(",") + ")"}`);
+};
+{
+	const id = newId(); const h = helper(id, [185000]);
+	for (const type of ["planner", "reviewer", null]) expectSeq(`stop-type-${type}-passes-past-180k`, [pre2(h, id, type), pre2(h, id, type), pre2(h, id, type), pre2(h, id, type), pre2(h, id, type)], ["pass", "pass", "pass", "pass", "pass"]);
+}
+{
+	const id = newId(); const h = helper(id, [185000]);
+	expectSeq("worker-gets-3-noted-calls-then-refusal", Array.from({ length: 6 }, () => pre2(h, id, "worker")), ["note3", "note2", "note1", "deny", "deny", "deny"]);
+	// compaction: size falls back, count is forgotten, the next climb gets its grace again
+	fs.writeFileSync(h.file, [asst(185000), asst(40000), user()].join("\n") + "\n");
+	expectSeq("grace-passes-after-compaction", [pre2(h, id, "worker")], ["pass"]);
+	fs.writeFileSync(h.file, [asst(40000), asst(183000), user()].join("\n") + "\n");
+	expectSeq("grace-resets-after-compaction", [pre2(h, id, "worker"), pre2(h, id, "worker"), pre2(h, id, "worker"), pre2(h, id, "worker")], ["note3", "note2", "note1", "deny"]);
+}
+{
+	const id = newId(); const h = helper(id, [185000]);
+	expectSeq("worker-full-has-grace", [pre2(h, id, "worker-full", { WORKER_STOP_GRACE: "1" }), pre2(h, id, "worker-full", { WORKER_STOP_GRACE: "1" })], ["note1", "deny"]);
+	const id2 = newId(); const h2 = helper(id2, [185000]);
+	expectSeq("env-grace-5", Array.from({ length: 7 }, () => pre2(h2, id2, "worker", { WORKER_STOP_GRACE: "5" })), ["note5", "note4", "note3", "note2", "note1", "deny", "deny"]);
+	const id3 = newId(); const h3 = helper(id3, [185000]);
+	expectSeq("env-grace-0-refuses-at-once", [pre2(h3, id3, "worker", { WORKER_STOP_GRACE: "0" })], ["deny"]);
+}
+
+for (const id of ids) for (const ext of [".json", ".stop.json"]) fs.rmSync(path.join(stateDir, id + ext), { force: true });
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 process.exit(failed ? 1 : 0);

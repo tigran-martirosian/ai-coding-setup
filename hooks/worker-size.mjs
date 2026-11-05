@@ -8,12 +8,22 @@
 // From WORKER_SIZE_K (150) thousand tokens it tells the helper to finish the step in hand and report; again only
 // after a further 100k (state in os.tmpdir()/worker-size/<agent_id>.json). WORKER_SIZE_DEBUG=1 prints the size found
 // on stderr. Fails open. WORKER_SIZE=off disables it.
+// Hard stop: on PreToolUse (same script, registered there too), only for agent_type worker and worker-full (the two
+// with autoCompactWindow 200000; planner, reviewer and the rest pass untouched). A helper whose context is at
+// WORKER_STOP_K (180) thousand or more gets WORKER_STOP_GRACE (3) more calls, each with a note to finish or undo
+// the edit it is in and report within the calls left; from the next call on every call is refused, so it reports
+// instead of reaching the 200k compact (which loses work). The count per agent_id is kept in
+// os.tmpdir()/worker-size/<agent_id>.stop.json and is forgotten when the size falls back below the line (a
+// compaction). After the grace nothing is exempt: the report is its last message and needs no tool.
 import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const LIMIT_K = Number(process.env.WORKER_SIZE_K) || 150;
+const STOP_K = Number(process.env.WORKER_STOP_K) || 180;
+const GRACE = process.env.WORKER_STOP_GRACE?.trim() && Number.isFinite(Number(process.env.WORKER_STOP_GRACE)) ? Number(process.env.WORKER_STOP_GRACE) : 3;
+const STOP_TYPES = new Set(["worker", "worker-full"]);
 const STEP_K = 100;
 const TAIL_BYTES = 1024 * 1024;
 
@@ -65,9 +75,36 @@ try {
 		file = path.join(path.dirname(given), session, "subagents", `agent-${agentId}.jsonl`);
 	}
 	if (!fs.existsSync(file)) process.exit(0);
+	if (event.hook_event_name === "PreToolUse" && !STOP_TYPES.has(event.agent_type)) process.exit(0);
 	const context = lastContext(file);
 	const k = Math.round(context / 1000);
 	if (process.env.WORKER_SIZE_DEBUG) process.stderr.write(`[worker-size] agent ${agentId}: ${k}k tokens (${file})\n`);
+	if (event.hook_event_name === "PreToolUse") {
+		if (!STOP_TYPES.has(event.agent_type)) process.exit(0);
+		const stopState = path.join(os.tmpdir(), "worker-size", `${agentId.replace(/[^\w-]/g, "")}.stop.json`);
+		if (k < STOP_K) { fs.rmSync(stopState, { force: true }); process.exit(0); }
+		let used = 0;
+		try { used = JSON.parse(fs.readFileSync(stopState, "utf8")).used || 0; } catch {}
+		if (used < GRACE) {
+			fs.mkdirSync(path.dirname(stopState), { recursive: true });
+			fs.writeFileSync(stopState, JSON.stringify({ used: used + 1 }));
+			process.stdout.write(JSON.stringify({
+				hookSpecificOutput: {
+					hookEventName: "PreToolUse",
+					additionalContext: `[worker-size] This helper's context is ~${k}k tokens (stop line ${STOP_K}k). Past ${STOP_K}k: finish or undo the edit you are in, in at most ${GRACE - used} more calls, then stop and report: files changed, the check run, what is left, any half-edited file.`,
+				},
+			}));
+		} else {
+			process.stdout.write(JSON.stringify({
+				hookSpecificOutput: {
+					hookEventName: "PreToolUse",
+					permissionDecision: "deny",
+					permissionDecisionReason: `[worker-size] This helper's context is ~${k}k tokens (stop line ${STOP_K}k). Tool calls are refused: stop and report now: files changed, the check run, what is left, any half-edited file.`,
+				},
+			}));
+		}
+		process.exit(0);
+	}
 	const dir = path.join(os.tmpdir(), "worker-size");
 	const state = path.join(dir, `${agentId.replace(/[^\w-]/g, "")}.json`);
 	// Back under the line (a worker compacted at its autoCompactWindow): forget the warning, so the next climb warns again
