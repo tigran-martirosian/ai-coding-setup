@@ -42,7 +42,10 @@ function run(name, lines, expect, { event = {}, env = {}, subagents = null } = {
 			const o = JSON.parse(out), h = o.hookSpecificOutput;
 			ok = ok && !("decision" in o) && h.hookEventName === "UserPromptSubmit" && h.additionalContext.startsWith("[background-tasks] This settled notice repeats");
 		}
-		else if (expect === "nudge") {
+		else if (expect === "block") {
+			const o = JSON.parse(out);
+			ok = ok && o.decision === "block" && o.reason.startsWith("[background-tasks] Your reply says a helper still runs");
+		} else if (expect === "nudge") {
 			const h = JSON.parse(out).hookSpecificOutput;
 			ok = ok && h.hookEventName === "PreToolUse" && h.additionalContext.startsWith("[background-tasks] Background costs two extra") && !("permissionDecision" in h);
 		} else if (expect === "refuse") {
@@ -150,6 +153,38 @@ run("desktop-app-agent-note", null, "nudge", { ...tool("Agent", { description: "
 run("vscode-agent-note", null, "nudge", { ...tool("Agent", { description: "S2", prompt: "x" }), env: { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" } });
 run("vscode-bash-still-refused", null, "refuse", { ...tool("Bash", { command: "npm test", run_in_background: true }), env: { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" } });
 run("sdk-agent-still-refused", null, "refuse", { ...tool("Agent", { description: "S2", prompt: "x" }), env: { CLAUDE_CODE_ENTRYPOINT: "sdk-cli" } });
+
+// Stop: a reply that waits on a helper while nothing of the session runs
+const say = (text) => J({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } });
+const stop = (msg, extra = {}) => ({ event: { hook_event_name: "Stop", last_assistant_message: msg, ...extra } });
+const LATE = "It's now adding your two late requests to the plan. I'll save the plan once it's done.";
+const finished = [...agentBg("Plan: whole look"), notified("a1234", "toolu_a"), typed("[System: background task(s) you launched have settled:"), say(LATE)];
+run("stop-blocks-waiting-on-finished-agent", finished, "block", stop(LATE));
+run("stop-blocks-waiting-no-tasks-at-all", [typed("do it"), say("x")], "block", stop("The reviewer is still running; I'll report when it finishes."));
+run("stop-blocks-standing-by", [...finished], "block", stop("I'm waiting for the planner to come back."));
+run("stop-passes-agent-live", [...agentBg(), say(LATE)], "", stop(LATE));
+run("stop-passes-resumed-agent", [...agentBg(), notified("a1234", "toolu_a"), call("SendMessage", "toolu_m", { to: "a1234", message: "add two items" }), result("toolu_m", "sent")], "", stop(LATE));
+run("stop-passes-server-live", [...SERVE], "", stop("The dev server is still running at :5173."));
+run("stop-passes-plain-reply", finished, "", stop("Done: the plan is saved to docs/plan.md."));
+run("stop-passes-wakeup-this-turn", [...finished, call("ScheduleWakeup", "toolu_w", { delaySeconds: 600 })], "", stop("CI is still running; I'll check once it's done."));
+run("stop-passes-child-session", [...finished, call("mcp__nimbalyst-host__send_prompt", "toolu_p", { prompt: "x" })], "", stop("I'll report once it's done."));
+run("stop-old-wakeup-does-not-count", [call("ScheduleWakeup", "toolu_w", { delaySeconds: 600 }), typed("next ask"), ...finished], "block", stop(LATE));
+run("stop-wakeup-before-settled-notice-counts", [typed("watch CI"), call("ScheduleWakeup", "toolu_w", { delaySeconds: 600 }), ...finished], "", stop(LATE));
+run("stop-blocks-with-dev-server-up", [...SERVE, ...finished], "block", stop(LATE));
+run("stop-blocks-curly-apostrophe", finished, "block", stop("It’s now adding your two late requests."));
+run("stop-blocks-bare-waiting", finished, "block", stop("Waiting for the reviewer."));
+run("stop-blocks-resumed-will-notify", finished, "block", stop("The agent was resumed and will notify again."));
+run("stop-passes-resumed-by-name", [call("Agent", "toolu_a", { description: "Plan", prompt: "x", name: "planner" }), result("toolu_a", "agentId: a1234"), notified("a1234", "toolu_a"), call("SendMessage", "toolu_m", { to: "planner", message: "two more" })], "", stop(LATE));
+for (const [name, text] of [
+	["description-when-finished", "The hook blocks the stop when the task is finished."],
+	["needs-you-once-done", "Needs you: reload the window once the build is done."],
+	["nothing-still-running", "Nothing is still running."],
+	["while-still-running", "The row shows elapsed time while the agent is still running."],
+	["question-still-running", "Is it still running? No, it finished at 14:02."],
+]) run("stop-passes-" + name, finished, "", stop(text));
+run("stop-hook-active-passes", finished, "", stop(LATE, { stop_hook_active: true }));
+run("stop-subagent-passes", finished, "", stop(LATE, { agent_id: "a99" }));
+run("stop-off-switch", finished, "", { ...stop(LATE), env: { BACKGROUND_TASKS: "off" } });
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");

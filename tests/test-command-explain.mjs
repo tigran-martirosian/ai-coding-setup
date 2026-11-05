@@ -77,5 +77,18 @@ report(run(B(fixed)) === "", "a command with the stand-in note passes unchanged"
 const helper = JSON.parse(run({ ...B("ls -la"), agent_id: "sub-1" })).hookSpecificOutput;
 report(/no note given/.test(helper.updatedInput.command) && !helper.additionalContext, "a helper gets the stand-in without the reminder");
 report(JSON.parse(run(B("ls -la"))).hookSpecificOutput.additionalContext?.startsWith("command-explain:"), "the main session still gets the reminder");
-console.log(fail ? `${fail} failed` : `all ${cases.length + 5} passed`);
+// Soft check: a lowercase or over-70-character note is allowed, with a note for next time
+const softNote = (command, extra = {}) => {
+  const out = run({ ...B(command), ...extra });
+  try { return JSON.parse(out).hookSpecificOutput.additionalContext ?? null; } catch { return out === "" ? "" : null; }
+};
+const lower = softNote("ls -la\n\n# WHAT THIS DOES: lists the files in this folder");
+report(lower?.includes("capital letter") && lower.includes("70 characters"), "lowercase note: allowed with a note about capitals");
+const longLine = `# WHAT THIS DOES: ${"Lists the files ".repeat(6).slice(0, 89)}x`;
+report(longLine.length - 18 === 90 && softNote(`ls -la\n\n${longLine}`)?.includes("70 characters"), "90-character note: allowed with a note about length");
+report(softNote(`ls -la${NOTE}`) === "", "good note: no note");
+report(softNote("ls -la\n\n# WHAT THIS DOES: lists the files in this folder", { agent_id: "sub-1" }) === "", "helper with a lowercase note: no note");
+const soft = JSON.parse(run(B("ls -la\n\n# WHAT THIS DOES: lists the files in this folder"))).hookSpecificOutput;
+report(!("permissionDecision" in soft) && !("updatedInput" in soft), "soft check never refuses or rewrites the command");
+console.log(fail ? `${fail} failed` : `all ${cases.length + 10} passed`);
 process.exit(fail ? 1 : 0);

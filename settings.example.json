@@ -11,6 +11,11 @@
           },
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/patch-next.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "node ~/.claude/hooks/code-review-gate.mjs --start",
             "timeout": 10
           },
@@ -29,6 +34,16 @@
           {
             "type": "command",
             "command": "node ~/.claude/hooks/background-tasks.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/agent-run-log.mjs",
             "timeout": 5
           }
         ]
@@ -334,6 +349,16 @@
           {
             "type": "command",
             "command": "node ~/.claude/hooks/verify-gate.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/next-step-gate.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/background-tasks.mjs",
             "timeout": 10
           },
           {

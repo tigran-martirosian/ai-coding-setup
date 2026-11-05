@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.91 (Nov 5, 2026): Claude no longer stops after one finished step when you asked for the whole job, catches a reply that says a helper is running when none is, notes each helper's model, explains every shell command in a short capitalised line, and shows a project's next-release notes when a session starts.
 - 1.0.90 (Nov 5, 2026): Every button in the Nimbalyst side bar has a short name under its icon, the extensions' too; the theme menu stays open while you try themes; a question form missing a box to type in gets one added instead of showing up twice.
 - 1.0.89 (Nov 5, 2026): A Systems map panel in Nimbalyst shows your project's parts and links and marks the links whose code changed; Board Tidy archives finished sessions by itself; the Usage Plan pop-up is easier to read; Read Aloud shows one play strip per reply instead of one per paragraph; Commands asks before starting the same command twice; the Ink themes are refreshed.
 - 1.0.88 (Nov 5, 2026): Updating Claude Code from inside a Nimbalyst session works: Nimbalyst's own no-update setting no longer blocks the setup's update step.

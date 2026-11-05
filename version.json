@@ -1,6 +1,6 @@
 {
-  "version": "1.0.90",
+  "version": "1.0.91",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "Every button in the Nimbalyst side bar has a short name under its icon, the extensions' too; the theme menu stays open while you try themes; a question form missing a box to type in gets one added instead of showing up twice."
+  "summary": "Claude no longer stops after one finished step when you asked for the whole job, catches a reply that says a helper is running when none is, notes each helper's model, explains every shell command in a short capitalised line, and shows a project's next-release notes when a session starts."
 }

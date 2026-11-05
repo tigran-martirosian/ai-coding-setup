@@ -69,7 +69,7 @@ Three hooks run it. `map-nudge` notices a big project without a map and has the 
 
 ![A reply that links a page it never opened is sent back, then three more checks](img/clip-checks.gif)
 
-Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 35 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
+Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 38 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
 
 ### Checks that can send a step back
 
@@ -77,8 +77,9 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 |---|---|
 | `link-gate` | A reply with a link the agent remembered or saw in search results but never opened |
 | `question-other` | A question with no box to type my own answer, a choice with only one option, a "look at this" question with no link to it, a recommended option that says "Checked:" when no file read or search in the log matches it, or a recommended option that no `rec-check` agent has looked at |
-| `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder |
+| `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder; a line that starts in lowercase or runs 70 characters or more gets a note, never a refusal |
 | `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`). Only inside Nimbalyst: in the terminal it never refuses |
+| `next-step-gate` | A turn that ends on a next step of the agent's own ("Next: ...") while it waits on nothing from you; it is sent back once per step to carry on or name the real reason it stops. A reply that ends in a question, asks you for something, or hands off to a fresh session passes |
 | `verify-gate` | A turn that edited a code file and ended with no build or test run after the last edit; it asks for one run and never runs a command itself |
 | `skill-pointer` | When a project's `SKILL.md` is written and that project's `CLAUDE.md` names the skill nowhere, tells the agent to add one line saying when to call it, or the skill is rarely used. The rule behind it: a procedure done a third time becomes a skill. `SKILL_POINTER=off` turns it off |
 | `transcript-check` | At the start of a session, says out loud when a new Claude Code changed the transcript format the hooks read |
@@ -112,7 +113,9 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
 | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
-| `background-tasks` | When Nimbalyst's "background tasks have settled" prompt only repeats tasks already reported, tells the agent to reply with one line while work still runs and one complete answer when it is done, and refuses a background launch from the main session unless the description says it runs `beside` another step, another background task is still running, or it is a server or watcher (BACKGROUND_TASKS=warn turns the refusal into a note; in the desktop app and VS Code, which always run helpers in the background, a helper launch gets the note) |
+| `background-tasks` | When Nimbalyst's "background tasks have settled" prompt only repeats tasks already reported, tells the agent to reply with one line while work still runs and one complete answer when it is done, and refuses a background launch from the main session unless the description says it runs `beside` another step, another background task is still running, or it is a server or watcher (a reply that says a helper still runs or that it waits for one, while no helper or background command of the session is live, is sent back once; BACKGROUND_TASKS=warn turns the refusal into a note; in the desktop app and VS Code, which always run helpers in the background, a helper launch gets the note) |
+| `agent-run-log` | Writes one line per helper to `~/.claude/state/agent-runs.jsonl` with the model and effort it runs on, so the agents panel can show them. It sends nothing back (`AGENT_RUN_LOG=off` turns it off) |
+| `patch-next` | At the start of a session in a project that has `docs/patches/next.md`, shows that shared release list, so parallel sessions each add their line and the session that ships includes every one. Silent in other projects (`PATCH_NEXT=off` turns it off) |
 | `job-done` | After a commit, tag or push in a session over 100k tokens, points a new job to a fresh session, once per commit |
 | `worker-size` | Tells a helper whose context passed 150k tokens to finish the step in hand and report; a `worker` or `worker-full` helper past 180k gets 3 more calls to finish or undo the edit it is in, then every call is refused until it reports, so it never reaches the compaction that loses work (`WORKER_STOP_K`, `WORKER_STOP_GRACE`) |
 
