@@ -670,9 +670,50 @@ ok("theme, fresh: Ink Cobalt set, the extension on, other keys kept",
 const sys = themed(appAt("app-system", { theme: "system", pendingThemeFallback: "dark" }));
 ok("theme, \"system\": counts as fresh, the fallback goes", [sys.s.theme, "pendingThemeFallback" in sys.s], ["com.local.inktheme:ink-cobalt", false]);
 ok("theme, no settings file yet: written", themed(path.join(tmp, "app-none.json")).s?.theme, "com.local.inktheme:ink-cobalt");
-const picked = themed(appAt("app-picked", { theme: "light" }));
-ok("theme, picked: untouched, and the run says so", [picked.s, /theme: left as it is \(light\)/.test(picked.out)], [{ theme: "light" }, true]);
-ok("theme, --no-theme: untouched", themed(appAt("app-flag", { theme: "system" }), "--no-theme").s, { theme: "system" });
+// A theme picked before (not an Ink one) is switched to Cobalt once; the installer records it (inkSwitched)
+const themedIn = (name, file, env = {}, ...flags) => {
+  const h = path.join(tmp, name);
+  const r = spawnSync(process.execPath, [INSTALL, "--home", h, "--app-settings", file, ...flags], { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath, ...env } });
+  return { out: r.stdout, s: json(file), state: json(path.join(h, ".claude", "setup-state.json")), h };
+};
+const oldPick = themedIn("theme-old", appAt("app-picked", { theme: "dark", themeIsDark: true, zoom: 2 }));
+ok("theme, a built-in theme picked before: Cobalt once, old copy kept, recorded",
+  [oldPick.s.theme, oldPick.s.zoom, oldPick.state.inkSwitched, /theme: set to Ink Cobalt/.test(oldPick.out), fs.readdirSync(tmp).some((f) => f.startsWith("app-picked.json.before-install"))],
+  ["com.local.inktheme:ink-cobalt", 2, true, true, true]);
+fs.writeFileSync(path.join(tmp, "app-picked.json"), JSON.stringify({ theme: "light" }));
+const later = spawnSync(process.execPath, [INSTALL, "--home", oldPick.h, "--app-settings", path.join(tmp, "app-picked.json")], { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath } });
+ok("theme, picked after the switch: stays, and the run says so", [json(path.join(tmp, "app-picked.json")), /theme: left as it is \(light\)/.test(later.stdout)], [{ theme: "light" }, true]);
+const inkPick = themedIn("theme-ink", appAt("app-ink", { theme: "com.local.inktheme:ink-paper" }));
+ok("theme, an Ink theme picked: stays, recorded as switched", [inkPick.s.theme, inkPick.state.inkSwitched], ["com.local.inktheme:ink-paper", true]);
+const open = themedIn("theme-open", appAt("app-open", { theme: "dark" }), { SETUP_NIMBALYST_OPEN: "yes" });
+ok("theme, Nimbalyst open: the line for the update skill, file unchanged, pending",
+  [open.s, /^theme: set now: com\.local\.inktheme:ink-cobalt \(Nimbalyst is open\. Claude inside Nimbalyst: .*appearance_set_theme.*--theme-done.*Ink Cobalt\.\)$/m.test(open.out), open.state.themePending, open.state.inkSwitched],
+  [{ theme: "dark" }, true, true, undefined]);
+ok("theme, Nimbalyst open: the theme seen is recorded", open.state.themePendingFrom, "dark");
+// pending, then the person picks something else: that pick wins, whether Nimbalyst is open or closed
+const pendingPick = (name, picked, env) => {
+  const first = themedIn(name, appAt(`app-${name}`, { theme: "dark" }), { SETUP_NIMBALYST_OPEN: "yes" });
+  fs.writeFileSync(path.join(tmp, `app-${name}.json`), JSON.stringify({ theme: picked }));
+  const second = themedIn(name, path.join(tmp, `app-${name}.json`), env);
+  return { first, second };
+};
+const pickedOpen = pendingPick("theme-p1", "light", { SETUP_NIMBALYST_OPEN: "yes" });
+ok("theme, pending, then another theme picked (Nimbalyst still open): no line, pending cleared, pick stays",
+  [pickedOpen.second.s, pickedOpen.second.out.includes("theme: set now:"), "themePending" in pickedOpen.second.state, "themePendingFrom" in pickedOpen.second.state, pickedOpen.second.state.inkSwitched],
+  [{ theme: "light" }, false, false, false, true]);
+const pickedClosed = pendingPick("theme-p2", "light", { SETUP_NIMBALYST_OPEN: "no" });
+ok("theme, pending, then another theme picked (Nimbalyst closed): not overwritten with Cobalt", [pickedClosed.second.s, pickedClosed.second.state.inkSwitched], [{ theme: "light" }, true]);
+const pickedInk = pendingPick("theme-p3", "com.local.inktheme:ink-frost", { SETUP_NIMBALYST_OPEN: "yes" });
+ok("theme, pending, then an Ink theme picked: cleared, stays", [pickedInk.second.s.theme, pickedInk.second.state.inkSwitched, "themePending" in pickedInk.second.state], ["com.local.inktheme:ink-frost", true, false]);
+const stillOpen = pendingPick("theme-p4", "dark", { SETUP_NIMBALYST_OPEN: "yes" });
+ok("theme, pending and nothing picked: the line again, still pending", [stillOpen.second.out.includes("theme: set now:"), stillOpen.second.state.themePending], [true, true]);
+const doneRun = spawnSync(process.execPath, [INSTALL, "--home", open.h, "--theme-done"], { encoding: "utf8" });
+const doneState = json(path.join(open.h, ".claude", "setup-state.json"));
+ok("theme, --theme-done: recorded, no longer pending", [doneRun.status, doneState.inkSwitched, "themePending" in doneState], [0, true, false]);
+const noTheme = themedIn("theme-no", appAt("app-flag", { theme: "dark" }), {}, "--no-theme");
+ok("theme, --no-theme: untouched", [noTheme.s, noTheme.state.inkSwitched], [{ theme: "dark" }, undefined]);
+const noSys = themed(appAt("app-flag2", { theme: "system" }), "--no-theme");
+ok("theme, --no-theme, \"system\": untouched", noSys.s, { theme: "system" });
 const themeOff = spawnSync(process.execPath, [INSTALL, "--home", themeHome, "--app-settings", appAt("app-env", {})], { encoding: "utf8", env: { ...process.env, PATH: emptyPath, Path: emptyPath, SETUP_THEME: "off" } });
 ok("theme, SETUP_THEME=off: untouched", [json(path.join(tmp, "app-env.json")), /SETUP_THEME=off/.test(themeOff.stdout)], [{}, true]);
 const themeDry = themed(appAt("app-dry", {}), "--dry-run");

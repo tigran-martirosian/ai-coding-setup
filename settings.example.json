@@ -129,6 +129,16 @@
         ]
       },
       {
+        "matcher": "mcp__nimbalyst-browser__browser_open_session",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/browser-visible-gate.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch",
         "hooks": [
           {

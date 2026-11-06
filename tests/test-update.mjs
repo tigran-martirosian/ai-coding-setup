@@ -126,6 +126,18 @@ check("the update skill has no step that opens folders or asks about a theme or 
 const again = await update(home);
 check("a second run says it is on the newest version and changes nothing", again.code === 0 && again.out.trim().split("\n")[0] === `Already on the newest version (${NEW}).` && again.out.includes("version check skipped"));
 
+// ---- an Ink theme left pending (Nimbalyst was open) is named again, unless a theme was picked since
+const appSet = path.join(tmp, "app-settings.json");
+const pendState = (extra) => fs.writeFileSync(stateAt, JSON.stringify({ ...json(stateAt), themePending: true, themePendingFrom: "dark", ...extra }));
+fs.writeFileSync(appSet, JSON.stringify({ theme: "dark" }));
+pendState();
+const pend1 = await update(home, "--app-settings", appSet);
+check("a pending Ink theme is named again, still pending", /^theme: set now: com\.local\.inktheme:ink-cobalt \(/m.test(pend1.out) && json(stateAt).themePending === true);
+fs.writeFileSync(appSet, JSON.stringify({ theme: "light" }));
+const pend2 = await update(home, "--app-settings", appSet);
+check("after another theme was picked: no line, pending cleared, switch recorded",
+  !pend2.out.includes("theme: set now:") && !("themePending" in json(stateAt)) && !("themePendingFrom" in json(stateAt)) && json(stateAt).inkSwitched === true);
+
 // ---- rules the user changed are kept, said once, and taken with --replace-rules
 const mine = path.join(tmp, "mine");
 spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", mine, "--codex", "no"], { encoding: "utf8" });

@@ -18,7 +18,6 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const EVERY_MS = 5 * 60000;
 if ((process.env.PLAN_USAGE_LOGGER || "").toLowerCase() === "off") process.exit(0);
 
 const dir = process.env.PLAN_USAGE_DIR || path.join(os.homedir(), ".claude", "usage-log");
@@ -26,9 +25,23 @@ const stamp = path.join(dir, "plan-usage.stamp");
 const log = path.join(dir, "plan-usage.jsonl");
 const status = path.join(dir, "plan-usage.status.json");
 
+// Every 5 minutes, but every 30 seconds once either window is at 70% or more, so the status
+// line and the dashboard show a fresh number as the limit gets close.
+function everyMs() {
+  try {
+    const fd = fs.openSync(log, "r");
+    const size = fs.fstatSync(fd).size, len = Math.min(size, 16384), buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len); fs.closeSync(fd);
+    const lines = buf.toString("utf8").split("\n").filter((l) => l.trim().startsWith("{"));
+    const r = JSON.parse(lines[lines.length - 1]);
+    if ((r.five?.u ?? 0) >= 70 || (r.week?.u ?? 0) >= 70) return 30000;
+  } catch {}
+  return 5 * 60000;
+}
+
 if (!process.argv.includes("--fetch")) {
   try {
-    if (Date.now() - fs.statSync(stamp).mtimeMs < EVERY_MS) process.exit(0);
+    if (Date.now() - fs.statSync(stamp).mtimeMs < everyMs()) process.exit(0);
   } catch {}
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -62,6 +75,13 @@ try {
   const win = (w) => w && typeof w.utilization === "number" ? { u: w.utilization, r: w.resets_at ?? null } : null;
   const rec = { t: new Date().toISOString(), five: win(j.five_hour), week: win(j.seven_day) };
   if (!rec.five && !rec.week) { note(false, "reply had no plan percentages"); process.exit(0); }
+  // Some accounts have no 5-hour limit: the reply then has five_hour: null and a `limits` list with weekly limits only
+  // (five stays null). Any limit outside the weekly group is kept, so a new one shows up.
+  const other = (Array.isArray(j.limits) ? j.limits : []).filter((l) => l.group !== "weekly");
+  if (other.length) rec.limits = other.map((l) => ({ kind: l.kind, group: l.group, u: l.percent, r: l.resets_at ?? null }));
+  // Per-model weekly limits (kind "weekly_scoped" with scope.model, e.g. Fable), the ones Nimbalyst's Claude ring lists
+  const models = (Array.isArray(j.limits) ? j.limits : []).filter((l) => l.kind === "weekly_scoped" && l.scope?.model?.display_name && typeof l.percent === "number");
+  if (models.length) rec.models = models.map((l) => ({ model: l.scope.model.display_name, u: l.percent, r: l.resets_at ?? null }));
   // Any other meters the account has (per-model weekly limits, credit balances), kept as they come
   const more = {};
   for (const [k, w] of Object.entries(j)) {
@@ -70,7 +90,8 @@ try {
   }
   if (Object.keys(more).length) rec.more = more;
   fs.appendFileSync(log, JSON.stringify(rec) + "\n");
-  note(true, `5-hour ${rec.five?.u ?? "?"}%, week ${rec.week?.u ?? "?"}%`);
+  note(true, `${rec.five ? `5-hour ${rec.five.u}%` : "no 5-hour limit"}, week ${rec.week?.u ?? "?"}%` +
+    (other.length ? `; other limits: ${other.map((l) => `${l.kind} ${l.percent}%`).join(", ")}` : ""));
 } catch (e) {
   note(false, String(e.message ?? e));
   // no network and a slow answer are the status file's business, not a crash

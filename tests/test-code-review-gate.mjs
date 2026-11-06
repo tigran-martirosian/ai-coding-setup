@@ -190,7 +190,8 @@ report(run(blocked) === "", "the switch can sit in the project's settings");
 rmSync(join(dir, ".claude"), { recursive: true, force: true });
 
 // The wider lists
-for (const f of ["C:/p/.claude/agents/x.md", "C:/p/.claude/rules/x.md", "C:/p/.claude/skills/x/SKILL.md", "C:/p/CLAUDE.md"]) report(blocks(one(f)), `rules and agents are setup files: ${f.slice(5)}`);
+report(blocks(one("C:/p/.claude/agents/x.md")), "an agent file is a setup file, even for a one-line edit");
+for (const f of ["C:/p/.claude/rules/x.md", "C:/p/.claude/skills/x/SKILL.md", "C:/p/CLAUDE.md"]) report(!blocks(one(f)), `a few lines of rule text need no reviewer: ${f.slice(5)}`);
 report(blocks(run([typed("build"), ...["a.vue", "b.php", "c.sql"].flatMap((f) => edit(`C:/p/${f}`))])), "vue, php and sql are code");
 report(withHelpers([at(typed("fix"), 5 * MIN), at(R_CALL, 4 * MIN), at(R_BACK, 3 * MIN), ...aged(edit("C:/p/.claude/hooks/x.mjs"), MIN)], []) === "", "a setup fix in the review's own turn: no second reviewer");
 // A review counts when its report is back

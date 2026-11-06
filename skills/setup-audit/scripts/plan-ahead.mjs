@@ -89,6 +89,9 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
   let reset = minute(last?.week.r), used = last?.week.u;
   if (!last || isNaN(reset)) return { status: "none" };
   const res = { status: "ok", at: last.t, now: iso(now), tips: [] };
+  // Per-model weekly limits and other limits from the logger, passed on for the Usage Plan panel
+  if (last.models) res.models = last.models;
+  if (last.limits) res.limits = last.limits;
 
   // ---- the week
   const rolled = reset <= now; // the week has started over since the last reading
@@ -101,7 +104,7 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
     budget: round(Math.max(0, 100 - used) / (left / DAY)), average: null, recent: null, share: null,
   };
   if (!rolled) {
-    if (last.ms - start > HOUR) week.average = line(used, used / ((last.ms - start) / HOUR), last.ms, reset);
+    if (last.ms - start > HOUR) week.average = { ...line(used, used / ((last.ms - start) / HOUR), last.ms, reset), hours: Math.round((last.ms - start) / HOUR) };
     const back = S.find((s) => s.ms >= last.ms - DAY && sameWindow(s.week, last.week));
     if (back && last.ms - back.ms >= 6 * HOUR) {
       week.recent = { ...line(used, (used - back.week.u) / ((last.ms - back.ms) / HOUR), last.ms, reset), hours: Math.round((last.ms - back.ms) / HOUR) };
@@ -130,7 +133,8 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
   }
 
   // ---- the 5-hour window
-  const five = res.five = { open: false };
+  // a reading with no 5-hour number means Anthropic's reply had none: the plan has no 5-hour limit
+  const five = res.five = { open: false, none: last.five == null };
   const r5 = minute(last.five?.r);
   if (r5 > now) {
     // pace: the last half hour of readings when they span 10 minutes, otherwise the whole window so far
@@ -203,7 +207,8 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
   else if (pace?.full) tip("week", `Week: runs out ${when(Date.parse(pace.full))} at this pace, ${span(reset - Date.parse(pace.full))} before the reset.`);
   else if (pace) tip("week", `Week: ends near ${Math.round(pace.atReset)}% at this pace.`);
   tip("budget", `Budget: ${week.budget}% a day to last${pace ? `; now averaging ${pace.perDay}%` : ""}.`);
-  if (!five.open) tip("five", `5-hour window: none open.`);
+  if (five.none) tip("five", `5-hour window: the plan has none now; Anthropic reports only the weekly limit.`);
+  else if (!five.open) tip("five", `5-hour window: none open.`);
   else if (five.full) tip("five", `5-hour window: fills up around ${when(Date.parse(five.full))}, ${span(r5 - Date.parse(five.full))} before its reset.`);
   else tip("five", `5-hour window: ${Math.round(five.used)}%, resets ${when(r5)}.`);
   return res;

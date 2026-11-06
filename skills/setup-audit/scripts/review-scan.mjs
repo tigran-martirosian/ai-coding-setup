@@ -8,7 +8,7 @@
 //   - thinking: how much hidden thinking there was (its text is not stored in the records)
 //   - tool errors: which tools fail, how often, with what
 // A "request" is one API call; a "turn" is one message the user typed with everything done for it.
-// "Weight" is the rough plan weight of usage-scan.mjs (cache reads 0.1x, output 5x).
+// "Weight" is this script's own rough weight (cache reads 0.1x, output 5x); usage-scan.mjs weighs by list price.
 //   - helper rework: for each helper run (Agent call), whether its work had to be touched again (see below)
 // Options: --days N (default 7)   --project TEXT (only folders whose path contains it)
 //          --top N rows per list (default 8)   --root DIR (default ~/.claude/projects)
@@ -24,8 +24,8 @@ const only = String(opt("project", "")).toLowerCase();
 const top = Number(opt("top", 8));
 const since = Date.now() - days * 86400000;
 
-// Opus : Sonnet : Haiku = 5 : 3 : 1 as in usage-scan.mjs. Fable is not in its table: it is counted at 2.5
-// times Opus, the ratio of the list prices there.
+// Opus : Sonnet : Haiku = 5 : 3 : 1, and Fable at 2.5 times Opus. Only shares within one review
+// are compared, so these need not match the plan weight in usage-scan.mjs.
 const FAMILY = [[/fable|mythos/, 12.5, "Fable"], [/opus/, 5, "Opus"], [/sonnet/, 3, "Sonnet"], [/haiku/, 1, "Haiku"]];
 const famOf = (model) => FAMILY.find(([re]) => re.test(model))?.[1] ?? 3;
 const weightOf = (u, model) => {

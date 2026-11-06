@@ -52,7 +52,7 @@ check("5-hour window: 10 points in the last half hour ends at 80, not full", [A.
   [true, 40, "2026-10-03T04:00:00.000Z", 80, null]);
 const fast = [...samples.slice(0, 2), s("2026-10-03T01:30:00Z", 38, 50, "2026-10-03T04:00:00+00:00"), s("2026-10-03T02:00:00Z", 40, 70, "2026-10-03T04:00:00+00:00")];
 check("5-hour window: 20 points in half an hour fills up 45 minutes later", planAhead(fast, [], null, hours, at("2026-10-03T02:00:00Z")).five.full, "2026-10-03T02:45:00.000Z");
-check("5-hour window: closed once its reset time has passed", planAhead(samples, [], null, hours, at("2026-10-03T05:00:00Z")).five, { open: false });
+check("5-hour window: closed once its reset time has passed", planAhead(samples, [], null, hours, at("2026-10-03T05:00:00Z")).five, { open: false, none: false });
 check("a full 5-hour window in weekly points (4 weekly points for 35 window points)", A.window, { points: 11.4, left: 5.3 });
 
 // ---- the hours of other use

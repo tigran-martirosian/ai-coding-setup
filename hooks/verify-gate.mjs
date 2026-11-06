@@ -2,6 +2,8 @@
 // verify-gate: Stop hook. Catches "code was edited and nothing was built or tested after it".
 // If the main session edited a code file this turn and no Bash call after the last such edit ran a build or test,
 // it blocks once with one line: run the project's build or test, then finish. It never runs a command itself.
+// - Running an edited script (python/node/sh ... <its file name>) after its last edit is that file's check; a build checks all.
+//   This holds with VERIFY_PATTERN set too: the pattern replaces only the build list.
 // - A Bash result marked as an error (a failed build, a refused call) is not a run; a background run is.
 // - Only the main session's edits count: a helper's brief carries its own check. Subagents (input with agent_id) skip.
 // - Docs, notebooks, JSON outside src/ and files in a temp or scratch folder are not code. A reply ending in a question
@@ -36,9 +38,14 @@ const BUILD = new RegExp(
     "(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:test|build)\\b", "npx\\s+(?:tsc|vitest|jest|playwright)\\b",
     "cargo\\s+(?:build|test|check|clippy)\\b", "go\\s+(?:build|test|vet)\\b", "dotnet\\s+(?:build|test)\\b",
     "cmake\\s+--build\\b", "(?:python3?|py)\\s+(?:-3\\s+)?-m\\s+(?:pytest|unittest)\\b",
-    "node\\s+(?:--test\\b|(?:\"[^\"]*[\\\\/]|'[^']*[\\\\/]|[\"']|\\S*[\\\\/])?(?:test-[\\w.-]*|[\\w.-]*-tests?|run-tests?[\\w.-]*|run-all)\\.[cm]?js\\b)",
+    "node\\s+(?:--test\\b|(?:\"[^\"]*[\\\\/]|'[^']*[\\\\/]|[\"']|\\S*[\\\\/])?(?:test-[\\w.-]*|[\\w.-]*[-.]tests?|run-tests?[\\w.-]*|run-all)\\.[cm]?js\\b)",
   ].join("|") + ")[\"']?(?:\\s|$)", "i");
 const isBuild = (command, pattern) => pattern ? pattern.test(command) : command.split(/&&|\|\||;|\||\r?\n/).some((s) => BUILD.test(s.trim()));
+// Running an edited script is its check: a generator or tool whose own asserts are its test (the gate asked
+// for a build three times after such a script had run and passed)
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const runsEdited = (command, names) => names.some((n) => new RegExp(
+  "(?:^|[\\s;&|(])(?:python3?|py|node|bash|sh|pwsh|powershell)(?:\\.exe)?(?:\\s+-\\S+)*\\s+[\"']?(?:\\S*[\\\\/])?" + esc(n) + "[\"']?(?:\\s|$)", "i").test(command));
 
 const userText = (e) => {
   const c = e.message?.content;
@@ -72,19 +79,27 @@ export function unverified(entries, pattern) {
     if (e.type !== "user" || !Array.isArray(e.message?.content)) continue;
     for (const b of e.message.content) if (b.type === "tool_result" && b.is_error) failed.add(b.tool_use_id);
   }
+  // per file: its last edit and its last own run; a build clears every file, running a script clears only that script
   const files = new Map();
-  let step = 0, lastEdit = -1, lastRun = -1;
+  let step = 0, lastBuild = -1;
   for (const e of entries) {
     if (e.type !== "assistant" || e.isSidechain || !Array.isArray(e.message?.content)) continue;
     for (const b of e.message.content) {
       if (b.type !== "tool_use" || failed.has(b.id)) continue;
       step++;
       const p = b.input?.file_path;
-      if (EDIT_TOOLS.test(b.name) && p && isCode(p)) { files.set(path.resolve(String(p)).toLowerCase(), path.basename(String(p))); lastEdit = step; }
-      else if (SHELL_TOOLS.test(b.name) && isBuild(String(b.input?.command || ""), pattern)) lastRun = step;
+      if (EDIT_TOOLS.test(b.name) && p && isCode(p)) {
+        const k = path.resolve(String(p)).toLowerCase();
+        files.set(k, { name: path.basename(String(p)), edit: step, run: files.get(k)?.run ?? -1 });
+      } else if (SHELL_TOOLS.test(b.name)) {
+        const c = String(b.input?.command || "");
+        if (isBuild(c, pattern)) lastBuild = step;
+        else for (const f of files.values()) if (runsEdited(c, [f.name])) f.run = step;
+      }
     }
   }
-  return { files: [...files.values()], due: lastEdit > lastRun && lastEdit > -1 };
+  const all = [...files.values()];
+  return { files: all.map((f) => f.name), due: all.some((f) => f.edit > Math.max(lastBuild, f.run)) };
 }
 
 // The switches can sit in the project's settings env

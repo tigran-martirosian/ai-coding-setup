@@ -107,17 +107,39 @@ export function editsSinceReview(entries, notRun = []) {
     if (e.type !== "user" || !Array.isArray(e.message?.content)) continue;
     for (const b of e.message.content) if (b.type === "tool_result" && b.is_error) refused.add(b.tool_use_id);
   }
-  let files = new Map(), reviewedAt = 0, reviewedWork = false, reviewBrief = "";
+  let files = new Map(), lines = new Map(), reviewedAt = 0, reviewedWork = false, reviewBrief = "";
+  const count = (s) => String(s ?? "").split("\n").length;
   for (const e of entries) {
     if (e.type !== "assistant" || !Array.isArray(e.message?.content)) continue;
     for (const b of e.message.content) {
       if (b.type !== "tool_use" || refused.has(b.id)) continue;
-      if (isReview(b)) { reviewedWork ||= files.size > 0; files = new Map(); reviewedAt = Date.parse(e.timestamp) || reviewedAt; reviewBrief = JSON.stringify(b.input); }
+      if (isReview(b)) { reviewedWork ||= files.size > 0; files = new Map(); lines = new Map(); reviewedAt = Date.parse(e.timestamp) || reviewedAt; reviewBrief = JSON.stringify(b.input); }
       const p = b.input?.file_path || b.input?.notebook_path;
-      if (EDIT_TOOLS.test(b.name) && p && (isCode(p) || isSetup(p))) files.set(fileKey(p), path.basename(String(p)));
+      if (EDIT_TOOLS.test(b.name) && p && (isCode(p) || isSetup(p))) {
+        const k = fileKey(p);
+        files.set(k, path.basename(String(p)));
+        // replace_all changes every match, and a frontmatter key (tools, model, allowed-tools...) changes what a skill may do: both count in full
+        const text = `${b.input.old_string ?? ""}\n${b.input.new_string ?? ""}\n${b.input.content ?? ""}`;
+        const n = b.input.replace_all || FRONTMATTER_KEY.test(text) ? Infinity
+          : b.name === "Edit" ? Math.max(count(b.input.old_string), count(b.input.new_string)) : b.name === "Write" ? count(b.input.content) : Infinity;
+        lines.set(k, (lines.get(k) || 0) + n);
+      }
     }
   }
-  return { files, reviewedAt, reviewedWork, reviewBrief };
+  return { files, lines, reviewedAt, reviewedWork, reviewBrief };
+}
+
+// Rule text (a CLAUDE.md, a skill or rule .md) edited by a few lines in all since the last review needs no reviewer:
+// a three-line edit is not worth a reviewer run. Hooks, settings and code always count,
+// and so does a file a helper or something outside this session's edits changed: its size is not known here
+export const SMALL_SETUP_LINES = 10;
+const FRONTMATTER_KEY = /^(tools|model|permissionMode|allowed-tools|disallowedTools|hooks|mcpServers|effort|isolation):/im;
+// An agent's .md is its permissions as much as its text, so agents/ is never excused
+const isProse = (k) => /\.md$/i.test(k) && !/\.claude\/(hooks|agents)\//i.test(k);
+export function smallSetupEdits(lineMap, otherKeys = new Set()) {
+  const prose = [...lineMap].filter(([k]) => isSetup(k) && isProse(k));
+  const total = prose.reduce((s, [, n]) => s + n, 0);
+  return new Set(total < SMALL_SETUP_LINES ? prose.map(([k]) => k).filter((k) => !otherKeys.has(k)) : []);
 }
 
 const entriesOf = (text) => text.split("\n").flatMap((l) => { try { return l.trim() ? [JSON.parse(l)] : []; } catch { return []; } });
@@ -361,7 +383,18 @@ function assess(input, mode, pre) {
   const earlier = mode === "led" ? [] : [...editsSinceReview(inWindow(editEntries(lines), since), notRun).files, ...helperEdits(input.transcript_path, since).files, ...git.all];
   // After a review, a setup file its brief named is a fix of what it found. One it didn't name is new work
   const said = brief.replace(/\\+/g, "/").toLowerCase();
-  const newSetup = [...main.files, ...helpers.files, ...git.all].filter(([k]) => isSetup(k) && !said.includes(k.toLowerCase().split("/").slice(-2).join("/"))).map(([, name]) => name);
+  const windowLines = editsSinceReview(inWindow(editEntries(lines), since), notRun).lines;
+  for (const [k, n] of main.lines) windowLines.set(k, Math.max(windowLines.get(k) || 0, n));
+  // A file a shell command since the review named may have changed past what the Edits counted (sed, a generator)
+  // A git commit or a grep that names it is no change
+  const shellCommands = entriesOf(lines.filter((l) => /"name":"(Bash|PowerShell)"/.test(l)).join("\n"))
+    .filter((e) => (Date.parse(e.timestamp) || 0) >= since)
+    .flatMap((e) => (Array.isArray(e.message?.content) ? e.message.content : []).filter((b) => b.type === "tool_use" && /^(Bash|PowerShell)$/.test(b.name)))
+    .map((b) => String(b.input?.command || "").replace(/^\s*#.*$/gm, "").replace(/\d?>&\d|\d?>\s*\/dev\/null|\d?>\s*\$null/g, "").toLowerCase())
+    .filter((c) => /\b(sed|perl|tee|awk|python3?|node|mv|cp|set-content|out-file|add-content)\b|>/.test(c));
+  const shellNamed = (k) => { const base = k.split("/").pop(); return shellCommands.some((c) => c.includes(base)); };
+  const small = new Set([...smallSetupEdits(windowLines, new Set(helpers.files.keys()))].filter((k) => !shellNamed(k)));
+  const newSetup = [...main.files, ...helpers.files, ...git.all].filter(([k]) => isSetup(k) && !small.has(k) && !said.includes(k.toLowerCase().split("/").slice(-2).join("/"))).map(([, name]) => name);
   const setupFiles = [...new Set([...(heldWork?.setup || []), ...newSetup])];
   const files = [...new Set([...(heldWork?.files || []), ...new Map([...main.files, ...helpers.files, ...earlier]).values()])];
   const big = files.length >= MIN_FILES, several = helpers.steps >= MIN_STEPS, setup = setupFiles.length > 0;
@@ -378,19 +411,30 @@ const countOf = (n, what = "") => `${n} ${what}file${n === 1 ? "" : "s"}`;
 // Quoted text is not looked at, so a commit message that says "git push" passes; a shell started with -c is looked at whole
 const LEAD = "(?:^|[\\s;&|(`\"'/\\\\])"; // a slash for /usr/bin/git
 const PUBLISH = [new RegExp(`${LEAD}git(?:\\.exe)?(?:\\s+-\\S+(?:\\s+[^\\s-]\\S*)?)*\\s+push\\b`), new RegExp(`${LEAD}gh(?:\\.exe)?\\s+release\\s+(?:create|upload|edit)\\b`), new RegExp(`${LEAD}npm(?:\\.cmd)?\\s+publish\\b`)];
-function isPush(text) {
+export function isPush(text) {
   const command = text.replace(/^\s*#.*$/gm, ""); // a comment line, such as the one that explains the command, is not a command
   const wrapped = /\b(?:bash|sh|zsh|pwsh|powershell|cmd)(?:\.exe)?\s+(?:-\w*c\b|\/c\b)/i.test(command);
   const bare = wrapped ? command : command.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
   if (PUBLISH.some((re) => re.test(bare))) return true;
   const own = setting("REVIEW_PUSH_PATTERN");
   if (!own) return false;
-  try { return new RegExp(own, "i").test(command); } catch { return false; } // a pattern that doesn't parse is no pattern
+  // Quoted text is skipped here too: a grep for 'deploy.py send' is a search, not a deploy
+  try { return new RegExp(own, "i").test(bare); } catch { return false; } // a pattern that doesn't parse is no pattern
+}
+
+// The deny reason offers CODE_REVIEW_GATE=off "for this run": a prefix on the command itself never reaches this hook's
+// own environment, so it is read from the command (a deploy after its one review was blocked twice without this).
+// A comment line or quoted text (a commit message) is not an assignment; a quoted value right after = is.
+export function offInCommand(command) {
+  const bare = command.replace(/^\s*#.*$/gm, "").replace(/(=\s*)?("(?:[^"\\]|\\.)*"|'[^']*')/g, (m, eq) => (eq ? m : '""'));
+  return /(?:^|[\s;&|])(?:\$env:)?CODE_REVIEW_GATE\s*=\s*["']?off\b/im.test(bare);
 }
 
 // PreToolUse (Bash, PowerShell): no push, release or publish while a review is due and none ran since, by a helper either
 function pushCheck(input, mode) {
-  if (!/^(Bash|PowerShell)$/.test(input.tool_name) || !isPush(String(input.tool_input?.command || ""))) return;
+  const command = String(input.tool_input?.command || "");
+  if (!/^(Bash|PowerShell)$/.test(input.tool_name) || !isPush(command)) return;
+  if (offInCommand(command)) return;
   const r = assess(input, mode, true);
   if (r.typed || !r.due) return;
   const names = r.files.length ? r.files : r.setupFiles;
@@ -400,7 +444,7 @@ function pushCheck(input, mode) {
       permissionDecision: "deny",
       permissionDecisionReason: `code-review-gate: a review is due before this push: ${countOf(names.length)} changed (${nameList(names)}) and no reviewer has looked since. ` +
         `Run one reviewer agent first (Agent tool, subagent_type "reviewer", with the request in the user's own words, every changed file by path and the checks that ran), fix what it finds, then push again. ` +
-        `To turn this check off for this run: CODE_REVIEW_GATE=off (env, or env in the project's .claude/settings.json).`,
+        `To turn this check off for this run: CODE_REVIEW_GATE=off in front of the command (or env, or env in the project's .claude/settings.json).`,
     },
   }));
 }

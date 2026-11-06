@@ -115,7 +115,7 @@ const OTHER_PERSON = new RegExp([
   String.raw`\b(?:send|ask|tell|give)\s+(?:him|her)\b`,
   String.raw`\b(?:his|her|friend'?s?|other maker'?s?|someone else'?s?|another person'?s?)\s+(?:own\s+)?(?:computer|pc|machine|laptop|terminal|chat|project|session|window)\b`,
   String.raw`\btheir\s+own\s+(?:computer|pc|machine|laptop)\b`,
-  String.raw`\b(?:your|the)\s+friend\b`,
+  String.raw`\b(?:your|the)\s+(?:friends?|colleagues?|teammates?|coworkers?)\b`,
 ].join("|"), "i");
 // The code is a message to this chat, not a shell command: only the words just before it say so
 const FOR_THIS_CHAT = /\b(?:in|into|to)\s+this\s+(?:chat|session|conversation)\b[^.`]{0,30}$/i;

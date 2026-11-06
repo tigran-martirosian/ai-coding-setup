@@ -1,0 +1,16 @@
+// Tests for hooks/browser-visible-gate.mjs: headless:false is refused, everything else passes. Run: node tests/test-browser-visible-gate.mjs
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { verdict } from "../hooks/browser-visible-gate.mjs";
+
+assert.match(verdict({ url: "https://www.linkedin.com/login", headless: false }), /site-login/);
+assert.equal(verdict({ url: "https://x.com" }), null);
+assert.equal(verdict({ url: "https://x.com", headless: true }), null);
+assert.equal(verdict(undefined), null);
+
+const run = (input) => execFileSync(process.execPath, [fileURLToPath(new URL("../hooks/browser-visible-gate.mjs", import.meta.url))],
+  { input: JSON.stringify({ tool_name: "mcp__nimbalyst-browser__browser_open_session", tool_input: input }) }).toString();
+assert.match(run({ url: "https://a", headless: false }), /"permissionDecision":"deny"/);
+assert.equal(run({ url: "https://a" }), "");
+console.log("browser-visible-gate tests passed");
