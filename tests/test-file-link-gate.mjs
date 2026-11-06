@@ -64,9 +64,12 @@ const mac = reasonOf(run({ last_assistant_message: "See [x](docs/a.md).", cwd: "
 check("blocks relative in a Mac session, fixed to /Users/...", mac.includes("(/Users/you/my%20project/docs/a.md)"));
 // Git Bash paths and a \\server share as the cwd
 const fixedFor = (text, cwd) => reasonOf(run({ last_assistant_message: text, cwd }).out) || "";
-check("blocks a Git Bash /c/ link outside the project, fix is the path in code", fixedFor("See [x](/c/Users/you/a.md).", CWD).includes("`C:/Users/you/a.md`"));
-check("blocks a Git Bash /c/ link inside the project, fixed to /C:/", fixedFor("See [x](/c/Projects/my project/a.md).", CWD).includes("(/C:/Projects/my%20project/a.md)"));
-check("a Git Bash cwd resolves to /C:/", fixedFor("See [x](docs/a.md).", "/c/Projects/x").includes("(/C:/Projects/x/docs/a.md)"));
+// Git Bash exists only on Windows: elsewhere /c/... is a real folder path and stays as it is (lib/paths.mjs)
+if (process.platform === "win32") {
+  check("blocks a Git Bash /c/ link outside the project, fix is the path in code", fixedFor("See [x](/c/Users/you/a.md).", CWD).includes("`C:/Users/you/a.md`"));
+  check("blocks a Git Bash /c/ link inside the project, fixed to /C:/", fixedFor("See [x](/c/Projects/my project/a.md).", CWD).includes("(/C:/Projects/my%20project/a.md)"));
+  check("a Git Bash cwd resolves to /C:/", fixedFor("See [x](docs/a.md).", "/c/Projects/x").includes("(/C:/Projects/x/docs/a.md)"));
+}
 check("a \\\\server share cwd stays a share", fixedFor("See [x](docs/a.md).", "\\\\server\\share\\proj").includes("(//server/share/proj/docs/a.md)"));
 
 // Each working form passes
