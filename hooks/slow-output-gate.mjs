@@ -3,9 +3,9 @@
 // minutes (its own `timeout N` says so) when its output goes straight into a truncating filter
 // (`| head`, `| tail`, `| Select-Object -First`) and nothing saves the full output first.
 //
-// Why (measured 2026-10-27): a one-line status question - is the server up, and on which build -
+// Why: a one-line status question - is the server up, and on which build -
 // was answered with `timeout 420 python deploy.py plan | tail -40`. The tail cut off the part that
-// mattered, so the same multi-minute command was run again from scratch: six minutes of waiting for
+// mattered, so the same multi-minute command was run again from scratch: minutes of waiting for
 // an answer two API calls could give in seconds. Output that cost minutes is written to a file once and then read as
 // often as needed; a filter put in front of the file costs nothing to rerun.
 //
@@ -15,7 +15,7 @@
 //
 // Off switch: SLOW_OUTPUT_GATE=off. Threshold: SLOW_OUTPUT_GATE_SECONDS (default 120).
 
-import { crashLog } from "./crash-log.mjs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 const DEFAULT_SECONDS = 120;
 const UNITS = { s: 1, m: 60, h: 3600, d: 86400 };
 
@@ -82,25 +82,9 @@ export const reason = (stmt, seconds = limit()) => [
   `Off switch: SLOW_OUTPUT_GATE=off (threshold: SLOW_OUTPUT_GATE_SECONDS)`,
 ].join("\n");
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
-  let raw = "";
-  process.stdin.on("data", (d) => (raw += d));
-  process.stdin.on("end", () => {
-    try {
-      if ((process.env.SLOW_OUTPUT_GATE || "").toLowerCase() === "off") return;
-      const input = JSON.parse(raw);
-      const stmt = offending(input.tool_input?.command);
-      if (!stmt) return;
-      process.stdout.write(JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason: reason(stmt),
-        },
-      }));
-    } catch (err) {
-      crashLog("slow-output-gate", err);
-      // fail open
-    }
+if (isMain(import.meta.url)) {
+  runHook("slow-output-gate", (input) => {
+    const stmt = offending(input.tool_input?.command);
+    if (stmt) emit.deny(reason(stmt));
   });
 }

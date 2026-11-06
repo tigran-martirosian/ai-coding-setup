@@ -49,7 +49,7 @@
 //                            session, so the user can keep working in the old one; child reports
 //                            are still forwarded.
 // Fails open: any hook error means no output.
-import { crashLog } from "../../hooks/crash-log.mjs";
+import { crashLog } from "../../hooks/lib/crash-log.mjs";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -59,8 +59,8 @@ const HOME = os.homedir();
 const DIR = path.join(HOME, ".claude", "steer");
 const key = (c) => String(c || process.cwd()).replace(/[^a-zA-Z0-9]/g, "-");
 const inboxOf = (c) => path.join(DIR, `${key(c)}.jsonl`);
-// A busy session can sit in one long tool call or wait for a background job for a long time; a
-// note dropped at 20 minutes was lost without a word (2026-10-29).
+// A busy session can sit in one long tool call or wait for a background job for a long time, so a note is
+// never dropped at a time limit without a word.
 const MAX_AGE = 2 * 3600e3;
 const ACTIVE = 10 * 60e3;
 // Tool calls made in the same step reach the hook within this time: all of them are held, not
@@ -139,7 +139,7 @@ const claudeArgs = () => {
 };
 // A background command or agent leaves its id in the transcript when it starts (or is resumed with
 // SendMessage) and again in a <task-id> line when it ends; it runs while its last start comes after its
-// last end. A job missed here means no watcher, so notes wait (2026-11-04: two notes to a session
+// last end. A job missed here means no watcher, so notes wait. Give it the whole transcript: request copies make
 // waiting on a resumed helper waited 5 and 6 min). Give it the whole transcript: request copies make
 // it grow fast, and a 2 MB tail missed a job started 30 min before (a note waited 8 min).
 const jobRunning = (text) => {
@@ -147,11 +147,9 @@ const jobRunning = (text) => {
   for (const m of text.matchAll(/"backgroundTaskId":"([^"]+)"|"status":"async_launched","agentId":"([^"]+)"|"resumedAgentId":"([^"]+)"/g)) last[m[1] || m[2] || m[3]] = m.index;
   return Object.entries(last).some(([id, i]) => text.lastIndexOf(`<task-id>${id}</task-id>`) < i);
 };
-// Holding a call costs a request and the call itself: it does not run, and is sent again in full (at
-// least 22 of 112 held calls in 7 days came back unchanged; held inputs up to 42k characters). A note
-// that rides with the result comes as soon as the call ends, which for most calls is seconds (3 days:
-// 0.3% of reads and edits and 3% of plain Bash calls took over 20 s). Only these are held: they take
-// long (44% of Bash calls with a timeout over 2 min, 76% of foreground helpers took over 20 s) or start
+// Holding a call costs a request and the call itself: it does not run, and is sent again in full. A note
+// that rides with the result comes as soon as the call ends, which for most calls is seconds. Only these
+// are held: they take long (a Bash call with a timeout over 2 min, a foreground helper) or start
 // work the note may change.
 const holdsCall = (name = "", input = {}) => /^(Agent|Task)$/.test(name) || /(spawn_session|AskUserQuestion|schedule_wakeup)$/.test(name)
   || (/^(Bash|PowerShell)$/.test(name) && !input?.run_in_background && Number(input?.timeout) > 120000);
@@ -268,7 +266,7 @@ const NIMBALYST_DB = process.env.STEER_NIMBALYST_DB ||
 // Nimbalyst's row for a session, by its Nimbalyst id (or the start of it) or by its Claude session id.
 // Its status (running, waiting_for_input, idle, error) is what decides how a note gets there: the
 // transcript alone can't tell, e.g. a session that ended its reply but waits for a background job
-// looks finished there (2026-10-29: notes then waited for the end of the whole run).
+// looks finished there.
 const dbRow = async (sql, ...args) => {
   if (!fs.existsSync(NIMBALYST_DB)) return null;
   process.removeAllListeners("warning");
@@ -279,14 +277,14 @@ const dbRow = async (sql, ...args) => {
   return row || null;
 };
 const nimbalystRow = (id) => (id ? dbRow("SELECT id, title, status, provider_session_id AS sid, workspace_id AS ws FROM ai_sessions WHERE (id LIKE ? OR provider_session_id LIKE ?) AND provider_session_id IS NOT NULL ORDER BY updated_at DESC", `${id}%`, `${id}%`) : null);
-// A session that has never run has a row but no Claude session id, so no transcript to deliver to
-// (2026-10-30: a Note pressed in a new tab was refused as "not active"). Only a first message starts it.
+// A session that has never run has a row but no Claude session id, so no transcript to deliver to.
+// Only a first message starts it.
 const unstartedRow = (id) => (id ? dbRow("SELECT id FROM ai_sessions WHERE id = ? AND provider_session_id IS NULL", id) : null);
 const fromNimbalyst = async (id) => {
   const row = await nimbalystRow(id);
   if (!row) return null;
-  // A session in a git worktree keeps its transcript under the worktree's folder, not row.ws
-  // (2026-10-29: a Note to a worktree session was refused as "not active"), so look in every project.
+  // A session in a git worktree keeps its transcript under the worktree's folder, not row.ws,
+  // so look in every project.
   const projects = path.join(HOME, ".claude", "projects");
   let p = path.join(projects, key(row.ws), `${row.sid}.jsonl`);
   if (!fs.existsSync(p)) {
@@ -343,8 +341,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
   // normal message; a note left here would wait for one.
   const row = t.row || (await nimbalystRow(t.id));
   // A reply that ended with no background job left is idle, whatever Nimbalyst's status says: no hook
-  // runs there until a new message (2026-11-04: two notes to such sessions waited 6 and 20 min, until a
-  // stray job notice woke them). A session waiting for an answer in its tab is not finished.
+  // runs there until a new message. A session waiting for an answer in its tab is not finished.
   const ended = t.done && !jobRunning(fs.readFileSync(t.p, "utf8"));
   const busy = row ? BUSY.has(row.status) && !(row.status === "running" && ended) : !ended;
   if (row && !busy) {
@@ -352,7 +349,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     process.exit(3);
   }
   // A running session never reaches its end of turn while notes keep coming, so nothing else stops
-  // one from growing (2026-10-30: 13 notes took one child to 598k, 284M tokens re-read).
+  // one from growing.
   const maxK = Number(process.env.STEER_MAX_K) || 300;
   const sizeK = process.env.CLAUDE_CODE_SESSION_ID && !passes.length && t.p ? contextK(t.p) : 0;
   if (sizeK >= maxK) {
@@ -398,10 +395,9 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     const ev = inp.hook_event_name, now = Date.now(), fresh = [], held = [];
     if (ev === "UserPromptSubmit") {
       // Nimbalyst sends a child's final reply to the session that started it, as a new turn. After a
-      // handoff that session would wake at its old size and act on it (2026-10-29: four queued reports
-      // ran in the old lead after it had handed off). Forward it instead, without a model call here.
+      // handoff that session would wake at its old size and act on it. Forward it instead, without a model call here.
       // A message the user types in the old session (they keep working there by habit) goes the same
-      // way (user, 2026-10-29), unless it is a slash command, a system or hook injection, or the
+      // way, unless it is a slash command, a system or hook injection, or the
       // handoff is over 24 hours old.
       const prompt = String(inp.prompt ?? "");
       const text = prompt.trim();
@@ -442,8 +438,8 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     // Inside a subagent the hook carries the parent's session id. The note stays for the parent, but
     // a parent waiting on a long subagent would only read it when that ends, so the subagent gets a
     // copy after its tool calls (once each) and passes it on in its report. Only while the parent waits for a
-    // foreground helper: a parent with background helpers reads the note itself at its next step (7 days to
-    // 2026-11-05: 52 of 68 copies went to background helpers, where they only cost and could be acted on twice).
+    // foreground helper: a parent with background helpers reads the note itself at its next step (a copy to a
+    // background helper only costs and could be acted on twice).
     if (inp.agent_id) {
       if (ev !== "PostToolUse" || !fs.existsSync(DIR) || !waitsOnHelper(inp.transcript_path)) process.exit(0);
       const relay = [];
@@ -462,8 +458,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
       process.exit(0);
     }
     // send_prompt to a busy session only waits in the queue until its turn ends, and interrupt throws
-    // away the step it is on (2026-10-26: a lead queued a /btw note, then interrupted the child to
-    // deliver it; 2026-10-29: the user had to press interrupt for queued notes to arrive). A steer note
+    // away the step it is on. A steer note
     // reaches it before its next step, so a send_prompt to a running session is turned into one.
     if (ev === "PreToolUse" && /send_prompt$/.test(inp.tool_name || "") && !inp.tool_input?.interrupt) {
       let row = null;
@@ -498,7 +493,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     // Every folder's inbox is checked: the session may have changed folder since the note was sent.
     // Handing a note over proves nothing: a tool call cancelled at that moment (a background job ending
     // starts a new turn) throws the hook's message away, and the session only reads "the user doesn't want
-    // this" (2026-10-30: five lead notes lost while the sender was told "Sent"). So a note stays in the
+    // this". So a note stays in the
     // inbox until its marker is in this session's transcript. Without a transcript there is nothing to check.
     let tail = null;
     const holds = ev === "PreToolUse" && holdsCall(inp.tool_name, inp.tool_input);
@@ -508,8 +503,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
       return tail.includes(`[note ${e.id}]`);
     };
     // Tool calls run while their reply is still coming and their results land later, so a missing marker
-    // says nothing until the call that carried the note has its result in the file (2026-10-31: four
-    // hand-overs in 11 s of one reply, marked failed, and it had arrived). A Stop means the reply is over.
+    // says nothing until the call that carried the note has its result in the file. A Stop means the reply is over.
     const landed = (e) => ev === "Stop" || !e.call || tail.includes(`"tool_use_id":"${e.call}"`);
     const warnings = [];
     const late = (e) => e.id && e.from === inp.session_id && !e.warned && now - e.ts > WARN;
@@ -589,7 +583,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     const start = fs.statSync(tp).size;
     if (!jobRunning(fs.readFileSync(tp, "utf8"))) process.exit(0);
     // Claude only runs this hook in the background for a session that takes streaming input; a plain
-    // claude -p waits for it (measured 2026-10-31), so there it must end at once. Not sure means ending too.
+    // claude -p waits for it, so there it must end at once. Not sure means ending too.
     const args = claudeArgs(), bare = args.replace(/"(\\"|[^"])*"|'[^']*'/g, " ");
     if (!args || (/(^|\s)(-p|--print)(\s|$)/.test(bare) && !/--input-format[= ]stream-json/.test(bare))) process.exit(0);
     const tick = Number(process.env.STEER_WATCH_TICK ?? 2) * 1000;

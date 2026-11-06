@@ -27,7 +27,7 @@ trade-off, table, save. This file holds the tools and the standing limits.
 - `peek.mjs` opens and drives its own hidden browser session through Nimbalyst (`tools/browser.mjs`),
   so reading a page needs no `browser_*` call. If it says the session could not be used, it prints
   the call that opens it by hand; if that fails too, use the `browser_*` tools.
-- **The link gate** (`.claude/hooks/link-gate.mjs`, a Stop hook) blocks a reply or a `finds/` file with a
+- **The link gate** (`.claude/hooks/finder-link-gate.mjs`, a Stop hook) blocks a reply or a `finds/` file with a
   link that was not opened in this session, a search or category page given as a product, or a listing
   that failed `limits.mjs` and is not marked. A search link passes only on a line that says it is a
   search to save. Off switch: `LINK_GATE=off`.

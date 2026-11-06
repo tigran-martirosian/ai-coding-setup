@@ -9,7 +9,9 @@
 // --hook: Stop hook mode. Reads the hook JSON from stdin and silently rewrites
 // ~/.claude/handoffs/<folder>-latest.md after every reply, so a brief exists even when Claude
 // usage runs out (then continue in a GPT or Gemini session from that file). Fails open.
-import { crashLog } from "./crash-log.mjs";
+import { crashLog } from "./lib/crash-log.mjs";
+import { runHook } from "./lib/hook-io.mjs";
+import { contextTokens, entries, SYNTHETIC, userText } from "./lib/transcript.mjs";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -20,8 +22,8 @@ const hook = args.includes("--hook");
 const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 let hookInput = {};
 if (hook) {
-  try { hookInput = JSON.parse(fs.readFileSync(0, "utf8")); } catch { process.exit(0); }
-  if (process.env.HANDOFF_HOOK === "off" || !hookInput.transcript_path) process.exit(0);
+  await runHook("handoff-brief", (event) => { hookInput = event; }, { off: "HANDOFF_HOOK" });
+  if (!hookInput.transcript_path) process.exit(0);
 }
 const summaryFile = (opt("--summary") || "").replace(/^~(?=$|[\\/])/, os.homedir());
 let summary = "";
@@ -51,15 +53,11 @@ const cut = (s, n) => (s.length > n ? s.slice(0, n) + " …" : s);
 function readSession(file) {
   const prompts = [], edited = [];
   let lastReply = "", context = 0, sessionCwd = "";
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-    let j;
-    try { j = JSON.parse(line); } catch { continue; }
-    if (j.isSidechain) continue;
+  for (const j of entries(fs.readFileSync(file, "utf8"))) {
     if (j.cwd) sessionCwd = j.cwd;
     const content = j.message?.content;
     if (j.type === "user" && !j.isMeta) {
-      let text = typeof content === "string" ? content
-        : Array.isArray(content) ? content.filter((c) => c.type === "text").map((c) => c.text).join("\n") : "";
+      let text = userText(j);
       const cmd = text.match(/<command-name>([^<]*)<\/command-name>/);
       if (cmd) text = cmd[1] + " " + (text.match(/<command-args>([^<]*)<\/command-args>/)?.[1] ?? "");
       text = text.trim();
@@ -71,8 +69,7 @@ function readSession(file) {
     }
     if (j.type === "assistant" && Array.isArray(content)) {
       const u = j.message.usage;
-      if (u && j.message.model !== "<synthetic>")
-        context = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+      if (u && j.message.model !== SYNTHETIC) context = contextTokens(u);
       for (const c of content) {
         if (c.type === "text" && c.text.trim()) lastReply = c.text.trim();
         const f = c.type === "tool_use" && (c.input?.file_path || c.input?.notebook_path);

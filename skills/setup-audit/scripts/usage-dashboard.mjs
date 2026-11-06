@@ -20,22 +20,19 @@ import path from "node:path";
 import os from "node:os";
 import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { ARGS, opt } from "./lib/opt.mjs";
+import { DAY_MS } from "./lib/days.mjs";
+import { CODEX_WEIGHT } from "./lib/prices.mjs";
 import { planUse, readSamples } from "./plan-use.mjs";
 import { planAhead, readConfig } from "./plan-ahead.mjs";
 
 const started = Date.now();
-const args = process.argv.slice(2);
-const opt = (name, def) => {
-  const i = args.indexOf(`--${name}`);
-  return i === -1 ? def : args[i + 1];
-};
-const flag = (name) => args.includes(`--${name}`);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = opt("out", path.join(os.homedir(), ".claude", "reports", "usage-dashboard.html"));
 const jsonOut = opt("json", path.join(path.dirname(out), "usage-dashboard.json"));
 const days = Number(opt("days", 90));
-const since = Date.now() - days * 86400000;
+const since = Date.now() - days * DAY_MS;
 
 const walk = (dir, list = []) => {
   let entries = [];
@@ -48,10 +45,11 @@ const walk = (dir, list = []) => {
 };
 
 // Codex used directly (app, CLI, Nimbalyst): saved sessions hold a running token total.
-// Worker runs (`codex exec`) save a session too, unless started with --ephemeral (as they were before
-// 2026-10-01); a saved worker run is matched to its call in the Claude transcripts, not listed twice.
+// Worker runs (`codex exec`) save a session too, unless started with --ephemeral; a saved worker run is matched to its call in the Claude transcripts, not listed twice.
 // The plan limits in these records are for the whole account, not just this computer: every record
 // that carries them becomes a sample for the "other use" estimate, next to this computer's own tokens.
+// A saved codex_exec session belongs to the worker call that began up to 2 s before it and has not run past its length (30 min if unknown) plus 5 s
+const CALL_START_SLACK_MS = 2000, CALL_DEFAULT_S = 1800, CALL_END_SLACK_S = 5;
 function codexUsage(home, workers) {
   const res = { sessions: [], limits: null };
   const samples = [], cost = new Map();
@@ -79,10 +77,10 @@ function codexUsage(home, workers) {
       if (p.type === "token_count") {
         const tot = p.info?.total_token_usage;
         if (tot && tot.total_tokens > prev.total_tokens) {
-          // Codex plan weight by price ratios (cached input 0.1x, output 8x); fitted on its own, apart from Claude's
+          // Codex plan weight by the price ratios in CODEX_WEIGHT; fitted on its own, apart from Claude's
           const d = (k) => (tot[k] ?? 0) - (prev[k] ?? 0);
           const c = cost.get(Math.floor(Date.parse(j.timestamp) / 60000)) ?? [0, 0];
-          c[0] += (d("input_tokens") - d("cached_input_tokens") + 0.1 * d("cached_input_tokens") + 8 * d("output_tokens")) / 1e6;
+          c[0] += (d("input_tokens") - d("cached_input_tokens") + CODEX_WEIGHT.cachedInput * d("cached_input_tokens") + CODEX_WEIGHT.output * d("output_tokens")) / 1e6;
           c[1] += d("total_tokens");
           cost.set(Math.floor(Date.parse(j.timestamp) / 60000), c);
           prev = tot;
@@ -105,7 +103,7 @@ function codexUsage(home, workers) {
       const start = Date.parse(first);
       const call = workers.filter((w) => {
         const at = Date.parse(w.at);
-        return at <= start + 2000 && start <= at + ((w.seconds ?? 1800) + 5) * 1000;
+        return at <= start + CALL_START_SLACK_MS && start <= at + ((w.seconds ?? CALL_DEFAULT_S) + CALL_END_SLACK_S) * 1000;
       }).sort((a, b) => (a.at < b.at ? 1 : -1))[0];
       // "tokens used", as Codex prints at the end of a run, leaves out cached input
       if (call) { call.saved = (call.saved ?? 0) + fresh; continue; }
@@ -114,7 +112,7 @@ function codexUsage(home, workers) {
     const helper = meta.source?.subagent ? Object.values(meta.source.subagent)[0] : "";
     res.sessions.push({ id, title: names[id] ?? "", at: last, cwd: meta.cwd ?? "", origin: [meta.originator, helper].filter(Boolean).join(" · "), tokens, model });
   }
-  // Worker runs that saved no session (--ephemeral, before 2026-10-01) still used the plan: take the
+  // Worker runs that saved no session (--ephemeral) still used the plan: take the
   // token count they printed, or the average of those that printed one
   const printed = workers.filter((w) => w.saved == null && w.tokens != null);
   const average = printed.length ? printed.reduce((n, w) => n + w.tokens, 0) / printed.reduce((n, w) => n + w.processes, 0) : 0;
@@ -145,7 +143,7 @@ async function geminiUsage(home) {
       db.close();
       res.available = true;
       for (const r of rows) {
-        // "2026-10-01 06:35:54.2563824+00:00"
+        // "YYYY-MM-DD HH:MM:SS.fffffff+00:00"
         const at = new Date(String(r.last_modified_time).replace(" ", "T").replace(/(\.\d{3})\d*/, "$1"));
         if (isNaN(at) || at.getTime() < since) continue;
         let folder = "";
@@ -198,7 +196,7 @@ fs.writeFileSync(tmp, JSON.stringify({ ...data, builtAt: new Date().toISOString(
 fs.renameSync(tmp, jsonOut);
 console.log(`Dashboard: ${out} (${report.totals.sessions} Claude chats, ${data.codex.sessions.length} Codex sessions, ${data.gemini.conversations.length} Gemini conversations)`);
 
-if (!flag("no-open")) {
+if (!ARGS.includes("--no-open")) {
   const [cmd, a] = process.platform === "win32" ? ["cmd", ["/c", "start", "", out]]
     : process.platform === "darwin" ? ["open", [out]] : ["xdg-open", [out]];
   spawn(cmd, a, { detached: true, stdio: "ignore" }).unref();

@@ -3,20 +3,12 @@
 // build swaps both labels. Run: node test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { buildFor, createChecks } from '../shared/check.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-let pass = 0;
-let fail = 0;
-const check = (name, ok) => {
-  if (ok) pass++;
-  else { fail++; console.log(`FAIL ${name}`); }
-};
-const build = (lang) => {
-  const r = spawnSync(process.execPath, ['build.mjs'], { cwd: here, encoding: 'utf8', env: { ...process.env, SETUP_LANGUAGE: lang } });
-  if (r.status !== 0) throw new Error(`build (${lang}) failed: ${r.stderr}`);
-};
+const { check, finish } = createChecks();
+const build = (lang) => buildFor(here, lang);
 
 build('russian');
 const ru = fs.readFileSync(path.join(here, 'dist', 'index.js'), 'utf8');
@@ -58,7 +50,7 @@ check('meta: hours', metaWords('Workflow · 1h 5m', 'completed') === 'Workflow �
 check('meta: unparseable stays null', metaWords('something odd · here', 'running') === null && metaWords('Sub-agent · a · b · c', 'running') === null);
 check('meta: parse outcome', parseMeta('Sub-agent · 2m 10s · 14 tools · stopped')?.last === '');
 check('now: words and tool name', nowWords('Grep') === 'searching files (Grep)' && nowWords('Agent') === 'waiting on a sub-agent (Agent)' && nowWords('Bash') === 'running a command (Bash)');
-// The frozen row seen 2026-11-05: the app said 35s while the planner had run 2 minutes
+// A frozen row: the app said 35s while the planner had run 2 minutes
 const T0 = 1793864638072;
 const planner = { startedAt: T0, durationMs: 35000 };
 const seen = 'Sub-agent · 35s · 10 tools · Grep';
@@ -118,7 +110,7 @@ const rawCss =fs.readFileSync(path.join(here, 'dist', 'style.css'), 'utf8');
 const tokens = fs.readFileSync(path.join(here, '..', 'shared', 'tokens.css'), 'utf8');
 check('css: begins with tokens block', rawCss.startsWith(tokens));
 check('css: has --x-surface-1', rawCss.includes('--x-surface-1'));
-// A `font` shorthand without a family is invalid and the browser drops it (seen live 2026-11-05)
+// A `font` shorthand without a family is invalid and the browser drops it
 const typeTokens = [...tokens.matchAll(/--x-(?:title|body|caption|micro|figure):([^;]+);/g)].map((m) => m[1].trim());
 check('tokens: every type token is a full font shorthand', typeTokens.length === 5 && typeTokens.every((v) => v.endsWith('var(--x-font-ui)')));
 check('css: has --x-micro', rawCss.includes('--x-micro'));
@@ -131,5 +123,4 @@ check('css: no accent bar, no transition all', !css.includes('inset 3px') && !/t
 check('css: commit panel shrinks', /\.git-operations-panel\s*{\s*min-width:\s*0/.test(css));
 check('css: commit switch wraps', css.includes('[data-testid="git-commit-mode-toggle"]'));
 
-console.log(`${pass} pass, ${fail} fail`);
-process.exit(fail ? 1 : 0);
+finish();

@@ -1,4 +1,13 @@
 {
+  "_setup": {
+    "_note": "Read by install.mjs and tests/test-wiring.mjs; never written into a settings.json. retired: hooks in ~/.claude/hooks that earlier versions wired and this one dropped (an upgrade unwires them). retiredInHomes: the same for a project folder's own .claude/hooks. oldMatchers: matcher strings an earlier version wired for a hook; an install that still has exactly one gets the current matcher.",
+    "retired": ["build-nudge.mjs", "turn-cap.mjs", "web-worker-gate.mjs"],
+    "retiredInHomes": { "internet-search": ["link-gate.mjs"] },
+    "oldMatchers": {
+      "background-tasks.mjs": ["Bash|Agent|Task"],
+      "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput", "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion"]
+    }
+  },
   "subagentPromptCacheTtl": "1h",
   "hooks": {
     "SessionStart": [
@@ -287,6 +296,11 @@
           },
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/no-response-gate.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "node ~/.claude/hooks/file-link-gate.mjs --remind",
             "timeout": 5
           },
@@ -369,6 +383,11 @@
           {
             "type": "command",
             "command": "node ~/.claude/hooks/verify-gate.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/no-response-gate.mjs",
             "timeout": 10
           },
           {

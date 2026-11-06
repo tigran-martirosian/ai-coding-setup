@@ -54,6 +54,10 @@ const fast = [...samples.slice(0, 2), s("2026-10-03T01:30:00Z", 38, 50, "2026-10
 check("5-hour window: 20 points in half an hour fills up 45 minutes later", planAhead(fast, [], null, hours, at("2026-10-03T02:00:00Z")).five.full, "2026-10-03T02:45:00.000Z");
 check("5-hour window: closed once its reset time has passed", planAhead(samples, [], null, hours, at("2026-10-03T05:00:00Z")).five, { open: false, none: false });
 check("a full 5-hour window in weekly points (4 weekly points for 35 window points)", A.window, { points: 11.4, left: 5.3 });
+const noFive = samples.map((x) => ({ ...x, five: null }));
+const N = planAhead(noFive, [], null, hours, at("2026-10-03T02:00:00Z"));
+check("no 5-hour number in the readings: the plan has no 5-hour limit, and the tip says so",
+  [N.five, N.tips.find((t) => t.k === "five").text], [{ open: false, none: true }, "5-hour window: the plan has none now; Anthropic reports only the weekly limit."]);
 
 // ---- the hours of other use
 check("Saturday: other use is off until Monday 10:00 Moscow time", [A.otherUse.onNow, A.otherUse.clear[0], A.otherUse.busy[0]],
@@ -95,9 +99,13 @@ const text = execFileSync(process.execPath, [path.join(SKILL, "plan-ahead.mjs"),
 check("text version: week line, 5-hour line, budget and the days table, no get on or off", [/Week: 40% used/.test(text), /5-hour window: 40%, resets/.test(text), /Budget: /.test(text), /Get o(n|ff)/.test(text), /on budget 100%/.test(text)],
   [true, true, true, false, true]);
 // A plain run starts no scan: this folder has no usage-scan.mjs, and --cost fails on that
-const noScanDir = path.join(fs.realpathSync(tmp), "no-scan"); // the script's main-file check needs the real path (macOS)
-fs.mkdirSync(noScanDir);
+// the copy keeps the repo's layout (scripts/lib and hooks/lib beside it), since the scripts import both
+const noScanRoot = path.join(fs.realpathSync(tmp), "no-scan"); // the script's main-file check needs the real path (macOS)
+const noScanDir = path.join(noScanRoot, "skills", "setup-audit", "scripts");
+fs.mkdirSync(noScanDir, { recursive: true });
 for (const f of ["plan-ahead.mjs", "plan-use.mjs"]) fs.copyFileSync(path.join(SKILL, f), path.join(noScanDir, f));
+fs.cpSync(path.join(SKILL, "lib"), path.join(noScanDir, "lib"), { recursive: true });
+fs.cpSync(path.join(SKILL, "..", "..", "..", "hooks", "lib"), path.join(noScanRoot, "hooks", "lib"), { recursive: true });
 const ahead = (dir, ...more) => JSON.parse(execFileSync(process.execPath, [path.join(dir, "plan-ahead.mjs"), ...common, "--config", cfg, "--now", "2026-10-03T02:00:00Z", "--json", ...more], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
 const panelPart = (a) => ({ status: a.status, at: a.at, week: { ...a.week, share: null }, five: a.five, tips: a.tips });
 const plain = ahead(noScanDir);

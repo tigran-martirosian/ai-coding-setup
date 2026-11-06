@@ -5,8 +5,8 @@
 // message id. "Calls" = distinct API messages. About 97% is usually cache reads.
 //
 // Options:
-//   --days N          sessions active in the last N days (default 7)
-//   --since ISO       start time instead of --days (e.g. 2026-09-30T05:00)
+//   --days N          sessions active in the last N days (default 14)
+//   --since ISO       start time instead of --days (e.g. YYYY-MM-DDTHH:MM)
 //   --until ISO       end time (default now)
 //   --project TEXT    only project folders whose name contains TEXT (case-insensitive)
 //   --session PREFIX  only sessions whose id starts with PREFIX (ignores --days)
@@ -14,22 +14,21 @@
 //   --top N           how many sessions to list (default 15)
 //   --root DIR        transcripts folder (default ~/.claude/projects)
 //   --json            print JSON instead of markdown
-//   --cost            with --json: add `cost`, a list of [minute, plan weight, tokens] (see planWeight)
+//   --cost            with --json: add `cost`, a list of [minute, plan weight, tokens] (see apiCost)
 //   --no-cache        parse every transcript (default: reuse per-file results in ~/.claude/reports/usage-scan-cache.jsonl)
 //   --cache-file PATH use another cache file
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import crypto from "node:crypto";
+import { BIG_READ_GATE, COMMAND_EXPLAIN, NOTE_ANYWHERE_RE, POWERSHELL_TOOL, RETIRED_NO_LINE, RETIRED_TOO_LONG, SETTLED_NOTE, WORKER_SIZE_NOTE } from "../../../hooks/lib/texts.mjs";
+import { ARGS, opt } from "./lib/opt.mjs";
+import { DAY_MS, DEFAULT_DAYS, day as dayKey } from "./lib/days.mjs";
+import { TOO_FEW, defaultRoot } from "./lib/chats.mjs";
+import { PRICE, PRICE_UNLISTED } from "./lib/prices.mjs";
 
-const args = process.argv.slice(2);
-const opt = (name, def) => {
-  const i = args.indexOf(`--${name}`);
-  return i === -1 ? def : args[i + 1];
-};
-const flag = (name) => args.includes(`--${name}`);
+const flag = (name) => ARGS.includes(`--${name}`);
 
-const root = opt("root", path.join(os.homedir(), ".claude", "projects"));
+const root = opt("root", defaultRoot());
 const project = opt("project", "")?.toLowerCase();
 const sessionPrefix = opt("session", "");
 const minutes = Number(opt("minutes", 0));
@@ -39,7 +38,7 @@ const since = sessionPrefix
   ? 0
   : opt("since")
     ? Date.parse(opt("since"))
-    : until - Number(opt("days", 7)) * 86400000;
+    : until - Number(opt("days", DEFAULT_DAYS)) * DAY_MS;
 
 // Only at a command position, so text that merely mentions `codex exec` (sed, grep, echo) doesn't count
 const AT_CMD = String.raw`(?:^|[;&|({]|\$\(|\bdo\b|\bthen\b)\s*(?:(?:timeout|time)\s+(?:\S+\s+)?)?`;
@@ -61,23 +60,10 @@ const readLines = (file) => {
   } catch { return []; }
 };
 
-const dayKey = (t) => {
-  const d = new Date(t);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
-
-// How heavily one API message counts against the plan, in relative units. Anthropic doesn't
-// publish the formula, so this is the message's list price (apiCost, below) in dollars: every
-// model, output and cache ratio comes from the one PRICE table. plan-use fits the scale
-// (percent of the plan per unit) from the recorded plan percentages, so only the ratios matter.
-const planWeight = (u, model, quiet) => apiCost(u, model, quiet);
-// What one API message would cost at Anthropic's list prices (dollars per million tokens:
-// input, output, cache read; cache writes cost 1.25x input, 2x for the 1-hour cache). A plan
-// is not billed this way: the figure only says what the same tokens cost on the pay-as-you-go API.
-// Prices as of 2026-09. A model that is not listed is priced like Sonnet and named on stderr,
-// since its weight also moves the plan split.
-const PRICE = [[/opus-5-5/, 4, 20, 0.2], [/opus/, 5, 25, 0.5], [/fable-5-1|mythos-5-1/, 10, 50, 0.25], [/fable|mythos/, 10, 50, 1],
-  [/sonnet-4/, 3, 15, 0.3], [/sonnet/, 2, 10, 0.2], [/haiku/, 1, 5, 0.1]];
+// How heavily one API message counts against the plan, in relative units. Anthropic doesn't publish the
+// formula, so the weight is the message's list price in dollars (apiCost, from the PRICE table in lib/prices.mjs).
+// plan-use fits the scale (percent of the plan per unit) from the recorded plan percentages, so only the ratios matter.
+// A model that is not in PRICE is priced like Sonnet and named on stderr, since its weight also moves the plan split.
 const unpriced = new Map();
 process.on("exit", () => {
   if (unpriced.size) console.error(`usage-scan: no price for ${[...unpriced].map(([m, n]) => `${m} (${n} messages)`).join(", ")}; counted as Sonnet`);
@@ -85,7 +71,7 @@ process.on("exit", () => {
 const apiCost = (u, model, quiet = false) => {
   if (model === "<synthetic>") return 0; // written by Claude Code itself, no API call
   let price = PRICE.find(([re]) => re.test(model));
-  if (!price) { if (!quiet) unpriced.set(model, (unpriced.get(model) ?? 0) + 1); price = [null, 2, 10, 0.2]; }
+  if (!price) { if (!quiet) unpriced.set(model, (unpriced.get(model) ?? 0) + 1); price = PRICE_UNLISTED; }
   const [, inp, outp, read] = price;
   const write = u.cache_creation_input_tokens ?? 0;
   const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
@@ -108,8 +94,7 @@ const WASTE_HOOK_RE = /hook (?:error|blocking error)[^:]*:\s*(?:\[[^\]]*\]:?\s*)
 const BOARD_RE = /update_session_meta|update_session_board/;
 // A settled prompt, and the text the hook background-tasks.mjs adds to one whose results already came as notifications
 const SETTLED_RE = /^\s*\[System: background task\(s\) you launched have settled/;
-const WORKER_SIZE_NOTE = "[worker-size] This helper's context is"; // worker-size.mjs note, an attachment line (hook_additional_context) in the helper's transcript
-const SETTLED_NOTE = "[background-tasks] This settled notice repeats";
+// WORKER_SIZE_NOTE (worker-size.mjs) is an attachment line (hook_additional_context) in the helper's transcript
 const SETTLED_ITEM_RE = /^- "(.*)" [a-z][a-z ()0-9-]{0,30}$/gm;
 const REPEAT_MS = 15 * 60000;
 // User prompts that are not typed by the user: the harness's own text
@@ -134,7 +119,7 @@ const wakeSource = (text, uses, agentByDesc) => {
     if (u.name === "Agent" || u.name === "Task") return "agent " + (u.input.subagent_type ?? "general-purpose");
     if (u.name !== "Bash" && u.name !== "PowerShell") return u.name;
     const cmd = String(u.input.command ?? "").replace(/^\s*cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/, "");
-    const note = cmd.match(/#\s*WHAT THIS DOES:\s*(.*)/)?.[1];
+    const note = cmd.match(NOTE_ANYWHERE_RE)?.[1];
     return "bash " + (note ? firstWords(note, 4) : firstWords(cmd, 1));
   };
   if (use) return fromUse(use);
@@ -153,7 +138,6 @@ const CHECK_RE = /\bnode\s+(?:--check\b|\S*test[-\w.]*)|\bnpm\s+(?:test|t|run\s+
 const CHECK_DESC_RE = /\b(?:check|test|verif|validat)/i;
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const isCheck = (e) => (e.name === "Bash" || e.name === "PowerShell") && (CHECK_RE.test(String(e.input.command ?? "")) || CHECK_DESC_RE.test(String(e.input.description ?? "")));
-const QUALITY_MIN = 10; // fewer done-claims than this in a project: no percentage
 const REDO_MS = 30 * 60000;
 const ctxOf = (u = {}) => (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
 
@@ -236,10 +220,10 @@ function scan(file, window, sub = false, info = {}) {
         if (x.type !== "tool_result") continue;
         const use = wasteTool.get(x.tool_use_id);
         const body = textOf(x.content);
-        const hook = body.match(WASTE_HOOK_RE)?.[1] ?? (/command-explain:/.test(body) ? "command-explain" : null);
+        const hook = body.match(WASTE_HOOK_RE)?.[1] ?? (body.includes(COMMAND_EXPLAIN) ? "command-explain" : null);
         if (hook && x.is_error) {
-          const reason = hook !== "command-explain" ? "" : /too long/.test(body) ? "too long"
-            : /no explanation line/.test(body) ? "no note (or no empty line before it)" : /PowerShell tool/.test(body) ? "PowerShell tool" : "other";
+          const reason = hook !== "command-explain" ? "" : body.includes(RETIRED_TOO_LONG) ? "too long"
+            : body.includes(RETIRED_NO_LINE) ? "no note (or no empty line before it)" : body.includes(POWERSHELL_TOOL) ? "PowerShell tool" : "other";
           if (!use) waste.unmatched++;
           waste.blocks.push({ hook, reason, id: use?.id ?? null });
         }
@@ -277,7 +261,7 @@ function scan(file, window, sub = false, info = {}) {
         day[m] = (day[m] ?? 0) + tok;
         if (m !== "<synthetic>") usd[dayKey(t)] = (usd[dayKey(t)] ?? 0) + apiCost(u, m);
         if (m !== "<synthetic>") {
-          const e = [id, Math.floor(t / 60000), planWeight(u, m, true), tok];
+          const e = [id, Math.floor(t / 60000), apiCost(u, m, true), tok];
           if (!PRICE.some(([re]) => re.test(m))) e.push(m);
           info.ledger.push(e);
         }
@@ -374,13 +358,14 @@ function scan(file, window, sub = false, info = {}) {
 // Per-file cache. A transcript is parsed once over its whole time range (window-independent) and the result kept,
 // keyed by absolute path + size + mtimeMs, in a JSON-lines file (header line with the version, then one line per file).
 // A cached file is used when all its timestamps lie inside the asked window (otherwise it is parsed again with the
-// window). The version hashes the code that decides the result, so editing the scan invalidates the cache.
+// window). The version (SCAN_VERSION, below) is raised by hand when the code that decides the result changes.
 // --no-cache: neither read nor write it. --cache-file PATH: another cache file.
 const useCache = !flag("no-cache");
 const cacheFile = opt("cache-file", path.join(os.homedir(), ".claude", "reports", "usage-scan-cache.jsonl"));
-// The version is this whole script's text plus the time zone (days are local dates): any edit here rebuilds the cache once
-const CACHE_VERSION = crypto.createHash("sha1").update(fs.readFileSync(new URL(import.meta.url)))
-  .update(Intl.DateTimeFormat().resolvedOptions().timeZone + "|" + new Date().getTimezoneOffset() + "|v3").digest("hex");
+// Raise SCAN_VERSION by hand whenever an edit changes what a parsed file yields (a pattern, a field, a price); a
+// comment or layout edit leaves it. The time zone is part of the version because the cached days are local dates.
+const SCAN_VERSION = 4;
+const CACHE_VERSION = `${SCAN_VERSION}|${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
 // The cache file's lines, read in chunks: the file is hundreds of MB, past what one string can hold
 function* cacheLines(file) {
   const fd = fs.openSync(file, "r");
@@ -583,7 +568,7 @@ const wasted = { tokens: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 }, r
   wakeSources: {}, wakeTextOnly: 0,
   afterCommit: { sessions: 0, withCommit: 0, requests: 0, tokens: 0, perSession: [] }, bigSubagents: { n: 0, tokens: 0, share: 0 },
   settled: { turns: [], perProject: {}, total: { n: 0, requests: 0, tools: 0, withNote: 0, repeats: 0, tokens: 0 } },
-  quality: { minClaims: QUALITY_MIN, perProject: {}, total: {} },
+  quality: { minClaims: TOO_FEW, perProject: {}, total: {} },
   launches: { perProject: {}, total: { agent: 0, bash: 0, moved: 0 } }, typed: { perProject: {}, total: { typed: 0, tokens: 0, median: 0, mean: 0 } } };
 for (const s of all) {
   const W = s.waste;
@@ -709,10 +694,10 @@ for (const [k, v] of Object.entries(wasted.typed.perProject)) {
   wasted.typed.total.typed += v.typed; wasted.typed.total.tokens += v.tokens;
 }
 {
-  const Q = wasted.quality, rate = (n, d) => d < QUALITY_MIN ? null : Math.round(1000 * n / d) / 1000;
+  const Q = wasted.quality, rate = (n, d) => d < TOO_FEW ? null : Math.round(1000 * n / d) / 1000;
   const tot = { claims: 0, redos: 0, edited: 0, unchecked: 0 };
   for (const q of Object.values(Q.perProject)) for (const k of Object.keys(tot)) tot[k] += q[k];
-  for (const q of [...Object.values(Q.perProject), tot]) { q.tooFew = q.claims < QUALITY_MIN; q.redoRate = rate(q.redos, q.claims); q.uncheckedRate = rate(q.unchecked, q.claims); }
+  for (const q of [...Object.values(Q.perProject), tot]) { q.tooFew = q.claims < TOO_FEW; q.redoRate = rate(q.redos, q.claims); q.uncheckedRate = rate(q.unchecked, q.claims); }
   Q.total = tot;
 }
 wasted.typed.total.median = median(allGroups.map((g) => g.tokens));

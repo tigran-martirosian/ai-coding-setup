@@ -27,13 +27,17 @@ export function crashLog(hook, err) {
   }
 }
 
-// Only when a hook is the script being run (a test that imports a hook's functions keeps its own error handling)
+// The handlers go in only when a hook is the script being run (a test that imports a hook's functions keeps its
+// own error handling): importing this file from a script in the hooks folder (the folder above lib/) installs them,
+// and runHook (hook-io.mjs) installs them itself for a hook run from anywhere. Installing twice does nothing.
 // Real paths, so a hooks folder reached through a link (macOS /var is /private/var) still counts as the same
 const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
 const same = (a, b) => real(a).toLowerCase() === real(b).toLowerCase();
-const here = path.dirname(fileURLToPath(import.meta.url));
-if (process.argv[1] && same(path.dirname(process.argv[1]), here)) {
-  const hook = path.basename(process.argv[1]).replace(/\.mjs$/, "");
+let installed = false;
+export function installCrashHandlers() {
+  if (installed) return;
+  installed = true;
+  const hook = path.basename(process.argv[1] || "hook").replace(/\.mjs$/, "");
   const die = (err) => {
     crashLog(hook, err);
     try { process.stderr.write(`${err?.stack || err}\n`); } catch { /* nothing more to do */ }
@@ -42,3 +46,5 @@ if (process.argv[1] && same(path.dirname(process.argv[1]), here)) {
   process.on("uncaughtException", die);
   process.on("unhandledRejection", die);
 }
+const hooksDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+if (process.argv[1] && same(path.dirname(process.argv[1]), hooksDir)) installCrashHandlers();

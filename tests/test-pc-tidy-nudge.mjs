@@ -9,7 +9,8 @@ import path from "node:path";
 if (process.platform !== "win32") { console.log("skipped: Windows only"); process.exit(0); }
 const HOOK = path.join(import.meta.dirname, "..", "hooks", "pc-tidy-nudge.mjs");
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "pc-tidy-nudge-"));
-const FILE = path.join(DIR, "pc-tidy-nudge.json");
+const FILE = path.join(DIR, ".claude", "hooks", "state", "pc-tidy-nudge", "nudge.json");
+fs.mkdirSync(path.dirname(FILE), { recursive: true });
 const HOUR = 60 * 60 * 1000;
 let failed = 0, passed = 0;
 
@@ -17,7 +18,7 @@ function run(open, { prompt = "hello", env = {} } = {}) {
   const r = spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({ prompt }),
     encoding: "utf8",
-    env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "sdk-ts", PC_TIDY_NUDGE_DIR: DIR, PC_TIDY_NUDGE_TEST_OPEN: String(open), PC_TIDY_NUDGE: "", ...env },
+    env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "sdk-ts", HOME: DIR, USERPROFILE: DIR, PC_TIDY_NUDGE_TEST_OPEN: String(open), PC_TIDY_NUDGE: "", ...env },
   });
   return r.stdout;
 }

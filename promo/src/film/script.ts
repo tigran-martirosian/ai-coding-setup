@@ -1,403 +1,221 @@
-// Every word of the tour film, in order, and how long each shot lasts. Lengths are set by hand: a shot lasts as
-// long as its motion needs, not as long as its words would take to read aloud. `node check-reading.mjs` prints them.
-import { LINK, NAME } from "./credit.ts";
+// Every word of the tour film, in order, and how long each shot lasts. The film follows one job through the setup,
+// from the ask to the checked result: you ask, helpers build, every claim is checked, you add notes as it works,
+// and you see what it touched and what it cost. Each shot is one step, in one diagram, for about six seconds.
+// Lengths are set by hand: a shot lasts as long as its motion needs. `node check-reading.mjs` prints them.
+import { LINK } from "./credit.ts";
 
 export const FPS = 60;
-/** Timing in the film's code is in ticks. Lowering this one number slows the whole film evenly; the springs keep their snap. */
+/** Timing in the film's code is in ticks, 24 to the second. */
 export const TICKS = 24;
 
-export const PARTS = ["Overview", "Checks", "Cost", "Big jobs", "Tools", "Install"] as const;
+/** The chapters, in the order the film reaches them. The opening shot belongs to none. A chapter's shots follow
+ * each other: the chapter bar fills one segment per chapter. */
+export const PARTS = ["Ask", "Checks", "Steer", "Cost", "Overview", "Install"] as const;
 export type Part = (typeof PARTS)[number];
 
 export type Tile = { name: string; note: string };
-export type Row = { text: string; note?: string; big?: string };
-export type Flow = string[][];
 export type Body =
-  | { kind: "open"; lines: string[] }
-  | { kind: "tiles"; tiles: Tile[] }
+  | { kind: "open"; lines: string[]; name: string }
+  /** A reply, the session log beside it, the line the log lacks, and the reply once the agent has done the step. */
+  | { kind: "claim"; reply: string[]; claim: number; fixed: string[]; log: string[]; missing: string; found: string; reason: string }
+  /** A plain chat message, under its label, that the planner takes up and splits into steps. */
+  | { kind: "lead"; label: string; ask: string; steps: string[]; helper: string; reviewer: string; done: string }
+  | { kind: "review"; flaws: string[]; rounds: string[]; clean: string }
+  | { kind: "usage"; days: string[]; used: number[]; ahead: number[]; limit: string; forecast: string; note: string }
+  | { kind: "map"; parts: string[]; links: [number, number][]; changed: number; check: string }
+  | { kind: "btw"; work: string[]; note: string; picked: string }
   | { kind: "compare"; rows: { topic: string; alone: string; setup: string }[] }
-  | { kind: "catch" }
-  | { kind: "rows"; rows: Row[] }
-  | { kind: "bars"; bars: { name: string; value: number; label: string }[]; times: string }
-  | { kind: "usage"; projects: { name: string; share: number }[]; forecast: string }
-  | { kind: "flow"; flow: Flow }
-  | { kind: "review"; rounds: string[]; clean: string }
-  | { kind: "note"; rows: { name: string; text: string }[] }
-  | { kind: "board"; columns: string[]; cards: string[] }
-  | { kind: "install"; code: string; rows: Row[] }
-  | { kind: "stats"; stats: { value: number; unit: string }[]; line: string }
-  | { kind: "end"; line: string; name: string; link: string };
+  | { kind: "tiles"; tiles: Tile[] }
+  | { kind: "install"; code: string; output: string[]; update: string; link: string };
 
-export type Enter = "cut" | "up" | "left";
-export type Shot = { id: string; part: Part | null; title: string; sub?: string; ticks: number; enter?: Enter; body: Body };
+export type Shot = { id: string; part: Part | null; title: string; sub?: string; ticks: number; body: Body };
 
 export const ALONE_LABEL = "Claude Code with a few skills";
 export const SETUP_LABEL = "With this setup";
 
-export const USAGE_LABEL = "The page it opens (sample numbers)";
-export const LOG_LABEL = "What the agent did";
+export const REPLY_LABEL = "The agent's reply";
+export const LOG_LABEL = "Session log: what it actually did";
+export const SENT_BACK = "Sent back";
+export const PASSED = "Passed";
 
-export const CATCH = {
-  source: "A real send-back, address changed",
-  reason: "It has to open the page first.",
-  corrected: "The page said 300.",
-  claim: ["Its docs say the limit is ", "500", " requests a minute."],
-  fixed: "300",
-  address: "api.example.com/docs/limits",
-  log: ["Read a file", "Ran a search"],
-  missing: "Opened that page",
-  found: "Opened the page",
-  verdict: "Sent back",
-  passed: "Passed",
-  /** The ticks the story turns on. */
-  at: { caught: 54, fixed: 92, passed: 116 },
-} as const;
-
-/** What the film calls each part of the repo, listed inside the contents shot. */
-export const HOOKS = [
-  "big-read-gate", "board-nudge", "code-review-gate", "cold-cache", "command-explain", "context-guard", "decided-quote", "file-link-gate",
-  "handoff-brief", "link-gate", "loop-warn", "map-brief", "map-nudge", "nimbalyst-notes", "opencli-readonly", "pc-tidy-nudge", "picture-in-project",
-  "plan-usage-logger", "question-other", "repeat-guard", "run-yourself", "skill-pointer", "slow-output-gate", "sql-guard", "transcript-check", "update-check",
-  "usage-dashboard-hook", "verify-gate", "web-answer-gate", "worker-nudge",
-];
-export const SKILLS = [
-  "/blind-screen-review", "/board-cleanup", "/btw", "/handoff", "/lead", "/new-project", "/next-move", "/pc-tidy",
-  "/phone-bot", "/setup-audit", "/shared-usage", "/steer", "/systems-map", "/update-setup", "/watch", "/web-research",
-];
-export const EXTENSIONS = ["usage-plan", "commands", "agents-panel", "ink-themes", "read-aloud"];
-export const PROJECTS = ["internet-search", "ask-anything", "quick-tasks", "claude-settings"];
-export const AGENTS = ["planner", "worker"];
-export const RULES = ["CLAUDE.md"];
-export const COMMANDS = ["Board cleanup", "Next move", "Project scan", "Setup audit", "Usage report", "New project", "Update setup"];
-
-/** The eleven editor themes, with the colours from their manifest: dark first, so the screen never strobes between dark and light. */
-export const THEMES = [
-  { name: "Aurora", bg: "#14121c", panel: "#1f1c2c", text: "#ebe9f3", muted: "#958fa9", primary: "#7a6dc9" },
-  { name: "Ivy", bg: "#171b19", panel: "#222826", text: "#e7ece8", muted: "#8d9a92", primary: "#3f8a5f" },
-  { name: "Graphite", bg: "#2b2a29", panel: "#383634", text: "#f1ede7", muted: "#aca499", primary: "#b98452" },
-  { name: "Tide", bg: "#111a20", panel: "#1a272f", text: "#e6eef1", muted: "#8a9ca4", primary: "#26818e" },
-  { name: "Ember", bg: "#1b1517", panel: "#282023", text: "#f1e9ea", muted: "#a39397", primary: "#b0506a" },
-  { name: "Noir", bg: "#101010", panel: "#1c1c1c", text: "#e6e6e6", muted: "#8f8f8f", primary: "#ececec" },
-  { name: "Cobalt", bg: "#12151f", panel: "#1c2130", text: "#e8ebf5", muted: "#8e96b0", primary: "#3f6fd8" },
-  { name: "Neon", bg: "#170f1a", panel: "#241829", text: "#f4ecf6", muted: "#a08fa6", primary: "#d6249f" },
-  { name: "Bone", bg: "#f6f1e6", panel: "#fdfaf3", text: "#2b2620", muted: "#6f6558", primary: "#9a5a3c" },
-  { name: "Frost", bg: "#f1f4f7", panel: "#fbfcfd", text: "#1c232c", muted: "#586473", primary: "#35609a" },
-  { name: "Blossom", bg: "#f8f1f2", panel: "#fefbfb", text: "#2a1f23", muted: "#6a585e", primary: "#a8406a" },
-];
+/** When the two claim shots turn, in ticks from the shot's start: the wire reaches the log, the reply is sent
+ * back, the agent does the step, and the reply passes. */
+export const CLAIM_AT = { wire: 14, sent: 46, fixed: 84, passed: 104 } as const;
 
 export const SCRIPT: Shot[] = [
   {
-    id: "title",
-    part: "Overview",
+    id: "open",
+    part: null,
     title: "AI coding setup for Claude Code",
-    ticks: 140,
-    body: { kind: "open", lines: ["Coding agents skip steps", "and claim things they never checked.", "I built this to catch that."] },
+    ticks: 144,
+    body: { kind: "open", lines: ["Coding agents say done when they aren't.", "This setup checks."], name: "AI coding setup for Claude Code" },
   },
   {
-    id: "contents",
-    part: "Overview",
-    title: "What's in it",
-    ticks: 158,
-    enter: "left",
+    id: "lead",
+    part: "Ask",
+    title: "Ask for a big change. A planner splits it up.",
+    sub: "Helpers build the steps. One reviewer checks the result. (/lead starts it by hand.)",
+    ticks: 168,
     body: {
-      kind: "tiles",
-      tiles: [
-        { name: "33 hooks", note: "Small scripts that check each step" },
-        { name: "16 skills", note: "Commands like /lead and /handoff" },
-        { name: "5 extensions", note: "Panels for the Nimbalyst editor" },
-        { name: "4 projects", note: "Ready-made folders" },
-        { name: "5 agents", note: "A planner, capped helpers, a reviewer" },
-        { name: "1 rules file", note: "How the agent should work" },
-      ],
+      kind: "lead",
+      label: "Your message",
+      ask: "Add rate limits to the API",
+      steps: ["Find the API routes", "Add the limiter", "Write the tests", "Update the docs"],
+      helper: "helper",
+      reviewer: "Reviewer",
+      done: "Checked",
     },
   },
   {
-    id: "compare",
-    part: "Overview",
-    title: "How it compares",
-    sub: "Claude Code gives you hooks and skills. This is what I built with them.",
-    ticks: 170,
-    enter: "up",
-    body: {
-      kind: "compare",
-      rows: [
-        { topic: "Its claims", alone: "Nothing checks them", setup: "Hooks compare them with its log" },
-        { topic: "Commands", alone: "It may ask you to run them", setup: "It runs them itself" },
-        { topic: "Long chats", alone: "Compact when nearly full, or by hand", setup: "Compact themselves early" },
-        { topic: "Big jobs", alone: "Subagents you arrange", setup: "/lead: helpers run the steps, then one review" },
-        { topic: "Spending", alone: "/usage: the last 7 days", setup: "Per project, with a forecast" },
-      ],
-    },
-  },
-  {
-    id: "catch",
+    id: "verify",
     part: "Checks",
-    title: "Every reply is checked against the log",
-    sub: "Claude Code logs every step. This reply cites a page it never opened.",
+    title: "Every claim is checked against the log",
+    sub: "It says the tests pass. The log shows no test run.",
     ticks: 156,
-    body: { kind: "catch" },
+    body: {
+      kind: "claim",
+      reply: ["Done.", "Tests pass."],
+      claim: 1,
+      fixed: ["Done.", "Tests pass: 12 of 12."],
+      log: ["Read   src/limits.ts", "Edit   src/limits.ts", "Edit   tests/limits.test.ts"],
+      missing: "no test run",
+      found: "Ran    npm test   12 passed",
+      reason: "Run the tests first.",
+    },
   },
   {
-    id: "sentback",
+    id: "link",
     part: "Checks",
-    title: "What else it catches",
-    ticks: 96,
+    title: "A page it quotes has to be opened",
+    sub: "It quotes a page the log shows it never opened.",
+    ticks: 156,
     body: {
-      kind: "rows",
-      rows: [
-        { text: "“Now run this yourself”", note: "It runs it" },
-        { text: "Ten files changed, no review", note: "Review first" },
-        { text: "“May not be available”", note: "Looks it up" },
-        { text: "DELETE without WHERE", note: "Asks you first" },
-      ],
+      kind: "claim",
+      reply: ["The docs say the limit", "is 500 a minute.", "api.example.com/limits"],
+      claim: 2,
+      fixed: ["The docs say the limit", "is 300 a minute.", "api.example.com/limits"],
+      log: ["Read   src/client.ts", "Search \"limit\" in src"],
+      missing: "page never opened",
+      found: "Opened api.example.com/limits",
+      reason: "Open the page first.",
     },
   },
   {
-    id: "habits",
+    id: "blind",
     part: "Checks",
-    title: "How it works with you",
-    ticks: 112,
-    enter: "up",
+    title: "A fresh reviewer sees only the screen",
+    sub: "It marks what looks wrong. Each round fixes the worst.",
+    ticks: 144,
+    body: { kind: "review", flaws: ["Button off screen", "Text cut off", "Hard to read"], rounds: ["Round 1", "Round 2", "Round 3"], clean: "Nothing serious left" },
+  },
+  {
+    id: "btw",
+    part: "Steer",
+    title: "Add a note without stopping it",
+    sub: "Type it with /btw, or the Note button in Nimbalyst. The work goes on.",
+    ticks: 144,
     body: {
-      kind: "rows",
-      rows: [
-        { text: "Replies lead with the answer" },
-        { text: "Each shell command says what it does" },
-        { text: "You can always type your own answer" },
-        { text: "Your decisions get written down" },
-      ],
+      kind: "btw",
+      work: ["Read   src/routes.ts", "Edit   src/limits.ts", "Ran    npm test   9 passed", "Edit   src/login.ts", "Read   src/session.ts", "Edit   tests/login.test.ts", "Ran    npm test   12 passed"],
+      note: "also update the docs",
+      picked: "Edit   docs/limits.md   (your note)",
     },
   },
   {
-    id: "compact",
-    part: "Cost",
-    title: "Long chats compact while it's cheap",
-    sub: "After a long pause it cost about 13× more. Estimated from two chats of the same size.",
-    ticks: 100,
+    id: "map",
+    part: "Steer",
+    title: "See what the change touched",
+    sub: "A map of what connects to what. It shows what to check next.",
+    ticks: 144,
     body: {
-      kind: "bars",
-      bars: [
-        { name: "Right away", value: 44, label: "k tokens" },
-        { name: "After a long pause", value: 590, label: "k tokens" },
-      ],
-      times: "13×",
-    },
-  },
-  {
-    id: "reads",
-    part: "Cost",
-    title: "What wastes tokens gets refused",
-    ticks: 112,
-    enter: "left",
-    body: {
-      kind: "rows",
-      rows: [
-        { text: "Reading a whole big file", big: "607", note: "Refused 607 times in 30 days" },
-        { text: "Helpers with no limit", big: "4.3M", note: "One used 4.3M tokens. Now every helper has a cap" },
-        { text: "Long file reading", big: "Sonnet", note: "A capped helper" },
-      ],
+      kind: "map",
+      parts: ["Login page", "Login API", "Rate limiter", "User database", "Session store", "Tests", "Docs"],
+      links: [[0, 1], [1, 2], [1, 3], [1, 4], [2, 5], [2, 6], [3, 5]],
+      changed: 1,
+      check: "Check next: Tests, Docs",
     },
   },
   {
     id: "usage",
     part: "Cost",
-    title: "Type usage to see where the week went",
-    sub: "By project, model and day. Typing it uses no tokens.",
-    ticks: 92,
-    enter: "up",
+    title: "See what it cost and how long your week lasts",
+    sub: "By plan week, day by day. Checking it uses no tokens.",
+    ticks: 144,
     body: {
       kind: "usage",
-      projects: [
-        { name: "API", share: 0.41 },
-        { name: "Website", share: 0.33 },
-        { name: "Data jobs", share: 0.26 },
-      ],
-      forecast: "At this pace the limit runs out Saturday 14:00.",
+      days: ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"],
+      used: [9, 14, 36, 58],
+      ahead: [80, 100],
+      limit: "Weekly limit",
+      forecast: "At this pace it lasts until Thursday.",
+      note: "Sample numbers",
     },
   },
   {
-    id: "lead",
-    part: "Big jobs",
-    title: "/lead runs a big job with helpers",
-    sub: "You hand it the job. Helpers do the steps. One reviewer checks the result.",
-    ticks: 118,
-    body: { kind: "flow", flow: [["/lead"], ["Search", "Build", "Tests"], ["Separate review"]] },
-  },
-  {
-    id: "review",
-    part: "Big jobs",
-    title: "/blind-screen-review checks what you look at",
-    sub: "One fresh reviewer sees only screenshots. You fix what it ranks serious.",
-    ticks: 116,
-    enter: "up",
-    body: { kind: "review", rounds: ["Round 1", "Round 2"], clean: "Nothing serious left" },
-  },
-  {
-    id: "handoff",
-    part: "Big jobs",
-    title: "A new session picks up the work",
-    sub: "A handoff note is rewritten after every reply.",
-    ticks: 72,
-    enter: "left",
+    id: "compare",
+    part: "Overview",
+    title: "What it adds to Claude Code",
+    sub: "Claude Code has hooks, subagents, /compact and /usage. This is built on them.",
+    ticks: 168,
     body: {
-      kind: "note",
+      kind: "compare",
       rows: [
-        { name: "Goal", text: "New login API" },
-        { name: "Done", text: "3 of 5 endpoints" },
-        { name: "Next", text: "The last two" },
+        { topic: "Its claims", alone: "You check them", setup: "Checked against its log" },
+        { topic: "Commands", alone: "It may ask you to run them", setup: "It runs them itself" },
+        { topic: "Long chats", alone: "/compact when full, or by hand", setup: "Compact themselves early" },
+        { topic: "Big jobs", alone: "Subagents you arrange", setup: "Planned, built, one review" },
+        { topic: "Usage", alone: "/usage: how much of your limits is used", setup: "By project, with a forecast" },
       ],
     },
   },
   {
-    id: "board",
-    part: "Big jobs",
-    title: "Every chat is a card on a board",
-    sub: "Cards move as the work goes. The board is part of Nimbalyst.",
-    ticks: 72,
-    enter: "up",
-    body: {
-      kind: "board",
-      columns: ["Backlog", "Planning", "Implementing", "Validating", "Complete"],
-      cards: ["New login API", "Fix the slow query", "Rate limit docs", "Billing page", "Nightly data job", "Upgrade the SDK", "Flaky test"],
-    },
-  },
-  {
-    id: "everyday",
-    part: "Tools",
-    title: "What else it lets you do",
-    ticks: 76,
+    id: "also",
+    part: "Overview",
+    title: "Also in it",
+    ticks: 144,
     body: {
       kind: "tiles",
       tiles: [
-        { name: "/btw", note: "Note a busy session" },
-        { name: "/watch", note: "Ask about a video" },
-        { name: "/new-project", note: "Set up a folder" },
-        { name: "Phone bot", note: "Send work from Telegram" },
-        { name: "Voice typing", note: "Talk instead of typing" },
-        { name: "Read Aloud", note: "Hear the replies" },
-      ],
-    },
-  },
-  {
-    id: "audits",
-    part: "Tools",
-    title: "It reviews how the work went",
-    ticks: 108,
-    enter: "up",
-    body: {
-      kind: "rows",
-      rows: [
-        { text: "/setup-audit", note: "Token costs, hook blocks, unused parts" },
-        { text: "/setup-audit chat", note: "Where the agent got in your way" },
-        { text: "/setup-audit full", note: "What to change, as a list to tick" },
-        { text: "/setup-audit usage", note: "Where the tokens went, per session" },
-      ],
-    },
-  },
-  {
-    id: "projects",
-    part: "Tools",
-    title: "Four projects, ready to open",
-    ticks: 70,
-    enter: "left",
-    body: {
-      kind: "tiles",
-      tiles: [
-        { name: "internet-search", note: "Finds things online, cites only pages it opened" },
-        { name: "ask-anything", note: "General questions and pictures" },
-        { name: "quick-tasks", note: "One-off file jobs, done on copies" },
-        { name: "claude-settings", note: "Change and check the setup itself" },
-      ],
-    },
-  },
-  {
-    id: "editor",
-    part: "Tools",
-    title: "Extensions for the editor",
-    ticks: 104,
-    body: {
-      kind: "tiles",
-      tiles: [
-        { name: "Usage ring", note: "The week's use on the side bar" },
-        { name: "Commands", note: "Your commands behind one button" },
-        { name: "Agents list", note: "Running helpers, in plain words" },
-        { name: "11 themes", note: "Eight dark, three light" },
+        { name: "41 hooks", note: "Small checks on each step" },
+        { name: "19 skills", note: "Commands like /lead" },
+        { name: "7 extensions", note: "Panels for the editor" },
+        { name: "5 agents", note: "Planner, helpers, reviewer" },
+        { name: "Handoff", note: "A fresh session picks up" },
+        { name: "Board cleanup", note: "Tidies the session board" },
+        { name: "Phone inbox", note: "Send work from your phone" },
+        { name: "Ink themes", note: "Eleven editor themes" },
       ],
     },
   },
   {
     id: "install",
     part: "Install",
-    title: "See what it changes first",
-    sub: "Nimbalyst is optional. It adds the session board.",
-    ticks: 96,
+    title: "Install with one command",
+    sub: "Add --dry-run to see what it changes first.",
+    ticks: 156,
     body: {
       kind: "install",
-      code: "node install.mjs --dry-run",
-      rows: [
-        { text: "--dry-run", note: "Shows what would change" },
-        { text: "--uninstall", note: "Takes it out" },
-        { text: "Every hook", note: "Has an off switch" },
-        { text: "/update-setup", note: "Updates, and keeps your changes" },
-      ],
-    },
-  },
-  {
-    id: "proof",
-    part: "Install",
-    title: "All my work runs through it",
-    ticks: 100,
-    enter: "up",
-    body: {
-      kind: "stats",
-      stats: [
-        { value: 11042, unit: "replies checked in 30 days" },
-        { value: 360, unit: "sent back" },
-        { value: 65, unit: "test files, run on every push" },
-      ],
-      line: "People in finance, data engineering and government IT use it at work too.",
-    },
-  },
-  {
-    id: "end",
-    part: null,
-    title: "ai-coding-setup",
-    ticks: 96,
-    body: {
-      kind: "end",
-      line: "Rules, checks and tools for Claude Code",
-      name: NAME,
+      code: "node install.mjs",
+      output: ["Copied 41 hooks", "Copied 19 skills", "Copied 5 agents", "Added 7 editor extensions", "Kept your own settings", "Done. Start Claude Code."],
+      update: "Updates itself: /update-setup",
       link: LINK,
     },
   },
 ];
 
-/** A full-screen chapter card sits between two chapters. It wipes in over the shot before it. */
-export const CHAPTER_TICKS = 22;
-export const WIPE_TICKS = 9;
-/** How long a shot that enters by sliding overlaps the shot before it. */
-export const PUSH_TICKS = 8;
-
 export const toFrames = (ticks: number): number => Math.round((ticks * FPS) / TICKS);
 export const frames = (shot: Shot): number => toFrames(shot.ticks);
 
-export type Item = { id: string; from: number; frames: number; part: Part | null; shot?: Shot; wipe?: boolean };
+export type Item = { id: string; from: number; frames: number; part: Part | null; shot: Shot };
 
-/** Every shot and chapter card of the film, or only the named shots for a clip, with the frame each starts on. */
+/** Every shot of the film, or only the named shots for a clip, with the frame each starts on. Shots follow each
+ * other end to end: no chapter cards between them and no overlaps. */
 export const timeline = (ids?: string[]): Item[] => {
   const items: Item[] = [];
   let at = 0;
-  let previous: Part | null = null;
   for (const shot of SCRIPT.filter((s) => !ids || ids.includes(s.id))) {
-    if (!ids && previous && shot.part && shot.part !== previous) {
-      at -= toFrames(WIPE_TICKS);
-      items.push({ id: `chapter-${shot.part}`, from: at, frames: toFrames(CHAPTER_TICKS), part: shot.part, wipe: true });
-      at += toFrames(CHAPTER_TICKS);
-    }
-    if (shot.enter && shot.enter !== "cut") at -= toFrames(PUSH_TICKS);
     items.push({ id: shot.id, from: at, frames: frames(shot), part: shot.part, shot });
     at += frames(shot);
-    previous = shot.part;
   }
   return items;
 };
@@ -414,31 +232,24 @@ export const blocks = (shot: Shot): string[] => {
   const b = shot.body;
   switch (b.kind) {
     case "open":
-      return [...b.lines, ...head];
-    case "catch":
-      return [...head, CATCH.claim.join(""), CATCH.address, LOG_LABEL, ...CATCH.log, CATCH.missing, CATCH.verdict, CATCH.reason, CATCH.found, CATCH.corrected, CATCH.passed];
-    case "tiles":
-      return [...head, ...b.tiles.map((t) => `${t.name} ${t.note}`)];
+      return [...b.lines, b.name];
+    case "claim":
+      return [...head, REPLY_LABEL, ...b.reply, LOG_LABEL, ...b.log, b.missing, SENT_BACK, b.reason, b.found, b.fixed[b.claim], PASSED];
+    case "lead":
+      return [...head, b.label, b.ask, ...b.steps, b.helper, b.reviewer, b.done];
+    case "review":
+      return [...head, ...b.flaws, ...b.rounds, b.clean];
+    case "usage":
+      return [...head, ...b.days, b.limit, b.forecast, b.note];
+    case "map":
+      return [...head, ...b.parts, b.check];
+    case "btw":
+      return [...head, ...b.work, b.note, b.picked];
     case "compare":
       return [...head, `${ALONE_LABEL} ${SETUP_LABEL}`, ...b.rows.map((r) => `${r.topic} ${r.alone} ${r.setup}`)];
-    case "rows":
+    case "tiles":
+      return [...head, ...b.tiles.map((t) => `${t.name} ${t.note}`)];
     case "install":
-      return [...head, ...("code" in b ? [b.code] : []), ...b.rows.map((r) => `${r.text} ${r.note ?? ""}`.trim())];
-    case "bars":
-      return [...head, ...b.bars.map((r) => `${r.name} ${r.value}${r.label}`)];
-    case "usage":
-      return [...head, USAGE_LABEL, ...b.projects.map((p) => p.name), b.forecast];
-    case "flow":
-      return [...head, ...b.flow.map((column) => column.join(" "))];
-    case "review":
-      return [...head, ...b.rounds, b.clean];
-    case "note":
-      return [...head, ...b.rows.map((r) => `${r.name} ${r.text}`)];
-    case "board":
-      return [...head, ...b.columns, ...b.cards];
-    case "stats":
-      return [...head, ...b.stats.map((s) => `${s.value} ${s.unit}`), b.line];
-    case "end":
-      return [...head, b.line, b.name, b.link];
+      return [...head, b.code, ...b.output, b.update, b.link];
   }
 };

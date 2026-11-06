@@ -3,10 +3,10 @@
 // and this polls the file and hands each new one to ai:createQueuedPrompt, which starts an idle
 // session at once. Delivered ids are kept in outbox-done.json (only written here) so a restart
 // does not deliver twice. outbox.jsonl itself is never written here: steer.mjs prunes it.
-// Every Nimbalyst window runs this bridge, and each one used to deliver every entry (seen 2026-10-29:
-// each /compact queued twice, 2 ms apart). Now only the window holding outbox-lock.json delivers; it
+// Every Nimbalyst window runs this bridge, and each one would deliver every entry (a /compact queued
+// twice). So only the window holding outbox-lock.json delivers; it
 // refreshes the lock on each poll, and another window takes over once the lock is LOCK_MS old.
-import type { Invoke } from './note';
+import type { Invoke } from '../../shared/host.ts';
 
 export interface OutboxEntry {
   id: string;

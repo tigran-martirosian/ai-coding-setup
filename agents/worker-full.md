@@ -17,6 +17,6 @@ You are a step worker. Your brief gives the JOB GOAL, your STEP, what you should
 - A fact the next step would otherwise have to find again goes under Findings in the job list: one line, starting with your step number.
 - Batch changes: all edits to one file in one Edit or Write.
 - Run at most one quick check that proves the result. Don't re-verify what already passed.
-- A long command (build, boot, a full test run) runs with the Bash tool's `run_in_background` and its output in a file. End your turn with one line saying what you are waiting for; you are woken when it exits. No wait loops.
+- A long command (build, render, boot, game test) runs in the foreground with a `timeout` up to 600000 ms. When it can take longer, start it with `run_in_background` and its output in a file, then wait in the foreground with a polling loop. Never end your turn while your own background command runs: a helper that stops to wait is never woken again. The loop ends on success, and also when the process is gone or the log shows an error; silence is not success.
 - You are not told your turn count. When a `[repeat-guard]` note says you are near your limit, or you get stuck, stop and report what's done, what's left and why.
 - Finish with a short report: files changed, the check you ran and its key output lines, then a last line `Outside the brief: none` or the list of what you touched or noticed outside it.

@@ -1,4 +1,4 @@
-// Tests for hooks/crash-log.mjs (the shared crash trace) and the crash alarm in hooks/transcript-check.mjs.
+// Tests for hooks/lib/crash-log.mjs (the shared crash trace) and the crash alarm in hooks/transcript-check.mjs.
 // Run: node tests/test-crash-log.mjs
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, appendFileSync, copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
@@ -15,12 +15,13 @@ let fail = 0, total = 0;
 const report = (ok, name) => { total++; if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); };
 const lines = (file = LOG) => (existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : []);
 
-// A hook of our own beside a copy of the helper (the handlers are installed only for a script in the helper's folder)
+// A hook of our own beside a copy of the helper (the handlers are installed only for a script in the folder above the helper)
 const demo = join(dir, "demo");
 mkdirSync(demo);
 mkdirSync(join(dir, "none")); // the folder of the session's own transcript
-copyFileSync(join(HOOKS, "crash-log.mjs"), join(demo, "crash-log.mjs"));
-const hook = (name, body) => { const f = join(demo, `${name}.mjs`); writeFileSync(f, `import { crashLog } from "./crash-log.mjs";\n${body}\n`); return f; };
+mkdirSync(join(demo, "lib"));
+copyFileSync(join(HOOKS, "lib", "crash-log.mjs"), join(demo, "lib", "crash-log.mjs"));
+const hook = (name, body) => { const f = join(demo, `${name}.mjs`); writeFileSync(f, `import { crashLog } from "./lib/crash-log.mjs";\n${body}\n`); return f; };
 const runFile = (file, env = {}, input = "") => spawnSync(process.execPath, [file], { input, encoding: "utf8", env: { ...process.env, HOOK_ERRORS_LOG: LOG, ...env } });
 
 // 1. A hook that throws logs one line and ends as before
@@ -31,7 +32,7 @@ const loose = runFile(hook("demo-loose", `throw new Error("outside any catch");`
 report(loose.status === 1 && /outside any catch/.test(loose.stderr) && lines().some((l) => /demo-loose: outside any catch/.test(l)), "a crash outside any catch: logged, stack on stderr, exit 1 as without the helper");
 const rejected = runFile(hook("demo-rejected", `await Promise.reject(new Error("rejected"));`));
 report(rejected.status === 1 && lines().some((l) => /demo-rejected: rejected/.test(l)), "an unhandled rejection: logged, exit 1");
-const bad = runFile(hook("demo-badlog", `crashLog("demo-badlog", new Error("x")); console.log("still here");`), { HOOK_ERRORS_LOG: join(dir, "demo", "crash-log.mjs", "no", "log") });
+const bad = runFile(hook("demo-badlog", `crashLog("demo-badlog", new Error("x")); console.log("still here");`), { HOOK_ERRORS_LOG: join(dir, "demo", "lib", "crash-log.mjs", "no", "log") });
 report(bad.status === 0 && bad.stdout.trim() === "still here", "a log that can't be written never makes the hook throw");
 const real = runFile(join(HOOKS, "big-read-gate.mjs"), {}, "not json");
 report(real.status === 0 && real.stdout === "" && lines().some((l) => / big-read-gate: /.test(l)), "a real hook fed junk lets the call through (exit 0, no output) and leaves its line");

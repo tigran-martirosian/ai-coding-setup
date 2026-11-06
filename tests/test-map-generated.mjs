@@ -44,7 +44,7 @@ check("a worktree file outside the project uses the nearest map", denied(spawnSy
 const nomap = path.join(tmp, "nomap"); fs.mkdirSync(nomap);
 check("no map: silent", spawnSync("node", [HOOK], { input: JSON.stringify(edit(path.join(nomap, "out/road.json"))), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: nomap } }).stdout === "");
 r = spawnSync("node", [HOOK], { input: "not json", encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
-check("junk input fails open", r.status === 0 && r.stdout === "" && /skipped/.test(r.stderr));
+check("junk input fails open", r.status === 0 && r.stdout === "");
 
 // ---- map.mjs
 check("generatorOf finds the script", generatorOf(MAP, "out/road.json")?.by === "tools/road.py" && generatorOf(MAP, "src/other.js") === null);

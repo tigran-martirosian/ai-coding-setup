@@ -20,13 +20,13 @@
 // A failed download changes nothing. An install that fails part way says so; running the update again finishes it.
 // SETUP_UPDATE_BASE points it at another address that serves version.json and v<version>.tar.gz (tests).
 import { spawnSync } from "node:child_process";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+const setupModule = (folder, name) => import(pathToFileURL(path.join(folder, "scripts", name)).href); // the pieces shared with install.mjs, from a setup folder
 
 const REPO_URL = "https://github.com/tigran-martirosian/ai-coding-setup"; // where this setup is published
 const BASE = process.env.SETUP_UPDATE_BASE;
@@ -50,7 +50,10 @@ const get = (url, ms, hops = 5) => new Promise((resolve, reject) => {
   const req = (url.startsWith("https:") ? https : http).get(url, { timeout: ms, headers: { "user-agent": "setup-update" } }, (res) => {
     if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && hops > 0) {
       res.resume();
-      return resolve(get(new URL(res.headers.location, url).href, ms, hops - 1));
+      const next = new URL(res.headers.location, url).href;
+      // never from https down to plain http
+      if (url.startsWith("https:") && !next.startsWith("https:")) return reject(new Error(`redirect to ${next} is not https`));
+      return resolve(get(next, ms, hops - 1));
     }
     if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
     const parts = [];
@@ -92,12 +95,13 @@ if (!newer(latest.version, installed)) {
     const mod = state.repo && path.join(state.repo, "scripts", "ink-default.mjs");
     if (!mod || !fs.existsSync(mod)) stop(`the setup's folder (${state.repo}) has no scripts/ink-default.mjs, so the pending theme can't be checked.`);
     const { pickedSincePending, PENDING_LINE } = await import(pathToFileURL(mod).href);
+    const { nimbalystHome } = await setupModule(state.repo, "nimbalyst-paths.mjs");
+    const { themeDone, writeState } = await setupModule(state.repo, "setup-state.mjs");
     const appAt = args.indexOf("--app-settings");
-    const appFile = appAt !== -1 ? path.resolve(args[appAt + 1]) : path.join(process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "", "@nimbalyst", "electron", "app-settings.json");
+    const appFile = appAt !== -1 ? path.resolve(args[appAt + 1]) : path.join(nimbalystHome(), "app-settings.json");
     const app = JSON.parse(fs.readFileSync(appFile, "utf8"));
     if (pickedSincePending(app, state.themePendingFrom)) {
-      const { themePending, themePendingFrom, ...rest } = state;
-      fs.writeFileSync(stateFile, JSON.stringify({ ...rest, inkSwitched: true }, null, 2) + "\n");
+      writeState(stateFile, themeDone(state));
       console.log(`theme: left as it is (${app.theme})`);
     } else console.log(PENDING_LINE);
   }
@@ -114,13 +118,15 @@ if (!newer(latest.version, installed)) {
       const { stop: tooOld } = checkClaudeCode({ min, dry: args.includes("--check") });
       if (tooOld) stop(tooOld);
       // Nimbalyst on the Claude Code just checked, or back on its own after a newer Nimbalyst (as install.mjs does)
-      if (pointNimbalyst && homeAt === -1) {
-        const appData = process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "";
-        const { set } = pointNimbalyst({ file: appData && path.join(appData, "@nimbalyst", "electron", "ai-settings.json"), min, previous: state.nimbalystClaude || null, dry: args.includes("--check") });
+      if (homeAt === -1) {
+        const { appDataDir, nimbalystHome } = await setupModule(state.repo, "nimbalyst-paths.mjs");
+        const { writeState } = await setupModule(state.repo, "setup-state.mjs");
+        const appData = appDataDir();
+        const { set } = pointNimbalyst({ file: appData && path.join(nimbalystHome(appData), "ai-settings.json"), min, previous: state.nimbalystClaude || null, dry: args.includes("--check") });
         if (!args.includes("--check") && (set || null) !== (state.nimbalystClaude || null)) {
           const next = { ...state };
           if (set) next.nimbalystClaude = set; else delete next.nimbalystClaude;
-          fs.writeFileSync(stateFile, JSON.stringify(next, null, 2) + "\n");
+          writeState(stateFile, next);
         }
       }
     }
@@ -158,11 +164,10 @@ fs.renameSync(part, target);
 console.log(`Downloaded to ${fwd(target)}`);
 
 // ---- which editor extensions changed: they are built from source, which the installer doesn't do
-const filesIn = (dir, base = dir) => (!fs.existsSync(dir) ? [] : fs.readdirSync(dir, { withFileTypes: true })
-  .filter((e) => !["node_modules", "dist"].includes(e.name))
-  .flatMap((e) => (e.isDirectory() ? filesIn(path.join(dir, e.name), base) : [path.relative(base, path.join(dir, e.name))])));
-const print = (dir) => crypto.createHash("sha256")
-  .update(filesIn(dir).sort().map((f) => f + "\n" + fs.readFileSync(path.join(dir, f), "utf8").replace(/\r\n/g, "\n")).join("\n")).digest("hex");
+// the installer's fingerprint of an extension's source (scripts/extensions.mjs), from the new version
+const { sourceText } = await setupModule(target, "extensions.mjs");
+const { sha } = await setupModule(target, "files.mjs");
+const print = (dir) => sha(sourceText(dir));
 const extDir = path.join(target, "extensions");
 const changed = (fs.existsSync(extDir) ? fs.readdirSync(extDir) : [])
   .filter((n) => fs.existsSync(path.join(extDir, n, "package.json")))

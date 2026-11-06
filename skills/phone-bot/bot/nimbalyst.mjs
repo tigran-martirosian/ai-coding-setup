@@ -28,7 +28,7 @@ function pidAlive(pid) {
 }
 
 // Nimbalyst writes the file once and its quit code deletes it, even when an app that keeps running
-// wrote it (seen 2026-10-11 on a self-update). The last good descriptor is kept in memory only.
+// wrote it (e.g. on a self-update). The last good descriptor is kept in memory only.
 let remembered = null;
 
 // Test only.
@@ -185,7 +185,7 @@ export function waitingQuestion(projectPath, sessionId) {
   return callTool(projectPath, 'get_session_summary', { sessionId });
 }
 
-// A prompt for a project whose window is closed stays queued and never runs (seen 2026-10-10), so the
+// A prompt for a project whose window is closed stays queued and never runs, so the
 // window is opened first. Opening one that is already open only brings it to the front.
 async function openProject(projectPath) {
   await callTool(projectPath, 'workspace_open', { workspacePath: projectPath });

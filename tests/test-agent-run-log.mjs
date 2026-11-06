@@ -85,7 +85,7 @@ check("other tools ignored", !fs.existsSync(bashLog));
 
 const junkLog = path.join(tmp, "junk.jsonl");
 r = run("not json", {}, junkLog);
-check("junk input fails open (exit 0, stderr line)", r.status === 0 && /agent-run-log hook skipped/.test(r.stderr) && !fs.existsSync(junkLog), r.stderr);
+check("junk input fails open (exit 0, nothing written)", r.status === 0 && !fs.existsSync(junkLog), r.stderr);
 
 const trimLog = path.join(tmp, "trim.jsonl");
 fs.writeFileSync(trimLog, Array.from({ length: 520 }, (_, i) => JSON.stringify({ n: i })).join("\n") + "\n");

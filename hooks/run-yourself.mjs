@@ -16,13 +16,14 @@
 // session there for (a skill, hook or MCP server that only loads in that project), or the prompt is the
 // handoff skill's own ("... continue the work from "Where we are"").
 // Fails open. RUN_YOURSELF=off disables it.
-import { crashLog } from "./crash-log.mjs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
+import { ru } from "./lib/ru.mjs";
+import { entries, lastReply, userText } from "./lib/transcript.mjs";
 import fs from "node:fs";
 
-// Russian twins of the English patterns below (for `--language russian`). \b does not see Cyrillic letters,
-// so these use the u flag, and « » stand for "no letter on this side". Each RU_ regex sits next to the
-// English one it mirrors and is OR-ed in where the English one is used; the English patterns are untouched.
-const ru = (src, flags = "iu") => new RegExp(src.replace(/«/g, "(?<!\\p{L})").replace(/»/g, "(?!\\p{L})"), flags);
+// Russian twins of the English patterns below (for `--language russian`; ru() in lib/ru.mjs explains « »). Each RU_
+// regex sits next to the English one it mirrors and is OR-ed in where the English one is used; the English patterns
+// are untouched.
 const RU_RUN = "(?:запусти|запустите|вставь|вставьте|введи|введите|выполни|выполните|набери|наберите)";
 const RU_TERM = String.raw`(?:терминал\p{L}*|powershell|командн\p{L}+\s+строк\p{L}*|cmd|консол\p{L}*|шелл\p{L}*|оболочк\p{L}*)`;
 const RU_TRIGGERS = [
@@ -98,7 +99,7 @@ const TRIGGERS = [
 const EXEMPT =
   /\b(I\s+(already\s+)?(tried|ran|attempted)|my\s+(own\s+)?attempt|(it|that|this)\s+(failed|didn'?t work|did not work)|(was|got|is)\s+(blocked|denied)|password|passphrase|as\s+(an\s+)?administrator|elevated|sudo|permission\s+denied|PermissionDenied|(allow|approve)\s+(it|the\s+\w+|this|that)\b[^.\n]{0,40}\b(retry|try\s+again))\b/i;
 
-// Steps only the user can do, judged per code span from the text around it (sampled send-backs, 2026-10-30)
+// Steps only the user can do, judged per code span from the text around it
 // A secret they hold, typed into their own machine: a placeholder or an assignment in the command itself, or
 // the words right beside it ("paste your key in place of ..."). A bare word like "token" in the same
 // paragraph is not enough ("Your login token expired. You need to run `gh auth login`"). PIN is upper case only.
@@ -252,13 +253,10 @@ export const handsOverPrompt = (text) => {
 
 // What the user last typed (not a tool result), to see whether they asked for the handoff themselves
 const lastUserText = (transcriptPath) => {
-  const lines = fs.readFileSync(transcriptPath, "utf8").split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    let e;
-    try { e = JSON.parse(lines[i]); } catch { continue; }
-    if (e.type !== "user") continue;
-    const c = e.message?.content;
-    const t = typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text).join("\n") : "";
+  const list = entries(fs.readFileSync(transcriptPath, "utf8"));
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].type !== "user") continue;
+    const t = userText(list[i]);
     if (t.trim()) return t;
   }
   return "";
@@ -270,39 +268,14 @@ const userAskedForHandoff = (input) => {
   try { return askedForHandoff(lastUserText(input.transcript_path)); } catch { return false; }
 };
 
-// The text Claude wrote after its last tool call (the part the user reads as the reply)
-const lastReply = (transcriptPath) => {
-  const lines = fs.readFileSync(transcriptPath, "utf8").split("\n");
-  const parts = [];
-  for (let i = lines.length - 1; i >= 0; i--) {
-    let e;
-    try { e = JSON.parse(lines[i]); } catch { continue; }
-    if (e.type === "user") break;
-    if (e.type !== "assistant" || !Array.isArray(e.message?.content)) continue;
-    if (e.message.content.some((b) => b.type === "tool_use")) break;
-    const t = e.message.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    if (t) parts.unshift(t);
-  }
-  return parts.join("\n");
-};
-
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
-  let raw = "";
-  process.stdin.on("data", (d) => (raw += d));
-  process.stdin.on("end", () => {
-    try {
-      if (process.env.RUN_YOURSELF === "off") return;
-      const input = JSON.parse(raw);
-      if (input.stop_hook_active) return;
-      const text = typeof input.last_assistant_message === "string" && input.last_assistant_message
-        ? input.last_assistant_message
-        : input.transcript_path ? lastReply(input.transcript_path) : "";
-      if (asksUserToRun(text)) process.stdout.write(JSON.stringify({ decision: "block", reason: REASON }));
-      else if (vagueNeedsYou(text)) process.stdout.write(JSON.stringify({ decision: "block", reason: REASON_VAGUE }));
-      else if (handsOverPrompt(text) && !userAskedForHandoff(input)) process.stdout.write(JSON.stringify({ decision: "block", reason: REASON_HANDOVER }));
-    } catch (err) {
-      crashLog("run-yourself", err);
-      // fail open
-    }
+if (isMain(import.meta.url)) {
+  runHook("run-yourself", (input) => {
+    if (input.stop_hook_active) return;
+    const text = typeof input.last_assistant_message === "string" && input.last_assistant_message
+      ? input.last_assistant_message
+      : input.transcript_path ? lastReply(entries(fs.readFileSync(input.transcript_path, "utf8"))) : "";
+    if (asksUserToRun(text)) emit.block(REASON);
+    else if (vagueNeedsYou(text)) emit.block(REASON_VAGUE);
+    else if (handsOverPrompt(text) && !userAskedForHandoff(input)) emit.block(REASON_HANDOVER);
   });
 }

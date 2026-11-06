@@ -12,15 +12,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CHAT_COUNTS_RE } from "../../../hooks/lib/texts.mjs";
+import { ARGS, opt, positional } from "./lib/opt.mjs";
+import { writeReport } from "./lib/reports.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MIN_REQUESTS = 5;
 
-const args = process.argv.slice(2);
-const earlierAt = args.indexOf("--earlier");
-const earlierArg = earlierAt >= 0 ? args.splice(earlierAt, 2)[1] : "";
+const earlierAt = ARGS.indexOf("--earlier");
+const earlierArg = opt("earlier", "");
 if (earlierAt >= 0 && !earlierArg) { console.log("--earlier needs a findings file"); process.exit(1); }
-const dir = args[0] ? path.resolve(args[0]) : "";
+const [digestDir] = positional(["earlier"]);
+const dir = digestDir ? path.resolve(digestDir) : "";
 if (!dir || !fs.existsSync(dir)) { console.log("Usage: node read-digests.mjs <digest folder made by chat-scan.mjs> [--earlier <findings file>]"); process.exit(1); }
 const task = fs.readFileSync(path.join(HERE, "reader-task.txt"), "utf8");
 
@@ -66,11 +69,11 @@ for (const t of noColon) console.log(`Earlier fix not scored (no project before 
 for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".task.md"))) fs.rmSync(path.join(dir, f));
 for (const f of digests) {
   const file = path.join(dir, f);
-  const requests = Number(fs.readFileSync(file, "utf8").match(/chats, (\d+) requests/)?.[1] || 0);
+  const requests = Number(fs.readFileSync(file, "utf8").match(CHAT_COUNTS_RE)?.[1] || 0);
   if (requests < MIN_REQUESTS) { console.log(`${f}: skipped, only ${requests} requests`); continue; }
   const outFile = path.join(dir, f.replace(/\.md$/, ".findings.md"));
   const taskFile = path.join(dir, f.replace(/\.md$/, ".task.md"));
   fs.rmSync(outFile, { force: true });
-  fs.writeFileSync(taskFile, `Read the file ${file}.\n\n${earlierText(f) ? task.trimEnd() + earlierText(f) : task.trimEnd()}\n\nWrite your answer to the file ${outFile}: it is the one file you write ("do not write files" above does not apply to it). Then reply with one line.\n`);
+  writeReport(dir, path.basename(taskFile), `Read the file ${file}.\n\n${earlierText(f) ? task.trimEnd() + earlierText(f) : task.trimEnd()}\n\nWrite your answer to the file ${outFile}: it is the one file you write ("do not write files" above does not apply to it). Then reply with one line.\n`);
   console.log(`${f}: task written -> ${path.basename(taskFile)}`);
 }

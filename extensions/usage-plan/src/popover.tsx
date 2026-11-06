@@ -1,7 +1,7 @@
 // The panel as a small popover next to the gutter button, like Nimbalyst's own usage buttons.
 //
 // Nimbalyst opens a sidebar panel by switching to Files mode, which leaves the sessions list (read
-// from the app's code, 2026-10-02). So the click on the gutter button is caught before the app sees
+// from the app's code). So the click on the gutter button is caught before the app sees
 // it and the same view is drawn in a popover instead. If the app ever changes its button, the click
 // goes through and the sidebar panel opens as before.
 

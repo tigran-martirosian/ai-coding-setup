@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
-import { bridge, startBridge, startNoteButtons } from './composer';
+import { hostInvoke } from '../../shared/host.ts';
+import { startBridge, startNoteButtons } from './composer';
 
 /** Mounted by the app once, outside any panel (manifest: contributions.hostComponents). Draws nothing. */
 export function NoteBridge() {
   useEffect(() => {
-    const invoke = bridge();
+    const invoke = hostInvoke;
     const stopButtons = startNoteButtons(invoke);
     const stopBridge = startBridge(invoke);
     return () => {

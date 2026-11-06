@@ -143,8 +143,7 @@ function clock(ms) {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
-/** The row's task object from the app's React props ({ startedAt, durationMs, ... }; depth 1, seen live
- *  2026-11-05), or null. */
+/** The row's task object from the app's React props ({ startedAt, durationMs, ... }; depth 1), or null. */
 function rowTask(item) {
   const key = Object.keys(item).find((k) => k.startsWith('__reactFiber'));
   for (let f = key && item[key], d = 0; f && d < 4; f = f.return, d++) {
@@ -170,7 +169,7 @@ function metaWords(meta, status, task = null, now = Date.now(), run = null) {
   const kind = kindWord(m.kind), model = runWords(run), elapsed = elapsedWords(live ? clock(now - task.startedAt) : m.elapsed), tools = toolsWords(m.tools);
   let parts;
   if (status === 'running') {
-    // Only a sub-agent reports tool calls; a command's durationMs stays 0 (seen live 2026-11-05)
+    // Only a sub-agent reports tool calls; a command's durationMs stays 0
     const silent = live && m.kind === 'Sub-agent' ? now - (task.startedAt + (task.durationMs || 0)) : 0;
     const doing = silent > QUIET_MS ? fill(STRINGS.quiet, elapsedWords(`${Math.floor(silent / 60000)}m`)) : m.last && nowWords(m.last);
     parts = [kind, model, elapsed, tools, doing];

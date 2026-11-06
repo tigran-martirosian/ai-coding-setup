@@ -8,8 +8,8 @@ import { spawnSync } from "node:child_process";
 
 const HOOK = fileURLToPath(new URL("../hooks/map-drift.mjs", import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "map-drift-test-"));
-const STATE = path.join(tmp, "state");
-const STATE_FILE = path.join(STATE, "map-drift.json");
+const STATE = path.join(tmp, "home"); // the hook's HOME
+const STATE_FILE = path.join(STATE, ".claude", "hooks", "state", "map-drift", "said.json");
 let pass = 0, fail = 0;
 const check = (name, ok, extra = "") => { ok ? pass++ : fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : extra ? `\n     ${extra}` : ""}`); };
 
@@ -37,7 +37,7 @@ const project = (name, files, map = MAP) => {
 };
 const FILES = { "src/cart.js": "function priceOf(){}; const cartItems = [];", "src/price.js": "x", "src/ship.js": "function dispatch(){}", "src/plain.js": "x", "other.js": "x" };
 const run = (dir, input, env = {}) =>
-  spawnSync("node", [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), encoding: "utf8", env: { ...process.env, MAP_DRIFT: "", CLAUDE_PROJECT_DIR: dir, MAP_DRIFT_DIR: STATE, ...env } });
+  spawnSync("node", [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), encoding: "utf8", env: { ...process.env, MAP_DRIFT: "", CLAUDE_PROJECT_DIR: dir, HOME: STATE, USERPROFILE: STATE, ...env } });
 const edit = (file, tool = "Edit") => ({ tool_name: tool, tool_input: { file_path: file } });
 const context = (r) => { try { return JSON.parse(r.stdout).hookSpecificOutput.additionalContext; } catch { return ""; } };
 const reset = () => fs.rmSync(STATE, { recursive: true, force: true });
@@ -100,9 +100,9 @@ check("another project with the same file and link: says it (state is per projec
 // ---- junk and failures
 reset();
 r = run(dir, "not json");
-check("junk stdin: exit 0, one stderr line, no output", r.status === 0 && r.stdout === "" && r.stderr.trim().split("\n").length === 1 && /map-drift hook skipped/.test(r.stderr), r.stderr);
+check("junk stdin: exit 0, no output", r.status === 0 && r.stdout === "", r.stderr);
 const crashLog = path.join(tmp, "crash.log");
-spawnSync("node", [HOOK], { input: "not json", env: { ...process.env, HOOK_ERRORS_LOG: crashLog, CLAUDE_PROJECT_DIR: dir, MAP_DRIFT_DIR: STATE } });
+spawnSync("node", [HOOK], { input: "not json", env: { ...process.env, HOOK_ERRORS_LOG: crashLog, CLAUDE_PROJECT_DIR: dir, HOME: STATE, USERPROFILE: STATE } });
 check("junk stdin leaves a crash-log line from map-drift", /map-drift: /.test(fs.existsSync(crashLog) ? fs.readFileSync(crashLog, "utf8") : ""));
 const badmap = project("badmap", FILES);
 fs.writeFileSync(path.join(badmap, ".claude", "systems-map.json"), "{ not json");

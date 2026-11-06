@@ -4,9 +4,9 @@ I run all my development through Claude Code. These are the rules, checks and to
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/e0519b9f-396a-4021-a051-581e3d018b40
+https://github.com/user-attachments/assets/a9563720-21e5-485b-8801-7c34af58f156
 
-If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/e0519b9f-396a-4021-a051-581e3d018b40).
+If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/a9563720-21e5-485b-8801-7c34af58f156).
 
 ## How it compares
 
@@ -18,7 +18,7 @@ Claude Code gives you hooks and skills. This is what I built with them.
 | Commands | It may ask you to run them | It runs them itself |
 | Long chats | Compact when nearly full, or by hand | Compact themselves at about 200k, mid-work, and leave finished chats alone |
 | Big jobs | Subagents you arrange | `/lead`: a plan in numbered steps, workers that know the goal, then one reviewer |
-| Spending | `/usage`: the last 7 days | Per project, with a forecast of when the limit runs out |
+| Spending | `/usage`: the last 14 days | Per project, with a forecast of when the limit runs out |
 
 ## What it does
 
@@ -35,7 +35,7 @@ These go back to the agent:
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 40 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 41 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 

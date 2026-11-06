@@ -35,7 +35,7 @@ for (const [name, ev, want] of cases) {
 const off = run({ tool_name: "Agent", tool_input: { subagent_type: "Explore", prompt: "z" } }, { WORKER_NUDGE: "off" });
 console.log(`${off === "" ? "ok  " : "FAIL"} WORKER_NUDGE=off: allow`); if (off !== "") fail++;
 const denied = run({ tool_name: "Agent", tool_input: { subagent_type: "Explore", prompt: "w" } });
-const points = denied.includes('"deny"') && denied.includes('subagent_type \\"worker\\"') && !denied.includes("~/.claude/workers/");
-console.log(`${points ? "ok  " : "FAIL"} deny text points to the worker subagent, no outside worker command`); if (!points) fail++;
+const points = denied.includes('"deny"') && denied.includes('subagent_type \\"worker\\"') && !denied.includes("~/.claude/workers/") && !/ask.mjs|free/.test(denied);
+console.log(`${points ? "ok  " : "FAIL"} deny text points to the worker subagent, no outside worker command, no ask.mjs`); if (!points) fail++;
 console.log(fail ? `${fail} failed` : "all passed");
 process.exit(fail ? 1 : 0);

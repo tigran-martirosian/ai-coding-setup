@@ -14,13 +14,17 @@ const ASK = [
   "PowerShell(* .env*)", "PowerShell(*/.env*)", "PowerShell(*\\.env*)",
 ];
 
+// The models the "opus" alias resolves to, and the effort set for them: install.mjs undoes exactly this when it moves a model back
+export const OPUS_MODELS = ["claude-opus-5", "claude-opus-5-5"];
+export const DEFAULT_EFFORT = "medium";
+
 // Changes the settings object it is given and says what it did: whether the model was set, and how
 // many permission rules were added.
 export function addClaudeCodeSettings(settings, win = process.platform === "win32") {
   const model = !settings.model;
   if (model) {
     settings.model = "opus";
-    for (const name of ["claude-opus-5", "claude-opus-5-5"]) ((settings.modelSettings ??= {})[name] ??= {}).effortLevel ??= "medium";
+    for (const name of OPUS_MODELS) ((settings.modelSettings ??= {})[name] ??= {}).effortLevel ??= DEFAULT_EFFORT;
   }
   // Compact at about 200k, mid-work or before the next message, so a finished chat is left alone
   const compact = settings.autoCompactWindow === undefined;

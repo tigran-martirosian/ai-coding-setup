@@ -4,9 +4,10 @@
 import fs from 'node:fs';
 import { EXTENSION_ID, THEMES, colors, contrast } from './themes.mjs';
 import { labelFor } from './shell.js';
+import { createChecks } from '../shared/check.mjs';
 
-let failed = 0, passed = 0;
-const check = (ok, what) => { ok ? passed++ : (failed++, console.log('FAIL', what)); };
+const counter = createChecks();
+const check = (ok, what) => counter.check(what, ok);
 const at = (t, a, b, min) => {
   const c = contrast(t[a], t[b]);
   check(c >= min, `${t.id}: ${a} on ${b} is ${c.toFixed(2)}, needs ${min}`);
@@ -68,7 +69,7 @@ else {
 }
 // shell.js, the pure part: the button label
 check(labelFor('new session') === 'New session' && labelFor('New file') === 'New file' && labelFor(' Open folder ') === 'Open folder', 'shell: button label from the list, else the app label');
-// The usage block and its tests were removed (user, 2026-11-05): weekly usage shows in one place only, the app's own Claude ring in the side bar.
+// The usage block and its tests were removed: weekly usage shows in one place only, the app's own Claude ring in the side bar.
 // Tokens: the light-theme block must sit on the theme's own element (&:not), not as a nested "html:not(" that never matches
 if (fs.existsSync(cssFile)) {
   const built = fs.readFileSync(cssFile, 'utf8');
@@ -99,5 +100,4 @@ if (fs.existsSync(cssFile)) {
 }
 check(fs.readFileSync(new URL('./shell.js', import.meta.url), 'utf8').includes('--ink-sans'), 'shell.js tells from the style sheet whether a theme is on');
 
-console.log(failed ? `${passed} passed, ${failed} failed` : `all ${passed} passed`);
-process.exit(failed ? 1 : 0);
+counter.finish();

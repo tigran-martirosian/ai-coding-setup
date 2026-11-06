@@ -9,6 +9,7 @@ export const fmt = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n 
 export const pct = (a, b) => b ? `${Math.round(a / b * 100)}%` : "0%";
 export const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 export const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+// pad and dayKey repeat lib/days.mjs on purpose: the build inlines this file into the page, so it can import nothing.
 export const pad = (n) => String(n).padStart(2, "0");
 export const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 export const fmtDay = (k) => new Date(k + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -23,7 +24,7 @@ export const leaf = (p) => String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/)
 export const fmtUsd = (n) => "$" + n.toLocaleString("en-US", n >= 100 ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const pts = (n) => n >= 10 ? String(Math.round(n)) : n.toFixed(1).replace(/\.0$/, "");
 
-// Tokens per day for every chat and every subagent: { "2026-11-01": {model: n} } -> { "2026-11-01": total }
+// Tokens per day for every chat and every subagent: { "YYYY-MM-DD": {model: n} } -> { "YYYY-MM-DD": total }
 export const flat = (days) => {
   const o = {};
   for (const [d, m] of Object.entries(days || {})) o[d] = Object.values(m).reduce((a, b) => a + b, 0);

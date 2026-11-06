@@ -4,50 +4,30 @@
 // the model gets one line per such link: check the thing at the other end, then fix the link's evidence or drop the link. Silent for every
 // other file, for path-only evidence and for a project with no map. Each project + file + link is said once an hour. Never blocks.
 // Fails open: any error is one line on stderr, exit 0. MAP_DRIFT=off disables it.
-// State: ~/.claude/hooks/state/map-drift.json (MAP_DRIFT_DIR moves it).
-import { crashLog } from "./crash-log.mjs";
+// State: ~/.claude/hooks/state/map-drift/said.json.
+import { runHook, emit } from "./lib/hook-io.mjs";
+import { loadMap, mapFolderFor, normRel } from "./lib/map-file.mjs";
+import { stateFile, readJson, writeJson } from "./lib/state.mjs";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const HOUR = 60 * 60 * 1000;
-const STATE_DIR = process.env.MAP_DRIFT_DIR || path.join(os.homedir(), ".claude", "hooks", "state");
-const STATE_FILE = path.join(STATE_DIR, "map-drift.json");
+const STATE_FILE = stateFile("map-drift", "said");
 
-let raw = "";
-process.stdin.on("data", (d) => (raw += d));
-process.stdin.on("end", () => {
+runHook("map-drift", (event) => {
   try {
-    if (process.env.MAP_DRIFT === "off") return;
-    const event = JSON.parse(raw);
     const input = event?.tool_input;
     const edited = input && typeof input === "object" ? input.file_path ?? input.notebook_path : null;
     if (typeof edited !== "string" || !edited) return;
     const project = process.env.CLAUDE_PROJECT_DIR;
     if (!project) return;
-    let dir = path.resolve(project);
-    const file = path.resolve(dir, edited);
-    const outside = (d) => { const r = path.relative(d, file).replace(/\\/g, "/"); return !r || r.startsWith("../") || r === ".." || path.isAbsolute(r); };
     // A file outside the project (a git worktree of it, such as a helper's) is checked against the map of the
     // nearest folder above it that has one, so a worktree helper's edits are checked too
-    if (outside(dir)) {
-      let up = path.dirname(file);
-      while (!fs.existsSync(path.join(up, ".claude", "systems-map.json")) && path.dirname(up) !== up) up = path.dirname(up);
-      if (!fs.existsSync(path.join(up, ".claude", "systems-map.json"))) return;
-      dir = up;
-    }
+    const at = mapFolderFor(project, edited);
+    if (!at) return;
+    const { dir, file } = at;
+    const rel = at.rel.toLowerCase();
 
-    let rel = path.relative(dir, file).replace(/\\/g, "/");
-    if (outside(dir)) return;
-    rel = rel.toLowerCase();
-
-    let map;
-    try {
-      map = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "systems-map.json"), "utf8").replace(/^﻿/, ""));
-    } catch (e) {
-      if (e.code === "ENOENT") return;
-      throw e;
-    }
+    const map = loadMap(dir);
     if (!Array.isArray(map?.links)) return;
     const name = new Map((Array.isArray(map.nodes) ? map.nodes : []).filter((n) => n && typeof n.id === "string").map((n) => [n.id, n.name || n.id]));
 
@@ -57,7 +37,7 @@ process.stdin.on("end", () => {
       if (!l || !Array.isArray(l.evidence)) continue;
       for (const e of l.evidence) {
         if (!e || typeof e !== "object" || typeof e.file !== "string" || typeof e.token !== "string" || !e.token) continue;
-        if (e.file.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").toLowerCase() !== rel) continue;
+        if (normRel(e.file) !== rel) continue;
         const key = `${l.from} -> ${l.to}`;
         if (!found.has(key)) found.set(key, { link: l, token: e.token, file: e.file });
       }
@@ -65,12 +45,11 @@ process.stdin.on("end", () => {
     if (!found.size) return;
 
     let text;
-    try { text = fs.readFileSync(path.resolve(dir, edited), "utf8"); } catch { return; } // a deleted file is for --check
+    try { text = fs.readFileSync(file, "utf8"); } catch { return; } // a deleted file is for --check
     const lost = [...found].filter(([, f]) => !text.includes(f.token));
     if (!lost.length) return;
 
-    let state = {};
-    try { state = JSON.parse(fs.readFileSync(STATE_FILE, "utf8")); } catch {}
+    const state = readJson(STATE_FILE) ?? {};
     const now = Date.now();
     for (const k of Object.keys(state)) if (!(now - state[k] < HOUR)) delete state[k];
     const lines = [];
@@ -85,11 +64,10 @@ process.stdin.on("end", () => {
       );
     }
     if (!lines.length) return;
-    fs.mkdirSync(STATE_DIR, { recursive: true });
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state));
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: lines.join("\n") } }));
+    writeJson(STATE_FILE, state);
+    emit.context("PostToolUse", lines.join("\n"));
   } catch (e) {
-    crashLog("map-drift", e);
     process.stderr.write(`map-drift hook skipped: ${e?.name}: ${e?.message}\n`);
+    throw e; // runHook logs it and ends with exit 0
   }
 });

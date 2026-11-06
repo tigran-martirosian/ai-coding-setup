@@ -6,8 +6,8 @@
 // A prompt that already holds the marker "SYSTEMS MAP:" is left alone. A project with no map file, or one with no nodes, gets no output at
 // all; "nothing matched" is said only when a real map exists. Fails open: any error is one line on stderr, exit 0, no output.
 // MAP_BRIEF=off disables it.
-import { crashLog } from "./crash-log.mjs";
-import fs from "node:fs";
+import { runHook } from "./lib/hook-io.mjs";
+import { loadMap } from "./lib/map-file.mjs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -15,12 +15,8 @@ const TYPES = new Set(["worker", "worker-full", "reviewer", "planner"]);
 const MARKER = "SYSTEMS MAP:";
 const MAP_JS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "skills", "systems-map", "map.mjs");
 
-let raw = "";
-process.stdin.on("data", (d) => (raw += d));
-process.stdin.on("end", async () => {
+runHook("map-brief", async (event) => {
   try {
-    if (process.env.MAP_BRIEF === "off") return;
-    const event = JSON.parse(raw);
     const input = event.tool_input;
     if (!["Agent", "Task"].includes(event.tool_name) || !input || typeof input !== "object") return;
     const prompt = input.prompt;
@@ -28,13 +24,7 @@ process.stdin.on("end", async () => {
 
     const project = process.env.CLAUDE_PROJECT_DIR;
     if (!project) return;
-    let map;
-    try {
-      map = JSON.parse(fs.readFileSync(path.join(project, ".claude", "systems-map.json"), "utf8").replace(/^﻿/, ""));
-    } catch (e) {
-      if (e.code === "ENOENT") return;
-      throw e;
-    }
+    const map = loadMap(project);
     if (!Array.isArray(map?.nodes) || !map.nodes.length) return;
 
     const { brief, CMD } = await import(pathToFileURL(MAP_JS).href);
@@ -47,7 +37,7 @@ process.stdin.on("end", async () => {
     const updated = { ...input, prompt: prompt + (lines ? head + lines + tail : none) };
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: updated } }));
   } catch (e) {
-    crashLog("map-brief", e);
     process.stderr.write(`map-brief hook skipped: ${e?.name}: ${e?.message}\n`);
+    throw e; // runHook logs it and ends with exit 0
   }
 });

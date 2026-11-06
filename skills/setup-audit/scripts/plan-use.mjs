@@ -14,15 +14,11 @@
 //   c  = weekly points per 5-hour point, from all stretches (both numbers are account-wide,
 //        so this needs no quiet period).
 import fs from "node:fs";
+import { day as dayKey } from "./lib/days.mjs";
 
 const SAME = 5 * 60000; // the reported reset time jitters by under a second between replies
-const NEED_WEEK = 4; // weekly points that must be on record before c is trusted
+export const NEED_WEEK = 4; // weekly points that must be on record before c is trusted
 const NEED_FIVE = 5; // 5-hour points this computer must have used in a window for it to count
-
-const dayKey = (t) => {
-  const d = new Date(t);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
 
 export function readSamples(file) {
   let text = "";

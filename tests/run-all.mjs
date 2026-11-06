@@ -12,7 +12,7 @@ const failed = [];
 for (const name of readdirSync(dir).filter((n) => /^test-.*\.mjs$/.test(n)).sort()) {
   console.log(`\n== ${name}`);
   const home = mkdtempSync(join(tmpdir(), "run-all-home-"));
-  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const env = { ...process.env, HOME: home, USERPROFILE: home, HOOK_ERRORS_LOG: "off" }; // no test run leaves a line in a real crash log
   delete env.CLAUDE_PROJECT_DIR;
   if (spawnSync(process.execPath, [join(dir, name)], { stdio: "inherit", env }).status !== 0) failed.push(name);
   rmSync(home, { recursive: true, force: true });

@@ -6,11 +6,11 @@
 // opened. Links the user typed are never questioned, and neither are local or example addresses.
 // It blocks the same reply at most 3 times, then lets it through, so it can't loop.
 // Fails open. LINK_GATE=off disables it.
-import { crashLog } from "./crash-log.mjs";
+import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+import { entries } from "./lib/transcript.mjs";
+import { sessionKey } from "./lib/paths.mjs";
+import { stateFile, readJson, writeJson } from "./lib/state.mjs";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const MAX_BLOCKS = 3;
 const URL_RE = /https?:\/\/[^\s<>"'`)\]|\\]+/g;
@@ -90,11 +90,7 @@ export function problems(text, { opened, typed = new Set() }) {
 }
 
 export function verdict(input) {
-  const entries = [];
-  for (const line of fs.readFileSync(input.transcript_path, "utf8").split("\n")) {
-    try { entries.push(JSON.parse(line)); } catch {}
-  }
-  const s = scan(entries);
+  const s = scan(entries(fs.readFileSync(input.transcript_path, "utf8")));
   const reply = typeof input.last_assistant_message === "string" && input.last_assistant_message ? input.last_assistant_message : s.reply;
   return problems(reply, s);
 }
@@ -108,33 +104,20 @@ export function reason(bad) {
   return lines.join("\n");
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
-  let raw = "";
-  process.stdin.on("data", (d) => (raw += d));
-  process.stdin.on("end", () => {
-    try {
-      if ((process.env.LINK_GATE || "").toLowerCase() === "off") return;
-      const input = JSON.parse(raw);
-      if (!input.transcript_path) return;
-      const bad = verdict(input);
-      const dir = path.join(os.tmpdir(), "link-gate");
-      const stateFile = path.join(dir, `${String(input.session_id || "none").replace(/[^\w-]/g, "")}.json`);
-      let blocks = 0;
-      try { blocks = JSON.parse(fs.readFileSync(stateFile, "utf8")).blocks || 0; } catch {}
-      // stop_hook_active is false on a fresh reply: the count starts again there
-      if (!input.stop_hook_active) blocks = 0;
-      fs.mkdirSync(dir, { recursive: true });
-      if (!bad.length || blocks >= MAX_BLOCKS) {
-        fs.writeFileSync(stateFile, JSON.stringify({ blocks: 0 }));
-        if (bad.length) process.stderr.write(`link-gate: let through after ${MAX_BLOCKS} blocks, ${bad.length} link(s) still unopened\n`);
-        return;
-      }
-      fs.writeFileSync(stateFile, JSON.stringify({ blocks: blocks + 1 }));
-      process.stdout.write(JSON.stringify({ decision: "block", reason: reason(bad) }));
-    } catch (err) {
-      crashLog("link-gate", err);
-      // fail open
+if (isMain(import.meta.url)) {
+  runHook("link-gate", (input) => {
+    if (!input.transcript_path) return;
+    const bad = verdict(input);
+    const file = stateFile("link-gate", sessionKey(input.session_id));
+    let blocks = (readJson(file) ?? {}).blocks || 0;
+    // stop_hook_active is false on a fresh reply: the count starts again there
+    if (!input.stop_hook_active) blocks = 0;
+    if (!bad.length || blocks >= MAX_BLOCKS) {
+      writeJson(file, { blocks: 0 });
+      if (bad.length) process.stderr.write(`link-gate: let through after ${MAX_BLOCKS} blocks, ${bad.length} link(s) still unopened\n`);
+      return;
     }
+    writeJson(file, { blocks: blocks + 1 });
+    emit.block(reason(bad));
   });
 }

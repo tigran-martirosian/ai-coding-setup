@@ -1,51 +1,19 @@
 #!/usr/bin/env node
-// next-step-gate: backs "a finished step is not a stopping point" (a handoff gave the order A1-A3 → R1 → S1..., the
-// session did A1-A3, committed, wrote "Next: R1 ..." and ended the turn; the user: "why did you stop again?").
+// next-step-gate: backs "a finished step is not a stopping point" (a session finished a step, wrote "Next: ..." and ended the turn).
 // Stop: when the reply names a next step of Claude's own ("Next: ...", "### Next", "Next is ...", "**Next:** ...") and nothing
 // in it waits on the user, block with that line: carry on now, or say which real reason stops the work. Each different step
-// is pushed once per turn, at most MAX_BLOCKS times (state in os.tmpdir()/next-step-gate/<session>.json, NEXT_STEP_GATE_STATE).
+// is pushed once per turn, at most MAX_BLOCKS times (state in ~/.claude/hooks/state/next-step-gate/<session>.json, files older than 2 days removed).
 // Passes: a turn that ends in a question form; a reply with a "Needs you" heading; a next-step line (or the line under a
 // "Next" heading) that names the user ("you", "your"), a fresh session or handoff, a later date, or work still running
 // ("once the build finishes"); a "Next, I ran ..." narration; a turn with a handoff skill or a new session started; a turn
 // with no tool calls (a plain answer: its "next" is a suggestion). Subagents (agent_id) are skipped.
 // Fails open. NEXT_STEP_GATE=off disables it.
-import { crashLog } from "./crash-log.mjs";
+import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+import { sessionKey } from "./lib/paths.mjs";
+import { stateFile, readJson, writeJson, sweep } from "./lib/state.mjs";
+import { entries as readEntries, assistantText, currentTurn, QUESTION_TOOLS, SYNTHETIC } from "./lib/transcript.mjs";
 import fs from "node:fs";
 
-// Reading the transcript: what the user typed and where the current turn starts
-const userText = (e) => {
-  const c = e.message?.content;
-  return typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text || "").join("\n") : "";
-};
-// A message the user typed: not a tool result, and not text Claude Code or Nimbalyst adds on its own
-// (skill text, a background task's notice, "[Request interrupted by user]", Nimbalyst's "[System: ...]"
-// and "[Child Session Update]" prompts, which come with promptSource "sdk" like typed ones)
-const INJECTED = /^(\[(Request interrupted|System:|SYSTEM NOTIFICATION|Child Session Update\])|<task-notification>)/;
-const INTERRUPTED = /^\[Request interrupted/;
-const typedByUser = (e) => {
-  if (e.type !== "user" || e.isMeta || e.isCompactSummary || e.promptSource === "system" || e.origin?.kind === "task-notification") return false;
-  const t = userText(e).trim();
-  return !!t && !INJECTED.test(t);
-};
-
-const parse = (raw) => raw.split("\n").filter((l) => l.trim()).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-
-// The current turn: the last message that started one (typed or a system event) and what came after it;
-// start is null when that message was not typed by the user
-function currentTurn(entries) {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i];
-    if (e.type !== "user" || e.isMeta || e.isCompactSummary || !userText(e).trim() || INTERRUPTED.test(userText(e).trim())) continue;
-    return { start: typedByUser(e) ? e : null, entries: entries.slice(i + 1) };
-  }
-  return { start: null, entries };
-}
-
-import os from "node:os";
-import path from "node:path";
-
-const SYNTHETIC = "<synthetic>";
-const FORMS = /^(AskUserQuestion|mcp__nimbalyst__AskUserQuestion|mcp__nimbalyst__PromptForUserInput|ExitPlanMode)$/;
 const HANDOFF = (b) =>
   (b.name === "Skill" && /^(handoff|planning:launch-new-session)$/.test(String(b.input?.skill || ""))) ||
   /^mcp__nimbalyst-host__(spawn_session|create_session|workspace_open)$/.test(b.name);
@@ -56,8 +24,6 @@ const PAST = /^(?:i|we)\s+(?:\w+ed|ran|wrote|did|made|found|built|saw|went|got|h
 const WAITS = /\b(you|your|you're|needs you|the user)\b|fresh session|new session|handoff|hand(?:ed)? off|\bafter \d{4}-\d{2}-\d{2}|\b(tomorrow|next week|on \d{4}-\d{2}-\d{2})\b|\b(once|when|after)\b.{0,60}\b(finishes|finished|lands|completes|completed|is done|returns|reports)\b/i;
 const NEEDS_YOU = /^\s*(?:#{1,4}\s+|\*\*)needs you\b/im;
 const MAX_BLOCKS = 4;
-
-const assistantText = (e) => Array.isArray(e.message?.content) ? e.message.content.filter((b) => b.type === "text").map((b) => b.text || "").join("\n") : "";
 
 /** The reply's own next step ("R1, research on ..."), or null when it has none or it waits on the user. */
 export function ownNextStep(text) {
@@ -82,7 +48,7 @@ export function stopVerdict(entries, lastMessage) {
   const replies = turn.filter((e) => e.type === "assistant" && e.message?.model !== SYNTHETIC);
   const uses = replies.filter((e) => Array.isArray(e.message?.content)).flatMap((e) => e.message.content.filter((b) => b.type === "tool_use"));
   if (!uses.length) return null;
-  if (FORMS.test(uses[uses.length - 1].name) || uses.some(HANDOFF)) return null;
+  if (QUESTION_TOOLS.test(uses[uses.length - 1].name) || uses.some(HANDOFF)) return null;
   // The final reply: the text after the last tool call (or the Stop input's last message)
   const last = typeof lastMessage === "string" && lastMessage.trim() ? lastMessage : assistantText(replies[replies.length - 1] || {});
   const step = ownNextStep(last);
@@ -94,32 +60,19 @@ export function stopVerdict(entries, lastMessage) {
     "saying to move to a fresh session (then run the handoff skill); name which one in the reply.";
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
-  try {
-    if ((process.env.NEXT_STEP_GATE || "").toLowerCase() === "off") process.exit(0);
-    const input = JSON.parse(fs.readFileSync(0, "utf8"));
-    if (input.agent_id || !input.transcript_path || !fs.existsSync(input.transcript_path)) process.exit(0);
-    const reason = stopVerdict(parse(fs.readFileSync(input.transcript_path, "utf8")), input.last_assistant_message);
-    if (!reason) process.exit(0);
+if (isMain(import.meta.url)) {
+  runHook("next-step-gate", (input) => {
+    if (input.agent_id || !input.transcript_path || !fs.existsSync(input.transcript_path)) return;
+    const reason = stopVerdict(readEntries(fs.readFileSync(input.transcript_path, "utf8")), input.last_assistant_message);
+    if (!reason) return;
     // A plan with several steps left gets pushed at each new step: the steps already pushed this turn are kept in a
     // state file (the first Stop of a turn has stop_hook_active false and starts it again); the same step twice, or
     // more than MAX_BLOCKS pushes in one turn, passes, so it never loops.
-    const dir = process.env.NEXT_STEP_GATE_STATE || path.join(os.tmpdir(), "next-step-gate");
-    const file = path.join(dir, `${String(input.session_id || "none").replace(/[^\w-]/g, "")}.json`);
-    let steps = [];
-    if (input.stop_hook_active) {
-      try {
-        steps = JSON.parse(fs.readFileSync(file, "utf8")).steps || [];
-      } catch (e) {
-        if (e.code !== "ENOENT") throw e;
-      }
-    }
-    if (steps.includes(reason) || steps.length >= MAX_BLOCKS) process.exit(0);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ steps: [...steps, reason] }));
-    process.stdout.write(JSON.stringify({ decision: "block", reason }));
-  } catch (err) {
-    crashLog("next-step-gate", err);
-    // fail open
-  }
+    sweep("next-step-gate", 2);
+    const file = stateFile("next-step-gate", sessionKey(input.session_id));
+    const steps = input.stop_hook_active ? (readJson(file) ?? {}).steps || [] : [];
+    if (steps.includes(reason) || steps.length >= MAX_BLOCKS) return;
+    writeJson(file, { steps: [...steps, reason] });
+    emit.block(reason);
+  });
 }

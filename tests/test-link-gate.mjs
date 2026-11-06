@@ -62,7 +62,7 @@ const run = (entries, extra = {}, env = {}) => {
   fs.writeFileSync(transcript, entries.map((e) => JSON.stringify(e)).join("\n"));
   const r = spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({ session_id: "test-" + path.basename(tmp), transcript_path: transcript, ...extra }),
-    env: { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp, LINK_GATE: "", ...env },
+    env: { ...process.env, HOME: tmp, USERPROFILE: tmp, LINK_GATE: "", ...env },
   });
   const out = r.stdout.toString();
   return r.status !== 0 ? `exit ${r.status}` : !out ? "pass" : JSON.parse(out).decision;

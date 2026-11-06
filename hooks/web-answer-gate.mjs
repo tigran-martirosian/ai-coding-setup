@@ -12,13 +12,12 @@
 //
 // Both fail open, both are silent when stop_hook_active is set, and each has its own off switch:
 // WEB_ANSWER_GATE=off turns off the file, HEDGE_CHECK=off and COUNT_CHECK=off turn off one check.
-import { crashLog } from "./crash-log.mjs";
-import fs from "node:fs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
+import { ru } from "./lib/ru.mjs";
+import { entries, QUESTION_TOOLS, tail, typedByUser, userText } from "./lib/transcript.mjs";
 
-// Russian twins of the English patterns below (for `--language russian`). \b does not see Cyrillic letters,
-// so these use the u flag, and « » stand for "no letter on this side". They are OR-ed in next to the
-// English ones, which are untouched.
-const ru = (src, flags = "iu") => new RegExp(src.replace(/«/g, "(?<!\\p{L})").replace(/»/g, "(?!\\p{L})"), flags);
+// Russian twins of the English patterns below (for `--language russian`; ru() in lib/ru.mjs explains « »). They are
+// OR-ed in next to the English ones, which are untouched.
 const RU_AVAILABLE = String.raw`(?:доступ(?:ен|н\p{L}*)|выпущен\p{L}*|вышел|вышла|вышло|вышли|опубликован\p{L}*|существу\p{L}*|поддерживается|поддерживаются|поддерживать|совместим\p{L}*)`;
 const RU_HEDGES = [
   // may / might / probably (not) available, released, published, existing
@@ -77,39 +76,24 @@ export const harnessPrompt = (e, text) =>
 
 // This turn: the assistant's visible text, the tools it called, and the user's prompt that started it
 export function turn(transcriptPath) {
-  const fd = fs.openSync(transcriptPath, "r");
-  let chunk;
-  try {
-    const size = fs.fstatSync(fd).size;
-    const len = Math.min(size, TAIL_BYTES);
-    const buf = Buffer.alloc(len);
-    fs.readSync(fd, buf, 0, len, size - len);
-    chunk = buf.toString("utf8");
-  } finally {
-    fs.closeSync(fd);
-  }
-  const lines = chunk.split("\n");
+  const list = entries(tail(transcriptPath, TAIL_BYTES));
   const parts = [], tools = [];
   let prompt = "", harness = false;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line.includes('"user"') && !line.includes('"assistant"')) continue;
-    let e;
-    try { e = JSON.parse(line); } catch { continue; }
-    if (e.isSidechain) continue;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const e = list[i];
     const c = e.message?.content;
     if (e.type === "user") {
-      // Injected entries are not the user's words: a Stop hook's own feedback, a skill's prompt, the
-      // synthetic "No response requested." Reading one as the prompt makes both checks judge the
-      // wrong text, and the newest transcripts carry several per turn.
       if (e.isMeta || e.isCompactSummary) continue;
-      const text = typeof c === "string" ? c
-        : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text).join("\n") : "";
+      const text = userText(e);
       if (!text) continue;
-      if (/^\s*(?:<synthetic>|\[(?:Stop hook|System|Child Session|Request interrupted)|Stop hook feedback:|Caveat: The messages below)/i.test(text)) continue;
       // A notification or a judge prompt is not an ask: skip it and keep reading back to the last typed
       // prompt, so the text and tools gathered so far stay, and note that the harness started this turn.
+      // Checked before typedByUser, which would skip a notification without noting it.
       if (harnessPrompt(e, text)) { harness = true; continue; }
+      // Injected entries are not the user's words: a Stop hook's own feedback, the synthetic "No response
+      // requested." Reading one as the prompt makes both checks judge the wrong text, and the newest
+      // transcripts carry several per turn.
+      if (!typedByUser(e)) continue;
       prompt = text;
       break;
     }
@@ -230,7 +214,7 @@ export function countProblem(prompt, prose, tools, harness = false) {
   const want = wantedCount(prompt);
   if (!want) return null;
   // A turn that stops to ask the user is not an answer yet
-  if (tools.some((t) => /AskUserQuestion|PromptForUserInput|ExitPlanMode/.test(t.name))) return null;
+  if (tools.some((t) => QUESTION_TOOLS.test(t.name))) return null;
   const got = listedCount(prose);
   if (got >= want) return null;
   // A turn a notification started that lists nothing is a status line, not an answer
@@ -268,29 +252,18 @@ export function reason({ hedge, count }) {
   return out.join("\n");
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
-  let raw = "";
-  process.stdin.on("data", (d) => (raw += d));
-  process.stdin.on("end", () => {
-    try {
-      if ((process.env.WEB_ANSWER_GATE || "").toLowerCase() === "off") return;
-      const input = JSON.parse(raw);
-      if (input.stop_hook_active) return;
-      let t = { prose: "", tools: [], prompt: "", harness: false };
-      if (input.transcript_path) {
-        try { t = turn(input.transcript_path); } catch {}
-      }
-      const last = typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
-      if (last && !t.prose.includes(last)) t.prose = t.prose ? `${t.prose}\n${last}` : last;
-      const off = (name) => (process.env[name] || "").toLowerCase() === "off";
-      const hedge = off("HEDGE_CHECK") ? null : hedgeProblem(t.prose, t.tools);
-      const count = off("COUNT_CHECK") ? null : countProblem(t.prompt, t.prose, t.tools, t.harness);
-      if (hedge || count) {
-        process.stdout.write(JSON.stringify({ decision: "block", reason: reason({ hedge, count }) }));
-      }
-    } catch (err) {
-      crashLog("web-answer-gate", err);
-      // fail open
+if (isMain(import.meta.url)) {
+  runHook("web-answer-gate", (input) => {
+    if (input.stop_hook_active) return;
+    let t = { prose: "", tools: [], prompt: "", harness: false };
+    if (input.transcript_path) {
+      try { t = turn(input.transcript_path); } catch {}
     }
+    const last = typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
+    if (last && !t.prose.includes(last)) t.prose = t.prose ? `${t.prose}\n${last}` : last;
+    const off = (name) => (process.env[name] || "").toLowerCase() === "off";
+    const hedge = off("HEDGE_CHECK") ? null : hedgeProblem(t.prose, t.tools);
+    const count = off("COUNT_CHECK") ? null : countProblem(t.prompt, t.prose, t.tools, t.harness);
+    if (hedge || count) emit.block(reason({ hedge, count }));
   });
 }

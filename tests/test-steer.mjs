@@ -41,8 +41,8 @@ let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; console.log(`${cond ? "ok  " : "FAIL"}  ${name}`); };
 
 // 1-3: before a call that runs long or starts something, the call is held with the note; such calls of
-// the same step are held too; the retry a moment later goes through. (Since 2026-11-05 only those are
-// held, so these name a helper launch; they used to pass no tool name.)
+// the same step are held too; the retry a moment later goes through. (Only those are
+// held, so these name a helper launch.)
 const agentCall = { tool_name: "Agent", tool_input: { prompt: "build it" } };
 put([note("use the blue one")]);
 let o = hook("PreToolUse", agentCall);
@@ -56,8 +56,8 @@ sleep(1700);
 ok("the retry goes through", hook("PreToolUse", agentCall) === null);
 ok("the delivered note is cleared", left().length === 0);
 
-// A quick call is not held: a held call does not run and is sent again, one more request (2026-11-05:
-// 22 of 112 held calls came back unchanged). Its result carries the note seconds later.
+// A quick call is not held: a held call does not run and is sent again, one more request.
+// Its result carries the note seconds later.
 put([note("use the red one")]);
 ok("a quick call runs: not held, and the note waits", hook("PreToolUse", { tool_name: "Read", tool_input: { file_path: "a" } }) === null && left().length === 1 && !left()[0].seen);
 o = hook("PostToolUse", { tool_name: "Read" });
@@ -90,7 +90,7 @@ ok("finishing with no note: nothing happens", hook("Stop") === null);
 
 // 6: a helper agent inside the busy session must not take the note.
 // The copy goes only to a helper the session waits for (a foreground Agent call with no result yet), so
-// these name the session's transcript (since 2026-11-05; they used to pass none).
+// these name the session's transcript.
 const parentT = path.join(home, "parent.jsonl");
 const agentUse = (id) => JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Agent", input: {} }] } }) + "\n";
 fs.writeFileSync(parentT, agentUse("call-fg"));
@@ -176,8 +176,8 @@ childT("tool_use");
 r = run(["send", "--to", "e13360ea", "wine ages faster"], nimb);
 ok("a Nimbalyst id reaches the busy child in another folder, named by its title",
   r.code === 0 && r.out.startsWith('Queued for "job 3b: base design", not delivered yet.') && left().at(-1).to === "dddddddd-child");
-// The transcript now has to show the background job (since 2026-11-05: a reply that ended with no job
-// left is idle whatever Nimbalyst says; notes there waited 6 and 20 min).
+// The transcript has to show the background job (a reply that ended with no job
+// left is idle whatever Nimbalyst says).
 fs.writeFileSync(path.join(childDir, "dddddddd-child.jsonl"), JSON.stringify({ type: "user", toolUseResult: { backgroundTaskId: "job9" } }) + "\n"
   + JSON.stringify({ type: "assistant", message: { stop_reason: "end_turn", content: [{ type: "text", text: "waiting" }] } }) + "\n");
 let before = left().length;
@@ -329,8 +329,8 @@ ok("STEER_FORWARD=off still forwards child reports", JSON.parse(o.out || "{}").d
 ok("no temp files are left in the steer folder", !fs.readdirSync(inboxDir).some((n) => n.endsWith(".tmp")));
 db.close();
 
-// Delivery receipts: a note stays until its marker is in the session's transcript (2026-10-30). The holds
-// here name a helper launch, the kind of call still held since 2026-11-05.
+// Delivery receipts: a note stays until its marker is in the session's transcript. The holds
+// here name a helper launch, the kind of call that is held.
 {
   const inbox = path.join(home, ".claude", "steer");
   const tp2 = path.join(home, "receipt-transcript.jsonl");
@@ -356,8 +356,8 @@ db.close();
   pause();
   x = hook("PreToolUse", sid);
   ok("once the marker is in the transcript the note is done", x === null && inBox().length === 0 && rc().find((r) => r.id === "n1")?.state === "delivered");
-  // Tool calls run while their reply is still coming and their results land later (2026-10-31: a note was
-  // handed over four times in 11 s of one reply and marked failed, yet it had arrived). Other lines land meanwhile.
+  // Tool calls run while their reply is still coming and their results land later (a note handed over
+  // several times in one reply was marked failed, yet it had arrived). Other lines land meanwhile.
   fs.writeFileSync(tp2, "");
   put({ ts: Date.now(), id: "n4", to: "rcpt-1", from: "lead-1", msg: "mid reply" });
   hook("PreToolUse", { ...sid, ...agentCall, tool_use_id: "call-4" });

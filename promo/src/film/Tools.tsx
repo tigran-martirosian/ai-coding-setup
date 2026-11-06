@@ -1,160 +1,206 @@
 import React from "react";
-import { Camera, Count, ease, Field, Head, LOG_LINES, pop, Ring, Rise, SOFT_EDGES, useTick } from "./kit";
-import { color, FLOOR, MARGIN, mono, partColor, sans, TIGHT } from "./look";
-import { COMMANDS, Shot, THEMES } from "./script";
+import { clamp, ease, FADE, Field, glide, Head, mix, sec, Typed, useTick, Wire } from "./kit";
+import { accent, color, FLOOR, MARGIN, TOP, TYPE } from "./look";
+import { Shot } from "./script";
 import { need } from "./need";
 
-const yellow = partColor.Tools;
+const ink = accent.Steer;
 
-/** Six tools hit the frame on a beat, from alternating sides, until it is full. */
-export const Everyday: React.FC<{ shot: Shot }> = ({ shot }) => {
+/** Where each part of the sample project sits on the map, by its centre: the page on the left, what it calls in
+ * the middle, the tests and docs on the right. */
+const PLACES = [
+  { x: 250, y: 580 },
+  { x: 700, y: 580 },
+  { x: 1180, y: 380 },
+  { x: 1180, y: 780 },
+  { x: 1180, y: 580 },
+  { x: 1650, y: 620 },
+  { x: 1650, y: 400 },
+];
+const NODE_W = 300;
+const NODE_H = 84;
+
+/** The map stands still. One link is changed and lights up along its length; the two parts at its ends light, then
+ * the parts the change reaches next, and the map says what to check. */
+export const SystemsMap: React.FC<{ shot: Shot }> = ({ shot }) => {
   const t = useTick();
-  const { tiles } = need(shot.body, "tiles");
+  const { parts, links, changed, check } = need(shot.body, "map");
+  if (parts.length !== PLACES.length) throw new Error(`The map has ${parts.length} parts and ${PLACES.length} places.`);
+  const [from, to] = links[changed];
+  const lightAt = sec(1);
+  const endsAt = sec(2.2);
+  const nextAt = sec(3);
+  const next = links.filter(([a]) => a === to).map(([, b]) => b);
+  const lit = (i: number) => (i === from || i === to ? ease(t, endsAt, sec(0.5)) : next.includes(i) ? 0.6 * ease(t, nextAt + next.indexOf(i) * sec(0.3), sec(0.5)) : 0);
+  const out = (i: number) => ({ x: PLACES[i].x + NODE_W / 2, y: PLACES[i].y });
+  const inn = (i: number) => ({ x: PLACES[i].x - NODE_W / 2, y: PLACES[i].y });
   return (
-    <Field bg={yellow.bg} on={yellow.on}>
-      <Camera jolts={tiles.map((_, i) => ({ at: 2 + i * 7, size: 5 }))}>
-        <Head title={shot.title} size={100} style={{ top: 36 }} />
-        <div style={{ position: "absolute", left: MARGIN, right: MARGIN, top: 180, bottom: 1080 - FLOOR + 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 14 }}>
-          {tiles.map((tile, i) => {
-            const land = pop(t, 2 + i * 7);
-            const dark = i % 2 === 0;
-            return (
-              <div key={tile.name} style={{ background: dark ? color.ink : color.paper, color: dark ? color.white : color.ink, borderRadius: 16, padding: "26px 32px", display: "flex", flexDirection: "column", justifyContent: "flex-end", transform: `translateX(${(1 - land) * (i % 2 ? 1500 : -1500)}px)`, visibility: t < 2 + i * 7 ? "hidden" : "visible" }}>
-                <div style={{ fontFamily: tile.name.startsWith("/") ? mono : sans, fontSize: 80, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, whiteSpace: "nowrap" }}>{tile.name}</div>
-                <div style={{ fontSize: 50, fontWeight: 500, marginTop: 12, lineHeight: 1.08 }}>{tile.note}</div>
-              </div>
-            );
-          })}
-        </div>
-      </Camera>
+    <Field>
+      <Head title={shot.title} sub={shot.sub} ink={ink} />
+      {links.map(([a, b], i) => (
+        <Wire key={i} a={out(a)} b={inn(b)} draw={1} ink={color.faint} />
+      ))}
+      <Wire a={out(from)} b={inn(to)} draw={glide(t, lightAt, sec(1))} ink={ink} width={5} />
+      {next.map((b, i) => (
+        <Wire key={b} a={out(to)} b={inn(b)} draw={glide(t, nextAt + i * sec(0.3), sec(0.7))} ink={mix(color.faint, ink, 0.6)} width={4} />
+      ))}
+      <div style={{ position: "absolute", left: (out(from).x + inn(to).x) / 2 - 90, top: (PLACES[from].y + PLACES[to].y) / 2 - 64, width: 180, textAlign: "center", fontSize: TYPE.label, color: ink, opacity: ease(t, lightAt + sec(0.5), FADE) }}>changed</div>
+      {parts.map((part, i) => {
+        const on = lit(i);
+        return (
+          <div
+            key={part}
+            style={{
+              position: "absolute",
+              left: PLACES[i].x - NODE_W / 2,
+              top: PLACES[i].y - NODE_H / 2,
+              width: NODE_W,
+              height: NODE_H,
+              borderRadius: 10,
+              border: `2px solid ${mix(color.line, ink, on)}`,
+              background: on > 0 ? mix(color.window, "#2a2614", on) : color.window,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 32,
+              whiteSpace: "nowrap",
+              color: mix(color.dim, color.text, Math.max(on, 0.5)),
+            }}
+          >
+            {part}
+          </div>
+        );
+      })}
+      <div style={{ position: "absolute", left: MARGIN, top: 900, fontSize: 40, fontWeight: 600, opacity: ease(t, nextAt + sec(1), sec(0.5)) }}>
+        <span style={{ color: ink }}>→ </span>
+        {check}
+      </div>
     </Field>
   );
 };
 
-const HIT = 25;
+const SESSION = { x: MARGIN, y: TOP, w: 1100, h: 700 };
+const NOTE = { x: 1240, y: TOP, w: 1920 - MARGIN - 1240, h: 200 };
+const LINE = 64;
+const FIRST = TOP + 62 + 30;
 
-/** Four commands, one hard cut each. The fastest stretch of the film. */
-export const Audits: React.FC<{ shot: Shot }> = ({ shot }) => {
+/** The session keeps working, a line at a time. Beside it a note is typed and sent; it slides into the session
+ * without stopping it, and the agent's next step is the note. */
+export const Btw: React.FC<{ shot: Shot }> = ({ shot }) => {
   const t = useTick();
-  const { rows } = need(shot.body, "rows");
-  const i = Math.min(rows.length - 1, Math.floor(t / HIT));
-  const row = rows[i];
-  const at = i * HIT;
-  const light = i % 2 === 1;
-  const bg = light ? yellow.bg : color.ink;
-  const on = light ? color.ink : color.white;
+  const { work, note, picked } = need(shot.body, "btw");
+  const lineAt = (i: number) => (i < 3 ? -1 : sec(0.8 + (i - 3) * 0.8));
+  const typedAt = sec(0.4);
+  const sendAt = typedAt + note.length / 0.8 + sec(0.3);
+  // The note drops down beside the session, then slides left into it, so it never crosses the lines being written.
+  const drop = glide(t, sendAt + sec(0.2), sec(0.5));
+  const slide = glide(t, sendAt + sec(0.7), sec(0.7));
+  const pickAt = lineAt(work.length - 1) + sec(0.9);
+  const picking = ease(t, pickAt, sec(0.5));
+  const strip = { x: SESSION.x + 28, y: SESSION.y + SESSION.h - 96 };
+  const card = { x: NOTE.x + 28 + (strip.x - NOTE.x - 28) * slide, y: NOTE.y + 84 + (strip.y - NOTE.y - 84) * drop, w: NOTE.w - 56 + (SESSION.w - NOTE.w) * slide };
+  const rows = [...work, picked];
   return (
-    <Field bg={bg} on={on}>
-      <Camera drift={2}>
-        <Head title={shot.title} size={72} style={{ top: 44 }} />
-        <div style={{ position: "absolute", left: MARGIN, right: MARGIN, top: 300 }}>
-          <div style={{ fontFamily: mono, fontSize: 156, fontWeight: 600, letterSpacing: "-0.06em", lineHeight: 1, whiteSpace: "nowrap", color: light ? color.ink : color.yellow, transform: `scale(${1.14 - pop(t, at) * 0.14})`, transformOrigin: "0 50%" }}>{row.text}</div>
-          <div style={{ fontSize: 92, fontWeight: 700, letterSpacing: TIGHT, lineHeight: 1.04, marginTop: 34 }}>
-            <Rise key={i} text={row.note ?? ""} at={at} gap={0.5} />
-          </div>
+    <Field>
+      <Head title={shot.title} sub={shot.sub} ink={ink} />
+      <div style={{ position: "absolute", left: SESSION.x, top: SESSION.y, width: SESSION.w, height: SESSION.h, border: `2px solid ${color.line}`, borderRadius: 12, background: color.window }}>
+        <div style={{ height: 62, display: "flex", alignItems: "center", gap: 16, padding: "0 30px", fontSize: TYPE.label, color: color.dim, borderBottom: `1px solid ${color.line}` }}>
+          <span style={{ width: 12, height: 12, borderRadius: 6, background: color.good }} />
+          Session: working
         </div>
-      </Camera>
+      </div>
+      {rows.map((row, i) => {
+        const at = i === work.length ? pickAt : lineAt(i);
+        return (
+          <div key={row} style={{ position: "absolute", left: SESSION.x + 30, top: FIRST + i * LINE, fontSize: 32, whiteSpace: "pre", opacity: at < 0 ? 1 : ease(t, at, FADE) }}>
+            <span style={{ color: color.dim }}>{row.slice(0, 7)}</span>
+            <span style={{ color: i === work.length ? ink : color.text }}>{row.slice(7)}</span>
+          </div>
+        );
+      })}
+
+      <div style={{ position: "absolute", left: NOTE.x, top: NOTE.y, width: NOTE.w, height: NOTE.h, border: `2px solid ${color.line}`, borderRadius: 12, background: color.window }}>
+        <div style={{ height: 62, display: "flex", alignItems: "center", padding: "0 28px", fontSize: TYPE.label, color: color.dim, borderBottom: `1px solid ${color.line}` }}>Note, or /btw</div>
+        <div style={{ padding: "28px 28px", fontSize: TYPE.body, color: color.text, opacity: t < sendAt + sec(0.2) ? 1 : 0 }}>
+          <Typed text={note} at={typedAt} speed={0.8} cursor />
+        </div>
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: NOTE.x + NOTE.w - 220,
+          top: NOTE.y + NOTE.h + 24,
+          width: 220,
+          height: 70,
+          borderRadius: 8,
+          border: `2px solid ${mix(color.line, ink, ease(t, sendAt - sec(0.2), sec(0.3)) * (1 - ease(t, sendAt + sec(0.6), sec(0.5))))}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 30,
+          color: color.text,
+        }}
+      >
+        Send
+      </div>
+      {t >= sendAt + sec(0.2) ? (
+        <div
+          style={{
+            position: "absolute",
+            left: card.x,
+            top: card.y,
+            width: card.w,
+            height: 70,
+            borderRadius: 8,
+            border: `2px solid ${mix(ink, color.line, picking)}`,
+            background: color.raised,
+            display: "flex",
+            alignItems: "center",
+            gap: 18,
+            padding: "0 22px",
+            fontSize: 32,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            color: color.text,
+          }}
+        >
+          <span style={{ color: ink }}>Your note:</span>
+          {note}
+          <span style={{ marginLeft: "auto", fontSize: TYPE.label, color: color.good, opacity: picking }}>picked up</span>
+        </div>
+      ) : null}
     </Field>
   );
 };
 
-const FILES = ["sources.md", "findings.md", "HANDOFF.md", "DECISIONS.md", "CLAUDE.md", "notes.md", "input.csv", "output.csv"];
-
-/** Four folders in from the corners, their contents running inside. */
-export const Projects: React.FC<{ shot: Shot }> = ({ shot }) => {
+/** A quiet grid naming the rest of the setup. Nothing in it moves but one highlight, gliding from tile to tile. */
+export const Also: React.FC<{ shot: Shot }> = ({ shot }) => {
   const t = useTick();
   const { tiles } = need(shot.body, "tiles");
-  const tints = [color.ink, color.paper, color.ink, color.paper];
+  const across = 2;
+  const gap = 16;
+  const w = (1920 - 2 * MARGIN - (across - 1) * gap) / across;
+  const h = (FLOOR - TOP - 20 - 3 * gap) / 4;
+  const place = tiles.reduce((sum, _, i) => sum + (i ? glide(t, sec(0.6 + (i - 1) * 0.6), sec(0.4)) : 0), 0);
+  const at = (i: number) => ({ x: MARGIN + (i % across) * (w + gap), y: TOP + 20 + Math.floor(i / across) * (h + gap) });
+  const low = Math.floor(place);
+  const share = place - low;
+  const a = at(low);
+  const b = at(Math.min(tiles.length - 1, low + 1));
+  const band = { x: a.x + (b.x - a.x) * share, y: a.y + (b.y - a.y) * share };
   return (
-    <Field bg={yellow.bg} on={yellow.on}>
-      <Camera>
-        <Head title={shot.title} size={100} style={{ top: 36 }} />
-        <div style={{ position: "absolute", left: MARGIN, right: MARGIN, top: 180, bottom: 1080 - FLOOR + 8, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 18 }}>
-          {tiles.map((tile, i) => {
-            const land = pop(t, i * 1.5);
-            const dark = tints[i] === color.ink;
-            return (
-              <div key={tile.name} style={{ position: "relative", transform: `translate(${(1 - land) * (i % 2 ? 1100 : -1100)}px, ${(1 - land) * (i < 2 ? -500 : 500)}px)` }}>
-                <div style={{ position: "absolute", left: 0, top: 0, width: 300, height: 60, background: tints[i], borderRadius: "14px 14px 0 0" }} />
-                <div style={{ position: "absolute", inset: "36px 0 0 0", background: tints[i], color: dark ? color.white : color.ink, borderRadius: "0 14px 14px 14px", padding: "20px 32px", overflow: "hidden" }}>
-                  <div style={{ position: "absolute", right: 28, top: 14, fontFamily: mono, fontSize: 28, lineHeight: "40px", color: dark ? "#55555c" : "#b5b4ae", textAlign: "right", transform: `translateY(${-((t * 3) % 40)}px)` }}>
-                    {Array.from({ length: 10 }, (_, r) => (
-                      <div key={r}>{FILES[(r + i * 3 + Math.floor((t * 3) / 40)) % FILES.length]}</div>
-                    ))}
-                  </div>
-                  <div style={{ fontFamily: mono, fontSize: 68, fontWeight: 600, letterSpacing: "-0.04em", position: "relative" }}>{tile.name}</div>
-                  <div style={{ fontSize: 52, fontWeight: 500, lineHeight: 1.08, marginTop: 14, position: "relative", maxWidth: 590 }}>{tile.note}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Camera>
-    </Field>
-  );
-};
-
-const THEME_TICKS = 9;
-
-/** The editor itself, flipping through all eleven themes while its panels run. */
-export const Editor: React.FC<{ shot: Shot }> = ({ shot }) => {
-  const t = useTick();
-  const { tiles } = need(shot.body, "tiles");
-  const theme = THEMES[Math.min(THEMES.length - 1, Math.floor(t / THEME_TICKS))];
-  const pitch = 44;
-  const moved = t * 2;
-  const first = Math.floor(moved / pitch);
-  const panel: React.CSSProperties = { background: theme.panel, borderRadius: 16, padding: "22px 28px", position: "relative", overflow: "hidden" };
-  const name: React.CSSProperties = { fontSize: 66, fontWeight: 700, letterSpacing: TIGHT, lineHeight: 1 };
-  const note: React.CSSProperties = { fontSize: 42, fontWeight: 500, color: theme.muted, marginTop: 8, lineHeight: 1.08 };
-  return (
-    <Field bg={theme.bg} on={theme.text}>
-      <Camera>
-        <Head title={shot.title} size={100} style={{ top: 36 }} />
-        <div style={{ position: "absolute", left: MARGIN, right: MARGIN, top: 176, bottom: 1080 - FLOOR + 8, display: "grid", gridTemplateColumns: "1fr 1.1fr 1.1fr", gridTemplateRows: "1fr 1fr", gap: 14 }}>
-          <div style={{ ...panel, gridRow: "1 / 3", display: "flex", flexDirection: "column", transform: `translateY(${(1 - pop(t, 0)) * 900}px)` }}>
-            <div style={name}>{tiles[0].name}</div>
-            <div style={note}>{tiles[0].note}</div>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Ring share={0.74 * ease(t, 2, 40)} size={420} stroke={46} ink={theme.primary} track={theme.bg}>
-                <div style={{ fontSize: 120, fontWeight: 700, letterSpacing: TIGHT }}>
-                  <Count to={74} at={2} len={40} suffix="%" />
-                </div>
-              </Ring>
-            </div>
+    <Field>
+      <Head title={shot.title} sub={shot.sub} ink={accent.Overview} />
+      <div style={{ position: "absolute", left: band.x, top: band.y, width: w, height: h, borderRadius: 12, background: color.raised, border: `2px solid ${accent.Overview}` }} />
+      {tiles.map((tile, i) => {
+        const on = clamp(1 - Math.abs(i - place));
+        return (
+          <div key={tile.name} style={{ position: "absolute", left: at(i).x, top: at(i).y, width: w, height: h, borderRadius: 12, border: `2px solid ${color.line}`, padding: "22px 34px", boxSizing: "border-box" }}>
+            <div style={{ fontSize: 56, fontWeight: 700, whiteSpace: "nowrap", color: mix(color.dim, color.text, Math.max(on, 0.6)) }}>{tile.name}</div>
+            <div style={{ fontSize: 34, lineHeight: 1.35, marginTop: 8, color: color.dim }}>{tile.note}</div>
           </div>
-          <div style={{ ...panel, gridRow: "1 / 3", transform: `translateY(${(1 - pop(t, 2)) * 900}px)` }}>
-            <div style={name}>{tiles[1].name}</div>
-            <div style={note}>{tiles[1].note}</div>
-            <div style={{ marginTop: 20 }}>
-              {COMMANDS.map((command, i) => {
-                const on = pop(t, 10 + i * 2);
-                return (
-                  <div key={command} style={{ fontSize: 44, fontWeight: 700, padding: "9px 18px", marginBottom: 7, borderRadius: 10, background: Math.floor(t / 8) % 7 === i ? theme.primary : theme.bg, color: Math.floor(t / 8) % 7 === i ? (theme.name === "Noir" ? "#101010" : "#ffffff") : theme.text, transform: `translateX(${(1 - on) * 500}px)`, whiteSpace: "nowrap" }}>
-                    {command}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div style={{ ...panel, transform: `translateY(${(1 - pop(t, 4)) * -900}px)` }}>
-            <div style={name}>{tiles[2].name}</div>
-            <div style={note}>{tiles[2].note}</div>
-            <div style={{ position: "absolute", left: 28, right: 28, top: 186, bottom: 12, fontFamily: mono, fontSize: 28, lineHeight: `${pitch}px`, color: theme.muted, overflow: "hidden", ...SOFT_EDGES }}>
-              <div style={{ transform: `translateY(${-(moved % pitch)}px)` }}>
-                {Array.from({ length: 8 }, (_, r) => (
-                  <div key={r}>{LOG_LINES[(first + r) % LOG_LINES.length]}</div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div style={{ ...panel, background: theme.primary, color: theme.name === "Noir" ? "#101010" : "#ffffff", transform: `translateY(${(1 - pop(t, 6)) * 900}px)` }}>
-            <div style={name}>{tiles[3].name}</div>
-            <div style={{ ...note, color: "inherit" }}>{tiles[3].note}</div>
-            <div style={{ position: "absolute", left: 28, bottom: 16, fontSize: 96, fontWeight: 700, letterSpacing: TIGHT }}>{theme.name}</div>
-          </div>
-        </div>
-      </Camera>
+        );
+      })}
     </Field>
   );
 };

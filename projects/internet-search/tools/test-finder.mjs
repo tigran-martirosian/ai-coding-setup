@@ -1,4 +1,4 @@
-// Tests for the link gate (.claude/hooks/link-gate.mjs), tools/links.mjs and tools/limits.mjs.
+// Tests for the link gate (.claude/hooks/finder-link-gate.mjs), tools/links.mjs and tools/limits.mjs.
 // Run: node tools/test-finder.mjs
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -7,10 +7,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { key, notAnItemPage, isSaveLabel, linksIn } from "./links.mjs";
 import { check } from "./limits.mjs";
-import { scan, problems } from "../.claude/hooks/link-gate.mjs";
+import { scan, problems } from "../.claude/hooks/finder-link-gate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const HOOK = path.join(HERE, "..", ".claude", "hooks", "link-gate.mjs");
+const HOOK = path.join(HERE, "..", ".claude", "hooks", "finder-link-gate.mjs");
 const ROOT = path.resolve(HERE, "..");
 let fails = 0;
 const ok = (name, got, want = true) => {

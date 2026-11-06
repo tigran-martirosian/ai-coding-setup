@@ -11,9 +11,11 @@
 // update): silent to the user, so a prompt never waits long. The failure
 // is written into update-check.json (failedAt and error, cleared by the next good answer) and the check is not tried
 // again for an hour, so an offline prompt costs one file read, not a wait for every prompt.
+// It reads no hook input, so it does not use runHook. The answer stays in ~/.claude, next to setup-state.json
+// (SETUP_UPDATE_HOME moves both for the tests), not in hooks/state.
 // Fails open. UPDATE_CHECK=off disables it. SETUP_UPDATE_BASE points it at another address (tests).
-import { crashLog } from "./crash-log.mjs";
-import fs from "node:fs";
+import { crashLog } from "./lib/crash-log.mjs";
+import { readJson, writeJson } from "./lib/state.mjs";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
@@ -31,7 +33,7 @@ const RETRY = 60 * 60 * 1000; // after a failed check
 const WAIT = 700; // ms a prompt may wait for GitHub
 const WAIT_SLOW = 2500; // the same, when the last try ran out of time
 const TIMED_OUT = "no answer in time";
-const json = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return {}; } };
+const json = (file) => readJson(file, { missing: {} }); // a file that is not JSON is crash-logged, then counts as missing
 // 1.10.0 is newer than 1.9.2: compared number by number
 const newer = (a, b) => {
   const [x, y] = [a, b].map((v) => String(v || "0").split(".").map(Number));
@@ -44,7 +46,10 @@ const get = (url, ms, hops = 5) => new Promise((resolve, reject) => {
   const req = (url.startsWith("https:") ? https : http).get(url, { timeout: ms, headers: { "user-agent": "setup-update" } }, (res) => {
     if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && hops > 0) {
       res.resume();
-      return resolve(get(new URL(res.headers.location, url).href, ms, hops - 1));
+      const next = new URL(res.headers.location, url).href;
+      // never from https down to plain http
+      if (url.startsWith("https:") && !next.startsWith("https:")) return reject(new Error(`redirect to ${next} is not https`));
+      return resolve(get(next, ms, hops - 1));
     }
     if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
     const parts = [];
@@ -56,7 +61,7 @@ const get = (url, ms, hops = 5) => new Promise((resolve, reject) => {
   req.on("error", reject);
 });
 
-if (process.env.UPDATE_CHECK !== "off") {
+if ((process.env.UPDATE_CHECK || "").toLowerCase() !== "off") {
   try {
     const stateFile = path.join(CLAUDE, "update-check.json");
     const last = json(stateFile);
@@ -71,12 +76,12 @@ if (process.env.UPDATE_CHECK !== "off") {
         if (c.status === "fulfilled") changelog = String(c.value); // the changelog only adds detail
       } catch (e) {
         // Remember the failure (and why) instead of trying again on every prompt
-        fs.writeFileSync(stateFile, JSON.stringify({ ...last, failedAt: new Date().toISOString(), error: String(e.message || e) }) + "\n");
+        writeJson(stateFile, { ...last, failedAt: new Date().toISOString(), error: String(e.message || e) });
         latest = null; // offline, a timeout or an HTTP error: kept in update-check.json above, and not a crash
       }
       if (latest?.version) {
         const installed = json(path.join(CLAUDE, "setup-state.json")).version || "0";
-        fs.writeFileSync(stateFile, JSON.stringify({ checkedAt: new Date().toISOString(), latest: latest.version }) + "\n");
+        writeJson(stateFile, { checkedAt: new Date().toISOString(), latest: latest.version });
         if (newer(latest.version, installed)) {
           const what = latest.summary ? ` ${latest.summary}` : "";
           const yours = installed === "0" ? "an older one" : installed;

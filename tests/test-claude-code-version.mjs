@@ -114,7 +114,7 @@ ok("stop text tells to close Claude and update in a plain terminal", (r.stop || 
       return { status: 1, stdout: "" };
     };
     const exists = (p) => { const c = p.replaceAll(String.fromCharCode(92), "/"); return c === BUN || (file && c === AI); };
-    const r = pointNimbalyst({ file: AI, min: "2.1.296", previous, dry, run, exists, platform: "win32", arch: "x64", env: { LOCALAPPDATA: "C:/L", ...env },
+    const r = pointNimbalyst({ file: AI, min: "2.1.296", previous, dry, run, exists, platform: "win32", arch: "x64", env: { LOCALAPPDATA: "C:/L", Path: "C:\\U\\npm;C:\\U\\.local\\bin\\", ...env },
       log: (s) => out.push(s), read: () => saved, write: (f, t) => { saved = t; } });
     let ai = null; try { ai = JSON.parse(saved); } catch {}
     return { ...r, path: ai?.customClaudeCodePath, other: ai?.other, out: out.join("\n") };
@@ -136,6 +136,11 @@ ok("stop text tells to close Claude and update in a plain terminal", (r.stop || 
   ok("a newer line after being pointed: back to bundled", [p.path, p.set], ["", null]);
   p = point({ where: "C:/U/npm/claude.cmd\n" });
   ok("only an npm shim: not pointed, says why", [p.path, p.set, /no native Claude Code/.test(p.out)], ["", null, true]);
+  p = point({ where: `C:/Projects/x/claude.exe\n${OWN}\n` });
+  ok("a claude.exe in the current folder, not on the PATH, is skipped", [p.path, p.set], [OWN, OWN]);
+  p = point({ where: "C:/Projects/x/claude.exe\n" });
+  ok("only a current-folder claude.exe: not pointed", [p.path, p.set], ["", null]);
+  ok("commands run with the current folder left out of the search", childEnv({}).NoDefaultCurrentDirectoryInExePath, "1");
   p = point({ own: null });
   ok("own gives no version: not pointed", [p.path, p.set], ["", null]);
   p = point({ dry: true });

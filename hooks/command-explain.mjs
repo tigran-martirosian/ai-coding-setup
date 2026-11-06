@@ -6,26 +6,22 @@
 // rule from the command's first word, and a leading "#" would turn that into "allow everything".
 // Inside Nimbalyst the popup shows only the word "PowerShell" for the PowerShell tool, so that tool
 // is blocked when the Bash tool can be used instead (COMMAND_EXPLAIN_BASH=yes|no overrides the check
-// for Git Bash) (2026-10-01).
+// for Git Bash).
 // The popup draws the note in the same font and colour as the command, so it read as more code.
-// It therefore has to follow an empty line and start with "# WHAT THIS DOES:" (2026-10-01).
-// There is no limit on a command's length: the limit of 7 popup lines (2026-10-01) was taken out on
-// 2026-10-12, after it made 295 of the hook's 335 refusals in 8 days.
-// A command without the note is no longer refused (631 refusals and retries in 14 days, 2026-10-26):
+// It therefore has to follow an empty line and start with "# WHAT THIS DOES:".
+// There is no limit on a command's length. A command without the note is not refused:
 // the hook appends a stand-in note, "(no note given)" plus the command's start, through updatedInput.
 // No permissionDecision goes with it, so the normal permission prompt still decides; "allow" would
 // skip the prompt. A line of additionalContext tells Claude to write the note itself next time.
-// A helper gets the stand-in without that line: the new worker got 58 of them in a day although its own
-// rules ask for the note, so the line changed nothing there (2026-11-02).
-// The PowerShell-tool refusal stays. Added 2026-09-30.
+// A helper gets the stand-in without that line: its own rules already ask for the note.
+// The PowerShell-tool refusal stays.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
-import { crashLog } from "./crash-log.mjs";
-import { existsSync, readFileSync } from "node:fs";
+import { runHook, inNimbalyst, emit } from "./lib/hook-io.mjs";
+import { COMMAND_EXPLAIN, NOTE_LINE_RE, NO_NOTE, POWERSHELL_TOOL, WHAT_THIS_DOES } from "./lib/texts.mjs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-const deny = (reason) => process.stdout.write(JSON.stringify({
-  hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `command-explain: ${reason}` },
-}));
+const deny = (reason) => emit.deny(`${COMMAND_EXPLAIN} ${reason}`);
 
 function hasBashTool() {
   const forced = (process.env.COMMAND_EXPLAIN_BASH || "").toLowerCase();
@@ -36,49 +32,38 @@ function hasBashTool() {
   return [process.env.CLAUDE_CODE_GIT_BASH_PATH, ...paths].filter(Boolean).some((p) => existsSync(p));
 }
 
-try {
-  if ((process.env.COMMAND_EXPLAIN || "").toLowerCase() === "off") process.exit(0);
-  const event = JSON.parse(readFileSync(0, "utf8"));
-  if (!["Bash", "PowerShell"].includes(event.tool_name)) process.exit(0);
+runHook("command-explain", (event) => {
+  if (!["Bash", "PowerShell"].includes(event.tool_name)) return;
   const command = (event.tool_input || {}).command;
-  if (typeof command !== "string" || !command.trim()) process.exit(0);
-  // A hook gets no variable that names Nimbalyst (CLAUDE_CODE_EXECPATH reaches the Bash tool, not
-  // hooks). CLAUDE_CODE_ENTRYPOINT is "sdk-..." when an app runs Claude and "cli" in the terminal.
-  const inNimbalyst = /^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "");
+  if (typeof command !== "string" || !command.trim()) return;
 
-  if (event.tool_name === "PowerShell" && inNimbalyst && hasBashTool()) {
+  if (event.tool_name === "PowerShell" && inNimbalyst() && hasBashTool()) {
     deny(
-      `don't use the PowerShell tool here. Nimbalyst's permission popup shows only the word "PowerShell" for it, so the user can't see what they are allowing. ` +
+      `don't use the ${POWERSHELL_TOOL} here. Nimbalyst's permission popup shows only the word "PowerShell" for it, so the user can't see what they are allowing. ` +
       `Run it with the Bash tool instead, ending with the "# " explanation line. For something only PowerShell can do, call it from Bash ` +
       `(powershell -NoProfile -Command '...'), or write a .ps1 file and run it with powershell -NoProfile -File.`,
     );
-    process.exit(0);
+    return;
   }
 
   const lines = command.trim().split(/\r?\n/);
   const last = lines[lines.length - 1].trim();
-  const note = (last.match(/^#\s*WHAT THIS DOES:\s*(.*)$/) || [])[1] || "";
+  const note = (last.match(NOTE_LINE_RE) || [])[1] || "";
   const words = note.split(/\s+/).filter((w) => /\p{L}/u.test(w));
   const afterBlank = lines.length > 1 && lines[lines.length - 2].trim() === "";
   if (words.length < 3 || !afterBlank) {
     const start = command.replace(/\s+/g, " ").trim().slice(0, 60);
     const output = {
       hookEventName: "PreToolUse",
-      updatedInput: { ...event.tool_input, command: `${command.trimEnd()}\n\n# WHAT THIS DOES: (no note given) ${start}` },
+      updatedInput: { ...event.tool_input, command: `${command.trimEnd()}\n\n${WHAT_THIS_DOES} ${NO_NOTE} ${start}` },
     };
-    if (!event.agent_id) output.additionalContext = `command-explain: that command had no "# WHAT THIS DOES:" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`;
+    if (!event.agent_id) output.additionalContext = `${COMMAND_EXPLAIN} that command had no "${WHAT_THIS_DOES}" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`;
     process.stdout.write(JSON.stringify({ hookSpecificOutput: output }));
-    process.exit(0);
+    return;
   }
   // Soft check: the note is a row title in Nimbalyst's agents panel, so it should start
   // with a capital and stay under 70 characters. Never refuses; the stand-in note is exempt.
-  if (!event.agent_id && !note.startsWith("(no note given)") && (/^\p{Ll}/u.test(note) || note.length >= 70)) {
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      additionalContext: `command-explain: the "# WHAT THIS DOES:" text is a row title in the agents panel, so next time start it with a capital letter and keep it under 70 characters.`,
-    } }));
+  if (!event.agent_id && !note.startsWith(NO_NOTE) && (/^\p{Ll}/u.test(note) || note.length >= 70)) {
+    emit.context("PreToolUse", `${COMMAND_EXPLAIN} the "${WHAT_THIS_DOES}" text is a row title in the agents panel, so next time start it with a capital letter and keep it under 70 characters.`);
   }
-} catch (err) {
-  crashLog("command-explain", err);
-  process.exit(0);
-}
+});

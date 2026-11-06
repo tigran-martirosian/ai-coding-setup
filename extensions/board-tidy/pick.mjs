@@ -15,13 +15,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DAY = 864e5;
-// Days without activity before a session is archived, by its board phase (user, 2026-11-05).
+// Days without activity before a session is archived, by its board phase.
 // backlog is never archived: it is work not started yet.
 export const RULES = { complete: 3, none: 14, planning: 30, validating: 30, implementing: 30 };
 const BUSY = new Set(['running', 'waiting_for_input']);
 const MIN_GAP_MS = 50 * 60 * 1000;
 
-/** SQLite's CURRENT_TIMESTAMP ("2026-11-05 10:00:00", UTC) or an ISO string, as milliseconds. */
+/** SQLite's CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC) or an ISO string, as milliseconds. */
 export function toMs(value) {
   if (value == null || value === '') return NaN;
   if (typeof value === 'number') return value;

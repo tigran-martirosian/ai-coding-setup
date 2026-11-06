@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { COMMANDS, MODEL, run, visible } from '../src/commands.ts';
+import { MODEL } from '../../shared/host.ts';
+import { COMMANDS, run, visible } from '../src/commands.ts';
 import { OWN } from '../src/own.ts';
 
 let n = 0;
@@ -24,14 +25,22 @@ ok(installed ? 'every button has an installed skill' : 'every button names a ski
 assert.equal(new Set(COMMANDS.map((c) => c.id)).size, COMMANDS.length);
 ok('ids are unique');
 
-const list = [...COMMANDS.slice(0, 2), { ...COMMANDS[0], id: 'one-folder', only: 'my-project' }];
+const list = [...COMMANDS.slice(0, 2), { ...COMMANDS[0], id: 'one-folder', only: ['my-project', 'other-name'] }];
 const ids = (p: string) => visible(p, list).map((c) => c.id);
 assert.ok(ids('C:\\Projects\\my-project').includes('one-folder'));
 assert.ok(ids('C:/Projects/My-Project/').includes('one-folder'));
+assert.ok(ids('C:\\Projects\\other-name').includes('one-folder'));
 assert.ok(!ids('C:\\Projects\\another-project').includes('one-folder'));
 assert.ok(!ids('').includes('one-folder'));
 assert.equal(ids('C:\\Projects\\another-project').length, list.length - 1);
 ok('a button tied to one project shows only in that project');
+
+const pre = [{ ...COMMANDS[0], id: 'prefix', only: ['claude-set*'] }];
+assert.equal(visible('C:\\Projects\\claude-settings', pre).length, 1);
+assert.equal(visible('C:/Projects/Claude-Settings-2/', pre).length, 1);
+assert.equal(visible('C:\\Projects\\claude-code', pre).length, 0);
+assert.equal(visible('C:\\Projects\\my-claude-settings', pre).length, 0);
+ok('a name ending in * matches folders that start with it');
 
 // the build for other people (npm run build:share), when it has been made
 const shared = path.join(import.meta.dirname, '..', 'dist-share', 'index.js');

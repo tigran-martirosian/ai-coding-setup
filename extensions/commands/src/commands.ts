@@ -1,9 +1,11 @@
 // The buttons, and the one call a button makes.
 //
 // A button starts a new session in the open project with the command as its first message. The app
-// has no call that reaches a session that is already running (read from the app's code, 2026-10-03),
+// has no call that reaches a session that is already running (read from the app's code),
 // so /handoff and /btw, which belong to a running chat, are not here.
 
+import { REFUSAL_MS, hostInvoke, startSession } from '../../shared/host.ts';
+import type { Invoke } from '../../shared/host.ts';
 import { HIDE, OWN } from './own.ts';
 import { t } from './strings.ts';
 
@@ -14,14 +16,17 @@ export interface Command {
   prompt: string;
   note: string;
   icon: string;
-  /** Shown only when the open project's folder has this name. */
-  only?: string;
+  /** Shown only when the open project's folder has one of these names; a name ending in * is a prefix. */
+  only?: string[];
 }
 
 // `npm run build:share` sets this: the build that goes to other people leaves out the buttons in
 // own.ts, whose skills exist only on this computer.
 declare const __SHARE__: boolean | undefined;
 const SHARE = typeof __SHARE__ !== 'undefined' && __SHARE__;
+
+// The folder that holds the setup: claude-settings for a new install, or a folder named like it.
+const SETUP_FOLDERS = ['claude-set*'];
 
 const ALL: Command[] = [
   { id: 'board-cleanup', label: t.commands.boardCleanup.label, prompt: '/board-cleanup', note: t.commands.boardCleanup.note, icon: 'mop' },
@@ -30,8 +35,10 @@ const ALL: Command[] = [
   { id: 'setup-audit', label: t.commands.setupAudit.label, prompt: '/setup-audit', note: t.commands.setupAudit.note, icon: 'fact_check' },
   { id: 'usage-report', label: t.commands.usageReport.label, prompt: '/setup-audit usage', note: t.commands.usageReport.note, icon: 'bar_chart' },
   { id: 'pc-tidy', label: t.commands.pcTidy.label, prompt: '/pc-tidy', note: t.commands.pcTidy.note, icon: 'memory' },
-  { id: 'chat-review', label: t.commands.chatReview.label, prompt: '/setup-audit chat', note: t.commands.chatReview.note, icon: 'forum', only: 'claude-settings' },
-  { id: 'full-review', label: t.commands.fullReview.label, prompt: '/setup-audit full', note: t.commands.fullReview.note, icon: 'rate_review', only: 'claude-settings' },
+  { id: 'chat-review', label: t.commands.chatReview.label, prompt: '/setup-audit chat', note: t.commands.chatReview.note, icon: 'forum', only: SETUP_FOLDERS },
+  { id: 'full-review', label: t.commands.fullReview.label, prompt: '/setup-audit full', note: t.commands.fullReview.note, icon: 'rate_review', only: SETUP_FOLDERS },
+  { id: 'untangle', label: t.commands.untangle.label, prompt: '/untangle-codebase', note: t.commands.untangle.note, icon: 'account_tree' },
+  { id: 'systems-map', label: t.commands.systemsMap.label, prompt: '/systems-map', note: t.commands.systemsMap.note, icon: 'hub' },
   ...(SHARE ? [] : OWN),
   { id: 'new-project', label: t.commands.newProject.label, prompt: '/new-project', note: t.commands.newProject.note, icon: 'create_new_folder' },
   { id: 'update-setup', label: t.commands.updateSetup.label, prompt: '/update-setup', note: t.commands.updateSetup.note, icon: 'system_update_alt' },
@@ -40,32 +47,18 @@ const ALL: Command[] = [
 // own.ts can hide a button whose skill is not on this computer; the build for other people has them all.
 export const COMMANDS: Command[] = ALL.filter((c) => SHARE || !HIDE.includes(c.id));
 
-// Every button starts on Sonnet, whatever model was picked last in the app.
-export const MODEL = 'claude-code:sonnet';
-
 const folderName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
 
 /** The buttons for the open project. */
 export function visible(workspacePath: string, commands: Command[] = COMMANDS): Command[] {
   const name = folderName(workspacePath).toLowerCase();
-  return commands.filter((c) => !c.only || c.only.toLowerCase() === name);
+  const fits = (o: string) => (o.endsWith('*') ? name.startsWith(o.slice(0, -1).toLowerCase()) : o.toLowerCase() === name);
+  return commands.filter((c) => !c.only || c.only.some(fits));
 }
-
-type Invoke = (channel: string, args: unknown) => Promise<unknown>;
-
-// A refusal (no project open, provider off) comes back at once; the reply itself takes minutes.
-const REFUSAL_MS = 2000;
 
 /** Starts the session. Returns '' once it is running, or the reason the app refused. */
 export function run(command: Command, invoke: Invoke, wait = REFUSAL_MS): Promise<string> {
-  const sent = invoke('extensions:ai-send-prompt', { prompt: command.prompt, sessionName: command.label, model: MODEL });
-  return Promise.race([
-    sent.then(
-      () => '',
-      (e) => (e instanceof Error ? e.message : String(e))
-    ),
-    new Promise<string>((resolve) => setTimeout(() => resolve(''), wait)),
-  ]);
+  return startSession(invoke, command.prompt, command.label, wait, (e) => (e instanceof Error ? e.message : String(e)));
 }
 
 /** What the list shows: one command can be starting, or asking whether to start again. */
@@ -118,6 +111,4 @@ export function createLauncher(invoke: Invoke, now: () => number = Date.now, wai
   };
 }
 
-export const launcher = createLauncher((channel, args) =>
-  (window as unknown as { electronAPI: { invoke: (c: string, a: unknown) => Promise<unknown> } }).electronAPI.invoke(channel, args)
-);
+export const launcher = createLauncher(hostInvoke);

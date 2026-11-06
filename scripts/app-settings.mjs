@@ -3,7 +3,7 @@
 // install.mjs makes the Claude Code ones itself; this script is for those alone, and for Handy.
 // Safe to run again: it adds what is missing and a second run changes nothing. A file that is changed
 // is kept next to the new one as <name>.before-install-<date>.
-//   node scripts/app-settings.mjs            Claude Code, ~/.claude/settings.json: "model": "sonnet" when no
+//   node scripts/app-settings.mjs            Claude Code, ~/.claude/settings.json: "model": "opus" (medium effort) when no
 //                                            model is set, and permission rules (the agent can't read the
 //                                            saved sign-ins or the SSH keys, and asks before a .env file)
 //   node scripts/app-settings.mjs --handy    the same, and Handy's settings for voice typing (Windows;
@@ -15,14 +15,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { addClaudeCodeSettings } from "./claude-code-settings.mjs";
+import { backupName, fwd, today } from "./files.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] || "" : null);
 const DRY = args.includes("--dry-run");
 const WIN = process.platform === "win32";
 const home = opt("home") !== null ? path.resolve(opt("home") || ".") : os.homedir();
-const fwd = (p) => p.replace(/\\/g, "/");
-const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+const day = today();
 const say = (s) => console.log((DRY ? "[dry run] " : "") + s);
 
 function read(file) {
@@ -37,8 +37,8 @@ function write(file, data, was) {
   if (JSON.stringify(data) === was) return say(`unchanged ${fwd(file)}`);
   let copy = null;
   if (fs.existsSync(file)) {
-    copy = `${file}.before-install-${today}`;
-    for (let n = 2; fs.existsSync(copy); n++) copy = `${file}.before-install-${today}-${n}`;
+    copy = backupName(file, day);
+    for (let n = 2; fs.existsSync(copy); n++) copy = backupName(file, day, n);
     if (!DRY) fs.copyFileSync(file, copy);
   }
   if (!DRY) {

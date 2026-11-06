@@ -9,7 +9,7 @@
 // Run it directly for the JSON (ccpool missing: {"setUp":false}):
 //   node shared-usage.mjs
 import { execSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { isMain } from "../../../hooks/lib/hook-io.mjs";
 
 const pct = (s) => (s === "—" ? null : Number(s.replace("%", "")));
 const ROW = /^\s*\d+\s+(\S+)(\s+◂)?\s+[█░]+\s+(\d+%|—)\s+(\d+%|—)\s+(\S+)\s*$/;
@@ -27,7 +27,7 @@ export function parseStatus(text) {
   return { setUp: true, members };
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isMain(import.meta.url)) {
   let out;
   try {
     out = execSync("ccpool status", { encoding: "utf8", timeout: 20000, stdio: "pipe" });

@@ -1,15 +1,16 @@
 import React from "react";
 import { AbsoluteFill, Sequence } from "remotion";
 import { Rail } from "./kit";
-import { Part, timeline } from "./script";
-import { Chapter, ShotView } from "./Shots";
+import { color } from "./look";
+import { timeline } from "./script";
+import { ShotView } from "./Shots";
 
-/** Plays the named shots one after another: all of them for the film, with chapter cards, or a few for a clip. */
+/** Plays the named shots one after another on the one background: all of them for the film, or a few for a clip. */
 export const Film: React.FC<{ shots?: string[] }> = ({ shots }) => (
-  <AbsoluteFill>
+  <AbsoluteFill style={{ background: color.bg }}>
     {timeline(shots).map((item) => (
       <Sequence key={item.id} name={item.id} from={item.from} durationInFrames={item.frames} layout="none">
-        {item.shot ? <ShotView shot={item.shot} /> : <Chapter part={item.part as Part} />}
+        <ShotView shot={item.shot} />
       </Sequence>
     ))}
     {shots ? null : <Rail />}

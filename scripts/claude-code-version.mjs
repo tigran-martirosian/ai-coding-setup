@@ -5,6 +5,7 @@
 // A failed network check is said plainly and the install goes on. Commands go through `run`, so tests stub them.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 export const NIMBALYST_NOTE = (v) =>
@@ -37,8 +38,10 @@ export function nimbalystCandidates(platform, env, arch) {
 // The real command runner; a path with a folder is run directly, a plain name through the shell (claude.cmd on Windows)
 // Nimbalyst sets DISABLE_UPDATES and DISABLE_AUTOUPDATER for its own bundled Claude Code; run from one of its sessions,
 // `claude update` inherits them and refuses ("Updates are disabled by your administrator"), so they are left out here.
+// cmd.exe looks in the current folder before the PATH; NoDefaultCurrentDirectoryInExePath turns that off, and the
+// commands run from the home folder, so a claude.exe or npm.cmd inside a project folder is never the one run.
 export function childEnv(env = process.env) {
-  const out = { ...env };
+  const out = { ...env, NoDefaultCurrentDirectoryInExePath: "1" };
   delete out.DISABLE_UPDATES;
   delete out.DISABLE_AUTOUPDATER;
   return out;
@@ -47,7 +50,7 @@ export function childEnv(env = process.env) {
 export function realRun(cmd, args, ms = 10 * 60 * 1000) {
   const direct = path.isAbsolute(cmd);
   const viaCmd = !direct && process.platform === "win32";
-  const opts = { encoding: "utf8", timeout: ms, env: childEnv() };
+  const opts = { encoding: "utf8", timeout: ms, env: childEnv(), cwd: os.homedir() };
   const r = viaCmd ? spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmd, ...args], opts)
     : spawnSync(cmd, args, opts);
   return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "", error: r.error };
@@ -119,6 +122,14 @@ export function checkClaudeCode(opts) {
 //   - when the own one falls behind the bundled one (a newer Nimbalyst), the field is emptied again
 // Off: SETUP_NIMBALYST_CLAUDE=off. opts: { file, min, previous, dry, run, exists, platform, arch, env, log }.
 // Returns { set }: the path now on record as the setup's (null when the setup set none), for setup-state.json.
+// True when the file sits directly in one of the PATH folders (`where` also lists the current folder's own files).
+export function inPathFolder(file, platform, env) {
+  const norm = (p) => { const n = p.replaceAll("\\", "/").replace(/\/+$/, ""); return platform === "win32" ? n.toLowerCase() : n; };
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
+  const dirs = String((key && env[key]) || "").split(platform === "win32" ? ";" : ":").filter(Boolean).map(norm);
+  return dirs.includes(norm(path.dirname(file)));
+}
+
 export function pointNimbalyst(opts) {
   const { file, min, previous = null, dry = false, run = realRun, exists = fs.existsSync, platform = process.platform,
     arch = process.arch, env = process.env, log = console.log, read = (f) => fs.readFileSync(f, "utf8"),
@@ -133,7 +144,8 @@ export function pointNimbalyst(opts) {
   const versionOf = (cmd) => { const r = run(cmd, ["--version"], 30000); return r.status === 0 && !r.error ? parseVersion(r.stdout) : null; };
   const where = run(platform === "win32" ? "where" : "which", ["claude"]);
   const lines = where.status === 0 ? where.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : [];
-  const own = platform === "win32" ? lines.find((l) => /\.exe$/i.test(l)) : lines.find((l) => !/\.js$/i.test(l));
+  const own = lines.filter((l) => inPathFolder(l, platform, env))
+    .find((l) => platform === "win32" ? /\.exe$/i.test(l) : !/\.js$/i.test(l));
   const bundledPath = nimbalystCandidates(platform, env, arch).find((p) => exists(p));
   const bundled = bundledPath ? versionOf(bundledPath) : null;
   const mine = own ? versionOf(own) : null;

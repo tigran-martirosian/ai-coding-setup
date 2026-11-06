@@ -1,5 +1,5 @@
 // links.mjs: what counts as "the same page", "a search page" and "a search to save".
-// Shared by the link gate (.claude/hooks/link-gate.mjs) and the limits check (tools/limits.mjs).
+// Shared by the link gate (.claude/hooks/finder-link-gate.mjs) and the limits check (tools/limits.mjs).
 import fs from "node:fs";
 
 // The marker phrases below are English. When the answers are written in another language, the same

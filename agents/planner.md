@@ -44,6 +44,7 @@ The brief gives you the request, the situation, the decisions already made and w
    |---|---|---|---|---|---|---|---|
 
    - Done when: the one check that proves the step, a command where there is one.
+   - A total you state (seconds, files, calls, cost) is the sum of the parts you list: add them up before you send it.
    - Helper: a row of the table above.
    - Runs: `first`, `after S<n>`, `beside S<n>`, `beside S<n>, worktree` or `same worker as S<n>`.
    - Budget: about N tool calls, 50 at most, counting the reading of code nobody has summarised (that reading is where estimates run over: a 70-call step took 115). A step that needs more is two steps, for example the server side and the screen; the budget-gate hook refuses a worker brief over 50.

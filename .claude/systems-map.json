@@ -1,0 +1,1255 @@
+{
+  "nodes": [
+    {
+      "id": "hook-frame",
+      "name": "Hook frame and shared state",
+      "what": "The shared frame every hook runs in: stdin parsing, crash log, paths, per-session state and the settings switches.",
+      "files": [
+        "hooks/lib/hook-io.mjs",
+        "hooks/lib/crash-log.mjs",
+        "hooks/lib/paths.mjs",
+        "hooks/lib/state.mjs",
+        "hooks/lib/settings-env.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "\\bhook-io\\b",
+        "\\bcrash-log\\b",
+        "off switch"
+      ]
+    },
+    {
+      "id": "hook-texts",
+      "name": "Hook texts and transcript reader",
+      "what": "The strings hooks write and scanners match, plus the reader of Claude Code's transcript file and the Russian-language checks.",
+      "files": [
+        "hooks/lib/texts.mjs",
+        "hooks/lib/transcript.mjs",
+        "hooks/lib/ru.mjs",
+        "hooks/transcript-check.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "\\btranscript\\b",
+        "hook message"
+      ]
+    },
+    {
+      "id": "code-review-gate",
+      "name": "Automatic code review gate",
+      "what": "Asks for one reviewer agent after enough code files change in a session.",
+      "files": [
+        "hooks/code-review-gate.mjs",
+        "hooks/lib/review-evidence.mjs",
+        "hooks/lib/review-decide.mjs",
+        "hooks/lib/code-files.mjs",
+        "tests/test-code-review-gate.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "code.review",
+        "reviewer agent"
+      ]
+    },
+    {
+      "id": "verify-gate",
+      "name": "Build and test gate",
+      "what": "Stops a reply when code was edited and nothing was built or tested after it.",
+      "files": [
+        "hooks/verify-gate.mjs",
+        "hooks/lib/code-files.mjs",
+        "tests/test-verify-gate.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "verify.gate"
+      ]
+    },
+    {
+      "id": "reply-format-gates",
+      "name": "Reply-format gates",
+      "what": "Stop hooks that check the reply before it goes out: links opened, file links clickable, no idle next step, every question answered, no commands left to the user, web claims checked.",
+      "files": [
+        "hooks/link-gate.mjs",
+        "hooks/file-link-gate.mjs",
+        "hooks/next-step-gate.mjs",
+        "hooks/no-response-gate.mjs",
+        "hooks/run-yourself.mjs",
+        "hooks/web-answer-gate.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "\\blink-gate\\b",
+        "no-response"
+      ]
+    },
+    {
+      "id": "helper-brief-gates",
+      "name": "Helper brief gates",
+      "what": "PreToolUse and PostToolUse checks on subagent calls: budget, routing to the capped worker, quoted decisions and context size.",
+      "files": [
+        "hooks/budget-gate.mjs",
+        "hooks/worker-nudge.mjs",
+        "hooks/decided-quote.mjs",
+        "hooks/worker-size.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "budget.gate",
+        "worker-nudge"
+      ]
+    },
+    {
+      "id": "command-guards",
+      "name": "Shell command guards",
+      "what": "Hooks that read a Bash or PowerShell command or a big file read before it runs: explanation line, destructive SQL, slow pipes, read-only browser CLI, whole-file dumps.",
+      "files": [
+        "hooks/command-explain.mjs",
+        "hooks/sql-guard.mjs",
+        "hooks/slow-output-gate.mjs",
+        "hooks/opencli-readonly.mjs",
+        "hooks/big-read-gate.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "destructive sql",
+        "WHAT THIS DOES"
+      ]
+    },
+    {
+      "id": "nimbalyst-tool-gates",
+      "name": "Nimbalyst tool gates",
+      "what": "Hooks for Nimbalyst's own tools: choice questions with an Other box, pictures kept in the project, visible browser, session notes.",
+      "files": [
+        "hooks/question-other.mjs",
+        "hooks/picture-in-project.mjs",
+        "hooks/browser-visible-gate.mjs",
+        "hooks/nimbalyst-notes.mjs",
+        "projects/shared/hooks/picture-gate.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "allowOther",
+        "display_to_user"
+      ]
+    },
+    {
+      "id": "context-cost-hooks",
+      "name": "Context cost and loop hooks",
+      "what": "Hooks that keep a long session cheap: compact focus, cold cache warning, background wake-ups, repeated calls, finished-job nudge.",
+      "files": [
+        "hooks/context-guard.mjs",
+        "hooks/cold-cache.mjs",
+        "hooks/background-tasks.mjs",
+        "hooks/loop-warn.mjs",
+        "hooks/repeat-guard.mjs",
+        "hooks/job-done.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "prompt cache",
+        "autoCompactWindow"
+      ]
+    },
+    {
+      "id": "housekeeping-nudges",
+      "name": "Housekeeping nudges",
+      "what": "One-line prompts to tidy the Nimbalyst board, restart Nimbalyst, keep the patch list and point to skills.",
+      "files": [
+        "hooks/board-nudge.mjs",
+        "hooks/pc-tidy-nudge.mjs",
+        "hooks/patch-next.mjs",
+        "hooks/skill-pointer.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "patch list"
+      ]
+    },
+    {
+      "id": "map-hooks",
+      "name": "Systems map hooks",
+      "what": "The hooks that give helpers the map lines, flag drifted links, refuse edits of generated files and ask for a map.",
+      "files": [
+        "hooks/map-brief.mjs",
+        "hooks/map-drift.mjs",
+        "hooks/map-generated.mjs",
+        "hooks/map-nudge.mjs",
+        "hooks/lib/map-file.mjs"
+      ],
+      "group": "map",
+      "words": [
+        "map-brief",
+        "map-drift"
+      ]
+    },
+    {
+      "id": "systems-map-skill",
+      "name": "Systems map skill",
+      "what": "The map.mjs reader and the SKILL.md that tells a worker how to build, check and settle a project's map.",
+      "files": [
+        "skills/systems-map/map.mjs",
+        "skills/systems-map/SKILL.md"
+      ],
+      "group": "map",
+      "words": [
+        "systems.map"
+      ]
+    },
+    {
+      "id": "systems-map-extension",
+      "name": "Systems map graph panel",
+      "what": "The Nimbalyst panel that draws the project's map as a graph with cards for each part.",
+      "files": [
+        "extensions/systems-map/src/index.tsx",
+        "extensions/systems-map/src/map.ts",
+        "extensions/systems-map/README.md"
+      ],
+      "group": "extensions",
+      "words": [
+        "graph panel"
+      ]
+    },
+    {
+      "id": "agent-run-log",
+      "name": "Helper run log and Agents Panel",
+      "what": "One line per helper into agent-runs.jsonl, read by the Agents Panel.",
+      "files": [
+        "hooks/agent-run-log.mjs",
+        "extensions/agents-panel/src/runs.js",
+        "extensions/agents-panel/src/index.js"
+      ],
+      "group": "extensions",
+      "words": [
+        "agents panel",
+        "agent-runs"
+      ]
+    },
+    {
+      "id": "plan-usage",
+      "name": "Plan usage log and dashboard",
+      "what": "Plan-percentage samples, the usage-plan panel, the usage dashboard and its trigger word.",
+      "files": [
+        "hooks/plan-usage-logger.mjs",
+        "hooks/usage-dashboard-hook.mjs",
+        "skills/setup-audit/scripts/plan-use.mjs",
+        "skills/setup-audit/scripts/usage-dashboard.mjs",
+        "extensions/usage-plan/src/index.tsx"
+      ],
+      "group": "usage",
+      "words": [
+        "plan usage",
+        "usage dashboard"
+      ]
+    },
+    {
+      "id": "setup-audit",
+      "name": "Setup audit scanners",
+      "what": "The setup-audit skill: scripts that read chats and usage and write the audit, with their own small libraries.",
+      "files": [
+        "skills/setup-audit/SKILL.md",
+        "skills/setup-audit/scripts/usage-scan.mjs",
+        "skills/setup-audit/scripts/chat-scan.mjs",
+        "skills/setup-audit/scripts/review-scan.mjs",
+        "skills/setup-audit/scripts/outcomes.mjs",
+        "skills/setup-audit/scripts/lib/chats.mjs"
+      ],
+      "group": "usage",
+      "words": [
+        "setup.audit"
+      ]
+    },
+    {
+      "id": "shared-usage",
+      "name": "Shared usage skill",
+      "what": "Splits plan usage between computers on one account.",
+      "files": [
+        "skills/shared-usage/SKILL.md",
+        "skills/shared-usage/logon-start.mjs",
+        "skills/setup-audit/scripts/shared-usage.mjs"
+      ],
+      "group": "usage",
+      "words": [
+        "shared usage"
+      ]
+    },
+    {
+      "id": "handoff",
+      "name": "Session handoff",
+      "what": "Writes a short brief of a session so work continues in a fresh one.",
+      "files": [
+        "hooks/handoff-brief.mjs",
+        "skills/handoff/SKILL.md"
+      ],
+      "group": "skills",
+      "words": [
+        "\\bhandoff\\b"
+      ]
+    },
+    {
+      "id": "steer",
+      "name": "Steer and self-compact",
+      "what": "Mid-turn steering of a session and the compact of itself, driven by hooks.",
+      "files": [
+        "skills/steer/steer.mjs",
+        "skills/steer/compact-self.mjs",
+        "tests/test-steer.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "\\bsteer\\b"
+      ]
+    },
+    {
+      "id": "phone-bot",
+      "name": "Phone bot",
+      "what": "A chat-app bot that takes requests and voice notes and starts sessions through Nimbalyst.",
+      "files": [
+        "skills/phone-bot/SKILL.md",
+        "skills/phone-bot/setup.mjs",
+        "skills/phone-bot/bot/inbox-bot.mjs",
+        "skills/phone-bot/bot/assistant.mjs",
+        "skills/phone-bot/bot/nimbalyst.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "phone.bot"
+      ]
+    },
+    {
+      "id": "update-flow",
+      "name": "Setup update and release",
+      "what": "Version check on prompt, the update-setup skill that installs a newer release, and the version and changelog files.",
+      "files": [
+        "hooks/update-check.mjs",
+        "skills/update-setup/update.mjs",
+        "skills/update-setup/SKILL.md",
+        "version.json",
+        "CHANGELOG.md"
+      ],
+      "group": "release",
+      "words": [
+        "update-setup",
+        "\\brelease\\b"
+      ]
+    },
+    {
+      "id": "installer-core",
+      "name": "Installer core",
+      "what": "install.mjs and its steps: the file helpers, the repo sources and the setup state it remembers.",
+      "files": [
+        "install.mjs",
+        "scripts/files.mjs",
+        "scripts/repo.mjs",
+        "scripts/setup-state.mjs",
+        "scripts/report.mjs"
+      ],
+      "group": "installer",
+      "words": [
+        "install\\.mjs",
+        "installer"
+      ]
+    },
+    {
+      "id": "hook-wiring",
+      "name": "Hook wiring",
+      "what": "Puts the hooks of settings.example.json into the user's settings and takes retired ones out.",
+      "files": [
+        "settings.example.json",
+        "scripts/wiring.mjs",
+        "scripts/uninstall.mjs",
+        "tests/test-wiring.mjs"
+      ],
+      "group": "installer",
+      "words": [
+        "wiring",
+        "settings\\.example"
+      ]
+    },
+    {
+      "id": "claude-home-files",
+      "name": "Claude home files and rules",
+      "what": "Copies hooks, agents, skills and workers into the Claude home folder, merges the rules into CLAUDE.md and sets the model.",
+      "files": [
+        "scripts/claude-files.mjs",
+        "scripts/rules.mjs",
+        "scripts/model.mjs",
+        "scripts/claude-code-settings.mjs",
+        "scripts/claude-code-version.mjs",
+        "rules/CLAUDE.md"
+      ],
+      "group": "installer",
+      "words": [
+        "CLAUDE\\.md rules"
+      ]
+    },
+    {
+      "id": "project-templates",
+      "name": "Project templates",
+      "what": "Starter projects the installer places in the user's folders.",
+      "files": [
+        "scripts/projects.mjs",
+        "projects/homes.json",
+        "projects/ask-anything",
+        "projects/quick-tasks",
+        "projects/claude-settings",
+        "projects/shared"
+      ],
+      "group": "installer",
+      "words": [
+        "project template"
+      ]
+    },
+    {
+      "id": "nimbalyst-install",
+      "name": "Nimbalyst install steps",
+      "what": "Finds Nimbalyst, builds and installs the extensions, sets the theme, plugins and app settings.",
+      "files": [
+        "scripts/extensions.mjs",
+        "scripts/nimbalyst-paths.mjs",
+        "scripts/theme.mjs",
+        "scripts/plugins.mjs",
+        "scripts/app-settings.mjs",
+        "scripts/ink-default.mjs"
+      ],
+      "group": "installer",
+      "words": [
+        "nimbalyst"
+      ]
+    },
+    {
+      "id": "helper-agents",
+      "name": "Worker, reviewer and planner agents",
+      "what": "The agent definitions the main session hands work to, and the version checker worker.",
+      "files": [
+        "agents/worker.md",
+        "agents/worker-full.md",
+        "agents/reviewer.md",
+        "agents/planner.md",
+        "agents/rec-check.md",
+        "workers/versions.mjs"
+      ],
+      "group": "agents",
+      "words": [
+        "\\bworker\\b",
+        "planner"
+      ]
+    },
+    {
+      "id": "internet-search",
+      "name": "Internet search project",
+      "what": "A project with tools for reading Reddit, X and pages that refuse fetches.",
+      "files": [
+        "projects/internet-search/CLAUDE.md",
+        "projects/internet-search/profile.md",
+        "projects/internet-search/tools"
+      ],
+      "group": "installer",
+      "words": [
+        "internet.search"
+      ]
+    },
+    {
+      "id": "web-skills",
+      "name": "Web research skills",
+      "what": "Skills for web research, signed-in sites and watching a page.",
+      "files": [
+        "skills/web-research/SKILL.md",
+        "skills/site-login/SKILL.md",
+        "skills/site-login/login.py",
+        "skills/watch/SKILL.md",
+        "skills/watch/watch.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "site.login"
+      ]
+    },
+    {
+      "id": "pc-tidy",
+      "name": "PC tidy",
+      "what": "Shows and frees memory held by finished sessions.",
+      "files": [
+        "skills/pc-tidy/SKILL.md",
+        "workers/pc-tidy.ps1",
+        "hooks/pc-tidy-nudge.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "pc.tidy"
+      ]
+    },
+    {
+      "id": "board-tidy",
+      "name": "Session board cleanup",
+      "what": "Archives finished sessions on the Nimbalyst board.",
+      "files": [
+        "skills/board-cleanup/SKILL.md",
+        "extensions/board-tidy/src/index.js",
+        "hooks/board-nudge.mjs"
+      ],
+      "group": "extensions",
+      "words": [
+        "session board"
+      ]
+    },
+    {
+      "id": "workflow-skills",
+      "name": "Workflow skills",
+      "what": "Planning and design skills: lead, next-move, btw, new-project, design-system, untangle.",
+      "files": [
+        "skills/lead/SKILL.md",
+        "skills/next-move/SKILL.md",
+        "skills/btw/SKILL.md",
+        "skills/new-project/SKILL.md",
+        "skills/design-system/SKILL.md",
+        "skills/untangle-codebase/SKILL.md"
+      ],
+      "group": "skills",
+      "words": [
+        "next.move"
+      ]
+    },
+    {
+      "id": "extensions-shared",
+      "name": "Extension shared build",
+      "what": "Build helpers, design tokens and the host bridge the Nimbalyst extensions share.",
+      "files": [
+        "extensions/shared/build-lib.mjs",
+        "extensions/shared/vite-base.ts",
+        "extensions/shared/host.ts",
+        "extensions/shared/tokens.css",
+        "extensions/shared/check.mjs"
+      ],
+      "group": "extensions",
+      "words": [
+        "design tokens"
+      ]
+    },
+    {
+      "id": "commands-extension",
+      "name": "Commands extension",
+      "what": "Slash command finder and composer inside Nimbalyst.",
+      "files": [
+        "extensions/commands/src/index.tsx",
+        "extensions/commands/src/commands.ts",
+        "extensions/commands/src/composer.ts",
+        "extensions/commands/src/find.ts"
+      ],
+      "group": "extensions",
+      "words": [
+        "slash command"
+      ]
+    },
+    {
+      "id": "read-aloud-extension",
+      "name": "Read-aloud extension",
+      "what": "Reads replies aloud with a local voice model.",
+      "files": [
+        "extensions/read-aloud/src/index.tsx",
+        "extensions/read-aloud/README.md"
+      ],
+      "group": "extensions",
+      "words": [
+        "read.aloud"
+      ]
+    },
+    {
+      "id": "ink-themes",
+      "name": "Ink themes",
+      "what": "Eleven colour themes added to Nimbalyst's theme list.",
+      "files": [
+        "extensions/ink-themes/build.mjs",
+        "extensions/ink-themes/test.mjs",
+        "scripts/ink-default.mjs"
+      ],
+      "group": "extensions",
+      "words": [
+        "ink theme"
+      ]
+    },
+    {
+      "id": "test-suite",
+      "name": "Test suite and privacy check",
+      "what": "run-all with an empty home, the kit and the check that nothing private ships.",
+      "files": [
+        "tests/run-all.mjs",
+        "tests/lib/kit.mjs",
+        "scripts/privacy-check.mjs",
+        "tests/test-privacy-check.mjs",
+        ".github/workflows/tests.yml"
+      ],
+      "group": "release",
+      "words": [
+        "privacy check"
+      ]
+    },
+    {
+      "id": "promo-film",
+      "name": "Homepage film",
+      "what": "The Remotion film and stills for the repo page.",
+      "files": [
+        "promo/render.mjs",
+        "promo/src/index.ts",
+        "promo/src/Root.tsx",
+        "promo/README.md"
+      ],
+      "group": "promo",
+      "words": [
+        "promo",
+        "remotion"
+      ]
+    },
+    {
+      "id": "blind-screen-review",
+      "name": "Blind screen review",
+      "what": "One reviewer ranks the flaws of a screen from screenshots only, the author fixes the serious ones.",
+      "files": [
+        "skills/blind-screen-review/SKILL.md",
+        "skills/blind-screen-review/rubric.md"
+      ],
+      "group": "skills",
+      "words": [
+        "blind review",
+        "review the screen"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "hook-frame",
+      "to": "code-review-gate",
+      "type": "feeds",
+      "says": "Every hook runs inside the frame's runHook.",
+      "evidence": [
+        {
+          "file": "hooks/code-review-gate.mjs",
+          "token": "hook-io"
+        }
+      ]
+    },
+    {
+      "from": "hook-frame",
+      "to": "reply-format-gates",
+      "type": "feeds",
+      "says": "The Stop hooks run inside the same frame and read its state.",
+      "evidence": [
+        {
+          "file": "hooks/link-gate.mjs",
+          "token": "hook-io"
+        }
+      ]
+    },
+    {
+      "from": "hook-frame",
+      "to": "context-cost-hooks",
+      "type": "feeds",
+      "says": "These hooks keep their counters in the shared state.",
+      "evidence": [
+        {
+          "file": "hooks/context-guard.mjs",
+          "token": "state.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-frame",
+      "to": "map-hooks",
+      "type": "feeds",
+      "says": "The map hooks use the frame and state for their hourly limits.",
+      "evidence": [
+        {
+          "file": "hooks/map-drift.mjs",
+          "token": "state.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-frame",
+      "to": "command-guards",
+      "type": "feeds",
+      "says": "The command hooks run inside the frame and read the settings switches.",
+      "evidence": [
+        {
+          "file": "hooks/big-read-gate.mjs",
+          "token": "settings-env.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-texts",
+      "to": "command-guards",
+      "type": "feeds",
+      "says": "Gate messages come from texts.mjs and scanners match them.",
+      "evidence": [
+        {
+          "file": "hooks/command-explain.mjs",
+          "token": "texts.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-texts",
+      "to": "setup-audit",
+      "type": "feeds",
+      "says": "The audit scanners match the strings hooks write.",
+      "evidence": [
+        {
+          "file": "skills/setup-audit/scripts/chat-scan.mjs",
+          "token": "texts.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-texts",
+      "to": "reply-format-gates",
+      "type": "feeds",
+      "says": "The Stop hooks read the transcript through the shared reader.",
+      "evidence": [
+        {
+          "file": "hooks/link-gate.mjs",
+          "token": "transcript.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-texts",
+      "to": "helper-brief-gates",
+      "type": "feeds",
+      "says": "The helper notes are texts.mjs strings.",
+      "evidence": [
+        {
+          "file": "hooks/worker-size.mjs",
+          "token": "WORKER_SIZE_NOTE"
+        }
+      ]
+    },
+    {
+      "from": "hook-texts",
+      "to": "context-cost-hooks",
+      "type": "feeds",
+      "says": "The background-tasks notice text lives in the shared lib.",
+      "evidence": [
+        {
+          "file": "hooks/background-tasks.mjs",
+          "token": "SETTLED_NOTE"
+        }
+      ]
+    },
+    {
+      "from": "code-review-gate",
+      "to": "helper-agents",
+      "type": "uses",
+      "says": "Asks for a reviewer agent and counts the helpers' edits.",
+      "evidence": [
+        {
+          "file": "hooks/code-review-gate.mjs",
+          "token": "reviewer"
+        }
+      ]
+    },
+    {
+      "from": "code-review-gate",
+      "to": "verify-gate",
+      "type": "uses",
+      "says": "Both use the code-file extension lists.",
+      "evidence": [
+        {
+          "file": "hooks/lib/code-files.mjs",
+          "token": "BUILD_CODE_EXT"
+        },
+        {
+          "file": "hooks/verify-gate.mjs",
+          "token": "code-files.mjs"
+        }
+      ]
+    },
+    {
+      "from": "helper-brief-gates",
+      "to": "helper-agents",
+      "type": "limits",
+      "says": "The gates refuse briefs and route helpers to the worker agents.",
+      "evidence": [
+        {
+          "file": "hooks/budget-gate.mjs",
+          "token": "worker"
+        },
+        {
+          "file": "hooks/worker-nudge.mjs",
+          "token": "worker"
+        }
+      ]
+    },
+    {
+      "from": "map-hooks",
+      "to": "systems-map-skill",
+      "type": "feeds",
+      "says": "The hooks import map.mjs for the brief lines, the drift list and the file counts.",
+      "evidence": [
+        {
+          "file": "hooks/map-brief.mjs",
+          "token": "map.mjs"
+        },
+        {
+          "file": "hooks/map-nudge.mjs",
+          "token": "map.mjs"
+        }
+      ]
+    },
+    {
+      "from": "map-hooks",
+      "to": "helper-agents",
+      "type": "feeds",
+      "says": "map-brief appends the map lines to every helper's brief.",
+      "evidence": [
+        {
+          "file": "hooks/map-brief.mjs",
+          "token": "updatedInput"
+        }
+      ]
+    },
+    {
+      "from": "systems-map-skill",
+      "to": "systems-map-extension",
+      "type": "feeds",
+      "says": "The panel reads the same map file the skill checks.",
+      "evidence": [
+        {
+          "file": "extensions/systems-map/src/map.ts",
+          "token": "MAP_REL"
+        },
+        {
+          "file": "hooks/lib/map-file.mjs",
+          "token": "MAP_REL"
+        }
+      ]
+    },
+    {
+      "from": "systems-map-skill",
+      "to": "code-review-gate",
+      "type": "uses",
+      "says": "The map scan counts code through the shared code-file list.",
+      "evidence": [
+        {
+          "file": "skills/systems-map/map.mjs",
+          "token": "code-files.mjs"
+        }
+      ]
+    },
+    {
+      "from": "agent-run-log",
+      "to": "helper-agents",
+      "type": "uses",
+      "says": "Logs each helper's type, model and effort.",
+      "evidence": [
+        {
+          "file": "hooks/agent-run-log.mjs",
+          "token": "agent-runs.jsonl"
+        }
+      ]
+    },
+    {
+      "from": "agent-run-log",
+      "to": "extensions-shared",
+      "type": "uses",
+      "says": "The panel is built with the shared build helpers.",
+      "evidence": [
+        {
+          "file": "extensions/agents-panel/build.mjs",
+          "token": "build-lib.mjs"
+        }
+      ]
+    },
+    {
+      "from": "plan-usage",
+      "to": "setup-audit",
+      "type": "feeds",
+      "says": "The audit and dashboard read the saved plan samples.",
+      "evidence": [
+        {
+          "file": "skills/setup-audit/scripts/plan-use.mjs",
+          "token": "plan-usage-logger"
+        },
+        {
+          "file": "hooks/plan-usage-logger.mjs",
+          "token": "plan-usage.jsonl"
+        }
+      ]
+    },
+    {
+      "from": "plan-usage",
+      "to": "extensions-shared",
+      "type": "uses",
+      "says": "The usage-plan panel uses the shared build helpers.",
+      "evidence": [
+        {
+          "file": "extensions/usage-plan/scripts/install.mjs",
+          "token": "build-lib.mjs"
+        }
+      ]
+    },
+    {
+      "from": "setup-audit",
+      "to": "shared-usage",
+      "type": "feeds",
+      "says": "Shared usage is a script of the audit skill.",
+      "evidence": [
+        {
+          "file": "skills/shared-usage/SKILL.md",
+          "token": "shared-usage"
+        }
+      ]
+    },
+    {
+      "from": "handoff",
+      "to": "hook-texts",
+      "type": "uses",
+      "says": "The handoff brief reads only the transcript.",
+      "evidence": [
+        {
+          "file": "hooks/handoff-brief.mjs",
+          "token": "transcript.mjs"
+        }
+      ]
+    },
+    {
+      "from": "steer",
+      "to": "context-cost-hooks",
+      "type": "uses",
+      "says": "Steer runs as a hook beside the context guard.",
+      "evidence": [
+        {
+          "file": "settings.example.json",
+          "token": "steer.mjs --hook"
+        }
+      ]
+    },
+    {
+      "from": "steer",
+      "to": "hook-wiring",
+      "type": "uses",
+      "says": "steer is wired as a hook from the example settings.",
+      "evidence": [
+        {
+          "file": "settings.example.json",
+          "token": "steer.mjs"
+        }
+      ]
+    },
+    {
+      "from": "phone-bot",
+      "to": "nimbalyst-install",
+      "type": "uses",
+      "says": "The bot starts sessions through Nimbalyst.",
+      "evidence": [
+        {
+          "file": "skills/phone-bot/bot/nimbalyst.mjs",
+          "token": "nimbalyst"
+        }
+      ]
+    },
+    {
+      "from": "update-flow",
+      "to": "installer-core",
+      "type": "feeds",
+      "says": "An update re-runs the installer and compares versions.",
+      "evidence": [
+        {
+          "file": "skills/update-setup/update.mjs",
+          "token": "version.json"
+        },
+        {
+          "file": "hooks/update-check.mjs",
+          "token": "version.json"
+        }
+      ]
+    },
+    {
+      "from": "update-flow",
+      "to": "claude-home-files",
+      "type": "uses",
+      "says": "The update takes this version's rules and files.",
+      "evidence": [
+        {
+          "file": "skills/update-setup/update.mjs",
+          "token": "--replace-rules"
+        }
+      ]
+    },
+    {
+      "from": "installer-core",
+      "to": "hook-wiring",
+      "type": "uses",
+      "says": "The installer wires hooks through wiring.mjs.",
+      "evidence": [
+        {
+          "file": "install.mjs",
+          "token": "scripts/uninstall.mjs"
+        },
+        {
+          "file": "scripts/wiring.mjs",
+          "token": "SCRIPT_PATHS"
+        }
+      ]
+    },
+    {
+      "from": "installer-core",
+      "to": "claude-home-files",
+      "type": "uses",
+      "says": "The installer copies the setup files and merges the rules.",
+      "evidence": [
+        {
+          "file": "install.mjs",
+          "token": "claudeFiles"
+        },
+        {
+          "file": "install.mjs",
+          "token": "rules"
+        }
+      ]
+    },
+    {
+      "from": "installer-core",
+      "to": "project-templates",
+      "type": "uses",
+      "says": "The installer places the starter projects.",
+      "evidence": [
+        {
+          "file": "install.mjs",
+          "token": "projects"
+        }
+      ]
+    },
+    {
+      "from": "installer-core",
+      "to": "nimbalyst-install",
+      "type": "uses",
+      "says": "The installer builds extensions and sets Nimbalyst up.",
+      "evidence": [
+        {
+          "file": "install.mjs",
+          "token": "extensions"
+        },
+        {
+          "file": "install.mjs",
+          "token": "nimbalystHome"
+        }
+      ]
+    },
+    {
+      "from": "hook-wiring",
+      "to": "hook-frame",
+      "type": "uses",
+      "says": "Each wired hook is a file in hooks/ that runs in the frame.",
+      "evidence": [
+        {
+          "file": "settings.example.json",
+          "token": "~/.claude/hooks/"
+        }
+      ]
+    },
+    {
+      "from": "claude-home-files",
+      "to": "helper-agents",
+      "type": "uses",
+      "says": "Copies the agents and workers into the Claude home folder.",
+      "evidence": [
+        {
+          "file": "scripts/files.mjs",
+          "token": "OWN_FOLDERS"
+        }
+      ]
+    },
+    {
+      "from": "project-templates",
+      "to": "internet-search",
+      "type": "uses",
+      "says": "The internet-search project is one of the placed templates.",
+      "evidence": [
+        {
+          "file": "projects/homes.json",
+          "token": "internet-search"
+        }
+      ]
+    },
+    {
+      "from": "internet-search",
+      "to": "command-guards",
+      "type": "limits",
+      "says": "The read-only browser hook protects the tools this project drives.",
+      "evidence": [
+        {
+          "file": "hooks/opencli-readonly.mjs",
+          "token": "opencli"
+        }
+      ]
+    },
+    {
+      "from": "web-skills",
+      "to": "command-guards",
+      "type": "uses",
+      "says": "The site login and watch skills run browser commands the guards check.",
+      "evidence": [
+        {
+          "file": "hooks/opencli-readonly.mjs",
+          "token": "opencli"
+        }
+      ]
+    },
+    {
+      "from": "nimbalyst-install",
+      "to": "extensions-shared",
+      "type": "uses",
+      "says": "The installer builds the extensions that share the build helpers.",
+      "evidence": [
+        {
+          "file": "scripts/extensions.mjs",
+          "token": "sourceText"
+        }
+      ]
+    },
+    {
+      "from": "pc-tidy",
+      "to": "housekeeping-nudges",
+      "type": "feeds",
+      "says": "The nudge points to the skill.",
+      "evidence": [
+        {
+          "file": "hooks/pc-tidy-nudge.mjs",
+          "token": "pc-tidy"
+        }
+      ]
+    },
+    {
+      "from": "board-tidy",
+      "to": "housekeeping-nudges",
+      "type": "feeds",
+      "says": "The nudge points to the board cleanup.",
+      "evidence": [
+        {
+          "file": "hooks/board-nudge.mjs",
+          "token": "board"
+        }
+      ]
+    },
+    {
+      "from": "workflow-skills",
+      "to": "helper-agents",
+      "type": "uses",
+      "says": "Lead hands steps to worker agents.",
+      "evidence": [
+        {
+          "file": "skills/lead/SKILL.md",
+          "token": "worker"
+        }
+      ]
+    },
+    {
+      "from": "workflow-skills",
+      "to": "housekeeping-nudges",
+      "type": "uses",
+      "says": "skill-pointer checks each skill is named in CLAUDE.md.",
+      "evidence": [
+        {
+          "file": "hooks/skill-pointer.mjs",
+          "token": "SKILL.md"
+        }
+      ]
+    },
+    {
+      "from": "extensions-shared",
+      "to": "commands-extension",
+      "type": "feeds",
+      "says": "Extensions share tokens and the host bridge.",
+      "evidence": [
+        {
+          "file": "extensions/commands/vite.config.ts",
+          "token": "shared"
+        }
+      ]
+    },
+    {
+      "from": "extensions-shared",
+      "to": "read-aloud-extension",
+      "type": "feeds",
+      "says": "Same shared build and host.",
+      "evidence": [
+        {
+          "file": "extensions/read-aloud/vite.config.ts",
+          "token": "shared"
+        }
+      ]
+    },
+    {
+      "from": "ink-themes",
+      "to": "nimbalyst-install",
+      "type": "uses",
+      "says": "The theme step picks the default ink theme.",
+      "evidence": [
+        {
+          "file": "scripts/ink-default.mjs",
+          "token": "ink"
+        }
+      ]
+    },
+    {
+      "from": "test-suite",
+      "to": "hook-frame",
+      "type": "uses",
+      "says": "Hook tests run each hook with an empty home.",
+      "evidence": [
+        {
+          "file": "tests/run-all.mjs",
+          "token": "mkdtempSync"
+        }
+      ]
+    },
+    {
+      "from": "test-suite",
+      "to": "installer-core",
+      "type": "limits",
+      "says": "The privacy check blocks private text in shipped files.",
+      "evidence": [
+        {
+          "file": "scripts/privacy-check.mjs",
+          "token": "privacy"
+        }
+      ]
+    },
+    {
+      "from": "promo-film",
+      "to": "update-flow",
+      "type": "uses",
+      "says": "The film shows features and the version.",
+      "evidence": [
+        {
+          "file": "promo/README.md"
+        }
+      ]
+    },
+    {
+      "from": "nimbalyst-tool-gates",
+      "to": "command-guards",
+      "type": "uses",
+      "says": "Both groups read tool input in the same frame.",
+      "evidence": [
+        {
+          "file": "hooks/question-other.mjs",
+          "token": "hook-io.mjs"
+        }
+      ]
+    },
+    {
+      "from": "blind-screen-review",
+      "to": "code-review-gate",
+      "type": "uses",
+      "says": "The code review gate counts a blind screen review as the review a change needs.",
+      "evidence": [
+        {
+          "file": "hooks/lib/review-decide.mjs",
+          "token": "blind-screen-review"
+        }
+      ]
+    }
+  ]
+}

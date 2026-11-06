@@ -4,7 +4,7 @@
 //   node check-reading.mjs
 import { blocks, FPS, frames, SCRIPT, totalFrames } from "./src/film/script.ts";
 
-const MAX_SECONDS = 95;
+const MAX_SECONDS = 74;
 
 const words = (shot) => blocks(shot).join(" ").trim().split(/\s+/).length;
 const rows = SCRIPT.map((shot) => ({ id: shot.id, words: words(shot), seconds: frames(shot) / FPS }));

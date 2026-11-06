@@ -67,7 +67,7 @@ check("interrupted reply", /Replies the user interrupted:\*\* 1;/.test(out));
 check("thinking requests", /Requests with a thinking step: 1 of 9/.test(out));
 check("failed calls per tool", /\| Bash \| 2 \| 1 \| 50% \|/.test(out));
 check("error text with numbers folded", /1 times \(demo\): Bash: Exit code N boom/.test(out));
-check("--project that matches nothing", /No turns in the last 7 days for "nothing"/.test(run("--project", "nothing").stdout));
+check("--project that matches nothing", /No turns in the last 14 days for "nothing"/.test(run("--project", "nothing").stdout));
 check("missing folder fails with an error", spawnSync(process.execPath, [SCAN, "--root", path.join(root, "none")]).status === 1);
 
 // Helper rework: its own chats folder, so the counts above stay as they are.

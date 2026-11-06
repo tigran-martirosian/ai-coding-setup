@@ -2,7 +2,7 @@
  * The full usage dashboard: a second, fullscreen panel of this extension.
  *
  * Nimbalyst draws a gutter button for every fullscreen panel itself and ignores an extension's own gutter button
- * (read from the app's code, 2026-11-05). So the side bar keeps one Usage icon through a style that hides the
+ * (read from the app's code). So the side bar keeps one Usage icon through a style that hides the
  * dashboard's button, and the "Full dashboard" button in the popover clicks that hidden button.
  */
 

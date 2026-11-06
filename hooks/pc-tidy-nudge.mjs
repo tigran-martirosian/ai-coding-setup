@@ -5,16 +5,13 @@
 // reminds: stopping things by itself could kill a build another session is running. The process check
 // starts PowerShell, so it runs at most once an hour. Windows only, only inside Nimbalyst. Silent for
 // /commands. Fails open. PC_TIDY_NUDGE=off disables it.
-import { crashLog } from "./crash-log.mjs";
+import { runHook, inNimbalyst } from "./lib/hook-io.mjs";
+import { stateFile, readJson, writeJson } from "./lib/state.mjs";
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const HOURS = Number(process.env.PC_TIDY_NUDGE_HOURS) || 12;
 const HOUR = 60 * 60 * 1000;
-const STATE_DIR = process.env.PC_TIDY_NUDGE_DIR || path.join(os.homedir(), ".claude", "hooks", "state");
-const STATE_FILE = path.join(STATE_DIR, "pc-tidy-nudge.json");
+const STATE_FILE = stateFile("pc-tidy-nudge", "nudge");
 const OLDEST = "(Get-Process Nimbalyst -ErrorAction Stop | Sort-Object StartTime | Select-Object -First 1).StartTime.ToUniversalTime().ToString('o')";
 
 function hoursOpen() {
@@ -24,43 +21,33 @@ function hoursOpen() {
   return (Date.now() - Date.parse(started)) / HOUR;
 }
 
-let raw = "";
-process.stdin.on("data", (d) => (raw += d));
-process.stdin.on("end", () => {
-  try {
-    if (process.env.PC_TIDY_NUDGE === "off" || process.platform !== "win32") return;
-    // No variable names Nimbalyst for a hook; the entry point is "sdk-..." in an app, "cli" in the terminal
-    if (!/^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "")) return;
-    if (String(JSON.parse(raw).prompt ?? "").trim().startsWith("/")) return;
+runHook("pc-tidy-nudge", (event) => {
+  if (process.platform !== "win32" || !inNimbalyst()) return;
+  if (String(event.prompt ?? "").trim().startsWith("/")) return;
 
-    let state = {};
-    try { state = JSON.parse(fs.readFileSync(STATE_FILE, "utf8")); } catch {}
-    const now = Date.now();
-    if (state.checkedAt && now - state.checkedAt < HOUR) return;
-    state.checkedAt = now;
-    const save = () => { fs.mkdirSync(STATE_DIR, { recursive: true }); fs.writeFileSync(STATE_FILE, JSON.stringify(state)); };
-    save();
+  const state = readJson(STATE_FILE) ?? {};
+  const now = Date.now();
+  if (state.checkedAt && now - state.checkedAt < HOUR) return;
+  state.checkedAt = now;
+  const save = () => writeJson(STATE_FILE, state);
+  save();
 
-    const open = hoursOpen();
-    if (!(open >= HOURS)) return;
-    if (state.nudgedAt && now - state.nudgedAt < HOURS * HOUR) return;
-    state.nudgedAt = now;
-    save();
+  const open = hoursOpen();
+  if (!(open >= HOURS)) return;
+  if (state.nudgedAt && now - state.nudgedAt < HOURS * HOUR) return;
+  state.nudgedAt = now;
+  save();
 
-    const hours = Math.floor(open);
-    process.stdout.write(JSON.stringify({
-      systemMessage: `Nimbalyst has been open ${hours} hours. Restart it once no session is working. /pc-tidy shows what is holding memory.`,
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: [
-          `[pc-tidy-nudge] Nimbalyst has been open ${hours} hours, and it holds more memory the longer it stays open.`,
-          "- Do the user's request first. At the end of your reply, say once, in one line, to restart Nimbalyst once no session is working, and that /pc-tidy shows what is holding memory.",
-          "- Don't run /pc-tidy without a yes, don't restart anything yourself, and don't repeat this on later turns.",
-        ].join("\n"),
-      },
-    }));
-  } catch (err) {
-    crashLog("pc-tidy-nudge", err);
-    // fail open
-  }
+  const hours = Math.floor(open);
+  process.stdout.write(JSON.stringify({
+    systemMessage: `Nimbalyst has been open ${hours} hours. Restart it once no session is working. /pc-tidy shows what is holding memory.`,
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: [
+        `[pc-tidy-nudge] Nimbalyst has been open ${hours} hours, and it holds more memory the longer it stays open.`,
+        "- Do the user's request first. At the end of your reply, say once, in one line, to restart Nimbalyst once no session is working, and that /pc-tidy shows what is holding memory.",
+        "- Don't run /pc-tidy without a yes, don't restart anything yourself, and don't repeat this on later turns.",
+      ].join("\n"),
+    },
+  }));
 });

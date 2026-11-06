@@ -5,7 +5,8 @@ import { pollOutbox, newState, POLL_MS } from './bridge';
 import { findComposers, readFiles, removeFiles } from './find';
 import type { El } from './find';
 import { endMessage, homeDir, noteEnds, sendNote } from './note';
-import type { Invoke, Pending } from './note';
+import type { Pending } from './note';
+import type { Invoke } from '../../shared/host.ts';
 import { t } from './strings';
 
 const TAG = '[commandbuttons]';
@@ -19,9 +20,6 @@ interface Handle {
   dot: HTMLElement;
   button: HTMLElement;
 }
-
-export const bridge = (): Invoke => (channel, ...args) =>
-  (window as unknown as { electronAPI: { invoke: Invoke } }).electronAPI.invoke(channel, ...args);
 
 function clearTextarea(row: Element) {
   const box = row.querySelector('textarea');

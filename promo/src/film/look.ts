@@ -1,42 +1,53 @@
-import { loadFont as loadSans } from "@remotion/google-fonts/BricolageGrotesque";
 import { loadFont as loadMono } from "@remotion/google-fonts/JetBrainsMono";
 import type { Part } from "./script";
 
-// The look of the tour film: one flat colour for each chapter, edge to edge, with very large type and dark windows
-// on top. No gradients and no glow. Size and movement carry the emphasis.
-export const sans = loadSans("normal", { weights: ["500", "700"], subsets: ["latin"] }).fontFamily;
-export const mono = loadMono("normal", { weights: ["400", "600"], subsets: ["latin"] }).fontFamily;
+// The look of the tour film: one near-black background from the first frame to the last, light type, all of it in
+// JetBrains Mono, and each chapter's colour only as a small mark (a dot, a label, a thin line, a highlight). Red and
+// green say wrong and right. Never a coloured field, no gradients, no glow.
+export const mono = loadMono("normal", { weights: ["400", "600", "700"], subsets: ["latin"] }).fontFamily;
 
 export const color = {
-  ink: "#0e0e0e",
-  window: "#141416",
-  raised: "#202024",
-  line: "#2e2e33",
+  /** The one background of the whole film. */
+  bg: "#111114",
+  text: "#e8e8ec",
   dim: "#8c8c94",
-  white: "#ffffff",
-  paper: "#f4f3ee",
-  red: "#ff4a1c",
-  blue: "#1a3cff",
-  lime: "#c6f135",
-  violet: "#7a3cff",
-  yellow: "#ffc800",
+  faint: "#4a4a52",
+  line: "#2a2a30",
+  window: "#17171b",
+  raised: "#1e1e23",
+  /** Something wrong: a claim with no step behind it, a flaw. */
+  bad: "#ff6b5e",
+  /** Something put right. */
+  good: "#6fd88a",
 } as const;
 
-/** The colour of each chapter, the text colour that reads on it, and a slightly different shade for what moves behind. */
-export const partColor: Record<Part, { bg: string; on: string; shade: string }> = {
-  Overview: { bg: color.blue, on: color.white, shade: "#3a57ff" },
-  Checks: { bg: color.red, on: color.white, shade: "#ff6a43" },
-  Cost: { bg: color.lime, on: color.ink, shade: "#aed926" },
-  "Big jobs": { bg: color.violet, on: color.white, shade: "#8f5aff" },
-  Tools: { bg: color.yellow, on: color.ink, shade: "#e8b500" },
-  Install: { bg: color.ink, on: color.white, shade: "#232326" },
+/** Each chapter's colour, light enough to read as a small mark on the background. */
+export const accent: Record<Part, string> = {
+  Overview: "#7d93ff",
+  Checks: "#ff8a5c",
+  Cost: "#c6f135",
+  Ask: "#a988ff",
+  Steer: "#ffc800",
+  Install: "#5fd0bd",
 };
 
-/** Left and right margin of every shot, and the line nothing but the chapter bar goes below. */
+/** Type sizes at 1920x1080. GitHub shows the film at 1600x900 and often smaller, so nothing goes below `label`.
+ * A monospace letter is 0.6 of its size wide: a 60 px headline fits about 49 letters across. */
+export const TYPE = {
+  /** A shot's headline. */
+  head: 60,
+  /** The one line under a headline. */
+  sub: 30,
+  /** Words inside a diagram. */
+  body: 34,
+  /** Small labels and notes. */
+  label: 26,
+} as const;
+
+/** Left and right margin of every shot, the top of the diagram under the headline, and the line nothing but the
+ * chapter bar goes below. */
 export const MARGIN = 72;
+export const TOP = 250;
 export const FLOOR = 996;
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
-
-/** Headline tracking: tight, as large type needs. */
-export const TIGHT = "-0.022em";

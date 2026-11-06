@@ -10,24 +10,22 @@
 // A "request" is one API call; a "turn" is one message the user typed with everything done for it.
 // "Weight" is this script's own rough weight (cache reads 0.1x, output 5x); usage-scan.mjs weighs by list price.
 //   - helper rework: for each helper run (Agent call), whether its work had to be touched again (see below)
-// Options: --days N (default 7)   --project TEXT (only folders whose path contains it)
+// Options: --days N (default 14)   --project TEXT (only folders whose path contains it)
 //          --top N rows per list (default 8)   --root DIR (default ~/.claude/projects)
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
+import { opt } from "./lib/opt.mjs";
+import { daysWindow } from "./lib/days.mjs";
+import { FAMILY, FAMILY_UNLISTED } from "./lib/prices.mjs";
+import { defaultRoot, walkChats, subagentMetas, EDIT, AGENT, SHELL as RUN, QUESTION_TOOL as ASK, CAPPED, MACHINE, INTERRUPTED, FILLER, PUSH, one, textOf, editedFile } from "./lib/chats.mjs";
 
-const args = process.argv.slice(2);
-const opt = (name, def) => { const i = args.indexOf(`--${name}`); return i === -1 ? def : args[i + 1]; };
-const root = opt("root", path.join(os.homedir(), ".claude", "projects"));
-const days = Number(opt("days", 7));
+const root = opt("root", defaultRoot());
+const { days, since } = daysWindow();
 const only = String(opt("project", "")).toLowerCase();
 const top = Number(opt("top", 8));
-const since = Date.now() - days * 86400000;
 
-// Opus : Sonnet : Haiku = 5 : 3 : 1, and Fable at 2.5 times Opus. Only shares within one review
-// are compared, so these need not match the plan weight in usage-scan.mjs.
-const FAMILY = [[/fable|mythos/, 12.5, "Fable"], [/opus/, 5, "Opus"], [/sonnet/, 3, "Sonnet"], [/haiku/, 1, "Haiku"]];
-const famOf = (model) => FAMILY.find(([re]) => re.test(model))?.[1] ?? 3;
+// FAMILY (lib/prices.mjs) weighs by model family; only shares within one review are compared, so it need not match the plan weight in usage-scan.mjs.
+const famOf = (model) => FAMILY.find(([re]) => re.test(model))?.[1] ?? FAMILY_UNLISTED;
 const weightOf = (u, model) => {
   const write = u.cache_creation_input_tokens ?? 0;
   const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
@@ -36,20 +34,10 @@ const weightOf = (u, model) => {
 };
 const tokensOf = (u) => (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.output_tokens ?? 0);
 
-// Lines that look like a message but were written by a program (same list as chat-scan.mjs)
-const MACHINE = /^(<(?!command-)[a-z-]+[ >]|\[System:|\[Child Session|\[\d+ messages? arrived|Stop hook feedback|The PermissionDeni|Another Claude ses|Base directory for|Condense the tool|Caveat: |\[Image: |Use the Bash tool )/;
-const INTERRUPTED = /^\[Request interrupted by user/;
 const NOT_A_FAILURE = /hook (?:blocking )?error|The user doesn't want to|interrupted by user/i;
-// First words of the next message that look like a correction. A lead for the reader, not a verdict.
-const FILLER = /^(?:ok(?:ay)?|well|hmm+|so|but|and|yeah|alright|bro)[,.! ]+/i;
-const PUSH = /^(?:no[,.! ]|nope|wrong|incorrect|not what|that'?s not|this is not|it'?s not|i said|i told|i asked|i meant|again[,.! ]|still |why did(?:n'?t)? (?:you|u)\b|why (?:are|do|would) (?:you|u)\b|(?:you|u) (?:didn'?t|did not|haven'?t|missed|forgot|ignored|still)\b|(?:it )?did(?:n'?t| not) work|(?:it )?does(?:n'?t| not) work|not working|stop[,.! ]|wtf|нет[,.! ]|не то|не так|я же|опять|снова|не работает|почему ты)/i;
 
 const LOOK = /^(Read|Grep|Glob|WebSearch|WebFetch|ToolSearch)$|browser_(screenshot|get_page_info|list_sessions)|memory_(recall|search|read|list)|tracker_(get|list)|__(list|get)_/;
-const EDIT = /^(Edit|Write|NotebookEdit|MultiEdit)$/;
-const RUN = /^(Bash|PowerShell)$/;
-const AGENT = /^(Agent|Task)$/;
 const DELEGATE = /^(Agent|Task)$|spawn_session|send_prompt|create_session/;
-const ASK = /(AskUserQuestion|PromptForUserInput)$/;
 const BOARD = /update_session_meta|update_session_board/;
 const READ_ONLY = /^(?:cd|ls|dir|cat|head|tail|grep|rg|find|wc|stat|du|file|which|where|echo|sort|uniq|cut|tr|sed -n|git (?:-C \S+ )?(?:status|log|diff|show|branch)|Get-Content|Get-ChildItem|Select-String|Test-Path)\b/;
 // A shell command that only looks: every part starts with a reading program and nothing is written to a file.
@@ -81,12 +69,7 @@ const KINDS = {
 };
 const LEAD_KINDS = new Set(["talk", "ask", "delegate", "board"]);
 
-const CAPPED = /stopped at its \d+-turn limit/;
-const normFile = (p) => p ? String(p).replace(/\\/g, "/").toLowerCase() : "";
-const one = (s) => String(s ?? "").replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, " ").replace(/\s+/g, " ").trim();
 const cut = (s, n = 60) => { const t = one(s).replace(/\|/g, "/"); return t.length > n ? `${t.slice(0, n)}…` : t; };
-const textOf = (content) => typeof content === "string" ? content
-  : Array.isArray(content) ? content.map((b) => b.text ?? (typeof b.content === "string" ? b.content : "")).join("\n") : "";
 const PAUSE = 15 * 60000; // a longer gap before the model's next line: the computer slept or the chat was left
 const SHELL_MAX = 10 * 60000; // a shell call cannot run longer; the rest of the gap was a permission prompt
 const TOOL_MAX = 2 * 60000;
@@ -130,7 +113,7 @@ function readChat(file) {
           r.visible += JSON.stringify(b.input ?? {}).length;
           uses.set(b.id, b.name);
           if (AGENT.test(b.name)) { const a = { id: b.id, input: b.input ?? {}, t, seq, resultSeq: 0, turn: null, capped: false }; agentById.set(b.id, a); chat.agents.push(a); }
-          if (EDIT.test(b.name)) chat.edits.push({ file: normFile(b.input?.file_path ?? b.input?.notebook_path ?? b.input?.path), seq });
+          if (EDIT.test(b.name)) chat.edits.push({ file: editedFile(b.input), seq });
           const name = b.name.replace(/^mcp__[\w-]+?__/, "");
           (chat.calls[name] ??= { n: 0, failed: 0 }).n++;
         }
@@ -197,24 +180,19 @@ function readChat(file) {
 // Collect the turns of the window
 const chats = [];
 if (!fs.existsSync(root)) { console.error(`No chats folder: ${root}`); process.exit(1); }
-for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
-  if (!dir.isDirectory()) continue;
-  for (const f of fs.readdirSync(path.join(root, dir.name))) {
-    const file = path.join(root, dir.name, f);
-    if (!f.endsWith(".jsonl") || fs.statSync(file).mtimeMs < since) continue;
-    const chat = readChat(file);
-    const where = chat.cwd || dir.name;
-    if (only && !where.toLowerCase().includes(only)) continue;
-    chat.project = path.basename(where);
-    chat.id = f.slice(0, 8);
-    chat.turns = chat.turns.filter((u) => {
-      const key = `${u.t}|${u.text.slice(0, 40)}`;
-      if (u.t < since || !u.reqs.length || turnSeen.has(key)) return false;
-      turnSeen.add(key);
-      return true;
-    });
-    if (chat.turns.length) chats.push(chat);
-  }
+for (const { file, dir, name } of walkChats(root, since)) {
+  const chat = readChat(file);
+  const where = chat.cwd || dir;
+  if (only && !where.toLowerCase().includes(only)) continue;
+  chat.project = path.basename(where);
+  chat.id = name.slice(0, 8);
+  chat.turns = chat.turns.filter((u) => {
+    const key = `${u.t}|${u.text.slice(0, 40)}`;
+    if (u.t < since || !u.reqs.length || turnSeen.has(key)) return false;
+    turnSeen.add(key);
+    return true;
+  });
+  if (chat.turns.length) chats.push(chat);
 }
 const turns = chats.flatMap((c) => c.turns.map((u, i) => Object.assign(u, { project: c.project, id: c.id, next: c.turns[i + 1] })));
 if (!turns.length) { console.log(`No turns in the last ${days} days${only ? ` for "${only}"` : ""}.`); process.exit(0); }
@@ -347,7 +325,7 @@ function readHelper(file) {
     for (const b of Array.isArray(l.message.content) ? l.message.content : []) {
       if (b.type !== "tool_use" || seen.has(b.id)) continue;
       seen.add(b.id); h.calls++;
-      if (EDIT.test(b.name)) h.files.add(normFile(b.input?.file_path ?? b.input?.notebook_path ?? b.input?.path));
+      if (EDIT.test(b.name)) h.files.add(editedFile(b.input));
     }
   }
   h.tokens = sum([...usage.values()], tokensOf);
@@ -356,12 +334,7 @@ function readHelper(file) {
 const labelOf = (m) => FAMILY.find(([re]) => re.test(String(m).toLowerCase()))?.[2] ?? (m ? String(m).replace(/^claude-/, "") : "unknown");
 const runs = [];
 for (const c of chats) {
-  const sdir = path.join(path.dirname(c.file), path.basename(c.file, ".jsonl"), "subagents");
-  const metas = new Map();
-  if (fs.existsSync(sdir)) for (const f of fs.readdirSync(sdir)) {
-    if (!f.endsWith(".meta.json")) continue;
-    try { const m = JSON.parse(fs.readFileSync(path.join(sdir, f), "utf8")); if (m.toolUseId) metas.set(m.toolUseId, { ...m, base: f.replace(/\.meta\.json$/, "") }); } catch { badRecords.push(path.join(sdir, f)); }
-  }
+  const { sdir, metas } = subagentMetas(c.file, (f) => badRecords.push(f));
   for (const a of c.agents) {
     if (a.t < since) continue;
     const meta = metas.get(a.id);

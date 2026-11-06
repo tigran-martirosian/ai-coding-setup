@@ -46,7 +46,7 @@ Run in the project folder: `node ~/.claude/skills/systems-map/map.mjs <command>`
 
 ## Build a map
 
-Budget: about 60 tool calls. Each step ends on its check.
+Budget: about 50 tool calls. Each step ends on its check.
 
 1. Run `--scan`. Done when you can name the project's areas and its entry points.
 2. Read the entry points and the main file of each area, a part of each rather than everything. Done when every area has been opened through its main file.
