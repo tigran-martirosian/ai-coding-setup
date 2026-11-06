@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // usage-dashboard: builds a clickable usage page and opens it in the browser.
 // Claude numbers come from usage-scan's JSON; Codex and Gemini numbers from their own
-// records on this computer. Output: ~/.claude/reports/usage-dashboard.html (one file, works offline).
+// records on this computer. Output: ~/.claude/reports/usage-dashboard.html (one file, works offline) and
+// ~/.claude/reports/usage-dashboard.json (the same data plus builtAt, for the Usage Plan panel).
+// The number logic is in usage-dashboard-lib.mjs, inlined into the page at build.
 //
 // Options:
 //   --days N        how far back to load (default 90; the page has its own range buttons)
@@ -11,6 +13,7 @@
 //   --gemini DIR    Gemini home (default ~/.gemini)
 //   --plan FILE     plan percentages saved by plan-usage-logger (default ~/.claude/usage-log/plan-usage.jsonl)
 //   --ahead FILE    the usual hours of other use for the "Plan ahead" section (default ~/.claude/usage-log/plan-hours.json)
+//   --json FILE     where to write the same data as JSON (default: usage-dashboard.json next to --out)
 //   --no-open       build only, don't open the browser
 import fs from "node:fs";
 import path from "node:path";
@@ -20,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { planUse, readSamples } from "./plan-use.mjs";
 import { planAhead, readConfig } from "./plan-ahead.mjs";
 
+const started = Date.now();
 const args = process.argv.slice(2);
 const opt = (name, def) => {
   const i = args.indexOf(`--${name}`);
@@ -29,6 +33,7 @@ const flag = (name) => args.includes(`--${name}`);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = opt("out", path.join(os.homedir(), ".claude", "reports", "usage-dashboard.html"));
+const jsonOut = opt("json", path.join(path.dirname(out), "usage-dashboard.json"));
 const days = Number(opt("days", 90));
 const since = Date.now() - days * 86400000;
 
@@ -74,7 +79,7 @@ function codexUsage(home, workers) {
       if (p.type === "token_count") {
         const tot = p.info?.total_token_usage;
         if (tot && tot.total_tokens > prev.total_tokens) {
-          // plan weight by price ratios, like planWeight in usage-scan: cached input 0.1x, output 8x
+          // Codex plan weight by price ratios (cached input 0.1x, output 8x); fitted on its own, apart from Claude's
           const d = (k) => (tot[k] ?? 0) - (prev[k] ?? 0);
           const c = cost.get(Math.floor(Date.parse(j.timestamp) / 60000)) ?? [0, 0];
           c[0] += (d("input_tokens") - d("cached_input_tokens") + 0.1 * d("cached_input_tokens") + 8 * d("output_tokens")) / 1e6;
@@ -161,21 +166,36 @@ const samples = readSamples(opt("plan", path.join(usageLog, "plan-usage.jsonl"))
 const plan = planUse(samples, report.cost ?? []);
 const config = readConfig(opt("ahead", path.join(usageLog, "plan-hours.json")));
 
+// The page, its lib and the Nimbalyst panel read the split as "shared" and "others" (the same names everywhere),
+// so the config's showSplit / otherUse are renamed here.
+const ahead = planAhead(samples, report.cost ?? [], plan, config);
+if (ahead) {
+  if (ahead.otherUse) { ahead.others = ahead.otherUse; delete ahead.otherUse; }
+  for (const v of Object.values(ahead)) if (Array.isArray(v)) for (const h of v) if (h && typeof h === "object" && "otherUse" in h) { h.others = h.otherUse; delete h.otherUse; }
+}
 const data = {
   generated: new Date().toISOString(),
   computer: os.hostname(),
   sessions: report.sessions,
   plan,
-  showSplit: config.showSplit, // false: no other use of the account, so the page leaves out the split
-  ahead: planAhead(samples, report.cost ?? [], plan, config),
+  shared: config.showSplit, // false: no other use of the account, so the page leaves out the split
+  ahead,
   codex: codexUsage(opt("codex", path.join(os.homedir(), ".codex")), report.sessions.flatMap((s) => s.workers.filter((w) => w.worker === "codex"))),
   gemini: await geminiUsage(opt("gemini", path.join(os.homedir(), ".gemini"))),
 };
 // "<" is escaped so a chat title can't close the script tag
 const json = JSON.stringify(data).replace(/</g, "\\u003c");
-const page = fs.readFileSync(path.join(here, "usage-dashboard.html"), "utf8").replace("__DATA__", () => json);
+// the lib is a plain ES module: drop the leading "export " so its declarations run as page script
+const lib = fs.readFileSync(path.join(here, "usage-dashboard-lib.mjs"), "utf8").replace(/^export /gm, "");
+const page = fs.readFileSync(path.join(here, "usage-dashboard.html"), "utf8").replace("/*__LIB__*/", () => lib).replace("__DATA__", () => json);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, page);
+// same data for the panel; temp file then rename, so a reader never sees half a file
+fs.mkdirSync(path.dirname(jsonOut), { recursive: true });
+const tmp = `${jsonOut}.${process.pid}.tmp`;
+// buildMs: how long this build took, so the panel can show a progress bar for the next one
+fs.writeFileSync(tmp, JSON.stringify({ ...data, builtAt: new Date().toISOString(), buildMs: Date.now() - started }));
+fs.renameSync(tmp, jsonOut);
 console.log(`Dashboard: ${out} (${report.totals.sessions} Claude chats, ${data.codex.sessions.length} Codex sessions, ${data.gemini.conversations.length} Gemini conversations)`);
 
 if (!flag("no-open")) {

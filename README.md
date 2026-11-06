@@ -41,7 +41,7 @@ In 30 days on my computer, 360 of 11,042 replies were sent back. All 40 hooks ar
 
 - A hook refuses a read of a whole large file, so the agent reads the part it needs. It refused 607 in those 30 days.
 - A long chat compacts itself at about 200k, while it works, and a finished chat is left alone. In one audit a compact cost about 44k tokens with a warm cache; after a long pause, when the cache has expired, about 590k.
-- Typing `usage` opens a dashboard with this week's token use and a forecast for your plan limit. It makes no model call.
+- Typing `usage` opens a dashboard of token use and plan use by plan week (this week, last week, the weeks before), with this computer's part, and a forecast for your plan limit. In Nimbalyst it opens from the Usage icon's Full dashboard button. It makes no model call.
 
 ### Long work
 

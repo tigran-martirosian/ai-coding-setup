@@ -9,8 +9,9 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { PanelHostProps } from '@nimbalyst/extension-sdk';
 import { FIVE_MS, WEEK_MS, HOUR_MS, clock, elapsedPercent, extraLimits, paceHours, pace, sessionPace, span, weekForecast, when } from './format';
 import type { Tone } from './format';
-import { installPopover, removePopover } from './popover';
-import { getState, openDashboard, refresh, setExec, start, stop, subscribe } from './store';
+import { UsageDashboardPanel, hideDashboardButton, showDashboardPanel, unhideDashboardButton } from './dashboard';
+import { closePopover, installPopover, removePopover } from './popover';
+import { getState, refresh, setExec, start, stop, subscribe } from './store';
 import { CSS } from './styles';
 import '../../shared/tokens.css';
 import { t } from './strings';
@@ -111,9 +112,15 @@ function Forecast(props: { tone: Tone; verdict: string; detail: string; stats: S
   );
 }
 
+/** Opens the dashboard panel in the main area; the popover, if that is where the click came from, closes. */
+function openFullDashboard() {
+  closePopover();
+  showDashboardPanel();
+}
+
 /** The whole view. With a host it is the sidebar panel; without one, the popover. */
 function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
-  const { plan, error, loading, dashboard, dashboardError } = useStore();
+  const { plan, error, loading } = useStore();
   const now = useNow();
 
   useEffect(() => {
@@ -211,15 +218,9 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
             <button onClick={refresh}>{t.retry}</button>
           </div>
         )}
-        {dashboardError && (
-          <div className="up-error" role="alert">
-            <span>{dashboardError}</span>
-            <button onClick={openDashboard}>{t.retry}</button>
-          </div>
-        )}
-        <button className="up-btn" disabled={dashboard === 'building'} onClick={openDashboard}>
-          <Sym name={dashboard === 'opened' ? 'check' : 'open_in_new'} />
-          <span role="status">{dashboard === 'building' ? t.building : dashboard === 'opened' ? t.opened : t.dashboard}</span>
+        <button className="up-btn" onClick={openFullDashboard}>
+          <Sym name="open_in_new" />
+          <span>{t.dashboard}</span>
         </button>
       </div>
     </div>
@@ -228,18 +229,24 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
 
 export function activate() {
   installPopover(() => <UsagePlanPanel />, t.title);
+  hideDashboardButton();
   start();
 }
 
 export function deactivate() {
   stop();
   removePopover();
+  unhideDashboardButton();
 }
 
 // The app reads `panels` when it loads the extension, so the button opens the popover from the
 // first click even if the app only activates the extension when its panel is opened.
-if (typeof window !== 'undefined') installPopover(() => <UsagePlanPanel />, t.title);
+if (typeof window !== 'undefined') {
+  installPopover(() => <UsagePlanPanel />, t.title);
+  hideDashboardButton();
+}
 
 export const panels = {
   'usage-plan': { component: UsagePlanPanel },
+  'usage-dashboard': { component: UsageDashboardPanel },
 };

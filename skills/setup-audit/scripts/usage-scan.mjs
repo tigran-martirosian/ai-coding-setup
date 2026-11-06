@@ -15,9 +15,12 @@
 //   --root DIR        transcripts folder (default ~/.claude/projects)
 //   --json            print JSON instead of markdown
 //   --cost            with --json: add `cost`, a list of [minute, plan weight, tokens] (see planWeight)
+//   --no-cache        parse every transcript (default: reuse per-file results in ~/.claude/reports/usage-scan-cache.jsonl)
+//   --cache-file PATH use another cache file
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
 
 const args = process.argv.slice(2);
 const opt = (name, def) => {
@@ -67,7 +70,7 @@ const dayKey = (t) => {
 // publish the formula, so this is the message's list price (apiCost, below) in dollars: every
 // model, output and cache ratio comes from the one PRICE table. plan-use fits the scale
 // (percent of the plan per unit) from the recorded plan percentages, so only the ratios matter.
-const planWeight = (u, model) => apiCost(u, model);
+const planWeight = (u, model, quiet) => apiCost(u, model, quiet);
 // What one API message would cost at Anthropic's list prices (dollars per million tokens:
 // input, output, cache read; cache writes cost 1.25x input, 2x for the 1-hour cache). A plan
 // is not billed this way: the figure only says what the same tokens cost on the pay-as-you-go API.
@@ -79,10 +82,10 @@ const unpriced = new Map();
 process.on("exit", () => {
   if (unpriced.size) console.error(`usage-scan: no price for ${[...unpriced].map(([m, n]) => `${m} (${n} messages)`).join(", ")}; counted as Sonnet`);
 });
-const apiCost = (u, model) => {
+const apiCost = (u, model, quiet = false) => {
   if (model === "<synthetic>") return 0; // written by Claude Code itself, no API call
   let price = PRICE.find(([re]) => re.test(model));
-  if (!price) { unpriced.set(model, (unpriced.get(model) ?? 0) + 1); price = [null, 2, 10, 0.2]; }
+  if (!price) { if (!quiet) unpriced.set(model, (unpriced.get(model) ?? 0) + 1); price = [null, 2, 10, 0.2]; }
   const [, inp, outp, read] = price;
   const write = u.cache_creation_input_tokens ?? 0;
   const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
@@ -155,11 +158,16 @@ const REDO_MS = 30 * 60000;
 const ctxOf = (u = {}) => (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
 
 // Scan one transcript file. `window` limits by time; returns null if nothing in it. `sub`: a subagent file.
-function scan(file, window, sub = false) {
+// `info` is filled with minT/maxT (first and last timestamp in the file, null if none) and `ledger`, the plan-cost
+// entries [message id, minute, plan weight, tokens(, model if unpriced)] of the new messages, so the caller can add
+// them to the shared cost table (and cache them) without scanning again.
+function scan(file, window, sub = false, info = {}) {
   const lines = readLines(file);
   const stamps = lines.map((l) => Date.parse(l.timestamp)).filter((t) => !isNaN(t));
+  info.minT = null; info.maxT = null; info.ledger = [];
   if (!stamps.length) return null;
   const start = Math.min(...stamps);
+  info.minT = start; info.maxT = stamps.reduce((a, t) => (t > a ? t : a), -Infinity);
   const end = window.minutes ? Math.min(window.until, start + window.minutes * 60000) : window.until;
   const from = window.minutes ? start : window.since;
   const inWin = (l) => {
@@ -268,11 +276,10 @@ function scan(file, window, sub = false) {
         const day = (days[dayKey(t)] ??= {});
         day[m] = (day[m] ?? 0) + tok;
         if (m !== "<synthetic>") usd[dayKey(t)] = (usd[dayKey(t)] ?? 0) + apiCost(u, m);
-        if (withCost && m !== "<synthetic>" && !costSeen.has(id)) {
-          costSeen.add(id);
-          const c = cost.get(Math.floor(t / 60000)) ?? [0, 0];
-          c[0] += planWeight(u, m); c[1] += tok;
-          cost.set(Math.floor(t / 60000), c);
+        if (m !== "<synthetic>") {
+          const e = [id, Math.floor(t / 60000), planWeight(u, m, true), tok];
+          if (!PRICE.some(([re]) => re.test(m))) e.push(m);
+          info.ledger.push(e);
         }
       }
       for (const c of l.message.content ?? []) {
@@ -364,6 +371,122 @@ function scan(file, window, sub = false) {
   };
 }
 
+// Per-file cache. A transcript is parsed once over its whole time range (window-independent) and the result kept,
+// keyed by absolute path + size + mtimeMs, in a JSON-lines file (header line with the version, then one line per file).
+// A cached file is used when all its timestamps lie inside the asked window (otherwise it is parsed again with the
+// window). The version hashes the code that decides the result, so editing the scan invalidates the cache.
+// --no-cache: neither read nor write it. --cache-file PATH: another cache file.
+const useCache = !flag("no-cache");
+const cacheFile = opt("cache-file", path.join(os.homedir(), ".claude", "reports", "usage-scan-cache.jsonl"));
+// The version is this whole script's text plus the time zone (days are local dates): any edit here rebuilds the cache once
+const CACHE_VERSION = crypto.createHash("sha1").update(fs.readFileSync(new URL(import.meta.url)))
+  .update(Intl.DateTimeFormat().resolvedOptions().timeZone + "|" + new Date().getTimezoneOffset() + "|v3").digest("hex");
+// The cache file's lines, read in chunks: the file is hundreds of MB, past what one string can hold
+function* cacheLines(file) {
+  const fd = fs.openSync(file, "r");
+  const buf = Buffer.alloc(1 << 24);
+  let rest = Buffer.alloc(0);
+  try {
+    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) {
+      let chunk = Buffer.concat([rest, buf.subarray(0, n)]);
+      let i;
+      while ((i = chunk.indexOf(10)) !== -1) {
+        if (i > 0) yield chunk.toString("utf8", 0, i);
+        chunk = chunk.subarray(i + 1);
+      }
+      rest = Buffer.from(chunk);
+    }
+    if (rest.length) yield rest.toString("utf8");
+  } finally { fs.closeSync(fd); }
+}
+// Only two Maps live in an entry (waste.reqs and the unpriced counts); no number in a parse result is NaN or infinite
+// (lines without a valid timestamp are skipped). Plain JSON.parse is several times faster than one with a reviver.
+const encode = (e) => JSON.stringify({ ...e, unpriced: [...e.unpriced], result: e.result && { ...e.result, waste: { ...e.result.waste, reqs: [...e.result.waste.reqs] } } });
+const decode = (line) => {
+  const e = JSON.parse(line);
+  e.unpriced = new Map(e.unpriced);
+  if (e.result) e.result.waste.reqs = new Map(e.result.waste.reqs);
+  return e;
+};
+const cache = new Map(); // absolute path -> entry
+const rawLine = new Map(); // path -> its line in the cache file as read, written back unchanged
+const cacheSeen = new Set();
+let cacheDirty = false;
+if (useCache && fs.existsSync(cacheFile)) {
+  try {
+    const rows = cacheLines(cacheFile);
+    try {
+      const head = rows.next();
+      if (!head.done && JSON.parse(head.value).version === CACHE_VERSION) {
+        for (const r of rows) { const e = decode(r); cache.set(e.file, e); rawLine.set(e.file, r); }
+      } else console.error("usage-scan: cache is from other scan code, rebuilding it");
+    } finally { rows.return(); } // closes the file, also when the loop stopped early: an open file blocks the rename on Windows
+  } catch (e) {
+    cache.clear();
+    console.error(`usage-scan: cache unreadable (${e.message}), rebuilding it`);
+  }
+  if (!cache.size) cacheDirty = true;
+}
+function saveCache() {
+  for (const f of [...cache.keys()]) if (!cacheSeen.has(f) && !fs.existsSync(f)) { cache.delete(f); cacheDirty = true; }
+  if (!cacheDirty) return;
+  fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+  const tmp = `${cacheFile}.${process.pid}.tmp`;
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeSync(fd, JSON.stringify({ version: CACHE_VERSION }) + "\n");
+    for (const e of cache.values()) fs.writeSync(fd, (rawLine.get(e.file) ?? encode(e)) + "\n");
+  } finally { fs.closeSync(fd); }
+  // Another scan reading the cache at this moment can make the rename fail on Windows; this run's output is still right
+  try { fs.renameSync(tmp, cacheFile); } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    console.error(`usage-scan: cache not saved (${e.message}); the next run reads the files again`);
+  }
+}
+// Add a file's plan-cost entries to the shared cost table (a resumed chat repeats earlier messages in a new file)
+function addLedger(ledger) {
+  if (!withCost) return;
+  for (const [id, minute, weight, tok, model] of ledger) {
+    if (costSeen.has(id)) continue;
+    costSeen.add(id);
+    if (model) unpriced.set(model, (unpriced.get(model) ?? 0) + 1);
+    const c = cost.get(minute) ?? [0, 0];
+    c[0] += weight; c[1] += tok;
+    cost.set(minute, c);
+  }
+}
+// scan() through the cache; `st` = fs.statSync(file)
+function scanFile(file, st, win, sub) {
+  if (!useCache || win.minutes) {
+    const info = {};
+    const r = scan(file, win, sub, info);
+    addLedger(info.ledger);
+    return r;
+  }
+  cacheSeen.add(file);
+  let e = cache.get(file);
+  if (!e || e.size !== st.size || e.mtimeMs !== st.mtimeMs) {
+    const before = new Map(unpriced);
+    const info = {};
+    const result = scan(file, { since: -Infinity, until: Infinity, minutes: 0 }, sub, info);
+    // the cached figures are replayed below; undo what this parse counted on the shared table
+    const counted = new Map();
+    for (const [m, n] of unpriced) if (n !== (before.get(m) ?? 0)) counted.set(m, n - (before.get(m) ?? 0));
+    unpriced.clear(); for (const [m, n] of before) unpriced.set(m, n);
+    e = { file, size: st.size, mtimeMs: st.mtimeMs, minT: info.minT, maxT: info.maxT, ledger: info.ledger, unpriced: counted, result };
+    cache.set(file, e); rawLine.delete(file); cacheDirty = true;
+  }
+  if (e.minT !== null && (e.minT < win.since || e.maxT > win.until)) {
+    const info = {};
+    const r = scan(file, win, sub, info);
+    addLedger(info.ledger);
+    return r;
+  }
+  for (const [m, n] of e.unpriced) unpriced.set(m, (unpriced.get(m) ?? 0) + n);
+  addLedger(e.ledger);
+  return e.result;
+}
+
 // Collect sessions
 const sessions = [];
 if (!fs.existsSync(root)) { console.error(`No transcripts folder: ${root}`); process.exit(1); }
@@ -376,9 +499,10 @@ for (const proj of fs.readdirSync(root, { withFileTypes: true })) {
     const id = f.slice(0, -6);
     if (sessionPrefix && !id.startsWith(sessionPrefix)) continue;
     const file = path.join(pdir, f);
-    if (!sessionPrefix && fs.statSync(file).mtimeMs < since) continue;
+    const fst = fs.statSync(file);
+    if (!sessionPrefix && fst.mtimeMs < since) continue;
     const win = { since, until, minutes };
-    const main = scan(file, win);
+    const main = scanFile(file, fst, win, false);
     const subs = [];
     const sdir = path.join(pdir, id, "subagents");
     if (fs.existsSync(sdir)) {
@@ -388,7 +512,8 @@ for (const proj of fs.readdirSync(root, { withFileTypes: true })) {
         const pw = minutes && main?.first
           ? { since: Date.parse(main.first), until: Math.min(until, Date.parse(main.first) + minutes * 60000), minutes: 0 }
           : { since, until, minutes: 0 };
-        const r = scan(path.join(sdir, s), pw, true);
+        const sfile = path.join(sdir, s);
+        const r = scanFile(sfile, fs.statSync(sfile), pw, true);
         if (!r) continue;
         let meta = {};
         try { meta = JSON.parse(fs.readFileSync(path.join(sdir, s.replace(/\.jsonl$/, ".meta.json")), "utf8")); } catch {}
@@ -404,6 +529,7 @@ for (const proj of fs.readdirSync(root, { withFileTypes: true })) {
     });
   }
 }
+if (useCache) saveCache();
 sessions.sort((a, b) => b.total - a.total);
 
 // Totals

@@ -1,5 +1,5 @@
-// Tests for ~/.claude/skills/setup-audit/scripts/usage-scan.mjs on a made-up transcripts folder.
-// Run: node test-usage-scan.mjs
+// Tests for skills/setup-audit/scripts/usage-scan.mjs on a made-up transcripts folder.
+// Run: node tests/test-usage-scan.mjs
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
@@ -61,7 +61,8 @@ write(path.join(proj, "s1", "subagents", "agent-x.jsonl"), [
 ]);
 fs.writeFileSync(path.join(proj, "s1", "subagents", "agent-x.meta.json"), JSON.stringify({ agentType: "copy-humanizer" }));
 
-const run = (...a) => JSON.parse(execFileSync("node", [SCRIPT, "--root", root, "--json", ...a], { encoding: "utf8" }));
+const CACHE = root + "-cache.jsonl"; // the tests use their own cache file, not the real one
+const run = (...a) => JSON.parse(execFileSync("node", [SCRIPT, "--root", root, "--cache-file", CACHE, "--json", ...a], { encoding: "utf8" }));
 let pass = 0, fail = 0;
 const check = (name, got, want) => {
   if (JSON.stringify(got) === JSON.stringify(want)) { pass++; console.log(`ok   ${name}`); }
@@ -290,6 +291,24 @@ write(path.join(root, "C--Projects-qual2", "v1.jsonl"), Array.from({ length: 10 
 const QV = run("--project", "qual2", "--days", "10000").wasted.quality.perProject.qual2;
 check("quality: ten claims give rates (redo 5 of 10: every claim followed by an odd message)", [QV.claims, QV.tooFew, QV.redos, QV.redoRate, QV.unchecked, QV.uncheckedRate], [10, false, 5, 0.5, 10, 1]);
 
+// Cache: an unchanged file comes from the cache, a changed file is read again
+{
+  const cf = root + "-cache2.jsonl";
+  const cached = (...a) => JSON.parse(execFileSync("node", [SCRIPT, "--root", root, "--cache-file", cf, "--json", ...a], { encoding: "utf8" }));
+  const uncached = JSON.parse(execFileSync("node", [SCRIPT, "--root", root, "--no-cache", "--json", "--session", "s1"], { encoding: "utf8" }));
+  const cold = cached("--session", "s1");
+  check("cache: first run equals a --no-cache run", cold, uncached);
+  const rows = fs.readFileSync(cf, "utf8").split("\n").filter(Boolean);
+  check("cache: header and one row per transcript (main + subagent)", rows.length, 3);
+  fs.writeFileSync(cf, rows.map((r) => r.replace('"title":"Demo session"', '"title":"FROM CACHE"')).join("\n") + "\n");
+  check("cache: unchanged file is served from the cache", cached("--session", "s1").sessions[0].title, "FROM CACHE");
+  fs.appendFileSync(path.join(proj, "s1.jsonl"), JSON.stringify(asst(46, "m7", usage(0, 1, 0))) + "\n");
+  const after = cached("--session", "s1").sessions[0];
+  check("cache: changed file is read again (new message, real title)", [after.main, after.title], [uncached.sessions[0].main + 1, "Demo session"]);
+  fs.rmSync(cf, { force: true });
+}
+
 fs.rmSync(root, { recursive: true, force: true });
+fs.rmSync(CACHE, { force: true });
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

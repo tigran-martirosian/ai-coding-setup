@@ -181,7 +181,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   the most. The forecast needs a day or two of readings first.
 - **"will I run out?"**: the same forecast as a few lines in the chat.
 - **The Usage Plan button** in Nimbalyst's left gutter (the `usage-plan` extension) opens a small
-  pop-up: both limits as bars, your pace against what lasts until the reset, and when each runs out.
+  pop-up: both limits as bars, your pace against what lasts until the reset, and when each runs out. Its "Full dashboard" button opens the whole dashboard in the main area, with
+  usage by the plan's week (This week, Last week, earlier weeks, All).
 - **Where the percentages come from.** The `plan-usage-logger` hook reads your saved Claude login
   (`~/.claude/.credentials.json`) and asks api.anthropic.com for the plan percentages every 5
   minutes; the login goes to Anthropic only and is not written to the log. To turn it off, set

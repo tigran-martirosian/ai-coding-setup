@@ -8,6 +8,7 @@
 // never ships). Each is matched without regard to case. Exit code 1 when anything is found.
 // A line "allow <file>:<line>" in the word list lets private words stand on that one line, for a
 // name that is meant to be public there, such as the copyright line of a licence.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -20,6 +21,15 @@ const ROOT = path.resolve(args[0] || path.join(path.dirname(fileURLToPath(import
 const WORDS_FILE = path.resolve(wordsArg || path.join(ROOT, ".privacy-words"));
 const SKIP_DIRS = new Set([".git", "node_modules"]);
 const BIG = 1024 * 1024;
+// Files git ignores are never published (build output such as dist/), so a git folder skips them.
+// A folder outside git has nothing ignored. A git that fails inside a repository stops the check.
+const ignored = (() => {
+  const inRepo = spawnSync("git", ["-C", ROOT, "rev-parse", "--is-inside-work-tree"], { encoding: "utf8" });
+  if (inRepo.status !== 0) return new Set();
+  const r = spawnSync("git", ["-C", ROOT, "ls-files", "-z", "--others", "--ignored", "--exclude-standard"], { encoding: "utf8", maxBuffer: 1 << 28 });
+  if (r.status !== 0) { console.error("privacy check: git ls-files failed: " + r.stderr); process.exit(2); }
+  return new Set(r.stdout.split("\u0000").filter(Boolean).map((p) => path.resolve(ROOT, p)));
+})();
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const listed = fs.existsSync(WORDS_FILE)
@@ -47,7 +57,7 @@ function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) return SKIP_DIRS.has(e.name) ? [] : walk(full);
-    return full === WORDS_FILE ? [] : [full];
+    return full === WORDS_FILE || ignored.has(full) ? [] : [full];
   });
 }
 

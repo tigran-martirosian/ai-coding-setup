@@ -18,14 +18,10 @@ export interface State {
   /** A plain sentence about the numbers (what to do next); the technical reason goes to the console. */
   error: string;
   loading: boolean;
-  /** The full dashboard: being built, just opened, or at rest. */
-  dashboard: 'idle' | 'building' | 'opened';
-  dashboardError: string;
 }
 
 const EXTENSION_ID = 'com.local.usageplan';
 const REFRESH_MS = 5 * 60_000;
-const OPENED_MS = 4000;
 
 // The popover is drawn before any panel host exists, so until the panel is opened the
 // numbers come through the same call host.exec makes.
@@ -36,7 +32,7 @@ const direct: Exec = (command, options) =>
   );
 
 let exec: Exec = direct;
-let state: State = { plan: null, error: '', loading: false, dashboard: 'idle', dashboardError: '' };
+let state: State = { plan: null, error: '', loading: false };
 let timer: ReturnType<typeof setInterval> | undefined;
 const listeners = new Set<() => void>();
 
@@ -69,21 +65,6 @@ export async function refresh() {
   } catch (e) {
     console.warn('[usageplan] refresh:', e instanceof Error ? e.message : String(e));
     set({ error: t.refreshFailed, loading: false });
-  }
-}
-
-/** Builds the full dashboard page, which opens in the browser by itself. */
-export async function openDashboard() {
-  if (state.dashboard === 'building') return;
-  set({ dashboard: 'building', dashboardError: '' });
-  try {
-    const r = await exec(script('usage-dashboard.mjs'), { timeout: 120_000 });
-    if (!r.success) throw new Error(failureLine(r.stderr, t.dashboardFailed));
-    set({ dashboard: 'opened' });
-    setTimeout(() => state.dashboard === 'opened' && set({ dashboard: 'idle' }), OPENED_MS);
-  } catch (e) {
-    console.warn('[usageplan] dashboard:', e instanceof Error ? e.message : String(e));
-    set({ dashboard: 'idle', dashboardError: t.dashboardFailed });
   }
 }
 

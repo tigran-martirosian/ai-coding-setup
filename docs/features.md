@@ -113,7 +113,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
 | `pc-tidy-nudge` | On Windows, says to restart Nimbalyst after 12 hours open and points to `/pc-tidy` |
 | `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
-| `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
+| `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard (inside Nimbalyst it refreshes the data and says where to click) |
 | `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
 | `background-tasks` | When Nimbalyst's "background tasks have settled" prompt only repeats tasks already reported, tells the agent to reply with one line while work still runs and one complete answer when it is done, and refuses a background launch from the main session unless the description says it runs `beside` another step, another background task is still running, or it is a server or watcher (a reply that says a helper still runs or that it waits for one, while no helper or background command of the session is live, is sent back once; BACKGROUND_TASKS=warn turns the refusal into a note; in the desktop app and VS Code, which always run helpers in the background, a helper launch gets the note) |
 | `agent-run-log` | Writes one line per helper to `~/.claude/state/agent-runs.jsonl` with the model and effort it runs on, so the agents panel can show them. It sends nothing back (`AGENT_RUN_LOG=off` turns it off) |

@@ -234,120 +234,35 @@
 <script id="data" type="application/json">__DATA__</script>
 <script>
 const D = JSON.parse(document.getElementById("data").textContent);
+/*__LIB__*/
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const fmt = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(Math.round(n));
-const pct = (a, b) => b ? `${Math.round(a / b * 100)}%` : "0%";
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
-const pad = (n) => String(n).padStart(2, "0");
-const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const fmtDay = (k) => new Date(k + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
-const fmtTime = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
-const fmtWhen = (iso) => new Date(iso).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
-const modelName = (m) => m.replace(/^claude-/, "").replace(/-\d{8}$/, "");
-const topModel = (models) => {
-  const e = Object.entries(models || {}).sort((a, b) => b[1] - a[1])[0];
-  return e ? modelName(e[0]) : "";
-};
-const leaf = (p) => String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop();
 const svg = (d) => `<svg class="ic" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const ICON = { open: svg("M4.5 2.5 8 6l-3.5 3.5"), x: svg("M3 3l6 6M9 3l-6 6"), ok: svg("M2.5 6.5 5 9l4.5-5.5"), down: svg("M6 2.5v7M3 6.5l3 3 3-3"), up: svg("M6 9.5v-7M3 5.5l3-3 3 3") };
 const okState = (ok) => ok ? `<span class="state good">${ICON.ok}ok</span>` : `<span class="state bad">${ICON.x}failed</span>`;
 
-// Tokens per day for every chat and every subagent
-const flat = (days) => {
-  const o = {};
-  for (const [d, m] of Object.entries(days || {})) o[d] = Object.values(m).reduce((a, b) => a + b, 0);
-  return o;
-};
 const today = dayKey(new Date());
-let minDay = today;
-for (const s of D.sessions) {
-  s.dayTot = flat(s.days);
-  for (const a of s.subagents) a.dayTot = flat(a.days);
-  for (const w of s.workers) w.day = dayKey(new Date(w.at));
-  for (const u of [s, ...s.subagents]) for (const d in u.dayTot) if (d < minDay) minDay = d;
-}
-for (const x of [...D.codex.sessions, ...D.gemini.conversations]) x.day = dayKey(new Date(x.at));
-const allDays = [];
-for (let d = new Date(minDay + "T12:00:00"); dayKey(d) <= today; d.setDate(d.getDate() + 1)) allDays.push(dayKey(d));
+const allDays = prepareData(D);
 
-const state = { range: 7, day: null, project: null, type: null, q: "", sort: "total", dir: -1, open: new Set(), allChats: false, allCodex: false, allGemini: false };
-const rangeDays = () => state.range === "all" ? allDays : allDays.slice(-state.range);
+const P = D.plan ?? { status: "none" };
+const SHARED = D.shared !== false; // false: no other use of the account, so nothing is split
+// plan weeks as the range buttons; none (no plan logger): Today / 7 days / 30 days / All
+const WEEKS = weekRanges(P, new Date());
+const state = { range: WEEKS.length ? WEEKS[0].key : 7, day: null, project: null, type: null, q: "", sort: "total", dir: -1, open: new Set(), allChats: false, allCodex: false, allGemini: false };
+const rangeDays = () => rangeDaysOf(allDays, state.range, P);
+const weekOf = () => WEEKS.find((w) => w.key === state.range)?.week;
 const query = () => state.q.trim().toLowerCase();
-const tok = (u, days) => {
-  let n = 0;
-  for (const d in u.dayTot) if (days.has(d)) n += u.dayTot[d];
-  return n;
-};
-// What the same tokens would cost on the pay-as-you-go API (list prices, worked out in usage-scan)
-const usd = (u, days) => {
-  let n = 0;
-  for (const d in u.usd || {}) if (days.has(d)) n += u.usd[d];
-  return n;
-};
-const fmtUsd = (n) => "$" + n.toLocaleString("en-US", n >= 100 ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const USD_NOTE = "What these tokens would cost on Anthropic's pay-as-you-go API at list prices. A plan is not billed this way.";
 
 // Claude chats that match the filters (optionally ignoring one), with their tokens inside `days`
-function rows(days, skip) {
-  const q = query();
-  const out = [];
-  for (const s of D.sessions) {
-    if (skip !== "project" && state.project && s.project !== state.project) continue;
-    if (q && !`${s.title} ${s.name} ${s.id}`.toLowerCase().includes(q)) continue;
-    const main = tok(s, days);
-    const subs = s.subagents.map((a) => ({ a, t: tok(a, days) })).filter((x) => x.t > 0);
-    if (skip !== "type" && state.type && !subs.some((x) => x.a.type === state.type)) continue;
-    const sub = subs.reduce((n, x) => n + x.t, 0);
-    if (main + sub <= 0) continue;
-    out.push({ s, main, sub, subs, total: main + sub, usd: usd(s, days) + sum(subs, (x) => usd(x.a, days)) });
-  }
-  return out;
-}
-// Codex: runs started from Claude chats plus sessions used directly (app, CLI, Nimbalyst)
-function codexRuns(rs, days) {
-  const q = query();
-  const fromClaude = rs.flatMap((r) => r.s.workers.filter((w) => w.worker === "codex" && days.has(w.day)).map((w) => (
-    { at: w.at, what: w.what, from: r.s.title || r.s.id.slice(0, 8), tokens: w.tokens, seconds: w.seconds, ok: w.ok, n: w.processes, web: w.web, background: w.background })));
-  const direct = D.codex.sessions.filter((c) => days.has(c.day) && (!q || `${c.title} ${c.cwd}`.toLowerCase().includes(q))).map((c) => (
-    { at: c.at, what: c.title || leaf(c.cwd), from: c.origin || "Codex", tokens: c.tokens, seconds: null, ok: true, n: 1, direct: true }));
-  return [...fromClaude, ...direct].sort((a, b) => (a.at < b.at ? 1 : -1));
-}
-function geminiRuns(days) {
-  const q = query();
-  return D.gemini.conversations.filter((c) => days.has(c.day) && (!q || `${c.title} ${c.folder}`.toLowerCase().includes(q)))
-    .sort((a, b) => (a.at < b.at ? 1 : -1));
-}
+const rows = (days, skip) => chatRows(D.sessions, days, { project: state.project, type: state.type, q: query() }, skip);
+const codexRuns = (rs, days) => codexRunsOf(rs, D.codex.sessions, days, query());
+const geminiRuns = (days) => geminiRunsOf(D.gemini.conversations, days, query());
 
 // Claude plan use recorded for the whole account, split into this computer and other use.
 // 1 point = 1% of the weekly limit. The split is an estimate (see plan-use.mjs).
-const P = D.plan ?? { status: "none" };
-const SHOW_SPLIT = D.showSplit !== false; // false: no other use of the account, so nothing is split
-const pts = (n) => n >= 10 ? String(Math.round(n)) : n.toFixed(1).replace(/\.0$/, "");
-function planFor(P, days) {
-  const t = { total: 0, other: 0, idle: 0, any: false };
-  for (const d in P.days ?? {}) {
-    if (!days.has(d)) continue;
-    t.any = true;
-    for (const k of ["total", "other", "idle"]) t[k] += P.days[d][k];
-  }
-  // rounding in the recorded percentages can push a part slightly below zero or above the total
-  t.total = Math.max(0, t.total);
-  t.other = Math.min(t.total, Math.max(0, t.other));
-  t.mine = t.total - t.other;
-  return t;
-}
 // The estimate covers the whole account, so it is hidden while a project, subagent or search filter is on
-const otherTokens = (d) => SHOW_SPLIT && P.status === "ok" &&!state.project && !state.type && !query()
-  ? Math.max(0, P.days[d]?.other ?? 0) * P.tokensPerPoint : 0;
+const otherTokens = (d) => otherTokensFor(P, SHARED, !!(state.project || state.type || query()), d);
 
-function niceMax(v) {
-  const p = Math.pow(10, Math.floor(Math.log10(v)));
-  const f = v / p;
-  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
-}
 
 function ranks(items, attr, picked) {
   const max = Math.max(...items.map((x) => x.value));
@@ -361,8 +276,9 @@ function ranks(items, attr, picked) {
 
 function renderHead(rs) {
   const label = (r) => r === 1 ? "Today" : r === "all" ? "All" : `${r} days`;
-  $("ranges").innerHTML = [1, 7, 30, "all"].map((r) =>
-    `<button data-range="${r}" class="${state.range === r && !state.day ? "on" : ""}" aria-pressed="${state.range === r && !state.day}">${label(r)}</button>`).join("");
+  const opts = WEEKS.length ? [...WEEKS.map((w) => [w.key, w.label, w.title]), ["all", "All", ""]] : [1, 7, 30, "all"].map((r) => [r, label(r), ""]);
+  $("ranges").innerHTML = opts.map(([r, text, title]) =>
+    `<button data-range="${r}" title="${esc(title)}" class="${state.range === r && !state.day ? "on" : ""}" aria-pressed="${state.range === r && !state.day}">${text}</button>`).join("");
   const chips = [];
   if (state.day) chips.push(["day", `Day: ${fmtDay(state.day)}`]);
   if (state.project) chips.push(["project", `Project: ${D.sessions.find((s) => s.project === state.project)?.name ?? state.project}`]);
@@ -373,12 +289,12 @@ function renderHead(rs) {
   $("sum").title = cost ? USD_NOTE : "";
 }
 
-// The split for one account (Claude or Codex): this computer against other devices or apps on it
-function planBlock(P, days) {
-  const t = planFor(P, days);
+// The split for one account (Claude or Codex): this computer against other devices or other use of it
+function planBlock(P, days, week) {
+  const t = planFor(P, days, week);
   if (!t.any) return `<p class="empty">Nothing recorded in this period.</p>`;
   // "calibrating": not enough on record yet to split the time this computer was working
-  const parts = P.status === "ok"
+  const parts = (t.split ?? P.status === "ok")
     ? [["s1", "This computer", t.mine, "≈ "], ["s3", "Other use", t.other, "≈ "]]
     : [["s3", "Other use, this computer idle", t.idle, ""], ["s0", "Not split yet", t.total - t.idle, ""]];
   return `<div class="who">${parts.map(([cls, name, n, approx]) => `<div><div class="name"><i class="dot ${cls}"></i>${name}</div>
@@ -387,14 +303,15 @@ function planBlock(P, days) {
 }
 
 function renderPlan(days) {
-  $("plan-s").hidden = !SHOW_SPLIT;
-  if (!SHOW_SPLIT) return;
+  $("plan-s").hidden = !SHARED;
+  if (!SHARED) return;
   if (P.status === "none") {
     $("plan").innerHTML = `<p class="empty">No plan percentages recorded yet.</p>`;
     return;
   }
-  $("plan-n").textContent = "";
-  $("plan").innerHTML = planBlock(P, days);
+  const week = state.day ? undefined : weekOf();
+  $("plan-n").textContent = week ? weekNote(week) : "";
+  $("plan").innerHTML = planBlock(P, days, week);
 }
 
 // What to expect and when to work: forecasts from plan-ahead.mjs, as of the moment the page was built.
@@ -438,20 +355,20 @@ function renderAhead() {
       <td class="num muted">${Math.round(d.onBudget)}%</td></tr>`;
   }).join("");
 
-  const who = A.otherUse.list.map((o) => o.name || "Other use").join(" and ");
-  const split = SHOW_SPLIT && A.hours.some((h) => h.mine != null), top = Math.max(...A.hours.map((h) => h.rate ?? 0), 0.01);
+  const who = A.others.list.map((o) => o.name || "Other use").join(" and ");
+  const split = SHARED && A.hours.some((h) => h.mine != null), top = Math.max(...A.hours.map((h) => h.rate ?? 0), 0.01);
   const hourCols = A.hours.map((h) => {
     const mine = split ? h.mine ?? 0 : 0, rest = Math.max(0, (h.rate ?? 0) - mine);
-    const title = `${pad(h.h)}:00, ${h.rate == null ? "nothing recorded" : `${h.rate}% of the week an hour${!split || h.mine == null ? "" : `, ${h.mine}% from this computer`}`}${h.otherUse ? `. ${who} usually on, ${Math.round(h.otherUse * 7)} of 7 days` : ""}`;
-    return `<div class="hr${h.otherUse ? " busy" : ""}" title="${esc(title)}"><span class="col">${rest ? `<i class="${split ? "s3" : "s0"}" style="height:${rest / top * 100}%"></i>` : ""}${mine ? `<i class="s1" style="height:${mine / top * 100}%"></i>` : ""}</span><i class="mark"></i><b>${h.h % 3 ? "" : pad(h.h)}</b></div>`;
+    const title = `${pad(h.h)}:00, ${h.rate == null ? "nothing recorded" : `${h.rate}% of the week an hour${!split || h.mine == null ? "" : `, ${h.mine}% from this computer`}`}${h.others ? `. ${who} usually on, ${Math.round(h.others * 7)} of 7 days` : ""}`;
+    return `<div class="hr${h.others ? " busy" : ""}" title="${esc(title)}"><span class="col">${rest ? `<i class="${split ? "s3" : "s0"}" style="height:${rest / top * 100}%"></i>` : ""}${mine ? `<i class="s1" style="height:${mine / top * 100}%"></i>` : ""}</span><i class="mark"></i><b>${h.h % 3 ? "" : pad(h.h)}</b></div>`;
   }).join("");
-  const legend = (split ? `<span><i class="dot s1"></i>This computer</span><span><i class="dot s3"></i>Other use</span>` : `<span><i class="dot s0"></i>${SHOW_SPLIT ? "Whole account" : "Plan use"}</span>`)
+  const legend = (split ? `<span><i class="dot s1"></i>This computer</span><span><i class="dot s3"></i>Other use</span>` : `<span><i class="dot s0"></i>${SHARED ? "Whole account" : "Plan use"}</span>`)
     + (who ? `<span><i class="dot line"></i>${esc(who)} usually on</span>` : "");
 
   $("ahead").innerHTML = `<div class="plan">
       <div>
         ${limit("Weekly", "7-day window", w.used, weekTone, until(w.resets), weekNote)}
-        ${limit("Session", "5-hour window", f.open ? f.used : null, f.open ? fiveTone : "", f.open ? until(f.resets) : "Starts with the next message", fiveNote)}
+        ${limit("Session", "5-hour window", f.open ? f.used : null, f.open ? fiveTone : "", f.open ? until(f.resets) : f.none ? "None on the plan now" : "Starts with the next message", f.none ? "" : fiveNote)}
         ${advice ? `<dl class="advice">${advice}</dl>` : ""}
       </div>
       <div class="scroll"><table class="outlook">
@@ -576,7 +493,7 @@ function renderCodex(cx, days) {
   const L = D.codex.limits;
   let limits = L ? `<p class="after">Codex plan${L.plan ? ` (${esc(L.plan)})` : ""}: ${Math.round(L.primary.used_percent)}% of the ${Math.round(L.primary.window_minutes / 60)}-hour window${L.secondary ? `, ${Math.round(L.secondary.used_percent)}% of the ${Math.round(L.secondary.window_minutes / 1440)}-day window` : ""}, ${fmtTime(L.at)}.</p>` : "";
   const CP = D.codex.plan ?? { status: "none" };
-  const plan = !SHOW_SPLIT || CP.status === "none" ? "" : `<div style="margin-bottom:22px">${planBlock(CP, days)}</div>`;
+  const plan = !SHARED || CP.status === "none" ? "" : `<div style="margin-bottom:22px">${planBlock(CP, days)}</div>`;
   if (plan) limits = "";
   $("codex-n").textContent = cx.length ? `${fmt(sum(cx, (x) => x.tokens || 0))} tokens in ${plural(sum(cx, (x) => x.n), "run")}` : "none";
   if (!cx.length) { $("codex").innerHTML = `${plan}<p class="empty">No Codex runs in this period.</p>${limits}`; return; }
@@ -620,7 +537,7 @@ document.addEventListener("click", (e) => {
   if (!el) return;
   const d = el.dataset;
   const toggle = (k, v) => { state[k] = state[k] === v ? null : v; };
-  if (d.range) { state.range = d.range === "all" ? "all" : Number(d.range); state.day = null; }
+  if (d.range) { state.range = d.range === "all" || d.range[0] === "w" ? d.range : Number(d.range); state.day = null; }
   else if (d.day) toggle("day", d.day);
   else if (d.project) toggle("project", d.project);
   else if (d.type) toggle("type", d.type);
