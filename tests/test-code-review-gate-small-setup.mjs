@@ -19,7 +19,7 @@ const cases = [
   ["1-line replace_all in CLAUDE.md", excused(turn({ ...edit(P + "CLAUDE.md", 1, 1), input: { ...edit(P + "CLAUDE.md", 1, 1).input, replace_all: true } })), []],
   ["1-line agent .md edit", excused(turn(edit(P + ".claude/agents/worker.md", 1, 1))), []],
   ["1-line skill frontmatter edit", excused(turn({ type: "tool_use", id: "fm", name: "Edit", input: { file_path: P + ".claude/skills/a/SKILL.md", old_string: "allowed-tools: Read", new_string: "allowed-tools: Read, Bash" } })), []],
-  ["rule file a helper also changed", excused(turn(edit(P + "CLAUDE.md", 1, 1)), [P.toLowerCase() + "claude.md"]), []],
+  ["rule file a helper also changed", excused(turn(edit(P + "CLAUDE.md", 1, 1)), [process.platform === "win32" ? (P + "CLAUDE.md").toLowerCase() : P + "CLAUDE.md"]), []],
 ];
 let failed = 0;
 for (const [name, got, want] of cases) {
