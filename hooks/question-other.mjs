@@ -281,8 +281,12 @@ export function mend(event, seen) {
     const cwd = typeof event.cwd === "string" ? event.cwd : "";
     const outside = point.file && outsideProject(point.text, cwd);
     const presented = (s) => (outside ? inCode(s, point.text) : (point.file ? LOCAL_LINK : LINK).test(s));
+    // A bare name ("DESIGN.md") is placed in the cwd only when it is there: elsewhere the link would be made up
+    const bareMissing = point.file && !/[\\/~]/.test(point.text) && !(cwd && existsSync(absolute(point.text, cwd)));
     if (!presented(formText(input, input.fields, true)) && !presented(seen.replyText) && !seen.shown) {
-      if (point.file) {
+      if (bareMissing) notes.push(`the form names "${point.text}" with no folder, and no such file is in the session's folder, so no link was added; it went out as is. ` +
+        `Next time put the file's full path in the reply before the form: inside the open project a markdown link [name](/C:/path/to/file.md), outside it the path in inline code.`);
+      else if (point.file) {
         const where = `File: ${pointerTo(point.text, cwd, outside)}`;
         input = { ...input, intro: [input.intro, where].filter((s) => typeof s === "string" && s.trim()).join("\n\n") };
         changed = true;

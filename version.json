@@ -1,6 +1,6 @@
 {
-  "version": "1.0.101",
+  "version": "1.0.102",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-06",
-  "summary": "On macOS the check that an edited script was run reads Windows-style file paths correctly, and the tests pass there again."
+  "summary": "A question form that names a file without its folder no longer gets a link to a file that is not there, and the usage dashboard ships with its design file (DESIGN.md) for anyone restyling it."
 }
