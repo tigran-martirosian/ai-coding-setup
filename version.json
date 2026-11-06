@@ -1,6 +1,6 @@
 {
-  "version": "1.0.97",
+  "version": "1.0.98",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "The tests pass on macOS again (one review-gate test assumed Windows file names)."
+  "summary": "The review-gate test builds file names the way the hook does, so it passes on macOS too (1.0.97's fix was not enough)."
 }
