@@ -65,7 +65,9 @@ fs.mkdirSync(dir, { recursive: true });
 let ytCommand;
 function yt(args, options = {}) {
   if (!ytCommand) {
-    const tries = [process.env.YT_DLP && [process.env.YT_DLP], ["yt-dlp"], ["uvx", "--with", "deno", "yt-dlp"]].filter(Boolean);
+    // YT_DLP may also name a .mjs/.js stand-in, which runs under this node (the test's fake yt-dlp)
+    const own = process.env.YT_DLP && (/\.m?js$/.test(process.env.YT_DLP) ? [process.execPath, process.env.YT_DLP] : [process.env.YT_DLP]);
+    const tries = [own, ["yt-dlp"], ["uvx", "--with", "deno", "yt-dlp"]].filter(Boolean);
     ytCommand = tries.find((t) => spawnSync(t[0], [...t.slice(1), "--version"], { stdio: "ignore" }).status === 0);
     if (!ytCommand) stop(`yt-dlp is not available (tried: ${tries.map((t) => t.join(" ")).join(", ")}). Install uv or yt-dlp.`);
   }
@@ -88,12 +90,18 @@ else if (isLink) {
   };
   fs.writeFileSync(infoFile, JSON.stringify(info, null, 2));
 } else {
-  const probe = execFileSync(tool("ffprobe"), ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", source], { encoding: "utf8" });
-  info = { id, source: path.resolve(source), title: path.basename(source), duration: Number(probe.trim()), chapters: [], subtitles: [], automatic: [] };
-  if (!info.duration) stop(`ffprobe could not read the length of ${source}`);
+  info = { id, source: path.resolve(source), title: path.basename(source), duration: probeLength(source), chapters: [], subtitles: [], automatic: [] };
   fs.writeFileSync(infoFile, JSON.stringify(info, null, 2));
 }
-console.log(`${info.title}${info.channel ? ` | ${info.channel}` : ""} | ${clock(info.duration)}`);
+function probeLength(file) {
+  const probe = execFileSync(tool("ffprobe"), ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { encoding: "utf8" });
+  const length = Number(probe.trim());
+  if (!(length > 0)) stop(`ffprobe could not read the length of ${file}`);
+  return length;
+}
+// Some sites (Instagram) give no length; it is then measured from the downloaded video in step 3
+const hasLength = info.duration > 0;
+console.log(`${info.title}${info.channel ? ` | ${info.channel}` : ""} | ${hasLength ? clock(info.duration) : "length not given, measured after the download"}`);
 for (const c of info.chapters) console.log(`  chapter ${clock(c.start)}  ${c.title}`);
 
 // 2. The words: subtitles someone wrote, else the automatic ones in the language that is spoken
@@ -141,6 +149,18 @@ if (fs.existsSync(wordsFile)) {
 if (flags.noFrames) process.exit(0);
 
 // 3. The pictures
+let video = isLink ? path.join(dir, "video.mp4") : path.resolve(source);
+function download() {
+  if (fs.existsSync(video)) return;
+  const run = yt(["-f", "bv*[height<=720][ext=mp4]/bv*[height<=720]/b[height<=720]/b", "--remux-video", "mp4", "-o", path.join(dir, "video.%(ext)s"), source], { stdio: ["ignore", "ignore", "pipe"] });
+  if (run.status !== 0 || !fs.existsSync(video)) stop(`yt-dlp could not download the video:\n${(run.stderr || "").trim().split("\n").slice(-5).join("\n")}`);
+}
+if (!hasLength) {
+  download();
+  info.duration = probeLength(video);
+  fs.writeFileSync(infoFile, JSON.stringify(info, null, 2));
+  console.log(`Length: ${clock(info.duration)}`);
+}
 const from = flags.from ? seconds(flags.from, "from") : 0;
 const to = Math.min(flags.to ? seconds(flags.to, "to") : info.duration, info.duration);
 if (!(to > from)) stop(`--from ${clock(from)} has to be before --to ${clock(to)} (the video is ${clock(info.duration)} long)`, 2);
@@ -151,11 +171,7 @@ if (!(every > 0)) stop("--every takes a number of seconds above 0", 2);
 const count = Math.ceil((to - from) / every);
 if (count > 30 * PER_SHEET) stop(`that is ${count} stills on ${Math.ceil(count / PER_SHEET)} sheets: take a shorter stretch or a larger --every`, 2);
 
-let video = isLink ? path.join(dir, "video.mp4") : path.resolve(source);
-if (isLink && !fs.existsSync(video)) {
-  const run = yt(["-f", "bv*[height<=720][ext=mp4]/bv*[height<=720]/b[height<=720]/b", "--remux-video", "mp4", "-o", path.join(dir, "video.%(ext)s"), source], { stdio: ["ignore", "ignore", "pipe"] });
-  if (run.status !== 0 || !fs.existsSync(video)) stop(`yt-dlp could not download the video:\n${(run.stderr || "").trim().split("\n").slice(-5).join("\n")}`);
-}
+if (isLink) download();
 
 const out = path.resolve(flags.out || path.join(dir, `${clock(from)}-${clock(to)}-every-${every}s`.replace(/:/g, "m")));
 fs.mkdirSync(out, { recursive: true });

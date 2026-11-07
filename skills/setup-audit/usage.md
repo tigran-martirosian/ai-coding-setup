@@ -14,7 +14,7 @@ Numbers come from a script, not from reading transcripts. **Never open transcrip
 2. **Compare:** if `~/.claude/reports/` has an older `usage-*.md`, read only its first 10 lines and compare the totals in one line.
 3. **Save** `~/.claude/reports/usage-<YYYY-MM-DD>.md` (add `-2`, `-3` if it exists): the script output, then **What stands out**, 3–5 bullets:
    - the biggest costs and what they were (from the session titles);
-   - any subagent over ~1M tokens, and whether a `worker` subagent (Sonnet) could have done its gathering;
+   - any subagent over ~1M tokens, and whether a `worker` subagent could have done its gathering;
    - failed worker calls, and hook blocks followed by "retried" or "nothing";
    - the script's "Wasted requests" section (requests the setup itself causes: hook blocks, board-only and ToolSearch-only requests, failure streaks);
    - the change against the last report.

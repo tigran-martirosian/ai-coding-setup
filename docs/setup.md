@@ -22,7 +22,7 @@ flowchart TD
 
 ## What I hand to each tool
 
-The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Sonnet and has a budget of tool calls. Searching the web, design and code stay with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
+The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Opus and has a budget of tool calls. Searching the web, design and code stay with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
 
 | Tool | What I use it for | Limits I set |
 |---|---|---|
@@ -53,7 +53,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When | Hook | Rule it enforces |
 |---|---|---|
 | Before a file read or shell command | `big-read-gate` | Read large files in parts |
-| Before a subagent starts | `worker-nudge` | Long local reading, a build or a check goes to the capped `worker` agent (Sonnet; `worker-full` when it needs a skill or an MCP tool), and a review of a finished job goes to the `reviewer` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
+| Before a subagent starts | `worker-nudge` | Long local reading, a build or a check goes to the capped `worker` agent (`worker-full` when it needs a skill or an MCP tool), and a review of a finished job goes to the `reviewer` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
 | Before a shell command | `command-explain` | Explain the command in plain words; a command without that line runs with a stand-in line, and the agent is reminded |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |

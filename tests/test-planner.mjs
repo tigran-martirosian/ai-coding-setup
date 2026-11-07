@@ -35,7 +35,7 @@ check("body asks for pushback", /push back/.test(body));
 check("body treats a steering brief as an opinion", /one opinion/.test(body));
 check("body: reads only the folder the brief names", /Read code only in those folders/.test(body));
 check("body: looks up map parts the brief missed", /systems-map\.json/.test(body));
-check("body: lists the helpers with model and effort", ["`worker`", "`worker-full`", "`reviewer`", "Haiku", "Opus"].every((s) => body.includes(s)));
+check("body: lists the helpers with model and effort", ["`worker`", "`worker-full`", "`reviewer`", "Sonnet", "Opus"].every((s) => body.includes(s)));
 check("body: rows carry helper, runs and budget", /\| Helper \| Runs \| Budget \|/.test(body));
 check("body: says which folders and commits it read", /\*\*Read:\*\* the folders and commits/.test(body));
 check("body: names what the review gate forces", /2 or more workers edit code/.test(body) && /10 or more code files/.test(body) && /rule, agent, skill/.test(body));

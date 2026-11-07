@@ -1,7 +1,7 @@
 ---
 name: rec-check
 description: About a minute's independent second look at a recommended option before a question form goes to the user. Brief it with the user's own words, the question, every option, the pick with its reason and what the evidence was. Reads, changes nothing, says keep or change.
-model: sonnet
+model: opus
 effort: high
 maxTurns: 8
 omitClaudeMd: true
