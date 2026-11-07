@@ -41,7 +41,14 @@ Keep out of the brief: your own idea of the solution (even as a suggestion), you
 When the plan comes back:
 - **Check its Read line.** A folder or commit outside the ones you gave means it planned against other code: run it again with the folders said plainly.
 - **Compare it with your own view** and tell the user where they differ instead of quietly picking one.
-- **Paste its rows unchanged** into the job list and start the helpers it named, as it named them. A row you change for something the planner didn't see (a note from the user, the live state) is named to the user with the reason.
+- **Paste its rows unchanged** into the job list and, after the user's answer below, start the helpers it named, as it named them. A row you change for something the planner didn't see (a note from the user, the live state) is named to the user with the reason.
+- **Show the user the plan before any helper starts, and wait** (user, 2026-11-07: "I want to see what planner came up with ... so the user understands what's going on and he can cut the processes"). Save the job list first, then:
+  1. The planner's **For the user** part as it wrote it: how many helpers, on which model and effort, and one line each on what it designs or builds and what it hands on.
+  2. A link to the job list, where each row is the instruction that helper gets.
+  3. One `PromptForUserInput` with a `multiSelect` field `steps` (one item per row: title `S<n>: <job>`, subtitle `<helper, model> | decides: <Decides cell>`, `defaultChecked: true`) and an `editText` field `changes` ("Anything to split, merge or change?", may be empty).
+  An unticked step is cut. Its later rows are named in the reply when they relied on it. Text in `changes` goes back to the planner (SendMessage while it has turns, else a new run with the first brief and the note), and the new plan is shown the same way. The helpers start only on the answer.
+- **Every column stays wherever the plan is saved**, the job list or a plan file in the project: a later session briefs a step from the whole row (Decides, Done when, Budget), never from a one-line summary of it.
+- **A step doesn't grow in its brief.** New work for a step (research, a second design question, an estimate) is a new row or goes back to the planner; it is never added to the brief of a row that didn't have it.
 
 If the call fails (for example the account has no Fable), say so and write the plan yourself.
 
@@ -54,14 +61,14 @@ A job of 2 or more steps gets a list at `~/.claude/job-lists/<date>-<job>.md`, w
 Goal: <one sentence with the exact target: "the checkout page shows the member discount", not "fix the page">
 Plan read: <folders> at <commits>. Review: <yes/no, why>
 
-| Step | Job | Files | Expect before | Done when | Helper | Runs | Budget | State |
-|---|---|---|---|---|---|---|---|---|
-| S1 | ... | ... | ... | ... | worker | first | ~20 | open |
+| Step | Job | Decides | Files | Expect before | Done when | Helper | Runs | Budget | State |
+|---|---|---|---|---|---|---|---|---|---|
+| S1 | ... | ... | ... | ... | ... | worker | first | ~20 | open |
 
 ## Findings
 ```
 
-The step number is the worker's number: each step has one owner, so two workers never do the same thing. The Runs column says when a step starts: `beside` steps run side by side, `after` waits for that step's report, `same worker as` goes by SendMessage to that step's worker.
+The step number is the worker's number: each step has one owner, so two workers never do the same thing. The Runs column says when a step starts: `beside` steps run side by side, `after` waits for that step's report, `after S<n>, user OK` also waits for the user's OK on that step's design, `same worker as` goes by SendMessage to that step's worker.
 
 **A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`), `isolation: "worktree"` when Runs says so. A Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
 
@@ -69,6 +76,7 @@ The step number is the worker's number: each step has one owner, so two workers 
 JOB GOAL: the whole job, one sentence
 JOB LIST: path
 STEP: S3 of 5, what this step does
+DECIDES: the row's Decides cell (a build step: "nothing, follow <design file>")
 EXPECT: what must already be true when it starts
 FILES: to read, to change
 NOT: what must not change
@@ -90,7 +98,8 @@ Workers talk only to you. Nobody talks sideways: what another step needs goes un
 - **A helper stopped by the size line (`[worker-size]`, 180k) is followed by a fresh worker** whose brief carries its report, not by SendMessage: SendMessage would re-send its 180k.
 - **A block that shows the plan itself is wrong goes back to the planner:** SendMessage to the same planner when its report shows turns to spare, otherwise a new planner run with the first brief, the job list so far and the `BLOCKED` line. Its new rows replace the old ones on the job list.
 - **Compare every report with its brief.** Check the files it changed against FILES (`git status --short`) and read its `Outside the brief` line. A change you wouldn't have asked for is undone; one you would is added to the job list.
-- Read a worker's report and the diff yourself; don't forward it unchecked. Update State on the job list.
+- Read a worker's report and the diff yourself; don't forward it unchecked. Update State on the job list with the calls it used (`tool_uses`) next to its budget, so later plans can size from real numbers.
+- **A design step for something the user looks at or uses** (a build, a page, a screen) ends with the user's OK: show the design file's link and a picture or a short summary of it, and the build steps after it wait for the answer (user, 2026-11-07). A change they ask for goes back to the same worker.
 
 New work discovered → a new step on the list, or do it yourself if it's small.
 

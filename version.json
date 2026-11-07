@@ -1,6 +1,6 @@
 {
-  "version": "1.0.104",
+  "version": "1.0.105",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-07",
-  "summary": "Helpers no longer think for 20 minutes and write nothing: one reply is cut at 64k output tokens, helpers put their file on disk early and in parts, the planner splits a big design into parts, and a helper near its context limit can still save its work."
+  "summary": "The planner now sizes each step by what it has to decide instead of by tool calls: a design gets its own step before anything is built, pieces that belong together stay with one helper, and you see the whole plan (how many helpers, on which model, what each designs or builds) and can cut or split steps before any helper starts. A design you will look at waits for your OK, the 64k cap on one reply from 1.0.104 is taken out again, and the board cleanup reminder is gone."
 }

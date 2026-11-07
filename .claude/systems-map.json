@@ -154,9 +154,8 @@
     {
       "id": "housekeeping-nudges",
       "name": "Housekeeping nudges",
-      "what": "One-line prompts to tidy the Nimbalyst board, restart Nimbalyst, keep the patch list and point to skills.",
+      "what": "One-line prompts to restart Nimbalyst, keep the patch list and point to skills.",
       "files": [
-        "hooks/board-nudge.mjs",
         "hooks/pc-tidy-nudge.mjs",
         "hooks/patch-next.mjs",
         "hooks/skill-pointer.mjs"
@@ -485,8 +484,7 @@
       "what": "Archives finished sessions on the Nimbalyst board.",
       "files": [
         "skills/board-cleanup/SKILL.md",
-        "extensions/board-tidy/src/index.js",
-        "hooks/board-nudge.mjs"
+        "extensions/board-tidy/src/index.js"
       ],
       "group": "extensions",
       "words": [
@@ -1117,18 +1115,6 @@
         {
           "file": "hooks/pc-tidy-nudge.mjs",
           "token": "pc-tidy"
-        }
-      ]
-    },
-    {
-      "from": "board-tidy",
-      "to": "housekeeping-nudges",
-      "type": "feeds",
-      "says": "The nudge points to the board cleanup.",
-      "evidence": [
-        {
-          "file": "hooks/board-nudge.mjs",
-          "token": "board"
         }
       ]
     },

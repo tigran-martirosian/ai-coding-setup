@@ -4,9 +4,9 @@ I run all my development through Claude Code. These are the rules, checks and to
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/a9563720-21e5-485b-8801-7c34af58f156
+https://github.com/user-attachments/assets/27739b7d-3533-479b-8ef5-f44e8d9e77ee
 
-If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/a9563720-21e5-485b-8801-7c34af58f156).
+If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/27739b7d-3533-479b-8ef5-f44e8d9e77ee).
 
 ## How it compares
 
@@ -35,7 +35,7 @@ These go back to the agent:
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 41 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 40 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 
@@ -60,7 +60,6 @@ In a project with 100 or more code files, the setup builds a map of it by itself
 - In Nimbalyst, a choice question always has a box for your own answer.
 - If you have set no model, it sets Opus at medium effort. A build or design request goes to the `planner` agent first, in every project.
 - If you have set no time for keeping transcripts, it keeps them 120 days.
-- One reply is cut at 64k output tokens unless you set `CLAUDE_CODE_MAX_OUTPUT_TOKENS` yourself, so a helper can't think for 20 minutes without writing anything.
 - Every 12 hours you may see one line saying a newer version is out. Nothing downloads until you type `/update-setup`.
 
 ## Install and undo

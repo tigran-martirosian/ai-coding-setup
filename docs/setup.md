@@ -65,7 +65,6 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When I send a message | `context-guard` | Warn when the session passes 150k tokens |
 | When a reply ends | `context-guard` | Warn when a session passes 150k tokens and say to batch the work; it never stops the session |
 | When I send a message | `cold-cache` | Warn when I come back to a session over 100k tokens after the prompt cache has expired (55 minutes), because the next message pays for the whole history again |
-| When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
 | When I send a message | `pc-tidy-nudge` | On Windows, say to restart Nimbalyst after 12 hours open |
 | When I send a message | `update-check` | Say, at most every 12 hours, when a newer version of the setup is released |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call (inside Nimbalyst it refreshes the data and says where to click) |

@@ -72,11 +72,29 @@ ok("every file arrived byte for byte",
 const settings = json(path.join(claude, "settings.json"));
 const commands = commandsIn(settings);
 ok("helpers keep their prompt cache for an hour", settings.subagentPromptCacheTtl, "1h");
-ok("one reply is cut at 64k output tokens", settings.env?.CLAUDE_CODE_MAX_OUTPUT_TOKENS, "64000");
-{ // a cap the person set stays as it is
+ok("no cap on one reply's output is set", "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in (settings.env ?? {}), false);
+{ // the 64k cap 1.0.104 wrote goes on an update from it; a cap the person set stays
+  const { removeOldOutputCap } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
+  const from104 = { env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000" } };
+  const keepEnv = { env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000", OTHER: "1" } };
   const own = { env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "20000" } };
-  const { addClaudeCodeSettings } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
-  ok("an output cap already set is kept", [addClaudeCodeSettings(own).output, own.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS], [false, "20000"]);
+  const older = { env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000" } };
+  ok("an update from 1.0.104 takes its 64k cap out (and the emptied env)", [removeOldOutputCap(from104, "1.0.104"), from104], [true, {}]);
+  ok("other env values stay", [removeOldOutputCap(keepEnv, "1.0.104"), keepEnv], [true, { env: { OTHER: "1" } }]);
+  ok("a cap the person set stays", [removeOldOutputCap(own, "1.0.104"), own.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS], [false, "20000"]);
+  ok("64000 set before 1.0.104 was not ours and stays", [removeOldOutputCap(older, "1.0.103"), older.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS], [false, "64000"]);
+}
+{ // an update from 1.0.104 through the installer itself
+  const upd = path.join(os.tmpdir(), `cap-upd-${process.pid}`);
+  fs.rmSync(upd, { recursive: true, force: true });
+  fs.cpSync(home, upd, { recursive: true });
+  const sf = path.join(upd, ".claude", "settings.json"), st = path.join(upd, ".claude", "setup-state.json");
+  fs.writeFileSync(sf, JSON.stringify({ ...json(sf), env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000" } }));
+  fs.writeFileSync(st, JSON.stringify({ ...json(st), version: "1.0.104" }));
+  const r = install(upd);
+  ok("the installer takes the 1.0.104 cap out and says so",
+    [r.code, "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in (json(sf).env ?? {}), /output: the 64k cap/.test(r.out)], [0, false, true]);
+  fs.rmSync(upd, { recursive: true, force: true });
 }
 const times = (list, s) => list.filter((x) => x.includes(path.basename(s))).length;
 ok("each hook is wired as often as the example has it", scripts.map((s) => times(commands, s)), scripts.map((s) => times(scripts, s)));
