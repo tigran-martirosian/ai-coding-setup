@@ -113,7 +113,7 @@ The installer in step 3 made these already. To make them alone:
 node scripts/app-settings.mjs
 ```
 
-It sets `"model": "opus"` at medium effort in `~/.claude/settings.json` if no model is set, keeps transcripts 120 days if no time is set, and adds permission rules: the agent can't read the saved sign-ins of Claude, Codex and Gemini or the SSH keys, and asks before it reads a `.env` file. It ends with `settings done`.
+It sets `"model": "opus"` at medium effort in `~/.claude/settings.json` if no model is set, keeps transcripts 120 days if no time is set, cuts one reply at 64k output tokens (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`) if no cap is set, and adds permission rules: the agent can't read the saved sign-ins of Claude, Codex and Gemini or the SSH keys, and asks before it reads a `.env` file. It ends with `settings done`.
 
 ## 6. Sign in to Codex
 

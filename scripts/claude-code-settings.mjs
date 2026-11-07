@@ -17,6 +17,7 @@ const ASK = [
 // The models the "opus" alias resolves to, and the effort set for them: install.mjs undoes exactly this when it moves a model back
 export const OPUS_MODELS = ["claude-opus-5", "claude-opus-5-5"];
 export const DEFAULT_EFFORT = "medium";
+export const MAX_OUTPUT_TOKENS = 64000;
 
 // Changes the settings object it is given and says what it did: whether the model was set, and how
 // many permission rules were added.
@@ -35,10 +36,15 @@ export function addClaudeCodeSettings(settings, win = process.platform === "win3
   // Claude Code deletes transcripts after 30 days by default, and hooks and audits read them
   const logs = settings.cleanupPeriodDays === undefined;
   if (logs) settings.cleanupPeriodDays = 120;
+  // One reply may otherwise think for 128k tokens (about 20 minutes) with no tool call, which no hook sees,
+  // and the cut thought is lost; at 64k a stuck reply ends in about 10 minutes and Claude Code tells it to break the rest
+  // into smaller pieces. Not lower: a planner's thinking plus its whole plan is one reply
+  const output = settings.env?.CLAUDE_CODE_MAX_OUTPUT_TOKENS === undefined;
+  if (output) (settings.env ??= {}).CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(MAX_OUTPUT_TOKENS);
   let added = 0;
   for (const [kind, rules] of [["deny", DENY], ["ask", ASK]]) {
     const list = ((settings.permissions ??= {})[kind] ??= []);
     for (const rule of rules.filter((r) => win || !r.startsWith("PowerShell("))) if (!list.includes(rule)) { list.push(rule); added++; }
   }
-  return { model, added, compact, cache, logs };
+  return { model, added, compact, cache, logs, output };
 }

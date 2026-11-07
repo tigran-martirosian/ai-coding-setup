@@ -13,7 +13,9 @@
 // the edit it is in and report within the calls left; from the next call on every call is refused, so it reports
 // instead of reaching the 200k compact (which loses work). The count per agent_id is kept in
 // ~/.claude/hooks/state/worker-size/<agent_id>.stop.json and is forgotten when the size falls back below the line (a
-// compaction). After the grace nothing is exempt: the report is its last message and needs no tool.
+// compaction). Write/Edit/MultiEdit/NotebookEdit are exempt while context + the call's input stays under WORKER_SAVE_K
+// (190) thousand and use no grace (2026-11-07: helpers stopped here lost all unwritten work); every other tool is refused
+// after the grace: the report is its last message and needs no tool.
 import { emit, runHook } from "./lib/hook-io.mjs";
 import { WORKER_SIZE_NOTE } from "./lib/texts.mjs";
 import { sessionKey } from "./lib/paths.mjs";
@@ -26,6 +28,10 @@ const STOP_K = Number(process.env.WORKER_STOP_K) || 180;
 const GRACE = process.env.WORKER_STOP_GRACE?.trim() && Number.isFinite(Number(process.env.WORKER_STOP_GRACE)) ? Number(process.env.WORKER_STOP_GRACE) : 3;
 const STOP_TYPES = new Set(["worker", "worker-full"]);
 const STEP_K = 100;
+// Past the stop line, Write/Edit stay allowed while the context plus the pending call's input is under SAVE_K (10k under the
+// 200k compact, for the call's own result and the next think), so work in the helper's head reaches disk
+const SAVE_K = Number(process.env.WORKER_SAVE_K) || 190;
+const SAVE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
 runHook("worker-size", (event) => {
 	if (!event.agent_id) return;
@@ -45,12 +51,19 @@ runHook("worker-size", (event) => {
 	if (pre) {
 		const stopState = stateFile("worker-size", `${key}.stop`);
 		if (k < STOP_K) { fs.rmSync(stopState, { force: true }); return; }
+		// Saving work is never refused before the compact line: helpers that thought for 15+ minutes were
+		// stopped here with their result only in their head, and wrote nothing.
+		const pendingK = Math.round(JSON.stringify(event.tool_input ?? {}).length / 4 / 1000);
+		if (SAVE_TOOLS.has(event.tool_name) && k + pendingK < SAVE_K) {
+			emit.context("PreToolUse", `${WORKER_SIZE_NOTE} ~${k}k tokens (stop line ${STOP_K}k). Write and Edit stay allowed until ${SAVE_K}k and use no grace calls: save the work in parts of at most ~300 lines per call, then report. Other tools are refused after the grace calls.`);
+			return;
+		}
 		const used = readJson(stopState)?.used || 0;
 		if (used < GRACE) {
 			writeJson(stopState, { used: used + 1 });
-			emit.context("PreToolUse", `${WORKER_SIZE_NOTE} ~${k}k tokens (stop line ${STOP_K}k). Past ${STOP_K}k: finish or undo the edit you are in, in at most ${GRACE - used} more calls, then stop and report: files changed, the check run, what is left, any half-edited file.`);
+			emit.context("PreToolUse", `${WORKER_SIZE_NOTE} ~${k}k tokens (stop line ${STOP_K}k). Past ${STOP_K}k: at most ${GRACE - used} more calls of other tools; Write and Edit stay allowed until ${SAVE_K}k and use none of them, so save unwritten work to disk rather than undo it, then stop and report: files changed, the check run, what is left, any half-edited file.`);
 		} else {
-			emit.deny(`${WORKER_SIZE_NOTE} ~${k}k tokens (stop line ${STOP_K}k). Tool calls are refused: stop and report now: files changed, the check run, what is left, any half-edited file.`);
+			emit.deny(`${WORKER_SIZE_NOTE} ~${k}k tokens (stop line ${STOP_K}k). Other tool calls are refused (Write and Edit still pass until ${SAVE_K}k, to save unwritten work): stop and report now: files changed, the check run, what is left, any half-edited file.`);
 		}
 		return;
 	}
@@ -60,5 +73,5 @@ runHook("worker-size", (event) => {
 	const warnedAt = readJson(state)?.warnedAt || 0;
 	if (warnedAt && k < warnedAt + STEP_K) return;
 	writeJson(state, { warnedAt: k });
-	emit.context("PostToolUse", `${WORKER_SIZE_NOTE} ~${k}k tokens and every call re-sends it. Finish the step in hand and report what is done and what is left; start nothing new.`);
+	emit.context("PostToolUse", `${WORKER_SIZE_NOTE} ~${k}k tokens and every call re-sends it. Finish the step in hand and report what is done and what is left; start nothing new. If the file your step makes is not on disk yet, write it NOW from what you know (parts of at most ~300 lines per call, no more reading first), then report.`);
 });

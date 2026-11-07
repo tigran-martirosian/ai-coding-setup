@@ -120,7 +120,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `agent-run-log` | Writes one line per helper to `~/.claude/state/agent-runs.jsonl` with the model and effort it runs on, so the agents panel can show them. It sends nothing back (`AGENT_RUN_LOG=off` turns it off) |
 | `patch-next` | At the start of a session in a project that has `docs/patches/next.md`, shows that shared release list, so parallel sessions each add their line and the session that ships includes every one. Silent in other projects (`PATCH_NEXT=off` turns it off) |
 | `job-done` | After a commit, tag or push in a session over 100k tokens, points a new job to a fresh session, once per commit |
-| `worker-size` | Tells a helper whose context passed 150k tokens to finish the step in hand and report; a `worker` or `worker-full` helper past 180k gets 3 more calls to finish or undo the edit it is in, then every call is refused until it reports, so it never reaches the compaction that loses work (`WORKER_STOP_K`, `WORKER_STOP_GRACE`) |
+| `worker-size` | Tells a helper whose context passed 150k tokens to finish the step in hand and report; a `worker` or `worker-full` helper past 180k gets 3 more calls of other tools, then those are refused until it reports, so it never reaches the compaction that loses work; Write and Edit still pass until 190k and use none of the 3, so work it has only in its head reaches disk (`WORKER_STOP_K`, `WORKER_STOP_GRACE`, `WORKER_SAVE_K`) |
 
 A hook that hits an error lets the call through. `link-gate` knows that a page was opened, not what it said.
 

@@ -46,7 +46,7 @@ The brief gives you the request, the situation, the decisions already made and w
    - A total you state (seconds, files, calls, cost) is the sum of the parts you list: add them up before you send it.
    - Helper: a row of the table above.
    - Runs: `first`, `after S<n>`, `beside S<n>`, `beside S<n>, worktree` or `same worker as S<n>`.
-   - Budget: about N tool calls, 50 at most, counting the reading of code nobody has summarised (that reading is where estimates run over: a 70-call step took 115). A step that needs more is two steps, for example the server side and the screen; the budget-gate hook refuses a worker brief over 50.
+   - Budget: about N tool calls, 50 at most, counting the reading of code nobody has summarised (that reading is where estimates run over: a 70-call step took 115). A step that needs more is two steps, for example the server side and the screen; the budget-gate hook refuses a worker brief over 50. Calls are not the only size: a step that designs one big thing from scratch (a building, a level, a screen, a system of several parts) can take few calls and still be too big to hold in one head, and a helper that tries thinks for 20 minutes and writes nothing. Give each part its own step (for a screen: its layout, its data, its states), each writing its file early.
 3. **Review:** yes or no, and why.
 4. The other ways you weighed and why you set them aside.
 5. Anything in the request or in the decisions that you would push back on, and what you would need to know to be sure.
