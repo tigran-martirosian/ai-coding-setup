@@ -85,6 +85,24 @@ clear();
 check("a handoff in an earlier turn doesn't count", /~300k/.test(warn(stop(earlier))));
 clear();
 
+// Mid-run (PostToolUse): over 300k, tells Claude to stop at the step in hand; once, again after +100k
+const post = (t, id, env = {}) => run({ hook_event_name: "PostToolUse", transcript_path: t, session_id: id }, env);
+const runId = `run-test-${process.pid}`;
+const runFile = path.join(os.tmpdir(), "context-guard", `run-${runId}.json`);
+fs.rmSync(runFile, { force: true });
+const below = transcript("below.jsonl", [asst(290000)]);
+const at320 = transcript("at320.jsonl", [asst(320000)]);
+const at380 = transcript("at380.jsonl", [asst(380000)]);
+const at430 = transcript("at430.jsonl", [asst(430000)]);
+const midCtx = (o) => { try { return JSON.parse(o).hookSpecificOutput?.additionalContext ?? ""; } catch { return ""; } };
+check("mid-run under 300k: silent", post(below, runId) === "");
+check("mid-run over 300k: tells Claude to finish and stop", /320k.*Finish the step.*Start nothing new/s.test(midCtx(post(at320, runId))));
+check("mid-run: not repeated within 100k", post(at380, runId) === "");
+check("mid-run: repeated after +100k", /430k/.test(midCtx(post(at430, runId))));
+check("mid-run: CONTEXT_GUARD_RUN_K raises the limit", post(transcript("at900.jsonl", [asst(900000)]), "other-" + runId, { CONTEXT_GUARD_RUN_K: "950" }) === "");
+check("mid-run: CONTEXT_GUARD=off", post(at430, "off-" + runId, { CONTEXT_GUARD: "off" }) === "");
+fs.rmSync(runFile, { force: true });
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

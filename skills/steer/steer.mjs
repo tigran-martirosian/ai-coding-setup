@@ -5,7 +5,11 @@
 //   send [--to <id>] <note>  queue a note for one session (the only active one, or --to);
 //                            with several active and no --to: a busy one, else the most recent.
 //                            --to also takes a Nimbalyst session id (a child or another tab, in
-//                            any folder), looked up in Nimbalyst's database
+//                            any folder), looked up in Nimbalyst's database. Another session's note
+//                            to a session over STEER_MAX_K (default 300, in thousands of tokens) is
+//                            refused: new work goes to a fresh session. --last passes a note that
+//                            only finishes the job in hand, --user one the user wrote (/btw). The
+//                            Note button runs outside a session and is never refused.
 //   --hook                   PreToolUse, PostToolUse and Stop hook: hand this session the notes
 //                            addressed to it at the first chance. Before a tool call the call is
 //                            held (denied once) so the note is read first; after a tool call the
@@ -171,6 +175,19 @@ const others = () => {
   return files.filter((f) => f.id !== me && !/steer\.mjs\\?"?\s+(send|btw|list)\b/.test(chunk(f.p, true, 60000).slice(-40).join("\n")))
     .map(describe);
 };
+// Thousands of tokens in a transcript's last main-conversation API call, 0 when none is found
+const contextK = (p) => {
+  const lines = chunk(p, true, 3000000);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"usage"')) continue;
+    try {
+      const e = JSON.parse(lines[i]), u = e.message?.usage;
+      if (e.type !== "assistant" || e.isSidechain || !u || e.message.model === "<synthetic>") continue;
+      return Math.round(((u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)) / 1000);
+    } catch {}
+  }
+  return 0;
+};
 const describe = (f) => {
       // Label with the latest real user request (what the user remembers), not the first one.
       const lines = chunk(f.p, true, 3000000);
@@ -251,6 +268,8 @@ if (mode === "list") {
   const { t: one, list, bad } = await pickTarget(rest);
   // Several active and none named: a busy one, else the most recent (the list is newest first).
   const t = one || (bad ? null : list.find((f) => !f.done) || list[0]);
+  const passes = ["--last", "--user"].filter((f) => rest.includes(f));
+  for (const f of passes) rest.splice(rest.indexOf(f), 1);
   const msg = (rest[0] === "-" ? await stdin() : rest.join(" ")).trim();
   if (!msg) { console.log("usage: steer.mjs send [--to <id>] <note>"); process.exit(1); }
   if (!t) {
@@ -270,6 +289,14 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
   if (row && !busy) {
     console.log(`NOT SENT: ${label(t)} is ${row.status}, not busy. Send the note with send_prompt to session ${row.id} instead: it starts at once.`);
     process.exit(3);
+  }
+  // A running session never reaches its end of turn while notes keep coming, so nothing else stops
+  // one from growing (2026-10-30: 13 notes took one child to 598k, 284M tokens re-read).
+  const maxK = Number(process.env.STEER_MAX_K) || 300;
+  const sizeK = process.env.CLAUDE_CODE_SESSION_ID && !passes.length && t.p ? contextK(t.p) : 0;
+  if (sizeK >= maxK) {
+    console.log(`NOT SENT: ${label(t)} holds ~${sizeK}k tokens and re-sends all of it on every call. Start new work in a fresh session (spawn_session). If this note only finishes the job it is on, send it again with --last; if the user wrote it, with --user.`);
+    process.exit(4);
   }
   fs.mkdirSync(DIR, { recursive: true });
   const id = newId();

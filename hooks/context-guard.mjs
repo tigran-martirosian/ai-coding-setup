@@ -12,6 +12,10 @@
 //   Stop: when a reply ends over the warning limit (CONTEXT_GUARD_AUTO_K, default 200), it shows the
 //     user one line about the size. Once per session, then again every further 100k. Silent when
 //     this turn already handed off. CONTEXT_GUARD_AUTO=off silences that line.
+//   PostToolUse: a session that never ends its turn never reaches the two above (2026-10-30: a child
+//     steered by notes went from 306k to 598k with no warning). Over CONTEXT_GUARD_RUN_K (default 300)
+//     it tells Claude to finish the step in hand, save its state and end the turn, starting nothing
+//     new. Once, then again every further 100k.
 // Fails open. CONTEXT_GUARD=off disables it.
 import fs from "node:fs";
 import os from "node:os";
@@ -20,6 +24,7 @@ import path from "node:path";
 const LIMIT_K = Number(process.env.CONTEXT_GUARD_K) || 150;
 const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || 200;
 const AUTO = process.env.CONTEXT_GUARD_AUTO !== "off";
+const RUN_K = Number(process.env.CONTEXT_GUARD_RUN_K) || 300;
 // What the warnings tell Claude to do, in plain words
 const RULE = "keep the steps few and batch the changes.";
 // Past the limit: a warm session compacts, a cold one (idle over COLD_MIN) moves to a fresh session
@@ -40,9 +45,9 @@ function idleMinutes(lines) {
 }
 
 // The last lines of the transcript (up to 4 MB)
-function tail(file) {
+function tail(file, max = 4 * 1024 * 1024) {
   const size = fs.statSync(file).size;
-  const len = Math.min(size, 4 * 1024 * 1024);
+  const len = Math.min(size, max);
   const buf = Buffer.alloc(len);
   const fd = fs.openSync(file, "r");
   fs.readSync(fd, buf, 0, len, size - len);
@@ -77,6 +82,24 @@ process.stdin.on("end", () => {
   try {
     if (process.env.CONTEXT_GUARD === "off") return;
     const input = JSON.parse(raw);
+    if (input.hook_event_name === "PostToolUse") {
+      // Runs on every tool call: 1 MB holds the last usage line, except just after a huge tool result
+      if (!input.transcript_path || !fs.existsSync(input.transcript_path)) return;
+      const k = Math.round(lastContext(tail(input.transcript_path, 1024 * 1024)) / 1000);
+      if (k < RUN_K) return;
+      const dir = path.join(os.tmpdir(), "context-guard");
+      const file = path.join(dir, `run-${String(input.session_id || "none").replace(/[^\w-]/g, "")}.json`);
+      let warnedAt = 0;
+      try { warnedAt = JSON.parse(fs.readFileSync(file, "utf8")).warnedAt || 0; } catch {}
+      if (warnedAt && k < warnedAt + 100) return;
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ warnedAt: k }));
+      process.stdout.write(JSON.stringify({
+        systemMessage: `This session holds ~${k}k tokens and is still running: every step re-sends all of it. Claude is told to finish the step in hand and stop.`,
+        hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: `[context-guard] This session holds ~${k}k tokens and every tool call re-sends all of it. Finish the step in hand, save what a next session needs in a file, report and end your turn. Start nothing new here: new work goes to a fresh session. Only a person's message telling you to carry on overrides this.` },
+      }));
+      return;
+    }
     const stop = input.hook_event_name === "Stop";
     if (stop && (!AUTO || input.stop_hook_active)) return;
     if (!stop && String(input.prompt ?? "").trim().startsWith("/")) return;

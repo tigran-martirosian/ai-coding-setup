@@ -330,6 +330,23 @@ db.close();
   fs.rmSync(box, { force: true });
 }
 
+// A session over 300k takes no new work from another session; finishing notes and the user's own pass
+const huge = (n) => ({ type: "assistant", message: { model: "claude-opus-5-5", usage: { input_tokens: 0, cache_read_input_tokens: n, cache_creation_input_tokens: 0 }, content: [{ type: "text", text: "working" }] } });
+transcript("dddddddd-busy", "tool_use", [huge(598000)]);
+r = run(["send", "--to", "dddddddd", "one more job"], self);
+ok("a note from another session to a huge session is refused", r.code === 4 && r.out.includes("NOT SENT") && r.out.includes("~598k") && r.out.includes("--last"));
+r = run(["send", "--to", "dddddddd", "--last", "finish and stop"], self);
+ok("--last passes the size check", r.code === 0 && r.out.startsWith("Queued for"));
+r = run(["send", "--to", "dddddddd", "--user", "the note the user wrote"], self);
+ok("--user passes the size check", r.code === 0 && r.out.startsWith("Queued for"));
+r = run(["send", "--to", "dddddddd", "from the Note button"]);
+ok("the Note button, outside a session, is never refused", r.code === 0 && r.out.startsWith("Queued for"));
+transcript("dddddddd-busy", "tool_use", [huge(250000)]);
+r = run(["send", "--to", "dddddddd", "next step"], self);
+ok("a session under the limit takes notes", r.code === 0 && r.out.startsWith("Queued for"));
+r = run(["send", "--to", "dddddddd", "next step"], { env: { ...self.env, STEER_MAX_K: "200" } });
+ok("STEER_MAX_K lowers the limit", r.code === 4);
+
 fs.rmSync(home, { recursive: true, force: true });
 
 console.log(`\n${pass} passed, ${fail} failed`);
