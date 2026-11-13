@@ -26,7 +26,7 @@ function clearTextarea(row: Element) {
 function build(invoke: Invoke): HTMLElement {
   const wrap = document.createElement('span');
   wrap.setAttribute(WRAP, '');
-  wrap.style.cssText = 'position:relative;display:inline-flex;flex:none;align-items:flex-end';
+  wrap.style.cssText = 'position:relative;display:inline-flex;flex:none';
   // The message sits to the left of the button, inside the chat box, so it never covers the context
   // number above the box; it goes after a few seconds, on a click on it, or when the user types
   const status = document.createElement('span');
@@ -86,7 +86,14 @@ export function startNoteButtons(invoke: Invoke): () => void {
           }
           continue;
         }
-        if (!row.querySelector(`:scope > [${WRAP}]`)) row.insertBefore(build(invoke), c.button as unknown as HTMLElement);
+        const send = c.button as unknown as HTMLElement;
+        let wrap = row.querySelector<HTMLElement>(`:scope > [${WRAP}]`);
+        if (!wrap) wrap = row.insertBefore(build(invoke), send);
+        // Sit where the Send button sits as the chat box grows: a fixed-height button in a stretched row
+        // stays at the top, so a stretched wrapper would otherwise leave Note at the bottom
+        const own = getComputedStyle(send).alignSelf;
+        const align = own === 'auto' ? getComputedStyle(row).alignItems : own;
+        wrap.style.alignSelf = /stretch|normal/.test(align) ? 'flex-start' : align;
       }
     } catch (err) {
       console.warn(`${TAG} Note button: ${String((err as Error)?.message ?? err)}`);
