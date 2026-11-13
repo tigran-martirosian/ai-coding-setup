@@ -36,7 +36,8 @@ it was.
 
 ## What it adds besides colour
 
-- A **New session** button and a Sessions / Files / Tracker switch at the top of the side panel.
+- A **New session** button and a Sessions / Files / Tracker switch at the top of the side panel. The
+  button follows the switch (**New file** in Files, and so on), the same as the app's own create button.
 - Two usage bars at the bottom of the sessions panel (this week, the 5-hour window). They read the
   numbers the side bar's own rings show, so they appear only when those rings do.
 - Bigger usage rings with a percent that can be read on a large monitor.

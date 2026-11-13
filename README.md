@@ -41,7 +41,7 @@ Every 12 hours the setup asks GitHub whether a newer version is out and says so 
 | Hooks | Scripts that check each step and can send it back | [hooks](hooks) |
 | Skills | Commands for repeated jobs: `/court`, `/lead`, `/handoff`, `/btw`, `/setup-audit` and others | [skills](skills) |
 | Starter projects | Four folders, each with its own rules and tools | [projects](projects) |
-| Editor extensions | Usage pop-up, Read Aloud, a commands button and eleven colour themes for Nimbalyst | [extensions](extensions) |
+| Editor extensions | Usage pop-up, Read Aloud, a commands button, eleven colour themes and a readable agents list for Nimbalyst | [extensions](extensions) |
 | Worker agent | A cheaper subagent for routine edits | [agents](agents) |
 | Planner agent | The strongest model writes the plan for big or hard-to-undo work, and changes nothing | [agents](agents) |
 | Worker command | One short command for searching and long reading. The first free worker that is set up answers (Codex, then Gemini); Claude does the job when none can | [workers](workers) |

@@ -1,0 +1,11 @@
+{
+  "id": "com.local.agentspanel",
+  "name": "Agents Panel",
+  "version": "0.2.0",
+  "description": "Makes the 'Agents & commands' list readable: running items on top, finished ones folded, a taller resizable list, and shell commands titled by their 'WHAT THIS DOES' line (the command shows on hover). Also keeps the commit panel at the bottom of the right sidebar inside the sidebar when it is made narrow.",
+  "author": "Local",
+  "main": "dist/index.js",
+  "apiVersion": "1.0.0",
+  "defaultEnabled": true,
+  "styles": "dist/style.css"
+}

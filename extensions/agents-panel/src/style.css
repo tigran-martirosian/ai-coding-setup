@@ -1,0 +1,99 @@
+/* Agents Panel: styles for Nimbalyst's "Agents & commands" list (.teammate-panel).
+   React owns these elements and rewrites their class names, so the script marks them with
+   data-ap-* attributes only and everything here keys off those or the app's own data-status. */
+
+/* Taller list (the app caps it at 200px); drag the bottom edge to resize */
+.teammate-panel .max-h-\[200px\] {
+  max-height: none;
+  height: auto;
+  min-height: 60px;
+  resize: vertical;
+}
+.teammate-panel .max-h-\[200px\]:not([style*="height"]) {
+  max-height: 45vh;
+}
+
+/* Running items first, highlighted */
+.teammate-panel .task-item[data-status="running"] {
+  order: -1;
+  opacity: 1;
+  box-shadow: inset 3px 0 0 var(--nim-primary);
+  padding-left: 8px;
+}
+.teammate-panel .task-item[data-status="running"] .ap-title {
+  font-weight: 600;
+  color: var(--nim-text);
+}
+
+/* Finished items fold away behind the "N finished" line */
+.teammate-panel [data-ap-folded="1"] .task-item:is([data-status="completed"], [data-status="failed"], [data-status="stopped"]) {
+  display: none;
+}
+.teammate-panel .task-item[data-status="failed"] .ap-title {
+  color: var(--nim-error);
+}
+
+.teammate-panel .ap-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nim-text-muted);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.teammate-panel .ap-fold:hover {
+  background: var(--nim-bg-hover);
+  color: var(--nim-text);
+}
+.teammate-panel .ap-fold-arrow {
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.teammate-panel [data-ap-folded="0"] .ap-fold-arrow {
+  transform: rotate(90deg);
+}
+.teammate-panel .ap-empty {
+  padding: 4px;
+  font-size: 11px;
+  color: var(--nim-text-faint);
+}
+
+/* Plain-language title in place of the raw command (the command is in the tooltip) */
+.teammate-panel .task-item[data-ap-title] > .flex-1 {
+  display: flex;
+  flex-direction: column;
+}
+.teammate-panel .task-item[data-ap-title] > .flex-1 > div:first-child {
+  display: none;
+}
+.teammate-panel .ap-title {
+  order: -1;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--nim-text-muted);
+  cursor: help;
+}
+
+/* Commit panel at the bottom of the right sidebar: the app gives it min-width 200px, so a
+   narrower sidebar pushed the Manual/Smart switch off the right edge. Let it shrink and wrap. */
+.git-operations-panel {
+  min-width: 0 !important;
+}
+.git-operations-panel div:has(> [data-testid="git-commit-mode-toggle"]) {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+[data-testid="git-commit-mode-toggle"] {
+  flex-shrink: 0;
+}

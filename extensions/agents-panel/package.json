@@ -1,0 +1,12 @@
+{
+  "name": "agents-panel",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Makes Nimbalyst's 'Agents & commands' list readable and keeps the commit panel inside a narrow right sidebar.",
+  "scripts": {
+    "build": "node build.mjs",
+    "install-ext": "node build.mjs --install",
+    "test": "node test.mjs"
+  }
+}

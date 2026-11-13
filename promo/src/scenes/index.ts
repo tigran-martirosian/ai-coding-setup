@@ -1,5 +1,6 @@
 import React from "react";
 import { SceneProps } from "../Scene";
+import { Agents } from "./Agents";
 import { Btw } from "./Btw";
 import { Commands } from "./Commands";
 import { Court } from "./Court";
@@ -43,6 +44,7 @@ export const SCENES: SceneEntry[] = [
   { id: "Picture", component: Picture, durationInFrames: 180 },
   { id: "Rules", component: Rules, durationInFrames: 200 },
   { id: "Commands", component: Commands, durationInFrames: 220 },
+  { id: "Agents", component: Agents, durationInFrames: 200 },
   { id: "Themes", component: Themes, durationInFrames: 300 },
   { id: "Voice", component: Voice, durationInFrames: 180 },
   { id: "Install", component: Install, durationInFrames: 210 },
@@ -58,7 +60,7 @@ const CLIP_SCENES: Record<string, string[]> = {
   sessions: ["Btw", "Handoff"],
   usage: ["Usage", "Dashboard"],
   projects: ["Projects", "Picture", "Rules"],
-  commands: ["Commands"],
+  commands: ["Commands", "Agents"],
   themes: ["Themes"],
   voice: ["Voice"],
   update: ["Update"],
