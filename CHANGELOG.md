@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.84 (Nov 3, 2026): The "background task settled" prompt for work already reported now gets a short plain status reply instead of being refused, so Nimbalyst no longer shows a raw warning where the reply should be.
 - 1.0.83 (Nov 3, 2026): Fewer wasted turns after background jobs: the "background task settled" prompt is refused when the work was already reported, and helpers now run in the foreground unless a step really runs beside another. A session that just finished a job is told to start the next one fresh, a helper that has grown large is told to finish and report, and the usage report counts these.
 - 1.0.82 (Nov 3, 2026): The review-gate fix of 1.0.81 now also works where the temp folder has two names (macOS, short Windows paths).
 - 1.0.81 (Nov 3, 2026): The review gate no longer asks for a review of files another open session edited, so running several sessions at once stops costing a reviewer for work this one never touched.

@@ -80,7 +80,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | After each reply | `handoff-brief` | Keep a brief so a new session can continue |
 | Before a helper starts or a handoff note is written | `decided-quote` | A brief that says I decided something quotes my own words next to it; the first try is refused, the identical retry goes through |
 | Before a helper starts | `map-brief` | A helper's brief gets the lines of the project's systems map for the parts it touches, and only those |
-| When I send a message | `background-tasks` | Refuse Nimbalyst's "background tasks have settled" prompt when every task it lists was already reported (`BACKGROUND_TASKS=off`) |
+| When I send a message | `background-tasks` | When Nimbalyst's "background tasks have settled" prompt only repeats tasks already reported, have the agent answer it in a few plain sentences (`BACKGROUND_TASKS=off`) |
 | Before a background launch | `background-tasks` | Add a note on what a background command or helper costs, and that the foreground is the default |
 | When I send a message | `job-done` | After a commit, tag or push in a session over 100k tokens, a new job is pointed to a fresh session (`JOB_DONE=off`) |
 | After a helper's tool call | `worker-size` | A helper past 150k tokens of context is told to finish the step in hand and report (`WORKER_SIZE=off`) |
