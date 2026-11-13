@@ -1,6 +1,6 @@
 {
-  "version": "1.0.98",
+  "version": "1.0.99",
   "claudeCodeMin": "2.1.296",
-  "date": "2026-11-05",
-  "summary": "The review-gate test builds file names the way the hook does, so it passes on macOS too (1.0.97's fix was not enough)."
+  "date": "2026-11-06",
+  "summary": "The usage dashboard shows plan use and token use by plan week (this week, last week, the weeks before) with this computer's part of each, opens as a full panel from the Usage icon in Nimbalyst, and builds in seconds instead of half a minute."
 }

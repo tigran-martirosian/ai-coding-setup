@@ -9,8 +9,9 @@ import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 
-// Nimbalyst draws the gutter button itself, from the manifest icon
-export const BUTTON = 'button[data-panel-id*="usageplan"]';
+// Nimbalyst draws the gutter button itself, from the manifest icon. Only the Usage Plan one: the dashboard
+// panel's hidden button must reach the app when "Full dashboard" clicks it.
+export const BUTTON = 'button[data-panel-id="com.local.usageplan.usage-plan"]';
 const ID = 'usage-plan-popover';
 const GAP = 8;
 

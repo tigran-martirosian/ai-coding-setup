@@ -28,15 +28,15 @@ const at = (min) => new Date(T0 + min * 60000).toISOString();
 const asst = (min, id, model, usage) => ({ type: "assistant", timestamp: at(min), message: { id, model, usage, content: [] } });
 const write = (file, rows) => fs.writeFileSync(path.join(proj, file), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
 write("s1.jsonl", [
-  asst(1, "m1", "claude-opus-5-5", { input_tokens: 1e6, output_tokens: 1e5 }), // 5 x (1 + 0.5) = 7.5
-  asst(1, "m2", "claude-haiku-4-5-20251001", { cache_read_input_tokens: 1e6 }), // 1 x 0.1
-  asst(9, "m3", "claude-sonnet-5-5", { cache_creation_input_tokens: 1e6, cache_creation: { ephemeral_1h_input_tokens: 4e5 } }), // 3 x (0.75 + 0.8)
+  asst(1, "m1", "claude-opus-5-5", { input_tokens: 1e6, output_tokens: 1e5 }), // list price: 4 + 20 x 0.1 = 6
+  asst(1, "m2", "claude-haiku-4-5-20251001", { cache_read_input_tokens: 1e6 }), // 0.1 x 1 = 0.1
+  asst(9, "m3", "claude-sonnet-5-5", { cache_creation_input_tokens: 1e6, cache_creation: { ephemeral_1h_input_tokens: 4e5 } }), // 2 x (1.25 x 0.6 + 2 x 0.4) = 3.1
 ]);
 write("s2.jsonl", [asst(1, "m1", "claude-opus-5-5", { input_tokens: 1e6, output_tokens: 1e5 })]); // resumed chat: same message again
-const scan = JSON.parse(execFileSync(process.execPath, [path.join(SKILL, "usage-scan.mjs"), "--json", "--cost", "--root", root, "--days", "100000"], { encoding: "utf8" }));
+const scan = JSON.parse(execFileSync(process.execPath, [path.join(SKILL, "usage-scan.mjs"), "--json", "--cost", "--root", root, "--days", "100000"], { encoding: "utf8", env: { ...process.env, HOME: tmp, USERPROFILE: tmp } }));
 const m0 = Math.floor(T0 / 60000);
 check("--cost: plan weight and tokens per minute, a repeated message counted once", scan.cost, [[m0 + 1, 6.1, 2100000], [m0 + 9, 3.1, 1000000]]);
-check("without --cost the list is left out", "cost" in JSON.parse(execFileSync(process.execPath, [path.join(SKILL, "usage-scan.mjs"), "--json", "--root", root, "--days", "100000"], { encoding: "utf8" })), false);
+check("without --cost the list is left out", "cost" in JSON.parse(execFileSync(process.execPath, [path.join(SKILL, "usage-scan.mjs"), "--json", "--root", root, "--days", "100000"], { encoding: "utf8", env: { ...process.env, HOME: tmp, USERPROFILE: tmp } })), false);
 
 // ---- plan-use
 // Truth in this made-up day: 2 five-hour points per unit, 0.1 weekly points per five-hour point.
@@ -45,8 +45,8 @@ const s = (min, five, r, week) => ({ t: at(min), five: { u: five, r }, week: { u
 const samples = [
   s(0, 0, A, 10),
   s(60, 20, A2, 12), // this computer alone: 10 units
-  s(120, 50, A, 15), // this computer 5 units, other use 20 five-hour points
-  s(180, 60, A, 16), // this computer idle, other use 10 five-hour points
+  s(120, 50, A, 15), // this computer 5 units, someone else 20 five-hour points
+  s(180, 60, A, 16), // this computer idle, someone else 10 five-hour points
   s(400, 0, B, 16), // next 5-hour window
   s(460, 30, B, 19), // this computer alone: 15 units
 ];
@@ -83,6 +83,27 @@ check("low readings at the end of the log are not a reset yet", [tail.latest.wee
 const blip = planUse([s(0, 0, A, 97), s(10, 0, A, 98), s(20, 0, A, 0), s(25, 0, A, 98), s(40, 0, A, 99)], []);
 check("one low reading that the next reading undoes is still stale", [blip.latest.week, blip.days[day].total], [99, 2]);
 
+// ---- plan weeks
+const wk = (w) => [w.g, w.total, w.mine == null ? null : Math.round(w.mine * 100) / 100, w.other == null ? null : Math.round(w.other * 100) / 100, w.idle, w.partial];
+// the made-up day above lies before W's week starts, so these two move it into the week ending 1 Oct
+const W1 = "2026-10-01T02:00:00.1+00:00";
+const inWeek = (xs) => xs.map((x) => ({ ...x, week: { ...x.week, r: W1 } }));
+const rw = planUse(inWeek(samples), cost), sw = planUse(inWeek([...samples, s(500, 0, C, 0), s(560, 20, C, 2), s(620, 40, C, 4)]), [...cost, [m0 + 530, 20, 2000], [m0 + 590, 20, 2000]]);
+const WEND = Math.round(Date.parse(W1) / 60000) * 60000;
+check("a full week: end, start, last reading, this computer's share by the fitted scale, the rest, idle part",
+  [rw.weeks.length, rw.weeks[0].end, rw.weeks[0].start, rw.weeks[0].last, wk(rw.weeks[0]), rw.weeks[0].era], [1, WEND, WEND - 7 * 86400000, Date.parse(at(460)), [0, 19, 6, 13, 1, true], 0]); // true: the log starts days after the week began
+check("an early reset splits a window in two (g 0 and 1, same end); no fitted scale gives null for mine and other",
+  [early2.weeks.map(wk), early2.weeks.map((w) => w.end === Date.parse(W) - 100), early2.weeks[0].start, early2.weeks[1].end], [[[1, 4, null, null, 4, false], [0, 98, null, null, 1, false]], [true, true], early2.weeks[0].first, Math.round(Date.parse(W) / 60000) * 60000]);
+check("each plan's window uses its own era's scale, and a cost minute counts only inside its window",
+  [sw.weeks.map(wk), sw.weeks.map((w) => w.era)], [[[1, 4, 4, 0, 0, false], [0, 19, 6, 13, 1, true]], [1, 0]]);
+// a reset time that jitters across a :30 s boundary (01:59:29 and 02:00:31) is still one window
+const jit = planUse(inWeek(samples).map((x, i) => ({ ...x, week: { ...x.week, r: i % 2 ? "2026-10-01T01:59:29Z" : "2026-10-01T02:00:31Z" } })), cost);
+check("a jittering reset time stays one window", [jit.weeks.length, jit.weeks[0].samples], [1, rw.weeks[0].samples]);
+const R1 = "2026-10-01T02:00:00+00:00", R2 = "2026-10-08T02:00:00+00:00", R3 = "2026-10-15T02:00:00+00:00";
+const ws = (t, u, r) => ({ t, week: { u, r } });
+const edge = planUse([ws("2026-09-30T10:00:00Z", 30, R1), ws("2026-09-30T12:00:00Z", 35, R1), ws("2026-10-01T02:30:00Z", 2, R2), ws("2026-10-07T20:00:00Z", 60, R2), ws("2026-10-08T03:00:00Z", 1, R3)], []);
+check("a first week that starts late or a past week that stops early is partial; the running one is not",
+  [edge.weeks.map((w) => w.partial), edge.weeks.map((w) => w.total), edge.weeks[0].start], [[false, true, true], [1, 60, 35], Date.parse(R3) - 7 * 86400000]);
 // ---- dashboard build
 const out = path.join(tmp, "page.html");
 fs.writeFileSync(path.join(tmp, "plan.jsonl"), samples.map((x) => JSON.stringify(x)).join("\n") + "\n");
@@ -103,7 +124,7 @@ rollout("worker", "codex_exec", [count(20.2, used, 10, 5), count(20.6, used, 11,
 rollout("app", "Codex Desktop", [count(300, used, 20, 8)]);
 
 execFileSync(process.execPath, [path.join(SKILL, "usage-dashboard.mjs"), "--no-open", "--out", out, "--root", root, "--plan", path.join(tmp, "plan.jsonl"),
-  "--codex", path.join(tmp, "codex"), "--gemini", path.join(tmp, "none"), "--days", "100000"], { encoding: "utf8" });
+  "--codex", path.join(tmp, "codex"), "--gemini", path.join(tmp, "none"), "--days", "100000"], { encoding: "utf8", env: { ...process.env, HOME: tmp, USERPROFILE: tmp } });
 const data = JSON.parse(fs.readFileSync(out, "utf8").match(/<script id="data" type="application\/json">(.*?)<\/script>/s)[1]);
 check("the page gets the plan numbers", [data.plan.status, data.plan.samples, data.plan.days[day].total], ["ok", 6, 9]);
 check("a saved worker run fills in the call's tokens (without cached input) and is not listed twice",

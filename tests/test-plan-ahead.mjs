@@ -110,11 +110,11 @@ const page = path.join(tmp, "page.html");
 execFileSync(process.execPath, [path.join(SKILL, "usage-dashboard.mjs"), ...common, "--ahead", cfg, "--codex", path.join(tmp, "x"), "--gemini", path.join(tmp, "y"), "--out", page, "--no-open"], { encoding: "utf8" });
 const html = fs.readFileSync(page, "utf8");
 const built = JSON.parse(html.match(/<script id="data" type="application\/json">(.*?)<\/script>/s)[1]);
-check("dashboard: the page carries the forecast and has the Plan ahead section", [built.ahead.status, built.ahead.otherUse.list[0].name, /<h2>Plan ahead<\/h2>/.test(html), /renderAhead\(\);/.test(html)],
+check("dashboard: the page carries the forecast and has the Plan ahead section", [built.ahead.status, built.ahead.others.list[0].name, /<h2>Plan ahead<\/h2>/.test(html), /renderAhead\(\);/.test(html)],
   ["ok", "Evening", true, true]);
 const data = (file) => JSON.parse(fs.readFileSync(file, "utf8").match(/<script id="data" type="application\/json">(.*?)<\/script>/s)[1]);
 execFileSync(process.execPath, [path.join(SKILL, "usage-dashboard.mjs"), ...common, "--ahead", solo, "--codex", path.join(tmp, "x"), "--gemini", path.join(tmp, "y"), "--out", page, "--no-open"], { encoding: "utf8" });
-check("dashboard: split on by default, off with \"showSplit\": false, and the page hides the section then", [built.showSplit, data(page).showSplit, /\$\("plan-s"\)\.hidden = !SHOW_SPLIT;/.test(html)],
+check("dashboard: split on by default, off with \"showSplit\": false, and the page hides the section then", [built.shared, data(page).shared, /\$\("plan-s"\)\.hidden = !SHARED;/.test(html)],
   [true, false, true]);
 
 fs.rmSync(tmp, { recursive: true, force: true });

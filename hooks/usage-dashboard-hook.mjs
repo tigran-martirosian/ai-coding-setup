@@ -2,6 +2,7 @@
 // usage-dashboard-hook (UserPromptSubmit): when the whole prompt is just "usage"
 // (or "usage dashboard"), build and open the usage dashboard and stop the prompt,
 // so no model call is made and no tokens are spent. Anything else passes through untouched.
+// Inside Nimbalyst it never opens a browser: it refreshes the data and names the click (Usage icon, Full dashboard).
 // USAGE_DASH_NO_OPEN=1 builds without opening the browser (for tests).
 import { crashLog } from "./crash-log.mjs";
 import os from "node:os";
@@ -21,9 +22,13 @@ const script = path.join(os.homedir(), ".claude", "skills", "setup-audit", "scri
 let reason;
 try {
   // A year of chats takes about a minute to read, more on a busy machine
-  const args = process.env.USAGE_DASH_NO_OPEN ? [script, "--no-open"] : [script];
+  // No variable names Nimbalyst for a hook; the entry point is "sdk-..." in an app, "cli" in the terminal (as in board-nudge)
+  const inNimbalyst = /^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "");
+  const args = process.env.USAGE_DASH_NO_OPEN || inNimbalyst ? [script, "--no-open"] : [script];
   execFileSync(process.execPath, args, { encoding: "utf8", timeout: 180000 });
-  reason = "Usage dashboard opened in your browser. No tokens were used.";
+  reason = inNimbalyst
+    ? "Usage dashboard data refreshed. Open it from the Usage icon on the left, then Full dashboard. No tokens were used."
+    : "Usage dashboard opened in your browser. No tokens were used.";
 } catch (e) {
   reason = `The usage dashboard could not be built: ${String(e.stderr || e.message).trim().split("\n").pop()}`;
 }

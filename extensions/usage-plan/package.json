@@ -1,12 +1,12 @@
 {
   "name": "nimbalyst-usage-plan",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types test/command.test.ts && node --experimental-strip-types test/format.test.ts",
+    "test": "node --experimental-strip-types test/command.test.ts && node --experimental-strip-types test/format.test.ts && node --experimental-strip-types test/dashboard-data.test.ts",
     "install-ext": "node scripts/install.mjs"
   },
   "devDependencies": {

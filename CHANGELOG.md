@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.99 (Nov 6, 2026): The usage dashboard shows plan use and token use by plan week (this week, last week, the weeks before) with this computer's part of each, opens as a full panel from the Usage icon in Nimbalyst, and builds in seconds instead of half a minute.
 - 1.0.98 (Nov 5, 2026): The review-gate test builds file names the way the hook does, so it passes on macOS too (1.0.97's fix was not enough).
 - 1.0.97 (Nov 5, 2026): The tests pass on macOS again (one review-gate test assumed Windows file names).
 - 1.0.96 (Nov 5, 2026): An update moves Nimbalyst to the Ink Cobalt theme once if you were on another one, sign-ins open a real browser window you can see, a new /design-system skill keeps a project's look in one DESIGN.md, and the rules ask you for a file or link when you could hand it over faster. Small rule edits no longer need a reviewer, and the plan logger checks every 30 seconds once you pass 70% of your week.

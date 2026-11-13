@@ -155,6 +155,37 @@ export function planUse(samples, cost) {
     });
   }
   for (const d of Object.values(res.days)) for (const k in d) d[k] = Math.round(d[k] * 1000) / 1000;
+
+  // The plan's own weeks, newest first. One window per reset time and g; times are ms since 1970.
+  // An early reset cuts the window it interrupts: that one runs from its start to the new one's first sample.
+  const WEEK = 7 * 86400000, HOUR = 3600000;
+  const wins = new Map();
+  for (const s of S) {
+    const g = s.week.g ?? 0, raw = Math.round(Date.parse(s.week.r) / 60000) * 60000;
+    // the reported reset time jitters: one within 5 minutes of a known window's end is the same window
+    const end = [...wins.values()].find((w) => w.g === g && Math.abs(w.end - raw) <= 5 * 60000)?.end ?? raw;
+    const key = `${end}:${g}`;
+    const w = wins.get(key) ?? wins.set(key, { end, g, first: s.ms, era: s.era, samples: 0 }).get(key);
+    w.last = s.ms; w.samples++; w.total = s.week.u; w.era = s.era;
+  }
+  const list = [...wins.values()];
+  res.weeks = list.map((w, i) => {
+    const next = list[i + 1];
+    const start = w.g ? w.first : w.end - WEEK;
+    const to = next && next.end === w.end ? next.first : w.end; // where this window really stops
+    const perUnit = fits.get(w.era)?.perUnit ?? null;
+    let mine = null, other = null;
+    if (perUnit) {
+      let units = 0;
+      for (const [min, u] of cost) { const t = min * 60000 + 30000; if (t >= start && t < to) units += u; }
+      mine = perUnit * units;
+      other = Math.min(w.total, Math.max(0, w.total - mine));
+    }
+    const idle = stretches.filter((x) => !x.units && x.b.ms >= w.first && x.b.ms <= w.last && x.b.week.g === w.g && Math.abs(Date.parse(x.b.week.r) - w.end) <= 5 * 60000)
+      .reduce((n, x) => n + x.dW, 0);
+    const partial = w.first - start > HOUR || (to <= last.ms && to - w.last > HOUR);
+    return { end: w.end, start, stop: to, first: w.first, last: w.last, samples: w.samples, total: w.total, mine, other, idle, partial, era: w.era, g: w.g };
+  }).reverse();
   return res;
 }
 

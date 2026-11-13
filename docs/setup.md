@@ -68,7 +68,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
 | When I send a message | `pc-tidy-nudge` | On Windows, say to restart Nimbalyst after 12 hours open |
 | When I send a message | `update-check` | Say, at most every 12 hours, when a newer version of the setup is released |
-| When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
+| When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call (inside Nimbalyst it refreshes the data and says where to click) |
 | While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
 | Before a reply goes out | `link-gate` | No link that wasn't opened in this session |
 | Before a reply goes out | `file-link-gate` | File links are written in the form Nimbalyst's chat can open (an absolute path with forward slashes); only inside Nimbalyst |
