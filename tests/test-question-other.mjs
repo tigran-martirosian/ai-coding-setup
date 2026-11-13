@@ -206,6 +206,10 @@ for (const [name, entries, input, deny] of linkCases) {
 const PROJ = "C:\\Projects\\my project";
 const at = (extra) => ({ ...plain(extra), cwd: PROJ });
 const OUT_SKILL = "~/.claude/skills/x/SKILL.md";
+// a real folder holding report.md, so a bare "report.md" is found there
+const BARE = join(dir, "bare proj");
+mkdirSync(BARE, { recursive: true }); writeFileSync(join(BARE, "report.md"), "x");
+const BARE_LINK = ((p) => (p.startsWith("/") ? "" : "/") + p.replace(/ /g, "%20"))(join(BARE, "report.md").replace(/\\/g, "/"));
 const outsideCases = [
   ["outside file, path in code in the reply text, passes", [user("do it"), text(`Wrote \`${OUT_SKILL}\`. I'd keep it.`)], at({ intro: `Report: ${OUT_SKILL}.` }), false],
   ["outside file, path in code in the form's intro, passes", [user("do it"), text("Done.")], at({ intro: "Report: `C:/Users/you/audits/report.md`." }), false],
@@ -214,12 +218,13 @@ const outsideCases = [
   ["outside file, a code span of another file does not count", [user("do it"), text("Wrote `~/.claude/skills/y/OTHER.md`.")], at({ intro: `Report: ${OUT_SKILL}.` }), "File: `" + H + "/.claude/skills/x/SKILL.md`"],
   ["inside file with only a path in code gets a pointer added (needs a link)", [user("do it"), text("Wrote `docs/plan.md`.")], at({ intro: "Draft: docs/plan.md." }), "File: [plan.md](/C:/Projects/my%20project/docs/plan.md)"],
   ["inside file with a /C: link passes", [user("do it"), text("Draft: [plan.md](/C:/Projects/my%20project/docs/plan.md).")], at({ intro: "Draft: docs/plan.md." }), false],
-  ["a relative file resolves against cwd and counts as inside: a link is added", [user("do it"), text("Done.")], at({ intro: "Draft: report.md." }), "File: [report.md](/C:/Projects/my%20project/report.md)"],
+  ["a bare file name that is in the cwd counts as inside: a link is added", [user("do it"), text("Done.")], { ...plain({ intro: "Draft: report.md." }), cwd: BARE }, `File: [report.md](${BARE_LINK})`],
+  ["a bare file name that is not in the cwd gets no made-up link, only a note", [user("do it"), text("Done.")], at({ intro: "Ship DESIGN.md?" }), "note"],
   ["no cwd: the old link rule applies to an absolute path", [user("do it"), text("Done.")], plain({ intro: `Report: ${OUT_SKILL}.` }), `File: [SKILL.md](${HL}/.claude/skills/x/SKILL.md)`],
 ];
 for (const [name, entries, input, deny] of outsideCases) {
   const out = withTurn(entries, input);
-  const ok = deny ? check(out, "fix") && introOf(out).endsWith(deny) : out === "";
+  const ok = deny === "note" ? check(out, "note") : deny ? check(out, "fix") && introOf(out).endsWith(deny) : out === "";
   if (!ok) fail++;
   console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
 }
