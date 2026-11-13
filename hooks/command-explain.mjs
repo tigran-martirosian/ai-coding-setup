@@ -70,6 +70,14 @@ try {
     process.stdout.write(JSON.stringify({ hookSpecificOutput: output }));
     process.exit(0);
   }
+  // Soft check: the note is a row title in Nimbalyst's agents panel, so it should start
+  // with a capital and stay under 70 characters. Never refuses; the stand-in note is exempt.
+  if (!event.agent_id && !note.startsWith("(no note given)") && (/^\p{Ll}/u.test(note) || note.length >= 70)) {
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      additionalContext: `command-explain: the "# WHAT THIS DOES:" text is a row title in the agents panel, so next time start it with a capital letter and keep it under 70 characters.`,
+    } }));
+  }
 } catch (err) {
   crashLog("command-explain", err);
   process.exit(0);

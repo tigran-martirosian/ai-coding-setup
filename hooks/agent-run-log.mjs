@@ -1,0 +1,115 @@
+#!/usr/bin/env node
+// agent-run-log: PreToolUse hook on the Agent tool. Writes one line per helper to ~/.claude/state/agent-runs.jsonl:
+// {ts, session, cwd, description, type, model, effort}, so the Agents Panel can show which model and effort a helper runs on (the app's
+// own row carries neither). model = tool_input.model, else the `model:` of <project>/.claude/agents/<type>.md, else of
+// ~/.claude/agents/<type>.md, else the session's own model, read from the last assistant entry of transcript_path (message.model).
+// effort = the agent file's `effort:`, else the session's (the same entry's `effort`). What none of these name stays null.
+// Writes no stdout, so it never touches the input map-brief rewrites. Keeps the file at its last 500 lines. Fails open: any error is one
+// line on stderr, exit 0. AGENT_RUN_LOG=off disables it; AGENT_RUN_LOG_FILE moves the log (tests); AGENT_RUN_LOG_AGENTS replaces the
+// ~/.claude/agents folder (tests).
+import { crashLog } from "./crash-log.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const KEEP = 500;
+const TAIL_BYTES = 512 * 1024;
+const LOG = process.env.AGENT_RUN_LOG_FILE || path.join(os.homedir(), ".claude", "state", "agent-runs.jsonl");
+const HOME_AGENTS = process.env.AGENT_RUN_LOG_AGENTS || path.join(os.homedir(), ".claude", "agents");
+
+function frontmatter(dir, type) {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(dir, `${type}.md`), "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    throw e;
+  }
+  const m = text.replace(/^﻿/, "").match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return {};
+  const out = {};
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = line.match(/^(model|effort):\s*(\S+)\s*$/);
+    if (kv) out[kv[1]] = kv[2];
+  }
+  return out;
+}
+
+// The session's model and effort from the newest assistant entry in the transcript's last 512 KB.
+function sessionRun(file) {
+  if (!file) return {};
+  let fd;
+  try {
+    fd = fs.openSync(file, "r");
+  } catch (e) {
+    if (e.code === "ENOENT") return {};
+    throw e;
+  }
+  let text;
+  try {
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    text = buf.toString("utf8");
+  } finally {
+    fs.closeSync(fd);
+  }
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"assistant"')) continue;
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch {
+      continue; // the first line of the tail is usually cut
+    }
+    if (entry.type !== "assistant" || !entry.message?.model) continue;
+    return { model: entry.message.model, effort: entry.effort || null };
+  }
+  return {};
+}
+
+let raw = "";
+process.stdin.on("data", (d) => (raw += d));
+process.stdin.on("end", () => {
+  try {
+    if (process.env.AGENT_RUN_LOG === "off") return;
+    const event = JSON.parse(raw);
+    const input = event.tool_input;
+    if (!["Agent", "Task"].includes(event.tool_name) || !input || typeof input !== "object") return;
+
+    const type = typeof input.subagent_type === "string" && input.subagent_type ? input.subagent_type : "general-purpose";
+    const project = process.env.CLAUDE_PROJECT_DIR || event.cwd;
+    const file = (project && frontmatter(path.join(project, ".claude", "agents"), type)) || frontmatter(HOME_AGENTS, type) || {};
+    let model = (typeof input.model === "string" && input.model) || file.model || null;
+    let effort = file.effort || null;
+    if (!model || !effort) {
+      const session = sessionRun(event.transcript_path);
+      model = model || session.model || null;
+      effort = effort || session.effort || null;
+    }
+
+    const line = JSON.stringify({
+      ts: new Date().toISOString(),
+      session: event.session_id || null,
+      cwd: event.cwd || null,
+      description: typeof input.description === "string" ? input.description : "",
+      type,
+      model,
+      effort,
+    });
+    fs.mkdirSync(path.dirname(LOG), { recursive: true });
+    let old = [];
+    try {
+      old = fs.readFileSync(LOG, "utf8").split("\n").filter(Boolean);
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+    }
+    const all = [...old, line].slice(-KEEP);
+    fs.writeFileSync(LOG, all.join("\n") + "\n");
+  } catch (e) {
+    crashLog("agent-run-log", e);
+    process.stderr.write(`agent-run-log hook skipped: ${e?.name}: ${e?.message}\n`);
+  }
+});
