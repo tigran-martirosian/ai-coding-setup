@@ -18,7 +18,7 @@ Where to look besides the diff:
 Check, in this order:
 
 **Against the request and the plan**
-1. Each plan row's Done when is met, with the command and its output; run it when the brief does not show it.
+1. The plan line by line: every row's Done when is met, with the command and its output; run it when the brief does not show it. A row with no proof is listed as unproven.
 2. What was asked for and is missing or only partly there; what was built that nobody asked for.
 3. Against the decisions and the project's memory: the DECISIONS lines for each thing the diff touches.
 

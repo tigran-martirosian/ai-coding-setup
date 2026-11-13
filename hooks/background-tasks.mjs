@@ -24,6 +24,10 @@
 //   - or it is a Bash/PowerShell server or watcher (SERVER below), which is what background is for.
 //   Subagents (agent_id) pass: worker.md lets workers start a long build in the background and wait for it
 //   in a foreground polling loop (a worker that ends its turn to wait is never woken).
+//   A foreground Bash/PowerShell wait in the main session (WAIT: a CI watch, a poll loop, a sleep) that can run over
+//   2 minutes is refused: notes and typed messages only land between tool calls (2026-11-11: three 10-minute
+//   `gh run watch` calls kept a note out for 9 min and the user had to stop the session). A background wait passes,
+//   and so does a build or test command whose poll sleeps at most 5 s (wait for a local server, then run the tests).
 // Stop (main session, blocks once), first: in a turn the user did not start (a settled notice, a task's notice, Stop
 //   hook feedback), a tool call that came back "The user doesn't want to take this action" and was not sent again.
 //   The user refused nothing: the app denies the first call of a turn it starts itself (about 140 in 4 days, nearly
@@ -54,12 +58,28 @@ const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n  Summary:)/m;
 // A command that doesn't end by itself: dev server, game server, watcher, follow-mode log read, endless loop
 const SERVER = /\b(runServer|runClient|nodemon|http-server|live-server|webpack-dev-server|http\.server|uvicorn|gunicorn)\b|\bflask\s+run\b|\bmanage\.py\s+runserver\b|\bnode\s[^|;&\n]*server|\bnpx\s+(serve|vite)\b|\bserve\s+-s\b|\bdocker[ -]compose\s+up\b(?![^|;&\n]*\s-\w*d)|\b(npm|pnpm|yarn)\s+run\s+preview\b|\bstreamlit\s+run\b|\brails\s+(s|server)\b|--watch\b|\btsc\b[^|;&\n]*\s-w\b|-Wait\b|\btail\b[^|;&\n]*\s-\w*[fF]\b|(^|[\s;&|(])(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b|(^|[\s;&|(])(vite|next|nuxt|astro)(\s+dev)?\s*$|(^|[\s;&|(])watch\s|\bwhile\s+(true|:)/im;
 const BESIDE = /\bbeside\b/i;
-const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read, and a background helper can die when this turn ends. Run it in the foreground (several helpers side by side: several calls in one message) (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once. When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer). A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
+// A command that waits for something outside this session: a CI watch, a poll loop, a sleep
+const WAIT = /\bgh\s+run\s+watch\b|\bgh\s+pr\s+checks\b[^|;&\n]*--watch\b|(^|[\s;&|(])(sleep|Start-Sleep)\s+(-Seconds\s+)?\d|\b(until|while|for)\b[^\n]*\bsleep\b/i;
+// A wait that polls or watches, not one fixed sleep
+const LOOP_OR_WATCH = /\b(until|while|for)\b|\bwatch\b/;
+// A build or test command: a short poll inside one (wait for a local server, then test) is part of the work
+const WORK_CMD = /(^|[\s;&|(])((npm|pnpm|yarn|bun)\s+(run\s+\S|test\b|build\b)|pytest\b|cargo\s+(build|test)\b|gradlew?\b|make\b|mvn\b|dotnet\s+(build|test)\b|go\s+(build|test)\b)/;
+const CI_WATCH = /\bgh\s+(run\s+watch|pr\s+checks)\b/;
+// Each sleep's length in seconds: `sleep 5`, `sleep 5m`, `Start-Sleep -Seconds 5`
+const UNIT = { "": 1, s: 1, m: 60, h: 3600, d: 86400 };
+const sleeps = (cmd) => [...cmd.matchAll(/\b(?:sleep|Start-Sleep(?:\s+-Seconds)?)\s+(\d+(?:\.\d+)?)([smhd]?)\b/gi)].map((m) => Number(m[1]) * UNIT[m[2].toLowerCase()]);
+// A wait for something outside this session; a build or test command whose poll sleeps at most 5 s is not one
+const outsideWait = (cmd) => WAIT.test(cmd) && !(WORK_CMD.test(cmd) && !CI_WATCH.test(cmd) && sleeps(cmd).every((s) => s <= 5));
+// The longest a foreground wait may hold the main session: notes and typed messages land only between tool calls
+const WAIT_MAX = 120000;
+const LONG_WAIT = (min) => `[background-tasks] Refused: this holds the main session up to ${min} min waiting for something outside it, and while one tool call runs nothing reaches you: not the user's notes, not a message typed in the app (that one queues until your whole turn ends). Send the same command with run_in_background: true, tell the user in one line what you wait for, and end your turn: its finish notice wakes you, and the user can reach you meanwhile. A wait with nothing to poll ("check again in an hour") goes in ScheduleWakeup. A foreground wait up to 2 minutes is fine.`;
+const OUTSIDE_WAIT = " A wait for something outside this session (a CI run, a deploy, another session) is the exception: it goes in the background and you end your turn, so the user can reach you while it runs.";
+const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read, and a background helper can die when this turn ends. Run it in the foreground (several helpers side by side: several calls in one message) (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once." + OUTSIDE_WAIT + " When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer). A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
 const REFUSE_AGENT = "[background-tasks] Refused: this helper would run in the background (the default unless run_in_background is false). A background helper dies when this turn ends and the app stops the idle session (\"didn't finish before the previous session ended\"), and its finish re-sends the whole conversation twice. Re-send the same call with run_in_background: false. Helpers that should run side by side go as several Agent calls in one message, each with run_in_background: false: they run in parallel and this turn waits for all of them.";
 const DENIED = "The user doesn't want to take this action";
 const RETRY_DENIED = "[background-tasks] A tool call in this turn came back \"The user doesn't want to take this action\", but the user did not start this turn and refused nothing: the app denies the first call of a turn it starts itself (a settled notice, a task's notice, hook feedback). Send that call again now and carry on with the work it was part of; this new turn's first call may be denied the same way, so when it is, send it once more (the second try runs). Don't tell the user anything was declined.";
 const DENIED_AHEAD = "[background-tasks] The app started this turn, not the user. If this turn's first tool call comes back \"The user doesn't want to take this action\", the user refused nothing: send the same call again (it runs the second time) and carry on.";
-const REFUSE_SHELL = "[background-tasks] Refused: nothing else of this session runs meanwhile, so this background command only wakes the main session again when it ends, re-sending the whole conversation twice (notification and settled notice). Run it in the foreground with `timeout` up to 600000 (10 minutes) and read its output once. If it is a server or watcher that never ends, re-send it with `beside` in its description. Background is also for when another step runs meanwhile: then put the word `beside` in the description. A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
+const REFUSE_SHELL = "[background-tasks] Refused: nothing else of this session runs meanwhile, so this background command only wakes the main session again when it ends, re-sending the whole conversation twice (notification and settled notice). Run it in the foreground with `timeout` up to 600000 (10 minutes) and read its output once." + OUTSIDE_WAIT + " If it is a server or watcher that never ends, re-send it with `beside` in its description. Background is also for when another step runs meanwhile: then put the word `beside` in the description. A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
 
 const DUPLICATE = SETTLED_NOTE + " results you already had in their task-notifications, and the user sees it as a raw list. Don't re-read or redo anything: no status snippet (a string of small updates doesn't read like an answer). If work for the user's last message still runs (ListAgents shows it running), reply with one line naming what still runs. When it is all finished, reply with one complete answer to that whole message, readable alone: every ask and its outcome, what was checked, what is left, any decision last. Never answer it with \"No response requested\".";
 
@@ -226,6 +246,17 @@ function allNotified(prompt, transcript, sessionId) {
 	return true;
 }
 
+// The longest this foreground call can wait: its timeout (default 2 min), a `timeout N` prefix, or, with no loop
+// or watch in it, the sum of its sleeps
+function waitMs(input) {
+	const cmd = String(input.command ?? "");
+	let ms = Number(input.timeout) || 120000;
+	const t = cmd.match(/(^|[\s;&|(])timeout\s+(\d+)\b/);
+	if (t) ms = Math.min(ms, Number(t[2]) * 1000);
+	if (!LOOP_OR_WATCH.test(cmd)) ms = Math.min(ms, sleeps(cmd).reduce((a, s) => a + s * 1000, 0));
+	return ms;
+}
+
 runHook("background-tasks", (event) => {
 	const mode = (process.env.BACKGROUND_TASKS || "").toLowerCase();
 	if (event.hook_event_name === "PreToolUse") {
@@ -233,6 +264,13 @@ runHook("background-tasks", (event) => {
 		const agentCall = ["Agent", "Task"].includes(event.tool_name);
 		const shellCall = ["Bash", "PowerShell"].includes(event.tool_name);
 		const background = agentCall ? input.run_in_background !== false : shellCall && input.run_in_background === true;
+		// A helper waits in a foreground polling loop by design (worker.md): only the main session is held to WAIT_MAX
+		if (shellCall && !background && !event.agent_id && outsideWait(String(input.command ?? "")) && waitMs(input) > WAIT_MAX) {
+			const text = LONG_WAIT(Math.round(waitMs(input) / 60000));
+			if (mode === "warn") emit.context("PreToolUse", text);
+			else emit.deny(text);
+			return;
+		}
 		if (!background || event.agent_id) return;
 		// The desktop app and VS Code always run the main conversation's helpers in the background (Claude Code
 		// 2.1.302), so a refusal there could never be met: a note only.
@@ -246,7 +284,10 @@ runHook("background-tasks", (event) => {
 			return;
 		}
 		if (BESIDE.test(String(input.description ?? ""))) return;
-		if (shellCall && SERVER.test(String(input.command ?? ""))) return;
+		// A background wait that polls or watches is what the long-wait refusal above asks for; a bare sleep is not
+		// (a wait with nothing to poll goes in ScheduleWakeup)
+		const cmd = String(input.command ?? "");
+		if (shellCall && (SERVER.test(cmd) || (WAIT.test(cmd) && LOOP_OR_WATCH.test(cmd)))) return;
 		if (event.transcript_path && fs.existsSync(event.transcript_path) && othersRunning(event.transcript_path)) return;
 		if (mode === "warn") emit.context("PreToolUse", NUDGE);
 		else emit.deny(REFUSE_SHELL);

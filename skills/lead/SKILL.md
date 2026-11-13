@@ -86,7 +86,7 @@ Plan read: <folders> at <commits>. Review: <plan yes/no, build yes/no, why>. Sta
 
 The step number is the worker's number: each step has one owner, so two workers never do the same thing. The Runs column says when a step starts: `beside` steps start together, as foreground Agent calls in one message, `after` waits for that step's report, `after S<n>, user OK` also waits for the user's OK on that step's design, `same worker as` goes by SendMessage to that step's worker.
 
-**A worker's brief:** read reference.md section "A worker's brief" when starting a row, and its parts "Decisions in a brief" and "What no helper sees" before any helper's brief (planner and reviewers too): the Agent call, the brief template, decisions in a brief, what no helper sees, worktree steps.
+**A worker's brief:** read reference.md section "A worker's brief" when starting a row, and its parts "Decisions in a brief" and "What no helper sees" before any helper's brief (planner and reviewers too): the Agent call, the brief template, decisions in a brief, what no helper sees, worktree steps (a row in another repository gets one you make with `git -C <repo> worktree add`, no `isolation`; parallel work in this session's folder may use `isolation: "worktree"`; removed with `git branch -D` after the stage commit and the full suites pass).
 
 ## 4. Coordinate
 
@@ -114,6 +114,6 @@ Problems → write them into the plan file's Review section, then send each one 
 
 ## 6. Finish
 
-- Run the cheapest real check yourself and show its output.
+- Run the cheapest real check yourself and show its output. A failed full test run is followed by a rerun of only the failed tests (`node tests/run-all.mjs --failed` in a setup repo), not a second full run.
 - Update the tracker item (status, short summary, linked files) and set this session to `validating` or `complete` per the user's rules.
 - Report to the user: result first, what each step produced, what was checked (with proof), each review finding with its fix or answer, and a "Needs you" list if anything's left. Release and tests come after the user's answer, when the job has them.

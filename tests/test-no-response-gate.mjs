@@ -38,6 +38,14 @@ const reminds = (out) => out.includes("additionalContext") && out.includes("cut 
 const BTW_Q = "Also the scaling should be higher. What is this?";
 // A long session: 12 MB of older turns before the last one (only the file's end is read)
 const OLD = Array.from({ length: 1200 }, () => say("x".repeat(10000)));
+// The user's stop (Nimbalyst's stop button; an app restart writes the same result)
+const STOP = "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown. Check whether it took effect before relying on it or running it again.]";
+const stoppedTurn = [typed("Finish W3."), say("The review found one Important bug: if an install stops midway, the person's own copy can no longer be restored. Sending it to one helper."),
+  tool("Agent", { subagent_type: "worker-code", prompt: "fix" }), result(STOP), synthetic()];
+const ASK = "Yo, what is going on? I stopped you. How long do you have left? What has been taking so much time?";
+const START = "Start the stage 0 lead, and bring it up in the Nimbalyst view.";
+const pre = (entries, name) => run(entries, { input: { hook_event_name: "PreToolUse", tool_name: name, tool_input: {} } });
+const denies = (out) => out.includes('"permissionDecision":"deny"') && out.includes("[stop]");
 
 const cases = [
   ["12 MB transcript: the last turn is still judged (blocked), in under 3 s", () => {
@@ -114,6 +122,50 @@ const cases = [
   ["the model's own \"No response requested.\" (not synthetic): no reminder", () => prompt([typed("status?"), say(NRR)], "next") === ""],
   ["an [Request interrupted by user] note is skipped", () =>
     reminds(prompt([typed("why is it slow?"), tool("Bash", { command: "ls" }), typed("[Request interrupted by user for tool use]"), synthetic()], "other"))],
+  // After a stop: the next turn answers and starts no work until the user says to go on
+  ["stop: next prompt gets the [stop] note", () => prompt(stoppedTurn, ASK).includes("[stop] The user stopped")],
+  ["stop: re-sent helper is refused", () => denies(pre([...stoppedTurn, typed(ASK)], "Agent"))],
+  ["stop: refused again after a compact", () => denies(pre([...stoppedTurn, typed(ASK), { type: "system", subtype: "compact_boundary" },
+    { type: "user", isCompactSummary: true, message: { role: "user", content: "This session is being continued …" } }], "Agent"))],
+  ["stop: an Edit is refused too", () => denies(pre([...stoppedTurn, typed(ASK)], "Edit"))],
+  ["stop: a Nimbalyst spawn_session is refused too", () => denies(pre([...stoppedTurn, typed(ASK)], "mcp__nimbalyst-host__spawn_session"))],
+  ["stop: a read call runs", () => !denies(pre([...stoppedTurn, typed(ASK)], "Bash"))],
+  ["stop: 'go on, finish W3' lets work run", () => !denies(pre([...stoppedTurn, typed("ok go on, finish W3")], "Agent"))],
+  ["stop: a plain new instruction to start lets work run, with no [stop] note (an app restart writes the same result)", () =>
+    !denies(pre([...stoppedTurn, typed(START)], "mcp__nimbalyst-host__spawn_session")) && !prompt(stoppedTurn, START).includes("[stop]")],
+  ["stop: the turn after the answered one is free", () => !denies(pre([...stoppedTurn, typed(ASK), say("Stopped. Done: … Left: …"), typed("thanks, now do S9")], "Agent"))],
+  ["stop: '[Request interrupted by user]' counts as a stop", () => denies(pre([typed("build it"), tool("Bash", {}), result("x"),
+    { type: "user", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } }, typed(ASK)], "Agent"))],
+  // Only a message that says to stop holds: the stop button and a message sent mid-turn write the same interrupted
+  // result 0.2-0.4 s before the message (the real stops of session c779e67d, 2026-11-11 00:47:58Z and 00:50:51Z)
+  ["stop: the real stop 'Yo, what is going on? I stopped you, …' is held", () =>
+    denies(pre([...stoppedTurn, typed("Yo, what is going on? I stopped you, this is getting ridiculous. You've been on step W3 for, bro, how long you have left until you actually released?")], "Agent"))],
+  ["stop: the real stop 'Bro, stop, bro, stop, …' is held", () =>
+    denies(pre([...stoppedTurn, typed("Bro, stop, bro, stop, I literally stopped you, you keep working, what's wrong with you, what?")], "Agent"))],
+  ["stop: a correction sent mid-turn ('fix this contraption at the bottom as well') is not held, no [stop] note", () => {
+    const cut = [typed("Fix the shop layout."), tool("Bash", { command: "ls" }), refused(), typed("[Request interrupted by user for tool use]"), synthetic()];
+    return !denies(pre([...cut, typed("fix this contraption at the bottom as well")], "Edit")) && !prompt(cut, "fix this contraption at the bottom as well").includes("[stop]");
+  }],
+  ["stop: an added ask sent mid-turn ('Also for some reason when you select the themes…') is not held", () =>
+    !denies(pre([...stoppedTurn, typed("Also for some reason when you select the themes, you select the theme, and it doesn't apply until you restart.")], "Edit"))],
+  ["stop: 'No, do not continue with W3. What is left?' stays held", () => denies(pre([...stoppedTurn, typed("No, do not continue with W3. What is left?")], "Agent"))],
+  ["stop: 'Don't start anything, just tell me what is left.' stays held", () => denies(pre([...stoppedTurn, typed("Don't start anything, just tell me what is left.")], "Agent"))],
+  ["stop: 'Ok what is going on, I stopped you' stays held", () => denies(pre([...stoppedTurn, typed("Ok what is going on, I stopped you")], "Agent"))],
+  ["stop: a later typed 'ok go on, finish W3' lifts the hold", () =>
+    !denies(pre([...stoppedTurn, typed(ASK), say("Stopped. Done: … Left: …"), typed("ok go on, finish W3")], "Agent"))],
+  // Form answers and turns the app starts are not typed messages: they neither set nor lift a hold
+  ["stop: a form's answer after a hold keeps it", () =>
+    denies(pre([...stoppedTurn, typed(ASK), say("Stopped. Which part next?"), typed("[Resuming after the user submitted a PromptForUserInput form] { \"answers\": { \"next\": \"W3\" } }")], "Agent"))],
+  ["stop: a form's answer right after an interrupted call holds nothing", () =>
+    !denies(pre([...stoppedTurn, typed("[Resuming after the user submitted a PromptForUserInput form] { \"answers\": {} }")], "Agent"))],
+  ["stop: a turn the app starts (task notification) after a hold stays held", () =>
+    denies(pre([...stoppedTurn, typed(ASK), say("Stopped. Done: … Left: …"),
+      { ...typed("<task-notification>task done</task-notification>"), promptSource: "system", origin: { kind: "task-notification" } }], "Agent"))],
+  ["stop: the stop note and the cut-off reminder come as one output", () => {
+    const out = prompt([typed("Why did the test fail?"), tool("Agent", { prompt: "x" }), result(STOP), synthetic()], ASK);
+    try { JSON.parse(out); } catch { return false; }
+    return out.includes("[stop]") && reminds(out);
+  }],
   // Off switch, subagents, errors
   ["NO_RESPONSE_GATE=off: passes", () => run([typed("status?"), say(NRR)], { env: { NO_RESPONSE_GATE: "off" } }) === ""],
   ["a subagent (agent_id): passes", () => run([typed("status?"), say(NRR)], { input: { agent_id: "a1" } }) === ""],

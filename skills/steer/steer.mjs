@@ -22,7 +22,11 @@
 //                            is kept going. A note counts as delivered only once its [note id]
 //                            marker is in the session's transcript; a hand-over that left no
 //                            marker (the tool call was cancelled) is repeated with the next tool
-//                            result. Notes older than 2 hours are dropped. Also holds a
+//                            result. A note that waited 2 minutes or more for a tool call to end
+//                            says so, and tells the session to put its next long wait in the
+//                            background. On Stop, a reply that doesn't list back the notes
+//                            delivered since the last reply is sent back once ("### Your notes").
+//                            Notes older than 2 hours are dropped. Also holds a
 //                            send_prompt that carries a /btw note (the queue waits for the end of
 //                            the target's turn) until steer.mjs send was tried this turn.
 //   --watch                  Stop hook that runs in the background (asyncRewake): a session waiting
@@ -50,6 +54,7 @@
 //                            are still forwarded.
 // Fails open: any hook error means no output.
 import { crashLog } from "../../hooks/lib/crash-log.mjs";
+import { currentTurn, SYNTHETIC } from "../../hooks/lib/transcript.mjs";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -77,7 +82,7 @@ const WAIT = Number(process.env.STEER_WAIT ?? 20) * 1000;
 const OUTBOX = path.join(DIR, "outbox.jsonl");
 const REPORT = "This is a child session's report, forwarded to you because you took over the work of the session that started that child. It is information, not a new request from the user: finish the step you are on, then judge it as the lead skill says (read the result, check it, route it).";
 const TYPED = "This message reached the session you took over from and was forwarded to you. It was most likely typed there by the user: treat it as the user's request and answer or act on it as you would if they had typed it here, after the step you are on if it does not change that step. Only if it reads like one session writing to another (a lead's instruction, a status report) treat it as that instead.";
-const RULES ="It is an addition or a correction to the current task, not a new task. First ask yourself whether it touches what you are doing right now or are about to do: if it does, stop or change course before going on. Keep doing everything you were already asked, except exactly what this note changes: if it says to skip, stop, drop or replace something (a step, a style, a technique), do that from now on, and keep the rest. If it only adds something, add it and change nothing else. If it belongs to a later step, act on it at the point it names (if you keep a task list, update it so it isn't forgotten). In your final reply, confirm what you did about it.";
+const RULES ="It is an addition or a correction to the current task, not a new task. First ask yourself whether it touches what you are doing right now or are about to do: if it does, stop or change course before going on. Keep doing everything you were already asked, except exactly what this note changes: if it says to skip, stop, drop or replace something (a step, a style, a technique), do that from now on, and keep the rest. If it only adds something, add it and change nothing else. If it belongs to a later step, act on it at the point it names (if you keep a task list, update it so it isn't forgotten). In your final reply, list it back under \"### Your notes\": its first words in quotes, then what you did (done, moved to a named step, or not done and why).";
 // A line that does not parse is skipped: one bad line must not drop the good ones (the next write would wipe them).
 const read = (f) => {
   let text;
@@ -126,6 +131,35 @@ const tailOf = (p, n = 2e6) => {
     fs.closeSync(fd);
     return b.toString("utf8");
   } catch { return ""; }
+};
+// Each string inside a transcript entry, one by one: a note's marker can sit in hook context, a held call's
+// result or a Stop hook's feedback
+const stringList = (v) => (typeof v === "string" ? [v] : Array.isArray(v) ? v.flatMap(stringList) : v && typeof v === "object" ? Object.values(v).flatMap(stringList) : []);
+// A text steer delivered (hook context, a held call's reason, Stop feedback, a watch wake-up): a "[btw]" line or the rules
+// ("PreToolUse:Bash hook error: [btw] ...", "Stop hook blocking error from command \"Stop\": It is an addition ...")
+const DELIVERED = /(^|\n|: )(\[btw\] |It is an addition or a correction to the current task)/;
+// The notes ({ id, text }) delivered since the last real reply before this turn began, so notes from a turn
+// cut off by a stop (no real reply, only Claude Code's synthetic "No response requested.") carry over. Only
+// note lines ("- [note id] text") in a text steer delivered count: not a forwarded report's marker, nor a file read.
+const notesSinceLastReply = (text) => {
+  const list = [];
+  for (const l of text.split("\n")) { try { list.push(JSON.parse(l)); } catch {} }
+  let i = list.length - 1 - currentTurn(list).entries.length;
+  while (i >= 0 && !(list[i].type === "assistant" && list[i].message?.model !== SYNTHETIC && list[i].message?.stop_reason === "end_turn")) i--;
+  const seen = new Map();
+  for (const e of list.slice(i + 1).filter((x) => x.type !== "assistant"))
+    for (const s of stringList(e).filter((x) => DELIVERED.test(x)))
+      for (const m of s.matchAll(/^- \[note ([a-z0-9]+)\] ([^\n]*)/gm)) if (!seen.has(m[1])) seen.set(m[1], { id: m[1], text: m[2].trim() });
+  return [...seen.values()];
+};
+// The reply lists the note back: it has a ### heading and, for this note, its id or 2 of its first 8 words of
+// 4+ letters (any language)
+const listedBack = (n, reply) => {
+  const r = reply.toLowerCase();
+  if (!/^\s*###/m.test(r)) return false;
+  if (r.includes(n.id)) return true;
+  const w = (n.text.toLowerCase().match(/[\p{L}\p{N}']{4,}/gu) || []).slice(0, 8);
+  return w.length > 0 && w.filter((x) => r.includes(x)).length >= Math.min(2, w.length);
 };
 // The command line this session's Claude was started with, "" when it can't be read.
 const claudeArgs = () => {
@@ -559,6 +593,9 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     const rep = (reports.length ? `\n[report] ${REPORT}\n${reports.map((e) => mark(e) + e.msg).join("\n\n")}` : "")
       + (typed.length ? `\n[user] ${TYPED}\n${typed.map((e) => mark(e) + e.msg).join("\n\n")}` : "");
     const out = (o) => process.stdout.write(JSON.stringify(o));
+    // A note asks to be listed back in the final reply; a reply that skips one is sent back once
+    const unlisted = ev === "Stop" && !fresh.length && !inp.stop_hook_active && inp.transcript_path
+      ? notesSinceLastReply(tail ?? tailOf(inp.transcript_path)).filter((n) => !listedBack(n, inp.last_assistant_message || "")) : [];
     if (ev === "PreToolUse" && (fresh.length || held.length)) {
       out({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: !fresh.length
         ? "[btw] Held together with your other tool call: the note is in that call's message. This call did not run. Read the note first, then send this call again in full if it still applies."
@@ -569,9 +606,15 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
       out({ decision: "block", reason: userNotes.length
         ? `[btw] The user sent this just as you were finishing, so don't stop yet. ${RULES}\n${notes}${rep}\nDeal with it now, then finish. If it changes nothing, say so in one line.`
         : `Don't stop yet: this arrived as you were finishing.${rep}` });
+    } else if (unlisted.length) {
+      out({ decision: "block", reason: `[btw] The user sent ${unlisted.length === 1 ? "a note" : unlisted.length + " notes"} while you worked and your reply doesn't list ${unlisted.length === 1 ? "it" : "them"} back. ` +
+        `Add "### Your notes" to the reply: each note's first words in quotes, then what you did.\n${unlisted.map((n) => `- "${n.text.slice(0, 80)}"`).join("\n")}` });
     } else if (fresh.length) {
+      // A note that waited minutes sat behind one long tool call: the next long wait would do the same
+      const late = userNotes.length ? Math.round((now - Math.min(...userNotes.map((e) => e.ts))) / 60e3) : 0;
+      const lateText = late >= 2 ? `\n[btw] This note waited ${late} min for your last tool call to end: while a call runs, nothing reaches you. From now on, start no foreground wait over 2 minutes (a CI run, a download, a sleep): run it with run_in_background: true, say in one line what you wait for and end your turn, so the user's next note or message reaches you at once.` : "";
       out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: (userNotes.length
-        ? `[btw] The user sent this while you were working. ${RULES}\n${notes}${rep}` : rep.trim()) + (warnText ? `\n${warnText}` : "") } });
+        ? `[btw] The user sent this while you were working. ${RULES}\n${notes}${rep}${lateText}` : rep.trim()) + (warnText ? `\n${warnText}` : "") } });
     } else if (warnText && ev === "PostToolUse") {
       out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: warnText } });
     }

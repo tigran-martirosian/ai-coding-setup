@@ -26,6 +26,7 @@ jobs:
       - if: runner.os == 'macOS'
         run: brew install ffmpeg ffmpeg-full
       # tests/test-versions.mjs asks the GitHub API; without a token the shared runner addresses hit its rate limit
-      - run: node tests/run-all.mjs
+      # --verbose: one file at a time with its full output, so a failure's whole log is in the run
+      - run: node tests/run-all.mjs --verbose
         env:
           GITHUB_TOKEN: ${{ github.token }}

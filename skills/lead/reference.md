@@ -16,7 +16,7 @@ Keep out of the brief: your own idea of the solution (even as a suggestion), you
 
 ## A worker's brief
 
-**A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`), `isolation: "worktree"` when Runs says so. A `worker`, model `fable` row passes `model: "fable"`; a `worker-code` or `worker-high` row passes that `subagent_type` and no model; a Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
+**A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`). A `worktree` row whose files are in another repository gets its worktree from you before the call, `git -C <repo> worktree add <path> -b <branch> main`, and the brief's FILES name that path; its Agent call carries no `isolation`, which would branch the session's own folder, the wrong repository. Parallel rows in the session's own folder may still use `isolation: "worktree"`. A `worker`, model `fable` row passes `model: "fable"`; a `worker-code` or `worker-high` row passes that `subagent_type` and no model; a Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
 
 ```
 JOB GOAL: the whole job, one sentence
@@ -36,7 +36,7 @@ Add the project's commands and its rule for checks when the step needs them: the
 
 **What no helper sees.** No helper loads auto-memory, so a memory note that bears on the step is pasted into its brief. The project's systems map reaches every brief by itself as `SYSTEMS MAP:` lines; a planner, plan-reviewer or reviewer brief also names the map, for what the change reaches: `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>`.
 
-**Worktree steps** need a project whose CLAUDE.md allows local git; you merge each one, then remove it: `git worktree remove <path>` and `git branch -d <branch>`, both without `--force`. When git refuses, the worktree holds uncommitted files or commits not merged: name them to the user and leave it. A worktree left behind costs up to a gigabyte, and Claude Code only clears it after its chat-retention days.
+**Worktree steps** need a project whose CLAUDE.md allows local git; you merge each one. After the stage commit and the full suites pass, remove the worktree, `git worktree remove <path>` without `--force`, then delete its branch with `git branch -D <branch>` (after a squash, `-d` always refuses: git does not see the branch as merged). When `git worktree remove` refuses, the worktree holds uncommitted files: name them to the user and leave it. A failed full run is followed by a rerun of only the failed tests (`node tests/run-all.mjs --failed` in a setup repo), not a second full run. A worktree left behind costs up to a gigabyte, and Claude Code only clears it after its chat-retention days.
 
 ## A stopped worker
 

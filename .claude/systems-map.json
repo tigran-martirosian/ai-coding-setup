@@ -68,7 +68,7 @@
     {
       "id": "reply-format-gates",
       "name": "Reply-format gates",
-      "what": "Stop hooks that check the reply before it goes out: links opened, file links clickable, no idle next step, every question answered, no commands left to the user, web claims checked.",
+      "what": "Stop hooks that check the reply before it goes out: links opened, file links clickable, no idle next step, every question answered, no commands left to the user, web claims checked. no-response-gate also runs on PreToolUse: in the turn after the user stopped the session it refuses work calls (helpers, edits, new sessions) until the user says go or start.",
       "files": [
         "hooks/link-gate.mjs",
         "hooks/file-link-gate.mjs",
@@ -139,7 +139,7 @@
     {
       "id": "context-cost-hooks",
       "name": "Context cost and loop hooks",
-      "what": "Hooks that keep a long session cheap: compact focus, cold cache warning, background wake-ups, repeated calls, finished-job nudge.",
+      "what": "Hooks that keep a long session cheap: compact focus, cold cache warning, background wake-ups, repeated calls, finished-job nudge. background-tasks also refuses a main-session foreground wait over 2 min (a CI watch, a poll loop, a sleep); a background wait that polls or watches passes.",
       "files": [
         "hooks/context-guard.mjs",
         "hooks/cold-cache.mjs",
@@ -289,7 +289,7 @@
     {
       "id": "steer",
       "name": "Steer and self-compact",
-      "what": "Mid-turn steering of a session and the compact of itself, driven by hooks.",
+      "what": "Mid-turn steering of a session and the compact of itself, driven by hooks. The note asks for the mid-turn notes to be listed back under \"### Your notes\" and says when a note waited 2 min or more.",
       "files": [
         "skills/steer/steer.mjs",
         "skills/steer/compact-self.mjs",

@@ -126,6 +126,8 @@ node tests/run-all.mjs
 
 Each hook runs as a separate process on made-up session logs, the installer runs twice on an empty home folder, and `scripts/privacy-check.mjs` scans the repository for home folder paths, email addresses and API keys. GitHub Actions runs all of it on every push, on Windows and on macOS.
 
+The test files run side by side, and a passing file prints one line. `--only a,b` runs only those files, `--failed` reruns the files that failed in the last run, and `--verbose` runs one file at a time with its full output (GitHub Actions uses it).
+
 ## License
 
 This is not open source. You may use this code and change your own copy, at home or at work. You may not publish, share or sell it, or present it as your own, without my written permission. See [LICENSE](LICENSE).

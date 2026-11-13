@@ -13,6 +13,14 @@
 // Stop hook runs for those turns. When the previous turn was cut off that way before any answer (a
 // one-line "Let me check." is no answer), after a message the user typed, and the new prompt is not
 // that message sent again, it adds a note to answer the earlier message too.
+// After an interrupted turn (an interrupted tool call or "[Request interrupted"), when the user's next typed
+// message says to stop ("stop", "I stopped you", "halt", "pause", "hold on", "don't build/start/run ...", "no more")
+// and has no go word, the turn answers and starts no work: UserPromptSubmit adds a [stop] note, and PreToolUse
+// (Agent, Task, Edit, Write, MultiEdit, NotebookEdit, spawn_session, send_prompt) refuses those calls until a typed
+// message says to go on or to start ("go", "start", "continue", "do it", "yes", ...; not "do not continue").
+// Read, Grep, Glob and Bash still run. The same interrupted result comes from a message sent mid-turn and from an
+// app restart, so a message with no stop words (a correction, a new ask) holds nothing. Form answers and turns
+// the app starts neither set nor lift the hold.
 // System events (background-task notices, "[System: ...]", "[Child Session Update]") are not typed
 // messages, so "No response requested." stays allowed there. Subagents (agent_id) are skipped.
 // Fails open. NO_RESPONSE_GATE=off disables it.
@@ -144,18 +152,64 @@ export function cutOffMessage(entries, prompt) {
   return null;
 }
 
+// An interrupted turn: an interrupted tool call (the stop button, a message sent mid-turn and an app restart all
+// write this result) or Claude Code's marker
+const STOPPED = /^\[?(Tool call interrupted\b|Request interrupted\b)/;
+// A message that says to stop. Timing can't tell a stop from a message sent mid-turn: the app writes the
+// interrupted result when the next message arrives, 0.1-4 s before it either way (replay of 14 days of chats,
+// 2026-11-11; the real stops of session c779e67d came 0.3 s and 0.2 s after theirs). "Wait" counts as a command
+// at a sentence's start, not "Wait, what?"
+const STOP_WORDS = /\b(stop|stopped|stopping|halt|pause|hold on|no more)\b|\b(don'?t|dont|do not)\s+(build|start|continue|run|do)\b|(^|[.!?]\s+)wait\b(?![,\s]+what\b)/i;
+// A message that says to go on, or to start new work. Not "ok": "Ok what is going on, I stopped you" is no go.
+const GO = /\b(go|go ahead|go on|let'?s go|continue|carry on|resume|keep going|proceed|finish|start|do it|run it|yes)\b/gi;
+// A go word counts unless no/not/don't/never comes up to 3 words before it in its sentence ("No, do not continue")
+const saysGo = (s) => [...s.matchAll(GO)].some((m) =>
+  !/\b(no|not|don'?t|dont|never)\b/i.test(s.slice(0, m.index).split(/[.!?]/).pop().trim().split(/\s+/).slice(-3).join(" ")));
+const holds = (text) => STOP_WORDS.test(text) && !saysGo(text);
+const WORK = /^(Agent|Task|Edit|Write|MultiEdit|NotebookEdit)$|(spawn_session|send_prompt)$/;
+// Each tool result's text (a string, or its text blocks)
+const results = (e) => Array.isArray(e.message?.content)
+  ? e.message.content.filter((b) => b?.type === "tool_result")
+    .map((b) => (typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.filter((c) => c?.type === "text").map((c) => c.text || "").join("\n") : ""))
+  : [];
+// A message the user typed here: a form's answer, a lead's brief or a relayed note neither sets nor lifts a hold
+const typedHere = (e) => typedByUser(e) && !NOT_TYPED.test(flat(userText(e)));
+// The user's message that holds work after a stop, or null: their last typed message says to stop and not to go,
+// and it follows an interrupted turn, maybe through earlier typed messages that held too. Turns the app starts
+// (a task's notice, a form's answer) and compact summaries keep the hold; a typed message without stop words lifts it.
+export function afterStop(entries) {
+  let i = entries.length - 1;
+  while (i >= 0 && !typedHere(entries[i])) i--;
+  if (i < 0 || !holds(flat(userText(entries[i])))) return null;
+  for (let j = i - 1; j >= 0; j--) {
+    const e = entries[j];
+    if (e.type === "user" && (results(e).some((r) => STOPPED.test(r.trim())) || STOPPED.test(userText(e).trim()))) return userText(entries[i]);
+    if (typedHere(e) && !holds(flat(userText(e)))) return null;
+  }
+  return null;
+}
+const stillStopped = (entries) => afterStop(entries) !== null;
+
 if (isMain(import.meta.url)) {
   runHook("no-response-gate", (input) => {
     if (input.agent_id || !input.transcript_path || !fs.existsSync(input.transcript_path)) return; // none yet on a session's first prompt
     const entries = readEntries(tail(input.transcript_path, TAIL_BYTES));
     if (input.hook_event_name === "UserPromptSubmit") {
+      const notes = [];
+      // The prompt is not in the file yet: the turn it opens follows a stop when the file ends in one
+      if (stillStopped([...entries, { type: "user", promptSource: "sdk", message: { role: "user", content: String(input.prompt ?? "") } }]))
+        notes.push("[stop] The user stopped your last turn. This reply answers their message: what is done, what is left, what you would do next. Work starts again when they say go; the stopped call is not sent again on its own.");
       const earlier = cutOffMessage(entries, input.prompt);
       if (earlier) {
         const quote = earlier.length > 300 ? earlier.slice(0, 300) + " …" : earlier;
-        emit.context("UserPromptSubmit",
-          `[no-response-gate] Your last turn was cut off (a refused tool call or a new message) before you replied to the user's earlier message: "${quote}". ` +
+        notes.push(`[no-response-gate] Your last turn was cut off (a refused tool call or a new message) before you replied to the user's earlier message: "${quote}". ` +
           "Answer it in this reply as well, unless the new message replaces it or says to drop it; if the new message repeats it, answer once.");
       }
+      // One output: two JSON objects on stdout would not parse
+      if (notes.length) emit.context("UserPromptSubmit", notes.join("\n"));
+    } else if (input.hook_event_name === "PreToolUse") {
+      if (WORK.test(input.tool_name || "") && stillStopped(entries))
+        emit.deny("[stop] The user stopped your last turn and has not said to go on, so this call did not run. Answer their message and end the turn; when they say go, start again from what is left.");
     } else if (!input.stop_hook_active) {
       const reason = stopVerdict(entries, input.last_assistant_message);
       if (reason) emit.block(reason);

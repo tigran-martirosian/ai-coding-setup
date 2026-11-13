@@ -80,6 +80,14 @@ o = hook("PostToolUse");
 ok("after a tool call: the note comes with the result",
   o?.hookSpecificOutput?.hookEventName === "PostToolUse" && o.hookSpecificOutput.additionalContext.includes("skip step 3"));
 ok("and is cleared", left().length === 0);
+// 2026-11-11: a note waited 9 min behind a 10-minute `gh run watch`, then the session blocked again
+put([note("check the folders", { ts: Date.now() - 9 * 60e3 })]);
+o = hook("PostToolUse", { tool_name: "Bash", tool_input: { command: "gh run watch 1", timeout: 600000 } });
+ok("a note that waited through a long call says how long, and sends the next wait to the background",
+  o?.hookSpecificOutput?.additionalContext.includes("waited 9 min") && o.hookSpecificOutput.additionalContext.includes("run_in_background: true"));
+put([note("use the blue one")]);
+o = hook("PostToolUse");
+ok("a fresh note has no wait line", o?.hookSpecificOutput?.additionalContext.includes("use the blue one") && !o.hookSpecificOutput.additionalContext.includes("waited"));
 
 // 5: at the end of a reply, the session is kept going.
 put([note("also check the footer")]);
@@ -87,6 +95,54 @@ o = hook("Stop");
 ok("when finishing: the session is kept going with the note", o?.decision === "block" && o.reason.includes("also check the footer"));
 ok("and is cleared", left().length === 0);
 ok("finishing with no note: nothing happens", hook("Stop") === null);
+
+// 5b: the final reply lists each delivered note back under "### Your notes"; a reply that skips one is sent back once.
+const notesTp = path.join(home, "notes-back.jsonl");
+const NOTE_N1 = "[note n1] Forget about the quick task stuff, let's do it on Wednesday.";
+const writeTp = (entries) => fs.writeFileSync(notesTp, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+writeTp([
+  { type: "user", promptSource: "sdk", message: { role: "user", content: "Do W2, the quick tasks pass, then W3." } },
+  { type: "attachment", attachment: { type: "hook_additional_context", content: [`[btw] The user sent this while you were working. … \n- ${NOTE_N1}`] } },
+  { type: "assistant", message: { model: "claude-opus-5-5", stop_reason: "end_turn", content: [{ type: "text", text: "W3 is merged." }] } },
+]);
+o = hook("Stop", { transcript_path: notesTp, last_assistant_message: "W3 is merged and tested." });
+ok("notes: a reply that skips the note is blocked", o?.decision === "block" && o.reason.includes("Forget about the quick task"));
+ok("notes: a reply that lists it back passes", hook("Stop", { transcript_path: notesTp,
+  last_assistant_message: "W3 is merged.\n### Your notes\n- \"Forget about the quick task stuff\": moved to Wednesday, W2 skipped." }) === null);
+ok("notes: blocks only once", hook("Stop", { transcript_path: notesTp, stop_hook_active: true, last_assistant_message: "W3 is merged." }) === null);
+// A note from a turn cut off by a stop (synthetic "No response requested.") is still owed in the next reply
+writeTp([
+  { type: "user", promptSource: "sdk", message: { role: "user", content: "Finish W3." } },
+  { type: "attachment", attachment: { type: "hook_additional_context", content: [`[btw] … \n- ${NOTE_N1}`] } },
+  { type: "assistant", message: { model: "<synthetic>", stop_reason: "stop_sequence", content: [{ type: "text", text: "No response requested." }] } },
+  { type: "user", promptSource: "sdk", message: { role: "user", content: "What is going on? I stopped you." } },
+]);
+o = hook("Stop", { transcript_path: notesTp, last_assistant_message: "Stopped. Done: S8. Left: W3 fixes." });
+ok("notes: a note from the cut-off turn is still asked for", o?.decision === "block" && o.reason.includes("Forget about the quick task"));
+// A note already listed back in an earlier reply is not asked for again
+writeTp([
+  { type: "user", promptSource: "sdk", message: { role: "user", content: "Finish W3." } },
+  { type: "attachment", attachment: { type: "hook_additional_context", content: [`[btw] … \n- ${NOTE_N1}`] } },
+  { type: "assistant", message: { model: "claude-opus-5-5", stop_reason: "end_turn", content: [{ type: "text", text: "Done.\n### Your notes\n- \"Forget about the quick task\": moved." }] } },
+  { type: "user", promptSource: "sdk", message: { role: "user", content: "Now do S9." } },
+]);
+ok("notes: a note from an earlier answered turn is not asked for again", hook("Stop", { transcript_path: notesTp, last_assistant_message: "S9 is done." }) === null);
+// Only notes steer delivered count: not a marker in a forwarded child report, nor one in a file read
+writeTp([
+  { type: "user", promptSource: "sdk", message: { role: "user", content: "Do W2." } },
+  { type: "attachment", attachment: { type: "hook_additional_context", content: [`[report] This is a child session's report …\n[note r1] W2 is done: 3 files changed.`] } },
+  { type: "assistant", message: { model: "claude-opus-5-5", content: [{ type: "tool_use", id: "rd1", name: "Read", input: { file_path: "tests/test-steer.mjs" } }] } },
+  { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "rd1", content: `101\tconst NOTE_N1 = "${NOTE_N1}";\n105\t  content: [\`[btw] The user sent this while you were working. … \\n- \${NOTE_N1}\`]` }] } },
+]);
+ok("notes: a forwarded report's marker and a file read are not notes", hook("Stop", { transcript_path: notesTp, last_assistant_message: "W2 is done." }) === null);
+// A reply in another language, under any ### heading, lists the note back by its words
+const NOTE_RU = "[note n2] Забудь про быстрые задачи, сделаем их в среду.";
+writeTp([
+  { type: "user", promptSource: "sdk", message: { role: "user", content: "Сделай W2." } },
+  { type: "attachment", attachment: { type: "hook_additional_context", content: [`[btw] The user sent this while you were working. … \n- ${NOTE_RU}`] } },
+]);
+ok("notes: a Russian reply under a ### heading with the note's words passes", hook("Stop", { transcript_path: notesTp,
+  last_assistant_message: "W3 готов.\n### Ваши заметки\n- \"Забудь про быстрые задачи\": перенёс на среду." }) === null);
 
 // 6: a helper agent inside the busy session must not take the note.
 // The copy goes only to a helper the session waits for (a foreground Agent call with no result yet), so

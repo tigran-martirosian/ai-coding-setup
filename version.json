@@ -1,9 +1,14 @@
 {
-  "version": "1.0.113",
+  "version": "1.0.114",
   "claudeCodeMin": "2.1.321",
-  "date": "2026-11-10",
-  "summary": "New /disk-tidy and /file-upkeep skills, and new files land tidy from the start.",
+  "date": "2026-11-12",
+  "summary": "A stop you type holds Claude until you say go, your mid-turn notes are listed back, and long waits run in the background.",
   "releases": {
+    "1.0.114": {
+      "kind": "setup",
+      "important": true,
+      "headline": "Stop holds until you say go, mid-turn notes listed back, long waits go to the background"
+    },
     "1.0.112": {
       "kind": "setup",
       "important": true,

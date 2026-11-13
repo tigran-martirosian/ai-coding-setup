@@ -59,6 +59,16 @@
         ]
       },
       {
+        "matcher": "Agent|Task|Edit|Write|MultiEdit|NotebookEdit|mcp__nimbalyst-host__spawn_session|mcp__nimbalyst-host__send_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/no-response-gate.mjs",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "*",
         "hooks": [
           {

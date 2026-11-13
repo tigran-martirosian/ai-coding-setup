@@ -24,7 +24,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -875,6 +875,9 @@ async function main() {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+// started as the script, not imported: by real path, as hooks/lib/hook-io.mjs isMain, because Node gives import.meta.url
+// the real path while argv keeps a link's or a short name's (macOS /var is /private/var; RUNNER~1; a linked ~/.claude)
+const realOr = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+if (process.argv[1] && realOr(process.argv[1]).toLowerCase() === realOr(fileURLToPath(import.meta.url)).toLowerCase()) {
   main().then((code) => process.exit(typeof code === "number" ? code : 0), (e) => { console.error(`disk-tidy: ${e.message}`); process.exit(1); });
 }

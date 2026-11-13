@@ -59,6 +59,9 @@ function run(name, lines, expect, { event = {}, env = {}, subagents = null } = {
 		} else if (expect === "refuse") {
 			const h = JSON.parse(out).hookSpecificOutput;
 			ok = ok && h.hookEventName === "PreToolUse" && h.permissionDecision === "deny" && h.permissionDecisionReason.startsWith("[background-tasks] Refused") && !("additionalContext" in h);
+		} else if (expect === "wait") {
+			const h = JSON.parse(out).hookSpecificOutput;
+			ok = ok && h.permissionDecision === "deny" && h.permissionDecisionReason.startsWith("[background-tasks] Refused: this holds the main session");
 		} else {
 			// Every settled prompt carries the note that a denial in its turn is not the user; "" means nothing more
 			const ahead = out && JSON.parse(out).hookSpecificOutput?.additionalContext;
@@ -128,6 +131,21 @@ run("refuse-bash-plain-node-build-js", null, "refuse", tool("Bash", { command: "
 run("refuse-bash-docker-compose-detached", null, "refuse", tool("Bash", { command: "docker compose up -d", run_in_background: true }));
 run("refuse-bash-tsc-without-watch", null, "refuse", tool("Bash", { command: "npx tsc -p .", run_in_background: true }));
 run("refuse-bash-w-flag-not-tsc", null, "refuse", tool("Bash", { command: "wc -w notes.txt", run_in_background: true }));
+// 2026-11-11: three 10-minute foreground CI waits kept a note out for 9 min; the user had to stop the session
+run("refuse-foreground-ci-watch", null, "wait", tool("Bash", { command: "gh run watch 43095893154 -R o/r --exit-status >/dev/null 2>&1; gh run view 43095893154 -R o/r --json jobs", timeout: 600000 }));
+run("refuse-foreground-timeout-590-watch", null, "wait", tool("Bash", { command: "timeout 590 gh run watch 1 --exit-status", timeout: 600000 }));
+run("refuse-foreground-poll-loop", null, "wait", tool("Bash", { command: "until gh run view 1 --json status -q .status | grep -q completed; do sleep 30; done", timeout: 600000 }));
+run("refuse-foreground-long-sleep", null, "wait", tool("Bash", { command: "sleep 300; ls", timeout: 400000 }));
+// A unit suffix counts: "5m" is 5 minutes, not zero
+run("refuse-foreground-sleep-minutes", null, "wait", tool("Bash", { command: "sleep 5m; gh run view 1", timeout: 600000 }));
+// A short poll inside a build or test command waits on a local server, not on something outside
+run("allow-foreground-build-with-short-poll", null, "", tool("Bash", { command: "npm run build && until curl -sf localhost:3000/health; do sleep 1; done && npm run e2e", timeout: 600000 }));
+run("refuse-foreground-build-with-long-poll", null, "wait", tool("Bash", { command: "npm run build && until gh run view 1 | grep -q completed; do sleep 30; done", timeout: 600000 }));
+run("allow-foreground-short-sleeps", null, "", tool("Bash", { command: "sleep 15; du -sb parts; sleep 10; du -sb parts", timeout: 600000 }));
+run("allow-foreground-poll-default-timeout", null, "", tool("Bash", { command: "for i in 1 2 3; do sleep 5; done" }));
+run("allow-foreground-build", null, "", tool("Bash", { command: "node tests/run-all.mjs", timeout: 600000 }));
+run("allow-helper-poll-loop", null, "", { event: { ...tool("Bash", { command: "until grep -q done log.txt; do sleep 10; done", timeout: 600000 }).event, agent_id: "w1" } });
+run("allow-background-poll-loop", null, "", tool("Bash", { command: "until gh run view 1 --json status -q .status | grep -q completed; do sleep 30; done", run_in_background: true }));
 for (const [name, command] of [
 	["manage-runserver", "python manage.py runserver 0.0.0.0:8000"],
 	["node-server-file", "node server.js"],
