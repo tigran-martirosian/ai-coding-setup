@@ -13,12 +13,18 @@ const single = (extra = {}) => ({ type: "singleSelect", id: "a", label: "Which l
 const rec = (extra = {}) => ({ id: "x", label: "X (recommended)", ...extra });
 const WHY = "Checked: DECISIONS.md already picks this. Other wins if: speed matters more.";
 const LOOSE = "DECISIONS.md already picks this; choose Y if speed matters more.";
+const ELSE = { type: "editText", id: "else", label: "Anything else?", initialText: "" };
 
 const cases = [
   ["singleSelect without allowOther is denied", P([single()]), true],
   ["singleSelect with allowOther:false is denied", P([single({ allowOther: false })]), true],
   ["singleSelect with allowOther passes", P([single({ allowOther: true })]), false],
-  ["confirm alone passes", P([{ type: "confirm", id: "c", label: "Remove unused options?" }]), false],
+  ["confirm plus an editText passes", P([{ type: "confirm", id: "c", label: "Remove unused options?" }, ELSE]), false],
+  ["confirm alone is denied (nothing to type in)", P([{ type: "confirm", id: "c", label: "Remove unused options?" }]), true],
+  ["multiSelect alone is denied (nothing to type in)", P([{ type: "multiSelect", id: "m", label: "m", items: [{ id: "a", title: "A" }] }]), true],
+  ["Nimbalyst's AskUserQuestion is denied", { tool_name: "mcp__nimbalyst__AskUserQuestion", tool_input: { questions: [{ header: "h", question: "Which?", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] } }, true],
+  ["the built-in AskUserQuestion passes", { tool_name: "AskUserQuestion", tool_input: { questions: [{ header: "h", question: "Which?", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] } }, false],
+  ["a path in the form with no session record fails open", P([single({ allowOther: true }), { type: "editText", id: "e", label: "Full draft: docs/plan.md. Anything else?", initialText: "" }]), false],
   ["mixed: one good, one bad is denied", P([single({ allowOther: true }), single({ id: "b", label: "Which photo?" })]), true],
   ["multiSelect/editText pass", P([{ type: "multiSelect", id: "m", label: "m", items: [] }, { type: "editText", id: "e", label: "e", initialText: "" }]), false],
   ["other tools pass", { tool_name: "Read", tool_input: { file_path: "x" } }, false],
@@ -29,7 +35,7 @@ const cases = [
   ["recommended option with a reason passes", P([single({ allowOther: true, options: [rec({ description: WHY }), { id: "y", label: "Y" }] })]), false],
   ["two recommended options in one singleSelect is denied", P([single({ allowOther: true, options: [rec({ description: WHY }), rec({ id: "y", description: WHY })] })]), true],
   ["multiSelect badge 'recommended' without a subtitle is denied", P([{ type: "multiSelect", id: "m", label: "m", items: [{ id: "a", title: "A", badge: "recommended" }] }]), true],
-  ["multiSelect with several recommended items and reasons passes", P([{ type: "multiSelect", id: "m", label: "m", items: [{ id: "a", title: "A", badge: "recommended", subtitle: WHY }, { id: "b", title: "B (recommended)", subtitle: WHY }] }]), false],
+  ["multiSelect with several recommended items and reasons passes", P([{ type: "multiSelect", id: "m", label: "m", items: [{ id: "a", title: "A", badge: "recommended", subtitle: WHY }, { id: "b", title: "B (recommended)", subtitle: WHY }] }, ELSE]), false],
   ["recommended option with a reason in free wording is denied", P([single({ allowOther: true, options: [rec({ description: LOOSE }), { id: "y", label: "Y" }] })]), true],
   ["'Judgment:' plus 'Other wins if:' passes", P([single({ allowOther: true, options: [rec({ description: "Judgment: fewer moving parts. Other wins if: you need it today." }), { id: "y", label: "Y" }] })]), false],
   ["'Checked:' without 'Other wins if:' is denied", P([single({ allowOther: true, options: [rec({ description: "Checked: DECISIONS.md already picks this one." }), { id: "y", label: "Y" }] })]), true],
@@ -48,9 +54,17 @@ const off = run(P([single()]), { QUESTION_OTHER: "off" }) === "";
 if (!off) fail++;
 console.log(`${off ? "PASS" : "FAIL"} QUESTION_OTHER=off disables it`);
 const msg = run(P([single({ label: "Which photo?" })]));
-const named = msg.includes("Which photo?");
+const named = msg.includes("Which photo?") && !msg.includes("No field in this form") && msg.includes("Anything else?");
 if (!named) fail++;
-console.log(`${named ? "PASS" : "FAIL"} deny message names the question`);
+console.log(`${named ? "PASS" : "FAIL"} deny message names the question (and does not also say no field takes typing)`);
+const nim = run({ tool_name: "mcp__nimbalyst__AskUserQuestion", tool_input: { questions: [] } });
+const nimOk = nim.includes("mcp__nimbalyst__PromptForUserInput") && nim.includes("allowOther: true") && !nim.includes("call PromptForUserInput again");
+if (!nimOk) fail++;
+console.log(`${nimOk ? "PASS" : "FAIL"} Nimbalyst AskUserQuestion deny names PromptForUserInput with allowOther`);
+const typ = run(P([{ type: "confirm", id: "c", label: "Keep it?" }]));
+const typOk = typ.includes("Anything else?") && typ.includes("allowOther: true");
+if (!typOk) fail++;
+console.log(`${typOk ? "PASS" : "FAIL"} no-typing deny asks for an "Anything else?" editText or allowOther`);
 const why = run(P([single({ allowOther: true, label: "Which engine?", options: [rec(), { id: "y", label: "Y" }] })]));
 const asksReason = why.includes("Which engine?") && why.includes("without a reason");
 if (!asksReason) fail++;
@@ -93,9 +107,76 @@ for (const [name, entries, description, deny] of recordCases) {
   if (!ok) fail++;
   console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
 }
+// pointing the user at something to look at needs a link this turn
+const text = (s) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: s }] } });
+const look = (extra = {}) => ({ ...P([]), tool_input: { title: "Look through the menu page first", fields: [single({ allowOther: true, label: "Is it right?" }), ELSE], ...extra } });
+const plain = (extra = {}) => ({ ...P([]), tool_input: { fields: [single({ allowOther: true, label: "Which engine?" }), ELSE], ...extra } });
+const withTurn = (entries, input) => {
+  const file = join(dir, `${Math.random().toString(36).slice(2)}.jsonl`);
+  writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n"));
+  return run({ ...input, transcript_path: file });
+};
+const LINKED = "Built the menu page: [menu.html](/C:/Projects/shop/docs/menu.html). I think it reads well; I'd keep it.";
+const linkCases = [
+  ["'Look through the page' with no link anywhere is denied", [user("make the menu page"), text("_Done: the menu page is built._")], look(), true],
+  ["'Look through the page' after a /C:/ link in the reply passes", [user("make the menu page"), text(LINKED)], look(), false],
+  ["a Mac /Users/ link in the reply passes", [user("make it"), text("See [menu](/Users/you/x/menu.html).")], look(), false],
+  ["a protocol-relative //host link is not a local link", [user("make it"), text("See [menu](//host/x/menu.html).")], look(), true],
+  ["a Git Bash /c/ link is not a local link", [user("make it"), text("See [menu](/c/Projects/x/menu.html).")], look(), true],
+  ["a board call after the link still leaves it in front of the user", [user("make it"), text(LINKED), call("mcp__nimbalyst__update_session_meta", { phase: "validating" }), result()], look(), false],
+  ["a C:/ link without the leading slash passes",[user("make it"), text("See [menu](C:/Projects/x/menu.html).")], look(), false],
+  ["a web link in the reply passes", [user("make it"), text("Live at https://example.com/menu")], look(), false],
+  ["a link followed by another tool call before the form is denied", [user("make it"), text(LINKED), call("Bash", { command: "git add ." }), result(), text("Saved.")], look(), true],
+  ["an old research URL earlier in the turn does not count", [user("make it"), text("Found https://example.org/gallery"), call("Bash", { command: "python build.py" }), result(), text("The page works.")], look(), true],
+  ["a picture shown before more tool calls does not count", [user("make it"), call("mcp__nimbalyst__display_to_user", { items: [] }), result(), call("Edit", { file_path: "a" }), result()], look(), true],
+  ["a link, then an earlier try of the form, still counts", [user("make it"), text(LINKED), call("mcp__nimbalyst__PromptForUserInput", look().tool_input)], look(), false],
+  ["'Scroll the menu page' with no link is denied", [user("make it"), text("Opened it.")], plain({ intro: "Scroll the menu page (open in your browser), then type the ones you want." }), true],
+  ["a link only in an earlier turn is denied", [user("hi"), text(LINKED), user("now ask me")], look(), true],
+  ["a backslash link (Nimbalyst can't open it) is denied", [user("make it"), text("See [menu](C:\\Projects\\x\\menu.html).")], look(), true],
+  ["a link inside the form's intro passes", [user("make it")], look({ intro: "[menu.html](/C:/Projects/x/menu.html)" }), false],
+  ["a picture shown inline this turn passes", [user("make it"), call("mcp__nimbalyst__display_to_user", { items: [] }), result()], look(), false],
+  ["a link written by a subagent does not count", [user("make it"), { ...text(LINKED), isSidechain: true }], look(), true],
+  ["a file path in the intro with no link is denied", [user("plan it")], plain({ intro: "Full draft: docs/launch-plan.md. Three choices." }), true],
+  ["'goes into DECISIONS.md' is not something to look at", [user("plan it")], plain({ intro: "Your answers go into DECISIONS.md." }), false],
+  ["'look at the buyer' is not something to look at", [user("deals?")], plain({ intro: "A small deal panel while you look at the buyer." }), false],
+  ["'make photos for you to look at' (not made yet) passes", [user("photos?")], plain({ intro: "Make AI photos as a trial for you to look at (~$1.50)?" }), false],
+  ["a path under DECISIONS/ passes", [user("plan it")], plain({ intro: "Conflict: DECISIONS/genetics.md says field crosses only." }), false],
+  ["'save it as x.png' and 'counts are from x.xlsx' pass", [user("hi")], plain({ intro: "Save the picture as shots/scene-2.png. Counts are from out/inventory.xlsx." }), false],
+  ["a draft held in the form's own editText passes", [user("hi")], plain({ title: "Quick Start: proposed new version", fields: [{ type: "editText", id: "d", label: "My draft (edit in place)", initialText: "..." }] }), false],
+  ["'check the new page' with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Check the new landing page before I push." }), true],
+  ["'Does this plan look right?' about a plan in the chat passes", [user("plan it"), text("Plan: 1. a 2. b")], plain({ title: "Does this plan look right?" }), false],
+  ["'Open C:/Projects/x/menu.html' with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Open C:/Projects/x/menu.html and tell me." }), true],
+  ["a backslash path in the form with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Open C:\\Projects\\x\\menu.html and tell me." }), true],
+  ["a ~/ path in the form with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Report: ~/.claude/report.md" }), true],
+  ["a URL in an option's reason is not the link", [user("make it"), text("Done.")], plain({ intro: "Check the new landing page first.", fields: [single({ allowOther: true, label: "Tabs?", options: [rec({ description: "Checked: https://component.gallery showed tabs. Other wins if: few items." }), { id: "y", label: "Y" }] }), ELSE] }), true],
+  ["a file path with only a web link in the reply is denied", [user("plan it"), text("Based on https://example.com/docs")], plain({ intro: "Full draft: docs/launch-plan.md." }), true],
+  ["a file path with its /C:/ link in the reply passes", [user("plan it"), text("Draft: [launch-plan.md](/C:/Projects/x/docs/launch-plan.md)")], plain({ intro: "Full draft: docs/launch-plan.md." }), false],
+  ["'save it as `shot.png`' passes", [user("hi")], plain({ intro: "Save it as `shot.png`?" }), false],
+  ["'Go to docs/report.html' with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Go to docs/report.html and tell me." }), true],
+  ["a decision form naming a shop's page passes", [user("price?")], plain({ intro: "The shop's page is gone for 48 items." }), false],
+  ["a file named only in an option's Checked: reason passes", [user("hi"), call("Read", { file_path: "docs/engines.md" }), result(), user("which engine?")], plain({ fields: [single({ allowOther: true, label: "Which engine?", options: [rec({ description: "Checked: docs/engines.md picks it. Other wins if: speed matters." }), { id: "y", label: "Y" }] }), ELSE] }), false],
+];
+for (const [name, entries, input, deny] of linkCases) {
+  const out = withTurn(entries, input);
+  const ok = deny ? out.includes('"deny"') && out.includes("/C:/") && out.includes("Then ask") : out === "";
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+}
+// a prompt sent by the phone bot may use Nimbalyst's AskUserQuestion: the phone can answer nothing else
+const ASK_NIM = { tool_name: "mcp__nimbalyst__AskUserQuestion", tool_input: { questions: [{ header: "h", question: "Which?", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] } };
+const PHONE_PROMPT = "fix the header (Sent from the phone. If you need to ask something, use AskUserQuestion with plain options rather than a form: only that can be answered from the phone.)";
+for (const [name, entries, deny] of [
+  ["AskUserQuestion in a turn sent from the phone passes", [user(PHONE_PROMPT), text("Two ways to do it.")], false],
+  ["AskUserQuestion after a phone turn, in a typed turn, is denied", [user(PHONE_PROMPT), text("Done."), user("now ask me")], true],
+]) {
+  const out = withTurn(entries, ASK_NIM);
+  const ok = deny ? out.includes('"deny"') : out === "";
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+}
 const missing = run({ ...form(WHY), transcript_path: join(dir, "missing.jsonl") }) === "";
 if (!missing) fail++;
 console.log(`${missing ? "PASS" : "FAIL"} a missing session record fails open`);
 rmSync(dir, { recursive: true, force: true });
-console.log(fail ? `${fail} failed` : `all ${cases.length + recordCases.length + 5} passed`);
+console.log(fail ? `${fail} failed` : `all ${cases.length + recordCases.length + linkCases.length + 9} passed`);
 process.exit(fail ? 1 : 0);

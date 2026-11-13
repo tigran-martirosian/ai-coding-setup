@@ -60,16 +60,68 @@ function unusable(route) {
 }
 
 // Runs a program through bash with the task as a positional argument, so no quoting is needed
-function runBash(script, args) {
-  const r = spawnSync("bash", ["-c", script, "ask", ...args], {
+function spawnBash(script, args) {
+  return spawnSync("bash", ["-c", script, "ask", ...args], {
     encoding: "utf8", timeout: 15 * 60 * 1000, maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
   });
+}
+
+// out: the program's answer text (by default its whole output)
+function failure(r, out = r.stdout) {
   if (r.error) return { ok: false, reason: r.error.code === "ENOENT" ? "bash was not found" : r.error.message };
-  const out = (r.stdout || "").trim();
-  if (r.status === 0 && out) return { ok: true, text: out };
-  const all = `${r.stderr || ""}\n${r.stdout || ""}`.trim();
+  const all = `${r.stderr || ""}\n${out || ""}`.trim();
   const last = all.split(/\r?\n/).filter((l) => l.trim()).slice(-2).join(" | ").slice(0, 300);
   return { ok: false, reason: last || `exit code ${r.status}, no output`, outOfUsage: OUT_OF_USAGE.test(all), notHere: NOT_HERE.test(all) };
+}
+
+function runBash(script, args) {
+  const r = spawnBash(script, args);
+  const out = (r.stdout || "").trim();
+  if (!r.error && r.status === 0 && out) return { ok: true, text: out };
+  return failure(r);
+}
+
+// Antigravity's own time limit. At 5 minutes it stopped 8 of 93 jobs in one project (2026-10-26).
+const AGY_MINUTES = 8;
+// When it runs out of time, its answer so far is usually empty: it was still searching or reading.
+// The same conversation is then resumed once and told to write the answer from what it has found.
+// Both runs together, with about 15 seconds of start-up each, stay under the Bash tool's 10-minute limit.
+const AGY_WRAP_UP_SECONDS = 75;
+const AGY_WRAP_UP = "Time is up: stop and do not call any more tools. Write a concise answer now from what you have already found, and say which parts you could not check.";
+const PARTIAL = `[PARTIAL ANSWER: Antigravity ran out of time (${AGY_MINUTES} minutes) before it finished; this was written from what it had found by then and may be incomplete.]\n\n`;
+
+// One Antigravity run with its event output, which names the conversation so it can be resumed
+function agyOnce(prompt, limit, conversation) {
+  const resume = conversation ? ` --conversation "$3"` : "";
+  const r = spawnBash(`agy -p "$1" --mode plan --model "$2" --print-timeout ${limit} --output-format stream-json${resume} < /dev/null`,
+    [prompt, AGY_MODEL, ...(conversation ? [conversation] : [])]);
+  // The event lines hold the task, search words and page text, so a failure is judged on stderr, on the
+  // lines that are not events, and on the status and error of a result that did not succeed
+  const events = [], notEvents = [];
+  for (const l of (r.stdout || "").split(/\r?\n/)) {
+    let v;
+    try { v = JSON.parse(l); } catch { notEvents.push(l); continue; }
+    if (v && typeof v === "object") events.push(v);
+  }
+  const result = (events.find((e) => e.event === "result") || {}).result || {};
+  const badResult = result.status && result.status !== "SUCCESS" ? JSON.stringify({ status: result.status, error: result.error }) : "";
+  return {
+    r, text: (result.response || "").trim(), timedOut: /print timeout after/.test(r.stderr || ""),
+    conversation: result.conversation_id || (events.find((e) => e.conversation_id) || {}).conversation_id,
+    failed: () => failure(r, `${notEvents.join("\n")}\n${badResult}`),
+  };
+}
+
+function runAgy(prompt) {
+  const first = agyOnce(prompt, `${AGY_MINUTES * 60}s`);
+  if (first.r.error || first.r.status !== 0) return first.failed();
+  if (first.text) return { ok: true, text: first.timedOut ? PARTIAL + first.text : first.text, partial: first.timedOut };
+  if (!first.timedOut || !first.conversation) return first.failed();
+  note(`agy ran out of time; asking it to write its answer from what it has found`);
+  const second = agyOnce(AGY_WRAP_UP, `${AGY_WRAP_UP_SECONDS}s`, first.conversation);
+  if (!second.r.error && second.r.status === 0 && second.text) return { ok: true, text: PARTIAL + second.text, partial: true };
+  const why = second.failed(), before = first.failed();
+  return { ...why, outOfUsage: why.outOfUsage || before.outOfUsage, notHere: why.notHere || before.notHere, reason: `ran out of time after ${AGY_MINUTES} minutes, and the wrap-up gave no answer either (${why.reason})` };
 }
 
 // Run with -p, Antigravity cannot ask for a permission: the first shell command the model tries (it
@@ -98,8 +150,7 @@ const ROUTES = {
   agy: {
     label: `Antigravity (${AGY_MODEL})`,
     run({ task, web }) {
-      return runBash(`agy -p "$1" --mode plan --model "$2" --print-timeout 300s < /dev/null`,
-        [`${web ? AGY_WEB_RULES : AGY_RULES}\n\n${task}`, AGY_MODEL]);
+      return runAgy(`${web ? AGY_WEB_RULES : AGY_RULES}\n\n${task}`);
     },
   },
 };
@@ -146,7 +197,7 @@ for (const route of ORDER[kind]) {
   if (why) { note(`${route} skipped: ${why}`); continue; }
   const result = ROUTES[route].run({ task, web, think });
   if (result.ok) {
-    note(`answered by ${ROUTES[route].label}`);
+    note(`answered by ${ROUTES[route].label}${result.partial ? " (partial: it ran out of time)" : ""}`);
     console.log(result.text);
     answered = true;
     break;

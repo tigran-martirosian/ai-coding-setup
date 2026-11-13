@@ -20,13 +20,35 @@ case "$FAKE_${name.toUpperCase()}" in
   *) echo "${name} broke" >&2; exit 1 ;;
 esac
 `;
+// The fake Antigravity answers in its event format (--output-format stream-json). Extra settings of
+// FAKE_AGY: slow (runs out of time with no answer, a resumed run answers), slowtext (runs out of time
+// with half an answer), slowdead (runs out of time and the resumed run also gives nothing).
+const fakeAgy = String.raw`#!/usr/bin/env node
+const args = process.argv.slice(2), mode = process.env.FAKE_AGY, resumed = args.includes("--conversation");
+const say = (o) => console.log(JSON.stringify(o));
+const answer = (response) => { say({ event: "init", conversation_id: "conv-1" }); say({ event: "result", result: { conversation_id: "conv-1", status: "SUCCESS", response } }); };
+const timeout = () => process.stderr.write("[agy] print timeout after 8m0s with turn in progress; returning partial output\n");
+if (mode === "ok" || (mode === "slow" && resumed)) answer("agy answer: " + args.join(" "));
+else if (mode === "slow" || mode === "slowdead") { timeout(); answer(""); }
+else if (mode === "slowtext") { timeout(); answer("half an answer"); }
+else if (mode === "emptyquota") {
+  say({ event: "init", conversation_id: "conv-1" });
+  console.log("null");
+  say({ event: "step_update", step_update: { step_type: "tool", tool_info: { name: "search_web", parameters: { query: "API rate limit quota 429" } } } });
+  say({ event: "result", result: { conversation_id: "conv-1", status: "SUCCESS", response: "" } });
+  process.stderr.write("jetski: no output produced\n");
+}
+else if (mode === "limit") { process.stderr.write("ERROR: You've hit your usage limit. Try again later.\n"); process.exit(1); }
+else if (mode === "away") { process.stderr.write("FAILED_PRECONDITION (code 400): User location is not supported for the API use\n"); process.exit(1); }
+else { process.stderr.write("agy broke\n"); process.exit(1); }
+`;
 
 let n = 0;
 // have: which fake programs exist; files: extra files in the workers folder; env: extra environment
 function ask(args, { have = [], files = {}, env = {} } = {}) {
   const dir = join(root, `case${++n}`), bin = join(dir, "bin"), home = join(dir, "workers");
   mkdirSync(bin, { recursive: true }); mkdirSync(home);
-  for (const name of have) writeFileSync(join(bin, name), fake(name), { mode: 0o755 });
+  for (const name of have) writeFileSync(join(bin, name), name === "agy" ? fakeAgy : fake(name), { mode: 0o755 });
   for (const [name, text] of Object.entries(files)) writeFileSync(join(home, name), text);
   const r = spawnSync(process.execPath, [script, ...args], { encoding: "utf8", cwd: dir,
     env: { ...process.env, ...env, ASK_HOME: home, PATH: [bin, ...cleanPath].join(delimiter) } });
@@ -70,6 +92,19 @@ check("local: agy.off skips Antigravity", r.code === 3 && r.err.includes("agy sk
 r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "away" } });
 check("local: a worker refused for this location is named and gets a cooldown", r.code === 3 && /agy failed \(not available from this location\)/.test(r.err)
   && "agy" in JSON.parse(readFileSync(join(r.home, "cooldown.json"), "utf8")), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "ok" } });
+check("Antigravity gets 8 minutes and its event output", r.code === 0 && r.out.includes("--print-timeout 480s --output-format stream-json") && !r.out.includes("PARTIAL"), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "slow" } });
+check("timeout with no answer: the conversation is resumed and its answer kept, marked partial", r.code === 0 && r.out.startsWith("[PARTIAL ANSWER:")
+  && r.out.includes("agy answer: -p Time is up") && r.out.includes("--print-timeout 75s") && r.out.includes("--conversation conv-1") && r.err.includes("(partial: it ran out of time)"), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "emptyquota" } });
+check("no answer: the reason comes from stderr, and words like quota in the events give no cooldown", r.code === 3 && r.err.includes("agy failed: jetski: no output produced")
+  && !existsSync(join(r.home, "cooldown.json")), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "slowtext" } });
+check("timeout with half an answer: it is kept, marked partial, no resume", r.code === 0 && r.out.startsWith("[PARTIAL ANSWER:") && r.out.includes("half an answer")
+  && !r.err.includes("asking it to write"), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "slowdead" } });
+check("timeout and an empty wrap-up: exit 3, the reason is named", r.code === 3 && r.out === "" && r.err.includes("wrap-up gave no answer"), show(r));
 r = ask(["--think", "hard one"], { have: ["codex"], env: { FAKE_CODEX: "ok" } });
 check("--think drops Codex's low effort setting", r.code === 0 && !r.out.includes("model_reasoning_effort"), show(r));
 

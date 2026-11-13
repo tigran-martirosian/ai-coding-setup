@@ -11,7 +11,11 @@
 // It therefore has to follow an empty line and start with "# WHAT THIS DOES:" (2026-10-01).
 // There is no limit on a command's length: the limit of 7 popup lines (2026-10-01) was taken out on
 // 2026-10-12, after it made 295 of the hook's 335 refusals in 8 days.
-// The hook only blocks; it never changes a command. Added 2026-09-30.
+// A command without the note is no longer refused (631 refusals and retries in 14 days, 2026-10-26):
+// the hook appends a stand-in note, "(no note given)" plus the command's start, through updatedInput.
+// No permissionDecision goes with it, so the normal permission prompt still decides; "allow" would
+// skip the prompt. A line of additionalContext tells Claude to write the note itself next time.
+// The PowerShell-tool refusal stays. Added 2026-09-30.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -54,12 +58,14 @@ try {
   const words = note.split(/\s+/).filter((w) => /\p{L}/u.test(w));
   const afterBlank = lines.length > 1 && lines[lines.length - 2].trim() === "";
   if (words.length < 3 || !afterBlank) {
-    deny(
-      `this command has no explanation line in the required form. The user sees only the raw command in the permission popup and can't read shell. ` +
-      `End the command with an empty line and then one last line that starts with "# WHAT THIS DOES: " and says in plain words what the command does ` +
-      `and what it changes (files written or deleted, programs installed, anything sent out), then run it again. Never put it at the start. ` +
-      `Example:\nnpm install && npm test\n\n# WHAT THIS DOES: Installs the project's packages, then runs its tests. Changes only node_modules.`,
-    );
+    const start = command.replace(/\s+/g, " ").trim().slice(0, 60);
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        updatedInput: { ...event.tool_input, command: `${command.trimEnd()}\n\n# WHAT THIS DOES: (no note given) ${start}` },
+        additionalContext: `command-explain: that command had no "# WHAT THIS DOES:" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`,
+      },
+    }));
     process.exit(0);
   }
 } catch {

@@ -14,7 +14,8 @@ const PATH = fakeBin + delimiter + (process.env.PATH || "");
 const run = (ev, env = {}) => spawnSync(process.execPath, [hook], { input: JSON.stringify({ session_id: sid, ...ev }), env: { ...process.env, PATH, USERPROFILE: fakeBin, HOME: fakeBin, ...env }, encoding: "utf8" }).stdout;
 const cases = [
   ["Agent Explore first try: deny", { tool_name: "Agent", tool_input: { subagent_type: "Explore", prompt: "find" } }, true],
-  ["Agent Explore identical retry: allow", { tool_name: "Agent", tool_input: { subagent_type: "Explore", prompt: "find" } }, false],
+  ["Agent Explore identical retry: still deny", { tool_name: "Agent", tool_input: { subagent_type: "Explore", prompt: "find" } }, true],
+  ["Agent general-purpose identical retry: still deny", { tool_name: "Agent", tool_input: { subagent_type: "general-purpose", prompt: "gp" } }, true],
   ["Agent Explore new prompt: deny", { tool_name: "Agent", tool_input: { subagent_type: "Explore", prompt: "find other" } }, true],
   ["Agent general-purpose: deny", { tool_name: "Agent", tool_input: { subagent_type: "general-purpose", prompt: "gp" } }, true],
   ["Agent claude (uncapped catch-all): deny", { tool_name: "Agent", tool_input: { subagent_type: "claude", prompt: "judge" } }, true],
@@ -47,7 +48,7 @@ const explore = (prompt) => ({ tool_name: "Agent", tool_input: { subagent_type: 
 const expect = (name, ok, out) => { console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : `\n     ${out}`}`); if (!ok) fail++; };
 
 const noWorkers = run(explore("w"), at());
-expect("no workers installed: allow", noWorkers === "", noWorkers);
+expect("no workers installed: still deny, points to worker", noWorkers.includes('"deny"') && noWorkers.includes('subagent_type \\"worker\\"') && !noWorkers.includes("ask.mjs"), noWorkers);
 writeFileSync(join(bin, "agy"), ""); writeFileSync(join(bin, "codex"), "");
 let out = run(explore("a1"), at({ PATH: bin }));
 expect("Codex and Antigravity: ask.mjs for local files and for the web",
@@ -57,7 +58,8 @@ out = run(explore("a2"), at({ PATH: bin }));
 expect("codex.off: local files to ask.mjs, the web is not a worker call",
   out.includes("Local files and code: ~/.claude/workers/ask.mjs") && out.includes("Web research: not a worker call"), out);
 writeFileSync(join(home, ".claude", "workers", "agy.off"), "off");
-expect("codex.off and agy.off: allow", run(explore("a3"), at({ PATH: bin })) === "", "denied");
+out = run(explore("a3"), at({ PATH: bin }));
+expect("codex.off and agy.off: deny, no ask.mjs", out.includes('"deny"') && !out.includes("ask.mjs"), out);
 rmSync(home, { recursive: true, force: true });
 console.log(fail ? `${fail} failed` : "all passed");
 process.exit(fail ? 1 : 0);

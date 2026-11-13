@@ -8,7 +8,7 @@ This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks int
 
 If you already have a Claude Code setup, yours stays. A hook or skill of yours with the same name as one of these is left as it is, and the run ends with the list of those files. `--replace <name>` takes my version of one, and `--replace-all` takes all of them and the rules, for when you want to start over. A run that changed something saves what it printed in `~/.claude/setup-logs`.
 
-- **Without Nimbalyst:** the rules, hooks and skills work in plain Claude Code. The extensions, the session board and `/lead` need Nimbalyst, the editor I run Claude Code in. `question-other`, `command-explain` and `picture-in-project` are written for it too.
+- **Without Nimbalyst:** the rules, hooks and skills work in plain Claude Code. The extensions, the session board and `/lead` need Nimbalyst, the editor I run Claude Code in. `question-other`, `command-explain`, `file-link-gate` and `picture-in-project` are written for it too.
 - **Mac:** I run the setup on Windows. The tests also run on macOS, but the full install has not been run on a real Mac, and Read Aloud is Windows only.
 - **Afterwards:** [docs/HOW-TO.md](HOW-TO.md) says what to type and what you should see.
 
@@ -29,7 +29,7 @@ Every 12 hours the setup asks GitHub whether a newer version is released ([hooks
 
 ![A search handed to the first free worker, the court of three models, and a lead session with child sessions](img/clip-models.gif)
 
-Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: the first try at a search subagent is blocked and pointed at one command, [workers/ask.mjs](../workers/ask.mjs). That command tries the workers in order (Codex, then Antigravity, for local files and for the web), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
+Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: a search subagent is blocked and pointed at one command, [workers/ask.mjs](../workers/ask.mjs). That command tries the workers in order (Codex, then Antigravity, for local files and for the web), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
 
 ```mermaid
 flowchart TD

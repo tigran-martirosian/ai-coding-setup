@@ -62,8 +62,10 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | Hook | What it sends back |
 |---|---|
 | `link-gate` | A reply with a link the agent remembered or saw in search results but never opened |
-| `question-other` | A recommended option that says "Checked:" when no file read or search in the log matches it |
-| `command-explain` | A shell command that doesn't end with a line in plain words saying what it does |
+| `question-other` | A question with no box to type my own answer, a "look at this" question with no link to it, or a recommended option that says "Checked:" when no file read or search in the log matches it |
+| `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder |
+| `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`) |
+| `code-review-gate` | A turn that changed three or more code files and is about to end without a `/code-review` |
 | `picture-in-project` | A picture shown in the chat from outside the open project, which Nimbalyst can't open enlarged |
 | `run-yourself` | A reply that ends with "now open a terminal and run this"; the agent runs it itself |
 | `opencli-readonly` | Posting, liking or following from my logged-in accounts through OpenCLI |
@@ -73,7 +75,7 @@ The other hooks keep sessions cheap and safe:
 | Hook | What it does |
 |---|---|
 | `big-read-gate` | Large files are read in parts, not whole |
-| `worker-nudge` | Sends searching to the first free worker that is ready (Codex, Gemini) |
+| `worker-nudge` | Sends searching to the first free worker that is ready (Codex, Gemini), and other helper jobs to the capped `worker` agent |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `repeat-guard` | Refuses a retry of the same call after the same error came back three times |
 | `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |

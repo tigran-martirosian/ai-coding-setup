@@ -3,13 +3,12 @@
 // research types) to the free external workers (~/.claude/workers/ask.mjs) instead of Claude. Measured
 // 2026-09-30: such subagents processed 0.6-4.3M tokens per run; one worker call costs Claude a few
 // hundred. WebSearch/WebFetch are left alone: they add ~700 tokens, less than the extra turn a
-// block costs. The first try is denied with the worker commands; retrying the identical call goes
-// through, so Claude can still use a subagent when it has a reason (e.g. it must edit files).
+// block costs. Every try is denied, retries too: the "worker" type (Sonnet, capped, all tools)
+// does anything these types do, including editing files. Until 2026-10-21 an identical retry went
+// through; in 3 days of one project that let 14 general-purpose runs on Opus spend 21M tokens.
 // It fails open, so any error or odd input lets the call through. WORKER_NUDGE=off disables it.
-import { readFileSync, writeFileSync, mkdirSync, existsSync, writeSync } from "node:fs";
+import { readFileSync, existsSync, writeSync } from "node:fs";
 import { join, delimiter } from "node:path";
-import { tmpdir } from "node:os";
-import { createHash } from "node:crypto";
 
 const ASK = `~/.claude/workers/ask.mjs`;
 const TASK = `"<task, or the path of a text file holding a longer task>"`;
@@ -37,29 +36,19 @@ try {
   if (!isGatherAgent(event)) process.exit(0);
   const hasAgy = onPath("agy");
   const hasCodex = onPath("codex");
-  if (!hasAgy && !hasCodex) process.exit(0);
-
-  // Let an identical retry through
-  const dir = join(tmpdir(), "worker-nudge");
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, `${String(event.session_id || "none").replace(/[^\w-]/g, "")}.json`);
-  const key = createHash("sha1").update(event.tool_name + JSON.stringify(event.tool_input || {})).digest("hex");
-  let seen = [];
-  try { seen = JSON.parse(readFileSync(file, "utf8")); } catch {}
-  if (seen.includes(key)) process.exit(0);
-  writeFileSync(file, JSON.stringify([...seen, key].slice(-200)));
 
   const workers = [];
-  workers.push(`- Local files and code: ${ASK} ${TASK} (name the files to read in the task)`);
+  if (hasAgy || hasCodex) workers.push(`- Local files and code: ${ASK} ${TASK} (name the files to read in the task)`);
   if (hasCodex) workers.push(`- Web research: ${ASK} --web ${TASK}`);
-  else workers.push(`- Web research: not a worker call. Use a "worker" subagent (Sonnet, capped) with a budget of about 15 tool calls, or WebSearch yourself for one quick fact.`);
-  workers.push(`The script uses the first worker that is set up and working (Codex, then Gemini for local files) and says which one answered. If it ends with "no free worker could answer", do what its last line says.`);
+  else if (hasAgy) workers.push(`- Web research: not a worker call. Use a "worker" subagent (Sonnet, capped) with a budget of about 15 tool calls, or WebSearch yourself for one quick fact.`);
+  if (hasAgy || hasCodex) workers.push(`The script uses the first worker that is set up and working (Codex, then Gemini for local files) and says which one answered. If it ends with "no free worker could answer", do what its last line says.`);
   const reason = [
-    `[worker-nudge] Search/research subagents cost 0.6-4M Claude tokens per run. Do this gathering with one free external worker call instead (no Claude usage). Run it with Bash, in the background if you have other work meanwhile, and ask for a short answer with paths/lines:`,
+    `[worker-nudge] Explore, general-purpose and "claude" subagents run uncapped on the session's model and cost 0.6-5M Claude tokens per run.` +
+      (hasAgy || hasCodex ? ` Do gathering with one free external worker call instead (no Claude usage). Run it with Bash, in the background if you have other work meanwhile, and ask for a short answer with paths/lines:` : ""),
     ...workers,
     `Keep the reasoning and the final answer yourself, and verify anything the answer depends on.`,
     `A job that is not gathering (a review, a build, a check) goes to subagent_type "worker" (Sonnet, capped at 25 turns) with a budget in its prompt, not to an uncapped agent type.`,
-    `If this really needs a Claude subagent (it edits files, needs this conversation's context, or the worker failed), retry the identical call and it will go through.`,
+    `If it really needs a Claude subagent (it edits files, or the worker failed), make the same call with subagent_type "worker" (it has every tool, including Edit and Write). Retrying this agent type is refused too.`,
   ].join("\n");
   writeSync(1, JSON.stringify({
     hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
