@@ -1,5 +1,5 @@
 {
-  "version": "1.0.67",
+  "version": "1.0.68",
   "date": "2026-10-30",
-  "summary": "The Usage Plan panel no longer shows a \"Command failed\" line on a long chat history: it gets its numbers in under a second, and a refresh that does fail says so in a plain sentence."
+  "summary": "Long lines in chat tool cards now wrap, and the Note button sends pasted images and files, works in a new tab and says Sent only once the note has arrived."
 }

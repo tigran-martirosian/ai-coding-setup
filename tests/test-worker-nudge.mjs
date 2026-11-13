@@ -52,7 +52,7 @@ expect("no workers installed: still deny, points to worker", noWorkers.includes(
 writeFileSync(join(bin, "agy"), ""); writeFileSync(join(bin, "codex"), "");
 let out = run(explore("a1"), at({ PATH: bin }));
 expect("Codex and Antigravity: ask.mjs for local files and for the web",
-  out.includes("Local files and code: ~/.claude/workers/ask.mjs") && out.includes("ask.mjs --web"), out);
+  out.includes("Local files and code: ~/.claude/workers/ask.mjs") && out.includes("Web research: not a worker call") && !out.includes("ask.mjs --web"), out);
 writeFileSync(join(home, ".claude", "workers", "codex.off"), "off");
 out = run(explore("a2"), at({ PATH: bin }));
 expect("codex.off: local files to ask.mjs, the web is not a worker call",

@@ -99,6 +99,49 @@ check("handover transcript: 'do a hand-off to that project' -> silent",
 check("handover transcript: the user ticked changes, did not ask for a handoff -> stopped",
   handover(run({ transcript_path: tFile("f.jsonl", [userSaid("set up what's ticked"), ...said]) })));
 
+// Send-backs that were wrong: replies that ask for something only the user can do.
+const S_KEY = "you\n1. Go to https://console.anthropic.com → **Billing**, buy **$50** of credits and leave **auto-reload off**.\n2. In the same Console, go to **API Keys** → **Create key** and copy it.\n3. Give the key to Claude Code, one of two ways:\n   - In Nimbalyst's AI settings, set Claude to use an API key and paste it there.\n   - Or in a Windows terminal, run this with your key in place of `sk-ant-...`, then fully quit and reopen Nimbalyst:\n     ```\n     setx ANTHROPIC_API_KEY \"sk-ant-...\"\n     ```\n4. Open a new session and type `/status`. It should show **API key** as the login method instead of your Claude account.\n\nTell me when the key is in, and I can switch the default model to Sonnet if you want.";
+const S_KEY2 = "$0.10 per million tokens in and $0.50 per million out. One call reads a page and writes up to 4,000 tokens, so it costs well under a cent.\n\n### Needs you\n1. Create a key in the Console under **API Keys** (it starts with `sk-ant-`).\n2. Open a Command Prompt or PowerShell window, paste this with your key in place of the placeholder, and press Enter:\n   ```\n   setx ANTHROPIC_API_KEY \"sk-ant-your-key-here\"\n   ```\n   You should see `SUCCESS: Specified value was saved.`\n3. Fully close and reopen Nimbalyst so it picks up the new variable, then tell me. I'll run the first test.";
+const S_PUSH = "- **Reader court** (`/court readers <file>`) is built and tested once.\n\n### Needs you\n\n- **Upload it yourself**, or allow the push and tell me to retry. To upload, paste this into a terminal (Git Bash):\n\n```\ncd \"/c/Projects/site-repo\" && git add -A && git commit -m \"Add a full install\" && git push origin main\n```\n\nYou should see a line ending in `main -> main`. Then tell me \"pushed\" and I'll watch the Windows and Mac test runs on GitHub and fix whatever fails.";
+const S_HANDOFF_PROMPT = "The handoff is written: [brief-20261005-0250.md](~/.claude/handoffs/brief-20261005-0250.md). I did not open a new session, since you said you'll send it to another conversation yourself.\n\n### Needs you\nPaste this into the other conversation; it should read the brief and pick up from the ring fix:\n\n```\nRead ~/.claude/handoffs/brief-20261005-0250.md and continue the work from \"Where we are\". Don't redo finished steps.\n```\n\nThis session can be closed.";
+const S_THIS_CHAT = "### Needs you\n\n- **Should the test also cover the slower path?** I recommend yes: the test is being built right now. To go ahead, type this in this chat:\n  ```\n  Add the slower path to the test\n  ```\n  I will then send a note to the session building it and confirm here that it arrived. Until you say so, nothing goes to that session.";
+const S_OTHER_PERSON = "- **Send your colleague the three steps above.** Ask them to send back the output if a build fails.\n- **Decide whether they run the full install.** If yes, they open a terminal in the unzipped repo folder and run:\n  ```\n  claude \"Read docs/full-install.md and carry out every step in it.\"\n  ```";
+const S_VAGUE_INFO = "### Needs you\n- The server address, when you want it on the page: tell the new session and it replaces `ADDRESS`.\n- Any screenshots of your own you'd rather use than generated pictures: drop them into `site/img/` and name the block.";
+const S_VAGUE_AGAIN = "### Needs you\n\n- **Quit Nimbalyst fully and open it again.** A normal start writes the file again; I can't do this from here because it would close this session.\n- **Then send your message to the bot again.** The first one was never delivered to any session. You should get a \"Text to send\" preview with Send / Cancel buttons instead of \"could not find the project\".\n- **Decide whether you want the bot fixed.** If you say \"fix the bot\", I'll make it say \"Nimbalyst's connection file is missing, restart Nimbalyst\" in this case instead of blaming the project name.";
+const S_NEW_SESSION = "In the other window, start a new session and paste this:\n\n```\nRead ~/.claude/handoffs/pictures-20261002.md and do what it asks. Test it for real before you say it's done.\n```\n\nThe handoff file holds everything, so the new session needs nothing else from you.";
+check("sampled: an API key pasted into setx is the user's own step", msg(S_KEY) === "");
+check("sampled: the same in a Needs you list, with a restart", msg(S_KEY2) === "");
+check("sampled: a push the permission system refused", msg(S_PUSH) === "");
+check("sampled: the handoff skill's own prompt for another conversation", msg(S_HANDOFF_PROMPT) === "");
+check("sampled: 'type this in this chat' is a message to Claude, not a shell command", msg(S_THIS_CHAT) === "");
+check("sampled: a command for another person's computer", msg(S_OTHER_PERSON) === "");
+check("vague sampled: information only the user has", msg(S_VAGUE_INFO) === "");
+check("vague sampled: the user's own earlier message sent again", msg(S_VAGUE_AGAIN) === "");
+check("handover sampled: the user asked what exactly to tell the new session -> silent",
+  run({ transcript_path: tFile("g.jsonl", [userSaid("Okay, how to yeah, tell me how to point to that. Like tell me what exactly tells of the new session."), asst([{ type: "text", text: S_NEW_SESSION }])]) }) === "");
+check("handover sampled: the same reply after an unrelated message -> still stopped",
+  handover(run({ transcript_path: tFile("h.jsonl", [userSaid("ok, go on with it"), asst([{ type: "text", text: S_NEW_SESSION }])]) })));
+// The rule still fires on ordinary asks, and a secret mentioned far from the command does not excuse it
+check("still fires: now run npm test in a terminal", blocks(msg("The fix is in. Open a terminal and run:\n```\nnpm test -- --runInBand\n```\nThen tell me what it prints.")));
+check("still fires: a secret mentioned far from the command",
+  blocks(msg("The API key is stored in the settings file and works.\n\n" + "Everything else is done and checked. ".repeat(20) + "\n\nNow run `npm run build -- --watch` in your terminal and tell me the result.")));
+
+// Wording that must still fire (a real ask), next to its silent twin
+check("fires: a login token that expired is not a secret to type", blocks(msg("Your login token expired. You need to run `gh auth login` in a terminal.")));
+check("fires: 'I did not pin the version' is not a PIN", blocks(msg("I did not pin the version. You need to run `npm install foo` in a terminal.")));
+check("silent: typing a key in place of a placeholder", msg("You need to run `setx FOO_KEY \"<your key>\"` in a terminal, with your key in place of the placeholder.") === "");
+check("silent: a PIN typed beside the command (upper case)", msg("You need to run `ssh-add -t 3600 ~/.ssh/id` in a terminal and enter your PIN when it asks.") === "");
+check("fires: 'they should pass now' has no person as subject", blocks(msg("The tests are fixed and they should pass now. You need to run `npm run build` in a terminal.")));
+check("fires: 'in this session' earlier in the reply, not before the code", blocks(msg("Nothing else changed in this session. You need to run `git push origin main` in a terminal.")));
+check("silent: a friend who pastes it (shared person regex)", msg("Send this to your friend: he pastes it into a new session in his project.\n```\nRead the handoff file and continue the work\n```") === "");
+check("silent: 'he runs' in a terminal", msg("Send this to him, he runs it in a terminal:\n```\nnpm run dev -- --port 3001\n```") === "");
+check("fires: 'The push was rejected' is a git error, not the permission system", blocks(msg("The push was rejected. You need to run `git pull --rebase` in a terminal.")));
+check("silent: the permission system refused the push", msg("The tool call for the push was refused by the permission system. To upload, paste this into a terminal:\n```\ngit push origin main\n```") === "");
+check("vague fires: 'Send the handoff prompt again' names a handoff", vague(msg("### Needs you\n- Send the handoff prompt again in the new session.")));
+check("vague fires: a timing clause is not a value only they hold (notes)", vague(msg("### Needs you\n- When you get a minute, tell the new session to read the notes.")));
+check("vague fires: 'If you want it live, send the message'", vague(msg("### Needs you\n- If you want it live, send the message to the other chat.")));
+check("vague silent: their own message sent again", msg("### Needs you\n- Send the Dashboard message to the bot again. You should get a \"Text to send\" preview.") === "");
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

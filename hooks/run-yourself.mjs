@@ -37,7 +37,39 @@ const TRIGGERS = [
 ];
 // The attempt already failed, or only the user can do it
 const EXEMPT =
-  /\b(I\s+(already\s+)?(tried|ran|attempted)|my\s+(own\s+)?attempt|(it|that|this)\s+(failed|didn'?t work|did not work)|(was|got|is)\s+(blocked|denied)|password|passphrase|as\s+(an\s+)?administrator|elevated|sudo)\b/i;
+  /\b(I\s+(already\s+)?(tried|ran|attempted)|my\s+(own\s+)?attempt|(it|that|this)\s+(failed|didn'?t work|did not work)|(was|got|is)\s+(blocked|denied)|password|passphrase|as\s+(an\s+)?administrator|elevated|sudo|permission\s+denied|PermissionDenied|(allow|approve)\s+(it|the\s+\w+|this|that)\b[^.\n]{0,40}\b(retry|try\s+again))\b/i;
+
+// Steps only the user can do, judged per code span from the text around it (sampled send-backs, 2026-10-30)
+// A secret they hold, typed into their own machine: a placeholder or an assignment in the command itself, or
+// the words right beside it ("paste your key in place of ..."). A bare word like "token" in the same
+// paragraph is not enough ("Your login token expired. You need to run `gh auth login`"). PIN is upper case only.
+const SECRET_IN_CODE = /\bsk-ant-|<[^<>\n]*\b(?:api[ -]?key|key|token|secret|password|passphrase|code|PIN)\b[^<>\n]*>|\bsetx\s+\w+\s+["']|\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE)\s*=|\byour[-_ ](?:api[-_ ]?)?(?:key|token|secret|password)\b/i;
+const secretBeside = (noun, flags) => new RegExp(
+  String.raw`\b(?:[Ee]nter|[Tt]ype|[Pp]aste|[Pp]ut|[Ii]nsert|[Ff]ill in|[Rr]eplace|[Ss]upply|[Pp]rovide)\b[^.\n]{0,40}\b${noun}\b|\b${noun}\b[^.\n]{0,40}\b(?:placeholder|in place of|goes in|where it says)\b`, flags);
+const SECRET_BESIDE = secretBeside("(?:api[ -]?keys?|secrets?|passphrase|password|tokens?|verification code|one-time code|2FA(?: code)?|credentials?)", "i");
+const PIN_BESIDE = secretBeside("PIN", "");
+// The text is for another person to run on their own computer, not for this user. One regex for both checks.
+// A pronoun counts when it is "he"/"she", or "they" with a person named in the 200 characters before it.
+const OTHER_PERSON = new RegExp([
+  String.raw`\b(?:he|she)\s+(?:opens?|runs?|pastes?|types?|needs?|should|can|will|uses?)\b`,
+  String.raw`\b(?:friend|colleague|teammate|coworker|client|customer|maker|person|someone)\b[\s\S]{0,200}?\bthey\s+(?:open|run|paste|type|need|should|can|will|use)\b`,
+  String.raw`\b(?:send|ask|tell|give)\s+(?:him|her)\b`,
+  String.raw`\b(?:his|her|friend'?s?|other maker'?s?|someone else'?s?|another person'?s?)\s+(?:own\s+)?(?:computer|pc|machine|laptop|terminal|chat|project|session|window)\b`,
+  String.raw`\btheir\s+own\s+(?:computer|pc|machine|laptop)\b`,
+  String.raw`\b(?:your|the)\s+friend\b`,
+].join("|"), "i");
+// The code is a message to this chat, not a shell command: only the words just before it say so
+const FOR_THIS_CHAT = /\b(?:in|into|to)\s+this\s+(?:chat|session|conversation)\b[^.`]{0,30}$/i;
+// The permission system or a tool call refused the command: only the user can approve it (a refused push)
+const PERM_REFUSED = /\b(?:permissions?|hook|sandbox|classifier|tool call|auto mode)\b[^.\n]{0,80}\b(?:refus|reject|declin|den)\w*|\b(?:refus|reject|declin)\w*\b[^.\n]{0,60}\b(?:permissions?|tool call|hook|sandbox|classifier)\b/i;
+const around = (text, c) => text.slice(Math.max(0, c.at - 300), c.at) + " " + c.code + " " + text.slice(c.at + c.code.length, c.at + c.code.length + 200);
+const onlyTheUser = (text, c) => {
+  const near = around(text, c);
+  const before = text.slice(Math.max(0, c.at - 120), c.at);
+  return SECRET_IN_CODE.test(c.code) || SECRET_BESIDE.test(near) || PIN_BESIDE.test(near) || OTHER_PERSON.test(near) ||
+    FOR_THIS_CHAT.test(before) || /\b(?:see|shows?|prints?|says?|reads?|returns?|displays?|output)\s*:?\s*$/i.test(before) || // output shown, not a command
+    PERM_REFUSED.test(near) || SKILL_PROMPT.test(c.code);
+};
 
 const codeCandidates = (text) => {
   const out = [];
@@ -66,6 +98,22 @@ const VAGUE = [
 ];
 // Only the user has it, so there is no text to give
 const SECRET = /\b(password|passphrase|api key|secret|token|verification code|one-time code|2FA|PIN)\b/;
+// The item asks for something only the user knows or has ("the address, when you want it on the page"), or to
+// send their own earlier message again: the text is theirs, so there is none to give. Not for an item that
+// names a handoff, brief, prompt or command, which Claude writes (CLAUDE_WRITES, checked on both).
+// THEIRS is anchored: the item opens with the thing asked for ("The server address, when you want it ...");
+// a leading timing clause ("When you get a minute, tell the new session ...") is not a value only they hold.
+const RESEND = /\b(?:send|resend|retype|repeat)\b[^.\n]{0,40}\b(message|request)\b[^.\n]{0,30}\bagain\b/i;
+const THEIRS = /^[\s>*_#\-+\d.)]*(?:the|any|your|an?)\s+[^.\n:;,]{1,60},\s*(?:when|if)\s+you\s+(?:want|have|know|decide|choose|pick)\b|\byou'd\s+rather\b|\bonly\s+you\s+(?:know|have)\b/i;
+const CLAUDE_WRITES = /\b(?:handoff|brief|prompt|command|script|query|instructions?|messages?|text|notes?)\b/i;
+// Their own earlier message sent again: judged on the sentence it sits in, without the noun it names
+const resendIsTheirs = (item) => {
+  const m = RESEND.exec(item);
+  if (!m) return false;
+  const before = item.slice(0, m.index).split(/[.!?\n]/).pop();
+  const after = item.slice(m.index + m[0].length).split(/[.!?\n]/)[0];
+  return !CLAUDE_WRITES.test(before + " " + m[0].replace(new RegExp(`\\b${m[1]}\\b`, "i"), " ") + " " + after);
+};
 
 // The "Needs you" section split into its top-level items (text before the first bullet is an item too)
 const needsYouItems = (text) => {
@@ -88,6 +136,7 @@ export const vagueNeedsYou = (text) => {
   if (!text) return false;
   return needsYouItems(text).some((item) => {
     if (SECRET.test(item)) return false;
+    if (resendIsTheirs(item) || (THEIRS.test(item) && !CLAUDE_WRITES.test(item))) return false;
     const prose = item.replace(/```[\s\S]*?(```|$)/g, " ").replace(/`[^`\n]+`/g, " ");
     const codes = codeCandidates(item).map((c) => c.code).filter(Boolean);
     const exact = codes.some((c) => /\s/.test(c) || c.startsWith("/"));
@@ -97,7 +146,7 @@ export const vagueNeedsYou = (text) => {
 
 export const asksUserToRun = (text) => {
   if (!text || EXEMPT.test(text)) return false;
-  const codes = codeCandidates(text).filter((c) => shellLike(c.code) && !forOtherProject(text, c));
+  const codes = codeCandidates(text).filter((c) => shellLike(c.code) && !forOtherProject(text, c) && !onlyTheUser(text, c));
   if (!codes.length) return false;
   for (const re of TRIGGERS) {
     const m = re.exec(text);
@@ -112,10 +161,7 @@ export const asksUserToRun = (text) => {
 const NEEDS_SESSION =
   /\b(needs?|requires?|has to run in|must run in|only (runs?|works?|loads?) in)\b[^.\n]{0,100}\b(session|skills?|hooks?|MCP|plugins?)\b/i;
 
-// The reply says the prompt is for another person, to use on their own computer: nothing here can reach it
-const OTHER_PERSON =
-  /\b(his|her|their|friend'?s?|other maker'?s?|someone else'?s?|another person'?s?)\s+(own\s+)?(computer|pc|machine|laptop|chat)\b/i;
-
+// OTHER_PERSON (above) also covers a prompt meant for another person: nothing here can reach their computer
 // The prompt the handoff skill itself tells Claude to hand over ("Read <brief> and continue the work from
 // "Where we are"..."): a handoff the skill was asked for, not work Claude could do from here
 const SKILL_PROMPT = /\bcontinue the work from\s+["“”']?Where we are\b/i;
@@ -141,8 +187,11 @@ const lastUserText = (transcriptPath) => {
   }
   return "";
 };
+// The user asked for the handoff, or asked what exactly to tell or paste into the new session
+const ASKED_FOR_TEXT = /\b(?:what|which|how)\b[^.?!\n]{0,80}\b(?:tells?|say|says|paste|send|type|prompt|write)\b[^.?!\n]{0,60}\b(?:new|another|other|fresh|separate)\s+(?:session|chat|window|conversation)\b/i;
+export const askedForHandoff = (t) => /\bhand[\s-]?off\b/i.test(t) || ASKED_FOR_TEXT.test(t);
 const userAskedForHandoff = (input) => {
-  try { return /\bhand[\s-]?off\b/i.test(lastUserText(input.transcript_path)); } catch { return false; }
+  try { return askedForHandoff(lastUserText(input.transcript_path)); } catch { return false; }
 };
 
 // The text Claude wrote after its last tool call (the part the user reads as the reply)

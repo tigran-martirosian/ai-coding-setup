@@ -20,9 +20,9 @@
 //   Antigravity  `agy` is installed and ~/.claude/workers/agy.off does not exist
 //
 // Exit codes: 0 answered; 2 bad usage; 3 no worker could answer (the output says what to do instead).
-import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync, rmSync } from "node:fs";
 import { join, delimiter, dirname } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -87,6 +87,8 @@ const AGY_MINUTES = 8;
 // The same conversation is then resumed once and told to write the answer from what it has found.
 // Both runs together, with about 15 seconds of start-up each, stay under the Bash tool's 10-minute limit.
 const AGY_WRAP_UP_SECONDS = 75;
+// A task longer than this goes to Antigravity as a file (see the agy route)
+const MAX_INLINE = Number(process.env.ASK_MAX_INLINE) || 6000;
 const AGY_WRAP_UP = "Time is up: stop and do not call any more tools. Write a concise answer now from what you have already found, and say which parts you could not check.";
 const PARTIAL = `[PARTIAL ANSWER: Antigravity ran out of time (${AGY_MINUTES} minutes) before it finished; this was written from what it had found by then and may be incomplete.]\n\n`;
 
@@ -112,7 +114,21 @@ function agyOnce(prompt, limit, conversation) {
   };
 }
 
+// Run with -p, a tool call that needs a permission ends the run with no answer. Read from its message:
+// jetski: no output produced — a tool required the "read_file" permission that headless mode cannot prompt for
+const DENIED = /a tool required the "([\w-]+)" permission/;
+
 function runAgy(prompt) {
+  const answer = runAgyTimed(prompt);
+  const denied = !answer.ok && DENIED.exec(answer.reason || "");
+  if (!denied) return answer;
+  // The model sometimes reaches for a tool it was told not to use; a second run told which one it was
+  // usually keeps to the file tools.
+  note(`agy's run ended because it called ${denied[1]}, which needs a permission; trying once more without it`);
+  return runAgyTimed(`Your previous attempt at this task called ${denied[1]}, which is refused in this run and ended it with no answer. Do not call ${denied[1]} again: use only view_file, list_dir, find_by_name and grep_search.\n\n${prompt}`);
+}
+
+function runAgyTimed(prompt) {
   const first = agyOnce(prompt, `${AGY_MINUTES * 60}s`);
   if (first.r.error || first.r.status !== 0) return first.failed();
   if (first.text) return { ok: true, text: first.timedOut ? PARTIAL + first.text : first.text, partial: first.timedOut };
@@ -150,7 +166,17 @@ const ROUTES = {
   agy: {
     label: `Antigravity (${AGY_MODEL})`,
     run({ task, web }) {
-      return runAgy(`${web ? AGY_WEB_RULES : AGY_RULES}\n\n${task}`);
+      const rules = web ? AGY_WEB_RULES : AGY_RULES;
+      if (task.length <= MAX_INLINE) return runAgy(`${rules}\n\n${task}`);
+      // A Windows command line holds about 32,000 characters: a longer task given as -p never started
+      // (spawnSync ENAMETOOLONG, 2026-10-12 and 2026-10-29). It is handed over as a file to read instead.
+      const file = join(tmpdir(), `ask-task-${process.pid}-${Date.now()}.md`).replace(/\\/g, "/");
+      writeFileSync(file, task);
+      try {
+        return runAgy(`${rules}\n\nThe task is long, so it is in this file: ${file}\nRead all of it with view_file first (in parts if needed), then do exactly what it says.`);
+      } finally {
+        rmSync(file, { force: true });
+      }
     },
   },
 };
@@ -181,7 +207,7 @@ if (status) {
   process.exit(0);
 }
 
-// The web route is retired (2026-10). Measured over 30 days of real use: of the 72
+// The web route is retired (user, 2026-10-27). Measured over 30 days of this computer's chats: of the 72
 // --web calls that were waited on, 29 gave nothing usable, 20 runs were cut off mid-search by the
 // 5-minute ceiling, and the median took 224s - while one WebFetch or one catalogue API call answered the
 // same questions in seconds. The web-worker-gate hook refuses it too; this refusal is here as well so a

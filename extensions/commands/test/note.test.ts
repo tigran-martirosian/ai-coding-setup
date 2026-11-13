@@ -1,7 +1,8 @@
 // node --experimental-strip-types test/note.test.ts
 import assert from 'node:assert/strict';
-import { findComposers } from '../src/find.ts';
+import { findComposers, readFiles, removeFiles } from '../src/find.ts';
 import { sendNote } from '../src/note.ts';
+import type { Attachment } from '../src/note.ts';
 import { pollOutbox, newState as slowState, MAX_TRIES, LOCK_MS } from '../src/bridge.ts';
 
 let n = 0;
@@ -69,28 +70,28 @@ assert.equal(found[0].button, (found[0].row as never as Node).children[1]);
 ok('finds the Send (and the Cancel) button of each chat box, with its session id; none without an id');
 
 // ---- sending
-const run = async (execCode: number | null, throwOn?: string) => {
+const run = async (execCode: number | null, throwOn?: string, text = '  look at X  ', files: Attachment[] = [], stdout = 'Delivered to it') => {
   const calls: unknown[][] = [];
   const invoke = async (channel: string, ...args: unknown[]) => {
     calls.push([channel, ...args]);
     if (throwOn === channel) throw new Error(`Error invoking remote method '${channel}': Error: boom`);
-    if (channel === 'extension:exec') return execCode === 0 ? { success: true, stdout: 'Sent', stderr: '', exitCode: 0 } : { success: false, stdout: 'NOT SENT: idle', stderr: '', exitCode: execCode };
+    if (channel === 'extension:exec') return execCode === 0 ? { success: true, stdout, stderr: '', exitCode: 0 } : { success: false, stdout: 'NOT SENT: idle', stderr: '', exitCode: execCode };
     return undefined;
   };
-  return { calls, outcome: await sendNote('  look at X  ', 'sess-1', 'C:/Users/you', invoke) };
+  return { calls, outcome: await sendNote(text, 'sess-1', 'C:/Users/you', invoke, files) };
 };
 let r = await run(0);
 assert.deepEqual(r.calls.map((c) => c[0]), ['extensions:write-file', 'extension:exec']);
-assert.deepEqual(r.calls[0].slice(1), ['C:/Users/you/.claude/steer/button-note.txt', 'look at X']);
+assert.deepEqual(r.calls[0].slice(1), ['C:/Users/you/.claude/steer/button-note-sess-1.txt', 'look at X']);
 const exec = r.calls[1][1] as { extensionId: string; command: string };
 assert.equal(exec.extensionId, 'com.local.commandbuttons');
-assert.equal(exec.command, 'node "C:/Users/you/.claude/skills/steer/steer.mjs" send --to sess-1 - < "C:/Users/you/.claude/steer/button-note.txt"');
+assert.equal(exec.command, 'node "C:/Users/you/.claude/skills/steer/steer.mjs" send --to sess-1 - < "C:/Users/you/.claude/steer/button-note-sess-1.txt"');
 assert.deepEqual(r.outcome, { ok: true, message: 'Note sent' });
 ok('a busy session (exit 0): the file is written, steer.mjs runs, nothing is queued');
 
 r = await run(3);
 assert.deepEqual(r.calls.map((c) => c[0]), ['extensions:write-file', 'extension:exec', 'ai:createQueuedPrompt']);
-assert.deepEqual(r.calls[2].slice(1), ['sess-1', 'look at X']);
+assert.deepEqual(r.calls[2].slice(1), ['sess-1', 'look at X', []]);
 assert.deepEqual(r.outcome, { ok: true, message: 'Queued, it starts now' });
 ok('an idle session (exit 3): steer.mjs, then createQueuedPrompt(sessionId, text)');
 
@@ -105,6 +106,43 @@ assert.equal(r.outcome.ok, false);
 assert.equal((await sendNote('   ', 's', 'C:/h', async () => ({}))).ok, false);
 assert.equal((await sendNote('x', 'a & del *', 'C:/h', async () => ({}))).ok, false);
 ok('errors come back as text: unknown session, failed queue, failed write, empty note, unsafe id');
+
+const shot = { id: 'a1', filename: 'shot.png', filepath: 'C:/Temp/att/shot.png' };
+r = await run(0, undefined, '@shot.png look at this', [shot]);
+assert.equal(r.calls[0][2], '@shot.png look at this\nAttached file: C:/Temp/att/shot.png (open it with the Read tool)');
+r = await run(0, undefined, '', [shot]);
+assert.equal(r.calls[0][2], 'Attached file: C:/Temp/att/shot.png (open it with the Read tool)');
+assert.equal(r.outcome.ok, true);
+r = await run(3, undefined, 'see this', [shot]);
+assert.deepEqual(r.calls[2].slice(2), ['see this', [shot]]);
+ok('a file goes along: its path in the note, a note with only a file is sent, an idle session gets it as an attachment');
+
+const clicks: string[] = [];
+const chip = (cls: string, attachment?: Attachment, button = true) => ({
+  classList: { contains: (c: string) => cls.split(' ').includes(c) },
+  querySelector: () => (button ? { click: () => clicks.push(attachment?.id ?? '') } : null),
+  __reactFiber$x: { memoizedProps: {}, return: { memoizedProps: { attachment } } },
+});
+const scope = (...chips: unknown[]) => ({ querySelectorAll: () => chips }) as unknown as Element;
+assert.deepEqual(readFiles(scope(), 'plain text'), []);
+assert.deepEqual(readFiles(scope(chip('attachment-preview', shot)), ''), [shot]);
+assert.throws(() => readFiles(scope(chip('attachment-preview')), ''), /could not read the path/);
+assert.throws(() => readFiles(scope(chip('attachment-preview attachment-preview-processing')), ''), /still being added/);
+assert.throws(() => readFiles(scope(), '@pasted-image-1.png look'), /could not read the path/);
+ok('the chat box files: read from each chip, a chip with no path or still processing stops the note');
+
+const second = { id: 'a2', filename: 'second.png', filepath: 'C:/Temp/att/second.png' };
+assert.equal(removeFiles(scope(chip('attachment-preview', shot), chip('attachment-preview', second)), [shot]), true);
+assert.deepEqual(clicks, ['a1']);
+assert.equal(removeFiles(scope(chip('attachment-preview', shot, false)), [shot]), false);
+assert.equal(removeFiles(scope(), [shot]), false);
+ok('only the sent files leave the chat box; a chip that cannot be removed is reported');
+
+r = await run(0, undefined, 'x', [], 'Queued for it, not delivered yet.');
+assert.deepEqual(r.outcome, { ok: true, message: 'Note on its way, not confirmed yet' });
+r = await run(0, undefined, 'x', [], 'Delivered to it: the note is in its session.');
+assert.deepEqual(r.outcome, { ok: true, message: 'Note sent' });
+ok('the status says sent only when steer says delivered');
 
 // ---- wake bridge
 const NOW = 1_000_000_000_000;

@@ -10,6 +10,7 @@ import { run, visible } from './commands';
 import type { Command } from './commands';
 import { installPopover, removePopover } from './popover';
 import { CSS } from './styles';
+import './chat-wrap.css';
 import { t } from './strings';
 import { NoteBridge } from './host';
 

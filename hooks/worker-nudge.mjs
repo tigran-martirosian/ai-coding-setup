@@ -39,8 +39,7 @@ try {
 
   const workers = [];
   if (hasAgy || hasCodex) workers.push(`- Local files and code: ${ASK} ${TASK} (name the files to read in the task)`);
-  if (hasCodex) workers.push(`- Web research: ${ASK} --web ${TASK}`);
-  else if (hasAgy) workers.push(`- Web research: not a worker call. Use a "worker" subagent (Sonnet, capped) with a budget of about 15 tool calls, or WebSearch yourself for one quick fact.`);
+  if (hasAgy || hasCodex) workers.push(`- Web research: not a worker call. Use a "worker" subagent (Sonnet, capped) with a budget of about 15 tool calls, or WebSearch yourself for one quick fact.`);
   if (hasAgy || hasCodex) workers.push(`The script uses the first worker that is set up and working (Codex, then Gemini for local files) and says which one answered. If it ends with "no free worker could answer", do what its last line says.`);
   const reason = [
     `[worker-nudge] Explore, general-purpose and "claude" subagents run uncapped on the session's model and cost 0.6-5M Claude tokens per run.` +

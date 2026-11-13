@@ -38,6 +38,12 @@ else if (mode === "emptyquota") {
   say({ event: "result", result: { conversation_id: "conv-1", status: "SUCCESS", response: "" } });
   process.stderr.write("jetski: no output produced\n");
 }
+else if (mode === "readfile") { const m = args.join(" ").match(/in this file: (\S+)/); answer(m ? "agy read: " + require("fs").readFileSync(m[1], "utf8").slice(0, 30) + " FROM " + m[1] : "no file named"); }
+else if (mode === "denyonce" || mode === "denyalways") {
+  const fs = require("fs");
+  if (mode === "denyalways" || !fs.existsSync("denied")) { fs.writeFileSync("denied", ""); process.stderr.write('jetski: no output produced — a tool required the "run_command" permission that headless mode cannot prompt for, so it was auto-denied.\n'); process.exit(1); }
+  answer("agy answer: " + args.join(" "));
+}
 else if (mode === "limit") { process.stderr.write("ERROR: You've hit your usage limit. Try again later.\n"); process.exit(1); }
 else if (mode === "away") { process.stderr.write("FAILED_PRECONDITION (code 400): User location is not supported for the API use\n"); process.exit(1); }
 else { process.stderr.write("agy broke\n"); process.exit(1); }
@@ -112,11 +118,25 @@ const taskFile = join(root, "task.txt"); writeFileSync(taskFile, "task from a fi
 r = ask([taskFile], { have: ["agy"], env: { FAKE_AGY: "ok" } });
 check("a task file is read", r.code === 0 && r.out.includes("task from a file --mode"), show(r));
 check("Antigravity is told before the task to use its file tools and no shell command",
-  /-p Rules for this run:[\s\S]*Never call run_command[\s\S]*list_dir[\s\S]*never launch a subagent\.\n\ntask from a file --mode/.test(r.out), show(r));
+  /-p Rules for this run:[\s\S]*Never call run_command[\s\S]*to read a file call view_file[\s\S]*\n\ntask from a file --mode/.test(r.out), show(r));
 r = ask(['say "hi" $HOME `x`'], { have: ["agy"], env: { FAKE_AGY: "ok" } });
 check("quotes and $ in the task arrive unchanged", r.out.includes('say "hi" $HOME `x` --mode'), show(r));
 r = ask(["read big.txt"], { have: ["codex"], env: { FAKE_CODEX: "ok" } });
 check("Codex gets the task without those rules", r.code === 0 && !r.out.includes("Rules for this run"), show(r));
+
+// A task longer than a Windows command line holds never started (spawnSync ENAMETOOLONG): it goes as a file.
+const longFile = join(root, "long.txt"); writeFileSync(longFile, "LONGTASK-START " + "filler line\n".repeat(4000));
+r = ask([longFile], { have: ["agy"], env: { FAKE_AGY: "readfile" } });
+const handed = (r.out.match(/ FROM (\S+)/) || [])[1];
+check("a long task is handed over as a file the worker reads", r.code === 0 && r.out.includes("agy read: LONGTASK-START") && handed, show(r));
+check("the task file is removed afterwards", handed && !existsSync(handed), show(r));
+r = ask(["short task"], { have: ["agy"], env: { FAKE_AGY: "readfile" } });
+check("a short task stays inline", r.out.includes("no file named"), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "denyonce" } });
+check("a run ended by a refused tool is tried once more, told which tool not to call", r.code === 0 && r.out.includes("called run_command, which is refused")
+  && r.err.includes("trying once more"), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "denyalways" } });
+check("refused twice: exit 3, no third try", r.code === 3 && (r.err.match(/trying once more/g) || []).length === 1, show(r));
 
 r = ask([]);
 check("no task: exit 2", r.code === 2, show(r));

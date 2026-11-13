@@ -198,15 +198,19 @@ const NIMBALYST_DB = process.env.STEER_NIMBALYST_DB ||
 // Its status (running, waiting_for_input, idle, error) is what decides how a note gets there: the
 // transcript alone can't tell, e.g. a session that ended its reply but waits for a background job
 // looks finished there (2026-10-29: notes then waited for the end of the whole run).
-const nimbalystRow = async (id) => {
-  if (!id || !fs.existsSync(NIMBALYST_DB)) return null;
+const dbRow = async (sql, ...args) => {
+  if (!fs.existsSync(NIMBALYST_DB)) return null;
   process.removeAllListeners("warning");
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(NIMBALYST_DB, { readOnly: true });
-  const row = db.prepare("SELECT id, title, status, provider_session_id AS sid, workspace_id AS ws FROM ai_sessions WHERE (id LIKE ? OR provider_session_id LIKE ?) AND provider_session_id IS NOT NULL ORDER BY updated_at DESC").get(`${id}%`, `${id}%`);
+  const row = db.prepare(sql).get(...args);
   db.close();
   return row || null;
 };
+const nimbalystRow = (id) => (id ? dbRow("SELECT id, title, status, provider_session_id AS sid, workspace_id AS ws FROM ai_sessions WHERE (id LIKE ? OR provider_session_id LIKE ?) AND provider_session_id IS NOT NULL ORDER BY updated_at DESC", `${id}%`, `${id}%`) : null);
+// A session that has never run has a row but no Claude session id, so no transcript to deliver to
+// (2026-10-30: a Note pressed in a new tab was refused as "not active"). Only a first message starts it.
+const unstartedRow = (id) => (id ? dbRow("SELECT id FROM ai_sessions WHERE id = ? AND provider_session_id IS NULL", id) : null);
 const fromNimbalyst = async (id) => {
   const row = await nimbalystRow(id);
   if (!row) return null;
@@ -250,6 +254,11 @@ if (mode === "list") {
   const msg = (rest[0] === "-" ? await stdin() : rest.join(" ")).trim();
   if (!msg) { console.log("usage: steer.mjs send [--to <id>] <note>"); process.exit(1); }
   if (!t) {
+    const unstarted = await unstartedRow(bad);
+    if (unstarted) {
+      console.log(`NOT SENT: session ${unstarted.id} has not started yet. Send the note with send_prompt to it instead: it starts at once.`);
+      process.exit(3);
+    }
     console.log(bad ? `NOT SENT: "${bad}" is not one of the active sessions (use an id from this list, not the tab id):
 ${show(list)}` : "NOT SENT: no other session was active in this folder in the last 10 minutes.");
     process.exit(2);

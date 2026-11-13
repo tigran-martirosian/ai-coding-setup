@@ -55,14 +55,14 @@ ok("settings that are not valid JSON stop it, unchanged", [run(broken).code, fs.
 const handy = path.join(tmp, "handy", "settings_store.json");
 ok("no Handy file: said, nothing written", [run(blank, "--handy", "--handy-file", handy).out.includes("no settings file yet"), fs.existsSync(handy)], [true, false]);
 fs.mkdirSync(path.dirname(handy), { recursive: true });
-const store = { settings: { selected_microphone: "Some Mic", paste_method: "ctrl_v", custom_words: ["Kubernetes", "Claude"],
+const store = { settings: { selected_microphone: "Some Mic", paste_method: "direct", custom_words: ["Kubernetes", "Claude"],
   bindings: { transcribe: { current_binding: "ctrl+space", default_binding: "ctrl+space", id: "transcribe" } } } };
 fs.writeFileSync(handy, JSON.stringify(store));
 run(blank);
 ok("without --handy the file is left alone", json(handy), store);
 run(blank, "--handy", "--handy-file", handy);
 const h = json(handy).settings;
-ok("Handy gets push to talk, direct typing and Right Alt", [h.shortcut_activation, h.paste_method, h.bindings.transcribe.current_binding], ["push_to_talk", "direct", "alt_right"]);
+ok("Handy gets push to talk, Ctrl+V pasting and Right Alt", [h.shortcut_activation, h.paste_method, h.bindings.transcribe.current_binding], ["push_to_talk", "ctrl_v", "alt_right"]);
 ok("the rest of Handy's settings stays", [h.selected_microphone, h.bindings.transcribe.default_binding], ["Some Mic", "ctrl+space"]);
 ok("the words are added once, after the user's own", h.custom_words, ["Kubernetes", "Claude", "Nimbalyst", "Codex", "Gemini", "handoff"]);
 ok("a dated copy of Handy's old file is kept", copies(path.dirname(handy)).length, 1);

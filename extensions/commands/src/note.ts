@@ -3,6 +3,12 @@
 
 import { t } from './strings.ts';
 export type Invoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
+/** A file in the chat box, as the app saved it (only the fields used here are named). */
+export interface Attachment {
+  id: string;
+  filename: string;
+  filepath: string;
+}
 export const EXT_ID = 'com.local.commandbuttons';
 export interface Outcome {
   ok: boolean;
@@ -20,12 +26,17 @@ export async function homeDir(invoke: Invoke): Promise<string> {
   return home;
 }
 
-export async function sendNote(text: string, sessionId: string, home: string, invoke: Invoke): Promise<Outcome> {
-  const note = text.trim();
+/** The chat box's text holds only `@name` for a file, so the note carries each file's path. */
+export const withFiles = (text: string, files: Attachment[]) =>
+  [text.trim(), ...files.map((f) => `Attached file: ${f.filepath} (open it with the Read tool)`)].filter(Boolean).join('\n');
+
+export async function sendNote(text: string, sessionId: string, home: string, invoke: Invoke, files: Attachment[] = []): Promise<Outcome> {
+  const note = withFiles(text, files);
   if (!note) return { ok: false, message: t.note.typeFirst };
   // the id goes into a shell command line
   if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return { ok: false, message: t.note.oddId(sessionId.slice(0, 40)) };
-  const file = `${home}/.claude/steer/button-note.txt`;
+  // one file per session: two chat boxes sending at once must not read each other's note
+  const file = `${home}/.claude/steer/button-note-${sessionId}.txt`;
   try {
     await invoke('extensions:write-file', file, note);
     const r = (await invoke('extension:exec', {
@@ -33,9 +44,10 @@ export async function sendNote(text: string, sessionId: string, home: string, in
       command: `node "${home}/.claude/skills/steer/steer.mjs" send --to ${sessionId} - < "${file}"`,
       timeout: 30000,
     })) as Exec;
-    if (r.success && Number(r.exitCode ?? 0) === 0) return { ok: true, message: t.note.sent };
+    // exit 0 also means "queued, not delivered yet": only steer's Delivered line is a delivery
+    if (r.success && Number(r.exitCode ?? 0) === 0) return { ok: true, message: /^Delivered/m.test(r.stdout ?? '') ? t.note.sent : t.note.waiting };
     if (Number(r.exitCode) === 3) {
-      await invoke('ai:createQueuedPrompt', sessionId, note);
+      await invoke('ai:createQueuedPrompt', sessionId, text.trim() || note, files);
       return { ok: true, message: t.note.queued };
     }
     const why = (r.stdout || r.stderr || '').trim().replace(/\s+/g, ' ').slice(0, 240);
