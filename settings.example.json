@@ -48,6 +48,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/budget-gate.mjs",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
             "command": "node ~/.claude/hooks/map-brief.mjs",
             "timeout": 10
           }

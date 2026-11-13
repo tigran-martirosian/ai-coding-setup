@@ -1,5 +1,5 @@
 {
-  "version": "1.0.78",
-  "date": "2026-11-02",
-  "summary": "Voice typing now tells you to pick Whisper Large v3 Turbo in Handy, which transcribes more accurately at about the same speed and handles Russian as well as English."
+  "version": "1.0.79",
+  "date": "2026-11-03",
+  "summary": "The rules file is about a quarter shorter, Nimbalyst-only notes now load only in Nimbalyst, and a helper job over 50 tool calls is refused and has to be split."
 }
