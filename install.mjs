@@ -36,7 +36,9 @@
 //   --extensions yes|no         build the Nimbalyst extensions and put them into Nimbalyst (default: yes
 //                               when Nimbalyst is installed; they change nothing until a theme is picked)
 //   --no-theme                  leave Nimbalyst's theme alone (also SETUP_THEME=off); by default a Nimbalyst
-//                               where no theme was picked yet gets Ink Cobalt, a picked theme always stays
+//                               where no theme was picked yet, or a non-Ink one was picked before (switched once,
+//                               then recorded), gets Ink Cobalt; an Ink theme, or a theme picked later, stays
+//   --theme-done                a chat set the Ink theme through the open Nimbalyst: record it, nothing else
 //   --app-settings <file>       Nimbalyst's settings file, when it is somewhere else (the tests)
 //   --plugins yes|no            install the plugins (default: yes; each is handled once, so one that was
 //                               removed or switched later stays as it is)
@@ -64,7 +66,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { addClaudeCodeSettings } from "./scripts/claude-code-settings.mjs";
 import { checkClaudeCode, pointNimbalyst } from "./scripts/claude-code-version.mjs";
-import { setInkDefault, themeIsFresh } from "./scripts/ink-default.mjs";
+import { setInkDefault, themeAction, pickedSincePending, PENDING_LINE } from "./scripts/ink-default.mjs";
 
 const REPO = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -242,6 +244,15 @@ function putJson(file, data, was) {
     fs.renameSync(`${file}.part`, file);
   }
   say(`wrote ${fwd(file)}${backup ? ` (old copy: ${backup})` : ""}`);
+}
+// --theme-done: a chat set the Ink theme through Nimbalyst itself (it was open), so it is no longer pending
+// (here, after putJson and keepCopy, which it uses)
+if (args.includes("--theme-done")) {
+  if (!fs.existsSync(stateFile)) { console.log(`${fwd(stateFile)} is missing: run the install first.`); process.exit(1); }
+  const { themePending, themePendingFrom, ...rest } = state;
+  putJson(stateFile, { ...rest, inkSwitched: true }, JSON.stringify(state));
+  console.log("theme: on record as done");
+  process.exit(0);
 }
 // The rules and the project folders name the projects folder as <projects>; the text gets the real
 // one. Off Windows the folder separator and Codex's Windows-only sandbox flag go.
@@ -865,18 +876,31 @@ else if (inkThere && (appData || opt("app-settings") !== null)) {
   if (fs.existsSync(appFile)) {
     try { app = JSON.parse(fs.readFileSync(appFile, "utf8")); } catch (e) { app = null; say(`theme: left as it is (${fwd(appFile)} is not valid JSON: ${e.message})`); }
   }
-  if (app && !themeIsFresh(app)) say(`theme: left as it is (${app.theme})`);
-  else if (app) {
-    const running = opt("app-settings") === null && (process.platform === "win32"
+  // a theme picked since an earlier run named the pending line wins over it (the file can be read while Nimbalyst runs)
+  const pickedSince = app && state.themePending && pickedSincePending(app, state.themePendingFrom);
+  if (app && (pickedSince || themeAction(app, state.inkSwitched) === "keep")) {
+    say(`theme: left as it is (${app.theme})`);
+    // an Ink theme already picked counts as the one switch made, so a theme picked later stays
+    if (!DRY && (!state.inkSwitched || state.themePending)) { nextState.inkSwitched = true; delete nextState.themePending; delete nextState.themePendingFrom; }
+  } else if (app) {
+    // SETUP_NIMBALYST_OPEN=yes|no: the tests say whether Nimbalyst runs
+    const running = process.env.SETUP_NIMBALYST_OPEN ? process.env.SETUP_NIMBALYST_OPEN === "yes" : opt("app-settings") === null && (process.platform === "win32"
       ? /Nimbalyst\.exe/i.test(spawnSync("tasklist", ["/FI", "IMAGENAME eq Nimbalyst.exe", "/NH"], { encoding: "utf8" }).stdout || "")
       : spawnSync("pgrep", ["-x", "Nimbalyst"]).status === 0);
-    if (running) say("theme: Nimbalyst is open, so its theme was not set. Pick it once: the Theme button at the bottom of the left bar, Ink themes, Ink Cobalt.");
-    else {
+    if (running) {
+      // The file can't be written; /update-setup sets the theme through Nimbalyst itself (skills/update-setup/SKILL.md)
+      // and then runs update.mjs --theme-done. Until then it stays pending and update.mjs names it again.
+      say(PENDING_LINE);
+      if (!DRY) { nextState.themePending = true; nextState.themePendingFrom = state.themePending ? state.themePendingFrom : app.theme ?? null; }
+    } else {
       setInkDefault(app);
       if (DRY) say(`theme: would be set to Ink Cobalt in ${fwd(appFile)}`);
       else {
         const copy = fs.existsSync(appFile) ? keepCopy(appFile) : null;
         fs.writeFileSync(appFile, JSON.stringify(app, null, 2) + "\n");
+        nextState.inkSwitched = true;
+        delete nextState.themePending;
+        delete nextState.themePendingFrom;
         say(`theme: set to Ink Cobalt in ${fwd(appFile)}${copy ? ` (old copy: ${copy})` : ""}`);
       }
     }

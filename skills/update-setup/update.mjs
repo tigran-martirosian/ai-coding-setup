@@ -68,7 +68,7 @@ const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
 const installed = state.version || "0";
 
 // Runs a version's installer with the flags that are passed on
-const passed = args.flatMap((a, i) => (["--replace-rules", "--replace-all", "--keep-model"].includes(a) ? [a] :["--replace", "--language"].includes(a) && args[i + 1] ? [a, args[i + 1]] : []));
+const passed = args.flatMap((a, i) => (["--replace-rules", "--replace-all", "--keep-model", "--theme-done"].includes(a) ? [a] :["--replace", "--language"].includes(a) && args[i + 1] ? [a, args[i + 1]] : []));
 function install(folder) {
   const flags = [...passed];
   if (homeAt !== -1) flags.push("--home", home);
@@ -86,6 +86,21 @@ if (!/^\d+(\.\d+)*$/.test(String(latest.version))) stop(`${VERSION_URL} has no u
 
 if (!newer(latest.version, installed)) {
   console.log(`Already on the newest version (${installed}).`);
+  // an Ink theme the last update could not set (Nimbalyst was open) is named again until a chat has set it,
+  // unless the person has picked a theme since (--app-settings <file> is another settings file: tests)
+  if (state.themePending) {
+    const mod = state.repo && path.join(state.repo, "scripts", "ink-default.mjs");
+    if (!mod || !fs.existsSync(mod)) stop(`the setup's folder (${state.repo}) has no scripts/ink-default.mjs, so the pending theme can't be checked.`);
+    const { pickedSincePending, PENDING_LINE } = await import(pathToFileURL(mod).href);
+    const appAt = args.indexOf("--app-settings");
+    const appFile = appAt !== -1 ? path.resolve(args[appAt + 1]) : path.join(process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "", "@nimbalyst", "electron", "app-settings.json");
+    const app = JSON.parse(fs.readFileSync(appFile, "utf8"));
+    if (pickedSincePending(app, state.themePendingFrom)) {
+      const { themePending, themePendingFrom, ...rest } = state;
+      fs.writeFileSync(stateFile, JSON.stringify({ ...rest, inkSwitched: true }, null, 2) + "\n");
+      console.log(`theme: left as it is (${app.theme})`);
+    } else console.log(PENDING_LINE);
+  }
   if (passed.length && !args.includes("--check")) {
     if (!state.repo || !fs.existsSync(path.join(state.repo, "install.mjs"))) stop(`the setup's folder (${state.repo}) is gone, so its installer can't run again.`);
     install(state.repo); // install.mjs checks Claude Code itself

@@ -35,7 +35,7 @@ These go back to the agent:
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 39 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 40 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 

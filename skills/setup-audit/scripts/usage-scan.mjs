@@ -71,11 +71,19 @@ const planWeight = (u, model) => apiCost(u, model);
 // What one API message would cost at Anthropic's list prices (dollars per million tokens:
 // input, output, cache read; cache writes cost 1.25x input, 2x for the 1-hour cache). A plan
 // is not billed this way: the figure only says what the same tokens cost on the pay-as-you-go API.
-// Prices as of 2026-09; a model that is not listed is priced like Sonnet.
+// Prices as of 2026-09. A model that is not listed is priced like Sonnet and named on stderr,
+// since its weight also moves the plan split.
 const PRICE = [[/opus-5-5/, 4, 20, 0.2], [/opus/, 5, 25, 0.5], [/fable-5-1|mythos-5-1/, 10, 50, 0.25], [/fable|mythos/, 10, 50, 1],
   [/sonnet-4/, 3, 15, 0.3], [/sonnet/, 2, 10, 0.2], [/haiku/, 1, 5, 0.1]];
+const unpriced = new Map();
+process.on("exit", () => {
+  if (unpriced.size) console.error(`usage-scan: no price for ${[...unpriced].map(([m, n]) => `${m} (${n} messages)`).join(", ")}; counted as Sonnet`);
+});
 const apiCost = (u, model) => {
-  const [, inp, outp, read] = PRICE.find(([re]) => re.test(model)) ?? [null, 2, 10, 0.2];
+  if (model === "<synthetic>") return 0; // written by Claude Code itself, no API call
+  let price = PRICE.find(([re]) => re.test(model));
+  if (!price) { unpriced.set(model, (unpriced.get(model) ?? 0) + 1); price = [null, 2, 10, 0.2]; }
+  const [, inp, outp, read] = price;
   const write = u.cache_creation_input_tokens ?? 0;
   const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
   return (inp * ((u.input_tokens ?? 0) + 1.25 * (write - write1h) + 2 * write1h) +

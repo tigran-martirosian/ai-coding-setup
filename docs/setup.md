@@ -58,6 +58,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |
 | Before a picture is shown in the chat | `picture-in-project` | The picture is shown from the project's `shown` folder, so it still loads after a cleanup and a click opens it enlarged |
+| Before a Nimbalyst browser session opens | `browser-visible-gate` | A `headless: false` session shows no window you can see, so it is refused and the `site-login` skill is named: it opens a real window to sign in, which closes by itself once you are in |
 | Before a question to me | `question-other` | Every question lets me type my own answer, a question about something to look at links to it, a recommendation that says "Checked:" must match a lookup in the session log, and a recommendation has to pass a `rec-check` agent first (`REC_CHECK=off` turns that part off) |
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn |

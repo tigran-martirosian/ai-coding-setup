@@ -17,6 +17,7 @@ const ALARM_READ = 256 * 1024;
 
 function newestOther(current) {
   const folder = path.dirname(current);
+  if (!fs.existsSync(folder)) return undefined; // a project's first session: its folder is written later
   const found = fs.readdirSync(folder).filter((f) => f.endsWith(".jsonl") && path.join(folder, f) !== path.normalize(current))
     .map((f) => { const p = path.join(folder, f), s = fs.statSync(p); return { p, size: s.size, time: s.mtimeMs }; })
     .filter((f) => f.size > 0).sort((a, b) => b.time - a.time);
