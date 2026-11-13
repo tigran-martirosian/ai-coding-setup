@@ -1,6 +1,6 @@
 {
-  "version": "1.0.103",
+  "version": "1.0.104",
   "claudeCodeMin": "2.1.296",
-  "date": "2026-11-06",
-  "summary": "/watch works on Instagram links, the usage report shows how much of the input came from the prompt cache and what made it start over, and helpers now run Opus by default, with Sonnet only for mechanical bulk work."
+  "date": "2026-11-07",
+  "summary": "Helpers no longer think for 20 minutes and write nothing: one reply is cut at 64k output tokens, helpers put their file on disk early and in parts, the planner splits a big design into parts, and a helper near its context limit can still save its work."
 }

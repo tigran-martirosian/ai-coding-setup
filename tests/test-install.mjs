@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // No network and no real Claude Code update from any installer this test starts (scripts/claude-code-version.mjs)
 process.env.SETUP_CC_CHECK = "off";
@@ -72,6 +72,12 @@ ok("every file arrived byte for byte",
 const settings = json(path.join(claude, "settings.json"));
 const commands = commandsIn(settings);
 ok("helpers keep their prompt cache for an hour", settings.subagentPromptCacheTtl, "1h");
+ok("one reply is cut at 64k output tokens", settings.env?.CLAUDE_CODE_MAX_OUTPUT_TOKENS, "64000");
+{ // a cap the person set stays as it is
+  const own = { env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "20000" } };
+  const { addClaudeCodeSettings } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
+  ok("an output cap already set is kept", [addClaudeCodeSettings(own).output, own.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS], [false, "20000"]);
+}
 const times = (list, s) => list.filter((x) => x.includes(path.basename(s))).length;
 ok("each hook is wired as often as the example has it", scripts.map((s) => times(commands, s)), scripts.map((s) => times(scripts, s)));
 ok("each command runs the installed copy by its full path",

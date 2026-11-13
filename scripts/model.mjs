@@ -1,7 +1,7 @@
 // ~/.claude/settings.json: the hook wiring, the move of an old "model": "sonnet" to opus, Claude Code's own
 // settings (scripts/claude-code-settings.mjs) and the reply language, written once when any of them changed.
 // Returns what goes on record as state.model ("moved", "kept" or the earlier answer).
-import { addClaudeCodeSettings, DEFAULT_EFFORT, OPUS_MODELS } from "./claude-code-settings.mjs";
+import { addClaudeCodeSettings, DEFAULT_EFFORT, MAX_OUTPUT_TOKENS, OPUS_MODELS } from "./claude-code-settings.mjs";
 import { fwd } from "./files.mjs";
 import { retire, wire } from "./wiring.mjs";
 
@@ -54,12 +54,13 @@ export function claudeSettings(ctx) {
   if (own.compact) say(`compact: long chats compact themselves at about 200k, set in ${fwd(settingsFile)}`);
   if (own.cache) say(`cache: helpers keep their prompt cache for an hour, set in ${fwd(settingsFile)}`);
   if (own.logs) say(`logs: transcripts are kept 120 days, set in ${fwd(settingsFile)}`);
+  if (own.output) say(`output: one reply is cut at ${MAX_OUTPUT_TOKENS / 1000}k tokens (about 10 minutes of thinking), set in ${fwd(settingsFile)}`);
   if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins and SSH keys can't be read, a .env file is asked about)`);
   // Claude Code's own reply-language setting follows the language. english removes only the "russian"
   // this setup wrote: a language the person set to something else stays.
   let langChanged = false;
   if (LANG === "russian" && settings.language !== "russian") { settings.language = "russian"; langChanged = true; say(`language: russian set in ${fwd(settingsFile)}`); }
   else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
-  if (wired || own.model || modelChanged || own.compact || own.cache || own.logs || own.added || langChanged) ctx.putJson(settingsFile, settings, settingsWas);
+  if (wired || own.model || modelChanged || own.compact || own.cache || own.logs || own.output || own.added || langChanged) ctx.putJson(settingsFile, settings, settingsWas);
   return modelMark;
 }

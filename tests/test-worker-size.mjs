@@ -97,7 +97,7 @@ const newId = () => { const id = `${tag}-${++n}`; ids.push(id); return id; };
 }
 
 // hard stop on PreToolUse
-const pre = (h, id, agent_type = "worker") => JSON.stringify({ hook_event_name: "PreToolUse", session_id: h.session, transcript_path: h.parent, agent_id: id, agent_type });
+const pre = (h, id, agent_type = "worker", tool_name = "Bash", tool_input = {}) => JSON.stringify({ hook_event_name: "PreToolUse", session_id: h.session, transcript_path: h.parent, agent_id: id, agent_type, tool_name, tool_input });
 // The older cases below test the refusal itself, so they run with no grace calls (WORKER_STOP_GRACE=0)
 function runStop(name, expectDeny, input, env = { WORKER_STOP_GRACE: "0" }) {
 	const r = spawnSync(process.execPath, [HOOK], { input, encoding: "utf8", env: { ...process.env, ...env } });
@@ -134,14 +134,15 @@ function runStop(name, expectDeny, input, env = { WORKER_STOP_GRACE: "0" }) {
 }
 
 // agent type and grace calls
-const pre2 = (h, id, type, env = {}) => {
-	const r = spawnSync(process.execPath, [HOOK], { input: pre(h, id, type), encoding: "utf8", env: { ...process.env, WORKER_STOP_GRACE: "", ...env } });
+const pre2 = (h, id, type, env = {}, tool = "Bash", toolInput = {}) => {
+	const r = spawnSync(process.execPath, [HOOK], { input: pre(h, id, type, tool, toolInput), encoding: "utf8", env: { ...process.env, WORKER_STOP_GRACE: "", ...env } });
 	const out = r.stdout.trim();
 	if (!out) return "pass";
 	const o = JSON.parse(out).hookSpecificOutput;
 	if (o.permissionDecision === "deny") return "deny";
-	const m = o.additionalContext.match(/in at most (\d+) more calls, then stop and report: files changed, the check run, what is left, any half-edited file/);
-	return m ? "note" + m[1] : "other";
+	const m = o.additionalContext.match(/at most (\d+) more calls of other tools; Write and Edit stay allowed/);
+	if (m) return "note" + m[1];
+	return /Write and Edit stay allowed until \d+k and use no grace calls/.test(o.additionalContext) ? "save" : "other";
 };
 const expectSeq = (name, got, want) => {
 	const ok = got.join(",") === want.join(",");
@@ -166,6 +167,13 @@ const expectSeq = (name, got, want) => {
 	expectSeq("worker-full-has-grace", [pre2(h, id, "worker-full", { WORKER_STOP_GRACE: "1" }), pre2(h, id, "worker-full", { WORKER_STOP_GRACE: "1" })], ["note1", "deny"]);
 	const id2 = newId(); const h2 = helper(id2, [185000]);
 	expectSeq("env-grace-5", Array.from({ length: 7 }, () => pre2(h2, id2, "worker", { WORKER_STOP_GRACE: "5" })), ["note5", "note4", "note3", "note2", "note1", "deny", "deny"]);
+	// past the stop line a Write or Edit still goes through and uses no grace, so unwritten work reaches disk
+	const id4 = newId(); const h4 = helper(id4, [185000]);
+	const g1 = { WORKER_STOP_GRACE: "1" };
+	expectSeq("write-past-stop-line-saves-without-grace", [pre2(h4, id4, "worker", g1, "Write", { content: "x" }), pre2(h4, id4, "worker", g1), pre2(h4, id4, "worker", g1, "Edit", { new_string: "y" }), pre2(h4, id4, "worker", g1)], ["save", "note1", "save", "deny"]);
+	// a Write whose own input would carry the context past the save line is refused like any other call
+	const id5 = newId(); const h5 = helper(id5, [185000]);
+	expectSeq("write-that-crosses-save-line-is-refused", [pre2(h5, id5, "worker", { WORKER_STOP_GRACE: "0" }, "Write", { content: "x".repeat(40000) })], ["deny"]);
 	const id3 = newId(); const h3 = helper(id3, [185000]);
 	expectSeq("env-grace-0-refuses-at-once", [pre2(h3, id3, "worker", { WORKER_STOP_GRACE: "0" })], ["deny"]);
 }

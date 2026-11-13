@@ -116,7 +116,7 @@ runHook("context-guard", (input) => {
 
     const context = [
       `[context-guard] This session already holds ~${k}k tokens, and every tool call re-sends all of it (~${k}k per call, even for a one-line edit). For this request:`,
-      `- Plan every change first, then apply them in as few calls as possible: all changes to one file in one Edit (or one Write of the whole file), not one Edit per line.`,
+      `- Plan every change first, then apply them in as few calls as possible: small changes to one file in one Edit, not one Edit per line; a new or rewritten file in parts of at most ~300 lines per call (one huge call hits the output limit and is lost).`,
       `- Don't re-read files, images or previews that are already in this conversation; render or check once at the end, not after each change.`,
       `- Put all your questions in one prompt. Skip optional skills, reviews and extra checks unless the user asked for them.`,
     ];
