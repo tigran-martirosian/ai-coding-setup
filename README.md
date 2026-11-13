@@ -16,7 +16,7 @@ Claude Code gives you hooks and skills. This is what I built with them.
 |---|---|---|
 | Its claims | Nothing checks them | Hooks compare them with the log of what it did |
 | Commands | It may ask you to run them | It runs them itself |
-| Long chats | Compact when nearly full, or by hand | Compact themselves early, while the prompt cache is warm |
+| Long chats | Compact when nearly full, or by hand | Compact themselves at about 200k, mid-work, and leave finished chats alone |
 | Big jobs | Subagents you arrange | `/lead`: sessions side by side, then a separate review |
 | Spending | `/usage`: the last 7 days | Per project, with a forecast of when the limit runs out |
 
@@ -39,7 +39,7 @@ In 30 days on my computer, 360 of 11,042 replies were sent back. All 24 hooks ar
 ### Cost
 
 - A hook refuses a read of a whole large file, so the agent reads the part it needs. It refused 607 in those 30 days.
-- A long chat compacts itself while the prompt cache is warm. In one audit that cost about 44k tokens; after a long pause, when the cache has expired, about 590k.
+- A long chat compacts itself at about 200k, while it works, and a finished chat is left alone. In one audit a compact cost about 44k tokens with a warm cache; after a long pause, when the cache has expired, about 590k.
 - Typing `usage` opens a dashboard with this week's token use and a forecast for your plan limit. It makes no model call.
 
 ### Long work

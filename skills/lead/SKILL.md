@@ -76,8 +76,8 @@ Rules:
 - New work discovered → new narrow child, or do it yourself if it's small.
 - `list_spawned_sessions` / `get_workstream_overview` show status; `get_workstream_edited_files` shows what changed.
 - When a child's piece is accepted, set it to `complete` with `update_session_board` (children never stay in Planning).
-- **A lead with running children compacts instead of handing off** (`/compact` with its focus line, as CLAUDE.md says for the context guard): the compacted lead keeps every child's id, and reports keep arriving at the same session. Only a cold cache (idle over an hour) moves it to a fresh session; then the handoff skill records where the lead moved (`steer.mjs moved`); a child's report or a message the user types that still reaches the old session is forwarded to the newest lead as a note (read before its next step; an idle one is woken) and never runs in the old session. In the new session, a message starting `[report]` is such a report: judge it like any other.
-- **Watch each child's context size.** Before sending any follow-up to a child, and whenever you check on a running one, run `node ~/.claude/skills/lead/context-size.cjs "<a short phrase from the start of that child's brief, for example its Goal line>" ...` (Nimbalyst session ids don't match transcripts, so the child is found by its first prompt). A child at or above 150k tokens gets no more work: start a fresh child with a short brief (goal, current state you verified yourself, exact remaining steps, files) and close the old one. Do this without asking. A long-running child that passes 150k mid-job is left to finish its current step, then replaced the same way.
+- **A lead with running children compacts instead of handing off** (by itself at about 200k, as CLAUDE.md says): the compacted lead keeps every child's id, and reports keep arriving at the same session. Only a cold cache (idle over an hour, under that size) moves it to a fresh session; then the handoff skill records where the lead moved (`steer.mjs moved`); a child's report or a message the user types that still reaches the old session is forwarded to the newest lead as a note (read before its next step; an idle one is woken) and never runs in the old session. In the new session, a message starting `[report]` is such a report: judge it like any other.
+- **A child is not replaced for its size.** It compacts itself at about 200k, mid-job, and carries on, so don't start a "part 2" child for that reason. To see a child's size: `node ~/.claude/skills/lead/context-size.cjs "<a short phrase from the start of that child's brief, for example its Goal line>" ...` (Nimbalyst session ids don't match transcripts, so the child is found by its first prompt).
 
 ## 5. Validate independently
 
@@ -89,7 +89,7 @@ Its report has two headings, and you keep them apart instead of merging them int
 
 A piece can pass one and fail the other, and one merged list hides that.
 
-Problems → send each one back to the child that owns it if its context is still under 150k (check first, see section 4), otherwise start a narrow fix child → review again, checking only what changed. A fix brief names the problem and says: fix only this; report anything else you notice instead of fixing it.
+Problems → send each one back to the child that owns it, or start a narrow fix child if it is gone → review again, checking only what changed. A fix brief names the problem and says: fix only this; report anything else you notice instead of fixing it.
 
 **At most 3 fix rounds per piece.** If it still fails, stop: the plan or the brief is wrong, not the piece. Rework that, or report to the user with the open problems.
 

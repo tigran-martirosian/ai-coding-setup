@@ -41,6 +41,7 @@ const warn = run("idle-and-big", [user(200), asst(120, 300000), user(0)], true);
 console.log("      " + JSON.parse(warn).hookSpecificOutput.additionalContext.slice(0, 120) + "...");
 run("idle-and-small", [asst(120, 40000), user(0)], false);
 run("fresh-and-big", [asst(3, 300000), user(0)], false);
+run("idle-but-compacts-first", [user(200), asst(120, 250000), user(0)], false);
 run("just-under-gap", [asst(50, 300000), user(0)], false);
 run("just-over-size-limit-small", [asst(120, 99000), user(0)], false);
 run("broken-lines", ["not json", "{\"type\":", ""], false);

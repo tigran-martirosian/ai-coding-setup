@@ -1,5 +1,5 @@
 {
-  "version": "1.0.70",
-  "date": "2026-10-30",
-  "summary": "A new tour film and a rewritten README show the whole setup, node install.mjs --uninstall takes it out again, the licence now allows use at work, /blind-review checks any big piece of work and not only pictures, and /btw can name the session a note goes to."
+  "version": "1.0.71",
+  "date": "2026-10-31",
+  "summary": "Long chats now compact themselves while they work and leave finished chats alone, the Note button shows a press at once and says when the note arrives, and a file you name in a prompt can be read whole once past the size guard."
 }

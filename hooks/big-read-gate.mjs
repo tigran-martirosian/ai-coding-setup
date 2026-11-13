@@ -6,8 +6,11 @@
 // when it narrows the output or sends it to a file: "cat big | grep x" and "cat big > out" pass,
 // "cat big | tee out" and "cat big 2>/dev/null" don't. File name patterns (*.log) are not expanded.
 // It fails open, so any error or odd input lets the call through. BIG_READ_GATE=off disables it.
-import { readFileSync, statSync, writeSync } from "node:fs";
+// A file path the user writes in a prompt passes the gate once (UserPromptSubmit records it;
+// BIG_READ_ALLOW_FILE moves the record, for the tests).
+import { readFileSync, statSync, writeSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { resolve, extname, dirname, join } from "node:path";
+import { homedir } from "node:os";
 
 const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
 // 20000 bytes (about 20k characters; 50000 until 2026-10-11): a file under 350 lines can still be too big to read whole
@@ -36,7 +39,72 @@ function returned(m, from = 0, count = READ_CAP) {
 
 const tooBig = (r) => r.lines > MAX_LINES || r.bytes > MAX_BYTES;
 
+// Allowances are kept per session in ALLOW_FILE: { "<session id>": ["<absolute path>", ...] }
+const ALLOW_FILE = process.env.BIG_READ_ALLOW_FILE || join(homedir(), ".claude", "hooks", "state", "big-read-allow.json");
+const PATH_START = /(?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)/g;
+let SESSION = "";
+const samePath = (a, b) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+// A corrupt file counts as no allowances, so the gate still blocks; the next save rewrites it
+function readAllowances() {
+  let text;
+  try { text = readFileSync(ALLOW_FILE, "utf8"); } catch (e) { if (e.code === "ENOENT") return {}; throw e; }
+  try {
+    const all = JSON.parse(text);
+    if (all && typeof all === "object" && !Array.isArray(all)) return all;
+  } catch {}
+  process.stderr.write(`[big-read-gate] ${ALLOW_FILE} is not valid JSON; treating it as empty\n`);
+  return {};
+}
+
+// Writes a temp file and renames it over the old one, so a reader never sees half a file
+function saveAllowances(all) {
+  for (const s of Object.keys(all)) if (!all[s] || all[s].length === 0) delete all[s];
+  mkdirSync(dirname(ALLOW_FILE), { recursive: true });
+  const tmp = `${ALLOW_FILE}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(all));
+  renameSync(tmp, ALLOW_FILE);
+}
+
+const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };
+
+// The absolute paths written in a prompt that exist as files. A path may hold spaces, so each
+// start is tried with the longest run of words that is a file, and "chunk1.txt and tell me" gives chunk1.txt
+function pathsIn(prompt) {
+  const found = new Set();
+  for (const m of prompt.matchAll(PATH_START)) {
+    const words = prompt.slice(m.index).split(/["'`<>|*?\r\n]/)[0].split(" ");
+    for (let n = Math.min(words.length, 30); n >= 1; n--) {
+      const candidate = resolve(native(words.slice(0, n).join(" ").replace(/[.,;:)\]]+$/, "")));
+      if (isFile(candidate)) { found.add(candidate); break; }
+    }
+  }
+  return [...found];
+}
+
+// Uses up one allowance for this path. True means the read may pass.
+function takeAllowance(path) {
+  const all = readAllowances();
+  const list = all[SESSION] || [];
+  const i = list.findIndex((p) => samePath(p, path));
+  if (i < 0) return false;
+  list.splice(i, 1);
+  all[SESSION] = list;
+  saveAllowances(all);
+  return true;
+}
+
+// Adds each absolute path written in a prompt to this session's allowances
+function addAllowances(prompt) {
+  const paths = pathsIn(prompt);
+  if (paths.length === 0) return;
+  const all = readAllowances();
+  all[SESSION] = [...new Set([...(all[SESSION] || []), ...paths])];
+  saveAllowances(all);
+}
+
 function deny(path, m) {
+  if (takeAllowance(path)) return; // the user named this file in the prompt
   const kb = Math.round(m.bytes / 1024);
   // Lines of this file that fit under both limits (a file of long lines needs a shorter read than MAX_LINES)
   const perLine = m.bytes / m.lines;
@@ -245,6 +313,11 @@ try {
   const input = event.tool_input || {};
   const cwd = native(event.cwd || process.cwd());
   if (projectOptedOut(cwd)) process.exit(0);
+  SESSION = event.session_id || "";
+  if (event.hook_event_name === "UserPromptSubmit") {
+    addAllowances(event.prompt || "");
+    process.exit(0);
+  }
   if (event.tool_name === "Read" && input.file_path) {
     const path = resolve(native(cwd), native(input.file_path));
     const m = measure(path);
