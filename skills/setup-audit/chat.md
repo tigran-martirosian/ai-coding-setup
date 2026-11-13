@@ -1,6 +1,6 @@
 # Chat review
 
-Fits the setup to what the user really does. A script and `worker` subagents (Sonnet) do the reading; you
+Fits the setup to what the user really does. A script and `worker` subagents do the reading; you
 judge, look up what exists, and ask. **Change nothing until the user has ticked it.** No chat text
 goes into a rule, a skill or a web search, and no report is sent to anyone. The findings report
 (step 7) is the one place that holds the user's own words, at most 12 per quote. The only
@@ -25,7 +25,7 @@ Run `node $S/read-digests.mjs <digest folder> --earlier <the newest findings fil
 (the fixed questions of `reader-task.txt`, the project's earlier-fix rows and the digest's path) and
 prints one line per project. A project with fewer than 5 requests is skipped.
 
-Then start one `worker` subagent (Sonnet) per task file, in the background beside each other, each
+Then start one `worker` subagent per task file, in the background beside each other, each
 told: "Read the task file `<full path of <project>.task.md>` and do what it says. It names the digest
 to read and the `<project>.findings.md` to write, in the task's format." Each `.findings.md` ends with "I. EARLIER FIXES" when the task had
 earlier fixes: for every fix ticked last time, whether it held, came back or did not come up.

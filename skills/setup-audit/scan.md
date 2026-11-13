@@ -4,7 +4,7 @@ Analysis only: **change nothing** until the user picks fixes.
 
 1. **Target:** the folder given, else the current folder. Name = the folder's name.
 2. **Inventory in one shell call:** line counts of `CLAUDE.md`, `HANDOFF.md`, `DECISIONS.md`; the files in `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, `.claude/hooks/`; and the hooks registered in `.claude/settings.json` and `.claude/settings.local.json`.
-3. **Checks.** For any file over 350 lines, give a `worker` subagent (Sonnet, about 15 tool calls) the specific question instead of reading it whole; its answer is a lead, check it.
+3. **Checks.** For any file over 350 lines, give a `worker` subagent (about 15 tool calls) the specific question instead of reading it whole; its answer is a lead, check it.
    - **Hooks:** the settings files parse as JSON; every registered hook file exists; if the project has hook tests (`test-*.mjs` next to its hooks or in `scripts/`), run them.
    - **Skills and agents:** each has `name` and `description` in its frontmatter. Agents doing mechanical work (moving files, running checks, formatting) shouldn't be on Opus; an agent without a tool-call budget in its instructions is a cost risk. A project skill with no pointer line in that project's CLAUDE.md (one naming `skills/<name>` or `/<name>` and the ask that calls it; the bare word in a file name doesn't count) is a finding (it will rarely be called).
    - **CLAUDE.md:** longer than ~200 lines; rules that repeat `~/.claude/CLAUDE.md` word for word; delegation rules (which agent reads long files) that differ from the ones in `~/.claude/CLAUDE.md`; backticked paths that don't exist (check them in one shell call).

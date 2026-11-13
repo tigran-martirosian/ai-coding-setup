@@ -175,6 +175,11 @@ function scan(file, window, sub = false, info = {}) {
   const wasteTool = new Map(); // tool_use id -> { id: request id, name }
   const wasteUses = new Map(); // tool_use id -> { name, input }, for wake-up sources
   const agentByDesc = new Map(); // Agent description -> subagent type
+  // Prompt cache: what was read from it, written to it, sent uncached; and the mid-session rewrites
+  // (a call after the first, context over 20k, that read back under half of the previous call's context
+  // and wrote over half of its own), by their likely cause
+  const promptCache = { input: 0, write: 0, read: 0, rewrites: {} };
+  let prevCall = null, compactedSince = false;
   let turn = null, run = null;
   const endRun = () => { if (run && run.n >= 3) waste.streaks.push(run); run = null; };
   const helper = { toolIds: new Set(), bashIds: new Set(), noteAt: null, compacts: 0 }; // subagent files: size-note position, compactions
@@ -246,6 +251,7 @@ function scan(file, window, sub = false, info = {}) {
     if (!inWin(l)) continue;
     wasteLine(l);
     const t = Date.parse(l.timestamp);
+    if (l.type === "system" && l.subtype === "compact_boundary") compactedSince = true;
     if (l.type === "assistant" && l.message?.usage) {
       first = Math.min(first, t); last = Math.max(last, t);
       const id = l.message.id ?? l.uuid;
@@ -261,6 +267,17 @@ function scan(file, window, sub = false, info = {}) {
         day[m] = (day[m] ?? 0) + tok;
         if (m !== "<synthetic>") usd[dayKey(t)] = (usd[dayKey(t)] ?? 0) + apiCost(u, m);
         if (m !== "<synthetic>") {
+          const written = u.cache_creation_input_tokens ?? 0;
+          promptCache.input += u.input_tokens ?? 0; promptCache.write += written; promptCache.read += u.cache_read_input_tokens ?? 0;
+          // lost = read back under half of what the previous call held (big new tool results alone are growth, not a miss)
+          if (prevCall && ctx > 20000 && written > ctx / 2 && (u.cache_read_input_tokens ?? 0) < prevCall.ctx / 2) {
+            const gap = (t - prevCall.t) / 60000;
+            const why = compactedSince ? "after a compaction" : m !== prevCall.model ? "model switch"
+              : gap > 60 ? "idle over 1 h" : gap > 5 ? "idle 5-60 min" : "other";
+            const r = (promptCache.rewrites[why] ??= { n: 0, tokens: 0 });
+            r.n++; r.tokens += written;
+          }
+          prevCall = { t, model: m, ctx }; compactedSince = false;
           const e = [id, Math.floor(t / 60000), apiCost(u, m, true), tok];
           if (!PRICE.some(([re]) => re.test(m))) e.push(m);
           info.ledger.push(e);
@@ -343,7 +360,7 @@ function scan(file, window, sub = false, info = {}) {
   if (!msgs.size && !hooks.length) return null;
   const vals = [...msgs.values()];
   return {
-    waste, agentBg,
+    waste, agentBg, promptCache,
     helper: { toolCalls: helper.toolIds.size, bashCalls: helper.bashIds.size, noteAt: helper.noteAt, compacts: helper.compacts },
     tokens: vals.reduce((a, v) => a + v.tok, 0),
     calls: vals.length,
@@ -364,7 +381,7 @@ const useCache = !flag("no-cache");
 const cacheFile = opt("cache-file", path.join(os.homedir(), ".claude", "reports", "usage-scan-cache.jsonl"));
 // Raise SCAN_VERSION by hand whenever an edit changes what a parsed file yields (a pattern, a field, a price); a
 // comment or layout edit leaves it. The time zone is part of the version because the cached days are local dates.
-const SCAN_VERSION = 4;
+const SCAN_VERSION = 6;
 const CACHE_VERSION = `${SCAN_VERSION}|${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
 // The cache file's lines, read in chunks: the file is hundreds of MB, past what one string can hold
 function* cacheLines(file) {
@@ -506,7 +523,7 @@ for (const proj of fs.readdirSync(root, { withFileTypes: true })) {
       }
     }
     if (!main && !subs.length) continue;
-    const m = main ?? { waste: emptyWaste(), tokens: 0, calls: 0, maxContext: 0, firstContext: 0, models: {}, days: {}, usd: {}, tools: {}, skills: {}, agents: {}, workers: [], hooks: [], title: "" };
+    const m = main ?? { waste: emptyWaste(), promptCache: { input: 0, write: 0, read: 0, rewrites: {} }, tokens: 0, calls: 0, maxContext: 0, firstContext: 0, models: {}, days: {}, usd: {}, tools: {}, skills: {}, agents: {}, workers: [], hooks: [], title: "" };
     sessions.push({
       project: proj.name, id, ...m,
       subagents: subs,
@@ -555,6 +572,20 @@ const use = {
   over200k: sessions.filter((s) => s.maxContext > 200e3).length,
   over300k: sessions.filter((s) => s.maxContext > 300e3).length,
 };
+// Prompt cache over main chats and subagents; hitRate = share of the input read from the cache
+const promptCache = { input: 0, write: 0, read: 0, rewrites: {} };
+for (const s of all) {
+  const c = s.promptCache;
+  promptCache.input += c.input; promptCache.write += c.write; promptCache.read += c.read;
+  for (const [why, r] of Object.entries(c.rewrites)) {
+    const t = (promptCache.rewrites[why] ??= { n: 0, tokens: 0 });
+    t.n += r.n; t.tokens += r.tokens;
+  }
+}
+{
+  const total = promptCache.input + promptCache.write + promptCache.read;
+  promptCache.hitRate = total ? Math.round((promptCache.read / total) * 1e4) / 1e4 : null;
+}
 // Project folders are paths with ":", "\" and "/" turned into "-"; drop the home folder or drive part
 const homeKey = os.homedir().replace(/[:\\/]/g, "-") + "-";
 const shortName = (p) => p === homeKey.slice(0, -1) ? "~" : (p.startsWith(homeKey) ? p.slice(homeKey.length) : p.replace(/^[A-Za-z]--(\w+-)?/, "")) || p;
@@ -759,6 +790,7 @@ const report = {
   bigHelpers,
   firstCallByProject,
   use,
+  promptCache,
   wasted,
   sessions: sessions.map((s) => ({
     project: s.project, name: shortName(s.project), id: s.id, title: s.title, first: s.first, last: s.last,
@@ -808,6 +840,11 @@ const U = report.use;
 const listOf = (o) => Object.entries(o).slice(0, 30).map(([k, v]) => `${k} ${v}`).join(", ") || "none";
 out.push(`- Models: ${Object.entries(U.models).map(([k, v]) => `${k.replace(/^claude-/, "")} ${M(v)} (${Math.round(v / (T.tokens || 1) * 100)}%)`).join(", ") || "none"}`);
 out.push(`- Session start (first call): median ${M(U.firstCall.median)}, largest ${M(U.firstCall.max)}. Sessions that grew past 200k: ${U.over200k}, past 300k: ${U.over300k}.`);
+{
+  const C = report.promptCache, all3 = C.input + C.write + C.read, share = (n) => `${(100 * n / (all3 || 1)).toFixed(1)}%`;
+  const rw = Object.entries(C.rewrites).sort((a, b) => b[1].tokens - a[1].tokens);
+  out.push(`- Prompt cache (main chats and subagents): ${share(C.read)} of the input read from the cache, ${share(C.write)} written to it, ${share(C.input)} uncached. Mid-session rewrites (a call after the first, context over 20k, that read back under half of the previous call's context and wrote over half of its own): ${sum(rw, ([, r]) => r.n)}, ${M(sum(rw, ([, r]) => r.tokens))} written; by cause: ${rw.map(([k, r]) => `${k} ${r.n} (${M(r.tokens)})`).join(", ") || "none"}.`);
+}
 out.push(`- Tool calls: ${listOf(U.tools)}`);
 out.push(`- Skills: ${listOf(U.skills)}`);
 out.push(`- Subagents: ${listOf(U.agents)}`);

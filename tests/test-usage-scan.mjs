@@ -308,6 +308,34 @@ check("quality: ten claims give rates (redo 5 of 10: every claim followed by an 
   fs.rmSync(cf, { force: true });
 }
 
+// Prompt cache: hit rate and mid-session rewrites by cause (the first call's write is never a rewrite)
+{
+  const cu = (inp, cw, cr) => ({ input_tokens: inp, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, output_tokens: 1 });
+  fs.mkdirSync(path.join(root, "C--Projects-pcache"));
+  write(path.join(root, "C--Projects-pcache", "c1.jsonl"), [
+    user(0, "start"),
+    asst(1, "c-1", cu(0, 30000, 0)), // session start: a write, not a rewrite
+    asst(2, "c-2", cu(0, 1000, 30000)), // normal growth
+    asst(100, "c-3", cu(0, 31000, 0)), // 98 min idle: cache expired
+    asst(110, "c-4", cu(0, 31000, 0)), // 10 min idle
+    { type: "system", subtype: "compact_boundary", timestamp: at(111) },
+    asst(112, "c-5", cu(0, 25000, 0)), // after a compaction
+    asst(113, "c-6", cu(0, 25000, 0), [], "claude-sonnet-5-5"), // model switch
+    asst(114, "c-7", cu(0, 15000, 0), [], "claude-sonnet-5-5"), // under 20k: not counted
+    asst(115, "c-8", cu(100, 0, 40000), [], "claude-sonnet-5-5"),
+    asst(116, "c-9", cu(0, 50000, 40100), [], "claude-sonnet-5-5"), // big tool results: growth, not a rewrite
+  ]);
+  const C = run("--project", "pcache", "--days", "10000").promptCache;
+  check("prompt cache: read, write, uncached", [C.input, C.write, C.read], [100, 208000, 110100]);
+  check("prompt cache: hit rate = read share of the input", C.hitRate, Math.round(110100 / 318200 * 1e4) / 1e4);
+  check("prompt cache: rewrites by cause", C.rewrites, {
+    "idle over 1 h": { n: 1, tokens: 31000 }, "idle 5-60 min": { n: 1, tokens: 31000 },
+    "after a compaction": { n: 1, tokens: 25000 }, "model switch": { n: 1, tokens: 25000 },
+  });
+  const md = execFileSync("node", [SCRIPT, "--root", root, "--cache-file", CACHE, "--project", "pcache", "--days", "10000"], { encoding: "utf8" });
+  check("prompt cache: line in the report", /Prompt cache .*34\.6% of the input read from the cache.*Mid-session rewrites .*: 4, 112k written/.test(md), true);
+}
+
 fs.rmSync(root, { recursive: true, force: true });
 fs.rmSync(CACHE, { force: true });
 console.log(`\n${pass}/${pass + fail} passed`);

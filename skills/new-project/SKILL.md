@@ -71,7 +71,7 @@ picks:
 | has a plan and multiple steps | The `planner` agent, then `/lead`, and Nimbalyst **Planning** trackers |
 
 Also add any project-specific helper routing, for example "summaries of `logs/` go to
-a `worker` subagent (Sonnet)". A design or plan is a good thing to get a second opinion on from
+a `worker` subagent". A design or plan is a good thing to get a second opinion on from
 a `worker` subagent before building.
 
 ## 4. Finish

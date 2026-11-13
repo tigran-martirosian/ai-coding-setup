@@ -113,7 +113,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   own message is let through once.
 - **A second opinion from a capped helper.**
   Before building from a design or a plan, say "get a second opinion on this". A `worker`
-  subagent (Sonnet, about 15 tool calls) reads it and answers, and its answer is checked.
+  subagent (about 15 tool calls) reads it and answers, and its answer is checked.
 
 ## When a chat is busy or long
 
@@ -135,8 +135,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   chose, and stays on it: the rules don't steer you to another
   model and Claude doesn't ask to switch. In the terminal that is `"model"` in
   `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
-- Sonnet uses less of the plan than Opus. Routine jobs still go to a Sonnet helper and to the free
-  workers whichever model you chat on.
+- Helpers run Opus as well, whichever model you chat on: a weaker model uses less of the plan but
+  needs more steering. Only mechanical bulk work (renames, bulk edits, scans) goes to a Sonnet helper.
 - Three folders start on Opus by themselves: `ask-anything`, `internet-search`, `claude-settings`.
 
 ## Your projects
@@ -226,7 +226,7 @@ something unrelated inside another project, Claude names the right folder and op
 
 - **`/setup-audit chat`: fit the setup to your real work.** It reads your recent chats on this computer,
   shows where Claude got in your way and which skills are missing, and sets up only what you tick.
-  The chat digests are read by `worker` subagents (Sonnet), which use some of your Claude
+  The chat digests are read by `worker` subagents, which use some of your Claude
   usage; the findings stay on this computer. Run it again after a few weeks of work.
 - **`/setup-audit full`: one review of how the work went.** Where the usage went, which model did the work, where the reasoning and the chats went wrong, what took too long or was answered too fast, and what keeps failing. It ends in a short list of options, each with the number behind it, and changes only what you tick.
 - **Adding Codex later.** If you get a ChatGPT subscription, say "add Codex" in a chat in this
@@ -238,6 +238,6 @@ something unrelated inside another project, Claude names the right folder and op
 ## What the rules take care of
 
 - Runs and checks things itself, and does not ask you to run a command it can run.
-- Sends big reading and searching to a cheaper model (a capped `worker` subagent), and keeps the thinking
+- Sends big reading and searching to a helper (a capped `worker` subagent on Opus), and keeps the thinking
   in the chat you are in.
 - Marks finished chats Complete on the board.

@@ -2,7 +2,7 @@
 // read-digests: prepares the reading of each digest that chat-scan.mjs wrote. For every digest it
 // writes <project>.task.md next to it: the path of the digest, the path of the findings file to write,
 // the fixed questions in reader-task.txt and the project's earlier-fix rows. It reads nothing itself:
-// the caller starts one `worker` subagent (Sonnet) per task file, and each writes
+// the caller starts one `worker` subagent per task file, and each writes
 // <project>.findings.md. Prints one line per project.
 //   node read-digests.mjs <digest folder> [--earlier <findings file>]
 // --earlier takes the findings-<date>.md of the last review: each ticked row of its "Decided" table is

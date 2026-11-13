@@ -1,7 +1,7 @@
 ---
 name: worker-full
 description: Same step worker with every tool and the CLAUDE.md files loaded. Costs about 34k more tokens to start, so only for a job that needs a skill, an MCP tool (browser, Nimbalyst) or the project's whole rulebook in its head. Otherwise use worker.
-model: sonnet
+model: opus
 effort: medium
 maxTurns: 80
 autoCompactWindow: 200000

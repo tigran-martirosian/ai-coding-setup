@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.103 (Nov 6, 2026): /watch works on Instagram links, the usage report shows how much of the input came from the prompt cache and what made it start over, and helpers now run Opus by default, with Sonnet only for mechanical bulk work.
 - 1.0.102 (Nov 6, 2026): A question form that names a file without its folder no longer gets a link to a file that is not there, and the usage dashboard ships with its design file (DESIGN.md) for anyone restyling it.
 - 1.0.101 (Nov 6, 2026): On macOS the check that an edited script was run reads Windows-style file paths correctly, and the tests pass there again.
 - 1.0.100 (Nov 6, 2026): The whole setup is rebuilt from shared parts so it breaks less, a new /untangle-codebase command does the same for your own projects, and a security pass closes holes: the OpenCLI read-only check can no longer be talked around, a claude.exe placed in a project folder is never run or handed to Nimbalyst, Git runs without a shell, and updates never drop to plain http. The chat and usage reports now cover 14 days, project settings in settings.local.json and parent folders count, extension installs stop with a clear message when Nimbalyst is missing, helpers handle background jobs and finished-job notices better, question forms are repaired instead of refused, and the homepage has a new film.

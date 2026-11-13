@@ -21,14 +21,13 @@ The brief gives you the request, the situation, the decisions already made and w
 
 | Helper | Model, effort | Starts with | For |
 |---|---|---|---|
-| `worker` | Sonnet, medium | file, shell and web tools; no CLAUDE.md, so the step names the commands it needs | a step the plan spells out fully: building, editing, testing or gathering |
-| `worker`, model `haiku` | Haiku | the same | mechanical steps: renames, bulk edits, scans |
-| `worker`, model `opus` | Opus, medium | the same | a step that needs judgment the plan can't hand over (below); write `OPUS BECAUSE: <reason>` |
-| `worker-full` | Sonnet, medium | every tool and the CLAUDE.md files | a step that needs a skill or an MCP tool (browser, Nimbalyst) |
+| `worker` | Opus, medium | file, shell and web tools; no CLAUDE.md, so the step names the commands it needs | every step by default: building, editing, testing, research, gathering |
+| `worker`, model `sonnet` | Sonnet, medium | the same | mechanical bulk with nothing to judge: renames, bulk edits, scans; write `SONNET BECAUSE: <reason>` |
+| `worker-full` | Opus, medium | every tool and the CLAUDE.md files | a step that needs a skill or an MCP tool (browser, Nimbalyst) |
 | `reviewer` | Opus, high, read-only | the request, the job list, the diff | one pass over the finished job |
 
 - Effort comes with the helper; a call can change the model only.
-- **Sonnet or Opus.** Sonnet when the row says exactly what to change and how to check it. Opus when getting it right takes judgment the plan can't hand over: a step inside tangled existing code you could not read in full, a failure whose cause nobody knows yet, or a design the plan leaves open on purpose. `OPUS BECAUSE:` names that concrete thing in this job; "could be tricky" or a rare edge case is no reason.
+- **Opus or Sonnet.** Opus by default: a weaker model saves usage, not work, and needs more steering. Sonnet only for mechanical bulk where every change is spelled out and a check proves it (renaming one word across 40 files, reformatting, a scan); `SONNET BECAUSE:` names that in this job. Building, research and anything a later step relies on stay on Opus. No Haiku.
 - **Plan for what the request and the code actually raise.** Leave out edge cases nobody has seen and nothing in the code points to; a step's Done when checks the real case, not every imaginable one.
 - Each worker has 80 turns and a 1-hour cache; the reviewer has 45. A follow-up to a worker that just finished costs far less than a new one, so small pieces on the same files are one step, and the next step on those files goes to the same worker when both budgets together stay under 80.
 - A worker cannot ask the user: it stops with a BLOCKED line and the session asks.

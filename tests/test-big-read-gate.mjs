@@ -104,10 +104,10 @@ for (const [name, want, ev] of cases) {
   if (got !== want) fail++;
   console.log(`${got === want ? "ok  " : "FAIL"} ${name}: ${got}`);
 }
-// The refusal text: a Sonnet worker subagent with a type, no Codex, no free worker, and a line count that fits the byte limit
+// The refusal text: a worker subagent on its own model with a type, no Codex, no free worker, and a line count that fits the byte limit
 const denyText = JSON.parse(spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: MID } }) }).stdout.toString()).hookSpecificOutput.permissionDecisionReason;
 for (const [name, ok] of [
-  ["text: subagent_type worker with model sonnet", /subagent_type: "worker", model: "sonnet"/.test(denyText)],
+  ["text: subagent_type worker on its own model (Opus), no sonnet", /subagent_type: "worker" \(Agent tool\)/.test(denyText) && !/model: "sonnet"/.test(denyText)],
   ["text: no ask.mjs or free worker", !/ask.mjs|free worker/.test(denyText)],
   ["text: no Codex", !/codex/i.test(denyText)],
   ["text: suggests a read that fits under 20 KB (66 lines)", /at most 6\d lines/.test(denyText)],

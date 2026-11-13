@@ -113,7 +113,7 @@ function deny(path, m) {
       : `1. Its lines are very long (about ${Math.round(perLine)} characters each): Grep with a narrow pattern (-o with some context), not a Read.`,
     IN_HELPER
       ? `2. To understand or summarise it, answer from targeted reads (Grep, then Read with offset/limit).`
-      : `2. To understand or summarise it, hand the reading to a subagent with subagent_type: "worker", model: "sonnet" (Agent tool), naming ${path} and one specific question, and keep only its answer. Ask for terse bullets, each starting with the line number.`,
+      : `2. To understand or summarise it, hand the reading to a subagent with subagent_type: "worker" (Agent tool), naming ${path} and one specific question, and keep only its answer. Ask for terse bullets, each starting with the line number.`,
     `   Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,
   ].join("\n");

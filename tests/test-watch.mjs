@@ -62,6 +62,20 @@ check("no video: usage", r.code === 2 && /usage:/.test(r.err), r.err);
 r = watch(path.join(tmp, "missing.mp4"));
 check("missing file: clear error", r.code === 1 && /not found/.test(r.err), r.err);
 
+// A link whose site gives no length (Instagram): a fake yt-dlp copies the test video as the download
+const fake = path.join(tmp, "fake-yt-dlp.mjs");
+fs.writeFileSync(fake, `import fs from "node:fs";
+const a = process.argv.slice(2);
+if (a.includes("--version")) process.exit(0);
+if (a.includes("-J")) { console.log(JSON.stringify({ title: "Reel", uploader: "someone" })); process.exit(0); }
+const o = a[a.indexOf("-o") + 1];
+if (o && o.includes("video.")) fs.copyFileSync(${JSON.stringify(video)}, o.replace("%(ext)s", "mp4"));
+`);
+const linkRun = spawnSync("node", [script, "https://www.instagram.com/reel/TEST123/"], { encoding: "utf8", env: { ...process.env, WATCH_HOME: home, YT_DLP: fake } });
+check("link without a length: exit 0", linkRun.status === 0, linkRun.stdout + linkRun.stderr);
+check("link without a length: says so, then measures 0:20", /length not given/.test(linkRun.stdout) && /Length: 0:20/.test(linkRun.stdout), linkRun.stdout);
+check("link without a length: 6 sheets to the end", /sheet_06\.jpg {2}0:18 to 0:20/.test(linkRun.stdout), linkRun.stdout);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

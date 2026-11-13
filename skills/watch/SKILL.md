@@ -18,7 +18,7 @@ A **sheet** is one picture of 9 stills in order, each with its time in the corne
    cover the whole video. When the question is only about what is said, add `--no-frames`: no video
    is downloaded.
 2. **Read cheaply.** Give the question, the transcript path and the sheet paths to one `worker`
-   subagent on `haiku`. Ask it for notes that each carry a time, text on screen quoted exactly, and
+   subagent. Ask it for notes that each carry a time, text on screen quoted exactly, and
    the stretches that deserve a close look. Read a transcript under about 300 lines yourself.
 3. **Look closely where it matters.** An overview shows one still every few seconds (the script says
    how many), so it shows what happens and never how something moves. For a move, a transition or
