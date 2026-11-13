@@ -27,16 +27,14 @@ Every 12 hours the setup asks GitHub whether a newer version is released ([hooks
 
 ## Three models
 
-![A search handed to the first free worker, the court of three models, and a lead session with child sessions](img/clip-models.gif)
-
-Searching and long reading go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Design and code stay with Claude. `worker-nudge` holds the agent to that: a search subagent is blocked and pointed at one command, [workers/ask.mjs](../workers/ask.mjs). That command tries the workers in order (Codex, then Antigravity, for local files and for the web), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single search subagents using 0.6 to 4.3 million tokens.
+Long reading of local files and a second opinion go to GPT and Gemini through their command-line tools, which run on my other subscriptions. Searching the web stays with Claude, which reads the source that knows the answer. Design and code stay with Claude. `worker-nudge` holds the agent to that: when an uncapped Explore, general-purpose or claude helper is about to start, it is refused and the agent is pointed at one command, [workers/ask.mjs](../workers/ask.mjs), for long local reading, or at the capped `worker` agent for other jobs. That command tries the workers in order (Codex, then Antigravity), skips one that is not installed, switched off or out of usage, prints which one answered and why another was skipped, and tells the agent to do the job itself when none can. So the setup works with either subscription, both or neither. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single helper subagents using 0.6 to 4.3 million tokens.
 
 ```mermaid
 flowchart TD
   me["Me<br>task, rules, review"]
   hooks["Hooks<br>check each tool call"]
   main["Claude Code<br>main session"]
-  ext["GPT (Codex CLI) and Gemini (Antigravity CLI)<br>search, long reading"]
+  ext["GPT (Codex CLI) and Gemini (Antigravity CLI)<br>long local reading, second opinions"]
   worker["worker subagent<br>routine edits"]
   me --> main
   hooks -.-> main
@@ -44,10 +42,53 @@ flowchart TD
   main --> worker
 ```
 
-- **The court.** For a hard question I ask all three with [skills/court](../skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. I read it and decide. For a piece of writing there is the reader court (`/court readers <file>`): a few readers with different jobs, say a recruiter, an engineer and an outsider, each read it alone and say how it lands with them.
+- **The court.** For a hard question or a claim I want tested, I ask all three with [skills/court](../skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. There is a quick court and a full one, and I pick at the start of each run. I read the verdict and decide. For a piece of writing there is the reader court (`/court readers <file>`): a few readers with different jobs, say a recruiter, an engineer and an outsider, each read it alone and say how it lands with them, and the chair sums up where they agree and what to change.
 - **The lead.** For a big task, [skills/lead](../skills/lead/SKILL.md) splits the work across child sessions in Nimbalyst, side by side when their files don't overlap, has a separate session review the result, sends the fixes back and reports what it checked.
+- **The blind review.** After a big piece of work, [skills/blind-review](../skills/blind-review/SKILL.md) (also `/blind-review`) hands it to fresh reviewers who see only the original request and the finished result, or only screenshots for a page or screen, never the author's reasoning. Code, a plan, a design, a text, a data result or a screen all work. The reviewers rank the flaws, the author fixes the serious ones, and a new reviewer looks again, up to three rounds, until nothing serious is left.
 
 The rules I give the models are described in [docs/setup.md](setup.md).
+
+## Hooks
+
+![A reply that links a page it never opened is sent back, then three more checks](img/clip-checks.gif)
+
+Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 24 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook.
+
+### Checks that can send a step back
+
+| Hook | What it sends back |
+|---|---|
+| `link-gate` | A reply with a link the agent remembered or saw in search results but never opened |
+| `question-other` | A question with no box to type my own answer, a "look at this" question with no link to it, or a recommended option that says "Checked:" when no file read or search in the log matches it |
+| `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder |
+| `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`) |
+| `code-review-gate` | A turn that changed three or more code files and is about to end without a `/code-review` |
+| `picture-in-project` | A picture shown in the chat from a path that can be cleaned up later or that Nimbalyst can't open enlarged; it copies the picture to the project's `shown` folder and gives the path to use |
+| `run-yourself` | A reply that ends with "now open a terminal and run this"; the agent runs it itself |
+| `opencli-readonly` | Posting, liking or following from my logged-in accounts through OpenCLI |
+| `web-answer-gate` | A reply that says a version or release "may not be available" or "could not be confirmed" when nothing was checked, and a reply that lists two things when I asked for ten; the message names the lookup that answers it |
+| `web-worker-gate` | A web search handed to a free worker. Web research stays with Claude, which reads the source that knows the answer: the project's own page, or the site's catalogue API |
+| `slow-output-gate` | A command that runs for minutes with its output piped straight into `head` or `tail`, so a cut-off part means running it again; the output is saved to a file first |
+
+### Hooks that keep sessions cheap and safe
+
+| Hook | What it does |
+|---|---|
+| `big-read-gate` | Large files are read in parts, not whole |
+| `worker-nudge` | Sends long local reading to a free worker if one is set up, and other helper jobs to the capped `worker` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
+| `loop-warn` | Tells the agent when it repeats the same call |
+| `repeat-guard` | Refuses a retry of the same call after the same error came back three times |
+| `sql-guard` | Asks before DROP, TRUNCATE, or DELETE and UPDATE without WHERE |
+| `cold-cache` | Warns when you come back to a big session after the prompt cache has expired |
+| `context-guard` | Warns when a session passes 150k tokens: with a warm cache it says to compact with a focus line, and after an hour idle it says to move to a fresh session. It shows one more line at 200k |
+| `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
+| `decided-quote` | Refuses a helper's brief that calls something decided without quoting your words |
+| `board-nudge` | Offers a board cleanup when many sessions have piled up |
+| `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
+| `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard |
+| `plan-usage-logger` | Saves the plan percentages every 5 minutes for the forecast |
+
+A hook that hits an error lets the call through. `link-gate` knows that a page was opened, not what it said.
 
 ## Sessions
 
@@ -107,7 +148,7 @@ Five extensions for Nimbalyst. The first three are written in TypeScript and Rea
 
 - [usage-plan](../extensions/usage-plan/README.md) is the ring and the pop-up from the usage section.
 - [read-aloud](../extensions/read-aloud/README.md) reads replies aloud with Kokoro, a voice model that runs on the computer. It cleans a reply for speech (no code, no Markdown), and a Python worker speaks it sentence by sentence.
-- [commands](../extensions/commands/README.md) puts seven commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report, new project and update setup. In the `claude-settings` folder it also shows chat review. A press starts a new session in the open project with that command.
+- [commands](../extensions/commands/README.md) puts seven commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report, new project and update setup. In the `claude-settings` folder it also shows chat review and full review, nine in all. A press starts a new session in the open project with that command.
 - [ink-themes](../extensions/ink-themes/README.md) adds eleven colour themes with their own fonts and rounder shapes, eight dark and three light, under one **Ink themes** row of the Theme menu.
 - [agents-panel](../extensions/agents-panel/README.md) makes the **Agents & commands** list in the right sidebar readable: running helpers and commands on top, finished ones folded behind one line, a taller list you can resize, and each row titled in plain words (a command by its `# WHAT THIS DOES:` line). It also keeps the commit panel below it inside the sidebar when the sidebar is narrow.
 
@@ -123,13 +164,4 @@ I speak most of my prompts. [Handy](https://handy.computer) types what I say whe
 winget install --id cjpais.Handy -e
 ```
 
-On a Mac: `brew install --cask handy`. The settings I use (on Windows the full install sets them):
-
-| Setting | Value |
-|---|---|
-| Model | Parakeet V3 (`parakeet-tdt-0.6b-v3`, the 8-bit file), kept loaded |
-| Shortcut | Hold Right Alt to talk |
-| Output | Typed directly, with a space after it; the clipboard is left alone |
-| Clean-up | Filler words removed, silence cut |
-| Custom words | Names the model gets wrong: Nimbalyst, Claude, Codex, Gemini, handoff |
-| Start | With Windows, hidden in the tray |
+On a Mac: `brew install --cask handy`. On Windows the full install sets Handy up.

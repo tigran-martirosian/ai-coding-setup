@@ -1,5 +1,5 @@
 {
-  "version": "1.0.69",
+  "version": "1.0.70",
   "date": "2026-10-30",
-  "summary": "A long-running session past 300k tokens is now told to finish the step it is on and stop, and another session can no longer pile new work onto it, so one job can't quietly eat your usage."
+  "summary": "A new tour film and a rewritten README show the whole setup, node install.mjs --uninstall takes it out again, the licence now allows use at work, /blind-review checks any big piece of work and not only pictures, and /btw can name the session a note goes to."
 }

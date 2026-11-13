@@ -1,6 +1,6 @@
 # Blind review rubric
 
-Reviewers get sections 2 to 5 and the pictures, nothing else: no code, no author reasoning.
+Picture reviewers get sections 2 to 5 and the pictures, nothing else: no code, no author reasoning. Reviewers of work that is not a picture get sections 6 and 7 (7 only in a follow-up round), the request and the result.
 
 ## 1. Severity
 
@@ -93,6 +93,41 @@ Follow-up review. Claimed fixed: [check # + where + one line each]. You get BEFO
 Then the DENSITY answer as in round 1.
 ```
 
-## 6. Design-doc reviewer (new system or big change, not visual)
+## 6. Reviewer for work that is not a picture
 
-The reviewer gets the doc and a short word list of the product's terms, nothing more. Questions: does the design hold together, what breaks at the edges, what is missing, what is the riskiest assumption. Findings are rated serious / major / minor; the author acts on serious and major only.
+Covers code, a design doc, a plan, written text, a data or research result, a review report. The reviewer gets the original request, the finished result and a short word list of the product's terms, nothing more: no author reasoning, drafts or chat.
+
+Every reviewer answers these, from the result and the request:
+- Does it do what the request asked? List each ask and mark it done / partly / missing.
+- Does it hold together? Contradictions, steps that depend on something not there.
+- What breaks at the edges? Code: wrong or missing handling of empty, huge, malformed input and failed calls, and tests that do not test the claim. Data: numbers that do not add up, a method that cannot give this answer. Text and plans: claims without a source, a reader who gets lost.
+- What is missing, and what is in it that nobody asked for?
+- What is the riskiest assumption?
+
+Lenses, one per reviewer when two are used: **A, what breaks** (correctness, edges, failure paths, the riskiest assumption); **B, fit and reader** (every ask answered, what is missing or extra, how it reads to someone new). One reviewer covers both.
+
+Rules: judge the result, not the effort. Every finding quotes the place (file and line, section, row), says what goes wrong and for whom, gives one concrete fix, and says what the fix could break. A claim of fact is marked FALSE only with a quoted contradicting source, otherwise UNVERIFIED. At most 12 findings, worst first; "no issues" is a good answer; unsure = say so and rate minor. No scores, no praise, no "start over".
+
+Severity: **serious** (wrong, unusable or misleading: the result fails the request or breaks in ordinary use), **major** (a reader or user notices soon and loses trust: a missed ask, a real edge case, an unsupported claim), **minor** (a second look finds it; another valid choice). The author acts on serious and major only.
+
+Output format:
+
+```
+FINDINGS (worst first)
+1. [serious|major|minor] where (file:line, section, row) - what goes wrong - for whom - fix (could break: ...)
+ASKS: each ask in the request - done / partly / missing
+RISKIEST ASSUMPTION: one line.
+OUT-OF-SCOPE: one line each, no severity.
+```
+
+## 7. Follow-up round for work that is not a picture (fresh reviewer; paste above section 6's output format)
+
+```
+Follow-up review. Claimed fixed: [finding + where + one line each]. You get the BEFORE and the AFTER result and the original request.
+(a) Each claimed fix: FIXED / NOT FIXED / PARTLY, with the place.
+(b) Did a fix break something? Where and how bad.
+(c) Overall: BETTER / SAME / WORSE than before, and why.
+(d) Any new serious or major finding. Do not report minor ones.
+(e) Do not reopen: [accepted-as-is list]. Do not re-raise anything out of scope.
+Then the ASKS answer as in round 1.
+```

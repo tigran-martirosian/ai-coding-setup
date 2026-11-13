@@ -21,6 +21,10 @@
 // that the updater (skills/update-setup/update.mjs) can run this again without asking anything.
 //   node install.mjs            install
 //   node install.mjs --dry-run  print what it would do and change nothing
+//   --uninstall                 take the setup out again: its hook wiring leaves settings.json, its files
+//                               go unless changed, a .before-install copy is put back; the project folders,
+//                               plugins and extensions stay (the run says how to remove them); with --dry-run
+//                               it only prints what it would do
 //   --projects <folder>         where the project folders go (default: Projects in the home folder;
 //                               the folder given once is remembered for later runs)
 //   --codex yes|no              whether the Codex CLI is used (default: the answer given before, else
@@ -128,14 +132,19 @@ const which = have.codex && have.agy ? "Codex and Antigravity" : have.codex ? "C
 
 // A dated copy of a file as it is now, made before it is changed. A copy already made today stays as
 // it is (it is the older one); a second change on the same day gets -2, -3, ...
-function keepCopy(file) {
+// user: the file being copied is the user's own (not one the setup wrote earlier). Such a copy goes on
+// record in state.userCopies, and only those are put back by --uninstall: every update also copies the
+// setup's own older files, and those must not come back.
+const userCopies = new Set(state.userCopies || []);
+function keepCopy(file, user = false) {
   const base = `${file}.before-install-${today}`;
   let copy = base;
   for (let n = 2; fs.existsSync(copy); n++) {
-    if (fs.readFileSync(copy).equals(fs.readFileSync(file))) return path.basename(copy);
+    if (fs.readFileSync(copy).equals(fs.readFileSync(file))) { if (user) userCopies.add(fwd(copy)); return path.basename(copy); }
     copy = `${base}-${n}`;
   }
   if (!DRY) fs.copyFileSync(file, copy);
+  if (user) userCopies.add(fwd(copy));
   return path.basename(copy);
 }
 // state.files: each of the setup's own files as a run last wrote it, by full path. One that no longer
@@ -164,7 +173,8 @@ function put(to, data, { keep = false, own = false } = {}) {
     tally.yours.push(short(to));
     return say(`kept yours ${fwd(to)} (it differs from the setup's version)`);
   }
-  const backup = there ? keepCopy(to) : null;
+  // The user's own unless it is exactly what the setup last wrote there (or it can't be told: no record)
+  const backup = there ? keepCopy(to, onRecord && !(own && filesWritten[fwd(to)] === sha(now))) : null;
   if (!DRY) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.writeFileSync(to, data);
@@ -192,6 +202,150 @@ function fit(rel, data) {
 }
 const repoText = (rel) => fit(rel, fs.readFileSync(path.join(REPO, rel))).toString("utf8").replace(/\r\n/g, "\n");
 
+const RETIRED = ["build-nudge.mjs", "turn-cap.mjs"];
+// The folder each extension (named as in the repo) has in Nimbalyst's extensions folder
+const EXT_FOLDER = { "ink-themes": "inktheme", "agents-panel": "agentspanel", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud" };
+// The allow-rules the setup adds to Antigravity's settings; state.agyAdded records which ones it really added
+const AGY_RULES = ["read_url(*)", `read_file(${fwd(PROJECTS)})`, `read_file(${fwd(CLAUDE)})`];
+let agyAdded = [...(state.agyAdded || [])];
+
+// ---- --uninstall: takes the setup out again and ends the run
+if (args.includes("--uninstall")) {
+  if (!fs.existsSync(stateFile)) { console.log(`${fwd(stateFile)} is missing: there is no record of an install in ${fwd(CLAUDE)}, so nothing was removed.`); process.exit(1); }
+  // A setup put in place before files were on record can't say which files are its own: nothing is changed
+  if (state.version && !("files" in state)) {
+    console.log(`${fwd(stateFile)} has no record of the files this setup wrote (it comes from an older version), so nothing was removed. Run the update first (node ${fwd(path.join(REPO, "install.mjs"))}, or /update-setup in a chat), which writes that record, then run --uninstall again.`);
+    process.exit(1);
+  }
+  const root = fwd(CLAUDE).toLowerCase() + "/";
+  const recorded = state.files || {};
+  const kept = [];
+  const removed = new Set();
+  // 1. the hook wiring: an entry whose script is one of the setup's files (or a retired one) leaves settings.json
+  const owned = new Set([...Object.keys(recorded), ...files.map((f) => fwd(path.join(CLAUDE, f)))].map((f) => f.toLowerCase()));
+  const scriptsOf = (h) => [...String(h.command || "").matchAll(/"([^"]+\.(?:mjs|cjs|js|sh|py|ps1))"|(\S+\.(?:mjs|cjs|js|sh|py|ps1))(?=\s|$)/g)]
+    .map((m) => fwd((m[1] || m[2]).replace(/^~(?=[\\/])/, home)).toLowerCase());
+  const setups = (h) => scriptsOf(h).some((s) => owned.has(s) || RETIRED.some((n) => s === `${root}hooks/${n}`));
+  const unwire = (target, where = "") => {
+    const before = JSON.stringify(target);
+    for (const [event, groups] of Object.entries(target.hooks || {})) {
+      if (!Array.isArray(groups)) continue;
+      let gone = 0;
+      target.hooks[event] = groups.filter((g) => {
+        const n = (g.hooks || []).length;
+        for (const h of (g.hooks || []).filter(setups)) say(`hook unwired: ${event} ${path.basename(scriptsOf(h)[0] || "")}${where}`);
+        g.hooks = (g.hooks || []).filter((h) => !setups(h));
+        gone += n - g.hooks.length;
+        return !n || g.hooks.length;
+      });
+      if (gone && !target.hooks[event].length) delete target.hooks[event];
+    }
+    if (target.hooks && !Object.keys(target.hooks).length && JSON.stringify(target) !== before) delete target.hooks;
+  };
+  const settingsBefore = JSON.stringify(settings);
+  unwire(settings);
+  if (JSON.stringify(settings) !== settingsBefore) putJson(settingsFile, settings, settingsBefore);
+  // 1b. the project folders keep their files, but their settings lose the entries that start a script in
+  // ~/.claude (those scripts go below), and the picture skill's link into ~/.claude goes
+  const pictureHomes = JSON.parse(fs.readFileSync(path.join(REPO, "projects", "homes.json"), "utf8")).picture.homes;
+  for (const name of HOMES) {
+    const s = homeSettings[name];
+    const was = JSON.stringify(s);
+    unwire(s, ` in ${name}`);
+    if (JSON.stringify(s) !== was) putJson(path.join(PROJECTS, name, ".claude", "settings.json"), s, was);
+    const link = path.join(PROJECTS, name, ".claude", "skills", "picture");
+    if (pictureHomes.includes(name) && fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      if (!DRY) { if (WIN) fs.rmdirSync(link); else fs.unlinkSync(link); }
+      say(`removed the link ${fwd(link)} (it pointed into ${fwd(CLAUDE)})`);
+    }
+  }
+  // 2. the files: removed while they are what a run wrote; one that differs, or has no record, stays
+  const drop = (file) => {
+    if (!DRY) fs.rmSync(file);
+    removed.add(fwd(file));
+    say(`removed ${fwd(file)}`);
+  };
+  for (const [file, hash] of Object.entries(recorded)) {
+    if (!fwd(file).toLowerCase().startsWith(root) || !fs.existsSync(file)) continue; // the project folders are not touched
+    if (sha(fs.readFileSync(file)) === hash) drop(file); else kept.push(`${short(file)} (it differs from what the setup wrote)`);
+  }
+  for (const f of files.map((rel) => path.join(CLAUDE, rel))) {
+    if (!(fwd(f) in recorded) && fs.existsSync(f)) kept.push(`${short(f)} (no record that the setup wrote it)`);
+  }
+  const rules = path.join(CLAUDE, "CLAUDE.md");
+  if (fs.existsSync(rules)) {
+    if (state.rules && sha(read(rules)) === state.rules) drop(rules); else kept.push(`CLAUDE.md (the rules; they differ from what the setup wrote)`);
+  }
+  for (const name of ["codex", "agy"]) {
+    const off = path.join(WORKERS, `${name}.off`);
+    if (fs.existsSync(off) && fs.readFileSync(off, "utf8").startsWith("Not used on this computer.")) drop(off);
+  }
+  if (!DRY) for (const file of removed) {
+    for (let d = path.dirname(file); fwd(d).toLowerCase().startsWith(root); d = path.dirname(d)) {
+      if (!fs.existsSync(d)) continue; // already taken out with an earlier file
+      if (fs.readdirSync(d).length) break;
+      fs.rmdirSync(d);
+    }
+  }
+  // 3. the .before-install copies: the oldest one that is on record as the user's goes back to its name when
+  // nothing of the user's is there. A copy of a setup file an update replaced is the setup's older version, not theirs.
+  const BACKUP = /^(.*)\.before-install-(\d{8})(?:-(\d+))?$/;
+  const userCopy = new Set((state.userCopies || []).map((c) => fwd(c).toLowerCase()));
+  const isUsers = (copy) => userCopy.has(fwd(copy).toLowerCase());
+  const copies = [
+    ...fs.readdirSync(CLAUDE).filter((n) => n.startsWith("CLAUDE.md.before-install-")).map((n) => path.join(CLAUDE, n)),
+    ...["hooks", "agents", "skills", "workers", "shared-skills"].flatMap((d) => filesIn(path.join(CLAUDE, d)).map((f) => path.join(CLAUDE, d, f))),
+  ].filter((f) => BACKUP.test(path.basename(f)));
+  const byTarget = new Map();
+  for (const copy of copies) {
+    const [, base, date, n] = path.basename(copy).match(BACKUP);
+    const target = path.join(path.dirname(copy), base);
+    byTarget.set(target, [...(byTarget.get(target) || []), { copy, key: `${date}-${String(n || 1).padStart(3, "0")}` }]);
+  }
+  for (const [target, list] of byTarget) {
+    list.sort((a, b) => a.key.localeCompare(b.key));
+    const first = list.findIndex(({ copy }) => isUsers(copy));
+    list.forEach(({ copy }, i) => {
+      if (i === first && (removed.has(fwd(target)) || !fs.existsSync(target))) {
+        if (!DRY) fs.renameSync(copy, target);
+        return say(`restored ${fwd(target)} from ${path.basename(copy)}`);
+      }
+      kept.push(`${short(copy)} (${i === first ? "a file with that name is there" : isUsers(copy) ? "a later copy" : "no record that it is yours: it may be an older version of the setup's own file"})`);
+    });
+  }
+  // 4. Antigravity's allow-rules: the ones the install recorded as added go; without a record they are only named
+  const agyFile = path.join(home, ".gemini", "antigravity-cli", "settings.json");
+  if (fs.existsSync(agyFile)) {
+    const agy = readSettings(agyFile);
+    const allow = agy.permissions?.allow || [];
+    const added = (state.agyAdded || []).filter((r) => allow.includes(r));
+    if (added.length) {
+      agy.permissions.allow = allow.filter((r) => !added.includes(r));
+      putJson(agyFile, agy, null);
+      say(`removed the allow rules the setup added from ${fwd(agyFile)}: ${added.join(", ")}`);
+    } else if (!state.agyAdded && AGY_RULES.some((r) => allow.includes(r))) {
+      kept.push(`${fwd(agyFile)}: allow rules (${AGY_RULES.filter((r) => allow.includes(r)).join(", ")}) that the setup may have added; remove them by hand if they are not yours`);
+    }
+  }
+  if (!DRY) fs.rmSync(stateFile);
+  say(`removed ${fwd(stateFile)} (the record of this install)`);
+  // 5. what stays, and how to take it out
+  say(`Kept, not touched:`);
+  say(`  your files in the project folders (they may hold your work): ${fwd(PROJECTS)}; delete a folder by hand when it is not needed`);
+  say(`  ${fwd(settingsFile)}: everything except the hook wiring, including the permission rules, the model and the language the setup set; edit them by hand`);
+  for (const k of kept) say(`  ${k}`);
+  if (fs.existsSync(path.join(CLAUDE, "setup-logs"))) say(`  ${fwd(path.join(CLAUDE, "setup-logs"))}: what each run printed; delete the folder when it is not needed`);
+  const stateCopies = fs.readdirSync(CLAUDE).filter((n) => /^(settings\.json|setup-state\.json)\.before-install-/.test(n));
+  if (stateCopies.length) say(`  copies of the settings and of the record, made before a change (${stateCopies.join(", ")}); delete them when they are not needed`);
+  const plugins = state.plugins || [];
+  const pluginNames = plugins.filter((n) => n !== "find-skills");
+  if (pluginNames.length) say(`  plugins (${pluginNames.join(", ")}); remove one with: claude plugin uninstall <name>`);
+  if (plugins.includes("find-skills")) say(`  the find-skills skill (fetched with npx, not a plugin); remove it with: npx skills remove find-skills -g, or delete ${fwd(path.join(CLAUDE, "skills", "find-skills"))} and ${fwd(path.join(home, ".agents", "skills", "find-skills"))} by hand`);
+  if (Object.keys(state.extensions || {}).length) say(`  Nimbalyst extensions (${Object.keys(state.extensions).map((n) => EXT_FOLDER[n] || n).join(", ")}); delete each of these folders under Nimbalyst's extensions folder (@nimbalyst/electron/extensions) and restart Nimbalyst`);
+  say(DRY ? "Nothing was changed." : "Done. Restart Claude Code so it stops loading the hooks.");
+  process.exit(0);
+}
+
 // ---- 1. the files for ~/.claude
 for (const rel of files) {
   let data = fs.readFileSync(path.join(REPO, rel));
@@ -215,7 +369,8 @@ if (have.agy) {
   const agySettings = readSettings(agyFile);
   const was = JSON.stringify(agySettings);
   const allow = agySettings.permissions?.allow || [];
-  const want = ["read_url(*)", `read_file(${fwd(PROJECTS)})`, `read_file(${fwd(CLAUDE)})`].filter((r) => !allow.includes(r));
+  const want = AGY_RULES.filter((r) => !allow.includes(r));
+  agyAdded = [...new Set([...agyAdded, ...want])]; // on record, so --uninstall takes out only these
   agySettings.permissions = { ...agySettings.permissions, allow: [...allow, ...want] };
   putJson(agyFile, agySettings, want.length ? null : was);
 }
@@ -231,7 +386,7 @@ if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), f
 const OLD_MATCHERS = { "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput"] };
 // Hooks the setup retired (their files are gone): an install that has one wired from ~/.claude loses
 // that entry on the next run. The same script from another folder is the user's own and stays.
-const RETIRED = ["build-nudge.mjs", "turn-cap.mjs"];
+// (RETIRED itself is defined above the uninstall block, which needs it too.)
 function retire(target) {
   const root = fwd(CLAUDE).toLowerCase();
   const retired = (h) => {
@@ -341,13 +496,13 @@ const marks = { rules: state.rules, rulesOffered: state.rulesOffered };
 if (mine === null) { writeRules(built); say(`rules: wrote ${fwd(rulesFile)} (workers: ${which})`); }
 else if (mine === built) say(`rules: unchanged ${fwd(rulesFile)} (workers: ${which})`);
 else if (args.includes("--replace-rules") || replaceAll || state.rules === sha(mine)) {
-  const backup = keepCopy(rulesFile);
+  const backup = keepCopy(rulesFile, onRecord && state.rules !== sha(mine));
   writeRules(built);
   say(`rules: replaced ${fwd(rulesFile)} (workers: ${which}; old copy: ${backup})`);
 } else {
   if (mine === swapped) say(`rules: unchanged ${fwd(rulesFile)} (workers: ${which})`);
   else if (swapped !== null) {
-    const backup = keepCopy(rulesFile);
+    const backup = keepCopy(rulesFile, onRecord);
     writeRules(swapped);
     say(`rules: wrote the worker section of ${fwd(rulesFile)} (${which}); the rest is left as it was (old copy: ${backup})`);
   } else {
@@ -448,6 +603,8 @@ for (const name of HOMES) {
 // its version, the answers about the workers and Node, and what the rules and notes files were written as
 const version = JSON.parse(fs.readFileSync(path.join(REPO, "version.json"), "utf8")).version;
 const nextState = { ...state, projects: PROJECTS, repo: REPO, version, ...marks, written, files: filesWritten };
+if (userCopies.size) nextState.userCopies = [...userCopies].sort();
+if (agyAdded.length) nextState.agyAdded = agyAdded;
 for (const name of ["codex", "agy"]) if (answer(name) !== null) nextState[name] = answer(name);
 if (nodeFile) nextState.node = nodeFile;
 if (LANG) nextState.language = LANG;
@@ -465,7 +622,7 @@ const extDir = path.join(REPO, "extensions");
 const extensions = fs.existsSync(extDir) ? fs.readdirSync(extDir).filter((n) => fs.existsSync(path.join(extDir, n, "package.json"))) : [];
 const appData = process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "";
 const extHome = path.join(appData, "@nimbalyst", "electron");
-const EXT_FOLDER = { "ink-themes": "inktheme", "agents-panel": "agentspanel", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud" };
+// (EXT_FOLDER, the folder name of each extension, is defined above the uninstall block, which needs it too.)
 // --home is another home folder (the tests), where the real Nimbalyst is not the one to install into
 const wantExt = opt("extensions") === "no" ? false : opt("extensions") === "yes" ? true : opt("home") === null;
 const sourceOf = (dir, base = dir) => fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !["node_modules", "dist"].includes(e.name))

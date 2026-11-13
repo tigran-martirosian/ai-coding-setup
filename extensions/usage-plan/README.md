@@ -9,7 +9,7 @@ is a style rule on the app's button (`src/gutter.ts`). If an app update changes 
 shows instead.
 
 The numbers come from `~/.claude/skills/usage-report/plan-ahead.mjs --json`, refreshed every 5 minutes
-(`src/store.ts`). That script is part of my usage tooling and is not in this repository; the extension
+(`src/store.ts`). That script is [skills/usage-report/plan-ahead.mjs](../../skills/usage-report/plan-ahead.mjs), part of the usage-report skill in this repository; the extension
 draws what it returns.
 
 ## Build and install

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// ask: one command for gathering jobs (web research, reading long files) that uses whichever free
+// ask: one command for gathering jobs (reading long files, second opinions) that uses whichever free
 // worker this person has, in order, and moves to the next one when a worker is missing, signed out or
 // out of usage. It always says which worker answered and why an earlier one was skipped.
 //
-//   ask.mjs [--web] [--think] "<short task>"
-//   ask.mjs [--web] [--think] <path to a text file holding the task>
+//   ask.mjs [--think] "<short task>"
+//   ask.mjs [--think] <path to a text file holding the task>
 //   ask.mjs --status                      which workers are usable right now, and why not
 //
-// --web    web research. Order: Codex, then Antigravity (Gemini login, search_web and read_url).
+// --web    retired: this command refuses it, web research is Claude's own.
 // (none)   local files and code. Order: Codex, then Antigravity (Gemini login). Name the files in the task.
 //
 // Antigravity headless needs allow-rules in ~/.gemini/antigravity-cli/settings.json: read_url(*) for
@@ -224,7 +224,7 @@ if (web) {
 }
 
 if (args.length !== 1 || !args[0]) {
-  note(`give one task, as text or as the path of a text file. Usage: ask.mjs [--web] [--think] "<task>"`);
+  note(`give one task, as text or as the path of a text file. Usage: ask.mjs [--think] "<task>"`);
   process.exit(2);
 }
 let task = args[0];

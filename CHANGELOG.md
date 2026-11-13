@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.70 (Oct 30, 2026): A new tour film and a rewritten README show the whole setup, node install.mjs --uninstall takes it out again, the licence now allows use at work, /blind-review checks any big piece of work and not only pictures, and /btw can name the session a note goes to.
 - 1.0.69 (Oct 30, 2026): A long-running session past 300k tokens is now told to finish the step it is on and stop, and another session can no longer pile new work onto it, so one job can't quietly eat your usage.
 - 1.0.68 (Oct 30, 2026): Long lines in chat tool cards now wrap instead of running off the card, and the Note button sends pasted images and files along with the note, works in a new tab, and says Sent only once the note has arrived. The free worker takes a long task as a file, so it no longer fails to start on Windows, and tries once more when a run ends on a tool it may not use. The web-answer and run-yourself checks raise far fewer false alarms, and voice typing now pastes the dictation with Ctrl+V instead of typing it key by key, so a dictation that lands in the wrong place no longer fires a shortcut for every letter.
 - 1.0.67 (Oct 30, 2026): The Usage Plan panel no longer shows a "Command failed" line on a long chat history: it gets its numbers in under a second, and a refresh that does fail says so in a plain sentence.
