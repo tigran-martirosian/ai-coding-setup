@@ -59,26 +59,26 @@ let fail = 0;
 const check = (name, ok, detail = "") => { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : `\n     ${detail}`}`); };
 const show = (r) => JSON.stringify({ code: r.code, out: r.out.slice(0, 300), err: r.err.slice(0, 400) });
 
+// The web route is retired: --web is refused before any worker is tried, whatever is installed, so a
+// skill or a script cannot route round the web-worker-gate hook.
 let r = ask(["--web", "who won"], { have: ["codex", "agy"], env: { FAKE_CODEX: "ok", FAKE_AGY: "ok" } });
-check("web: Codex answers, with its search flag", r.code === 0 && r.out.includes("codex answer") && r.out.includes("--search") && r.err.includes("answered by Codex"), show(r));
+check("web: refused even with both workers ready", r.code === 2 && r.out === "" && /--web is retired/.test(r.err), show(r));
+check("web: no worker was run", !r.out.includes("codex answer") && !r.out.includes("agy answer"), show(r));
+check("web: the refusal names the version checker", r.err.includes("versions.mjs"), show(r));
+check("web: the refusal names WebFetch and the extended search", r.err.includes("WebFetch") && r.err.includes("extended"), show(r));
+check("web: the refusal says local files still work", /drop --web/.test(r.err), show(r));
+check("web: refusing costs no cooldown file", !existsSync(join(r.home, "cooldown.json")), show(r));
 
-r = ask(["--web", "who won"], { have: ["codex", "agy"], env: { FAKE_CODEX: "limit", FAKE_AGY: "ok" } });
-check("web: Codex out of usage: the reason is named and Antigravity answers with its web rules",
-  r.code === 0 && /codex failed \(out of usage\)/.test(r.err) && r.err.includes("answered by Antigravity")
-  && /-p Rules for this run:[\s\S]*search_web[\s\S]*read_url[\s\S]*\n\nwho won --mode/.test(r.out), show(r));
-check("web: Codex gets a cooldown", existsSync(join(r.home, "cooldown.json")) && "codex" in JSON.parse(readFileSync(join(r.home, "cooldown.json"), "utf8")));
-r = ask(["--web", "who won"], { have: ["agy"], env: { FAKE_AGY: "fail" } });
-check("web: no worker answers: exit 3 and Claude is pointed to", r.code === 3 && r.out === "" && r.err.includes('"worker" subagent'), show(r));
-
-r = ask(["--web", "who won"], { have: ["codex"], env: { FAKE_CODEX: "ok" }, files: { "cooldown.json": JSON.stringify({ codex: Date.now() + 60000 }) } });
-check("web: a worker in cooldown is skipped", r.code === 3 && /codex skipped: out of usage/.test(r.err), show(r));
-r = ask(["--web", "who won"], { have: ["codex"], env: { FAKE_CODEX: "ok" }, files: { "cooldown.json": JSON.stringify({ codex: Date.now() - 1000 }) } });
-check("web: a cooldown that is over no longer counts", r.code === 0 && r.out.includes("codex answer"), show(r));
-
-r = ask(["--web", "who won"], { have: ["codex"], env: { FAKE_CODEX: "ok" }, files: { "codex.off": "off" } });
-check("web: codex.off skips Codex", r.code === 3 && r.err.includes("codex skipped: switched off"), show(r));
 r = ask(["--web", "who won"]);
-check("web: nothing set up: exit 3, the skip explained", r.code === 3 && r.err.includes("codex skipped: not installed") && r.err.includes("WebSearch"), show(r));
+check("web: refused the same way with nothing installed", r.code === 2 && /--web is retired/.test(r.err), show(r));
+
+r = ask(["--think", "--web", "who won"], { have: ["agy"], env: { FAKE_AGY: "ok" } });
+check("web: refused after another flag too", r.code === 2 && /--web is retired/.test(r.err), show(r));
+
+r = ask(["--status"], { have: ["agy"] });
+check("--status says the web route is retired and points elsewhere",
+  r.code === 0 && /Web research \(--web\): retired/.test(r.out) && r.out.includes("versions.mjs"), show(r));
+check("--status still reports the local workers", /agy: (ready|not installed)/.test(r.out), show(r));
 
 r = ask(["read big.txt"], { have: ["codex", "agy"], env: { FAKE_CODEX: "ok", FAKE_AGY: "ok" } });
 check("local: Codex first when it works", r.code === 0 && r.out.includes("codex answer") && !r.out.includes("--search"), show(r));

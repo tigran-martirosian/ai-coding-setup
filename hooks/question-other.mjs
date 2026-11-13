@@ -44,7 +44,10 @@ const LOOKUP = /^(Read|Grep|Glob|Bash|PowerShell|WebSearch|WebFetch|LSP|Agent)$|
 const FORM = /PromptForUserInput|AskUserQuestion/;
 const SHOWN = /display_to_user|capture_editor_screenshot|browser_open_local_preview/; // put a picture or page in front of the user
 // Bookkeeping calls change nothing the user sees, so a link written just before them still counts
-const QUIET = /update_session_meta|update_session_board|^Task(Create|Update|List|Get)$|^TodoWrite$/;
+const QUIET = /update_session_meta|update_session_board|^Task(Create|Update|List|Get)$|^TodoWrite$|^ToolSearch$/;
+// User text Claude Code or Nimbalyst adds on its own (a background task's notice, an interrupt, a
+// system or child-session prompt): it does not start a new turn
+const INJECTED = /^\s*(<task-notification>|\[(Request interrupted|System:|Child Session Update\]))/;
 // The phone bot's note on every prompt it sends: a phone can answer only Nimbalyst's AskUserQuestion
 const PHONE = /\(Sent from the phone\. /;
 const ALWAYS_LOADED = /^(claude|memory)\.md$/;
@@ -63,11 +66,10 @@ export function recordFrom(lines) {
     const content = e.message?.content;
     const blocks = Array.isArray(content) ? content : [];
     if (e.type === "user" && !e.isMeta) {
-      const typed = typeof content === "string" || (blocks.some((b) => b?.type === "text") && !blocks.some((b) => b?.type === "tool_result"));
-      if (typed) {
-        turnStart = calls.length; replyText = ""; shown = false;
-        fromPhone = PHONE.test(typeof content === "string" ? content : blocks.map((b) => (b?.type === "text" ? b.text || "" : "")).join("\n"));
-      }
+      const said = typeof content === "string" ? content : blocks.map((b) => (b?.type === "text" ? b.text || "" : "")).join("\n");
+      const typed = (typeof content === "string" || (blocks.some((b) => b?.type === "text") && !blocks.some((b) => b?.type === "tool_result")))
+        && !INJECTED.test(said) && e.origin?.kind !== "task-notification";
+      if (typed) { turnStart = calls.length; replyText = ""; shown = false; fromPhone = PHONE.test(said); }
     }
     for (const b of blocks) {
       if (e.type === "assistant" && b?.type === "text") replyText += `\n${b.text || ""}`;

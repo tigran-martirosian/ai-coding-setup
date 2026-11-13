@@ -2,11 +2,12 @@
 // file-link-gate: Stop hook. Nimbalyst's chat panel opens a markdown link to a local file only when its
 // target is an absolute path with forward slashes (`/C:/x/y.md`, `C:/x/y.md`, `%20` or a raw space, a
 // `:10` line suffix). It does not open a relative target (`docs/y.md`), a backslash one (`C:\x\y.md`) or
-// a `file:///` one (checked by clicking; about one file link in seven was broken).
+// a `file:///` one (checked by clicking; about one file link in seven was broken), nor
+// a Git Bash `/c/...` one. On a Mac the working form is the plain absolute path (`/Users/you/y.md`).
 // This hook reads the assistant's visible text of the current turn, ignores fenced ``` blocks and inline
-// code spans, and blocks the stop ONCE when a markdown link points at a local file in one of the three
-// broken forms, listing each with the fixed `/C:/...` form (a relative one resolved against the session
-// cwd). Web links, mailto:, nimbalyst://, other schemes, #anchors, images and Nimbalyst embeds
+// code spans, and blocks the stop ONCE when a markdown link points at a local file in one of the
+// broken forms, listing each with the fixed `/C:/...` (or `/Users/...`) form (a relative one resolved
+// against the session cwd). Web links, mailto:, nimbalyst://, other schemes, #anchors, images and Nimbalyst embeds
 // (a "width=... height=..." title) are left alone.
 // Silent when stop_hook_active is set (no loops). Fails open. FILE_LINK_GATE=off disables it.
 import fs from "node:fs";
@@ -78,6 +79,7 @@ export function brokenForm(link) {
   if (/^[a-z][a-z0-9+.-]+:/i.test(target)) return null; // http(s), mailto, nimbalyst:// and other schemes
   if (target.startsWith("\\\\")) return null; // network share
   if (target.includes("\\")) return "backslashes";
+  if (/^\/[A-Za-z]\//.test(target)) return "Git Bash path";
   if (/^\/?[A-Za-z]:\//.test(target) || target.startsWith("/")) return null;
   if (target.startsWith("~") || /[./]/.test(target)) return "relative path";
   return null;
@@ -93,11 +95,15 @@ export function fixedTarget(target, cwd) {
   }
   try { t = decodeURIComponent(t); } catch { t = t.replace(/%20/gi, " "); }
   t = t.replace(/^file:\/\/(localhost)?/i, "").replace(/\\/g, "/");
+  const gitBash = (p) => p.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:"); // /c/x -> c:/x
   if (/^\/[A-Za-z]:\//.test(t)) t = t.slice(1);
+  t = gitBash(t);
   if (t === "~" || t.startsWith("~/")) t = path.join(os.homedir(), t.slice(1));
   else if (!/^[A-Za-z]:\//.test(t)) {
     if (!cwd) return null;
-    t = (/^[A-Za-z]:[\\/]/.test(cwd) ? path.win32 : path.posix).resolve(cwd, t);
+    const base = gitBash(cwd.replace(/\\/g, "/"));
+    // A Mac or Linux cwd starts with "/"; a drive or a \\server share is Windows
+    t = (base.startsWith("/") && !base.startsWith("//") ? path.posix : path.win32).resolve(base, t);
   }
   t = t.replace(/\\/g, "/");
   if (t.startsWith("/")) return `${t.replace(/ /g, "%20")}${suffix}`; // a Mac or Linux path

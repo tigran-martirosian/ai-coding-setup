@@ -62,8 +62,8 @@ In this order, and stop at the first that fits:
 
 1. Installed but turned off: `claude plugin list`.
 2. Skills: `npx skills find "<two or three plain words for the kind of task>"`.
-3. One web lookup, `~/.claude/workers/ask.mjs --web "skills, plugins or tools for <kind of task> in Claude Code"`;
-   if it says no free worker could answer, one WebSearch with the same words.
+3. One web lookup: WebSearch with `mode: "extended"` for "skills, plugins or tools for <kind of task> in
+   Claude Code" (the free worker's `--web` route is refused).
 
 Search words describe the kind of task in general words; never a name, a table, a file or a
 sentence from the chats. Before proposing a find, read its own page or `SKILL.md`: what it does,

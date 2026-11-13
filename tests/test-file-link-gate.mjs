@@ -58,6 +58,11 @@ for (const [name, text, fixed] of broken) {
 // A Mac or Linux session: relative links resolve against its cwd, with no drive letter
 const mac = reasonOf(run({ last_assistant_message: "See [x](docs/a.md).", cwd: "/Users/you/my project" }).out) || "";
 check("blocks relative in a Mac session, fixed to /Users/...", mac.includes("(/Users/you/my%20project/docs/a.md)"));
+// Git Bash paths and a \\server share as the cwd
+const fixedFor = (text, cwd) => reasonOf(run({ last_assistant_message: text, cwd }).out) || "";
+check("blocks a Git Bash /c/ link, fixed to /C:/", fixedFor("See [x](/c/Users/you/a.md).", CWD).includes("(/C:/Users/you/a.md)"));
+check("a Git Bash cwd resolves to /C:/", fixedFor("See [x](docs/a.md).", "/c/Projects/x").includes("(/C:/Projects/x/docs/a.md)"));
+check("a \\\\server share cwd stays a share", fixedFor("See [x](docs/a.md).", "\\\\server\\share\\proj").includes("(//server/share/proj/docs/a.md)"));
 
 // Each working form passes
 const working = [

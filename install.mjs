@@ -311,7 +311,8 @@ else if (LANG === "english" && state.language === "russian" && settings.language
 if (wired || own.model || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
 
 // ---- 2. the global rules, with the worker section that fits
-const HEAD = /^## (External workers first for gathering information|Gathering information on Claude alone)$/;
+// Every heading the worker section has ever carried: an older rules file on disk still has an old one.
+const HEAD = /^## (External workers first for gathering information|Gathering information on Claude alone|The free workers? reads? local files, not the web)$/;
 // Puts the worker section in place of the one the text has (from its heading to the next "# " heading)
 function withWorkers(text, section) {
   const lines = text.split("\n");
@@ -326,6 +327,8 @@ const full = repoText("rules/CLAUDE.md");
 // One section fits every mix of workers: its command (ask.mjs) picks the worker. With none, the section for Claude alone
 const section = have.codex || have.agy ? null : repoText("rules/workers-none.md");
 const built = section ? withWorkers(full, section) : full;
+// A renamed heading in rules/CLAUDE.md used to end here as "writeFileSync received null": say so instead.
+if (built === null) throw new Error(`rules/CLAUDE.md has no worker section heading matching ${HEAD} - add the new heading to HEAD in install.mjs`);
 const rulesFile = path.join(CLAUDE, "CLAUDE.md");
 const mine = fs.existsSync(rulesFile) ? fs.readFileSync(rulesFile, "utf8").replace(/\r\n/g, "\n") : null;
 // Only the worker section of an existing rules file is the installer's to change
