@@ -59,6 +59,9 @@ const ALLOWED = [
   // Short commands are cheap to rerun, so a tail costs nothing.
   `timeout 30 ./quick.sh | tail -5`,
   `ls -1 panel_3*.py | tail -3`,
+  // `tail -n +N` skips a header and keeps the rest, so nothing is thrown away.
+  `timeout 420 ./run.sh | tail -n +2`,
+  `timeout 420 ./run.sh | tail +3`,
   // Slow but nothing truncated.
   `timeout 420 python x.py plan`,
   `timeout 420 python x.py plan 2>&1 | grep -n state`,

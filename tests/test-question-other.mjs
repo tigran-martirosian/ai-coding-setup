@@ -1,13 +1,13 @@
 // Tests for hooks/question-other.mjs. Run: node tests/test-question-other.mjs
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 
 const HOOK = fileURLToPath(new URL("../hooks/question-other.mjs", import.meta.url));
 const run = (input, env = {}) =>
-  spawnSync(process.execPath, [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), env: { ...process.env, ...env }, encoding: "utf8" }).stdout;
+  spawnSync(process.execPath, [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), env: { ...process.env, CLAUDE_PROJECT_DIR: "", ...env }, encoding: "utf8" }).stdout;
 const P = (fields) => ({ tool_name: "mcp__nimbalyst__PromptForUserInput", tool_input: { fields } });
 const single = (extra = {}) => ({ type: "singleSelect", id: "a", label: "Which look?", options: [{ id: "x", label: "X" }, { id: "y", label: "Y" }], ...extra });
 const rec = (extra = {}) => ({ id: "x", label: "X (recommended)", ...extra });
@@ -85,7 +85,7 @@ const withRecord = (entries, description) => {
   writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n"));
   return run({ ...form(description), transcript_path: file });
 };
-const readDecisions = [call("Read", { file_path: "C:\\work\\x\\DECISIONS.md" }), result()];
+const readDecisions = [call("Read", { file_path: "C:\\Projects\\x\\DECISIONS.md" }), result()];
 const JUDGED = "Judgment: fewer moving parts. Other wins if: you need it today.";
 const recordCases = [
   ["'Checked:' with nothing looked up in the session is denied", [user("which engine?")], WHY, true],
@@ -109,51 +109,51 @@ for (const [name, entries, description, deny] of recordCases) {
 }
 // pointing the user at something to look at needs a link this turn
 const text = (s) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: s }] } });
-const look = (extra = {}) => ({ ...P([]), tool_input: { title: "Look through the menu page first", fields: [single({ allowOther: true, label: "Is it right?" }), ELSE], ...extra } });
+const look = (extra = {}) => ({ ...P([]), tool_input: { title: "Look through the wood page first", fields: [single({ allowOther: true, label: "Is it right?" }), ELSE], ...extra } });
 const plain = (extra = {}) => ({ ...P([]), tool_input: { fields: [single({ allowOther: true, label: "Which engine?" }), ELSE], ...extra } });
 const withTurn = (entries, input) => {
   const file = join(dir, `${Math.random().toString(36).slice(2)}.jsonl`);
   writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n"));
   return run({ ...input, transcript_path: file });
 };
-const LINKED = "Built the menu page: [menu.html](/C:/Projects/shop/docs/menu.html). I think it reads well; I'd keep it.";
+const LINKED = "Built the wood page: [wood.html](/C:/Projects/my-project/docs/wood.html). I think it reads well; I'd keep it.";
 const linkCases = [
-  ["'Look through the page' with no link anywhere is denied", [user("make the menu page"), text("_Done: the menu page is built._")], look(), true],
-  ["'Look through the page' after a /C:/ link in the reply passes", [user("make the menu page"), text(LINKED)], look(), false],
-  ["a Mac /Users/ link in the reply passes", [user("make it"), text("See [menu](/Users/you/x/menu.html).")], look(), false],
-  ["a protocol-relative //host link is not a local link", [user("make it"), text("See [menu](//host/x/menu.html).")], look(), true],
-  ["a Git Bash /c/ link is not a local link", [user("make it"), text("See [menu](/c/Projects/x/menu.html).")], look(), true],
+  ["'Look through the page' with no link anywhere is denied", [user("make the wood page"), text("_Done: the wood page is built._")], look(), true],
+  ["'Look through the page' after a /C:/ link in the reply passes", [user("make the wood page"), text(LINKED)], look(), false],
+  ["a Mac /Users/ link in the reply passes", [user("make it"), text("See [wood](/Users/you/x/wood.html).")], look(), false],
+  ["a protocol-relative //host link is not a local link", [user("make it"), text("See [wood](//host/x/wood.html).")], look(), true],
+  ["a Git Bash /c/ link is not a local link", [user("make it"), text("See [wood](/c/Projects/x/wood.html).")], look(), true],
   ["a board call after the link still leaves it in front of the user", [user("make it"), text(LINKED), call("mcp__nimbalyst__update_session_meta", { phase: "validating" }), result()], look(), false],
-  ["a C:/ link without the leading slash passes",[user("make it"), text("See [menu](C:/Projects/x/menu.html).")], look(), false],
-  ["a web link in the reply passes", [user("make it"), text("Live at https://example.com/menu")], look(), false],
+  ["a C:/ link without the leading slash passes",[user("make it"), text("See [wood](C:/Projects/x/wood.html).")], look(), false],
+  ["a web link in the reply passes", [user("make it"), text("Live at https://example.com/wood")], look(), false],
   ["a link followed by another tool call before the form is denied", [user("make it"), text(LINKED), call("Bash", { command: "git add ." }), result(), text("Saved.")], look(), true],
-  ["an old research URL earlier in the turn does not count", [user("make it"), text("Found https://example.org/gallery"), call("Bash", { command: "python build.py" }), result(), text("The page works.")], look(), true],
+  ["an old research URL earlier in the turn does not count", [user("make it"), text("Found https://modrinth.com/mod/x/gallery"), call("Bash", { command: "python build.py" }), result(), text("The page works.")], look(), true],
   ["a picture shown before more tool calls does not count", [user("make it"), call("mcp__nimbalyst__display_to_user", { items: [] }), result(), call("Edit", { file_path: "a" }), result()], look(), true],
   ["a link, then an earlier try of the form, still counts", [user("make it"), text(LINKED), call("mcp__nimbalyst__PromptForUserInput", look().tool_input)], look(), false],
-  ["'Scroll the menu page' with no link is denied", [user("make it"), text("Opened it.")], plain({ intro: "Scroll the menu page (open in your browser), then type the ones you want." }), true],
+  ["'Scroll the wood page' with no link is denied", [user("make it"), text("Opened it.")], plain({ intro: "Scroll the wood page (open in your browser), then type the ones you want." }), true],
   ["a link only in an earlier turn is denied", [user("hi"), text(LINKED), user("now ask me")], look(), true],
-  ["a backslash link (Nimbalyst can't open it) is denied", [user("make it"), text("See [menu](C:\\Projects\\x\\menu.html).")], look(), true],
-  ["a link inside the form's intro passes", [user("make it")], look({ intro: "[menu.html](/C:/Projects/x/menu.html)" }), false],
+  ["a backslash link (Nimbalyst can't open it) is denied", [user("make it"), text("See [wood](C:\\Projects\\x\\wood.html).")], look(), true],
+  ["a link inside the form's intro passes", [user("make it")], look({ intro: "[wood.html](/C:/Projects/x/wood.html)" }), false],
   ["a picture shown inline this turn passes", [user("make it"), call("mcp__nimbalyst__display_to_user", { items: [] }), result()], look(), false],
   ["a link written by a subagent does not count", [user("make it"), { ...text(LINKED), isSidechain: true }], look(), true],
-  ["a file path in the intro with no link is denied", [user("plan it")], plain({ intro: "Full draft: docs/launch-plan.md. Three choices." }), true],
+  ["a file path in the intro with no link is denied", [user("plan it")], plain({ intro: "Full draft: docs/boss-materials.md. Three choices." }), true],
   ["'goes into DECISIONS.md' is not something to look at", [user("plan it")], plain({ intro: "Your answers go into DECISIONS.md." }), false],
   ["'look at the buyer' is not something to look at", [user("deals?")], plain({ intro: "A small deal panel while you look at the buyer." }), false],
   ["'make photos for you to look at' (not made yet) passes", [user("photos?")], plain({ intro: "Make AI photos as a trial for you to look at (~$1.50)?" }), false],
   ["a path under DECISIONS/ passes", [user("plan it")], plain({ intro: "Conflict: DECISIONS/genetics.md says field crosses only." }), false],
-  ["'save it as x.png' and 'counts are from x.xlsx' pass", [user("hi")], plain({ intro: "Save the picture as shots/scene-2.png. Counts are from out/inventory.xlsx." }), false],
+  ["'save it as x.png' and 'counts are from x.xlsx' pass", [user("hi")], plain({ intro: "Save the picture as shots/brawl-2.png. Counts are from out/inventory.xlsx." }), false],
   ["a draft held in the form's own editText passes", [user("hi")], plain({ title: "Quick Start: proposed new version", fields: [{ type: "editText", id: "d", label: "My draft (edit in place)", initialText: "..." }] }), false],
   ["'check the new page' with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Check the new landing page before I push." }), true],
   ["'Does this plan look right?' about a plan in the chat passes", [user("plan it"), text("Plan: 1. a 2. b")], plain({ title: "Does this plan look right?" }), false],
-  ["'Open C:/Projects/x/menu.html' with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Open C:/Projects/x/menu.html and tell me." }), true],
-  ["a backslash path in the form with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Open C:\\Projects\\x\\menu.html and tell me." }), true],
+  ["'Open C:/Projects/x/wood.html' with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Open C:/Projects/x/wood.html and tell me." }), true],
+  ["a backslash path in the form with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Open C:\\Projects\\x\\wood.html and tell me." }), true],
   ["a ~/ path in the form with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Report: ~/.claude/report.md" }), true],
   ["a URL in an option's reason is not the link", [user("make it"), text("Done.")], plain({ intro: "Check the new landing page first.", fields: [single({ allowOther: true, label: "Tabs?", options: [rec({ description: "Checked: https://component.gallery showed tabs. Other wins if: few items." }), { id: "y", label: "Y" }] }), ELSE] }), true],
-  ["a file path with only a web link in the reply is denied", [user("plan it"), text("Based on https://example.com/docs")], plain({ intro: "Full draft: docs/launch-plan.md." }), true],
-  ["a file path with its /C:/ link in the reply passes", [user("plan it"), text("Draft: [launch-plan.md](/C:/Projects/x/docs/launch-plan.md)")], plain({ intro: "Full draft: docs/launch-plan.md." }), false],
+  ["a file path with only a web link in the reply is denied", [user("plan it"), text("Based on https://example.com/docs")], plain({ intro: "Full draft: docs/boss-materials.md." }), true],
+  ["a file path with its /C:/ link in the reply passes", [user("plan it"), text("Draft: [boss-materials.md](/C:/Projects/x/docs/boss-materials.md)")], plain({ intro: "Full draft: docs/boss-materials.md." }), false],
   ["'save it as `shot.png`' passes", [user("hi")], plain({ intro: "Save it as `shot.png`?" }), false],
   ["'Go to docs/report.html' with no link is denied", [user("make it"), text("Done.")], plain({ intro: "Go to docs/report.html and tell me." }), true],
-  ["a decision form naming a shop's page passes", [user("price?")], plain({ intro: "The shop's page is gone for 48 items." }), false],
+  ["a decision form naming a shop's page passes", [user("price?")], plain({ intro: "Bloomingdale's page is gone for 48 items." }), false],
   ["a file named only in an option's Checked: reason passes", [user("hi"), call("Read", { file_path: "docs/engines.md" }), result(), user("which engine?")], plain({ fields: [single({ allowOther: true, label: "Which engine?", options: [rec({ description: "Checked: docs/engines.md picks it. Other wins if: speed matters." }), { id: "y", label: "Y" }] }), ELSE] }), false],
 ];
 for (const [name, entries, input, deny] of linkCases) {
@@ -161,6 +161,45 @@ for (const [name, entries, input, deny] of linkCases) {
   const ok = deny ? out.includes('"deny"') && out.includes("/C:/") && out.includes("Then ask") : out === "";
   if (!ok) fail++;
   console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+}
+// a file outside the session's project is presented by its path in code; inside it needs a link
+const PROJ = "C:\\Projects\\my project";
+const at = (extra) => ({ ...plain(extra), cwd: PROJ });
+const OUT_SKILL = "~/.claude/skills/x/SKILL.md";
+const outsideCases = [
+  ["outside file, path in code in the reply text, passes", [user("do it"), text(`Wrote \`${OUT_SKILL}\`. I'd keep it.`)], at({ intro: `Report: ${OUT_SKILL}.` }), false],
+  ["outside file, path in code in the form's intro, passes", [user("do it"), text("Done.")], at({ intro: "Report: `C:/Users/you/audits/report.md`." }), false],
+  ["outside file, nothing presented, is denied and the message says path in code", [user("do it"), text("Done.")], at({ intro: `Report: ${OUT_SKILL}.` }), true, "outside it: its path in code"],
+  ["outside file with only a markdown link (does not open) is denied", [user("do it"), text("See [SKILL.md](/C:/Users/you/.claude/skills/x/SKILL.md).")], at({ intro: "Report: C:/Users/you/.claude/skills/x/SKILL.md." }), true, "outside it: its path in code"],
+  ["outside file, a code span of another file does not count", [user("do it"), text("Wrote `~/.claude/skills/y/OTHER.md`.")], at({ intro: `Report: ${OUT_SKILL}.` }), true],
+  ["inside file with only a path in code is still denied (needs a link)", [user("do it"), text("Wrote `docs/plan.md`.")], at({ intro: "Draft: docs/plan.md." }), true, "A file inside the project: a markdown link"],
+  ["inside file with a /C: link passes", [user("do it"), text("Draft: [plan.md](/C:/Projects/my%20project/docs/plan.md).")], at({ intro: "Draft: docs/plan.md." }), false],
+  ["a relative file resolves against cwd and counts as inside: link needed", [user("do it"), text("Done.")], at({ intro: "Draft: report.md." }), true, "A file inside the project: a markdown link"],
+  ["no cwd: the old link rule applies to an absolute path", [user("do it"), text("Done.")], plain({ intro: `Report: ${OUT_SKILL}.` }), true, "A file inside the project: a markdown link"],
+];
+for (const [name, entries, input, deny, mention] of outsideCases) {
+  const out = withTurn(entries, input);
+  const ok = deny ? out.includes('"deny"') && (!mention || out.includes(mention)) : out === "";
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+}
+// CLAUDE_PROJECT_DIR is the open project even when the hook's cwd moved (Bash cd) into another project
+{
+  const realProj = join(dir, "realproj"), other = join(dir, "otherproj");
+  for (const p of [realProj, other]) { mkdirSync(p, { recursive: true }); writeFileSync(join(p, "CLAUDE.md"), "x"); }
+  const f = join(realProj, "plan.md").replace(/\\/g, "/");
+  const entries = [user("do it"), text(`Wrote \`${f}\`.`)];
+  const input = { ...plain({ intro: `Report: ${f}.` }), cwd: other };
+  const noEnv = withTurn(entries, input) === "";
+  const file = join(dir, "envcase.jsonl");
+  writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n"));
+  const withEnv = run({ ...input, transcript_path: file }, { CLAUDE_PROJECT_DIR: realProj });
+  const okEnv = withEnv.includes('"deny"') && withEnv.includes("A file inside the project: a markdown link");
+  const badEnv = run({ ...input, transcript_path: file }, { CLAUDE_PROJECT_DIR: join(dir, "nope") }) === "";
+  for (const [name, ok] of [["without CLAUDE_PROJECT_DIR the cwd's project decides: file in another project counts as outside, path in code passes", noEnv], ["CLAUDE_PROJECT_DIR wins over a moved cwd: the file is inside the project and needs a link", okEnv], ["CLAUDE_PROJECT_DIR that does not exist falls back to the cwd walk", badEnv]]) {
+    if (!ok) fail++;
+    console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+  }
 }
 // a prompt sent by the phone bot may use Nimbalyst's AskUserQuestion: the phone can answer nothing else
 const ASK_NIM = { tool_name: "mcp__nimbalyst__AskUserQuestion", tool_input: { questions: [{ header: "h", question: "Which?", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] } };
@@ -179,5 +218,5 @@ const missing = run({ ...form(WHY), transcript_path: join(dir, "missing.jsonl") 
 if (!missing) fail++;
 console.log(`${missing ? "PASS" : "FAIL"} a missing session record fails open`);
 rmSync(dir, { recursive: true, force: true });
-console.log(fail ? `${fail} failed` : `all ${cases.length + recordCases.length + linkCases.length + 10} passed`);
+console.log(fail ? `${fail} failed` : `all ${cases.length + recordCases.length + linkCases.length + outsideCases.length + 13} passed`);
 process.exit(fail ? 1 : 0);

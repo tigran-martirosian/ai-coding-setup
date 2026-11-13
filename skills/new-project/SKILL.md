@@ -26,12 +26,14 @@ each as its own question (not a tick-list):
 
 | File | Content |
 |---|---|
-| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · for any project that keeps data (a database, a log, data files): where each one lives as a full path, and the exact command that reads it with a tool that is installed · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) |
-| `HANDOFF.md` | Current state, what's next, open questions. Rewritten at the end of every working session so a fresh session can pick up cold. |
-| `DECISIONS.md` | Every user decision as **decision** — why · *origin, date*. It wins over older docs. Newest first per section. |
+| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · for any project that keeps data (a database, a log, data files): where each one lives as a full path, and the exact command that reads it with a tool that is installed · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) · a **Checks** section: which check runs when (build, tests, review, release), written once with the user; a check the user asks for once is a one-off until they say it is standing |
+| `HANDOFF.md` | Current state only, under about 120 lines: what's next, open questions. Rewritten at the end of every working session so a fresh session can pick up cold. |
+| `DECISIONS.md` | The decisions in force, by topic, each as **decision** — why · *origin, date*. It wins over older docs. A new decision replaces the line it overrides; the old text moves to `docs/archive/`. |
 | `docs/` | Design documents and plans, one markdown file per topic. |
+| `docs/known-failures.md` | Checks that fail for a known reason, each with that reason. A failure that stays after one rerun is added here. |
+| `docs/speech-glossary.md` | Offered when the user dictates: misheard word → meant word, started with the project's own names. |
 | `.claude/rules/` | One short file per rule area (e.g. `content-sources.md`, `code-style.md`) that is too long for CLAUDE.md |
-| `.claude/skills/`, `.claude/agents/` | Project-only skills from step 3; otherwise empty for now. Add a project skill when a workflow repeats 3+ times, and a read-only reviewer agent when output quality needs an independent check. |
+| `.claude/skills/`, `.claude/agents/` | Project-only skills from step 3; otherwise empty for now. Add a project skill when a workflow repeats 3+ times, and a read-only reviewer agent when output quality needs an independent check. When step 1 shows distinct kinds of sessions (for example building, answering questions, releasing), offer one skill per kind and a "Which skill" table in CLAUDE.md. |
 | `.claude/settings.json` | `permissions.allow` for the project's safe, frequent commands (test, lint, build) so they don't prompt, and `enabledPlugins` from step 3 |
 
 Keep everything short. CLAUDE.md is loaded into every session and every line costs tokens.

@@ -35,7 +35,7 @@ export const Btw: React.FC<SceneProps> = ({ durationInFrames }) => {
   return (
     <Scene
       tag="/btw"
-      caption="/btw sends a note to a session that is busy. It reads the note before its next step and carries on."
+      caption="/btw, or the Note button next to Send, sends a note to a session that is busy. It reads the note before its next step and carries on."
       durationInFrames={durationInFrames}
     >
       <Columns height={PANEL_HEIGHT}>

@@ -7,7 +7,7 @@
     "build": "vite build",
     "build:share": "vite build --mode share",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types test/commands.test.ts",
+    "test": "node --experimental-strip-types test/commands.test.ts && node --experimental-strip-types test/note.test.ts",
     "install-ext": "node scripts/install.mjs"
   },
   "devDependencies": {

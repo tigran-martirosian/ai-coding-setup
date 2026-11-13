@@ -22,7 +22,8 @@ const UNITS = { s: 1, m: 60, h: 3600, d: 86400 };
 const TIMEOUT = /(?:^|[\s;&|(])timeout\s+((?:-\S+(?:\s+\S+)?\s+)*)(\d+)([smhd])?(?=\s|$)/i;
 
 // Filters that keep only part of what they are given: rerunning the slow command is the only way back.
-const TRUNCATING = /(?:^|\s)(?:head|tail)\b|(?:^|\s)(?:Select-Object|Select)\s+(?:-\w+\s+)*-(?:First|Last)\b/i;
+// `tail -n +N` and `tail +N` start at line N and keep the rest, so they throw nothing away.
+const TRUNCATING = /(?:^|\s)head\b|(?:^|\s)tail\b(?!\s+(?:-n\s*)?\+\d)|(?:^|\s)(?:Select-Object|Select)\s+(?:-\w+\s+)*-(?:First|Last)\b/i;
 
 // A redirect or tee that keeps the whole output somewhere readable. `/dev/null` and `$null` keep nothing.
 const SAVES = /(?:&>>?|\d?>>?)\s*(?!\/dev\/null|NUL\b|\$null)[^\s|&;]+|(?:^|\s)tee\s+(?:-a\s+)?(?!\/dev\/null)[^\s|&;]+|(?:^|\s)Tee-Object\b/i;

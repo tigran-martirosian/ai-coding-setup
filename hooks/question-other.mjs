@@ -23,9 +23,14 @@
 //   last ordinary tool call has a clickable link (a markdown link to /C:/..., C:/... or /Users/..., or a URL) and no
 //   picture or preview was shown there. Option descriptions are not scanned for it: they hold the
 //   "Checked:" reasons, which name files.
+//   Since 2026-10-29 the link must match where the file is: Nimbalyst opens a markdown link only for a
+//   file inside the open project (the nearest ancestor of the hook input's cwd with a CLAUDE.md or .git,
+//   else the cwd). A file outside it is presented by its path in inline code (`~/.claude/x.md`,
+//   `C:/Users/you/x.md`) in the form or the reply text; a link to it would not open.
 // It fails open, so any error or odd input lets the call through. QUESTION_OTHER=off disables it.
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const MIN_REASON = 20; // characters; shorter than this is a label, not a reason
@@ -137,6 +142,40 @@ export function pointer(input, fields) {
   return path ? { text: path[1], file: true } : null;
 }
 
+// Inside the open project? The project root is the nearest ancestor of cwd with a CLAUDE.md or .git, else cwd.
+// Without a cwd nothing can be told, so the file counts as inside (the link rule stays as it was).
+const gitBash = (p) => p.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:");
+const slashed = (p) => p.replace(/\\/g, "/");
+export function projectRoot(cwd) {
+  // CLAUDE_PROJECT_DIR is the open project; the hook's cwd follows Bash `cd` and can sit elsewhere
+  const envDir = process.env.CLAUDE_PROJECT_DIR;
+  try { if (envDir && existsSync(envDir)) return gitBash(slashed(envDir)); } catch {}
+  try {
+    for (let d = cwd; ; ) {
+      if (existsSync(join(d, "CLAUDE.md")) || existsSync(join(d, ".git"))) return d;
+      const up = dirname(d);
+      if (up === d) return cwd;
+      d = up;
+    }
+  } catch { return cwd; }
+}
+export function outsideProject(file, cwd) {
+  if (!cwd) return false;
+  const base = gitBash(slashed(cwd));
+  let t = slashed(file);
+  if (t === "~" || t.startsWith("~/")) t = slashed(homedir()) + t.slice(1);
+  t = gitBash(t).replace(/^\/([A-Za-z]:\/)/, "$1");
+  if (!/^[A-Za-z]:\//.test(t) && !t.startsWith("/")) t = (/^[A-Za-z]:\//.test(base) ? win32 : posix).resolve(base, t);
+  const norm = (p) => slashed(p).replace(/\/+$/, "").toLowerCase();
+  const a = norm(t), r = norm(projectRoot(base));
+  return !(a === r || a.startsWith(r + "/"));
+}
+// A path in inline code that names the file (its name, plus a folder or ~)
+const inCode = (s, file) => {
+  const name = file.split(/[\\/]/).pop().toLowerCase();
+  return [...s.matchAll(/`([^`\n]+)`/g)].some((m) => /[\\/~]/.test(m[1]) && m[1].toLowerCase().includes(name));
+};
+
 // The reasons to refuse one call (empty when it may go through). seen = readRecord(...) or null.
 export function review(event, seen) {
   const tool = String(event.tool_name || "");
@@ -175,12 +214,17 @@ export function review(event, seen) {
   // A link in the form's own words or in the reply right before it, or a picture shown there, counts as
   // presented. A local file needs a local link: a web address does not open it.
   const point = pointer(input, fields);
-  const linked = (s) => (point.file ? LOCAL_LINK : LINK).test(s);
-  if (point && seen && !linked(formText(input, fields, true)) && !linked(seen.replyText) && !seen.shown)
-    parts.push(
-      `This form sends the user to look at something ("${point.text}"), but neither the form nor the reply text right before it has a clickable link to it, ` +
-      `so the user cannot find it. Stop and write it in the reply text first: what you built or wrote, as a markdown link ` +
-      `([name](/C:/path/to/file.md): forward slashes, no file:///, no backslashes; or a web address for a site), what you think of it and what you recommend. Then ask.`);
+  const outside = !!point?.file && outsideProject(point.text, typeof event.cwd === "string" ? event.cwd : "");
+  const presented = (s) => (outside ? inCode(s, point.text) : (point.file ? LOCAL_LINK : LINK).test(s));
+  if (point && seen && !presented(formText(input, fields, true)) && !presented(seen.replyText) && !seen.shown)
+    parts.push(outside
+      ? `This form sends the user to look at a file ("${point.text}") that is outside the open project, and neither the form nor the reply text right before it names its path in code. ` +
+        `Nimbalyst opens a markdown link only for a file inside the open project (a file inside the project: a markdown link; outside it: its path in code), so a link would not open. ` +
+        `Stop and write the path in inline code in the reply text first (\`~/.claude/skills/x/SKILL.md\` or \`C:/Users/you/x.md\`), with what you wrote, what you think of it and what you recommend. Then ask.`
+      : `This form sends the user to look at something ("${point.text}"), but neither the form nor the reply text right before it has a clickable link to it, ` +
+        `so the user cannot find it. Stop and write it in the reply text first: what you built or wrote, as a markdown link ` +
+        `([name](/C:/path/to/file.md): forward slashes, no file:///, no backslashes; or a web address for a site), what you think of it and what you recommend. ` +
+        `(A file inside the project: a markdown link; outside it: its path in code.) Then ask.`);
   if (noReason.length)
     parts.push(
       `${noReason.join(", ")} recommends an option without a reason. The user accepts the recommended option with one click, so say in its ` +

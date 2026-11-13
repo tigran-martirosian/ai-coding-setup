@@ -1,9 +1,9 @@
 // Tests for hooks/file-link-gate.mjs. Run: node tests/test-file-link-gate.mjs
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(new URL("../hooks/file-link-gate.mjs", import.meta.url));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "file-link-gate-test-"));
@@ -11,7 +11,7 @@ const CWD = "C:\\Projects\\my project";
 const HOME = os.homedir().replace(/\\/g, "/").replace(/ /g, "%20");
 const run = (input, env = {}) => {
   const t0 = Date.now();
-  const r = spawnSync("node", [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), encoding: "utf8", env: { ...process.env, FILE_LINK_GATE: "", ...env } });
+  const r = spawnSync("node", [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", FILE_LINK_GATE: "", ...env } });
   return { out: r.stdout, ms: Date.now() - t0 };
 };
 const reasonOf = (out) => { try { const j = JSON.parse(out); return j.decision === "block" ? j.reason : null; } catch { return null; } };
@@ -41,13 +41,13 @@ const broken = [
   ["relative with ./ and a line", "Fixed in [hook.mjs](./hooks/hook.mjs:42).", "(/C:/Projects/my%20project/hooks/hook.mjs:42)"],
   ["a file name with a line, no folder", "See [readme](README.md:10).", "(/C:/Projects/my%20project/README.md:10)"],
   ["relative with %20","Open [notes](my%20notes/a.md).", "(/C:/Projects/my%20project/my%20notes/a.md)"],
-  ["backslash", "Saved to [report](C:\\Users\\you\\Desktop\\report.md).", "(/C:/Users/you/Desktop/report.md)"],
-  ["backslash with a space", "See [x](C:\\Projects\\my projects\\a.md).", "(/C:/Projects/my%20projects/a.md)"],
-  ["backslash in angle brackets", "See [x](<C:\\a b\\c.md>).", "(/C:/a%20b/c.md)"],
+  ["backslash", "Saved to [report](C:\\Users\\you\\Desktop\\report.md).", "`C:/Users/you/Desktop/report.md`"],
+  ["backslash with a space", "See [x](C:\\Projects\\my projects\\a.md).", "`C:/Projects/my projects/a.md`"],
+  ["backslash in angle brackets", "See [x](<C:\\a b\\c.md>).", "`C:/a b/c.md`"],
   ["relative with a plain title", "See [plan](docs/plan.md \"the plan\").", "(/C:/Projects/my%20project/docs/plan.md)"],
-  ["file:///", "Open [x](file:///C:/Projects/a.md).", "(/C:/Projects/a.md)"],
-  ["file:/// with %20", "Open [x](file:///C:/Program%20Files/a.txt).", "(/C:/Program%20Files/a.txt)"],
-  ["home ~", "See [settings](~/.claude/settings.json).", `(${HOME.startsWith("/") ? "" : "/"}${HOME}/.claude/settings.json)`],
+  ["file:///", "Open [x](file:///C:/Projects/a.md).", "`C:/Projects/a.md`"],
+  ["file:/// with %20", "Open [x](file:///C:/Program%20Files/a.txt).", "`C:/Program Files/a.txt`"],
+  ["home ~", "See [settings](~/.claude/settings.json).", "`" + os.homedir().replace(/\\/g, "/") + "/.claude/settings.json`"],
 ];
 for (const [name, text, fixed] of broken) {
   const r = reasonOf(stop([text]).out);
@@ -60,7 +60,8 @@ const mac = reasonOf(run({ last_assistant_message: "See [x](docs/a.md).", cwd: "
 check("blocks relative in a Mac session, fixed to /Users/...", mac.includes("(/Users/you/my%20project/docs/a.md)"));
 // Git Bash paths and a \\server share as the cwd
 const fixedFor = (text, cwd) => reasonOf(run({ last_assistant_message: text, cwd }).out) || "";
-check("blocks a Git Bash /c/ link, fixed to /C:/", fixedFor("See [x](/c/Users/you/a.md).", CWD).includes("(/C:/Users/you/a.md)"));
+check("blocks a Git Bash /c/ link outside the project, fix is the path in code", fixedFor("See [x](/c/Users/you/a.md).", CWD).includes("`C:/Users/you/a.md`"));
+check("blocks a Git Bash /c/ link inside the project, fixed to /C:/", fixedFor("See [x](/c/Projects/my project/a.md).", CWD).includes("(/C:/Projects/my%20project/a.md)"));
 check("a Git Bash cwd resolves to /C:/", fixedFor("See [x](docs/a.md).", "/c/Projects/x").includes("(/C:/Projects/x/docs/a.md)"));
 check("a \\\\server share cwd stays a share", fixedFor("See [x](docs/a.md).", "\\\\server\\share\\proj").includes("(//server/share/proj/docs/a.md)"));
 
@@ -69,9 +70,10 @@ const working = [
   ["Mac /Users/ form", "See [plan](/Users/you/docs/plan.md)."],
   ["web link with a port", "See [local](http://localhost:3000) and [x](https://example.com:8080)."],
   ["/C:/ form", "See [plan](/C:/Projects/my%20project/docs/plan.md)."],
-  ["C:/ form", "See [plan](C:/Projects/a.md)."],
+  ["C:/ form", "See [plan](C:/Projects/my%20project/a.md)."],
   ["raw space", "See [plan](/C:/Projects/my project/a.md)."],
-  ["line suffix", "See [plan.md:10](/C:/Projects/a/plan.md:10)."],
+  ["line suffix", "See [plan.md:10](/C:/Projects/my%20project/a/plan.md:10)."],
+  ["inside the project, any case", "See [plan](/c:/projects/MY PROJECT/a.md)."],
   ["plain path in backticks", "Edited `C:\\Projects\\a\\plan.md` and `docs/plan.md`."],
   ["web, mailto, nimbalyst, anchor", "[site](https://example.com/a.md) [m](mailto:a@b.c) [NIM-1](nimbalyst://NIM-1) [up](#top) [h](http://x.y/docs/a.md)"],
   ["an image", "![shot](docs/shot.png)"],
@@ -79,6 +81,39 @@ const working = [
   ["no links", "Done, all tests pass."],
 ];
 for (const [name, text] of working) check(`passes ${name}`, stop([text]).out === "");
+
+// A link to a file outside the session's project: flagged, with the path in code as the fix
+const outsideReason = (text, cwd = CWD) => reasonOf(run({ last_assistant_message: text, cwd }).out) || "";
+const o1 = outsideReason("See [skill](/C:/Users/you/.claude/skills/x/SKILL.md).");
+check("blocks a /C: link to a file outside the project, fix is the path in code", o1.includes("outside the project") && o1.includes("`C:/Users/you/.claude/skills/x/SKILL.md`"));
+const o2 = outsideReason("See [a](C:/Projects/other/a.md:10) and [b](/C:/Program%20Files/b.txt).");
+check("blocks outside links with a :line suffix and %20, decoded in the code path", o2.includes("`C:/Projects/other/a.md`") && o2.includes("`C:/Program Files/b.txt`"));
+check("a Mac /Users link under a Mac cwd outside the project is flagged", outsideReason("See [x](/Users/you/other/a.md).", "/Users/you/proj").includes("`/Users/you/other/a.md`"));
+check("a Mac /Users link inside a Mac cwd project passes", outsideReason("See [x](/Users/you/proj/docs/a.md).", "/Users/you/proj") === "");
+check("an outside link inside a code span is ignored", outsideReason("Write `[x](/C:/Users/you/a.md)` like that.") === "");
+// The project root is the nearest ancestor with a CLAUDE.md or .git: a file in the project root is inside when cwd is a subfolder
+const proj = path.join(dir, "proj");
+fs.mkdirSync(path.join(proj, "audits", "run"), { recursive: true });
+fs.writeFileSync(path.join(proj, "CLAUDE.md"), "x");
+const sub = path.join(proj, "audits", "run");
+const fwd = (p) => `/${p.replace(/\\/g, "/")}`;
+check("cwd in a subfolder: a link to the project root's file passes", outsideReason(`See [c](${fwd(path.join(proj, "CLAUDE.md"))}).`, sub) === "");
+check("cwd in a subfolder: a link to a sibling folder of the project is flagged", outsideReason(`See [c](${fwd(path.join(dir, "elsewhere", "a.md"))}).`, sub).includes("outside the project"));
+// CLAUDE_PROJECT_DIR wins over the cwd walk: after `cd` elsewhere, links into the real project still pass
+const elsewhere = path.join(dir, "elsewhere");
+fs.mkdirSync(elsewhere, { recursive: true });
+fs.writeFileSync(path.join(elsewhere, "CLAUDE.md"), "x");
+const envReason = (text, cwd, projDir) => reasonOf(run({ last_assistant_message: text, cwd }, { CLAUDE_PROJECT_DIR: projDir }).out) || "";
+const projLink = `See [c](${fwd(path.join(proj, "CLAUDE.md"))}).`;
+check("without CLAUDE_PROJECT_DIR a cd into another project flags a link to the real one", envReason(projLink, elsewhere, "").includes("outside the project"));
+check("CLAUDE_PROJECT_DIR: a link into the real project passes though cwd moved elsewhere", envReason(projLink, elsewhere, proj) === "");
+check("CLAUDE_PROJECT_DIR: a link into the cwd's own project is flagged as outside", envReason(`See [c](${fwd(path.join(elsewhere, "a.md"))}).`, elsewhere, proj).includes("outside the project"));
+check("CLAUDE_PROJECT_DIR that does not exist falls back to the cwd walk", envReason(projLink, elsewhere, path.join(dir, "nope")).includes("outside the project"));
+// A broken-form link to a file outside the project: the fix is the path in code, not a /C:/ link
+const brokenOut = envReason("See [h](~/.claude/hooks/x.mjs) and [r](../../../elsewhere/b.md:3).", sub, "");
+check("broken-form link outside the project: fix is the path in code", brokenOut.includes("write its path in code") && brokenOut.includes("hooks/x.mjs`") && !brokenOut.includes("-> (/"));
+check("broken-form link inside the project still gets the /C: link", fixedFor("See [x](docs/a.md).", CWD).includes("(/C:/Projects/my%20project/docs/a.md)"));
+check("no cwd: an absolute link is left alone",reasonOf(run({ last_assistant_message: "See [x](/C:/a/b.md)." }).out) === null);
 
 // Code is ignored
 check("ignores a fenced block", stop(["Example:\n```md\n[x](docs/a.md)\n[y](C:\\a\\b.md)\n```\nDone."]).out === "");
