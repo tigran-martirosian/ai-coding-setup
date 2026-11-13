@@ -86,29 +86,31 @@
     {
       "id": "helper-brief-gates",
       "name": "Helper brief gates",
-      "what": "PreToolUse and PostToolUse checks on subagent calls: budget, routing to the capped worker, quoted decisions and context size.",
+      "what": "PreToolUse and PostToolUse checks on subagent calls: budget, quoted decisions, context size, a helper that stopped cut or empty, and the planner's read-only shell.",
       "files": [
         "hooks/budget-gate.mjs",
-        "hooks/worker-nudge.mjs",
         "hooks/decided-quote.mjs",
-        "hooks/worker-size.mjs"
+        "hooks/worker-size.mjs",
+        "hooks/helper-stopped.mjs",
+        "hooks/planner-readonly.mjs"
       ],
       "group": "hooks",
       "words": [
         "budget.gate",
-        "worker-nudge"
+        "helper-stopped"
       ]
     },
     {
       "id": "command-guards",
       "name": "Shell command guards",
-      "what": "Hooks that read a Bash or PowerShell command or a big file read before it runs: explanation line, destructive SQL, slow pipes, read-only browser CLI, whole-file dumps.",
+      "what": "Hooks that read a Bash or PowerShell command or a big file read before it runs: explanation line, destructive SQL, slow pipes, read-only browser CLI, whole-file dumps, keys in a git push.",
       "files": [
         "hooks/command-explain.mjs",
         "hooks/sql-guard.mjs",
         "hooks/slow-output-gate.mjs",
         "hooks/opencli-readonly.mjs",
-        "hooks/big-read-gate.mjs"
+        "hooks/big-read-gate.mjs",
+        "hooks/push-key-scan.mjs"
       ],
       "group": "hooks",
       "words": [
@@ -119,13 +121,14 @@
     {
       "id": "nimbalyst-tool-gates",
       "name": "Nimbalyst tool gates",
-      "what": "Hooks for Nimbalyst's own tools: choice questions with an Other box, pictures kept in the project, visible browser, session notes.",
+      "what": "Hooks for Nimbalyst's own tools: a typing box on every question (the card first), the form-answer note, pictures kept in the project, visible browser, session notes.",
       "files": [
         "hooks/question-other.mjs",
         "hooks/picture-in-project.mjs",
         "hooks/browser-visible-gate.mjs",
         "hooks/nimbalyst-notes.mjs",
-        "projects/shared/hooks/picture-gate.mjs"
+        "projects/shared/hooks/picture-gate.mjs",
+        "hooks/form-answer.mjs"
       ],
       "group": "hooks",
       "words": [
@@ -141,7 +144,6 @@
         "hooks/context-guard.mjs",
         "hooks/cold-cache.mjs",
         "hooks/background-tasks.mjs",
-        "hooks/loop-warn.mjs",
         "hooks/repeat-guard.mjs",
         "hooks/job-done.mjs"
       ],
@@ -157,8 +159,7 @@
       "what": "One-line prompts to restart Nimbalyst, keep the patch list and point to skills.",
       "files": [
         "hooks/pc-tidy-nudge.mjs",
-        "hooks/patch-next.mjs",
-        "hooks/skill-pointer.mjs"
+        "hooks/patch-next.mjs"
       ],
       "group": "hooks",
       "words": [
@@ -318,11 +319,13 @@
     {
       "id": "update-flow",
       "name": "Setup update and release",
-      "what": "Version check on prompt, the update-setup skill that installs a newer release, and the version and changelog files.",
+      "what": "Version check on prompt (and the self-install of a files-only release), the update-setup skill that installs a newer release, the tidy of the person's own rules, and the version and changelog files.",
       "files": [
         "hooks/update-check.mjs",
         "skills/update-setup/update.mjs",
         "skills/update-setup/SKILL.md",
+        "skills/update-setup/own-rules.mjs",
+        "skills/update-setup/tidy.md",
         "version.json",
         "CHANGELOG.md"
       ],
@@ -425,6 +428,7 @@
         "agents/worker-full.md",
         "agents/reviewer.md",
         "agents/planner.md",
+        "agents/plan-reviewer.md",
         "agents/rec-check.md",
         "workers/versions.mjs"
       ],
@@ -766,14 +770,10 @@
       "from": "helper-brief-gates",
       "to": "helper-agents",
       "type": "limits",
-      "says": "The gates refuse briefs and route helpers to the worker agents.",
+      "says": "The gates refuse briefs over budget and cap the worker agents.",
       "evidence": [
         {
           "file": "hooks/budget-gate.mjs",
-          "token": "worker"
-        },
-        {
-          "file": "hooks/worker-nudge.mjs",
           "token": "worker"
         }
       ]
@@ -966,11 +966,11 @@
       "from": "update-flow",
       "to": "claude-home-files",
       "type": "uses",
-      "says": "The update takes this version's rules and files.",
+      "says": "The update takes this version's rules and files; the person's own rules move to rules/my-rules.md.",
       "evidence": [
         {
           "file": "skills/update-setup/update.mjs",
-          "token": "--replace-rules"
+          "token": "--leave-out"
         }
       ]
     },
@@ -1127,18 +1127,6 @@
         {
           "file": "skills/lead/SKILL.md",
           "token": "worker"
-        }
-      ]
-    },
-    {
-      "from": "workflow-skills",
-      "to": "housekeeping-nudges",
-      "type": "uses",
-      "says": "skill-pointer checks each skill is named in CLAUDE.md.",
-      "evidence": [
-        {
-          "file": "hooks/skill-pointer.mjs",
-          "token": "SKILL.md"
         }
       ]
     },

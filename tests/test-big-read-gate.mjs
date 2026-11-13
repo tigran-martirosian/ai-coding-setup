@@ -20,12 +20,15 @@ mkdirSync(join(optOut, "tools"));
 writeFileSync(join(optOut, ".claude", "settings.json"), JSON.stringify({ env: { BIG_READ_GATE: "off" } }));
 writeFileSync(join(optOut, "big.txt"), bigText);
 const F = B.replace(/\\/g, "/"); // the same file, written the way Bash takes it
-// Files with a space in the name: one big, one under 350 lines but over 20000 bytes (100 x 300), one under both limits (100 x 150)
+// Files with a space in the name: one big, one under 350 lines but over 80000 bytes (100 x 1000), and two under
+// both limits (100 x 300, 100 x 150)
 const SPACED = join(dir, "gate test big.txt").replace(/\\/g, "/");
 const MID = join(dir, "gate test mid.txt").replace(/\\/g, "/");
+const WIDE = join(dir, "gate test wide.txt").replace(/\\/g, "/");
 const LOW = join(dir, "gate test low.txt").replace(/\\/g, "/");
 writeFileSync(SPACED, "line\n".repeat(900));
-writeFileSync(MID, ("x".repeat(299) + "\n").repeat(100));
+writeFileSync(MID, ("x".repeat(999) + "\n").repeat(100));
+writeFileSync(WIDE, ("x".repeat(299) + "\n").repeat(100));
 writeFileSync(LOW, ("x".repeat(149) + "\n").repeat(100));
 const bash = (command) => ({ tool_name: "Bash", tool_input: { command } });
 const ps = (command) => ({ tool_name: "PowerShell", tool_input: { command } });
@@ -92,10 +95,11 @@ const cases = [
   ["PS -Tail 2000", "deny", ps(`Get-Content ${B} -Tail 2000`)],
   ["powershell -Command piped to grep", "pass", bash(`powershell -NoProfile -Command 'Get-Content ${F}' | grep import`)],
   ["bash -c with an absolute path", "deny", bash(`bash -c "cat ${F}"`)],
-  ["Read 100 lines of 300 bytes (30 KB) whole", "deny", { tool_name: "Read", tool_input: { file_path: MID } }],
-  ["Read 30 KB file, limit 20", "pass", { tool_name: "Read", tool_input: { file_path: MID, limit: 20 } }],
+  ["Read 100 lines of 1000 bytes (100 KB) whole", "deny", { tool_name: "Read", tool_input: { file_path: MID } }],
+  ["Read 100 KB file, limit 20", "pass", { tool_name: "Read", tool_input: { file_path: MID, limit: 20 } }],
+  ["Read 100 lines of 300 bytes (30 KB) whole", "pass", { tool_name: "Read", tool_input: { file_path: WIDE } }],
   ["Read 15 KB file whole", "pass", { tool_name: "Read", tool_input: { file_path: LOW } }],
-  ["cat of the 30 KB file", "deny", bash(`cat "${MID}"`)],
+  ["cat of the 100 KB file", "deny", bash(`cat "${MID}"`)],
 ];
 let fail = 0;
 for (const [name, want, ev] of cases) {
@@ -110,7 +114,8 @@ for (const [name, ok] of [
   ["text: subagent_type worker on its own model (Opus), no sonnet", /subagent_type: "worker" \(Agent tool\)/.test(denyText) && !/model: "sonnet"/.test(denyText)],
   ["text: no ask.mjs or free worker", !/ask.mjs|free worker/.test(denyText)],
   ["text: no Codex", !/codex/i.test(denyText)],
-  ["text: suggests a read that fits under 20 KB (66 lines)", /at most 6\d lines/.test(denyText)],
+  ["text: suggests a read that fits under 80 KB (80 lines)", /at most 8\d lines/.test(denyText)],
+  ["text: a helper saves context, not cost", /saves this session's context, not cost/.test(denyText)],
 ]) { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); }
 // A big .md refusal lists its headings with line numbers (none from inside ``` fences, at most 40); other types don't
 const reasonFor = (file) => JSON.parse(spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: file } }) }).stdout.toString()).hookSpecificOutput.permissionDecisionReason;
@@ -133,6 +138,25 @@ const gone = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_
 const goneOk = !gone.stdout.toString().includes('"deny"') && !existsSync(LOG);
 if (!goneOk) fail++;
 console.log(`${goneOk ? "ok  " : "FAIL"} missing file: pass, no crash logged`);
+// Office documents: refused with the markitdown command when uvx is on the PATH, passed without it; a PDF and a
+// small .md pass either way. The PATH holds only a folder with a stand-in uvx, or only an empty folder.
+const withUvx = join(dir, "with-uvx"), noUvx = join(dir, "no-uvx");
+mkdirSync(withUvx); mkdirSync(noUvx);
+writeFileSync(join(withUvx, process.platform === "win32" ? "uvx.exe" : "uvx"), "", { mode: 0o755 });
+const DOCX = join(dir, "report.docx");
+writeFileSync(DOCX, Buffer.alloc(5000));
+writeFileSync(join(dir, "paper.pdf"), Buffer.alloc(5000));
+const envNoPath = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== "PATH")); // Windows names it Path
+const readWith = (file, pathDir) => spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ cwd: dir, tool_name: "Read", tool_input: { file_path: file } }), env: { ...envNoPath, PATH: pathDir } }).stdout.toString();
+const docDeny = readWith(DOCX, withUvx);
+let docReason = "";
+try { docReason = JSON.parse(docDeny).hookSpecificOutput.permissionDecisionReason; } catch {}
+for (const [name, ok] of [
+  [".docx with uvx: refused, names markitdown and the file", /"deny"/.test(docDeny) && docReason.includes('uvx --from "markitdown[all]" markitdown') && docReason.includes(`"${DOCX}.md"`)],
+  [".docx without uvx: passes, no note", readWith(DOCX, noUvx) === ""],
+  [".pdf with uvx: passes", readWith(join(dir, "paper.pdf"), withUvx) === ""],
+  [".md with uvx: unchanged (small file passes)", readWith(join(dir, "small.md"), withUvx) === ""],
+]) { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); }
 rmSync(dir, { recursive: true, force: true });
 console.log(fail ? `${fail} failed` : "all passed");
 process.exit(fail ? 1 : 0);

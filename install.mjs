@@ -2,7 +2,8 @@
 // Installs this setup. Safe to run again: it adds what is missing and a second run changes nothing.
 //   1. ~/.claude: the hooks, the agents and the skills, and the hook wiring from
 //      settings.example.json merged into settings.json
-//   2. ~/.claude/CLAUDE.md: the global rules from rules/
+//   2. ~/.claude/CLAUDE.md: the global rules from rules/, written whole; the user's own rules in it move to
+//      ~/.claude/rules/my-rules.md (scripts/rules.mjs)
 //   3. the base project folders from projects/ (ask-anything, internet-search, quick-tasks,
 //      claude-settings), each with its skills, hooks, tools and its own .claude/settings.json
 //   4. Claude Code's own settings (a default model when none is set, permission rules for the saved
@@ -29,10 +30,11 @@
 //   --codex yes|no              whether the Codex CLI is used, for the picture skill and the web sweeps of
 //                               ask-anything and internet-search (default: the answer given before, else
 //                               yes when `codex` is on the PATH)
-//   --replace-rules             replace a ~/.claude/CLAUDE.md that has other content (a dated copy is kept)
 //   --replace <file>            take the setup's version of one file the user changed, named as the run
 //                               lists it (hooks/sql-guard.mjs); can be given several times
-//   --replace-all               the same for every such file, and for the rules
+//   --replace-all               the same for every such file
+//   --leave-out "<lead>"        leave this shipped rule out of ~/.claude/CLAUDE.md, on this and later runs
+//                               (the lead: its bold opening, else its first six words); --put-back "<lead>" undoes it
 //   --extensions yes|no         build the Nimbalyst extensions and put them into Nimbalyst (default: yes
 //                               when Nimbalyst is installed; they change nothing until a theme is picked)
 //   --no-theme                  leave Nimbalyst's theme alone (also SETUP_THEME=off); by default a Nimbalyst
@@ -54,6 +56,13 @@
 //   --keep-model                an older install (before 1.0.74) has "model": "sonnet" from the old installer; an
 //                               update moves it to opus at medium effort. This keeps sonnet (and, after a
 //                               move, puts sonnet back); the choice is kept for later runs
+//   --files-only                only step 1's files (hooks, agents, skills, workers; one the user changed stays) and
+//                               the record of them with the new version: no Claude Code check, settings, rules,
+//                               project folder files, extensions, theme or plugins. Step 1's cleanup of what earlier
+//                               versions left still runs as usual (scripts/claude-files.mjs: retired skills, also two
+//                               in the claude-settings folder, and Antigravity entries an old version recorded).
+//                               update.mjs --files-only runs it for a release labelled `kind: files`; it needs an
+//                               install with its files on record
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
 //   --node <file>               start the hooks with this Node by its full path instead of plain `node`
 //                               (for a Mac, where an app opened from the Dock may not have Node on its
@@ -74,7 +83,7 @@ import { plugins } from "./scripts/plugins.mjs";
 import { projects } from "./scripts/projects.mjs";
 import { report } from "./scripts/report.mjs";
 import { fitter, repoSources } from "./scripts/repo.mjs";
-import { rules } from "./scripts/rules.mjs";
+import { rules, leftOut } from "./scripts/rules.mjs";
 import { stateFileIn, themeDone, writeState } from "./scripts/setup-state.mjs";
 import { theme } from "./scripts/theme.mjs";
 import { uninstall } from "./scripts/uninstall.mjs";
@@ -83,6 +92,7 @@ const REPO = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const opt = (name) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] || "" : null);
 const DRY = args.includes("--dry-run");
+const FILES_ONLY = args.includes("--files-only");
 const home = opt("home") !== null ? path.resolve(opt("home") || ".") : os.homedir();
 const CLAUDE = path.join(home, ".claude");
 const said = [];
@@ -104,7 +114,7 @@ if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 5)) {
 // Claude Code itself: updated when behind npm's newest, and the install stops below the minimum this setup needs
 // (version.json: claudeCodeMin). Also Nimbalyst's bundled Claude Code. /update-setup reaches this through install.mjs.
 Object.assign(ctx, repoSources(REPO));
-{
+if (!FILES_ONLY) {
   const { stop } = checkClaudeCode({ min: ctx.claudeCodeMin, dry: DRY, log: say });
   if (stop) { console.log(stop); process.exit(1); }
 }
@@ -150,7 +160,9 @@ ctx.onPath = (name) => (process.env.PATH || "").split(path.delimiter)
   .some((d) => d && ["", ".cmd", ".exe", ".ps1"].some((e) => fs.existsSync(path.join(d, name + e))));
 // A yes or no given once is remembered, so a later run (an update) doesn't turn Codex back on
 const answer = (name) => (opt(name) === "yes" ? true : opt(name) === "no" ? false : typeof state[name] === "boolean" ? state[name] : null);
-ctx.have = { codex: answer("codex") ?? ctx.onPath("codex") };
+// nimbalyst: whether a rule that needs Nimbalyst is shipped (rules/conditions.json). Under --home the real
+// Nimbalyst is not this home's: false unless the tests pass --nimbalyst yes (not stored)
+ctx.have = { codex: answer("codex") ?? ctx.onPath("codex"), nimbalyst: opt("home") === null ? fs.existsSync(nimbalystHome(appDataDir())) : opt("nimbalyst") === "yes" };
 
 // state.files: each of the setup's own files as a run last wrote it, by full path. One that no longer
 // matches was changed by the user, or was theirs before the first install, and stays unless asked for.
@@ -180,8 +192,25 @@ if (args.includes("--with") && !ctx.withNames.length) { console.log(`--with need
 const badWith = ctx.withNames.filter((n) => !(n in ADDONS));
 if (badWith.length) { console.log(`--with ${badWith.join(",")}: not an add-on. The add-ons are: ${Object.keys(ADDONS).join(", ")}.`); process.exit(1); }
 
+// --leave-out / --put-back: a lead that names no shipped rule stops here, before anything is written
+const leaveOut = leftOut(ctx, ctx.repoText("rules/CLAUDE.md"));
+if (leaveOut.error) { console.log(leaveOut.error); process.exit(1); }
+
 if (args.includes("--uninstall")) {
   uninstall(ctx);
+  process.exit(0);
+}
+
+// --files-only: the setup's own files in ~/.claude and the record of them, nothing else and nothing asked
+if (FILES_ONLY) {
+  if (!state.version || !("files" in state)) { console.log(`${fwd(stateFile)} has no record of the files the setup wrote, so a changed one can't be told from the setup's: run the update with /update-setup.`); process.exit(1); }
+  claudeFiles(ctx);
+  const filesState = { ...state, repo: REPO, version: ctx.version, files: ctx.filesWritten };
+  if (ctx.userCopies.size) filesState.userCopies = [...ctx.userCopies].sort();
+  if (!DRY) ctx.putJson(stateFile, filesState, JSON.stringify(state));
+  stateSaved = true;
+  if (ctx.tally.yours.length) say(`Kept as yours (you changed them, so they stay behind ${ctx.version}): ${ctx.tally.yours.join(", ")}`);
+  say(`Files of version ${ctx.version} in place: ${ctx.tally.added} added, ${ctx.tally.replaced.length} replaced, ${ctx.tally.same} unchanged.`);
   process.exit(0);
 }
 
@@ -191,7 +220,8 @@ if (noGitBash) say(gitBashMissing(settingsFile));
 claudeFiles(ctx);
 const modelMark = claudeSettings(ctx);
 // ---- 2. the global rules
-const { marks, rulesKept } = rules(ctx);
+ctx.rulesUndo = [];
+const { marks } = rules(ctx);
 // ---- 3. the project folders
 const written = projects(ctx);
 // Remembered for later runs: the projects folder, the folder of this setup (a chat can find it again),
@@ -199,6 +229,9 @@ const written = projects(ctx);
 // Written once, after the extensions and plugins below: a run that stops before then leaves the old record.
 const nextState = { ...state, projects: ctx.PROJECTS, repo: REPO, version: ctx.version, ...marks, written, files: ctx.filesWritten };
 if (modelMark) nextState.model = modelMark;
+// what the carve changed, for own-rules.mjs --undo; a run that carved nothing keeps the last record
+if (ctx.rulesUndo.length) nextState.rulesUndo = { at: new Date().toISOString(), by: "carve", files: ctx.rulesUndo };
+delete nextState.rulesOffered;
 if (ctx.userCopies.size) nextState.userCopies = [...ctx.userCopies].sort();
 // what an older version recorded about the outside workers is gone with them (scripts/claude-files.mjs: dropAgy)
 delete nextState.agyAdded;
@@ -229,4 +262,4 @@ plugins(ctx);
 // The record is written now: everything that can stop a run has run
 if (JSON.stringify(nextState) !== JSON.stringify(state)) ctx.putJson(stateFile, nextState, JSON.stringify(state));
 stateSaved = true;
-report(ctx, { noGitBash, rulesKept });
+report(ctx, { noGitBash });

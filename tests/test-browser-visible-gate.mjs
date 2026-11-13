@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 import { verdict } from "../hooks/browser-visible-gate.mjs";
 
 assert.match(verdict({ url: "https://www.linkedin.com/login", headless: false }), /site-login/);
+assert.match(verdict({ url: "https://example.com", headless: false }, "win32"), /cmd \/\/c start "" "<url>"/); // the way to really show a page
+assert.match(verdict({ url: "https://example.com", headless: false }, "darwin"), /open "<url>"/);
+assert.match(verdict({ url: "https://example.com", headless: false }, "linux"), /xdg-open "<url>"/);
+assert.match(verdict({ url: "https://example.com", headless: false }), /never say a page is open/);
 assert.equal(verdict({ url: "https://x.com" }), null);
 assert.equal(verdict({ url: "https://x.com", headless: true }), null);
 assert.equal(verdict(undefined), null);

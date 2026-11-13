@@ -336,6 +336,52 @@ check("quality: ten claims give rates (redo 5 of 10: every claim followed by an 
   check("prompt cache: line in the report", /Prompt cache .*34\.6% of the input read from the cache.*Mid-session rewrites .*: 4, 112k written/.test(md), true);
 }
 
+{ // Fable 5.2 has its own prices and weight; Fable 5.1 keeps its own
+  const { PRICE, FAMILY, FABLE_NOW } = await import(new URL("../skills/setup-audit/scripts/lib/prices.mjs", import.meta.url).href);
+  const first = (table, model) => table.find(([re]) => re.test(model)).slice(1);
+  check("Fable 5.2 priced at 8/40, cache read 0.2", first(PRICE, "claude-fable-5-2"), [8, 40, 0.2]);
+  check("Fable 5.1 keeps 10/50, cache read 0.25", first(PRICE, "claude-fable-5-1"), [10, 50, 0.25]);
+  check("Fable 5.2 weighs 10, the current Fable", [first(FAMILY, "claude-fable-5-2")[0], FABLE_NOW], [10, 10]);
+  check("Fable 5.1 weighs 12.5", first(FAMILY, "claude-fable-5-1")[0], 12.5);
+}
+
+// Hook firings: context, shown messages, refusals (tool result and Stop), crashes, timeouts, extra requests
+{
+  fs.mkdirSync(path.join(root, "C--Projects-fire"), { recursive: true });
+  const att = (min, attachment) => ({ type: "attachment", timestamp: at(min), attachment });
+  const ctxText = "[file-link-gate] File links: full path."; // 39 chars
+  const stopText = "code-review-gate: no reviewer has looked."; // 41 chars
+  const refuse = "PreToolUse:Read hook error: [big-read-gate] big.md is 500 lines."; // 64 chars
+  const cmd = (name) => `"node.exe" "C:/Users/you/.claude/hooks/${name}.mjs"`;
+  write(path.join(root, "C--Projects-fire", "f1.jsonl"), [
+    user(0, "go"),
+    att(0, { type: "hook_additional_context", content: [ctxText], hookName: "UserPromptSubmit", hookEvent: "UserPromptSubmit" }),
+    att(0, { type: "hook_additional_context", content: [ctxText], hookName: "UserPromptSubmit", hookEvent: "UserPromptSubmit" }),
+    att(0, { type: "hook_system_message", content: "Context is ~152k tokens.", hookEvent: "UserPromptSubmit" }),
+    att(0, { type: "hook_success", hookEvent: "SessionStart", command: cmd("patch-next"), stdout: "{\"x\":1}" }),
+    att(0, { type: "hook_success", hookEvent: "SessionStart", command: cmd("update-check"), stdout: "" }),
+    att(0, { type: "hook_cancelled", hookEvent: "Stop", command: cmd("plan-usage-logger"), timedOut: true }),
+    att(0, { type: "hook_non_blocking_error", hookEvent: "Stop", stderr: "Error: Cannot find module 'C:\\x\\handoff-brief.mjs'" }),
+    // request 1: its only call refused = an extra request; request 2: one of two refused = none
+    asst(1, "f-m1", usage(0, 5000, 1), [tool("f1", "Read", { file_path: "big.md" })]),
+    result(1, "f1", refuse, true),
+    asst(2, "f-m2", usage(0, 5000, 1), [tool("f2", "Read", { file_path: "big.md" }), tool("f3", "Bash", { command: "ls" })]),
+    result(2, "f2", refuse, true),
+    result(2, "f3", "ok"),
+    att(3, { type: "hook_blocking_error", hookEvent: "Stop", blockingError: { blockingError: stopText, command: cmd("code-review-gate") } }),
+  ]);
+  const F = run("--project", "fire", "--days", "10000").hookFirings;
+  const z = { context: 0, shown: 0, refusals: 0, chars: 0, extra: 0, crashes: 0, timeouts: 0, outputs: 0, tokens: 0 };
+  check("hook firings: context text per hook, tokens = chars / 4", F["file-link-gate"], { ...z, context: 2, chars: 78, tokens: 20 });
+  check("hook firings: refusals, and only a request with every call refused is extra", F["big-read-gate"], { ...z, refusals: 2, chars: 128, extra: 1, tokens: 32 });
+  check("hook firings: a refused stop is a refusal and an extra request", F["code-review-gate"], { ...z, refusals: 1, chars: 41, extra: 1, tokens: 10 });
+  check("hook firings: shown message without a name, crash, timeout, output run",
+    [F["(unnamed UserPromptSubmit)"]?.shown, F["handoff-brief"]?.crashes, F["plan-usage-logger"]?.timeouts, F["patch-next"]?.outputs, F["update-check"]],
+    [1, 1, 1, 1, undefined]);
+  const md = execFileSync("node", [SCRIPT, "--root", root, "--cache-file", CACHE, "--project", "fire", "--days", "10000"], { encoding: "utf8" });
+  check("hook firings: table in the report", /## Hook firings[\s\S]*\| big-read-gate \| 0 \| 0 \| 2 \| 0k \| 1 \| 0 \| 0 \|/.test(md), true);
+}
+
 fs.rmSync(root, { recursive: true, force: true });
 fs.rmSync(CACHE, { force: true });
 console.log(`\n${pass}/${pass + fail} passed`);

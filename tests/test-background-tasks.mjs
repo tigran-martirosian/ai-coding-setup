@@ -12,6 +12,8 @@ let failed = 0;
 
 const J = JSON.stringify;
 const call = (name, id, input) => J({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] } });
+// an app refusal as Claude Code writes it: a plain-text error result
+const denied = (id) => J({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: DENY, is_error: true }] } });
 const result = (id, text) => J({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: [{ type: "text", text }] }] } });
 const notice = (task, use) => `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${use}</tool-use-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>`;
 const notified = (task, use) => J({ type: "user", origin: { kind: "task-notification" }, message: { role: "user", content: notice(task, use) } });
@@ -221,13 +223,14 @@ const SETTLED_TURN = typed("[System: background task(s) you launched have settle
 const FEEDBACK_TURN = J({ type: "user", message: { role: "user", content: "<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>" } });
 const grep = (id) => call("Grep", id, { pattern: "colony" });
 const retry = (lines, expect, name, extra = {}) => run(name, lines, expect, stop("I've stopped since that was declined.", extra));
-retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), result("toolu_g", DENY)], "retry", "denied-in-settled-turn-blocks");
-retry([typed("fix it"), FEEDBACK_TURN, grep("toolu_g"), result("toolu_g", DENY)], "retry", "denied-in-hook-feedback-turn-blocks");
-retry([typed("fix it"), ...agentBg(), notified("a1234", "toolu_a"), grep("toolu_g"), result("toolu_g", DENY)], "retry", "denied-in-task-notice-turn-blocks");
-retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), result("toolu_g", DENY), grep("toolu_h"), result("toolu_h", "a.py")], "", "denied-then-sent-again-passes");
-retry([typed("fix it"), grep("toolu_g"), result("toolu_g", DENY)], "", "denied-in-typed-turn-is-the-user");
-retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), result("toolu_g", DENY)], "", "denied-hook-active-passes", { stop_hook_active: true });
-retry([typed("fix it"), J({ type: "user", message: { role: "user", content: "Stop hook feedback:\n[code-review-gate] review it" } }), grep("toolu_g"), result("toolu_g", DENY)], "retry", "denied-in-real-stop-feedback-entry-blocks");
+retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), denied("toolu_g")], "retry", "denied-in-settled-turn-blocks");
+retry([typed("fix it"), FEEDBACK_TURN, grep("toolu_g"), denied("toolu_g")], "retry", "denied-in-hook-feedback-turn-blocks");
+retry([typed("fix it"), ...agentBg(), notified("a1234", "toolu_a"), grep("toolu_g"), denied("toolu_g")], "retry", "denied-in-task-notice-turn-blocks");
+retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), denied("toolu_g"), grep("toolu_h"), result("toolu_h", "a.py")], "", "denied-then-sent-again-passes");
+retry([typed("fix it"), grep("toolu_g"), denied("toolu_g")], "", "denied-in-typed-turn-is-the-user");
+retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), result("toolu_g", "HANDOFF.md: the app says \"" + DENY + "\"")], "", "a-read-that-quotes-the-refusal-passes");
+retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), denied("toolu_g")], "", "denied-hook-active-passes", { stop_hook_active: true });
+retry([typed("fix it"), J({ type: "user", message: { role: "user", content: "Stop hook feedback:\n[code-review-gate] review it" } }), grep("toolu_g"), denied("toolu_g")], "retry", "denied-in-real-stop-feedback-entry-blocks");
 {
 	const r = spawnSync(process.execPath, [HOOK], { input: J({ hook_event_name: "UserPromptSubmit", prompt: settled("S9"), transcript_path: path.join(dir, "denied-in-settled-turn-blocks.jsonl") }), encoding: "utf8" });
 	const ok = r.stdout.includes("The app started this turn") && r.stdout.includes("send the same call again");

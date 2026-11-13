@@ -1,13 +1,13 @@
 # Screen review rubric
 
-The reviewer gets sections 2 to 5 and the pictures, nothing else: no code, no author reasoning.
+The reviewer gets the Level, Name and Test columns of section 1, sections 2 to 4, the pictures and a short word list; the brief ends with `SYSTEMS MAP: none`. Nothing else: no code, no author reasoning.
 
 ## 1. Severity
 
 | Level | Name | Test | Action |
 |---|---|---|---|
-| 4 | Blocker | A user cannot read, use or understand it: cut off, overlapped, off-screen, misleading. Almost everyone sees it. | Fix |
-| 3 | Major | Noticed within seconds, looks broken or amateur (hard-to-read text, cramped, misaligned by several px, inconsistent), or fails at one of the shot sizes. | Fix |
+| 4 | Blocker | A user cannot read, use or understand it: cut off, overlapped, off-screen, misleading, or text that fails the readability and contrast checks (13-14). Almost everyone sees it. | Fix |
+| 3 | Major | Noticed within seconds, looks broken or amateur (cramped, misaligned by several px, inconsistent), or fails at one of the shot sizes. | Fix |
 | 2 | Minor | A picky user notices on a second look (1-2 px off, uneven gap, a shade off). | Fix only if it is cheap |
 | 1 | Cosmetic | Only a designer would mention it; another valid choice. | List only |
 | 0 | Out of scope | Taste, a feature idea, content or business logic, something outside the screen, a deliberate platform look. | OUT-OF-SCOPE list |
@@ -72,6 +72,15 @@ Each check is answered from the pictures. Default severity in brackets; the revi
     - Copy: emoji in headings, dashes as the main punctuation, buzzwords ("seamless", "supercharge", "next-level"), meta lines strung together with middle dots, an arrow on every button.
     - Untouched defaults: a component library's stock look left as it ships, the same thin-line icon set on everything.
 
+**Use** (judged from the shot's scale and the states shown; a check whose element is not on the screen passes)
+33. [3] Big enough to hit: every tap or click target is at least 44 px for touch (24 px for a mouse-only screen) on its short side at the shot's scale, with small targets spaced so a finger cannot hit the neighbour; the main action sits where a thumb or pointer reaches it. Measure against the scale given with the picture; with no scale, take one image pixel as one CSS pixel on a desktop-width shot and say so, otherwise say "unsure" and rate 1. Judge only what looks clickable (a button, tab, link, toggle or chevron).
+34. [3] Clear figure and ground: behind an open dialog, sheet or menu, the page is dimmed or blurred so the front layer is plainly the one in use; nothing the user needs is styled or placed like an ad (a banner strip, a boxed promo at the side or top, stock-photo tile).
+35. [2] Choices shown up front: a choice the user must make shows its options on the screen, a few at a time (about 5), with the current, default or recommended one marked; a long list starts with search or filters, and a short one is not hidden in a dropdown.
+36. [3] Steps read as one flow: the steps of a sequence (checkout, setup, a pipeline) are joined by one shared background or frame, a line or arrows, or a numbered progress bar, and the current step is marked; gaps alone are not enough.
+37. [2] More is visible: a row or list that scrolls sideways shows part of the next item cut by the edge (or arrows or dots), so it does not look finished. Shortened text ending in "…" is not a scroll.
+38. [2] Key items at the ends: in a menu, nav bar, list or row of options, the most important item is first or last, not in the middle. A set with a natural order (time ranges, sizes, steps, a sorted list) keeps that order and passes.
+39. [3] Forms in one column: fields run in one column (short related fields such as city and postcode may share a row), labels sit outside the fields (a lone search or filter box may use a placeholder only), and on a pay or order screen the total stays in view next to the button. A button amount that differs from the shown total is a 4.
+
 ## 3. Persona and rules
 
 - Persona: a picky user on a large monitor and on a small device. Judge only what a user sees.
@@ -90,7 +99,7 @@ DENSITY: Is it too dense or crammed? yes/no, why. Tightest shot still not cramme
 OUT-OF-SCOPE: one line each, no severity.
 ```
 
-## 5. Follow-up round (the same reviewer; paste above section 4)
+## 5. Follow-up round (sent in round 2 only)
 
 ```
 Follow-up review. Claimed fixed: [check # + where + one line each]. You get BEFORE and AFTER pictures.

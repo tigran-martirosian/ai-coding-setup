@@ -15,7 +15,7 @@ For Claude: the user ran one command and expects the rest to happen by itself. D
 2. **Never lose the user's own config.** `install.mjs` and `scripts/app-settings.mjs` merge and keep dated copies. Where you edit a file by hand, keep a copy too.
 3. **If something fails,** try once more with an obvious fix, then note it for step 10 and go on. The one exception is Node in step 2: without it nothing here works.
 4. **One short line to the user per step**, in the language they write in. No long explanations until step 10.
-5. From step 3 on, a hook wants every shell command to end with an empty line and then a last line that starts with `# WHAT THIS DOES: ` and says in plain words what the command does. In Nimbalyst it also wants commands run with the Bash tool, not the PowerShell tool. Write your commands that way from the start.
+5. From step 3 on, a hook wants every shell command to end with an empty line and then a last line that starts with `# WHAT THIS DOES: ` and says in plain words what the command does. Run commands with the Bash tool: on Windows with Git Bash, step 3 turns the PowerShell tool off. Write your commands that way from the start.
 6. **No git in the user's projects.** Git is installed only because the plugin installer downloads with it.
 7. On a Mac, **never use `sudo` yourself**: your shell can't show a password prompt.
 
@@ -85,11 +85,11 @@ From `<repo>`:
 node install.mjs --projects "<projects>" --codex <yes|no> --language <english|russian>
 ```
 
-On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. If it says `rules: left alone` or `rules: new in this version, yours were kept`, the user already has a `~/.claude/CLAUDE.md` of their own: show in a few lines what `rules/CLAUDE.md` adds, ask whether to replace theirs (a dated copy is kept), and on yes run the same command with `--replace-rules`.
+On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. The rules file `~/.claude/CLAUDE.md` is written whole. If it says `rules: brought up to this version` with some `of yours moved to`, the user already had rules of their own: tell them in one line that those now sit in `~/.claude/rules/my-rules.md`, which every chat loads too, and that a dated copy of the old file is kept.
 
 When Nimbalyst is already installed, this run also builds the editor extensions and puts them into Nimbalyst (`extension installed: <name>`); the extensions step further down is then only for one that says `extension failed` or `extension not built`. The same run adds the Claude Code settings of step 5 and installs the plugins of step 4 (`plugin installed: <name>`), so those two steps are only for what it reports as failed or not installed. Its line `Left for a chat, once` means steps 8 and 9 below: you are that chat. Only this first run prints it; a later run or an update does not, and never opens a folder or asks about a theme or voice typing.
 
-If the run ends with a list under `Kept as yours`, the user already had files with those names: their own hooks or skills, or an older copy of this setup. They were left as they are. Show the list and ask once: take the setup's version of all of them, of some (which ones), or keep theirs. A dated copy of theirs is kept either way. All: the same command with `--replace-all`, which takes the rules too. Some: with `--replace <name>` for each, the name as the list has it. If the run lists hooks whose script is not there, name them in the final reply and change nothing. A run that changed something saves what it printed under `~/.claude/setup-logs`.
+If the run ends with a list under `Kept as yours`, the user already had files with those names: their own hooks or skills, or an older copy of this setup. They were left as they are. Show the list and ask once: take the setup's version of all of them, of some (which ones), or keep theirs. A dated copy of theirs is kept either way. All: the same command with `--replace-all`. Some: with `--replace <name>` for each, the name as the list has it. If the run lists hooks whose script is not there, name them in the final reply and change nothing. A run that changed something saves what it printed under `~/.claude/setup-logs`.
 
 ## 4. Plugins and skills
 
@@ -113,7 +113,7 @@ The installer in step 3 made these already. To make them alone:
 node scripts/app-settings.mjs
 ```
 
-It sets `"model": "opus"` at medium effort in `~/.claude/settings.json` if no model is set, keeps transcripts 120 days if no time is set, takes out the 64k cap on one reply (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`) that 1.0.104 set, and adds permission rules: the agent can't read the saved sign-ins of Claude, Codex and Gemini or the SSH keys, and asks before it reads a `.env` file. It ends with `settings done`.
+It sets `"model": "opus"` at medium effort in `~/.claude/settings.json` if no model is set, keeps transcripts 120 days if no time is set, takes out the 64k cap on one reply (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`) that 1.0.104 set, and adds permission rules: the agent can't read the saved sign-ins of Claude, Codex and Gemini or the SSH keys, asks before it reads a `.env` file, and can't start the uncapped Explore and general-purpose helpers (`Agent(Explore)` and `Agent(general-purpose)` in `permissions.deny`). On Windows with Git Bash it also turns the PowerShell tool off (`CLAUDE_CODE_USE_POWERSHELL_TOOL=0`). It ends with `settings done`.
 
 ## 6. Sign in to Codex
 
@@ -157,7 +157,7 @@ Run each check once; fix an obvious failure, report any other with its output. B
 1. `node install.mjs --projects "<projects>" --codex <yes|no> --dry-run` prints no line starting with `[dry run] copied`, `replaced`, `wrote` or `hook added`.
 2. Pipe `{"tool_name":"Bash","tool_input":{"command":"ls -la"}}` into `node ~/.claude/hooks/command-explain.mjs`: the output contains `(no note given)`.
 3. Write a temp text file of 400 lines and pipe `{"tool_name":"Read","tool_input":{"file_path":"<that file>"}}` into `node ~/.claude/hooks/big-read-gate.mjs`: the output contains `"deny"`. Delete the file.
-4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: the output contains `"deny"` and its reason points to the `worker` subagent.
+4. `permissions.deny` in `~/.claude/settings.json` holds `Agent(Explore)` and `Agent(general-purpose)`.
 5. `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
 6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
 7. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.

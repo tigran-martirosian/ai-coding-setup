@@ -11,8 +11,8 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "big-read-allow-test-"));
 const ALLOW_FILE = path.join(dir, "allow.json");
 const big = path.join(dir, "chunk1.txt");
 const other = path.join(dir, "chunk2.txt");
-fs.writeFileSync(big, "x".repeat(28000)); // one long line, over the 20 KB limit
-fs.writeFileSync(other, "y".repeat(28000));
+fs.writeFileSync(big, "x".repeat(90000)); // one long line, over the 80 KB limit
+fs.writeFileSync(other, "y".repeat(90000));
 const fwd = (p) => p.replace(/\\/g, "/");
 
 const run = (input) => {
@@ -51,7 +51,7 @@ check("a file that was not named stays blocked", denied(read("s1", other)));
 // A path with spaces is found when the prompt names it
 const spaced = path.join(dir, "my notes", "big notes.txt");
 fs.mkdirSync(path.dirname(spaced));
-fs.writeFileSync(spaced, "z".repeat(28000));
+fs.writeFileSync(spaced, "z".repeat(90000));
 prompt("s1", `read ${fwd(spaced)} and tell me the first line`);
 check("a path with spaces passes when named", !denied(read("s1", spaced)));
 

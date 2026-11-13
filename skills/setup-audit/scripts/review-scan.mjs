@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { opt } from "./lib/opt.mjs";
 import { daysWindow } from "./lib/days.mjs";
-import { FAMILY, FAMILY_UNLISTED } from "./lib/prices.mjs";
+import { FABLE_NOW, FAMILY, FAMILY_UNLISTED } from "./lib/prices.mjs";
 import { defaultRoot, walkChats, subagentMetas, EDIT, AGENT, SHELL as RUN, QUESTION_TOOL as ASK, CAPPED, MACHINE, INTERRUPTED, FILLER, PUSH, one, textOf, editedFile } from "./lib/chats.mjs";
 
 const root = opt("root", defaultRoot());
@@ -261,11 +261,11 @@ const whatIf = [
   ["Looking stretches run on Sonnet `worker` helpers (one request per stretch stays)", total - sum(lookRest, (r) => r.w - to(r, 3))],
   ["That, and the building stretches run on Sonnet helpers", total - sum(lookRest, (r) => r.w - to(r, 3)) - sum(build, (r) => r.w - to(r, 3))],
   ["Opus leads (talks, asks, delegates), Sonnet does all the work requests", sum(reqs, (r) => LEAD_KINDS.has(r.kind) ? r.w : to(r, 3))],
-  ["Fable leads, Sonnet does all the work requests", sum(reqs, (r) => LEAD_KINDS.has(r.kind) ? r.w * 12.5 / r.fam : to(r, 3))],
+  ["Fable leads, Sonnet does all the work requests", sum(reqs, (r) => LEAD_KINDS.has(r.kind) ? r.w * FABLE_NOW / r.fam : to(r, 3))],
   ["Sonnet runs everything", sum(reqs, (r) => to(r, 3))],
 ];
 p("## What if the work were split differently", "",
-  "The same requests with the same context sizes, only run by someone else. Sizes of the prize, not forecasts: a helper starts with a small context (cheaper than shown) but has to be briefed and checked (dearer than shown). Weights: Haiku 1, Sonnet 3, Opus 5, Fable 12.5.", "",
+  `The same requests with the same context sizes, only run by someone else. Sizes of the prize, not forecasts: a helper starts with a small context (cheaper than shown) but has to be briefed and checked (dearer than shown). Weights: Haiku 1, Sonnet 3, Opus 5, Fable ${FABLE_NOW} (Fable 5.1 and older 12.5).`, "",
   "| Split | Weight | Against now |", "|---|---|---|", `| As it was | ${total.toFixed(0)} | |`,
   ...whatIf.map(([name, w]) => `| ${name} | ${w.toFixed(0)} | ${w <= total ? "−" : "+"}${pct(Math.abs(total - w))} |`), "");
 

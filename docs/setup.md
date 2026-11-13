@@ -22,18 +22,19 @@ flowchart TD
 
 ## What I hand to each tool
 
-The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Opus and has a budget of tool calls. Searching the web, design and code stay with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
+The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Opus at medium effort (Fable at medium for code, deep web research, charts, science or maths) and has a budget of tool calls. A quick web lookup stays with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
 
 | Tool | What I use it for | Limits I set |
 |---|---|---|
 | Claude Code in the Nimbalyst editor (the main session) | Planning a change with me, writing and editing the code, running the checks | It does what I asked and nothing else: no unrelated refactoring, no extra features |
-| `worker` subagent ([agents/worker.md](../agents/worker.md)) | Reading long files and logs, sweeping a project folder, a second opinion on a plan or a diff (about 15 tool calls, the answer is a lead that gets checked), one step of a bigger job, or routine edits that follow a clear plan | A smaller model, no `CLAUDE.md` loaded, and it stops after 80 turns. Its brief has to name the goal of the job, the files and the project commands it needs |
+| `worker` subagent ([agents/worker.md](../agents/worker.md)) | Reading long files and logs, sweeping a project folder, a second opinion on a plan or a diff (about 15 tool calls, the answer is a lead that gets checked), one step of a bigger job, or routine edits that follow a clear plan | Medium effort, no `CLAUDE.md` loaded, and it stops after 80 turns. Its brief has to name the goal of the job, the files and the project commands it needs |
 | `worker-full` subagent ([agents/worker-full.md](../agents/worker-full.md)) | The same, for a step that needs a skill or an MCP tool | It loads every tool and the `CLAUDE.md` files, so it costs much more to start |
-| `reviewer` subagent ([agents/reviewer.md](../agents/reviewer.md)) | One independent check of a finished bigger change, against the request and for quality | It reads files and changes nothing, stops after 40 turns, and one is enough |
+| `reviewer` subagent ([agents/reviewer.md](../agents/reviewer.md)) | One independent check of a finished bigger change, against the request and for quality | It reads files and changes nothing, stops after 60 turns, and one is enough |
 | `rec-check` subagent ([agents/rec-check.md](../agents/rec-check.md)) | A second look at a recommended option before a question reaches me | It reads files and changes nothing, stops after 8 turns, and answers keep or change |
-| `planner` subagent ([agents/planner.md](../agents/planner.md)) | The plan for every build or design request, written by the strongest model before the main session starts on it | It reads files and changes nothing, stops after 15 turns, and gets the situation without the main session's own idea of the answer |
+| `planner` subagent ([agents/planner.md](../agents/planner.md)) | The plan for every build or design request, written by the strongest model before the main session starts on it | It reads files and runs only read-only commands (a hook refuses the rest), changes nothing, stops after 40 turns, and gets the situation without the main session's own idea of the answer |
+| `plan-reviewer` subagent ([agents/plan-reviewer.md](../agents/plan-reviewer.md)) | One independent check of a big job's plan before it reaches me | It reads files, runs the plan's checks that only read or test, and changes no files, stops after 40 turns |
 
-Long reading costs the most on the main model, which is why it goes to a `worker` subagent. Web research stays with Claude, which reads the page or the catalogue that knows the answer. For a larger task I use a [skill](../skills/lead/SKILL.md) that runs it from the main session: the `planner` agent writes the plan, and the session turns it into a numbered job list, hands each step to a worker that knows the goal of the whole job, and has one reviewer check the result, so what comes back to me has already been checked once. A separate Nimbalyst session is used only when a step needs my input or has to run past the turn.
+Long reading costs the most on the main model, which is why it goes to a `worker` subagent. A quick web lookup stays with Claude, which reads the page or the catalogue that knows the answer; deep research across many pages in a planned job goes to a worker on Fable. For a larger task I use a [skill](../skills/lead/SKILL.md) that runs it from the main session: the `planner` agent writes the plan, and the session turns it into a numbered job list, hands each step to a worker that knows the goal of the whole job, and has one reviewer check the result, so what comes back to me has already been checked once.
 
 ## The rules I wrote
 
@@ -42,7 +43,7 @@ A global instruction file holds the rules for every session. The file is [rules/
 - Ask when a requirement is unclear and the choice matters. For a small, reversible choice, pick a default and say so.
 - Do what was asked: no unrelated refactoring, no features nobody asked for.
 - Nothing is called done without a real check and its output.
-- Long reading of local files goes to a cheaper tool. Web research, planning and the final check of the work stay in the main session.
+- Long reading of local files goes to a worker, and deep web research to a worker on Fable. Planning goes to the planner, the final check to the reviewer, and the decisions stay in the main session.
 - Every subagent gets the inputs it needs and a budget of tool calls, and reports back when the budget runs out.
 - Large files are read in parts, and big command output is processed outside the conversation.
 
@@ -53,20 +54,21 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When | Hook | Rule it enforces |
 |---|---|---|
 | Before a file read or shell command | `big-read-gate` | Read large files in parts (a Markdown file shows its headings) |
-| Before a subagent starts | `worker-nudge` | Long local reading, a build or a check goes to the capped `worker` agent (`worker-full` when it needs a skill or an MCP tool), and a review of a finished job goes to the `reviewer` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
 | Before a shell command | `command-explain` | Explain the command in plain words; a command without that line runs with a stand-in line, and the agent is reminded |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
+| Before a push | `push-key-scan` | A push that would send a key or token, or a `.env` file, asks me first |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |
 | Before a picture is shown in the chat | `picture-in-project` | The picture is shown from the project's `shown` folder, so it still loads after a cleanup and a click opens it enlarged |
 | Before a Nimbalyst browser session opens | `browser-visible-gate` | A `headless: false` session shows no window you can see, so it is refused and the `site-login` skill is named: it opens a real window to sign in, which closes by itself once you are in |
-| Before a question to me | `question-other` | Every question lets me type my own answer, a question about something to look at links to it, a recommendation that says "Checked:" must match a lookup in the session log, and a recommendation has to pass a `rec-check` agent first (`REC_CHECK=off` turns that part off) |
-| Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
-| Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn |
-| When I send a message | `context-guard` | Warn when the session passes 150k tokens |
-| When a reply ends | `context-guard` | Warn when a session passes 150k tokens and say to batch the work; it never stops the session |
+| Before a question to me | `question-other` | A Nimbalyst form with a question I can't type my own answer to is sent back (its question card, which always has a typing box, never is); a missing link, a "Checked:" no lookup in the session log matches, or a recommendation no `rec-check` agent looked at goes to the agent as a note to fix in its reply (`REC_CHECK=off` turns the rec-check part off). In Nimbalyst a start note steers questions to its question card, which always has a typing box |
+| After I answer a question | `form-answer` | What I typed outweighs what I ticked, and a tick against my words is asked about before it counts as decided (`FORM_ANSWER=off`) |
+| Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn, or the same call is repeated |
+| When I send a message | `context-guard` | Past 150k tokens, tell Claude (not me) to batch the work, and after an hour idle to move to a fresh session |
+| When a reply ends | `context-guard` | Show me one line when a session has passed 300k tokens without compacting; it never stops the session |
+| After a helper returns | `helper-stopped` | A helper cut off at its turn limit or with no report is asked once what is done and left, and the files are checked; a cut-off reviewer counts as not run (`HELPER_STOPPED=off`) |
 | When I send a message | `cold-cache` | Warn when I come back to a session over 100k tokens after the prompt cache has expired (55 minutes), because the next message pays for the whole history again |
 | When I send a message | `pc-tidy-nudge` | On Windows, say to restart Nimbalyst after 12 hours open |
-| When I send a message | `update-check` | Say, at most every 12 hours, when a newer version of the setup is released |
+| When I send a message | `update-check` | Say when a newer version of the setup is released (checked every 12 hours), and let a small release of only hook, skill, agent or worker files install itself in the background (`UPDATE_CHECK=off`; `AUTO_UPDATE=off` stops only the self-install) |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call (inside Nimbalyst it refreshes the data and says where to click) |
 | While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
 | Before a reply goes out | `link-gate` | No link that wasn't opened in this session |
@@ -74,7 +76,6 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a reply goes out | `code-review-gate` | Work that changed 10 or more code files over a session, in which two or more helpers edited code, or that changed hooks, settings or CI files gets one `reviewer` agent before it ends |
 | Before a reply goes out | `verify-gate` | A turn that edited a code file ends only after a build or test ran following the last edit; the gate asks once per turn and never runs the command itself (`VERIFY_GATE=off` and `VERIFY_PATTERN` for a project's own commands) |
 | Before a push or release | `code-review-gate` | A `git push`, `gh release` or `npm publish` is refused while the work since the last review is due one (`REVIEW_PUSH_PATTERN` adds commands) |
-| After a skill file is written | `skill-pointer` | The project's `CLAUDE.md` must name the skill and the ask that calls it, or the agent is told to add one line (`SKILL_POINTER=off`) |
 | When a session starts | `nimbalyst-notes` | Inside Nimbalyst, the agent is told two quirks of its tools; nothing in the terminal (`NIMBALYST_NOTES=off`) |
 | Before a reply goes out | `run-yourself` | A reply that tells me to run a command is sent back once, so the agent runs it |
 | After each reply | `handoff-brief` | Keep a brief so a new session can continue |
@@ -88,11 +89,11 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before an edit | `map-generated` | A hand edit of a file a script writes is refused, with the script to change and rerun (`MAP_GENERATED=off`) |
 | After an edit | `map-drift` | An edit that removes the code a map link rests on is named, so the agent checks that link (`MAP_DRIFT=off`) |
 
-The scanner counts how often `big-read-gate` stopped a whole-file read and `worker-nudge` stopped a search subagent. I use the scanner's counts to decide which rule needs a hook next. The wiring is in [settings.example.json](../settings.example.json).
+The uncapped search subagents are now stopped by the settings, not a hook: the installer puts `Agent(Explore)` and `Agent(general-purpose)` in `permissions.deny`. The scanner counts how often `big-read-gate` stopped a whole-file read. I use the scanner's counts to decide which rule needs a hook next. The wiring is in [settings.example.json](../settings.example.json).
 
 ## Long sessions
 
-A long session sends its whole history again on every step, so every step costs more. `context-guard` warns at 150k tokens and suggests fewer, batched steps. The [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
+A long session sends its whole history again on every step, so every step costs more. From 150k tokens `context-guard` tells Claude to take fewer, batched steps. The [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
 
 Each project keeps three short files that a new session reads first: `CLAUDE.md` (rules and commands for the project), `HANDOFF.md` (current state and what's next) and `DECISIONS.md` (what I decided and when).
 

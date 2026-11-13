@@ -1,0 +1,3 @@
+{
+  "A task written to a file gets short lines": { "needs": "nimbalyst" }
+}

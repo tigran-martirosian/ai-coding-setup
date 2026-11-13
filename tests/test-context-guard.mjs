@@ -25,7 +25,8 @@ check("small context: silent", run({ prompt: "change the font", transcript_path:
 const out = run({ prompt: "change the font", transcript_path: near });
 let j = {};
 try { j = JSON.parse(out); } catch {}
-check("big context: warns the user", /~180k/.test(j.systemMessage ?? ""));
+// Decided 2026-11-09: the user no longer sees the running reminder under the compact line, only Claude does
+check("big context: the user sees nothing", j.systemMessage === undefined);
 check("big context: tells Claude to batch", /\[context-guard\].*180k/s.test(j.hookSpecificOutput?.additionalContext ?? "") && /one Edit/.test(j.hookSpecificOutput.additionalContext));
 check("event name set", j.hookSpecificOutput?.hookEventName === "UserPromptSubmit");
 check("/commands are silent", run({ prompt: "/compact", transcript_path: near }) === "");
@@ -51,8 +52,10 @@ const ctx = (t) => { try { return JSON.parse(run({ prompt: "x", transcript_path:
 const clear = () => fs.rmSync(path.join(os.homedir(), ".claude", "hooks", "state", "context-guard", `${sid}.json`), { force: true });
 check("stop under the handoff limit: silent", stop(mid) === "" && stop(small) === "");
 check("under the warning limit (140k): silent", run({ prompt: "x", transcript_path: transcript("low.jsonl", [asst(140000)]) }) === "");
-const w210 = stop(over);
-check("stop at 210k: warns, does not hold the reply (the limit is 200k)", /~210k/.test(warn(w210)) && !blocked(w210));
+const stateOf = path.join(os.homedir(), ".claude", "hooks", "state", "context-guard", `${sid}.json`);
+clear();
+check("stop at 210k: silent, nothing recorded (the end-of-reply line starts where the compact has not run)", stop(over) === "" && !fs.existsSync(stateOf));
+check("stop at 299k: silent", stop(transcript("at299.jsonl", [asst(299000)])) === "");
 clear();
 check("prompt between the limits: batches, no handoff line", /one Edit/.test(ctx(mid)) && !/fresh session/.test(ctx(mid)));
 check("prompt over the limit: no turn-cap wording, no automatic handoff", !/turn-cap|CHILD JOB/.test(ctx(mid)) && !/without asking/.test(ctx(mid)));
@@ -65,7 +68,10 @@ check("warm cache: batching only, no /compact to queue", /one Edit/.test(warmCtx
 const coldCtx = ctx(coldT);
 check("cold cache: fresh session, no /compact", /fresh session/.test(coldCtx) && /~90 min/.test(coldCtx) && !/compact-self/.test(coldCtx));
 check("CONTEXT_GUARD_COLD_MIN moves the cold line", !/fresh session/.test((() => { try { return JSON.parse(run({ prompt: "x", transcript_path: coldT, session_id: sid }, { CONTEXT_GUARD_COLD_MIN: "120" })).hookSpecificOutput.additionalContext; } catch { return ""; } })()));
-check("user line says what happens", /compacts itself at about 200k/.test(JSON.parse(run({ prompt: "x", transcript_path: warmT })).systemMessage) && /cache is cold/.test(JSON.parse(run({ prompt: "x", transcript_path: coldT })).systemMessage));
+const warmOut = JSON.parse(run({ prompt: "x", transcript_path: warmT }));
+const coldOut = JSON.parse(run({ prompt: "x", transcript_path: coldT }));
+check("warm, under the compact line: no user line, the batching advice stays", warmOut.systemMessage === undefined && /one Edit/.test(warmOut.hookSpecificOutput?.additionalContext ?? ""));
+check("cold, under the compact line: no user line, the cache-went-cold line stays", coldOut.systemMessage === undefined && /The cache went cold/.test(coldOut.hookSpecificOutput?.additionalContext ?? ""));
 // At the compact line Claude Code compacts before it answers, warm or cold: the hook only says so
 const at250 = transcript("at250.jsonl", [asst(250000)]);
 const first = JSON.parse(run({ prompt: "x", transcript_path: at250 }));
@@ -74,7 +80,7 @@ const coldBig = JSON.parse(run({ prompt: "x", transcript_path: transcript("coldb
 check("over the compact line and cold: compacts first, no move to a fresh session", /compacts itself first/.test(coldBig.systemMessage) && !coldBig.hookSpecificOutput);
 check("CONTEXT_GUARD_COMPACT_K moves the compact line", /one Edit/.test((() => { try { return JSON.parse(run({ prompt: "x", transcript_path: at250 }, { CONTEXT_GUARD_COMPACT_K: "500" })).hookSpecificOutput.additionalContext; } catch { return ""; } })()));
 const failed = JSON.parse(run({ prompt: "x", transcript_path: big }));
-check("at the safety net: says the compact has not run, and the batching advice is back", /has not run/.test(failed.systemMessage) && /one Edit/.test(failed.hookSpecificOutput?.additionalContext ?? ""));
+check("at the safety net: the batching advice is back, the user line comes from Stop", failed.systemMessage === undefined && /one Edit/.test(failed.hookSpecificOutput?.additionalContext ?? ""));
 // PreCompact: an automatic compact gets the focus line, a /compact by hand keeps its own
 const pre = (trigger, env = {}) => run({ hook_event_name: "PreCompact", trigger, transcript_path: big }, env);
 check("automatic compact: prints the focus line", /Keep every message the user typed, quoted/.test(pre("auto")) && /unconfirmed/.test(pre("auto")));
@@ -86,9 +92,9 @@ check("CONTEXT_GUARD_AUTO_K raises the handoff limit", stop(big, {}, { CONTEXT_G
 const held = stop(big);
 check("stop at the safety net: only warns, says the compact has not run, no turn-cap wording", !blocked(held) && /~420k/.test(warn(held)) && /has not run/.test(warn(held)) && !/turn-cap|CHILD JOB/.test(warn(held)));
 clear();
-check("stop at 210k: says the next message compacts", /compacts itself before the next message/.test(warn(stop(over))));
+check("CONTEXT_GUARD_AUTO_K=195: stop at 210k says the next message compacts", /compacts itself before the next message/.test(warn(stop(over, {}, { CONTEXT_GUARD_AUTO_K: "195" }))));
 clear();
-check("stop at 195k: over the compact line, so it says so too", /~195k/.test(warn(stop(transcript("at195.jsonl", [asst(195000)])))));
+check("stop at 195k: silent", stop(transcript("at195.jsonl", [asst(195000)])) === "");
 clear();
 stop(big);
 check("second stop: silent", stop(big) === "");
@@ -97,8 +103,8 @@ check("prompt back under the limit clears the warning, so the next cycle warns a
 clear();
 check("+100k later: warns again", /~530k/.test(warn(stop(bigger))));
 clear();
-stop(over);
-check("a smaller size after a warning is a new climb: warns again", /~195k/.test(warn(stop(transcript("again195.jsonl", [asst(195000)])))));
+stop(bigger);
+check("a smaller size after a warning is a new climb: warns again", /~420k/.test(warn(stop(big))));
 clear();
 // A turn that already handed off (the user ran /handoff) is not held
 const call = (cmd) => JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5", content: [{ type: "tool_use", name: "Bash", input: { command: cmd } }], usage: { input_tokens: 2, cache_read_input_tokens: 300000, cache_creation_input_tokens: 0 } } });
@@ -141,7 +147,7 @@ const sysMsg = (o) => { try { return JSON.parse(o).systemMessage ?? ""; } catch 
 check("just compacted: the old size is not reported", run({ prompt: "x", transcript_path: compacted }) === "");
 check("just compacted: stop is silent", run({ hook_event_name: "Stop", transcript_path: compacted, session_id: `c-${sid}` }) === "");
 check("after a compact: a new call's size counts", /~260k/.test(sysMsg(run({ prompt: "x", transcript_path: regrown }))));
-check("text that only names the marker changes nothing", /~332k/.test(sysMsg(run({ prompt: "x", transcript_path: mentioned }))));
+check("text that only names the marker changes nothing", /~332k/.test(midCtx(run({ prompt: "x", transcript_path: mentioned }))));
 const climb = `climb-${runId}`;
 post(at320, climb);
 check("mid-run: a compact clears the warning, so the next climb warns again", post(compacted, climb) === "" && /320k/.test(midCtx(post(at320, climb))));

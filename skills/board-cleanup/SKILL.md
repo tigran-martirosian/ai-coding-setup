@@ -6,7 +6,7 @@ model: sonnet
 
 # Board cleanup
 
-Covers **this project's board only** (the tools can't see other projects). Budget: about 7 turns. Send independent tool calls together in one message. Nothing changes before the user approves the form in step 3.
+Covers **this project's board only** (the tools can't see other projects). Budget: about 7 turns. Send independent tool calls together in one message. Nothing is moved to Complete before the user approves the form in step 3; step 5 (Board Tidy) runs on its own rules.
 
 Ignore `committed` / `uncommitted` tags: they depend on git, which the project may not have. A session is **done** when it gave its final report, was handed off to another session, or only answered a question.
 
@@ -18,7 +18,7 @@ Ignore `committed` / `uncommitted` tags: they depend on git, which the project m
    - **Done:** a later session exists with the same title plus "(cont.)"; or the title shows a one-off test or probe.
    - **Check:** everything else that isn't complete. Call `get_session_summary` for these, newest first, **at most 8**, all in one message. Read only the last reply and any pending question: final report, handoff or plain answer means done; an open question or unfinished step means leave it. List any beyond 8 as "not checked".
 
-3. **Ask once.** If nothing is done, say "Nothing to move" and go to step 5. Otherwise one `PromptForUserInput` with a single `multiSelect` field `moveToComplete`: item `id` = sessionId, `title` = session title, `subtitle` = "<phase> → complete | <why, under 10 words>", `defaultChecked: true`. If the user cancels, change nothing.
+3. **Ask once.** If nothing is done, say "Nothing to move" and go to step 5. Otherwise one `PromptForUserInput` with a single `multiSelect` field `moveToComplete`: item `id` = sessionId, `title` = session title, `subtitle` = "<phase> → complete | <why, under 10 words>", `defaultChecked: true`, then right after it an optional `editText` field `note` ("Anything else?", `minLength: 0`). If the user cancels, move nothing and skip to step 7.
 
 4. **Apply.** For each checked id, `update_session_board` with `sessionId` and `phase: "complete"`, all in one message. Don't pass `tags` (it replaces the whole list), never pass `phase: null`, and never use `update_session_meta` for another session. Add no labels such as `archived-candidate`.
 

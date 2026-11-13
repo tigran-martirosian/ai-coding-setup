@@ -67,6 +67,8 @@ u = updated(hook(dir, agent("Check src\\billing\\pricing.js")));
 check("a Windows-style path matches", u && u.prompt.includes("## Invoice billing [billing]"));
 u = updated(hook(dir, agent("Review the planned change", "planner")));
 check("planner is a covered type (nothing matched line)", u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."));
+u = updated(hook(dir, agent("Review the plan for Dashboard.tsx", "plan-reviewer")));
+check("plan-reviewer is a covered type", u && u.prompt.includes("## Dashboard screen [dashboard]"));
 
 u = updated(hook(dir, agent("Fix the rounding in src/billing/tax.js")));
 check("folder fallback: a file no thing lists, in a thing's folder, finds that thing", u && u.prompt.includes("## Invoice billing [billing]") && !u.prompt.includes("## User login"));

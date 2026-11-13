@@ -2,7 +2,10 @@
 // PostToolUse (Bash): a main-session `git commit` or `git merge` that landed ("[branch abc1234]" in its output) tells Claude
 // that a piece is done: with steps of the job still left, the next one starts in a fresh session that Claude opens
 // itself (handoff skill, spawn_session with the prompt queued), so nothing waits on the user and compaction stays
-// the safety net inside one piece (user decision 2026-11-08). Every commit, any context size; silent for subagents.
+// the safety net inside one piece (user decision 2026-11-08). Any context size; silent for subagents. Only when a job is
+// open: the session's folder (cwd) or the commit's folder (git -C <dir>), each taken up to the folder holding .git, has
+// a docs/*plan*.md changed in the last OPEN_HOURS (48) hours that holds a job-list row ("| S3 |", "| 2 |") or an
+// unticked "- [ ]", or a HANDOFF.md with an unticked "- [ ]". A one-piece job has no such file and gets nothing.
 // UserPromptSubmit: nudges when a committed job's session gets an unrelated next ask.
 // Once a session's job is committed, the next ask often rides on a large context, so every call costs
 // several times what a fresh ~40k session costs.
@@ -17,6 +20,7 @@ import { sessionKey } from "./lib/paths.mjs";
 import { stateFile, readJson, writeJson, sweep } from "./lib/state.mjs";
 import { backEntries, lastUsage, typedByUser, userText, INJECTED } from "./lib/transcript.mjs";
 import fs from "node:fs";
+import path from "node:path";
 
 const CONTEXT_K = Number(process.env.JOB_DONE_K) || 100;
 
@@ -58,12 +62,44 @@ const GIT_PIECE = /\bgit(\s+(-C\s+("[^"]*"|\S+)|-c\s+\S+|--[\w-]+))*\s+(commit|m
 const COMMIT_MADE = /^\[[^\]\n]*\s[0-9a-f]{7,}\]|^Merge made by |^Fast-forward\s*$/m;
 const PIECE_TEXT = "[job-done] A piece of work is committed. If steps of this job are still left (job list, plan file or HANDOFF), don't start the next one in this session: bring the job list or plan up to date, then hand off with the handoff skill, which opens the fresh session itself with its prompt queued (spawn_session; in Nimbalyst nobody pastes anything, so a build that runs without check-ins keeps running); then end this turn. This wins over a context-guard note to compact. Compaction is only the safety net inside one piece (user decision 2026-11-08). If this was the job's last piece or a one-piece job, carry on with the report.";
 
+const OPEN_HOURS = Number(process.env.JOB_DONE_OPEN_HOURS) || 48;
+const STEP_ROW = /^\|\s*S?\d+[a-z]?\s*\|/m; // a job-list row: "| S3 |", "| 2 |", "| S4b |"
+const UNTICKED = /^\s*[-*]\s+\[ \]\s/m;
+const readText = (file) => { try { return fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return ""; throw e; } };
+
+// The folder holding .git (a folder, or a worktree's .git file) at or above dir, or null
+function repoRoot(dir) {
+	for (let d = path.resolve(dir); ; d = path.dirname(d)) {
+		if (fs.existsSync(path.join(d, ".git"))) return d;
+		if (path.dirname(d) === d) return null;
+	}
+}
+
+// Whether a project root has an open job list or plan (the rule in the head comment)
+function openJob(root) {
+	if (UNTICKED.test(readText(path.join(root, "HANDOFF.md")))) return true;
+	const docs = path.join(root, "docs");
+	if (!fs.existsSync(docs) || !fs.statSync(docs).isDirectory()) return false;
+	const since = Date.now() - OPEN_HOURS * 3600e3;
+	return fs.readdirSync(docs).filter((n) => /(^|[-_])plans?([-_.][^/]*)?\.md$/i.test(n)).some((n) => {
+		const file = path.join(docs, n);
+		if (fs.statSync(file).mtimeMs < since) return false;
+		const text = readText(file);
+		return STEP_ROW.test(text) || UNTICKED.test(text);
+	});
+}
+
 function pieceCommitted(event) {
 	const command = String(event.tool_input?.command ?? "");
 	if (event.tool_name !== "Bash" || !GIT_PIECE.test(command) || /\s--amend\b/.test(command)) return;
 	const r = event.tool_response;
 	const out = typeof r === "string" ? r : String(r?.stdout ?? "");
 	if (!COMMIT_MADE.test(out)) return;
+	const cwd = String(event.cwd || process.cwd());
+	const dashC = command.match(/\bgit\b[^|;&\n]*?\s-C\s+("([^"]*)"|'([^']*)'|(\S+))/);
+	const dirs = [cwd, dashC && path.resolve(cwd, dashC[2] ?? dashC[3] ?? dashC[4])].filter(Boolean);
+	const roots = [...new Set(dirs.map(repoRoot).filter(Boolean))];
+	if (!roots.some(openJob)) return;
 	emit.context("PostToolUse", PIECE_TEXT);
 }
 

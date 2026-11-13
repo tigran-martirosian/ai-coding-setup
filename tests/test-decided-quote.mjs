@@ -100,4 +100,15 @@ r = run(spawn(`${HEAD}\n\nПростая схема выбрана для пер
 assert.equal(r.denied, false); // no claim that the user decided it
 console.log("ok 8: Russian claims need a quote; quoted, negated and mentioned ones pass");
 
+// 9. A cleaned quote (fillers cut with "…") is a quote; the refusal asks for a cleaned one and says talk is no decision
+r = run(spawn(`${HEAD}\n\nDECIDED by Sam: "show the cards by default … keep a switch to the plain table".`));
+assert.equal(r.denied, false);
+r = run(spawn(`${HEAD}\n\n${DECIDED}`));
+assert.equal(r.denied, true);
+const why = r.out.hookSpecificOutput.permissionDecisionReason;
+assert.match(why, /dictation cleaned/);
+assert.match(why, /meaning unchanged/);
+assert.match(why, /Talk .* is not a decision/);
+console.log("ok 9: a cleaned quote with … passes; the refusal asks for a cleaned quote");
+
 console.log("all decided-quote tests passed");

@@ -36,7 +36,14 @@ const blocksBtw = (out) => out.includes('"decision":"block"') && out.includes("/
 const reminds = (out) => out.includes("additionalContext") && out.includes("cut off");
 
 const BTW_Q = "Also the scaling should be higher. What is this?";
+// A long session: 12 MB of older turns before the last one (only the file's end is read)
+const OLD = Array.from({ length: 1200 }, () => say("x".repeat(10000)));
+
 const cases = [
+  ["12 MB transcript: the last turn is still judged (blocked), in under 3 s", () => {
+    const t0 = Date.now();
+    return blocksEmpty(run([typed("hi"), ...OLD, typed("what's the build status?"), say(NRR)])) && Date.now() - t0 < 3000;
+  }],
   // Check 1: a typed message, no visible answer
   ["typed message, reply only \"No response requested.\": blocked", () => blocksEmpty(run([typed("what's the build status?"), say(NRR)]))],
   ["typed message, only tool calls and no text: blocked", () => blocksEmpty(run([typed("fix the bug"), tool("Read", { file_path: "src/a.js" }), result()]))],

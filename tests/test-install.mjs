@@ -72,6 +72,13 @@ ok("every file arrived byte for byte",
 const settings = json(path.join(claude, "settings.json"));
 const commands = commandsIn(settings);
 ok("helpers keep their prompt cache for an hour", settings.subagentPromptCacheTtl, "1h");
+ok("no advisor is set (the person's choice, /advisor fable)", "advisorModel" in settings, false);
+{ // an advisor the person set stays
+  const { addClaudeCodeSettings } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
+  const own = { advisorModel: "opus" };
+  addClaudeCodeSettings(own, false, false);
+  ok("an own advisor stays", own.advisorModel, "opus");
+}
 ok("no cap on one reply's output is set", "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in (settings.env ?? {}), false);
 { // the 64k cap 1.0.104 wrote goes on an update from it; a cap the person set stays
   const { removeOldOutputCap } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
@@ -83,6 +90,24 @@ ok("no cap on one reply's output is set", "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in (se
   ok("other env values stay", [removeOldOutputCap(keepEnv, "1.0.104"), keepEnv], [true, { env: { OTHER: "1" } }]);
   ok("a cap the person set stays", [removeOldOutputCap(own, "1.0.104"), own.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS], [false, "20000"]);
   ok("64000 set before 1.0.104 was not ours and stays", [removeOldOutputCap(older, "1.0.103"), older.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS], [false, "64000"]);
+  // the PowerShell tool goes off only on Windows with Git Bash, a value already set stays; the helper rules come in
+  const { addClaudeCodeSettings, HELPER_DENY } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
+  const gb = {}, noGb = {}, mac = {}, set = { env: { CLAUDE_CODE_USE_POWERSHELL_TOOL: "1" } };
+  ok("Windows with Git Bash: PowerShell tool off", [addClaudeCodeSettings(gb, true, true).powershellOff, gb.env?.CLAUDE_CODE_USE_POWERSHELL_TOOL], [true, "0"]);
+  ok("Windows without Git Bash: PowerShell tool stays", [addClaudeCodeSettings(noGb, true, false).powershellOff, "env" in noGb], [false, false]);
+  ok("macOS: no PowerShell setting", [addClaudeCodeSettings(mac, false, false).powershellOff, "env" in mac], [false, false]);
+  ok("a value the person set stays", [addClaudeCodeSettings(set, true, true).powershellOff, set.env.CLAUDE_CODE_USE_POWERSHELL_TOOL], [false, "1"]);
+  ok("the Explore and general-purpose helpers are denied", HELPER_DENY.every((r) => mac.permissions.deny.includes(r)), true);
+}
+{ // a retired entry named with its arguments goes, the same script's other entry stays
+  const { retire } = await import(pathToFileURL(path.join(REPO, "scripts", "wiring.mjs")).href);
+  const c = "C:/Users/you/.claude", said = [];
+  const s = { hooks: {
+    UserPromptSubmit: [{ hooks: [{ type: "command", command: `node "${c}/hooks/file-link-gate.mjs" --remind` }] }],
+    Stop: [{ hooks: [{ type: "command", command: `node "${c}/hooks/file-link-gate.mjs"` }] }],
+  } };
+  const n = retire({ home: "C:/Users/you", say: (m) => said.push(m) }, s, c, ["file-link-gate.mjs --remind"]);
+  ok("--remind entry retired, the Stop entry stays", [n, s.hooks.UserPromptSubmit.length, s.hooks.Stop.length, said[0]], [1, 0, 1, "hook removed: UserPromptSubmit file-link-gate.mjs --remind (no longer part of the setup)"]);
 }
 { // an update from 1.0.104 through the installer itself
   const upd = path.join(os.tmpdir(), `cap-upd-${process.pid}`);
@@ -94,6 +119,18 @@ ok("no cap on one reply's output is set", "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in (se
   const r = install(upd);
   ok("the installer takes the 1.0.104 cap out and says so",
     [r.code, "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in (json(sf).env ?? {}), /output: the 64k cap/.test(r.out)], [0, false, true]);
+  fs.rmSync(upd, { recursive: true, force: true });
+}
+for (const [own, gone] of [["fable", true], ["opus", false]]) { // an update from 1.0.108, which set a Fable advisor
+  const upd = path.join(os.tmpdir(), `adv-upd-${process.pid}`);
+  fs.rmSync(upd, { recursive: true, force: true });
+  fs.cpSync(home, upd, { recursive: true });
+  const sf = path.join(upd, ".claude", "settings.json"), st = path.join(upd, ".claude", "setup-state.json");
+  fs.writeFileSync(sf, JSON.stringify({ ...json(sf), advisorModel: own }));
+  fs.writeFileSync(st, JSON.stringify({ ...json(st), version: "1.0.108", advisor: true }));
+  const r = install(upd);
+  ok(`an update from 1.0.108 ${gone ? "turns off the Fable advisor it set, and says how to turn it back on" : "keeps an advisor the person chose"}`,
+    [r.code, json(sf).advisorModel, /advisor fable turns it back on/.test(r.out), "advisor" in json(st)], [0, gone ? undefined : own, gone, false]);
   fs.rmSync(upd, { recursive: true, force: true });
 }
 const times = (list, s) => list.filter((x) => x.includes(path.basename(s))).length;
@@ -116,7 +153,9 @@ const text = (...p) => fs.readFileSync(path.join(projects, ...p), "utf8");
 ok("the rules are written with the section on gathering information",
   [rules().startsWith("# How to format replies"), rules().includes("## Gathering information\n"), rules().includes("ask.mjs")], [true, true, false]);
 ok("the rules keep the sections after the section on gathering information", rules().includes("# Web research"));
-ok("the rules name the real projects folder", [rules().includes("<projects>"), rules().includes(path.join(projects, "ask-anything"))], [false, true]);
+// The rules no longer name the home folders (nimbalyst-notes finds them at run time); the project notes still do
+ok("the rules keep no <projects> placeholder", rules().includes("<projects>"), false);
+ok("the project notes name the real projects folder", text("quick-tasks", "CLAUDE.md").includes(path.join(projects, "ask-anything")));
 ok("each project folder has its notes and its model",
   HOMES.map((h) => [fs.existsSync(path.join(projects, h, "CLAUDE.md")), text(h, "CLAUDE.md").includes("<projects>"), json(path.join(projects, h, ".claude", "settings.json")).model]),
   [[true, false, "opus"], [true, false, "opus"], [true, false, "opus"], [true, false, "sonnet"]]);
@@ -149,7 +188,7 @@ ok("second run copies nothing and wires nothing", CHANGED.test(second.out), fals
 ok("second run leaves every file as it was", [...snap(claude), ...snap(projects)], before);
 
 // ---- what the user wrote in the notes files stays, also when Codex is added; rules from an older version
-// keep the user's own lines and get this version's section on gathering information
+// are written whole, the user's own rule moves to ~/.claude/rules/my-rules.md
 fs.writeFileSync(path.join(projects, "internet-search", "profile.md"), "# Profile for hunts\n\n- **Country:** somewhere\n");
 fs.writeFileSync(path.join(projects, "ask-anything", "CLAUDE.md"), text("ask-anything", "CLAUDE.md").replace("# ask-anything", "# ask-anything\n\nMy own line."));
 fs.writeFileSync(path.join(claude, "CLAUDE.md"), rules().replace("# How to work", "# How to work\n\n- My own rule.")
@@ -159,12 +198,14 @@ for (const name of ["codex", "agy"]) fs.writeFileSync(path.join(claude, "workers
 const withCodex = install(home, "--codex", "yes");
 ok("install with Codex exits cleanly", withCodex.code, 0);
 ok("the user's profile is kept as it is", text("internet-search", "profile.md"), "# Profile for hunts\n\n- **Country:** somewhere\n");
-ok("only the old section of the user's rules changes",
-  [rules().includes("- My own rule."), rules().includes("## Gathering information\n"), rules().includes("## The free workers read local files"), rules().includes("ask.mjs")], [true, true, false, false]);
-ok("the installer says once that this version's rules differ from the user's", withCodex.out.includes("rules: new in this version, yours were kept"));
+const myRules = () => fs.readFileSync(path.join(claude, "rules", "my-rules.md"), "utf8");
+ok("the rules are this version's whole, the old section gone, the user's own rule in my-rules.md under its heading",
+  [rules().includes("- My own rule."), rules().includes("## Gathering information\n"), rules().includes("## The free workers read local files"), rules().includes("ask.mjs"), myRules().startsWith("## How to work\n\n- My own rule.\n")], [false, true, false, false, true]);
+ok("the installer says the rules were brought up and where the user's went", /rules: brought up to this version: \d+ setup rules new or changed, \d+ old ones removed, \d+ of yours moved to .*my-rules\.md/.test(withCodex.out));
 const inWorkers = (name) => fs.existsSync(path.join(claude, "workers", name));
 ok("the old worker switches go and no worker command arrives", [inWorkers("ask.mjs"), inWorkers("codex.off"), inWorkers("agy.off")], [false, false, false]);
-ok("the user's own line stays and the note about Codex goes", [text("ask-anything", "CLAUDE.md").includes("My own line."), text("ask-anything", "CLAUDE.md").includes("Codex is not set up")], [true, false]);
+ok("the user's own line moves to the folder's my-rules.md and the note about Codex goes",
+  [text("ask-anything", "CLAUDE.md").includes("My own line."), text("ask-anything", path.join(".claude", "rules", "my-rules.md")).includes("My own line."), text("ask-anything", "CLAUDE.md").includes("Codex is not set up")], [false, true, false]);
 ok("the changed files are kept as dated copies", [copiesIn(claude).includes("CLAUDE.md"), copiesIn(projects).includes("CLAUDE.md"), copiesIn(projects).includes("profile.md")], [true, true, false]);
 const shared = path.join(claude, "shared-skills", "picture");
 ok("with Codex the picture skill and its gate are installed", [fs.existsSync(path.join(shared, "picture.mjs")), fs.existsSync(path.join(claude, "hooks", "picture-gate.mjs"))], [true, true]);
@@ -180,7 +221,7 @@ for (const h of ["ask-anything", "quick-tasks"]) {
 ok("the other two folders get no picture gate", ["internet-search", "claude-settings"].map((h) => fs.readFileSync(path.join(projects, h, ".claude", "settings.json"), "utf8").includes("picture-gate")), [false, false]);
 const beforeAgain = [...snap(claude), ...snap(projects)];
 const again = install(home, "--codex", "yes");
-ok("the next run doesn't say it again", again.out.includes("rules: new in this version"), false);
+ok("the next run says the rules are up to date", again.out.includes("rules: up to date"), true);
 ok("a second run with Codex changes nothing", [CHANGED.test(again.out), JSON.stringify([...snap(claude), ...snap(projects)]) === JSON.stringify(beforeAgain)], [false, true]);
 
 // ---- Codex taken away again: the link and the gate's wiring go, the shared files are not deleted through the link
@@ -224,7 +265,8 @@ ok("rules that are as an older version wrote them are replaced, with a dated cop
   [fs.readFileSync(updRules, "utf8").startsWith("# How to format replies"), updated.out.includes(`rules: replaced ${fwd(updRules)}`), copiesIn(path.join(upd, ".claude")).includes("CLAUDE.md")], [true, true, true]);
 ok("a folder's notes and the how-to that are as written are replaced too",
   [fs.readFileSync(updNotes, "utf8").startsWith("# quick-tasks"), fs.readFileSync(updHowTo, "utf8").includes("Notes of an older version")], [true, false]);
-ok("notes the user changed stay", fs.readFileSync(mineNotes, "utf8").startsWith("# ask-anything\n\nAll mine.\n"));
+ok("notes the user changed are this version's, the user's line in the folder's my-rules.md",
+  [fs.readFileSync(mineNotes, "utf8").startsWith("# ask-anything\n\nAll mine.\n"), fs.readFileSync(mineNotes, "utf8").includes("All mine."), fs.readFileSync(path.join(path.dirname(mineNotes), ".claude", "rules", "my-rules.md"), "utf8").includes("All mine.")], [false, false, true]);
 ok("the run after the update changes nothing", CHANGED.test(install(upd).out), false);
 
 // ---- an existing setup keeps its own settings and rules, and old copies are kept
@@ -241,21 +283,22 @@ const merged = json(path.join(used, ".claude", "settings.json"));
 ok("the user's own model and hook stay", [merged.model, JSON.stringify(merged.hooks.Stop).includes("my-own-hook.mjs")], ["sonnet", true]);
 const kept = fs.readdirSync(path.join(used, ".claude")).concat(fs.readdirSync(path.join(used, ".claude", "hooks")))
   .filter((f) => f.includes(".before-install-")).map((f) => f.split(".before-install-")[0]).sort();
-ok("the old settings are kept as a copy", kept, ["settings.json"]);
+ok("the old settings and the rules from before the install are kept as copies", kept, ["CLAUDE.md", "settings.json"]);
 const usedHook = path.join(used, ".claude", "hooks", "sql-guard.mjs");
 ok("a file that was there before under the same name stays, and the run lists it with the way to take the setup's",
   [fs.readFileSync(usedHook, "utf8"), onUsed.out.includes(`kept yours ${fwd(usedHook)}`), /Kept as yours[^\n]*\n  hooks\/sql-guard\.mjs\n[^\n]*--replace <name>[^\n]*--replace-all/.test(onUsed.out)],
   ["// an older version\n", true, true]);
 const logs = () => fs.readdirSync(path.join(used, ".claude", "setup-logs"));
 ok("a run that changed something saves what it printed", [logs().length, fs.readFileSync(path.join(used, ".claude", "setup-logs", logs()[0]), "utf8").includes(`kept yours ${fwd(usedHook)}`)], [1, true]);
-ok("rules with other content are left alone, and the installer says so",
-  [fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8"), /rules: left alone.*--replace-rules/.test(onUsed.out)], ["# My rules\n\n- Mine.\n", true]);
+ok("rules from before the install: the setup's are written, the user's own rule moves to my-rules.md, and the installer says so",
+  [fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies"), fs.readFileSync(path.join(used, ".claude", "rules", "my-rules.md"), "utf8"), /rules: brought up to this version: .* 1 of yours moved/.test(onUsed.out)],
+  [true, "## My rules\n\n- Mine.\n", true]);
 ok("--projects puts the folders where it says", [HOMES.every((h) => fs.existsSync(path.join(elsewhere, h, "CLAUDE.md"))), fs.existsSync(path.join(used, "Projects"))], [true, false]);
-const replaced = install(used, "--replace-rules");
+const replaced = install(used);
 const usedFiles = fs.readdirSync(path.join(used, ".claude"));
 const oldRules = usedFiles.find((f) => f.startsWith("CLAUDE.md.before-install-"));
-ok("--replace-rules takes the new rules and keeps the old ones as a dated copy",
-  [fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies"), oldRules && fs.readFileSync(path.join(used, ".claude", oldRules), "utf8")], [true, "# My rules\n\n- Mine.\n"]);
+ok("the rules from before the install stay as a dated copy, on record as the user's",
+  [oldRules && fs.readFileSync(path.join(used, ".claude", oldRules), "utf8"), (json(path.join(used, ".claude", "setup-state.json")).userCopies || []).some((c) => c.endsWith("/" + oldRules))], ["# My rules\n\n- Mine.\n", true]);
 ok("a later run without --projects uses the folder given before", [replaced.out.includes(fwd(path.join(elsewhere, "quick-tasks"))), fs.existsSync(path.join(used, "Projects"))], [true, false]);
 ok("the file of the user's still stays on a later run", fs.readFileSync(usedHook, "utf8"), "// an older version\n");
 const oneTaken = install(used, "--replace", "hooks/sql-guard.mjs");
@@ -268,7 +311,6 @@ ok("--replace takes the setup's version of that one file and keeps the user's as
 const usedSkill = path.join(used, ".claude", "skills", "handoff", "SKILL.md");
 const usedTool = path.join(elsewhere, "internet-search", "tools", "peek.mjs");
 for (const f of [usedHook, usedSkill, usedTool]) fs.appendFileSync(f, "\n// my own change\n");
-fs.writeFileSync(path.join(used, ".claude", "CLAUDE.md"), "# My rules again\n");
 const usedBefore = [...snap(path.join(used, ".claude")), ...snap(elsewhere)];
 const keptMine = install(used);
 ok("the changed files stay and the run changes nothing",
@@ -276,9 +318,8 @@ ok("the changed files stay and the run changes nothing",
     ["hooks/sql-guard.mjs", "skills/handoff/SKILL.md", fwd(usedTool)].every((f) => keptMine.out.includes(`\n  ${f}\n`)), keptMine.out.includes("Files: 3 kept as yours")],
   [true, false, true, true]);
 install(used, "--replace-all");
-ok("--replace-all takes the setup's version of every one of them, and the rules",
-  [[usedHook, usedSkill, usedTool].map((f) => fs.readFileSync(f, "utf8").includes("my own change")), fs.readFileSync(path.join(used, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies")],
-  [[false, false, false], true]);
+ok("--replace-all takes the setup's version of every one of them",
+  [usedHook, usedSkill, usedTool].map((f) => fs.readFileSync(f, "utf8").includes("my own change")), [false, false, false]);
 ok("the run after it has nothing left to keep", install(used).out.includes("kept yours"), false);
 
 // ---- a setup installed before files were on record: a file that differs is replaced once, with a copy
@@ -513,7 +554,7 @@ fs.writeFileSync(path.join(quiet, ".claude", "settings.json"), JSON.stringify({ 
 install(quiet);
 ok("a hook the user added a redirect to is not wired a second time", json(path.join(quiet, ".claude", "settings.json")).hooks.Stop.flatMap((g) => g.hooks).filter((h) => h.command.includes("verify-gate.mjs")).length, 1);
 ok("the handlers with an `if` carry the timeout of the example", friendSettings().hooks.PreToolUse.flatMap((g) => g.hooks).filter((h) => h.if).map((h) => [h.if.startsWith("Bash(") || h.if.startsWith("PowerShell("), h.timeout]),
-  [[true, 15], [true, 15]]);
+  [[true, 15], [true, 15], [true, 15], [true, 15]]); // opencli-readonly and push-key-scan, Bash and PowerShell each
 ok("the run says it replaced the old handler and removed the retired one", [wiredRun.out.includes("hook replaced: PreToolUse opencli-readonly.mjs"), wiredRun.out.includes("hook removed: PreToolUse web-worker-gate.mjs")], [true, true]);
 const wiredBefore = fs.readFileSync(path.join(friend, ".claude", "settings.json"), "utf8");
 const wiredAgain = install(friend);
@@ -655,18 +696,18 @@ install(yoursHome);
 const yoursPeek = path.join(yoursHome, "Projects", "internet-search", "tools", "peek.mjs");
 fs.appendFileSync(path.join(yoursHome, ".claude", "hooks", "sql-guard.mjs"), "\n// my change\n");
 fs.appendFileSync(yoursPeek, "\n// my change\n");
-fs.writeFileSync(path.join(yoursHome, ".claude", "CLAUDE.md"), "# My own rules\n");
+fs.appendFileSync(path.join(yoursHome, ".claude", "CLAUDE.md"), "\n# My own rules\n\n- Mine too.\n");
 const closing = install(yoursHome);
 const closingLines = closing.out.split("\n").filter(Boolean);
 const closingAt = closingLines.findIndex((l) => l.startsWith("Yours, on old versions"));
 const closingList = closingLines.slice(closingAt + 1);
-ok("the run ends with the list, a line for each file and for the rules, and one for all",
+ok("the run ends with the list, a line for each file and one for all, and no rules line (the rules were carved)",
   [closingAt >= 0, closingList.length, closingList.every((l) => l.startsWith("  ")),
     closingList.some((l) => l.startsWith("  hooks/sql-guard.mjs: node ") && l.includes(" --replace hooks/sql-guard.mjs --home ")),
     closingList.some((l) => l.startsWith(`  ${fwd(yoursPeek)}: node `) && l.includes(` --replace ${fwd(yoursPeek)} --home `)),
-    closingList.some((l) => l.startsWith("  the rules (CLAUDE.md): node ") && l.includes(" --replace-rules --home ")),
-    closingList.some((l) => l.startsWith("  all of them and the rules at once: node ") && l.includes(" --replace-all --home "))],
-  [true, 4, true, true, true, true, true]);
+    closingList.some((l) => l.includes("rules")),
+    closingList.some((l) => l.startsWith("  all of them at once: node ") && l.includes(" --replace-all --home "))],
+  [true, 3, true, true, true, false, true]);
 // the printed lines are run as they stand, with a PATH that has Node and nothing else, so no worker is found
 const nodeOnly = path.dirname(process.execPath);
 const runPrinted = (line) => spawnSync(line.slice(line.indexOf(": node ") + 2), { shell: true, encoding: "utf8", env: { ...process.env, PATH: nodeOnly, Path: nodeOnly } });
@@ -675,8 +716,8 @@ const ran = printed.map(runPrinted);
 ok("every printed line runs and takes the setup's version",
   [ran.map((r) => r.status), fs.readFileSync(path.join(yoursHome, ".claude", "hooks", "sql-guard.mjs")).equals(fs.readFileSync(path.join(REPO, "hooks", "sql-guard.mjs"))),
     fs.readFileSync(yoursPeek).equals(fs.readFileSync(path.join(REPO, "projects", "internet-search", "tools", "peek.mjs"))),
-    fs.readFileSync(path.join(yoursHome, ".claude", "CLAUDE.md"), "utf8").startsWith("# How to format replies")],
-  [[0, 0, 0], true, true, true]);
+    fs.readFileSync(path.join(yoursHome, ".claude", "rules", "my-rules.md"), "utf8")],
+  [[0, 0], true, true, "## My own rules\n\n- Mine too.\n"]);
 ok("the run after that has nothing to list", install(yoursHome).out.includes("Yours, on old versions"), false);
 
 // The theme: Ink Cobalt only where nobody picked one (no key, or the app's default "system")

@@ -1,10 +1,11 @@
 {
   "_setup": {
     "_note": "Read by install.mjs and tests/test-wiring.mjs; never written into a settings.json. retired: hooks in ~/.claude/hooks that earlier versions wired and this one dropped (an upgrade unwires them). retiredInHomes: the same for a project folder's own .claude/hooks. oldMatchers: matcher strings an earlier version wired for a hook; an install that still has exactly one gets the current matcher.",
-    "retired": ["build-nudge.mjs", "turn-cap.mjs", "web-worker-gate.mjs", "board-nudge.mjs"],
+    "retired": ["build-nudge.mjs", "turn-cap.mjs", "web-worker-gate.mjs", "board-nudge.mjs", "worker-nudge.mjs", "loop-warn.mjs", "skill-pointer.mjs", "file-link-gate.mjs --remind"],
     "retiredInHomes": { "internet-search": ["link-gate.mjs"] },
     "oldMatchers": {
       "background-tasks.mjs": ["Bash|Agent|Task"],
+      "repeat-guard.mjs": ["Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch"],
       "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput", "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion"]
     }
   },
@@ -82,16 +83,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/hooks/worker-nudge.mjs",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
             "command": "node ~/.claude/hooks/budget-gate.mjs",
             "timeout": 10
           }
@@ -148,7 +139,7 @@
         ]
       },
       {
-        "matcher": "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch",
+        "matcher": "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -182,6 +173,18 @@
           },
           {
             "type": "command",
+            "if": "Bash(*push*)",
+            "command": "node ~/.claude/hooks/push-key-scan.mjs",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(*push*)",
+            "command": "node ~/.claude/hooks/push-key-scan.mjs",
+            "timeout": 15
+          },
+          {
+            "type": "command",
             "if": "Bash(*opencli*)",
             "command": "node ~/.claude/hooks/opencli-readonly.mjs",
             "timeout": 15
@@ -194,6 +197,11 @@
           },
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/planner-readonly.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "node ~/.claude/hooks/slow-output-gate.mjs",
             "timeout": 5
           }
@@ -201,11 +209,6 @@
       },
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/loop-warn.mjs",
-            "timeout": 5
-          },
           {
             "type": "command",
             "command": "node ~/.claude/skills/steer/steer.mjs --hook",
@@ -247,6 +250,26 @@
         ]
       },
       {
+        "matcher": "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion|AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/form-answer.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/helper-stopped.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
@@ -266,16 +289,6 @@
           {
             "type": "command",
             "command": "node ~/.claude/hooks/plan-usage-logger.mjs",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/skill-pointer.mjs",
             "timeout": 5
           }
         ]
@@ -308,11 +321,6 @@
             "type": "command",
             "command": "node ~/.claude/hooks/no-response-gate.mjs",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/file-link-gate.mjs --remind",
-            "timeout": 5
           },
           {
             "type": "command",

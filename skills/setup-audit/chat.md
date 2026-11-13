@@ -90,7 +90,7 @@ who made it, what it loads into every session. Don't propose what you have not r
 ## 5. Ask: one tick list
 
 One `PromptForUserInput` with one `multiSelect`, nothing ticked in advance, at most 12 items, the
-strongest first. Each item:
+strongest first, then right after it an optional `editText` "Anything else?" (`minLength: 0`). Each item:
 
 - **title:** the change in plain words, starting with the project's name ("reports: a skill for ...").
 - **subtitle:** what was seen (how many times, in which week), where the change goes (that project,

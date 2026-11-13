@@ -13,17 +13,18 @@ export const scriptsOf = (h, home) => [...String(h.command || "").matchAll(SCRIP
 // `folder` is the .claude folder the hooks sit in, `names` the retired file names, `where` the suffix of the message.
 export function retire({ home, say }, target, folder, names, where = "") {
   const root = fwd(folder).toLowerCase();
-  const retired = (h) => {
-    const cmd = fwd(String(h.command || "")).replace(/(^|[\s"'])~\//g, `$1${fwd(home)}/`).toLowerCase();
-    return names.some((name) => cmd.includes(`${root}/hooks/${name}`));
-  };
+  // A name may carry the arguments of one retired entry ("file-link-gate.mjs --remind"): quotes are dropped
+  // before matching, so `node "<claude>/hooks/file-link-gate.mjs" --remind` matches and the bare Stop entry does not.
+  const plain = (h) => fwd(String(h.command || "")).replace(/(^|[\s"'])~\//g, `$1${fwd(home)}/`).replace(/["']/g, "").replace(/\s+/g, " ").toLowerCase();
+  const nameOf = (h) => names.find((name) => (plain(h) + " ").includes(`${root}/hooks/${name.toLowerCase()} `) || plain(h).endsWith(`${root}/hooks/${name.toLowerCase()}`));
+  const retired = (h) => nameOf(h) !== undefined;
   let removed = 0;
   for (const [event, groups] of Object.entries(target.hooks || {})) {
     if (!Array.isArray(groups)) continue;
     target.hooks[event] = groups.filter((group) => {
       const before = (group.hooks || []).length;
       if (!before) return true;
-      for (const h of group.hooks.filter(retired)) say(`hook removed: ${event} ${names.find((name) => fwd(String(h.command)).includes(`/hooks/${name}`)) || ""}${where} (no longer part of the setup)`);
+      for (const h of group.hooks.filter(retired)) say(`hook removed: ${event} ${nameOf(h)}${where} (no longer part of the setup)`);
       group.hooks = group.hooks.filter((h) => !retired(h));
       removed += before - group.hooks.length;
       return group.hooks.length > 0;

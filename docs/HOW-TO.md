@@ -38,14 +38,15 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 |---|---|
 | `--projects <folder>` | Where the four project folders go. The default is `Projects` in your home folder; a folder given once is remembered. |
 | `--codex yes` or `no` | Whether the picture skill is added (it needs Codex). Without the flag the installer looks for `codex` on the PATH. |
-| `--replace-rules` | Replace a `~/.claude/CLAUDE.md` you already have. Without it a rules file with other content is left alone. |
+| `--leave-out "<lead>"` | Leave one of the setup's rules out of `~/.claude/CLAUDE.md`, on this run and later ones (the lead is the rule's bold opening). `--put-back "<lead>"` brings it back. |
 | `--replace <name>` | Take the setup's version of one file the run listed under `Kept as yours`, for example `--replace hooks/sql-guard.mjs`. Can be given several times. |
-| `--replace-all` | Take the setup's version of every file listed there, and the rules. For a computer whose old setup you don't want to keep. |
+| `--replace-all` | Take the setup's version of every file listed there. For a computer whose old setup you don't want to keep. |
 | `--extensions no` | Leave the Nimbalyst extensions out. Without it they are built and put into Nimbalyst when Nimbalyst is installed. |
 | `--dry-run` | Print what it would do and change nothing. |
 
 - **Nothing of yours is lost.** A file the installer replaces is kept next to the new one as
-  `<name>.before-install-<date>`. The notes files you fill in (each folder's `CLAUDE.md`,
+  `<name>.before-install-<date>`. `~/.claude/CLAUDE.md` is written whole with the setup's rules;
+  rules you wrote there yourself move to `~/.claude/rules/my-rules.md`, which every chat loads too. The notes files you fill in (each folder's `CLAUDE.md`,
   `profile.md`, `finds/INDEX.md`, `HOW-TO.md`) are written only when they are missing.
 - **A file you changed stays yours.** If you had a hook or a skill with the same name as one of the
   setup's, or you changed one of the setup's after installing, the installer leaves it alone. It
@@ -56,9 +57,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   adds the picture skill to two folders.
   The installer saves the folder you ran it from as `repo` in `~/.claude/setup-state.json`, so a
   chat can find it again.
-- **Updates.** Every 12 hours the setup checks whether a newer version is released and says so in one
-  line. Type `/update-setup` to install it: your own skills, hooks, settings and notes stay, and a
-  rules file or one of the setup's files you changed yourself is replaced only after you say yes. `UPDATE_CHECK=off` in the
+- **Updates.** Every 12 hours the setup checks whether a newer version is released. A small one (only
+  hook, skill, agent or worker files, no restart, no questions) installs itself in the background and says so in one
+  line; `AUTO_UPDATE=off` stops that. For a bigger one it reminds you; type `/update-setup` to install it: your own skills, hooks, settings and notes stay, your own
+  rules stay in `~/.claude/rules/my-rules.md`, and one of the setup's files you changed yourself is replaced only after you say yes. `UPDATE_CHECK=off` in the
   environment turns the check off; `/update-setup` still works.
 - **Optional extras the rules mention.** The installer does not install these; where one is missing
   the rule that names it simply doesn't apply.
@@ -110,10 +112,11 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **Reading back while Claude works.** Scroll up in the chat and it stays there while new text
   arrives (also from the `agents-panel` extension). Scroll back to the end, press the round arrow at
   the bottom, or send a message, and it follows the newest text again.
-- **Big files.** `big-read-gate` refuses to read a whole file of more than 350 lines or about 20,000
-  characters, so Claude reads the part it needs. To move the limits, set `BIG_READ_MAX_LINES`
-  (default 350) and `BIG_READ_MAX_BYTES` (default 20000) in the environment. A file you name in your
-  own message is let through once.
+- **Big files.** `big-read-gate` refuses to read a whole file of more than 350 lines or about 80 KB,
+  so Claude reads the part it needs. To move the limits, set `BIG_READ_MAX_LINES`
+  (default 350) and `BIG_READ_MAX_BYTES` (default 80000) in the environment. A file you name in your
+  own message is let through once. A Word, PowerPoint or Excel file is turned into Markdown first
+  (with `uvx`, when it is installed) and read from that.
 - **A second opinion from a capped helper.**
   Before building from a design or a plan, say "get a second opinion on this". A `worker`
   subagent (about 15 tool calls) reads it and answers, and its answer is checked.
@@ -138,8 +141,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   chose, and stays on it: the rules don't steer you to another
   model and Claude doesn't ask to switch. In the terminal that is `"model"` in
   `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
-- Helpers run Opus as well, whichever model you chat on: a weaker model uses less of the plan but
-  needs more steering. Only mechanical bulk work (renames, bulk edits, scans) goes to a Sonnet helper.
+- Helpers keep their own model, whichever model you chat on: workers run Opus at medium effort (a worker that
+  writes code, does deep web research, reads charts or does science or maths runs Fable at medium), the
+  planner and the reviewers run Fable at high effort. A Fable advisor for the session is off unless you turn it on (`/advisor fable`; `/advisor off` turns it off).
+  Only mechanical bulk work (renames, bulk edits, scans) goes to a Sonnet helper.
 - Three folders start on Opus by themselves: `ask-anything`, `internet-search`, `claude-settings`.
 
 ## Your projects
@@ -241,6 +246,6 @@ something unrelated inside another project, Claude names the right folder and op
 ## What the rules take care of
 
 - Runs and checks things itself, and does not ask you to run a command it can run.
-- Sends big reading and searching to a helper (a capped `worker` subagent on Opus), and keeps the thinking
+- Sends big reading and searching to a helper (a capped `worker` subagent on Opus, or Fable for code and deep research), and keeps the thinking
   in the chat you are in.
 - Marks finished chats Complete on the board.

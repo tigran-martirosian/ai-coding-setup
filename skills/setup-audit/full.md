@@ -40,7 +40,7 @@ day already has one; it prints the name). Read that file
   back, tokens per run and tokens per clean run. "Touched again" is an upper bound: a planned second
   step on the same file counts too.
 
-"Weight" is the rough plan weight (cache reads 0.1x, output 5x, Haiku 1, Sonnet 3, Opus 5, Fable 12.5).
+"Weight" is the rough plan weight (cache reads 0.1x, output 5x, Haiku 1, Sonnet 3, Opus 5, Fable 5.2 10, older Fable 12.5).
 Take every number in the report from this file. Don't do arithmetic by hand: if a figure is missing,
 run the scanner again with other options (`--project`, `--top`, usage-scan's `--session`).
 
@@ -120,6 +120,8 @@ One `PromptForUserInput`:
   when it comes down to how much quality the user will trade for usage, recommend nothing and say so.
 - a `multiSelect` with the other options, nothing ticked in advance, the largest effect first.
   **title:** the change in plain words. **subtitle:** what was seen, what it should move, what it costs.
+- right after it, an optional `editText` "Anything else?" (`minLength: 0`): the question-other hook refuses a
+  `multiSelect` with no typing box after it.
 
 If nothing counted, say so plainly and ask nothing. If the form is lost or interrupted, never show it
 again: list the options as text and change nothing.

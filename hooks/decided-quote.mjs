@@ -94,7 +94,7 @@ function main(event) {
   const reason = [
     `[decided-quote] This text claims a decision by the user but quotes no words of theirs next to it:`,
     ...bad.map((l) => `- ${l}`),
-    `Quote the user's words (or for a form: the field label, the full text of the ticked option and anything typed with it, and where it came from), or move the item under "Proposed, not confirmed". A tick that goes against what the user typed, said last or decided earlier is not a decision yet.`,
+    `Quote the user's words: a short quote of the words that carry the decision, dictation cleaned (misheard words fixed, fillers cut with "…"), meaning unchanged. For a form: the field label, the full text of the ticked option word for word and anything typed with it, and where it came from. Talk ("I think", "what if") is not a decision: move the item under "Proposed, not confirmed" or "Talked about, not decided". A tick that goes against what the user typed, said last or decided earlier is not a decision yet.`,
     `If the claim is true and quoted elsewhere, retry the identical call and it will go through.`,
   ].join("\n");
   emit.deny(reason);

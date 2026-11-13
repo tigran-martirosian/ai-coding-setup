@@ -4,9 +4,10 @@
 // to the user who has to allow it. Every command must therefore end with one comment line that says
 // in plain words what it does. The note goes last, never first: Nimbalyst builds its "Always allow"
 // rule from the command's first word, and a leading "#" would turn that into "allow everything".
-// Inside Nimbalyst the popup shows only the word "PowerShell" for the PowerShell tool, so that tool
-// is blocked when the Bash tool can be used instead (COMMAND_EXPLAIN_BASH=yes|no overrides the check
-// for Git Bash).
+// Inside Nimbalyst the popup shows only the word "PowerShell" for the PowerShell tool, so the installer
+// turns that tool off where Git Bash exists (CLAUDE_CODE_USE_POWERSHELL_TOOL=0 in settings.json, see
+// scripts/claude-code-settings.mjs) instead of this hook refusing it. A PowerShell call that still
+// comes gets the same note check as Bash.
 // The popup draws the note in the same font and colour as the command, so it read as more code.
 // It therefore has to follow an empty line and start with "# WHAT THIS DOES:".
 // There is no limit on a command's length. A command without the note is not refused:
@@ -14,37 +15,14 @@
 // No permissionDecision goes with it, so the normal permission prompt still decides; "allow" would
 // skip the prompt. A line of additionalContext tells Claude to write the note itself next time.
 // A helper gets the stand-in without that line: its own rules already ask for the note.
-// The PowerShell-tool refusal stays.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
-import { runHook, inNimbalyst, emit } from "./lib/hook-io.mjs";
-import { COMMAND_EXPLAIN, NOTE_LINE_RE, NO_NOTE, POWERSHELL_TOOL, WHAT_THIS_DOES } from "./lib/texts.mjs";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
-const deny = (reason) => emit.deny(`${COMMAND_EXPLAIN} ${reason}`);
-
-function hasBashTool() {
-  const forced = (process.env.COMMAND_EXPLAIN_BASH || "").toLowerCase();
-  if (forced === "yes" || forced === "no") return forced === "yes";
-  if (process.platform !== "win32") return true;
-  const roots = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs")];
-  const paths = roots.filter(Boolean).map((root) => join(root, "Git", "bin", "bash.exe"));
-  return [process.env.CLAUDE_CODE_GIT_BASH_PATH, ...paths].filter(Boolean).some((p) => existsSync(p));
-}
+import { runHook, emit } from "./lib/hook-io.mjs";
+import { COMMAND_EXPLAIN, NOTE_LINE_RE, NO_NOTE, WHAT_THIS_DOES } from "./lib/texts.mjs";
 
 runHook("command-explain", (event) => {
   if (!["Bash", "PowerShell"].includes(event.tool_name)) return;
   const command = (event.tool_input || {}).command;
   if (typeof command !== "string" || !command.trim()) return;
-
-  if (event.tool_name === "PowerShell" && inNimbalyst() && hasBashTool()) {
-    deny(
-      `don't use the ${POWERSHELL_TOOL} here. Nimbalyst's permission popup shows only the word "PowerShell" for it, so the user can't see what they are allowing. ` +
-      `Run it with the Bash tool instead, ending with the "# " explanation line. For something only PowerShell can do, call it from Bash ` +
-      `(powershell -NoProfile -Command '...'), or write a .ps1 file and run it with powershell -NoProfile -File.`,
-    );
-    return;
-  }
 
   const lines = command.trim().split(/\r?\n/);
   const last = lines[lines.length - 1].trim();

@@ -35,7 +35,7 @@ These go back to the agent:
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 40 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 41 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 
@@ -58,13 +58,13 @@ In a project with 100 or more code files, the setup builds a map of it by itself
 - The agent runs commands itself instead of asking you to paste them, except for passwords and decisions that are yours.
 - Some replies are sent back, and the agent does the missing step first.
 - In Nimbalyst, a choice question always has a box for your own answer.
-- If you have set no model, it sets Opus at medium effort. A build or design request goes to the `planner` agent first, in every project.
+- If you have set no model, it sets Opus at medium effort. Fable as an advisor Opus consults at decision points is off until it is measured here; `/advisor fable` turns it on and `/advisor off` turns it off again. The planner and both reviewers run Fable at high effort. A build or design request goes to the `planner` agent first, in every project.
 - If you have set no time for keeping transcripts, it keeps them 120 days.
-- Every 12 hours you may see one line saying a newer version is out. Nothing downloads until you type `/update-setup`.
+- Every 12 hours you may see one line saying a newer version is out. A small fix installs itself in the background (`AUTO_UPDATE=off` stops that); anything bigger waits until you type `/update-setup`.
 
 ## Install and undo
 
-You need Claude Code, installed and signed in; the installer updates it to the newest version and stops below 2.1.296. Nimbalyst's chats are pointed at your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes on the day they ship (a newer line than Nimbalyst's waits for Nimbalyst; `SETUP_NIMBALYST_CLAUDE=off` leaves Nimbalyst on its own). Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions and the session board don't. `/lead` runs its steps as subagents, but keeps its job card in Nimbalyst's tracker. Download the ZIP or clone the repository, then in its folder:
+You need Claude Code, installed and signed in, on a Max plan or higher (Ultra is better): the planner, the reviewers and the helpers that write code or do deep research run Fable, which uses up a Pro plan's limits fast. On the $20 Pro plan the setup will probably not work as well. The installer updates Claude Code to the newest version and stops below 2.1.321. Nimbalyst's chats are pointed at your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes on the day they ship (a newer line than Nimbalyst's waits for Nimbalyst; `SETUP_NIMBALYST_CLAUDE=off` leaves Nimbalyst on its own). Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions and the session board don't. `/lead` runs its steps as subagents, but keeps its job card in Nimbalyst's tracker. Download the ZIP or clone the repository, then in its folder:
 
 ```
 claude "Read docs/full-install.md and carry out every step in it."
@@ -77,7 +77,7 @@ node install.mjs --dry-run
 node install.mjs
 ```
 
-`--dry-run` prints what would change and changes nothing. Your own hooks and skills stay as they are, and a file the installer replaces is kept as `<name>.before-install-<date>`. If your `CLAUDE.md` already has your own rules, it stays and the rules here are not added until you pass `--replace-rules`.
+`--dry-run` prints what would change and changes nothing. Your own hooks and skills stay as they are, and a file the installer replaces is kept as `<name>.before-install-<date>`. If your `CLAUDE.md` already has your own rules, they move to `~/.claude/rules/my-rules.md`, which Claude Code loads in every session too, and a dated copy of the old file is kept.
 
 Windows is what the setup is run on. On macOS the repository's tests run, but the installer and the full install have not been run on a real Mac: on a Mac, pass `--node "$(command -v node)"` so the hooks start with Node by its full path.
 
@@ -97,6 +97,7 @@ Claude Code itself sends your work to Anthropic, as it does without this setup. 
 |---|---|---|---|
 | Your saved Claude sign-in, to read your plan percentages | api.anthropic.com | At most every 5 minutes, during a session | `PLAN_USAGE_LOGGER=off` |
 | A request for the latest version number | GitHub | Every 12 hours; an hour after a failed try | `UPDATE_CHECK=off` |
+| The download of a small release (only hook, skill, agent or worker files: no restart, no question), which installs itself in the background; a file you changed stays yours | GitHub | When such a release is out | `AUTO_UPDATE=off` |
 | The project's files, read by the systems map's background worker (a Claude helper, about 60 tool calls per build or refresh) | Anthropic, as for any Claude work | In a project with 100 or more code files and no map, at most three tries a week apart, and a refresh at most once a week | `MAP_NUDGE=off` |
 | Project and package names, when the agent looks up a version | endoflife.date, GitHub, npm, PyPI, crates.io, Docker Hub, Maven Central, NuGet | When it checks a version | None |
 | Messages to and from your sessions | Telegram | Only if you add `/phone-bot` and run it | Don't run it |

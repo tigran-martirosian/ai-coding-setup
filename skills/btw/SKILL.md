@@ -23,8 +23,7 @@ Answer from its output in a few lines. When the user names the session, add `--t
   name in it is the name on that session's tab: it tells the user where the note went.
   With several sessions active the script picks one itself (a busy one, else the most recently
   active): never ask the user which.
-- If it prints `NOT SENT`, no session is active: say so in one line.
-- If the note also asks something else, answer it under that line in a few lines, from what you know or one quick check; forwarding it is not
-  an answer (the no-response-gate hook blocks a reply that only forwards).
+- If it prints `NOT SENT`, relay its reason in one line; when it says to use `send_prompt` or a fresh session, do that for the user's note.
+- If the note also asks something else, answer it under that line in a few lines, from what you know or one quick check.
 
-No other tools beyond these. Don't comment on the note, and don't describe what you ran, tried or picked.
+Besides these commands, use tools only for that quick check or a send the script asked for. Don't comment on the note, and don't describe what you ran, tried or picked.

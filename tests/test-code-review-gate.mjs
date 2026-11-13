@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { delimiter, join } from "node:path";
 import { isPush, offInCommand } from "../hooks/code-review-gate.mjs";
-import { assess, editsSinceReview, smallSetupEdits, HELPER_IDLE, MIN_FILES, NEW_JOB_FILES, NOTE_WINDOW, SMALL_SETUP_LINES } from "../hooks/lib/review-decide.mjs";
+import { assess, editsSinceReview, namesFile, smallSetupEdits, HELPER_IDLE, MIN_FILES, NEW_JOB_FILES, NOTE_WINDOW, SMALL_SETUP_LINES } from "../hooks/lib/review-decide.mjs";
 import { fileKey } from "../hooks/lib/paths.mjs";
 delete process.env.REVIEW_PUSH_PATTERN; // a project that sets one must not reach the test through this shell
 
@@ -507,6 +507,9 @@ const assessCases = [
     (r) => r.writeBase?.top === "C:/p" && assess(evidence({ pre: true, git: { base: null, newBase: { top: "C:/p" } } })).writeBase === null],
 ];
 for (const [name, ev, ok] of assessCases) report(ok(assess(ev)), `assess: ${name}`);
+// On macOS/Linux a file key keeps its case (fileKey) while the shell command is lowercased
+const MAC_KEY = "/Users/you/p/.claude/rules/Style.md";
+report(namesFile("sed -i s/a/b/ .claude/rules/style.md", MAC_KEY) && !namesFile("sed -i s/a/b/ other.md", MAC_KEY), "namesFile: a sed naming Style.md names a macOS key with capitals");
 
 rmSync(dir, { recursive: true, force: true });
 console.log(fail ? `${fail} of ${total} failed` : `all ${total} passed`);

@@ -1,12 +1,22 @@
 #!/usr/bin/env node
-// update-check: UserPromptSubmit hook. Every 12 hours it asks GitHub whether a newer version of this
-// setup is released (version.json on the main branch) and, if so, says it in one line and has Claude
-// mention /update-setup. It also reads CHANGELOG.md (at the same time, same wait) and says how many releases
-// the user is behind and what came in since, so someone weeks behind sees what the update brings, not one
-// line about the newest hotfix. No changelog in time: the one-line notice as before. It never downloads or changes anything: the update itself is
-// skills/update-setup/update.mjs, started by the user. The installed version is the one install.mjs
-// wrote to ~/.claude/setup-state.json; a setup with no version on record counts as older.
-// The answer is kept in ~/.claude/update-check.json, so every other prompt costs one file read.
+// update-check: UserPromptSubmit hook. Every 12 hours it asks GitHub whether a newer version of this setup is
+// released (version.json on the main branch, with CHANGELOG.md beside it, same wait) and keeps the answer in
+// ~/.claude/update-check.json: the newest version, the changelog lines the user has missed and version.json's
+// `releases` labels for them (kind `files` or `setup`, `important`, `headline`; a missed release with no entry
+// counts as setup and important). How often the user hears of it is decided from that stored answer:
+//   - an important release pending: a grey line about every 8 hours, and about every 24 hours Claude is asked for
+//     a short "What the update brings you" section at the end of its reply, with every missed changelog line;
+//   - only unimportant ones: a grey line at most once a day, no section;
+//   - every missed release is `files` (only hook, skill, agent or worker files: no restart, no question): it
+//     starts skills/update-setup/update.mjs --files-only detached, so the prompt never waits, and on a later
+//     prompt says once in a grey line that the setup updated itself (or, with the error, that it could not; the
+//     same version is not tried again and the reminder covers it). AUTO_UPDATE=off, in the environment or in
+//     the "env" of ~/.claude/settings.json (that env may not reach hook processes, so the file is read), stops it.
+// The grey lines name no version numbers (they make every release look like a hotfix): one behind gives the
+// release's headline, two or more the date of the installed version and the newest important headlines.
+// The hook itself never downloads or installs anything. The installed version is the one install.mjs wrote to
+// ~/.claude/setup-state.json (read only when the stored answer says a line or a self-install is due); a setup
+// with no version on record counts as older. Most prompts cost one file read and one stat (the tidy offer, below).
 // Offline, or GitHub not answering within 0.7 seconds (2.5 on the try after a timeout, so a slow line still hears of an
 // update): silent to the user, so a prompt never waits long. The failure
 // is written into update-check.json (failedAt and error, cleared by the next good answer) and the check is not tried
@@ -16,20 +26,27 @@
 // Fails open. UPDATE_CHECK=off disables it. SETUP_UPDATE_BASE points it at another address (tests).
 import { crashLog } from "./lib/crash-log.mjs";
 import { readJson, writeJson } from "./lib/state.mjs";
+import { spawn } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 
-const CLAUDE = path.join(process.env.SETUP_UPDATE_HOME || os.homedir(), ".claude");
+const HOME = process.env.SETUP_UPDATE_HOME || os.homedir();
+const CLAUDE = path.join(HOME, ".claude");
 const BASE = process.env.SETUP_UPDATE_BASE;
 const RAW = BASE || "https://raw.githubusercontent.com/tigran-martirosian/ai-coding-setup/main";
 const VERSION_URL = `${RAW}/version.json`;
 const CHANGES_URL = `${RAW}/CHANGELOG.md`;
-const NOTES_MAX = 12; // release lines handed to Claude, newest first
-const NOTE_CHARS = 240;
-const EVERY = 12 * 60 * 60 * 1000;
-const RETRY = 60 * 60 * 1000; // after a failed check
+const HOUR = 60 * 60 * 1000;
+const EVERY = 12 * HOUR;
+const RETRY = HOUR; // after a failed check
+const NOTICE_IMPORTANT = 8 * HOUR; // grey line while an important release is pending
+const NOTICE_SMALL = 24 * HOUR; // grey line when only unimportant ones are
+const SECTION = 24 * HOUR; // Claude's section, important releases only
+const AUTO_STALE = 15 * 60 * 1000; // a self-install started longer ago than this is taken as dead
+const NOTES_LIMIT = 12000; // characters of release notes for Claude before unimportant lines shrink
 const WAIT = 700; // ms a prompt may wait for GitHub
 const WAIT_SLOW = 2500; // the same, when the last try ran out of time
 const TIMED_OUT = "no answer in time";
@@ -61,51 +78,261 @@ const get = (url, ms, hops = 5) => new Promise((resolve, reject) => {
   req.on("error", reject);
 });
 
+// What a release brings, from version.json's `releases`; a release with no entry counts as setup and important
+const label = (releases, v) => releases?.[v] || { kind: "setup", important: true };
+const headline = (r) => String(r.headline || "").trim().replace(/\.$/, "");
+
+// The stored answer of a check: the newest version, and what the user on `installed` has missed up to it
+function answer(latest, changelog, installed) {
+  // "- 1.0.84 (Nov 3, 2026): text" lines, newest first
+  const lines = [...changelog.matchAll(/^- (\d+(?:\.\d+)*) \(([^)]*)\): (.+?)\r?$/gm)].map(([, v, date, text]) => ({ v, date, text }));
+  const inRange = (v) => newer(v, installed) && !newer(v, latest.version);
+  const notes = lines.filter((l) => inRange(l.v));
+  const releases = Object.fromEntries(Object.entries(latest.releases || {}).filter(([v]) => inRange(v)));
+  return {
+    latest: latest.version, summary: latest.summary || "", installed, releases, notes,
+    from: lines.find((l) => l.v === installed)?.date || null,
+    complete: lines.length > 0, // the changelog was read, so the list of missed releases is whole
+  };
+}
+
+// What is pending for the user on `installed`, from a stored answer
+function pending(stored, installed) {
+  const notes = (stored.notes || []).filter((l) => newer(l.v, installed));
+  const versions = [...new Set([stored.latest, ...notes.map((l) => l.v), ...Object.keys(stored.releases || {}).filter((v) => newer(v, installed))])]
+    .filter((v) => newer(v, installed) && !newer(v, stored.latest))
+    .sort((a, b) => (newer(a, b) ? -1 : 1));
+  const labels = versions.map((v) => ({ v, ...label(stored.releases, v) }));
+  return {
+    versions, labels, notes,
+    important: labels.some((l) => l.important),
+    // every missed release known, and each only files
+    files: stored.complete && stored.installed === installed && installed !== "0" && labels.length > 0 && labels.every((l) => l.kind === "files"),
+  };
+}
+
+// The grey line of a reminder
+function greyLine(stored, installed, p) {
+  if (p.versions.length < 2) {
+    const what = headline(label(stored.releases, stored.latest)) || String(stored.summary || "").trim().replace(/\.$/, ""); // an answer stored by 1.0.108 has no summary
+    return `Setup update ready${what ? `: ${what}` : ""}. Type /update-setup; your files are kept.`;
+  }
+  const date = stored.installed === installed && stored.from;
+  const oldest = p.notes.at(-1)?.date;
+  const age = date ? `Your setup is from ${date}.` : oldest ? `Your setup is from before ${oldest}.` : "Your setup is several releases behind.";
+  const named = p.labels.filter((l) => l.important && headline(l)).slice(0, 3);
+  const rest = p.labels.filter((l) => !named.includes(l));
+  // releases with no headline (from before the labels) are counted, not called smaller fixes
+  const more = rest.some((l) => l.important) ? `${rest.length} more release${rest.length === 1 ? "" : "s"}` : `${rest.length} smaller fix${rest.length === 1 ? "" : "es"}`;
+  const news = !named.length ? more : `${named.map(headline).join(", ")}${rest.length ? `; plus ${more}` : ""}`;
+  return `${age} New: ${news}. Type /update-setup.`;
+}
+
+// Every missed changelog line in full; over NOTES_LIMIT, unimportant ones shrink to version and headline, oldest first
+function releaseNotes(stored, p) {
+  const lines = p.notes.map((l) => {
+    const r = label(stored.releases, l.v);
+    return { full: `  - ${l.v}: ${l.text}`, short: `  - ${l.v}: ${headline(r) || l.text}`, small: !r.important, use: "full" };
+  });
+  let size = lines.reduce((n, l) => n + l.full.length + 1, 0);
+  let shrunk = 0;
+  for (const l of [...lines].reverse()) {
+    if (size <= NOTES_LIMIT) break;
+    if (!l.small || l.short === l.full) continue;
+    size -= l.full.length - l.short.length;
+    l.use = "short";
+    shrunk++;
+  }
+  return { lines: lines.map((l) => l[l.use]), shrunk };
+}
+
+// AUTO_UPDATE=off from the environment or from the "env" of ~/.claude/settings.json. A settings file that can't
+// be read throws (the hook then logs why, starts nothing and reminds instead).
+function autoOff() {
+  if ((process.env.AUTO_UPDATE || "").toLowerCase() === "off") return true;
+  const file = path.join(CLAUDE, "settings.json");
+  let text;
+  try { text = fs.readFileSync(file, "utf8"); } catch (err) {
+    if (err.code === "ENOENT") return false;
+    throw err;
+  }
+  let settings;
+  try { settings = JSON.parse(text); } catch (err) { throw new Error(`${file} is not valid JSON, so no self-install was started: ${err.message}`); }
+  return String(settings.env?.AUTO_UPDATE || "").toLowerCase() === "off";
+}
+
+// The lock of a self-install: made only if it is not there (two prompts at once start one update.mjs, not two), freed
+// by update.mjs when it ends; one older than AUTO_STALE is left from a run that died and is taken over
+const LOCK = path.join(CLAUDE, "update-auto.lock");
+function lock() {
+  for (let i = 0; i < 2; i++) {
+    try { fs.closeSync(fs.openSync(LOCK, "wx")); return true; } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      if (Date.now() - fs.statSync(LOCK).mtimeMs < AUTO_STALE) return false;
+      fs.rmSync(LOCK, { force: true });
+    }
+  }
+  return false;
+}
+
+// Starts update.mjs --files-only on its own, without waiting for it; null when another one is under way
+function startSelfInstall(version, installed) {
+  const script = path.join(CLAUDE, "skills", "update-setup", "update.mjs");
+  if (!fs.existsSync(script)) return { auto: { version, from: installed, at: new Date().toISOString(), ok: false, error: `${script} is missing` } };
+  if (!lock()) return null;
+  const args = [script, "--files-only", ...(process.env.SETUP_UPDATE_HOME ? ["--home", HOME] : [])];
+  spawn(process.execPath, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  // update.mjs replaces this with `auto`, its result
+  return { autoRun: { version, from: installed, startedAt: new Date().toISOString() } };
+}
+
+// ---- the tidy offer for the person's own rules: ~/.claude/rules/my-rules.md and each project home's
+// .claude/rules/my-rules.md (a home is the folder of a state.written key ending in /CLAUDE.md under state.projects).
+// Once per change, after an install, update, self-install or own-rules.mjs wrote setup-state.json, Claude is asked to
+// offer the tidy at the end of its reply (an additionalContext note, merged with the release section when both come).
+// Checked apart from the reminder chain, so a pending version or a stale `installed` can't hold it back. No note when
+// /update-setup already offered it (own-rules.mjs --offered) or the files were tidied or skipped.
+// A file is untidied when its sha differs from state.ownTidied[<file>]. The pending key is the first 16 hex of
+// sha256 over the sorted lines "<file> <sha>" (absolute, forward slashes) of the untidied files, as
+// skills/update-setup/own-rules.mjs --status computes it.
+const fwd = (p) => p.replace(/\\/g, "/");
+let crypto = null; // loaded only after setup-state.json changed, so most prompts don't load it
+const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
+function ownPending(state) {
+  const root = state.projects ? fwd(state.projects).replace(/\/$/, "") + "/" : null;
+  const homes = root ? Object.keys(state.written || {}).filter((k) => k.endsWith("/CLAUDE.md") && fwd(k).startsWith(root)).map((k) => path.dirname(k)) : [];
+  const tidied = state.ownTidied && typeof state.ownTidied === "object" ? state.ownTidied : {};
+  const open = [path.join(CLAUDE, "rules", "my-rules.md"), ...homes.map((h) => path.join(h, ".claude", "rules", "my-rules.md"))]
+    .map((f) => path.resolve(f)).filter((f) => fs.existsSync(f))
+    .map((f) => ({ file: f, text: fs.readFileSync(f, "utf8") }))
+    .filter((f) => sha(f.text) !== tidied[fwd(f.file)]);
+  if (!open.length) return null;
+  return { open, key: sha(open.map((f) => `${fwd(f.file)} ${sha(f.text)}`).sort().join("\n")).slice(0, 16) };
+}
+// Once per change: looked at only when setup-state.json changed since the last look (one stat per prompt; an
+// install, update, self-install or own-rules.mjs wrote it); a key is noted once (ownNoted) and never when the tidy
+// was already offered inside /update-setup for it (state.ownOffered). No setup-state.json: silent.
+async function ownRulesNote(next) {
+  let mtime;
+  try { mtime = fs.statSync(path.join(CLAUDE, "setup-state.json")).mtimeMs; } catch (err) {
+    if (err.code === "ENOENT") return { next, text: null };
+    throw err;
+  }
+  if (next.ownSeen === mtime) return { next, text: null };
+  next = { ...next, ownSeen: mtime };
+  crypto ??= await import("node:crypto");
+  const state = json(path.join(CLAUDE, "setup-state.json"));
+  const p = ownPending(state);
+  if (!p || p.key === next.ownNoted || p.key === state.ownOffered) return { next, text: null };
+  next = { ...next, ownNoted: p.key };
+  const global = path.resolve(CLAUDE, "rules", "my-rules.md");
+  const mine = p.open.find((f) => f.file === global);
+  const homes = p.open.length - (mine ? 1 : 0);
+  const what = [
+    ...(mine ? [`~/.claude/rules/my-rules.md (${mine.text.split("\n").length - (mine.text.endsWith("\n") ? 1 : 0)} lines, about ${Math.round(Buffer.byteLength(mine.text) / 4)} tokens loaded in every chat)`] : []),
+    ...(homes ? [`${homes === 1 ? "1 project folder's" : `${homes} project folders'`} own rules`] : []),
+  ].join(" and ");
+  const OWN = "node ~/.claude/skills/update-setup/own-rules.mjs";
+  return { next, text: [
+    `[update-check] Rules this person wrote are not tidied yet: ${what}. Do the user's request first.`,
+    "At the end of your reply, in one or two sentences, offer to tidy them: lines the setup already covers or does better go to a vault they can restore from, their own preferences stay, and one command undoes it.",
+    `On yes: read ~/.claude/skills/update-setup/tidy.md and follow it. On "not now": run ${OWN} --skip --homes.`,
+    "Offer it once; this note doesn't come again for these files.",
+  ].join("\n") };
+}
+
 if ((process.env.UPDATE_CHECK || "").toLowerCase() !== "off") {
   try {
     const stateFile = path.join(CLAUDE, "update-check.json");
     const last = json(stateFile);
-    const within = (at, ms) => Date.now() - new Date(at || 0).getTime() < ms;
+    let next = last;
+    const now = Date.now();
+    const within = (at, ms) => now - new Date(at || 0).getTime() < ms;
+    const installedNow = () => json(path.join(CLAUDE, "setup-state.json")).version || "0";
     if (!within(last.checkedAt, EVERY) && !within(last.failedAt, RETRY)) {
-      let latest, changelog = "";
       try {
         const wait = last.error === TIMED_OUT ? WAIT_SLOW : WAIT;
         const [v, c] = await Promise.allSettled([get(VERSION_URL, wait), get(CHANGES_URL, wait)]);
         if (v.status === "rejected") throw v.reason;
-        latest = JSON.parse(v.value);
-        if (c.status === "fulfilled") changelog = String(c.value); // the changelog only adds detail
+        const latest = JSON.parse(v.value);
+        if (latest?.version) {
+          // the changelog only adds detail; the failed answers, and a failure before, are not kept
+          const { failedAt, error, ...rest } = last;
+          next = { ...rest, checkedAt: new Date(now).toISOString(), ...answer(latest, c.status === "fulfilled" ? String(c.value) : "", installedNow()) };
+        }
       } catch (e) {
-        // Remember the failure (and why) instead of trying again on every prompt
-        writeJson(stateFile, { ...last, failedAt: new Date().toISOString(), error: String(e.message || e) });
-        latest = null; // offline, a timeout or an HTTP error: kept in update-check.json above, and not a crash
+        // Remember the failure (and why) instead of trying again on every prompt: offline, a timeout or an HTTP
+        // error is kept in update-check.json, and not a crash
+        next = { ...last, failedAt: new Date(now).toISOString(), error: String(e.message || e) };
       }
-      if (latest?.version) {
-        const installed = json(path.join(CLAUDE, "setup-state.json")).version || "0";
-        writeJson(stateFile, { checkedAt: new Date().toISOString(), latest: latest.version });
-        if (newer(latest.version, installed)) {
-          const what = latest.summary ? ` ${latest.summary}` : "";
+    }
+    let say = null;
+    // A self-install that never wrote its result within AUTO_STALE died part way: a failure like any other
+    if (next.autoRun && !within(next.autoRun.startedAt, AUTO_STALE)) {
+      const { autoRun, ...rest } = next;
+      next = { ...rest, auto: { version: autoRun.version, from: autoRun.from, at: new Date(now).toISOString(), ok: false, error: `it did not finish within ${AUTO_STALE / 60000} minutes` } };
+      fs.rmSync(LOCK, { force: true });
+    }
+    // A self-install that ended: said once, in a grey line, with the count of the user's changed files it left alone
+    if (next.auto && !next.auto.told) {
+      const { version, headline: what, ok, error, kept = [] } = next.auto;
+      const yours = kept.length ? ` ${kept.length} file${kept.length === 1 ? "" : "s"} you changed stayed as yours; /update-setup can take the new version of ${kept.length === 1 ? "it" : "them"}.` : "";
+      say = { systemMessage: ok
+        ? `Setup updated itself to ${version}${what ? `: ${what}` : ""}.${yours}`
+        : `Setup could not update itself to ${version}: ${error}. Type /update-setup to install it.` };
+      next = { ...next, auto: { ...next.auto, told: true }, noticeAt: new Date(now).toISOString() };
+    } else if (next.latest && !next.autoRun && newer(next.latest, next.installed || "0")) {
+      // from the stored answer first, so most prompts read no second file
+      const stored = pending(next, next.installed || "0");
+      const grey = !within(next.noticeAt, stored.important ? NOTICE_IMPORTANT : NOTICE_SMALL);
+      const section = stored.important && !within(next.sectionAt, SECTION);
+      const canAuto = stored.files && next.auto?.version !== next.latest; // a failed self-install is not tried again for the same version
+      if (grey || section || canAuto) {
+        const installed = installedNow(); // read only now: the user may have updated since the check
+        const p = pending(next, installed);
+        // settings.json that can't be read: logged, nothing installs itself, the reminder still comes
+        const off = () => { try { return autoOff(); } catch (err) { crashLog("update-check", err); return true; } };
+        if (!p.versions.length) next = { ...next, installed }; // updated since: nothing pending until the next check
+        else if (p.files && canAuto && !off()) {
+          const started = startSelfInstall(next.latest, installed);
+          if (started) next = { ...next, ...started };
+        } else if (grey || section) {
           const yours = installed === "0" ? "an older one" : installed;
-          // "- 1.0.84 (Nov 3, 2026): text" lines newer than the installed version, up to the released one
-          const missed = [...changelog.matchAll(/^- (\d+(?:\.\d+)*) \([^)]*\): (.+)$/gm)]
-            .filter(([, ver]) => newer(ver, installed) && !newer(ver, latest.version));
-          const many = missed.length >= 2;
-          const notes = missed.slice(0, NOTES_MAX).map(([, ver, text]) => `  - ${ver}: ${text.length > NOTE_CHARS ? text.slice(0, NOTE_CHARS) + "…" : text}`);
-          const context = [
-            `[update-check] A newer version of the Claude Code setup is released: ${latest.version} (installed: ${yours}).${what}`,
-            many
-              ? `- The user is ${missed.length} releases behind. Do the user's request first. At the end of your reply, under a short "Setup update" heading, say in three to five plain bullets what the update brings them: the biggest changes from the release notes below, in what they gain (less usage, fewer mistakes, new commands). Then say that typing /update-setup installs it and keeps their own files and skills. Calm and concrete, no alarm.`
-              : `- Do the user's request first. At the end of your reply, say once, in one line, that a setup update is ready and that typing /update-setup installs it.`,
-            `- Don't install it unless the user asks. This reminder comes at most every 12 hours; don't repeat it on later turns.`,
-            ...(many ? [`Release notes since ${yours}, newest first${missed.length > NOTES_MAX ? ` (the ${NOTES_MAX} newest of ${missed.length})` : ""}:`, ...notes] : []),
-          ].join("\n");
-          const behind = many ? ` You are ${missed.length} releases behind (on ${yours}): fixes and improvements you don't have yet.` : what;
-          process.stdout.write(JSON.stringify({
-            systemMessage: `Setup update ready: version ${latest.version}.${behind} Type /update-setup to install it; your own files and skills are kept.`,
-            hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context },
-          }));
+          const out = { hookSpecificOutput: { hookEventName: "UserPromptSubmit" } };
+          if (grey) {
+            out.systemMessage = greyLine(next, installed, p);
+            next = { ...next, noticeAt: new Date(now).toISOString() };
+          }
+          if (section) {
+            const { lines, shrunk } = releaseNotes(next, p);
+            out.hookSpecificOutput.additionalContext = [
+              `[update-check] A newer version of the Claude Code setup is released: ${next.latest} (installed: ${yours}).`,
+              `- Do the user's request first. At the end of your reply, under a short heading "What the update brings you", give three to five plain bullets grouped by theme from the release notes below, each in what the user gains (less usage, fewer mistakes, new commands). Where a release adds a cost (helpers on Opus use more), say it. A figure only as a best-case estimate with its basis, never "x% better at everything". Calm and concrete, no alarm. Then end with: "Type /update-setup (a few minutes, then a Nimbalyst restart); your own files and skills are kept."`,
+              `- Don't install it unless the user asks. Don't repeat this on later turns; the reminder comes back by itself.`,
+              ...(lines.length ? [`Release notes since ${yours}, newest first${shrunk ? ` (${shrunk} smaller one${shrunk === 1 ? "" : "s"} shortened to the headline)` : ""}:`, ...lines] : []),
+            ].join("\n");
+            next = { ...next, sectionAt: new Date(now).toISOString() };
+          }
+          if (out.systemMessage || out.hookSpecificOutput.additionalContext) say = out;
         }
       }
     }
+    // Own rules not tidied yet: outside the chain above, so a pending version, a self-install or a stale
+    // `installed` can't skip it; an error here is logged and the rest of the answer still stands
+    try {
+      const own = await ownRulesNote(next);
+      next = own.next;
+      if (own.text) {
+        say ??= {};
+        say.hookSpecificOutput ??= { hookEventName: "UserPromptSubmit" };
+        const had = say.hookSpecificOutput.additionalContext;
+        say.hookSpecificOutput.additionalContext = had ? `${had}\n\n${own.text}` : own.text;
+      }
+    } catch (err) {
+      crashLog("update-check", err);
+    }
+    if (next !== last) writeJson(stateFile, next);
+    if (say) process.stdout.write(JSON.stringify(say));
   } catch (err) {
     crashLog("update-check", err);
     // fail open

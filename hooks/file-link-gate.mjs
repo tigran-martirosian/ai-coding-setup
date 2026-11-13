@@ -15,9 +15,10 @@
 // file's path in inline code instead. A link already in a broken form keeps its /C:/ fix as before; paths
 // inside the project, web links, nimbalyst:// and embeds are left alone. Without a cwd, or for a root-relative
 // "/x" target under a Windows cwd (it cannot be placed), nothing is flagged.
-// With --remind it runs on UserPromptSubmit instead and only prints a one-line reminder of the working form.
+// No every-prompt reminder of the working form: it cost ~75 tokens on each prompt, and this check catches the
+// links it would have prevented.
 // Silent outside an app: links only matter in Nimbalyst, which runs Claude with CLAUDE_CODE_ENTRYPOINT
-// "sdk-..."; the terminal sets "cli", so a terminal user is never refused or reminded (same test as command-explain).
+// "sdk-..."; the terminal sets "cli", so a terminal user is never refused (same test as command-explain).
 // Silent when stop_hook_active is set (no loops). Fails open. FILE_LINK_GATE=off disables it.
 import { runHook, isMain, inNimbalyst, emit } from "./lib/hook-io.mjs";
 import { gitBashToNative, projectRoot as rootOf } from "./lib/paths.mjs";
@@ -189,21 +190,10 @@ export function reason(bad) {
   return lines.join("\n");
 }
 
-// --remind (UserPromptSubmit): one line before every reply, so the working form is fresh when links are
-// written, instead of only caught after the user has already seen dead ones
-export function remindText(cwd) {
-  const root = cwd ? fixedTarget(".", projectRoot(gitBashToNative(cwd.replace(/\\/g, "/")))) : null;
-  const ex = root ? `${root}/docs/notes.md` : "/C:/Projects/x/docs/notes.md";
-  return `[file-link-gate] File links in this reply: full path, forward slashes, leading slash, e.g. [notes.md](${ex}) or [notes.md:12](${ex}:12). Never a relative target like (docs/notes.md): it does not open.`;
-}
-
 if (isMain(import.meta.url)) {
   runHook("file-link-gate", (input) => {
-    if (!inNimbalyst()) return;
-    if (process.argv.includes("--remind")) {
-      emit.context("UserPromptSubmit", remindText(input.cwd));
-      return;
-    }
+    // an install from before still has the old "--remind" UserPromptSubmit entry: a block there would refuse the prompt
+    if (!inNimbalyst() || input.hook_event_name === "UserPromptSubmit") return;
     if (input.stop_hook_active) return;
     let text = "";
     if (input.transcript_path) {

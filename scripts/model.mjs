@@ -50,10 +50,16 @@ export function claudeSettings(ctx) {
   }
   // Claude Code's own settings go into the same file: what is set there already stays
   const own = addClaudeCodeSettings(settings, WIN);
+  // 1.0.108 set a Fable advisor for everyone and noted it in state.advisor; it is off by default now, so that value goes
+  const advisorOff = state.advisor === true && settings.advisorModel === "fable";
+  if (advisorOff) delete settings.advisorModel;
+  delete state.advisor;
+  if (advisorOff) say(`advisor: the Fable advisor this setup turned on is off again; /advisor fable turns it back on (in ${fwd(settingsFile)})`);
   if (own.model && !modelChanged) say(`model: set to opus at medium effort in ${fwd(settingsFile)} (none was set)`);
   if (own.compact) say(`compact: long chats compact themselves at about 200k, set in ${fwd(settingsFile)}`);
   if (own.cache) say(`cache: helpers keep their prompt cache for an hour, set in ${fwd(settingsFile)}`);
   if (own.logs) say(`logs: transcripts are kept 120 days, set in ${fwd(settingsFile)}`);
+  if (own.powershellOff) say(`shell: the PowerShell tool is off (CLAUDE_CODE_USE_POWERSHELL_TOOL=0), so commands go through Git Bash; set in ${fwd(settingsFile)}`);
   const uncapped = removeOldOutputCap(settings, state.version);
   if (uncapped) say(`output: the 64k cap on one reply that 1.0.104 set is taken out of ${fwd(settingsFile)}`);
   if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins and SSH keys can't be read, a .env file is asked about)`);
@@ -62,6 +68,6 @@ export function claudeSettings(ctx) {
   let langChanged = false;
   if (LANG === "russian" && settings.language !== "russian") { settings.language = "russian"; langChanged = true; say(`language: russian set in ${fwd(settingsFile)}`); }
   else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
-  if (wired || own.model || modelChanged || own.compact || own.cache || own.logs || uncapped || own.added || langChanged) ctx.putJson(settingsFile, settings, settingsWas);
+  if (wired || own.model || modelChanged || own.compact || own.cache || advisorOff || own.logs || own.powershellOff || uncapped || own.added || langChanged) ctx.putJson(settingsFile, settings, settingsWas);
   return modelMark;
 }

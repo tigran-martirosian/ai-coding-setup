@@ -5,11 +5,13 @@
 // Claude Code itself compacts at COMPACT_K (autoCompactWindow in settings.json): mid-turn, or before the
 // next message of an idle session, so a finished session is left alone. This hook does not compact.
 //   UserPromptSubmit: over the limit (CONTEXT_GUARD_K, default 150 = 150k tokens) and under COMPACT_K, it
-//     warns the user and tells Claude to batch the work; with a cold cache (last reply over
-//     CONTEXT_GUARD_COLD_MIN, default 60 minutes), to move to a fresh session too. At COMPACT_K or more it
-//     only says the session compacts first. Silent for /commands.
+//     tells Claude to batch the work; with a cold cache (last reply over CONTEXT_GUARD_COLD_MIN, default
+//     60 minutes), to move to a fresh session too. The user sees nothing of it: the session compacts and
+//     hands off by itself. At COMPACT_K or more it only tells the user the session compacts first.
+//     Silent for /commands.
 //   PreCompact: gives an automatic compact the focus line (a /compact by hand has its own).
-//   Stop: when a reply ends at COMPACT_K or more (CONTEXT_GUARD_AUTO_K moves that line), it shows the
+//   Stop: when a reply ends at RUN_K or more, where the automatic compact has not run
+//     (CONTEXT_GUARD_AUTO_K moves that line), it shows the
 //     user one line about the size. Once per session, then again every further 100k. Silent when
 //     this turn already handed off. CONTEXT_GUARD_AUTO=off silences that line.
 //   PostToolUse: the safety net for an automatic compact that did not run. Over CONTEXT_GUARD_RUN_K
@@ -30,7 +32,8 @@ const AUTO = process.env.CONTEXT_GUARD_AUTO !== "off";
 const RUN_K = Number(process.env.CONTEXT_GUARD_RUN_K) || CONTEXT_K.run;
 // Where Claude Code compacts by itself (see CONTEXT_K)
 const COMPACT_K = Number(process.env.CONTEXT_GUARD_COMPACT_K) || CONTEXT_K.compact;
-const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || COMPACT_K;
+// The end-of-reply size line: only where the automatic compact has not run
+const AUTO_K = Number(process.env.CONTEXT_GUARD_AUTO_K) || RUN_K;
 // Between the limit and COMPACT_K, a cold session (idle over COLD_MIN) moves to a fresh session: a cold compact costs far more than a warm one
 const COLD_MIN = Number(process.env.CONTEXT_GUARD_COLD_MIN) || 60;
 const FOCUS = "Keep every message the user typed, quoted; open asks and decisions; the next step. Mark Claude's own estimates as unconfirmed.";
@@ -123,8 +126,8 @@ runHook("context-guard", (input) => {
     const idle = idleMinutes(lines);
     const cold = idle !== null && idle > COLD_MIN;
     if (cold) context.push(`- The cache went cold (last reply ~${idle} min ago). Unless only quick questions remain, move the work to a fresh session now with the handoff skill.`);
+    // For Claude only: the user has nothing to do about the size
     process.stdout.write(JSON.stringify({
-      systemMessage: `Context is ~${k}k tokens: every step re-sends all of it. ${cold ? "The cache is cold: Claude moves the work to a fresh session." : k >= RUN_K ? "Its automatic compact has not run." : "It compacts itself at about 200k."}`,
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context.join("\n") },
     }));
   }

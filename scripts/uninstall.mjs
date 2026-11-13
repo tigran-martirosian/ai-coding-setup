@@ -7,6 +7,7 @@ import { BACKUP, filesIn, fwd, OWN_FOLDERS, read, sha } from "./files.mjs";
 import { dropAgy, dropSwitches } from "./claude-files.mjs";
 import { EXT_FOLDER, nimbalystHome } from "./nimbalyst-paths.mjs";
 import { scriptsOf, unwire } from "./wiring.mjs";
+import { HELPER_DENY } from "./claude-code-settings.mjs";
 
 export function uninstall(ctx) {
   const { state, stateFile, CLAUDE, REPO, PROJECTS, home, settings, settingsFile, homeSettings, DRY, WIN, say, short, putJson } = ctx;
@@ -25,6 +26,12 @@ export function uninstall(ctx) {
   const setups = (h) => scriptsOf(h, home).some((s) => owned.has(s) || ctx.RETIRED.some((n) => s === `${root}hooks/${n}`));
   const settingsBefore = JSON.stringify(settings);
   unwire(ctx, settings, setups);
+  // The rules that block the built-in helpers go too: they point to the worker agent, which goes below
+  const deny = settings.permissions?.deny;
+  if (Array.isArray(deny) && deny.some((r) => HELPER_DENY.includes(r))) {
+    settings.permissions.deny = deny.filter((r) => !HELPER_DENY.includes(r));
+    say(`permissions: the rules blocking the Explore and general-purpose helpers are taken out of ${fwd(settingsFile)}`);
+  }
   if (JSON.stringify(settings) !== settingsBefore) putJson(settingsFile, settings, settingsBefore);
   // 1b. the project folders keep their files, but their settings lose the entries that start a script in
   // ~/.claude (those scripts go below), and the picture skill's link into ~/.claude goes
@@ -56,6 +63,7 @@ export function uninstall(ctx) {
   if (fs.existsSync(rules)) {
     if (state.rules && sha(read(rules)) === state.rules) drop(rules); else kept.push(`CLAUDE.md (the rules; they differ from what the setup wrote)`);
   }
+  if (fs.existsSync(path.join(CLAUDE, "rules", "my-rules.md"))) kept.push(`rules/my-rules.md (your own rules; my-rules.md stays)`);
   dropSwitches(ctx, drop);
   if (!DRY) for (const file of removed) {
     for (let d = path.dirname(file); fwd(d).toLowerCase().startsWith(root); d = path.dirname(d)) {
@@ -107,7 +115,7 @@ export function uninstall(ctx) {
   // 5. what stays, and how to take it out
   say(`Kept, not touched:`);
   say(`  your files in the project folders (they may hold your work): ${fwd(PROJECTS)}; delete a folder by hand when it is not needed`);
-  say(`  ${fwd(settingsFile)}: everything except the hook wiring, including the permission rules, the model and the language the setup set; edit them by hand`);
+  say(`  ${fwd(settingsFile)}: everything except the hook wiring and the two helper rules, including the other permission rules, the model and the language the setup set; edit them by hand`);
   for (const k of kept) say(`  ${k}`);
   if (fs.existsSync(path.join(CLAUDE, "setup-logs"))) say(`  ${fwd(path.join(CLAUDE, "setup-logs"))}: what each run printed; delete the folder when it is not needed`);
   const stateCopies = fs.readdirSync(CLAUDE).filter((n) => /^(settings\.json|setup-state\.json)\.before-install-/.test(n));

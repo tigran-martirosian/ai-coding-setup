@@ -17,13 +17,17 @@
 // messages, so "No response requested." stays allowed there. Subagents (agent_id) are skipped.
 // Fails open. NO_RESPONSE_GATE=off disables it.
 import { runHook, isMain, emit } from "./lib/hook-io.mjs";
-import { entries as readEntries, userText, assistantText, typedByUser, currentTurn, INTERRUPTED, QUESTION_TOOLS, SYNTHETIC } from "./lib/transcript.mjs";
+import { entries as readEntries, tail, userText, assistantText, typedByUser, currentTurn, INTERRUPTED, QUESTION_TOOLS, SYNTHETIC } from "./lib/transcript.mjs";
+import { ruHyphen as ru } from "./lib/ru.mjs";
 import fs from "node:fs";
+
+// Only the transcript's end is read (a long session's file reaches 100s of MB); a turn longer than this
+// has no start in it and passes
+const TAIL_BYTES = 8 * 1024 * 1024;
 
 // Russian twins of the English word lists below (for `--language russian`). \b does not see Cyrillic
 // letters, so these use the u flag and « » for "no letter on this side"; a hyphen after the word
-// ("что-то", "кто-то") means it is not a question word. The English patterns are untouched.
-const ru = (src, flags = "iu") => new RegExp(src.replace(/«/g, "(?<!\\p{L})").replace(/»/g, "(?![\\p{L}-])"), flags);
+// ("что-то", "кто-то") means it is not a question word (ruHyphen). The English patterns are untouched.
 const RU_ASK_WORD = String.raw`(?:что|чего|чему|чем|почему|зачем|как(?!\s+только)|где|куда|откуда|какой|какая|какое|какие|какую|каком|каким|каких|какого|который|которая|которое|которые|кто|кого|кому|кем|сколько|чей|чья|чьё|чьи|разве|неужели)`;
 const RU_QUESTION_WORD = ru(String.raw`^[^\p{L}\d]*(?:${RU_ASK_WORD}|есть\s+ли|можно\s+ли|нужно\s+ли|стоит\s+ли|\p{L}+\s+ли)»`);
 const RU_ASKS_WHAT = ru(String.raw`«(?:${RU_ASK_WORD}|ли)»`);
@@ -143,7 +147,7 @@ export function cutOffMessage(entries, prompt) {
 if (isMain(import.meta.url)) {
   runHook("no-response-gate", (input) => {
     if (input.agent_id || !input.transcript_path || !fs.existsSync(input.transcript_path)) return; // none yet on a session's first prompt
-    const entries = readEntries(fs.readFileSync(input.transcript_path, "utf8"));
+    const entries = readEntries(tail(input.transcript_path, TAIL_BYTES));
     if (input.hook_event_name === "UserPromptSubmit") {
       const earlier = cutOffMessage(entries, input.prompt);
       if (earlier) {

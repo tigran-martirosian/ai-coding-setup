@@ -1,6 +1,6 @@
 // Tests for hooks/file-link-gate.mjs. Run: node tests/test-file-link-gate.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { makeChecker, UNDER_MS } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(new URL("../hooks/file-link-gate.mjs", import.meta.url));
+const SETTINGS = JSON.parse(fs.readFileSync(fileURLToPath(new URL("../settings.example.json", import.meta.url)), "utf8"));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "file-link-gate-test-"));
 const CWD = "C:\\Projects\\my project";
 const HOME = os.homedir().replace(/\\/g, "/").replace(/ /g, "%20");
@@ -144,14 +145,11 @@ const BAD = { last_assistant_message: "See [x](docs/a.md).", cwd: CWD };
 check("terminal (entrypoint cli): a bad link is not refused", run(BAD, { CLAUDE_CODE_ENTRYPOINT: "cli" }).out === "");
 check("no entrypoint set: a bad link is not refused", run(BAD, { CLAUDE_CODE_ENTRYPOINT: "" }).out === "");
 check("an app entrypoint (sdk-cli) still refuses", !!reasonOf(run(BAD, { CLAUDE_CODE_ENTRYPOINT: "sdk-cli" }).out));
-const remind = (input, env = {}) => {
-  const r = spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify(input), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", FILE_LINK_GATE: "", CLAUDE_CODE_ENTRYPOINT: "sdk-ts", ...env } });
-  try { return JSON.parse(r.stdout).hookSpecificOutput; } catch { return null; }
-};
-const rem = remind({ cwd: CWD, prompt: "hi" });
-check("--remind: UserPromptSubmit context with the project's own /C:/ example", rem?.hookEventName === "UserPromptSubmit" && rem.additionalContext.includes("(/C:/Projects/my%20project/docs/notes.md)"));
-check("--remind: never blocks, even with a bad link in the prompt", !/"decision"/.test(spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify({ cwd: CWD, prompt: "[x](docs/a.md)" }), encoding: "utf8", env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "sdk-ts" } }).stdout));
-check("--remind: silent in the terminal (entrypoint cli)", remind({ cwd: CWD, prompt: "hi" }, { CLAUDE_CODE_ENTRYPOINT: "cli" }) === null);
+// The every-prompt reminder is gone: an old "--remind" UserPromptSubmit entry prints nothing and never blocks
+const old = spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify({ ...BAD, hook_event_name: "UserPromptSubmit", prompt: "hi" }), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", FILE_LINK_GATE: "", CLAUDE_CODE_ENTRYPOINT: "sdk-ts" } });
+check("old --remind wiring on UserPromptSubmit: silent, even after a reply with a bad link", old.stdout === "");
+check("no reminder function is left", !("remindText" in (await import(pathToFileURL(HOOK).href))));
+check("settings.example.json wires it on Stop only", JSON.stringify(SETTINGS.hooks.Stop).includes("file-link-gate.mjs") && !JSON.stringify(SETTINGS.hooks.UserPromptSubmit).includes("file-link-gate"));
 check("no cwd: still blocks, says to use the absolute path", /absolute path/.test(reasonOf(run({ last_assistant_message: "See [x](docs/a.md)." }).out) || ""));
 const lines = [];
 for (let i = 0; i < 4000; i++) lines.push(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "x".repeat(1000) }] } }));

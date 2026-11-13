@@ -68,15 +68,15 @@ push(stop("code-review-gate: another hook, not counted"));
 // helpers: with map (edits one file the brief names and one only the map names), without map, a stopped one
 const sid = "11111111-aaaa";
 fs.mkdirSync(path.join(proj, sid, "subagents"), { recursive: true });
-const helper = (n, brief, edits, report) => {
-  const { rec: a, tid } = use("Agent", { subagent_type: "worker", prompt: brief });
+const helper = (n, brief, edits, report, type = "worker") => {
+  const { rec: a, tid } = use("Agent", { subagent_type: type, prompt: brief });
   push(a, result(tid, text(report)));
   const recs = [{ type: "user", message: { role: "user", content: brief } }];
   for (const f of edits) recs.push({ type: "assistant", timestamp: stamp(), message: { id: `h${id}${f}`, role: "assistant", content: [{ type: "tool_use", id: `x${id}${f}`, name: "Edit", input: { file_path: f } }] } });
   fs.writeFileSync(path.join(proj, sid, "subagents", `agent-${n}.jsonl`), recs.map((r) => JSON.stringify(r)).join("\n") + "\n");
   fs.writeFileSync(path.join(proj, sid, "subagents", `agent-${n}.meta.json`), JSON.stringify({ agentType: "worker", toolUseId: tid }));
 };
-helper("a", "Change a.js only.\nSYSTEMS MAP:\n## Thing\nStart in: other.js, a.js", ["C:/p/a.js", "C:/p/other.js"], "done");
+helper("a", "Change a.js only.\nSYSTEMS MAP:\n## Thing\nStart in: other.js, a.js", ["C:/p/a.js", "C:/p/other.js"], "done", "plan-reviewer");
 helper("b", "Change c.js and d.js.", ["C:/p/c.js"], "done");
 helper("c", "Change e.js.", ["C:/p/zzz.js"], "NOTE: this agent stopped at its 25-turn limit before finishing.");
 
@@ -94,7 +94,8 @@ check("after, change: the user then took the other option", line("| after, rec-c
 check("reviewer helper: 2 runs, one followed by a code change", line("| reviewer helper"), "| reviewer helper | 2, too few to judge | 2 of 2 | 1 of 2 |");
 check("code-review skill: 1 run, edit after the next message", line("| code-review skill"), "| code-review skill | 1, too few to judge | 1 of 1 | 0 of 1 |");
 check("verify gate: 3 blocks, 2 followed by a build, 1 passing", line("| verify-gate"), "| verify-gate | 3, too few to judge | 2 of 3 | 1 of 3 |");
-check("map: one helper, its edit outside the brief is the file only the map names", line("| with map"), "| with map | 1, too few to judge | 1 of 1 | 1 of 1 | 0 of 1 |");
+check("plan-reviewer is a map helper type", out.includes("planner, plan-reviewer that have a record"), true);
+check("map: one helper (a plan-reviewer), its edit outside the brief is the file only the map names", line("| with map"), "| with map | 1, too few to judge | 1 of 1 | 1 of 1 | 0 of 1 |");
 check("no map: two helpers, one edit outside the brief, one stopped", line("| without map"), "| without map | 2, too few to judge | 2 of 2 | 1 of 2 | 1 of 2 |");
 const missing = (() => { try { execFileSync(process.execPath, [SCRIPT, "--root", path.join(root, "none")], { encoding: "utf8", stdio: "pipe" }); return 0; } catch (e) { return e.status; } })();
 check("a transcripts folder that is not there is an error, exit 2", missing, 2);

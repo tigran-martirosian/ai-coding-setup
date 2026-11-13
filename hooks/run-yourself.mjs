@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// run-yourself: Stop hook. Backs the "Do the work yourself, fully" rule in CLAUDE.md. If Claude ends
+// run-yourself: Stop hook. Backs the "Do the work yourself." rule in CLAUDE.md. If Claude ends
 // a turn by telling the user to run, paste or type a shell command (a code span or block next to
 // phrases like "open a terminal and run", "you need to run", "paste this into"), it blocks the stop
 // ONCE and says to run it itself. Silent for slash commands the user types (/model, /handoff ...),

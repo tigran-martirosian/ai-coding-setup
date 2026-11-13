@@ -8,6 +8,8 @@
 // It fails open, so any error or odd input lets the call through. BIG_READ_GATE=off disables it.
 // A file path the user writes in a prompt passes the gate once (UserPromptSubmit records it;
 // BIG_READ_ALLOW_FILE moves the record, for the tests).
+// A Read of a .docx, .pptx or .xlsx file is refused with the command that converts it to Markdown once (markitdown
+// through uvx), when uvx is on the PATH; without uvx it passes. PDFs are never refused for being a document.
 import { crashLog } from "./lib/crash-log.mjs";
 import { runHook, emit } from "./lib/hook-io.mjs";
 import { gitBashToNative as native } from "./lib/paths.mjs";
@@ -15,13 +17,20 @@ import { setting } from "./lib/settings-env.mjs";
 import { BIG_READ_GATE } from "./lib/texts.mjs";
 import { stateFile, readJson, writeJson } from "./lib/state.mjs";
 import { readFileSync, statSync } from "node:fs";
-import { resolve, extname } from "node:path";
+import { resolve, extname, delimiter, join } from "node:path";
 
 const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
-// 20000 bytes (about 20k characters): a file under 350 lines can still be too big to read whole
-const MAX_BYTES = Number(process.env.BIG_READ_MAX_BYTES) || 20000;
+// 80000 bytes (about 20k tokens): only a file of very long lines is too big under 350 lines. 20000 refused plan
+// files of 80 lines with wide tables; 80000 stays under the Read tool's own 25k-token cap.
+const MAX_BYTES = Number(process.env.BIG_READ_MAX_BYTES) || 80000;
 const READ_CAP = 2000; // lines the Read tool returns when no limit is given
 const BINARY = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".pdf", ".ipynb"]);
+// Word, PowerPoint and Excel files: a Read of one is refused with the markitdown command when uvx is on the PATH (with
+// no uvx it passes untouched). PDFs are not among them: Read handles a PDF itself, a few pages at a time.
+const OFFICE = new Set([".docx", ".pptx", ".xlsx"]);
+const EXE = process.platform === "win32" ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";").filter(Boolean) : [""];
+const onPath = (name) => (process.env.PATH || "").split(delimiter).filter(Boolean)
+  .some((dir) => EXE.some((ext) => isFile(join(dir, name + ext))));
 
 function measure(path) {
   let st;
@@ -128,7 +137,7 @@ function deny(path, m) {
       : `1. Its lines are very long (about ${Math.round(perLine)} characters each): Grep with a narrow pattern (-o with some context), not a Read.`,
     IN_HELPER
       ? `2. To understand or summarise it, answer from targeted reads (Grep, then Read with offset/limit).`
-      : `2. To understand or summarise it, hand the reading to a subagent with subagent_type: "worker" (Agent tool), naming ${path} and one specific question, and keep only its answer. Ask for terse bullets, each starting with the line number.`,
+      : `2. To understand or summarise it, hand the reading to a subagent with subagent_type: "worker" (Agent tool), naming ${path} and one specific question, and keep only its answer. Ask for terse bullets, each starting with the line number. A helper saves this session's context, not cost: it runs on Opus too.`,
     `   Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,
     ...(extname(path).toLowerCase() === ".md" ? headings(path) : []),
@@ -323,6 +332,10 @@ runHook("big-read-gate", (event) => {
     const path = resolve(native(cwd), native(input.file_path));
     // Claude Code's own saved copy of a long tool result: it tells the session to read that file
     if (/[\\/]\.claude[\\/]projects[\\/].*[\\/]tool-results[\\/]/i.test(path)) return;
+    if (OFFICE.has(extname(path).toLowerCase())) {
+      if (onPath("uvx")) emit.deny(`${BIG_READ_GATE} Convert this document once with uvx --from "markitdown[all]" markitdown "${path}" -o "${path}.md", then read or grep the .md.`);
+      return;
+    }
     const m = measure(path);
     const from = input.offset ? Math.max(0, input.offset - 1) : 0;
     if (m && tooBig(returned(m, from, input.limit || READ_CAP))) deny(path, m);

@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 const HOOK = fileURLToPath(new URL("../hooks/command-explain.mjs", import.meta.url));
 // Every run names its surroundings, so results don't depend on where the tests are started.
-const TERMINAL = { CLAUDE_CODE_ENTRYPOINT: "cli", COMMAND_EXPLAIN_BASH: "yes", COMMAND_EXPLAIN_LINES: "", COMMAND_EXPLAIN_WIDTH: "" };
+const TERMINAL = { CLAUDE_CODE_ENTRYPOINT: "cli", COMMAND_EXPLAIN_LINES: "", COMMAND_EXPLAIN_WIDTH: "" };
 const NIMBALYST = { ...TERMINAL, CLAUDE_CODE_ENTRYPOINT: "sdk-cli" };
 const run = (input, env = TERMINAL) =>
   spawnSync(process.execPath, [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), env: { ...process.env, ...env }, encoding: "utf8" }).stdout;
@@ -42,9 +42,8 @@ const cases = [
   ["no command fails open", { tool_name: "Bash", tool_input: {} }, false],
   ["Nimbalyst: short command with a note passes", B(`ls -la${NOTE}`), false, NIMBALYST],
   ["Nimbalyst: bare command gets a stand-in note", B("ls -la"), MISSING, NIMBALYST],
-  ["Nimbalyst: PowerShell with a note is denied", B(`Get-ChildItem${NOTE}`, "PowerShell"), "Bash tool", NIMBALYST],
-  ["Nimbalyst without Git Bash: PowerShell with a note passes", B(`Get-ChildItem${NOTE}`, "PowerShell"), false, { ...NIMBALYST, COMMAND_EXPLAIN_BASH: "no" }],
-  ["Nimbalyst without Git Bash: bare PowerShell gets a stand-in note", B("Get-ChildItem", "PowerShell"), MISSING, { ...NIMBALYST, COMMAND_EXPLAIN_BASH: "no" }],
+  ["Nimbalyst: PowerShell with a note passes (the installer turns the tool off; no refusal)", B(`Get-ChildItem${NOTE}`, "PowerShell"), false, NIMBALYST],
+  ["Nimbalyst: bare PowerShell gets a stand-in note", B("Get-ChildItem", "PowerShell"), MISSING, NIMBALYST],
   ["Nimbalyst: a 14-line command with a note passes (no line limit)", B(`${echoes(12)}${NOTE}`), false, NIMBALYST],
   ["Nimbalyst: a 200-line command with a note passes", B(`${echoes(198)}${NOTE}`), false, NIMBALYST],
   ["Nimbalyst: one 1000-character line with a note passes", B(`echo ${"x".repeat(1000)}${NOTE}`), false, NIMBALYST],

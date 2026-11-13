@@ -18,14 +18,15 @@ const front = Object.fromEntries((m ? m[1] : "").split(/\r?\n/).map((l) => {
 const body = m ? m[2] : "";
 
 check("name is planner", front.name === "planner");
-check("runs on Fable", front.model === "fable");
+check("runs on Fable at high", front.model === "fable" && front.effort === "high");
 const turns = Number(front.maxTurns);
-check("has a turn cap of 20 or fewer", Number.isInteger(turns) && turns > 0 && turns <= 20);
+check("has a turn cap of 40 or fewer", Number.isInteger(turns) && turns > 0 && turns <= 40);
 const tools = (front.tools || "").split(",").map((t) => t.trim()).filter(Boolean);
 check("has a tool list", tools.length > 0);
-for (const t of ["Edit", "Write", "Bash", "PowerShell", "NotebookEdit", "Agent"]) {
+for (const t of ["Edit", "Write", "PowerShell", "NotebookEdit", "Agent"]) {
   check(`cannot use ${t}`, !tools.includes(t));
 }
+check("Bash only with the planner-readonly hook", !tools.includes("Bash") || /PreToolUse:[\s\S]*matcher: "Bash\|PowerShell"[\s\S]*planner-readonly\.mjs/.test(m ? m[1] : ""));
 check("description says when to use it", /build or design request/.test(front.description || ""));
 check("description says what stays out of the brief", /Keep out your own solution/.test(front.description || ""));
 check("description asks for the user's own words", /in their own words/.test(front.description || ""));
@@ -34,8 +35,10 @@ check("body asks for the alternatives", /other ways you weighed/.test(body));
 check("body asks for pushback", /push back/.test(body));
 check("body treats a steering brief as an opinion", /one opinion/.test(body));
 check("body: reads only the folder the brief names", /Read code only in those folders/.test(body));
-check("body: looks up map parts the brief missed", /systems-map\.json/.test(body));
+check("body: looks up map parts the brief missed", /map\.mjs --near/.test(body));
 check("body: lists the helpers with model and effort", ["`worker`", "`worker-full`", "`reviewer`", "Sonnet", "Opus"].every((s) => body.includes(s)));
+check("body: a Fable-medium worker row for code, deep web research, charts, science or maths", /\| `worker`, model `fable` \| Fable, medium \|[^\n]*code changes[^\n]*deep web research[^\n]*charts[^\n]*science or maths/.test(body));
+check("body: security work stays off Fable", /Security work[^\n]*stays on Opus/.test(body));
 check("body: rows carry helper, runs and budget", /\| Helper \| Runs \| Budget \|/.test(body));
 check("body: says which folders and commits it read", /\*\*Read:\*\* the folders and commits/.test(body));
 check("body: names what the review gate forces", /2 or more workers edit code/.test(body) && /10 or more code files/.test(body) && /rule, agent, skill/.test(body));
@@ -51,6 +54,20 @@ check("body: a part that can't be designed yet is a plan-this-part row", /"plan 
 check("body: rows carry a Decides column", /\| Step \| Job \| Decides \|/.test(body));
 check("body: opens its reply with a plain part for the user", /\*\*For the user\*\*/.test(body) && /how many helpers, on which model and effort/.test(body));
 check("body: a design the user looks at waits for their OK", /after S<n>, user OK/.test(body));
+check("body: the old spend line is gone", !/every turn costs/.test(body));
+check("body: reading for a plan is not saved, the runs a plan starts are", /Reading for a plan is not saved/.test(body) && /never the runs a plan starts/.test(body));
+check("body: a batch of model runs gives its count and cost", /batch/.test(body) && /cost at API prices/.test(body));
+check("body: reads the folder state with git status", /git -C <folder> status --short/.test(body));
+check("body: Read line names files listed but not opened", /\*\*Read:\*\*[^\n]*not opened/.test(body.split("## Send back")[1] || ""));
+check("body: template has Goal and non-goals", /\*\*Goal and non-goals:\*\*/.test(body));
+check("body: template has Order", /\*\*Order:\*\*/.test(body));
+check("body: template has Tests", /\*\*Tests:\*\*/.test(body));
+check("body: template has Risks and undo", /\*\*Risks and undo:\*\*/.test(body));
+check("body: template ends with a Self-check", /\*\*Self-check:\*\*/.test(body));
+check("body: unknowns marked NEEDS RESEARCH", /NEEDS RESEARCH: <what would settle it>/.test(body));
+check("body: plan-reviewer in the helpers table", /\| `plan-reviewer` \|/.test(body));
+check("body: not a reviewer of plans", /A review of a plan or a design goes to the `plan-reviewer`/.test(body));
+check("body: Needs the user's OK comes right after For the user", /1\. \*\*For the user\*\*[\s\S]*\n2\. \*\*Needs the user's OK:\*\*/.test(body));
 
 const lead = fs.readFileSync(path.join(ROOT, "skills", "lead", "SKILL.md"), "utf8");
 check("lead names the planner", /subagent_type: "planner"/.test(lead));

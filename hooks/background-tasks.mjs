@@ -106,7 +106,7 @@ function unretriedDenial(file) {
 			if (e.type === "assistant" && b.type === "tool_use") calls.set(b.id, b.name + JSON.stringify(b.input));
 			if (e.type === "user" && b.type === "tool_result" && calls.has(b.tool_use_id)) {
 				const t = typeof b.content === "string" ? b.content : texts(b.content).join("\n");
-				order.push({ sig: calls.get(b.tool_use_id), denied: t.includes(DENIED) });
+				order.push({ sig: calls.get(b.tool_use_id), denied: b.is_error === true && t.trimStart().startsWith(DENIED) });
 			}
 		}
 	}

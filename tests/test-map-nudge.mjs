@@ -135,5 +135,10 @@ check(`3,000 code files, no map, the count runs: under ${UNDER_MS / 1000} s (bes
 const fast = best(5, () => run(bigp).ms);
 check(`a project nudged before skips the count: under ${UNDER_MS / 1000} s (best of five ${fast} ms)`, fast < UNDER_MS);
 
+// ---- every run above kept its own state: the real map-nudge state has none of this run's folders
+const live = path.join(os.homedir(), ".claude", "hooks", "state", "map-nudge", "projects.json");
+const liveKeys = fs.existsSync(live) ? Object.keys(JSON.parse(fs.readFileSync(live, "utf8"))) : [];
+check("the test leaves the real map-nudge state alone", !liveKeys.some((k) => k.includes(path.basename(tmp))), liveKeys.filter((k) => k.includes(path.basename(tmp))).join(", "));
+
 fs.rmSync(tmp, { recursive: true, force: true });
 summary();

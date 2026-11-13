@@ -84,9 +84,23 @@ run("empty-file", [""], false);
 run("missing-file", null, false);
 run("broken-event", "broken-event", false);
 
-// PostToolUse: a main-session git commit that made a commit tells Claude to hand the next piece to a fresh session
+// PostToolUse: a main-session git commit that made a commit tells Claude to hand the next piece to a fresh session,
+// only when the project has an open job: made-up projects (a .git folder each) with and without one
+const project = (name, files) => {
+	const root = path.join(dir, name);
+	fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+	for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+	return root;
+};
+const ROWS = "## Job list\n\n| Step | Job |\n|---|---|\n| S1 | build it |\n| S2 | test it |\n";
+const OPEN = project("open", { "docs/2026-11-09-x-plan.md": ROWS });
+const NONE = project("none", { "docs/notes.md": "| S1 | not a plan file |\n", "HANDOFF.md": "## Next\n- [x] done\n" });
+const OLD = project("old", { "docs/old-plan.md": ROWS });
+const old = new Date(Date.now() - 3 * 86400e3); fs.utimesSync(path.join(OLD, "docs/old-plan.md"), old, old);
+const HANDOFF = project("handoff", { "HANDOFF.md": "## Next\n- [ ] step 3: the tests\n" });
+const TICKED = project("ticked", { "docs/a-plan.md": "- [x] one\n- [x] two\n" });
 function post(name, command, stdout, expectNote, extra = {}) {
-	const ev = { hook_event_name: "PostToolUse", session_id: `${runId}-post`, tool_name: "Bash",
+	const ev = { hook_event_name: "PostToolUse", session_id: `${runId}-post`, tool_name: "Bash", cwd: path.join(OPEN, "docs"),
 		tool_input: { command }, tool_response: { stdout, stderr: "", interrupted: false }, ...extra };
 	const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(ev), encoding: "utf8", env: { ...process.env, ...(extra.env || {}) } });
 	const out = r.stdout.trim();
@@ -120,6 +134,17 @@ post("post-commit-word-in-echo-silent", 'echo "[main 1a2b3c4] x"', made, false);
 post("post-non-bash-silent", 'git commit -m "x"', made, false, { tool_name: "Edit" });
 post("post-subagent-silent", 'git commit -m "x"', made, false, { agent_id: "abc" });
 post("post-off-switch", 'git commit -m "x"', made, false, { env: { JOB_DONE: "off" } });
+post("post-no-plan-silent", 'git commit -m "x"', made, false, { cwd: NONE });
+post("post-plan-older-than-48h-silent", 'git commit -m "x"', made, false, { cwd: OLD });
+post("post-only-ticked-boxes-silent", 'git commit -m "x"', made, false, { cwd: TICKED });
+// A "docs" that is a file, not a folder: silent and no crash (a crash also exits 0, so the crash log is checked)
+const docsCrashLog = path.join(dir, "docsfile-crash.log");
+post("post-docs-is-a-file-silent", 'git commit -m "x"', made, false, { cwd: project("docsfile", { "docs": "not a folder\n" }), env: { HOOK_ERRORS_LOG: docsCrashLog } });
+{ const ok = !fs.existsSync(docsCrashLog); if (!ok) failed++; console.log(`${ok ? "PASS" : "FAIL"}  post-docs-is-a-file-no-crash${ok ? "" : "  -> " + fs.readFileSync(docsCrashLog, "utf8").trim()}`); }
+post("post-handoff-unticked-notes", 'git commit -m "x"', made, true, { cwd: HANDOFF });
+post("post-dash-C-into-open-project-notes", `git -C "${OPEN.replace(/\\/g, "/")}" commit -m "x"`, made, true, { cwd: NONE });
+post("post-dash-C-into-project-without-plan-silent", `git -C "${NONE.replace(/\\/g, "/")}" commit -m "x"`, made, false, { cwd: TICKED });
+post("post-no-git-folder-silent", 'git commit -m "x"', made, false, { cwd: os.tmpdir() });
 
 fs.rmSync(dir, { recursive: true, force: true });
 for (const s of sessions) fs.rmSync(path.join(stateDir, s + ".json"), { force: true });

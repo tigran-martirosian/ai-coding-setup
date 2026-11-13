@@ -1,17 +1,16 @@
 #!/usr/bin/env node
-// question-other: PreToolUse hook for Nimbalyst's PromptForUserInput. The user wants to type their own answer on any
-// choice question, so every singleSelect must set allowOther: true; a plain yes/no should be a confirm field.
+// question-other: PreToolUse hook for Nimbalyst's PromptForUserInput (and both AskUserQuestion tools). The user wants to type their own answer on every
+// question, so every singleSelect sets allowOther: true, every multiSelect is followed right away by an editText
+// (Nimbalyst drops allowOther on a multiSelect), and a confirm or reorder field needs an editText in the form.
 // A recommended option (marked "(recommended)" or with the badge "recommended") must carry its reason in its
 // description / subtitle, shaped "Checked: ..." (something was looked up) or "Judgment: ..." (nothing was), then
 // "Other wins if: ...". A "Checked:" claim is compared with the session record (transcript_path). It can check that a
 // reason is there, not that it is a good one. A singleSelect may recommend only one option and needs at least 2 options.
 // QUESTION_OTHER=off disables it; REC_CHECK=off turns the rec-check agent check off. It fails open.
 //
-// It refuses:
-// - Nimbalyst's own AskUserQuestion, which has no box for the user's own answer (the built-in AskUserQuestion adds
-//   "Other" itself and is left alone; it needs mcp__nimbalyst__AskUserQuestion in the settings matcher). A turn whose
-//   prompt came from the phone bot may use it: the phone can answer nothing else;
-// - a form where no field lets the user type (no editText field, no singleSelect with allowOther);
+// It never refuses an AskUserQuestion card (Nimbalyst's has a typing box on every question, and the card is on screen
+// before this runs, so a refusal shows it twice); a missing rec-check there is a note. The faults below:
+// - a question with no box to type in (above);
 // - a form that points the user at something to look at (a "look through / check the page" phrase, or a file path in
 //   its title, intro or labels) when neither the form nor Claude's visible text since its last ordinary tool call has a
 //   clickable link (a markdown link to /C:/..., C:/... or /Users/..., or a URL) and no picture or preview was shown
@@ -23,11 +22,10 @@
 // - a form with a recommended option, AskUserQuestion included, without its own rec-check agent call: one called since
 //   the user's last message and since the last form that went through. That call is no lookup, so it can't back a
 //   "Checked:". It is skipped when ~/.claude/agents/rec-check.md isn't there (an install without that agent).
-// A PromptForUserInput is never refused: mend() fixes every fault above in place and tells Claude in one line
-// (additionalContext) what it changed. A missing link gets a "File:" pointer in the intro; an unexplained or unshaped
-// recommendation loses its "(recommended)" mark; an unbacked "Checked:" becomes "Judgment:"; a second recommended
-// option in a singleSelect loses its mark; a missing rec-check or a one-option singleSelect goes out as is with a
-// note. review() still lists the reasons; only AskUserQuestion is still refused.
+// Nimbalyst draws a form from the model's own call as soon as it is written, so a hook can't change what the user
+// sees (an updatedInput never reaches the screen, live test 2026-11-09) and a refused form stays on screen beside
+// the resent one. So a PromptForUserInput is refused only for a question without a typing box, the user's hard
+// rule; every other fault lets it through with a note (additionalContext) telling Claude to say so in the reply.
 import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 import { gitBashToNative, projectRoot } from "./lib/paths.mjs";
 import { ru } from "./lib/ru.mjs";
@@ -107,8 +105,20 @@ const backed = (o, seen) => {
   return seen.thisTurn.some((c) => LOOKUP.test(c.name));
 };
 
-// A field the user can type into
-const typeable = (f) => f && (f.type === "editText" || (f.type === "singleSelect" && f.allowOther === true));
+// The questions without a box to type in: a singleSelect without allowOther, a multiSelect not followed right away
+// by an editText, and a confirm or reorder field in a form with no editText at all
+export function untypeable(fields) {
+  const hasText = fields.some((f) => f?.type === "editText");
+  const out = [];
+  fields.forEach((f, i) => {
+    if (!f) return;
+    const name = `"${f.label || f.id}"`;
+    if (f.type === "singleSelect" && f.allowOther !== true) out.push(name);
+    else if (f.type === "multiSelect" && fields[i + 1]?.type !== "editText") out.push(name);
+    else if ((f.type === "confirm" || f.type === "reorder") && !hasText) out.push(name);
+  });
+  return out;
+}
 
 // Words that send the user to look at something. Bare nouns ("page", "file") are left out on purpose:
 // on real forms they mostly name a shop's page or a source, not something Claude made.
@@ -182,12 +192,6 @@ export function outsideProject(file, cwd) {
   const a = norm(absolute(file, cwd)), r = norm(projectRoot({ cwd: gitBashToNative(slashed(cwd)) }));
   return !(a === r || a.startsWith(r + "/"));
 }
-// What the form gets when nothing presents the file: a link Nimbalyst opens inside the project, the path in code outside it
-const pointerTo = (file, cwd, outside) => {
-  const t = absolute(file, cwd);
-  if (outside || !/^(?:[A-Za-z]:)?\//.test(t)) return `\`${t}\``;
-  return `[${t.split("/").pop()}](${/^[A-Za-z]:/.test(t) ? "/" : ""}${t.replace(/ /g, "%20")})`;
-};
 // A path in inline code that names the file (its name, plus a folder or ~)
 const inCode = (s, file) => {
   const name = file.split(/[\\/]/).pop().toLowerCase();
@@ -198,130 +202,32 @@ const REC_ASK = `This form recommends an option and no rec-check agent has looke
   `The user clicks the recommended option on trust and about a third of them missed. Call the Agent tool once, in the foreground, with subagent_type "rec-check". Its prompt: the user's own words on this, ` +
   `the question, every option with its reason, and what you looked at. Act on what it says, then send the form again. Fix anything it changes; if you overrule it, say why in the reply.`;
 
-// A form with no way to type an answer, fixed in place instead of refused: Nimbalyst draws a form as soon
-// as the call starts, so a refused form stays on screen beside the corrected one and the user sees it twice.
-// Each singleSelect gets allowOther: true, and a form with no field that takes typing gets an optional
-// "Anything else?" box. Returns the new input, or null when nothing needed adding.
-export function repair(input) {
-  let fields = input?.fields;
-  if (typeof fields === "string") try { fields = JSON.parse(fields); } catch { return null; }
-  if (!Array.isArray(fields)) return null;
-  let changed = false;
-  const out = fields.map((f) => {
-    if (f?.type === "singleSelect" && f.allowOther !== true) { changed = true; return { ...f, allowOther: true }; }
-    return f;
-  });
-  if (!out.some(typeable)) {
-    let id = "anythingElse";
-    while (out.some((f) => f?.id === id)) id += "_";
-    out.push({ type: "editText", id, label: "Anything else?", format: "plain", initialText: "", minLength: 0 });
-    changed = true;
-  }
-  return changed ? { ...input, fields: out } : null;
-}
-
 const REC_NOTE = `the form recommends an option and no rec-check agent looked at it since the user's last message (or since the last form went through); it went out as is. ` +
   `The user clicks the recommended option on trust and about a third of them missed, so before the next recommended form call the Agent tool once, in the foreground, ` +
   `with subagent_type "rec-check" (the user's own words, the question, every option with its reason, what you looked at). If its answer would have changed this pick, tell the user in the reply.`;
-const unmark = (o) => {
-  const c = { ...o };
-  for (const k of ["label", "title"]) if (typeof c[k] === "string") c[k] = c[k].replace(/\s*\(recommended\)/gi, "").trim();
-  if (/^recommended$/i.test(String(c.badge || "").trim())) delete c.badge;
-  return c;
-};
-const nameOf = (o) => `"${String(o?.label || o?.title || o?.id || "").replace(/\s*\(recommended\)/gi, "").trim()}"`;
 
-// A PromptForUserInput fixed in place, never refused (a refused form stays on screen beside the resent one):
-// { input: the new tool_input or null when nothing changed, notes: one line each for Claude }.
-export function mend(event, seen) {
-  const original = event.tool_input || {};
-  let fields = original.fields;
-  if (typeof fields === "string") try { fields = JSON.parse(fields); } catch { return { input: null, notes: [] }; }
-  if (!Array.isArray(fields)) return { input: null, notes: [] };
-  const notes = [];
-  const noOther = fields.filter((f) => f?.type === "singleSelect" && f.allowOther !== true).map((f) => `"${f.label || f.id}"`);
-  const fixed = repair({ ...original, fields });
-  let changed = !!fixed;
-  if (noOther.length) notes.push(`added allowOther: true to ${noOther.join(", ")}: the user wants to type their own answer on every choice question.`);
-  if (fixed && fixed.fields.length > fields.length) notes.push(`added an optional "Anything else?" box: no field took typing (next time set allowOther: true on a singleSelect or add an editText).`);
-  let input = fixed || { ...original, fields };
-  let anyPick = false;
-  input = { ...input, fields: input.fields.map((f) => {
-    const key = f?.type === "singleSelect" ? "options" : f?.type === "multiSelect" ? "items" : null;
-    if (!key || !Array.isArray(f[key])) return f;
-    const name = `"${f.label || f.id}"`;
-    let kept = 0;
-    const dropped = [];
-    const opts = f[key].map((o) => {
-      if (!recommended(o)) return o;
-      if (!hasReason(o) || !hasShape(o)) {
-        changed = true;
-        notes.push(`removed the "(recommended)" mark from ${nameOf(o)} in ${name}: its reason ${hasReason(o) ? "was not in the shape" : "was missing; the shape is"} ` +
-          `"Checked: <what you looked at and what it showed>" or "Judgment: <why>", then "Other wins if: <the case for another option>". Next time write it that way, or recommend nothing.`);
-        return unmark(o);
-      }
-      let c = o;
-      if (seen && !backed(o, seen)) {
-        const k = o.description ? "description" : "subtitle";
-        c = { ...o, [k]: String(o[k]).replace(/(^|[^a-z])checked(\s*:)/i, "$1Judgment$2") };
-        changed = true;
-        notes.push(`rewrote "Checked:" to "Judgment:" on ${nameOf(o)} in ${name}: this session's record shows no tool call that touched what it names (or, naming nothing, no lookup since the user's last message). Write "Checked:" only for something really looked up.`);
-      }
-      if (f.type === "singleSelect" && ++kept > 1) { changed = true; dropped.push(nameOf(o)); return unmark(c); }
-      anyPick = true;
-      return c;
-    });
-    if (dropped.length) notes.push(`removed the "(recommended)" mark from ${dropped.join(", ")} in ${name}: a singleSelect recommends one option at most, so only the first kept it.`);
-    if (f.type === "singleSelect" && f[key].length < 2) notes.push(`${name} has fewer than 2 options, so it asks nothing; it went out as is. Next time add the real alternative, use a confirm field for a plain yes/no, or decide it yourself.`);
-    return { ...f, [key]: opts };
-  }) };
-  // A link in the form's own words or in the reply right before it, or a picture shown there, counts as presented
-  const point = seen ? pointer(input, input.fields) : null;
-  if (point) {
-    const cwd = typeof event.cwd === "string" ? event.cwd : "";
-    const outside = point.file && outsideProject(point.text, cwd);
-    const presented = (s) => (outside ? inCode(s, point.text) : (point.file ? LOCAL_LINK : LINK).test(s));
-    // A bare name ("DESIGN.md") is placed in the cwd only when it is there: elsewhere the link would be made up
-    const bareMissing = point.file && !/[\\/~]/.test(point.text) && !(cwd && existsSync(absolute(point.text, cwd)));
-    if (!presented(formText(input, input.fields, true)) && !presented(seen.replyText) && !seen.shown) {
-      if (bareMissing) notes.push(`the form names "${point.text}" with no folder, and no such file is in the session's folder, so no link was added; it went out as is. ` +
-        `Next time put the file's full path in the reply before the form: inside the open project a markdown link [name](/C:/path/to/file.md), outside it the path in inline code.`);
-      else if (point.file) {
-        const where = `File: ${pointerTo(point.text, cwd, outside)}`;
-        input = { ...input, intro: [input.intro, where].filter((s) => typeof s === "string" && s.trim()).join("\n\n") };
-        changed = true;
-        notes.push(`the form points at "${point.text}" and nothing in front of the user presented it, so "${where}" was added to its intro. ` +
-          `Next time put it in the reply before the form: inside the open project a markdown link [name](/C:/path/to/file.md), outside it the path in inline code.`);
-      } else notes.push(`the form sends the user to look at something ("${point.text}") with no link in the form or the reply before it; it went out as is. Next time write the link (a markdown link or a web address) in the reply first.`);
-    }
-  }
-  if (anyPick && seen?.recChecked === false && recCheckOn()) notes.push(REC_NOTE);
-  return { input: changed ? input : null, notes };
-}
-
-// The reasons to refuse one call (empty when it may go through). seen = readRecord(...) or null.
-// For PromptForUserInput they are counted (the replay), not sent: the main block calls mend() instead.
+// One call's faults: { deny, parts }. deny: refuse it (a question without a typing box); otherwise the parts go to
+// Claude as a note and the form goes out as is. seen = readRecord(...) or null.
 export function review(event, seen) {
   const tool = String(event.tool_name || "");
   if (/AskUserQuestion$/.test(tool)) {
-    if (tool.startsWith("mcp__") && !seen?.fromPhone)
-      return [`Nimbalyst's AskUserQuestion has no box where the user can type their own answer, and the user wants one on every question. ` +
-        `Use mcp__nimbalyst__PromptForUserInput instead: a singleSelect with allowOther: true for a choice, a confirm field for a plain yes/no, ` +
-        `plus an optional editText field ("Anything else?") when no field takes typing.`];
+    // Nimbalyst's own question card is never refused: it already has a typing box on every question, and a refusal
+    // leaves the refused card on screen next to the resent form (the user saw every such question twice).
     const pick = (event.tool_input?.questions || []).some((q) => (q?.options || []).some(recommended));
-    return pick && seen?.recChecked === false && recCheckOn() ? [REC_ASK] : [];
+    return { deny: false, parts: pick && seen?.recChecked === false && recCheckOn() ? [REC_NOTE] : [] };
   }
-  if (!tool.endsWith("PromptForUserInput")) return [];
+  const none = { deny: false, parts: [] };
+  if (!tool.endsWith("PromptForUserInput")) return none;
   const input = event.tool_input || {};
   let fields = input.fields;
-  if (typeof fields === "string") try { fields = JSON.parse(fields); } catch { return []; }
-  if (!Array.isArray(fields)) return [];
-  const noOther = [], noReason = [], noShape = [], notChecked = [], twoRecommended = [], oneOption = [];
+  if (typeof fields === "string") try { fields = JSON.parse(fields); } catch { return none; }
+  if (!Array.isArray(fields)) return none;
+  const noBox = untypeable(fields);
+  const noReason = [], noShape = [], notChecked = [], twoRecommended = [], oneOption = [];
   let anyPick = false;
   for (const f of fields) {
     if (!f) continue;
     const name = `"${f.label || f.id}"`;
-    if (f.type === "singleSelect" && f.allowOther !== true) noOther.push(name);
     const options = f.type === "singleSelect" ? f.options : f.type === "multiSelect" ? f.items : null;
     if (!Array.isArray(options)) continue;
     const picks = options.filter(recommended);
@@ -333,15 +239,13 @@ export function review(event, seen) {
     else if (seen && picks.some((o) => !backed(o, seen))) notChecked.push(name);
   }
   const parts = [];
-  if (noOther.length)
+  if (noBox.length)
     parts.push(
-      `${noOther.join(", ")} has no free-text option. The user wants to write their own answer on every choice question. ` +
-      `Add allowOther: true to each singleSelect. If a question is a plain yes/no (keep it or not, an obvious no-brainer), use a confirm field instead, ` +
-      `and add an optional editText field ("Anything else?") when no other field takes typing.`);
-  else if (!fields.some(typeable))
-    parts.push(
-      `No field in this form lets the user type their own answer (no editText field and no singleSelect with allowOther: true). ` +
-      `Add an optional editText field labelled "Anything else?", or allowOther: true on a singleSelect.`);
+      `${noBox.join(", ")} has no box where the user can type their own answer, and the user wants one on every question. ` +
+      `Nimbalyst draws a form as soon as it is sent, so this refused one stays on screen and the user sees the question twice: get it right the first time. ` +
+      `A plain choice (single or multi pick) goes on mcp__nimbalyst__AskUserQuestion, whose card has a typing box on every question; resend it there. ` +
+      `Keep this form only for a draft to edit, a reorder or many fields, and then: allowOther: true on each singleSelect, an optional editText ` +
+      `("Other (optional)", minLength 0) right after each multiSelect, and an optional "Anything else?" editText when only confirm or reorder fields remain.`);
   // A link in the form's own words or in the reply right before it, or a picture shown there, counts as
   // presented. A local file needs a local link: a web address does not open it.
   const point = pointer(input, fields);
@@ -351,11 +255,11 @@ export function review(event, seen) {
     parts.push(outside
       ? `This form sends the user to look at a file ("${point.text}") that is outside the open project, and neither the form nor the reply text right before it names its path in code. ` +
         `Nimbalyst opens a markdown link only for a file inside the open project (a file inside the project: a markdown link; outside it: its path in code), so a link would not open. ` +
-        `Stop and write the path in inline code in the reply text first (\`~/.claude/skills/x/SKILL.md\` or \`C:/Users/you/x.md\`), with what you wrote, what you think of it and what you recommend. Then ask.`
+        `Write the path in inline code in the reply text (\`~/.claude/skills/x/SKILL.md\` or \`C:/Users/you/x.md\`), with what you wrote, what you think of it and what you recommend.`
       : `This form sends the user to look at something ("${point.text}"), but neither the form nor the reply text right before it has a clickable link to it, ` +
-        `so the user cannot find it. Stop and write it in the reply text first: what you built or wrote, as a markdown link ` +
+        `so the user cannot find it. Write it in the reply text: what you built or wrote, as a markdown link ` +
         `([name](/C:/path/to/file.md): forward slashes, no file:///, no backslashes; or a web address for a site), what you think of it and what you recommend. ` +
-        `(A file inside the project: a markdown link; outside it: its path in code.) Then ask.`);
+        `(A file inside the project: a markdown link; outside it: its path in code.)`);
   if (noReason.length)
     parts.push(
       `${noReason.join(", ")} recommends an option without a reason. The user accepts the recommended option with one click, so say in its ` +
@@ -376,8 +280,8 @@ export function review(event, seen) {
     parts.push(`${twoRecommended.join(", ")} marks more than one option as recommended. Recommend one, or none.`);
   if (oneOption.length)
     parts.push(`${oneOption.join(", ")} has fewer than 2 options, so it asks nothing. Add the real alternative, or use a confirm field if it is a plain yes/no, or decide it yourself and say so.`);
-  if (anyPick && seen?.recChecked === false && recCheckOn()) parts.push(REC_ASK);
-  return parts;
+  if (anyPick && seen?.recChecked === false && recCheckOn()) parts.push(noBox.length ? REC_ASK : REC_NOTE);
+  return { deny: noBox.length > 0, parts };
 }
 
 if (isMain(import.meta.url)) {
@@ -385,15 +289,12 @@ if (isMain(import.meta.url)) {
     let seen = null; // no session record (or an unreadable one) lets "Checked:" and the link check through
     const needsRecord = /PromptForUserInput$|AskUserQuestion$/.test(String(event.tool_name || ""));
     try { if (needsRecord && event.transcript_path) seen = readRecord(event.transcript_path); } catch {}
-    if (/PromptForUserInput$/.test(String(event.tool_name || ""))) {
-      const { input, notes } = mend(event, seen);
-      const out = { hookEventName: "PreToolUse" };
-      if (input) Object.assign(out, { permissionDecision: "allow", updatedInput: input });
-      if (notes.length) out.additionalContext = `question-other: ${notes.join(" ")}`;
-      if (input || notes.length) process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
-    } else {
-      const parts = review(event, seen);
-      if (parts.length) emit.deny(`question-other: ${parts.join(" ")}`);
-    }
+    const { deny, parts } = review(event, seen);
+    if (deny) emit.deny(`question-other: ${parts.join(" ")}`);
+    // Not refused: the form is on screen already, so a refusal would show it twice. The faults go to Claude instead.
+    else if (parts.length) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse",
+      additionalContext: `question-other: this form went out as is (a refused form would stay on screen and show twice). ` +
+        `Get these right on the next form; where one could change the user's answer (a missing link, an unbacked reason), tell the user in your reply after the answer. ` +
+        `Its faults: ${parts.join(" ")}` } }));
   });
 }

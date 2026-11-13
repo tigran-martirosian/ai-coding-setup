@@ -1,6 +1,13 @@
 {
-  "version": "1.0.108",
-  "claudeCodeMin": "2.1.296",
-  "date": "2026-11-08",
-  "summary": "A chat you scroll up in now stays where you put it while Claude keeps writing, instead of jumping back to the end."
+  "version": "1.0.109",
+  "claudeCodeMin": "2.1.321",
+  "date": "2026-11-09",
+  "summary": "Helpers that write code run Fable, your own rules survive updates, and small fixes install themselves.",
+  "releases": {
+    "1.0.109": {
+      "kind": "setup",
+      "important": true,
+      "headline": "Fable writes the code, your own rules survive updates, small fixes install themselves"
+    }
+  }
 }

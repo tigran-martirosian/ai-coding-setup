@@ -12,7 +12,8 @@ const without = path.join(tmp, "without");
 fs.mkdirSync(path.join(withList, "docs", "patches"), { recursive: true });
 fs.mkdirSync(without);
 fs.writeFileSync(path.join(withList, "docs", "patches", "next.md"),
-	"# Next patch: 4.1.31\n\nIntro that stays out.\n\n## Items\n- XP cap removed — session 8cf44208 — tested\n");
+	"# Next patch: 4.1.31\n\nIntro that stays out.\n\n## Items\n- XP cap removed — session 8cf44208 — tested\n"
+	+ "- Old bench fix, shipped classes use SRG names. Status: deployed 4.1.30\n- Reforge refusal\n  (ReforgeBench.infuse). Status: not started.\n");
 
 let failed = 0;
 function run(name, dir, check, extra = {}) {
@@ -27,9 +28,15 @@ function run(name, dir, check, extra = {}) {
 }
 const ctx = (out) => { try { return JSON.parse(out).hookSpecificOutput.additionalContext; } catch { return null; } };
 
-run("shows-items", withList, (o) => { const c = ctx(o); return c?.startsWith("[patch-next]") && c.includes("XP cap removed") && !c.includes("Intro that stays out"); });
-fs.writeFileSync(path.join(withList, "docs", "patches", "next.md"), "## Items\n" + "- line\n".repeat(1000));
-run("long-list-marked", withList, (o) => ctx(o)?.endsWith("[list cut here: read the whole file before shipping]"));
+run("shows-open-lines-only", withList, (o) => { const c = ctx(o); return c?.startsWith("[patch-next]") && c.includes("3 line(s), 2 open") && c.includes("XP cap removed")
+	&& c.includes("Reforge refusal (ReforgeBench.infuse)") && !c.includes("Old bench fix") && !c.includes("Intro that stays out") && c.includes("docs/patches/next.md"); });
+fs.writeFileSync(path.join(withList, "docs", "patches", "next.md"), "## Items\n" + `- line ${"x".repeat(400)}\n`.repeat(1000));
+run("long-list-capped", withList, (o) => { const c = ctx(o); return c?.includes("1000 line(s), 1000 open") && c.endsWith("- and 990 more") && c.length < 3000; });
+fs.writeFileSync(path.join(withList, "docs", "patches", "next.md"), "## Items\n- a. Status: shipped 1.0\n");
+run("all-closed-count-and-path-only", withList, (o) => { const c = ctx(o); return c?.includes("1 line(s), 0 open") && !c.includes("Open lines"); });
+fs.writeFileSync(path.join(withList, "docs", "patches", "next.md"), "## Items\n- a. Status: tested, not deployed yet\n- b. Status: not done\n"
+	+ "- c fixes the released build crash, session x, tested\n- [x] d, no status word\n- e. Status: undeployed\n- f. Status: done 1.2\n");
+run("negated-or-no-status-stays-open", withList, (o) => { const c = ctx(o); return c?.includes("6 line(s), 4 open") && ["- a.", "- b.", "- c fixes", "- e."].every((s) => c.includes(s)) && !c.includes("[x] d") && !c.includes("- f."); });
 run("silent-without-list", without, (o) => o === "");
 run("silent-for-subagent", withList, (o) => o === "", { event: { agent_id: "a1" } });
 run("off-switch", withList, (o) => o === "", { env: { PATCH_NEXT: "off" } });

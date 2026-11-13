@@ -89,8 +89,37 @@ const textOf = (content) =>
 
 // Requests the setup itself causes: per file, every API request (last usage of its message id), the user
 // messages (turns) with the requests under each, runs of failed tool calls, and hook blocks.
-const emptyWaste = () => ({ reqs: new Map(), turns: [], streaks: [], blocks: [], unmatched: 0, launches: [] });
+const emptyWaste = () => ({ reqs: new Map(), turns: [], streaks: [], blocks: [], unmatched: 0, launches: [], firings: {} });
 const WASTE_HOOK_RE = /hook (?:error|blocking error)[^:]*:\s*(?:\[[^\]]*\]:?\s*)?([a-z][a-z-]+):/i;
+// Hook firings, per hook: the traces a hook leaves in a transcript. "attachment" lines: hook_additional_context (text
+// added to the model's context), hook_system_message (shown to the user only), hook_blocking_error (a Stop or prompt
+// hook refused), hook_stopped_continuation, hook_non_blocking_error (crash), hook_cancelled (timed out), hook_success
+// (a run that printed something; silent runs leave no line except at SessionStart). A PreToolUse refusal is the
+// tool result "<Event>:<Tool> hook error: [name] ..." instead. The name is the "[name]" or "name:" the text starts
+// with, else the file name in the hook's command.
+const HOOK_NAME_RE = /^\s*(?:\[([\w-]+)\]|([a-z][a-z0-9]*(?:-[a-z0-9]+)+):)/;
+const REFUSAL_RE = /^\s*\S+ hook (?:blocking )?error[^:]*:\s*/;
+const hookName = (text, command) => {
+  const m = String(text ?? "").match(HOOK_NAME_RE);
+  return m ? m[1] ?? m[2] : String(command ?? "").match(/([\w.-]+)\.(?:mjs|cjs|js|sh|py|ps1)\b/)?.[1] ?? null;
+};
+const emptyFiring = () => ({ context: 0, shown: 0, refusals: 0, chars: 0, extra: 0, crashes: 0, timeouts: 0, outputs: 0 });
+const hookTrace = (firings, l) => {
+  const a = l.attachment ?? {}, ev = a.hookEvent ?? "?";
+  const at = (name) => (firings[name ?? `(unnamed ${ev})`] ??= emptyFiring());
+  const text = [].concat(a.content ?? "").join("\n");
+  if (a.type === "hook_additional_context") { const f = at(hookName(text)); f.context++; f.chars += text.length; }
+  else if (a.type === "hook_system_message") at(hookName(text)).shown++;
+  else if (a.type === "hook_blocking_error" || a.type === "hook_stopped_continuation") {
+    const t = String(a.blockingError?.blockingError ?? a.message ?? "");
+    const f = at(hookName(t, a.blockingError?.command ?? a.command));
+    f.refusals++; f.chars += t.length;
+    if (/Stop$/.test(ev) && a.type === "hook_blocking_error") f.extra++; // a refused stop sends the model back for another request
+  }
+  else if (a.type === "hook_non_blocking_error") at(hookName("", a.command ?? a.stderr)).crashes++;
+  else if (a.type === "hook_cancelled" && a.timedOut === true) at(hookName("", a.command)).timeouts++;
+  else if (a.type === "hook_success" && String(a.stdout ?? "").trim()) at(hookName("", a.command)).outputs++;
+};
 const BOARD_RE = /update_session_meta|update_session_board/;
 // A settled prompt, and the text the hook background-tasks.mjs adds to one whose results already came as notifications
 const SETTLED_RE = /^\s*\[System: background task\(s\) you launched have settled/;
@@ -184,12 +213,14 @@ function scan(file, window, sub = false, info = {}) {
   const endRun = () => { if (run && run.n >= 3) waste.streaks.push(run); run = null; };
   const helper = { toolIds: new Set(), bashIds: new Set(), noteAt: null, compacts: 0 }; // subagent files: size-note position, compactions
   const agentBg = {}; // main files: helper agent id -> launched in the background?
+  const refused = []; // tool calls a hook refused: { name, id: request id }
   const wasteLine = (l) => {
     if (sub && l.type === "system" && l.subtype === "compact_boundary") helper.compacts++;
     if (sub && l.type === "attachment" && l.attachment?.type === "hook_additional_context" && helper.noteAt === null
       && [].concat(l.attachment.content).join("\n").includes(WORKER_SIZE_NOTE)) helper.noteAt = helper.toolIds.size;
     if (!sub && l.isSidechain) return;
     if (l.type === "attachment") {
+      hookTrace(waste.firings, l);
       if (!sub && turn?.settled && l.attachment?.type === "hook_additional_context" && [].concat(l.attachment.content).join("\n").includes(SETTLED_NOTE)) turn.note = true;
       return;
     }
@@ -231,6 +262,15 @@ function scan(file, window, sub = false, info = {}) {
             : body.includes(RETIRED_NO_LINE) ? "no note (or no empty line before it)" : body.includes(POWERSHELL_TOOL) ? "PowerShell tool" : "other";
           if (!use) waste.unmatched++;
           waste.blocks.push({ hook, reason, id: use?.id ?? null });
+        }
+        if (x.is_error) {
+          const rest = body.replace(REFUSAL_RE, "");
+          const name = rest !== body || use ? hookName(rest) ?? (body.includes(COMMAND_EXPLAIN) ? "command-explain" : null) : null;
+          if (name) {
+            const f = (waste.firings[name] ??= emptyFiring());
+            f.refusals++; f.chars += body.length;
+            if (use) refused.push({ name, id: use.id });
+          }
         }
         if (sub) continue;
         const input = wasteUses.get(x.tool_use_id)?.input;
@@ -357,6 +397,12 @@ function scan(file, window, sub = false, info = {}) {
       : next.name === ordered[i][1].name ? "retried" : next.name;
   }
   endRun();
+  // A refusal cost an extra request when every tool call of its request was refused: nothing ran, the model asks again
+  const refusedIn = new Map();
+  for (const r of refused) refusedIn.set(r.id, [...(refusedIn.get(r.id) ?? []), r.name]);
+  for (const [id, names] of refusedIn) {
+    if (names.length >= (waste.reqs.get(id)?.tools.length ?? Infinity)) waste.firings[names[0]].extra++;
+  }
   if (!msgs.size && !hooks.length) return null;
   const vals = [...msgs.values()];
   return {
@@ -381,7 +427,7 @@ const useCache = !flag("no-cache");
 const cacheFile = opt("cache-file", path.join(os.homedir(), ".claude", "reports", "usage-scan-cache.jsonl"));
 // Raise SCAN_VERSION by hand whenever an edit changes what a parsed file yields (a pattern, a field, a price); a
 // comment or layout edit leaves it. The time zone is part of the version because the cached days are local dates.
-const SCAN_VERSION = 6;
+const SCAN_VERSION = 7;
 const CACHE_VERSION = `${SCAN_VERSION}|${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
 // The cache file's lines, read in chunks: the file is hundreds of MB, past what one string can hold
 function* cacheLines(file) {
@@ -601,6 +647,7 @@ const wasted = { tokens: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 }, r
   settled: { turns: [], perProject: {}, total: { n: 0, requests: 0, tools: 0, withNote: 0, repeats: 0, tokens: 0 } },
   quality: { minClaims: TOO_FEW, perProject: {}, total: {} },
   launches: { perProject: {}, total: { agent: 0, bash: 0, moved: 0 } }, typed: { perProject: {}, total: { typed: 0, tokens: 0, median: 0, mean: 0 } } };
+const hookFirings = {}; // hook name -> emptyFiring() counts; tokens = chars / 4, added below
 for (const s of all) {
   const W = s.waste;
   const main = sessions.includes(s);
@@ -624,6 +671,10 @@ for (const s of all) {
     }
   }
   wasted.unmatched += W.unmatched;
+  for (const [k, v] of Object.entries(W.firings)) {
+    const f = (hookFirings[k] ??= emptyFiring());
+    for (const n of Object.keys(f)) f[n] += v[n];
+  }
   for (const b of W.blocks) {
     const tok = b.id ? reqCtx(b.id) : 0;
     const h = (wasted.hooks[b.hook] ??= { blocks: 0, tokens: 0 });
@@ -792,6 +843,8 @@ const report = {
   use,
   promptCache,
   wasted,
+  hookFirings: Object.fromEntries(Object.entries(hookFirings).sort((a, b) => b[1].chars - a[1].chars)
+    .map(([k, v]) => [k, { ...v, tokens: Math.round(v.chars / 4) }])),
   sessions: sessions.map((s) => ({
     project: s.project, name: shortName(s.project), id: s.id, title: s.title, first: s.first, last: s.last,
     total: s.total, main: s.tokens, calls: s.calls, maxContext: s.maxContext,
@@ -835,6 +888,14 @@ out.push(``, `## Hook blocks`, ``);
 const H = Object.entries(report.hooks);
 if (!H.length) out.push(`None.`);
 for (const [k, v] of H) out.push(`- ${k}: ${v.blocks} blocks; next step: ${Object.entries(v.next).map(([n, c]) => `${n} ${c}`).join(", ")}`);
+out.push(``, `## Hook firings`, ``,
+  `Per hook, from the traces it left: context = text added to the model's context, shown = message to the user only, refusals = calls or stops it refused, tokens = its context and refusal text / 4, extra = refusals that cost a request of their own (every call of the request refused, or a refused stop). Silent runs leave no trace.`, ``);
+const HF = Object.entries(report.hookFirings);
+if (!HF.length) out.push(`None.`);
+else {
+  out.push(`| Hook | Context | Shown | Refusals | Tokens | Extra requests | Crashes | Timeouts |`, `|---|---|---|---|---|---|---|---|`);
+  for (const [k, v] of HF.slice(0, 40)) out.push(`| ${k} | ${v.context} | ${v.shown} | ${v.refusals} | ${M(v.tokens)} | ${v.extra} | ${v.crashes} | ${v.timeouts} |`);
+}
 out.push(``, `## What gets used`, ``);
 const U = report.use;
 const listOf = (o) => Object.entries(o).slice(0, 30).map(([k, v]) => `${k} ${v}`).join(", ") || "none";

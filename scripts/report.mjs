@@ -6,7 +6,7 @@ import path from "node:path";
 import { gitBashMissing } from "./claude-files.mjs";
 import { fwd, SCRIPT_PATHS } from "./files.mjs";
 
-export function report(ctx, { noGitBash, rulesKept }) {
+export function report(ctx, { noGitBash }) {
   const { REPO, CLAUDE, home, WIN, DRY, LANG, state, settings, settingsFile, said, tally, say, selfRun } = ctx;
   // What a script can't do is named by the first install only: the settings inside Nimbalyst are
   // reached with tools only a chat there has, and voice typing is a program the person sets up.
@@ -29,7 +29,7 @@ export function report(ctx, { noGitBash, rulesKept }) {
       }
     }
   }
-  const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|hook replaced|hook matcher updated|linked|removed|extension installed|plugin installed|skill installed|model: set|MODEL CHANGED|model: sonnet is back|permissions: )/.test(l));
+  const did = said.some((l) => /^(rules: |notes: )?(copied|replaced|wrote|brought up|hook added|hook repointed|hook replaced|hook matcher updated|linked|removed|extension installed|plugin installed|skill installed|model: set|MODEL CHANGED|model: sonnet is back|permissions: )/.test(l));
   if (did || tally.yours.length) {
     const parts = [[tally.added, "new"], [tally.replaced.length, "replaced"], [tally.yours.length, "kept as yours"], [tally.same, "unchanged"]];
     say(`Files: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(", ")}.`);
@@ -41,7 +41,7 @@ export function report(ctx, { noGitBash, rulesKept }) {
   if (tally.yours.length) {
     say(`Kept as yours, because they differ from the setup's version (you changed them, or had them before):`);
     for (const f of tally.yours) say(`  ${f}`);
-    say(`To take the setup's version, run this again with --replace <name> for one file or --replace-all for all of them and the rules. Yours is then kept as a dated copy.`);
+    say(`To take the setup's version, run this again with --replace <name> for one file or --replace-all for all of them. Yours is then kept as a dated copy.`);
   }
   if (lost.length) {
     say(`Hooks in ${fwd(settingsFile)} whose script is not there (left over from something else; nothing was done about them):`);
@@ -56,13 +56,12 @@ export function report(ctx, { noGitBash, rulesKept }) {
   say(DRY ? "Nothing was changed." : `Done. Restart Claude Code so it loads the hooks. How to use the setup: ${fwd(path.join(REPO, "docs", "HOW-TO.md"))}`);
   // The closing list of an update: what is still on an older version because it is the user's, each with
   // the line that takes the setup's version. --replace <file> works on the names as the lists above give
-  // them, --replace-rules on the rules; --home is repeated so the line acts on the same folder.
-  if (tally.yours.length || rulesKept) {
+  // them; --home is repeated so the line acts on the same folder. The rules are not on it: an update carves them.
+  if (tally.yours.length) {
     const quote = (name) => (/\s/.test(name) ? `"${name}"` : name);
     say(`Yours, on old versions (they stay as they are, so they are behind this version); each line takes the setup's version, and yours stays as a dated copy:`);
     for (const f of tally.yours) say(`  ${f}: ${selfRun(`--replace ${quote(f)}`)}`);
-    if (rulesKept) say(`  the rules (CLAUDE.md): ${selfRun("--replace-rules")}`);
-    if (tally.yours.length > 1 || (tally.yours.length && rulesKept)) say(`  all of them and the rules at once: ${selfRun("--replace-all")}`);
+    if (tally.yours.length > 1) say(`  all of them at once: ${selfRun("--replace-all")}`);
   }
   if (did && !DRY) {
     fs.mkdirSync(path.dirname(logFile), { recursive: true });

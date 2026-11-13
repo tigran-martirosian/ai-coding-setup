@@ -94,6 +94,10 @@ function gitFiles(ev, since) {
   return { all, fresh, writeBase: !ev.pre && fresh.size ? { ...ev.git.base, seen: [...all.keys()] } : null };
 }
 
+// Whether a lowercased shell command names the file of key k. A key keeps its case on macOS and Linux (fileKey), so
+// its name is lowercased here too
+export const namesFile = (command, k) => command.includes(k.split("/").pop().toLowerCase());
+
 // The verdict on one session, for the Stop arm and the push check (ev.pre). ev is gather()'s result (review-evidence.mjs).
 // Returns { typed: true } for a turn the user started with /code-review; else { due, dropHeld, writeBase } and, when it
 // got as far as counting, { files, setupFiles, steps, notRun, held, big, several, setup }: names, helper steps, the count
@@ -138,7 +142,7 @@ export function assess(ev) {
   const shellCommands = ev.shell.filter((c) => c.at >= since)
     .map((c) => c.command.replace(/^\s*#.*$/gm, "").replace(/\d?>&\d|\d?>\s*\/dev\/null|\d?>\s*\$null/g, "").toLowerCase())
     .filter((c) => /\b(sed|perl|tee|awk|python3?|node|mv|cp|set-content|out-file|add-content)\b|>/.test(c));
-  const shellNamed = (k) => { const base = k.split("/").pop(); return shellCommands.some((c) => c.includes(base)); };
+  const shellNamed = (k) => shellCommands.some((c) => namesFile(c, k));
   const small = new Set([...smallSetupEdits(windowLines, new Set(helpers.files.keys()))].filter((k) => !shellNamed(k)));
   const newSetup = [...main.files, ...helpers.files, ...git.all].filter(([k]) => isSetup(k) && !small.has(k) && !said.includes(k.toLowerCase().split("/").slice(-2).join("/"))).map(([, name]) => name);
   const setupFiles = [...new Set([...(held?.setup || []), ...newSetup])];
