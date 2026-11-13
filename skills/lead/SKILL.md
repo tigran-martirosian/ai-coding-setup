@@ -51,7 +51,7 @@ Use `spawn_session` with `notifyOnComplete: true` and a short `title`. The brief
   - A child told to write DECISIONS.md or a rule file writes only the quoted items and reports the rest back.
 - **Files:** exact paths to read and the ones it may change.
 - **Don't touch:** files/areas owned by other children or out of scope.
-- **Deliverable:** what to return (a file path, a list) and roughly how long. The child's **final reply is at most 8 lines** (result, the check and its output, open points); details go in a file it names. Nimbalyst posts that final reply into the parent's chat as a whole new turn, so a long one floods the user's view.
+- **Deliverable:** what to return (a file path, a list) and roughly how long. The child's **final reply is at most 8 lines** (result, the check and its output, open points); details go in a file it names. Nimbalyst posts that final reply into the parent's chat as a whole new turn, so a long one floods the user's view. A later message from the parent gets a reply about that message alone, in at most 3 lines.
 - **Done when:** a concrete check.
 - **Checks:** the project's check list (which check runs when, from its CLAUDE.md), so the child runs the same ones.
 - **Board:** "Don't set your own board phase or tags; the parent manages the board."
@@ -66,6 +66,7 @@ Rules:
 ## 4. Coordinate
 
 - When a child reports back, read its result (`get_session_result`, compact) and judge it — don't forward it unchecked.
+- **Every message to a child brings a report back here.** Nimbalyst posts the child's reply to each message as a new `[Child Session Update]` turn in this chat, also when its piece is long done (seen 2026-10-29: one finished child reported 4 times, once after "Write your full report"). A finished child gets a message only for a fix or changed work; details you still need come from `get_session_result` or the file its report names.
 - A question a child is still settling with the user is the child's: wait for its report instead of asking the user the same thing.
 - Before starting a continuation from a child's handoff, check that the old child is idle (`get_session_status`), so two sessions never work the same job.
 - Pass useful findings to the children that need them (`send_prompt`, `messageKind: "report"` for information, `instruction` for changed work). No acknowledgements or chatter.
