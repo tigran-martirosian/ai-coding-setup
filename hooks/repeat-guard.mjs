@@ -12,8 +12,13 @@
 //   2. Same-file reminder (never refuses): the 6th edit of one file in a turn, or the 4th read of one
 //      file, goes through with a short reminder as additional context. Exactly at that count only.
 // Thresholds: REPEAT_GUARD_ERRORS (3), REPEAT_GUARD_EDITS (6), REPEAT_GUARD_READS (4).
+// In a subagent (agent_id set) the hook still gets the main session's transcript_path; it reads the
+// subagent's own transcript instead (transcript_path when that is already agent-*.jsonl, else
+// <session file without .jsonl>/subagents/agent-<agent_id>.jsonl). Every line there is
+// isSidechain, so sidechain lines count in that file; the turn starts at the subagent's brief.
 // Fails open: any problem lets the call through silently. REPEAT_GUARD=off disables it.
 import fs from "node:fs";
+import path from "node:path";
 
 const ERRORS = Number(process.env.REPEAT_GUARD_ERRORS) || 3;
 const EDITS = Number(process.env.REPEAT_GUARD_EDITS) || 6;
@@ -32,7 +37,8 @@ const targetOf = (input) => input?.file_path ?? String(input?.command ?? JSON.st
 
 // Reads the file backwards in 2 MB chunks until the last real user message is found (or the file start),
 // and returns the parsed lines from that message on. A partial line at a chunk start is carried as a Buffer.
-function readTurn(file) {
+// `counts` says which lines belong to the thread being judged (main thread or one subagent).
+function readTurn(file, counts) {
   const fd = fs.openSync(file, "r");
   try {
     let pos = fs.fstatSync(fd).size;
@@ -57,7 +63,7 @@ function readTurn(file) {
         try { parsed.push(JSON.parse(line)); } catch { /* skip */ }
       }
       for (let i = parsed.length - 1; i >= 0; i--) {
-        if (!parsed[i].isSidechain && isRealUser(parsed[i])) return parsed.slice(i + 1).concat(later);
+        if (counts(parsed[i]) && isRealUser(parsed[i])) return parsed.slice(i + 1).concat(later);
       }
       later = parsed.concat(later);
       if (pos === 0) break;
@@ -73,10 +79,15 @@ const deny = (reason) => process.stdout.write(JSON.stringify({
 try {
   if ((process.env.REPEAT_GUARD || "").toLowerCase() === "off") process.exit(0);
   const event = JSON.parse(fs.readFileSync(0, "utf8"));
-  if (!event.transcript_path || !fs.existsSync(event.transcript_path)) process.exit(0);
+  let transcript = String(event.transcript_path ?? "");
+  if (event.agent_id && transcript && !/^agent-.*\.jsonl$/.test(path.basename(transcript))) {
+    transcript = path.join(path.dirname(transcript), path.basename(transcript, ".jsonl"), "subagents", `agent-${event.agent_id}.jsonl`);
+  }
+  if (!transcript || !fs.existsSync(transcript)) process.exit(0);
+  const counts = event.agent_id ? () => true : (j) => !j.isSidechain;
 
   // The entries after the last real user message
-  const entries = readTurn(event.transcript_path).filter((j) => !j.isSidechain);
+  const entries = readTurn(transcript, counts).filter(counts);
 
   const uses = new Map(); // tool_use id -> { name, target }
   const calls = []; // { name, file }

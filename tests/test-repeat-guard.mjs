@@ -1,7 +1,7 @@
 // Tests for hooks/repeat-guard.mjs. Run: node test-repeat-guard.mjs
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -101,7 +101,32 @@ const cases = [
   ["a [System: background task user line does not reset the count: 6th edit reminded", () => run([user("go"), ...many(3, "Edit", F), user("[System: background task finished]"), ...many(2, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
   ["a notification inside three identical errors does not reset them: denied", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), user("<task-notification>done</task-notification>"), ...failed("Edit", ERR)], ...EDIT), "deny"],
   ["a notification as a content block of text does not reset the count either", () => run([user("go"), ...many(5, "Edit", F), { type: "user", message: { role: "user", content: [{ type: "text", text: "<task-notification>x</task-notification>" }] } }], "Edit", { file_path: F }), "in one edit"],
+  // Subagents: the hook gets the main transcript_path plus agent_id; the subagent's lines are in subagents/agent-<id>.jsonl
+  ["subagent: three errors in the main thread do not refuse the subagent's same call", () => helper([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], [user("brief")], ...EDIT), false],
+  ["subagent: its own three identical errors refuse its retry", () => helper([user("go")], [user("brief"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT), "deny"],
+  ["subagent: its own 6th edit of one file is reminded", () => helper([user("go")], [user("brief"), ...many(5, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
+  ["subagent: transcript_path already agent-*.jsonl is read as it is", () => {
+    const p = join(DIR, "agent-direct.jsonl");
+    writeFileSync(p, [user("brief"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)].map((e) => JSON.stringify({ ...e, isSidechain: true })).join("\n") + "\n");
+    return spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ transcript_path: p, agent_id: "direct", tool_name: "Edit", tool_input: { file_path: F } }), env: { ...process.env, ...BASE }, encoding: "utf8" }).stdout;
+  }, "deny"],
+  ["subagent: no subagent file: no output", () => helper([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], null, ...EDIT), false],
 ];
+
+// Main transcript at DIR/s<n>.jsonl, the subagent's (every line isSidechain) at DIR/s<n>/subagents/agent-a1.jsonl
+function helper(mainEntries, subEntries, tool, input) {
+  const main = join(DIR, `s${++fileNo}.jsonl`);
+  writeFileSync(main, mainEntries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  if (subEntries) {
+    const dir = join(DIR, `s${fileNo}`, "subagents");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "agent-a1.jsonl"), subEntries.map((e) => JSON.stringify({ ...e, isSidechain: true })).join("\n") + "\n");
+  }
+  return spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({ transcript_path: main, agent_id: "a1", tool_name: tool, tool_input: input }),
+    env: { ...process.env, ...BASE }, encoding: "utf8",
+  }).stdout;
+}
 
 let failures = 0;
 for (const [name, go, expect] of cases) {
