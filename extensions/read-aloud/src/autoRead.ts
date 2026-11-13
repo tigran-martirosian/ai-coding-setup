@@ -8,26 +8,27 @@
  * (the per-message button keeps working).
  */
 
-import { callBackend } from './bridge';
-import { player } from './player';
-import { getSettings, updateSetting } from './settings';
-import { speechForKey } from './transcript';
+import { callBackend } from "./bridge";
+import { player } from "./player";
+import { getSettings, updateSetting } from "./settings";
+import { speechForKey } from "./transcript";
 
 const SEL = {
-  transcript: '.rich-transcript-messages',
-  session: '[data-session-id]',
-  message: '.rich-transcript-message[data-message-index]',
-  assistant: 'assistant',
-  turnFinished: '.rich-transcript-turn-elapsed',
-  question: '.ask-user-question-widget, .request-user-input-widget',
-  control: '[data-readaloud-key]',
+  transcript: ".rich-transcript-messages",
+  session: "[data-session-id]",
+  message: ".rich-transcript-message[data-message-index]",
+  assistant: "assistant",
+  turnFinished: ".rich-transcript-turn-elapsed",
+  question: ".ask-user-question-widget, .request-user-input-widget",
+  control: "[data-readaloud-key]",
 };
 
 const SCAN_MS = 1500;
 const SETTLE_MS = 900;
 const POLL_MS = 3000;
 const POLL_BACKOFF_MS = 30000;
-const UI_WORDS = /^(submit|submitted|cancel|skip|other|confirm|recommended|yes|no|done|send)$/i;
+const UI_WORDS =
+  /^(submit|submitted|cancel|skip|other|confirm|recommended|yes|no|done|send)$/i;
 
 interface Watch {
   sessionId: string | null;
@@ -49,7 +50,7 @@ const spoken = new Set<string>();
 const seenSeq = new Map<string, number>();
 
 function indexOf(el: Element): number {
-  return Number(el.getAttribute('data-message-index') ?? -1);
+  return Number(el.getAttribute("data-message-index") ?? -1);
 }
 
 function maxIndex(container: Element): number {
@@ -61,30 +62,44 @@ function maxIndex(container: Element): number {
 }
 
 function sessionOf(container: Element): string | null {
-  return container.closest(SEL.session)?.getAttribute('data-session-id') ?? null;
+  return (
+    container.closest(SEL.session)?.getAttribute("data-session-id") ?? null
+  );
 }
 
 /** Plain text of a question card, read from text content (not innerText, which applies CSS uppercase). */
 function questionText(widget: Element): string {
   const parts: string[] = [];
-  widget.querySelectorAll('*').forEach((el) => {
+  widget.querySelectorAll("*").forEach((el) => {
     if (el.children.length) return;
-    const t = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const t = (el.textContent ?? "").replace(/\s+/g, " ").trim();
     if (!t || UI_WORDS.test(t) || /^[\W\d]+$/.test(t)) return;
-    if (el.closest('button[type=submit]')) return;
-    if (parts[parts.length - 1] !== t) parts.push(/[.!?:]$/.test(t) ? t : `${t}.`);
+    if (el.closest("button[type=submit]")) return;
+    if (parts[parts.length - 1] !== t)
+      parts.push(/[.!?:]$/.test(t) ? t : `${t}.`);
   });
-  return parts.join('\n\n').slice(0, 1500);
+  return parts.join("\n\n").slice(0, 1500);
 }
 
 /** Last assistant text block before `beforeIndex` that has not been read yet. */
-function speakLastReply(container: Element, sessionId: string | null, beforeIndex: number, baseline: number) {
+function speakLastReply(
+  container: Element,
+  sessionId: string | null,
+  beforeIndex: number,
+  baseline: number,
+) {
   const msgs = [...container.querySelectorAll(SEL.message)]
-    .filter((m) => m.classList.contains(SEL.assistant) && indexOf(m) < beforeIndex && indexOf(m) > baseline)
+    .filter(
+      (m) =>
+        m.classList.contains(SEL.assistant) &&
+        indexOf(m) < beforeIndex &&
+        indexOf(m) > baseline,
+    )
     .sort((a, b) => indexOf(a) - indexOf(b));
   for (let i = msgs.length - 1; i >= 0; i--) {
     const controls = msgs[i].querySelectorAll(SEL.control);
-    const key = controls[controls.length - 1]?.getAttribute('data-readaloud-key');
+    const key =
+      controls[controls.length - 1]?.getAttribute("data-readaloud-key");
     const md = speechForKey(key)?.short;
     if (!key || !md) continue;
     const id = `${sessionId}:reply:${indexOf(msgs[i])}`;
@@ -117,7 +132,10 @@ function check(container: Element, w: Watch) {
 
   for (const m of fresh) {
     const idx = indexOf(m);
-    if (m.querySelector(SEL.turnFinished) && !spoken.has(`${sessionId}:end:${idx}`)) {
+    if (
+      m.querySelector(SEL.turnFinished) &&
+      !spoken.has(`${sessionId}:end:${idx}`)
+    ) {
       spoken.add(`${sessionId}:end:${idx}`);
       speakLastReply(container, sessionId, idx, w.baseline);
     }
@@ -136,7 +154,10 @@ function check(container: Element, w: Watch) {
 /** Sync the on/off state to the backend so the agent's /voice tool and the UI agree. */
 /** Called after the user flips hands-free in the UI; preloads the model so the first reply is quick. */
 export function setAutoRead(enabled: boolean) {
-  if (enabled) callBackend('warmup', { dir: getSettings().ttsDirectory }).catch(() => undefined);
+  if (enabled)
+    callBackend("warmup", { dir: getSettings().ttsDirectory }).catch(
+      () => undefined,
+    );
 }
 
 export function startAutoRead(): () => void {
@@ -152,7 +173,12 @@ export function startAutoRead(): () => void {
     }
     document.querySelectorAll(SEL.transcript).forEach((c) => {
       if (watches.has(c)) return;
-      const w: Watch = { sessionId: sessionOf(c), baseline: maxIndex(c), observer: null as unknown as MutationObserver, timer: null };
+      const w: Watch = {
+        sessionId: sessionOf(c),
+        baseline: maxIndex(c),
+        observer: null as unknown as MutationObserver,
+        timer: null,
+      };
       // Throttle, not debounce: a running session mutates the DOM every second
       // (elapsed timers), which would postpone a debounced check forever.
       w.observer = new MutationObserver(() => {
@@ -177,15 +203,22 @@ export function startAutoRead(): () => void {
     let delay = POLL_MS;
     try {
       const s = getSettings();
-      const { autoRead: req } = await callBackend<{ autoRead: AgentRequest }>('status', {
-        dir: s.ttsDirectory,
-        uiAutoRead: s.autoRead,
-      });
+      const { autoRead: req } = await callBackend<{ autoRead: AgentRequest }>(
+        "status",
+        {
+          dir: s.ttsDirectory,
+          uiAutoRead: s.autoRead,
+        },
+      );
       const seen = seenSeq.get(req.instanceId);
       // A backend seen for the first time may carry a request made moments ago.
-      const isNew = seen === undefined ? req.seq > 0 && Date.now() - req.at < AGENT_REQUEST_FRESH_MS : req.seq > seen;
+      const isNew =
+        seen === undefined
+          ? req.seq > 0 && Date.now() - req.at < AGENT_REQUEST_FRESH_MS
+          : req.seq > seen;
       seenSeq.set(req.instanceId, req.seq);
-      if (isNew && req.enabled !== s.autoRead) await updateSetting('autoRead', req.enabled);
+      if (isNew && req.enabled !== s.autoRead)
+        await updateSetting("autoRead", req.enabled);
       if (getSettings().autoRead && (isNew || !warmedUp)) {
         warmedUp = true;
         setAutoRead(true);

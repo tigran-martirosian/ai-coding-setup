@@ -16,10 +16,13 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // The check/ok counter: check(name, ok, extra) prints one line; summary() prints the count and exits 1 on any failure.
 export function makeChecker() {
-  let pass = 0, fail = 0;
+  let pass = 0,
+    fail = 0;
   const check = (name, ok, extra = "") => {
     ok ? pass++ : fail++;
-    console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok || !extra ? "" : `\n     ${extra}`}`);
+    console.log(
+      `${ok ? "ok  " : "FAIL"} ${name}${ok || !extra ? "" : `\n     ${extra}`}`,
+    );
   };
   const summary = () => {
     console.log(`\n${pass}/${pass + fail} passed`);
@@ -42,7 +45,16 @@ export function runHook(hookFile, event, { env = {}, home, cwd } = {}) {
     input: typeof event === "string" ? event : JSON.stringify(event),
     encoding: "utf8",
     cwd,
-    env: { ...process.env, ...(home ? { HOME: home, USERPROFILE: home } : {}), ...env },
+    env: {
+      ...process.env,
+      ...(home ? { HOME: home, USERPROFILE: home } : {}),
+      ...env,
+    },
   });
-  return { stdout: r.stdout, stderr: r.stderr, status: r.status, ms: Date.now() - t };
+  return {
+    stdout: r.stdout,
+    stderr: r.stderr,
+    status: r.status,
+    ms: Date.now() - t,
+  };
 }

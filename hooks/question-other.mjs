@@ -2,108 +2,207 @@
 // question-other: PreToolUse hook for Nimbalyst's PromptForUserInput (and both AskUserQuestion tools). The user wants to type their own answer on every
 // question, so every singleSelect sets allowOther: true, every multiSelect is followed right away by an editText
 // (Nimbalyst drops allowOther on a multiSelect), and a confirm or reorder field needs an editText in the form.
-// A recommended option (marked "(recommended)" or with the badge "recommended") must carry its reason in its
-// description / subtitle, shaped "Checked: ..." (something was looked up) or "Judgment: ..." (nothing was), then
-// "Other wins if: ...". A "Checked:" claim is compared with the session record (transcript_path). It can check that a
-// reason is there, not that it is a good one. A singleSelect may recommend only one option and needs at least 2 options.
-// QUESTION_OTHER=off disables it; REC_CHECK=off turns the rec-check agent check off. It fails open.
+// QUESTION_OTHER=off disables it. It fails open.
 //
-// It never refuses an AskUserQuestion card (Nimbalyst's has a typing box on every question, and the card is on screen
-// before this runs, so a refusal shows it twice); a missing rec-check there is a note. The faults below:
-// - a question with no box to type in (above);
+// It refuses two kinds of card (user, 2026-11-13); a refusal starts with the fixed marker [card-refused], which the
+// Nimbalyst card-refused patch looks for to hide the dead card:
+// - labels the user never used: a plan-row id (B6, WT2-WT4) or a single-letter name ("helper K") anywhere on the
+//   card that the user's last typed message doesn't use. A handoff prompt ("Read …/.claude/handoffs/x.md and continue")
+//   and a compaction summary are Claude's own text, so their labels don't count as the user's;
+//   A label listed in the project's .claude/card-labels.txt (a game tier, a key, a product code) is never a fault;
+// - a status or nag card that asks no decision ("Are you still sorting the photos?", "Will you send them now?").
+// A card with both gets the nag text alone: it is not to be sent again. At most 2 refusals in a row (since the user's
+// last typed message; a card that went through ends the run): the third faulty card goes through with a note and no
+// marker, and one line in ~/.claude/hooks/state/question-other/let-through.log, so a refusal with no exit can't loop.
+// With no readable session record the run can't be counted, so a faulty card goes through with a note.
+// Every other fault lets it through with a note (additionalContext) telling Claude to get it right next time and,
+// where it could change the answer, to say so in the reply: an updatedInput never reaches the screen (live test
+// 2026-11-09). The faults with a note:
+// - a question with no box to type in (above): the reply after the answer names it and invites a typed change;
 // - a form that points the user at something to look at (a "look through / check the page" phrase, or a file path in
 //   its title, intro or labels) when neither the form nor Claude's visible text since its last ordinary tool call has a
 //   clickable link (a markdown link to /C:/..., C:/... or /Users/..., or a URL) and no picture or preview was shown
-//   there. Option descriptions are not scanned for it: they hold the "Checked:" reasons, which name files.
+//   there. Option descriptions are not scanned for it: they hold the reasons for an option, which often name files.
 //   The link must match where the file is: Nimbalyst opens a markdown link only for a file inside the open project
 //   (the nearest ancestor of the hook input's cwd with a CLAUDE.md or .git, else the cwd). A file outside it is
 //   presented by its path in inline code (`~/.claude/x.md`, `C:/Users/you/x.md`) in the form or the reply text;
 //   a link to it would not open.
-// - a form with a recommended option, AskUserQuestion included, without its own rec-check agent call: one called since
-//   the user's last message and since the last form that went through. That call is no lookup, so it can't back a
-//   "Checked:". It is skipped when ~/.claude/agents/rec-check.md isn't there (an install without that agent).
-// Nimbalyst draws a form from the model's own call as soon as it is written, so a hook can't change what the user
-// sees (an updatedInput never reaches the screen, live test 2026-11-09) and a refused form stays on screen beside
-// the resent one. So a PromptForUserInput is refused only for a question without a typing box, the user's hard
-// rule; every other fault lets it through with a note (additionalContext) telling Claude to say so in the reply.
+// - a singleSelect with more than one recommended option (marked "(recommended)" or with the badge "recommended"),
+//   or with fewer than 2 options.
 import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 import { gitBashToNative, projectRoot } from "./lib/paths.mjs";
 import { ru } from "./lib/ru.mjs";
+import { STATE_DIR } from "./lib/state.mjs";
 // INJECTED: user text Claude Code, Nimbalyst or a hook adds on its own; it does not start a new turn
 import { INJECTED } from "./lib/transcript.mjs";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 
-const MIN_REASON = 20; // characters; shorter than this is a label, not a reason
-const recommended = (o) =>
-  o && (/\(recommended\)/i.test(`${o.label || ""} ${o.title || ""}`) || /^recommended$/i.test(String(o.badge || "").trim()));
-const reasonOf = (o) => String(o.description || o.subtitle || "").trim();
-const hasReason = (o) => reasonOf(o).length >= MIN_REASON;
-const BASIS = /(?:^|[^a-z])(?:checked|judgment)\s*:\s*\S/i;
-const COUNTER = /other wins if\s*:\s*\S/i;
-const hasShape = (o) => BASIS.test(reasonOf(o)) && COUNTER.test(reasonOf(o));
+// Never change it: the card-refused patch hides a card whose result contains it
+export const MARKER = "[card-refused]";
+export const MAX_REFUSALS = 2;
+// A continued session's first message: Claude's handoff wrote it, the user only sent it
+const HANDOFF = /^Read \S*[\\/]\.claude[\\/]handoffs[\\/]\S+\.md and continue/;
 
-// "Checked:" is a claim the session record can confirm: a file or site it names must show up in one of
-// this session's tool calls or their results; when it names none, something must have been looked up
-// since the user's last message. Otherwise the word is "Judgment:". Files that are always loaded (CLAUDE.md, MEMORY.md) need no tool call.
-const LOOKUP = /^(Read|Grep|Glob|Bash|PowerShell|WebSearch|WebFetch|LSP|Agent)$|ctx_|browser_|tracker_|memory_|search|fetch/i;
+const recommended = (o) =>
+  o &&
+  (/\(recommended\)/i.test(`${o.label || ""} ${o.title || ""}`) ||
+    /^recommended$/i.test(String(o.badge || "").trim()));
+
 const FORM = /PromptForUserInput|AskUserQuestion/;
-const SHOWN = /display_to_user|capture_editor_screenshot|browser_open_local_preview/; // put a picture or page in front of the user
+const SHOWN =
+  /display_to_user|capture_editor_screenshot|browser_open_local_preview/; // put a picture or page in front of the user
 // Bookkeeping calls change nothing the user sees, so a link written just before them still counts
-const QUIET = /update_session_meta|update_session_board|^Task(Create|Update|List|Get)$|^TodoWrite$|^ToolSearch$/;
-// The phone bot's note on every prompt it sends: a phone can answer only Nimbalyst's AskUserQuestion
-const PHONE = /\(Sent from the phone\. /;
-const ALWAYS_LOADED = /^(claude|memory)\.md$/;
-const checkedClause = (o) => (reasonOf(o).match(/(?:^|[^a-z])checked\s*:\s*([\s\S]*?)(?=other wins if\s*:|$)/i) || [])[1] || "";
-const sources = (s) => [...s.matchAll(/[\w~.\-\/\\]*[\w\-]\.[a-z][a-z0-9]{0,5}\b/gi)].map((m) => m[0].split(/[\/\\]/).pop().toLowerCase());
-export const readRecord = (file) => recordFrom(readFileSync(file, "utf8").split("\n"));
+const QUIET =
+  /update_session_meta|update_session_board|^Task(Create|Update|List|Get)$|^TodoWrite$|^ToolSearch$/;
+export const readRecord = (file) =>
+  recordFrom(readFileSync(file, "utf8").split("\n"));
 export function recordFrom(lines) {
-  const calls = [], results = [], forms = new Set(), recCalls = new Set();
   // replyText / shown: what the user has in front of them right before the form, i.e. the text and
   // pictures since the last ordinary tool call (an old research URL earlier in the turn doesn't count)
-  let turnStart = 0, replyText = "", shown = false, fromPhone = false, recChecked = false;
+  // asked: the user's last typed message, whose words a card may use without explaining them ("" after a handoff prompt)
+  // refusedRun: the card refusals in a row since then; a card that went through ends the run
+  let replyText = "",
+    shown = false,
+    asked = "",
+    refusedRun = 0;
+  const cards = new Set();
   for (const line of lines) {
     let e;
-    try { e = JSON.parse(line); } catch { continue; }
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
     if (!e || e.isSidechain) continue;
     const content = e.message?.content;
     const blocks = Array.isArray(content) ? content : [];
-    if (e.type === "user" && !e.isMeta) {
-      const said = typeof content === "string" ? content : blocks.map((b) => (b?.type === "text" ? b.text || "" : "")).join("\n");
-      const typed = (typeof content === "string" || (blocks.some((b) => b?.type === "text") && !blocks.some((b) => b?.type === "tool_result")))
-        && !INJECTED.test(said) && e.origin?.kind !== "task-notification";
-      if (typed) { turnStart = calls.length; replyText = ""; shown = false; fromPhone = PHONE.test(said); recChecked = false; }
+    // A compaction summary is Claude Code's text, not the user's: it neither exempts labels nor ends a run
+    if (e.type === "user" && !e.isMeta && !e.isCompactSummary) {
+      const said =
+        typeof content === "string"
+          ? content
+          : blocks
+              .map((b) => (b?.type === "text" ? b.text || "" : ""))
+              .join("\n");
+      const typed =
+        (typeof content === "string" ||
+          (blocks.some((b) => b?.type === "text") &&
+            !blocks.some((b) => b?.type === "tool_result"))) &&
+        !INJECTED.test(said) &&
+        e.origin?.kind !== "task-notification";
+      if (typed) {
+        replyText = "";
+        shown = false;
+        asked = HANDOFF.test(said.trim()) ? "" : said;
+        refusedRun = 0;
+      }
     }
     for (const b of blocks) {
-      if (e.type === "assistant" && b?.type === "text") replyText += `\n${b.text || ""}`;
+      // A refusal is an error result holding the marker; an answer that quotes the marker is no refusal
+      if (e.type === "user" && b?.type === "tool_result" && cards.has(b.tool_use_id))
+        refusedRun =
+          b.is_error && JSON.stringify(b.content ?? "").includes(MARKER)
+            ? refusedRun + 1
+            : 0;
+      if (e.type === "assistant" && b?.type === "tool_use" && FORM.test(b.name || ""))
+        cards.add(b.id);
+      if (e.type === "assistant" && b?.type === "text")
+        replyText += `\n${b.text || ""}`;
       if (e.type === "assistant" && b?.type === "tool_use") {
-        const isRec = /^(Agent|Task)$/.test(b.name || "") && b.input?.subagent_type === "rec-check";
         if (SHOWN.test(b.name || "")) shown = true;
-        else if (!FORM.test(b.name || "") && !QUIET.test(b.name || "") && !isRec) { replyText = ""; shown = false; }
-        if (FORM.test(b.name || "")) forms.add(b.id);
-        else if (isRec) { recCalls.add(b.id); recChecked = true; } // not a lookup: the form it checks can't be backed by it
-        else calls.push({ name: b.name || "", text: JSON.stringify(b.input || {}).toLowerCase() });
-      } else if (e.type === "user" && b?.type === "tool_result") {
-        if (forms.has(b.tool_use_id)) { if (!b.is_error) recChecked = false; } // a check covers the one form it saw; a refused form keeps it
-        else if (recCalls.has(b.tool_use_id)) { if (b.is_error) recChecked = false; }
-        else results.push(JSON.stringify(b.content ?? "").toLowerCase());
+        else if (!FORM.test(b.name || "") && !QUIET.test(b.name || "")) {
+          replyText = "";
+          shown = false;
+        }
       }
     }
   }
-  const thisTurn = calls.slice(turnStart);
-  return { calls, results, thisTurn, replyText, shown, fromPhone, recChecked };
+  return { replyText, shown, asked, refusedRun };
 }
-const recCheckOn = () => (process.env.REC_CHECK || "").toLowerCase() !== "off" && existsSync(join(homedir(), ".claude", "agents", "rec-check.md"));
-const backed = (o, seen) => {
-  const clause = checkedClause(o);
-  if (!clause) return true; // "Judgment:" claims nothing
-  const named = sources(clause);
-  if (named.some((s) => ALWAYS_LOADED.test(s))) return true;
-  // a named file or site must show up in what a tool was asked or in what it returned
-  if (named.length) return named.some((s) => seen.calls.some((c) => c.text.includes(s)) || seen.results.some((r) => r.includes(s)));
-  return seen.thisTurn.some((c) => LOOKUP.test(c.name));
+
+// A plan-row id (B6, S7, C-2, WT2-WT4, BH0c): 1-3 capitals, an optional hyphen, 1-3 digits, an optional small
+// letter, an optional range. Common names of that shape (file formats, codecs, paper sizes, quarters, consoles,
+// storage services, text encodings, hashes, chips, HTML headings) are not ids.
+const ROW_ID =
+  /(?<![\w.\-])[A-Z]{1,3}-?\d{1,3}[a-z]?(?:-[A-Z]{1,3}-?\d{1,3}[a-z]?)?(?![\w\-]|\.\w)/g; // a full stop ends a sentence; "A4.pdf" is a file
+const COMMON_ID =
+  /^(?:MP[34]|M4[AV]|H26[45]|AV1|VP[89]|A[3-6]|Q[1-4]|PS[2-5]|X11|CSS3|K8s|GPT-?\d|S3|B2|R2|UTF-?(?:8|16|32)|SHA-?(?:1|256|384|512)|AES-?(?:128|192|256)|M[1-4]|H[1-6])$/;
+export const rowIds = (text, asked = "") =>
+  [...new Set(String(text).match(ROW_ID) || [])].filter(
+    (id) =>
+      !COMMON_ID.test(id.replace(/s$/, "")) && // "MP3s" is a plural, not an id
+      !new RegExp(`(?<![\\w-])${id}(?![\\w-])`).test(asked),
+  );
+// Everything on a card the user reads: titles, questions, option labels and the line under each option
+const askText = (questions) =>
+  questions
+    .flatMap((q) => [
+      q?.header,
+      q?.question,
+      ...(Array.isArray(q?.options) ? q.options : []).flatMap((o) => [
+        o?.label,
+        o?.description,
+      ]),
+    ])
+    .filter((s) => typeof s === "string")
+    .join("\n");
+// A single-letter name ("helper K"): a capital other than A and I (they are words) alone right after one of these
+// nouns (small or capital first letter; the letter itself must be a capital, so "tab n" is none). Let through when the
+// letter is an option's own label on the card ("B", "B: whole passage", "Option B") or the user's last typed message
+// uses it as a word.
+const LETTER_NAME = new RegExp(
+  String.raw`\b(${"session|chat|child|helper|worker|agent|subagent|tab|thread|window|pane|instance"
+    .split("|")
+    .map((w) => `[${w[0]}${w[0].toUpperCase()}]${w.slice(1)}`)
+    .join("|")})\s+([B-HJ-Z])(?!\w|[-:\/\\&+#]|['’](?!s\b)|\.\w)`,
+  "g",
+);
+const OPTION_LETTER = /^\s*(?:[Oo]ption\s+)?([A-Z])(?![\w'’])/;
+export const letterNames = (text, optionLabels = [], asked = "") => {
+  const own = new Set(
+    optionLabels.map((l) => String(l).match(OPTION_LETTER)?.[1]).filter(Boolean),
+  );
+  return [
+    ...new Set(
+      [...String(text).matchAll(LETTER_NAME)]
+        .filter(
+          (m) =>
+            !own.has(m[2]) &&
+            !new RegExp(`(?<![\\w-])${m[2]}(?![\\w-])`).test(asked),
+        )
+        .map((m) => m[0]),
+    ),
+  ];
 };
+// A status or nag question: whether the user is still doing, has done or will now do their own part. Not "Should I
+// run it now?" (Claude's own action), "Are you (still) happy with it?" (a judgement) or "Are you ready for me to post
+// it?" (a go-ahead).
+const OK = String.raw`(?!(?:be |feel )?(?:ok|okay|fine|happy|sure|good|comfortable|alright|willing|able|want|prefer|like|mean|meant|rather|agree)\b)`;
+const NAG = new RegExp(
+  [
+    String.raw`\b(?:are|were) you (?:still ${OK}|done\b|finished\b)`,
+    String.raw`\b(?:have|did|has) you ${OK}[^.?!]*\b(?:yet|already|had a chance|finished|done)\b`,
+    String.raw`\bwill you ${OK}[^.?!]*\bnow\b`,
+  ].join("|"),
+  "i",
+);
+export const nagQuestion = (texts) =>
+  texts.find((s) => typeof s === "string" && NAG.test(s)) || null;
+const idNote = (ids) =>
+  `The card shows labels the user didn't use (${ids.join(", ")}). Explain each in plain words or leave it out: ` +
+  `the user reads the card without the plan in front of them. Every item and the line under it says in full words what it is and ` +
+  `what changes, never shorthand copied from a list ("One action, two outcomes" told the user nothing).`;
+const nagNote = (q) =>
+  `The card asks no decision ("${q}" asks whether the user is still doing, has done or will now do their own part). ` +
+  `Next time write the state in one line in the reply and end the turn; the earlier question stays open until the user answers.`;
+export const idRefusal = (labels) =>
+  `${MARKER} question-other refused this card: it shows labels the user never used (${labels.join(", ")}). ` +
+  `Send it again with each label replaced by what the thing is, in plain words. If you cannot say what it is, leave it out.`;
+export const NAG_REFUSAL =
+  `${MARKER} question-other refused this card: it asks no decision. Do not send it again. ` +
+  `Write the state in one line in your reply and end the turn. The earlier question stays open until the user answers.`;
 
 // The questions without a box to type in: a singleSelect without allowOther, a multiSelect not followed right away
 // by an editText, and a confirm or reorder field in a form with no editText at all
@@ -114,8 +213,10 @@ export function untypeable(fields) {
     if (!f) return;
     const name = `"${f.label || f.id}"`;
     if (f.type === "singleSelect" && f.allowOther !== true) out.push(name);
-    else if (f.type === "multiSelect" && fields[i + 1]?.type !== "editText") out.push(name);
-    else if ((f.type === "confirm" || f.type === "reorder") && !hasText) out.push(name);
+    else if (f.type === "multiSelect" && fields[i + 1]?.type !== "editText")
+      out.push(name);
+    else if ((f.type === "confirm" || f.type === "reorder") && !hasText)
+      out.push(name);
   });
   return out;
 }
@@ -123,39 +224,51 @@ export function untypeable(fields) {
 // Words that send the user to look at something. Bare nouns ("page", "file") are left out on purpose:
 // on real forms they mostly name a shop's page or a source, not something Claude made.
 const NOUN = String.raw`(?:page|file|doc|document|draft|mockup|preview|picture|photo|image|screenshot|report|video|version|layout|site|html)s?`;
-const POINTS = new RegExp([
-  String.raw`\b(?:look|looking|glance) (?:through|at|over) (?:it|this|them|these)\b`, // not "look at the buyer"
-  String.raw`\b(?:open|check|see|read|review|try|test|scroll|browse|go through|look through|look at|look over) (?:the|this|my|it|them|your)(?:\s+[\w-]+){0,2}?\s+${NOUN}\b`,
-  String.raw`\bwhat I(?:'ve| have)? (?:built|made|wrote|drew|changed|put together)\b`,
-  String.raw`\b(?:the|this|my) (?:new |updated |first )?mockups?\b`, // not "draft" or "preview": often inside the form or not made yet
-].join("|"), "i"); // not "looks right?" or "take a look": often about a plan written in the chat itself
+const POINTS = new RegExp(
+  [
+    String.raw`\b(?:look|looking|glance) (?:through|at|over) (?:it|this|them|these)\b`, // not "look at the buyer"
+    String.raw`\b(?:open|check|see|read|review|try|test|scroll|browse|go through|look through|look at|look over) (?:the|this|my|it|them|your)(?:\s+[\w-]+){0,2}?\s+${NOUN}\b`,
+    String.raw`\bwhat I(?:'ve| have)? (?:built|made|wrote|drew|changed|put together)\b`,
+    String.raw`\b(?:the|this|my) (?:new |updated |first )?mockups?\b`, // not "draft" or "preview": often inside the form or not made yet
+  ].join("|"),
+  "i",
+); // not "looks right?" or "take a look": often about a plan written in the chat itself
 // Russian twins of POINTS and NOT_TO_LOOK (`--language russian`). \b does not see Cyrillic: u flag and lookarounds.
 const RU_NOUN = String.raw`(?:страниц\p{L}*|файл\p{L}*|документ\p{L}*|черновик\p{L}*|макет\p{L}*|превью|картинк\p{L}*|фото\p{L}*|изображени\p{L}*|скриншот\p{L}*|отч[её]т\p{L}*|видео|верси\p{L}*|сайт\p{L}*|html)`;
 const RU_LOOK = String.raw`(?:посмотрите|посмотри|взгляните|взгляни|откройте|открой|проверьте|проверь|прочитайте|прочти|просмотрите|просмотри|пролистайте|пролистай|ознакомьтесь с|протестируйте|протестируй|попробуйте|попробуй)`;
-const RU_POINTS = ru([
-  String.raw`«(?:посмотрите|посмотри|взгляните|взгляни)\s+(?:на\s+)?(?:него|неё|нее|это|них|эти)»`,
-  String.raw`«${RU_LOOK}\s+(?:на\s+)?(?:эту|этот|это|эти|мою|мой|моё|мое|мои|ваш\p{L}*|его|её|ее|их)(?:\s+[\p{L}-]+){0,2}?\s+${RU_NOUN}»`,
-  String.raw`«то, что я (?:сделал|сделала|собрал|собрала|написал|написала|нарисовал|нарисовала|изменил|изменила)»`,
-  String.raw`«(?:этот|мой|новый|обновл[её]нный)\s+макет»`,
-].join("|"));
-const RU_NOT_TO_LOOK = /(?<!\p{L})(?:из|как|(?:добавлено|записано|сохранено|скопировано|перенесено|попадут|попадёт|попадет|идут|пойдут) в)\s*[(`"'\[]?\s*$/iu;
-const PATH = /(?:^|[\s(:"'`\[])((?:\/?[A-Za-z]:|~)?[\\/]?(?:[\w.\-]+[\\/])*[\w\-]+\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|mp4|docx?|xlsx?|pptx?|csv))\b/gi;
+const RU_POINTS = ru(
+  [
+    String.raw`«(?:посмотрите|посмотри|взгляните|взгляни)\s+(?:на\s+)?(?:него|неё|нее|это|них|эти)»`,
+    String.raw`«${RU_LOOK}\s+(?:на\s+)?(?:эту|этот|это|эти|мою|мой|моё|мое|мои|ваш\p{L}*|его|её|ее|их)(?:\s+[\p{L}-]+){0,2}?\s+${RU_NOUN}»`,
+    String.raw`«то, что я (?:сделал|сделала|собрал|собрала|написал|написала|нарисовал|нарисовала|изменил|изменила)»`,
+    String.raw`«(?:этот|мой|новый|обновл[её]нный)\s+макет»`,
+  ].join("|"),
+);
+const RU_NOT_TO_LOOK =
+  /(?<!\p{L})(?:из|как|(?:добавлено|записано|сохранено|скопировано|перенесено|попадут|попадёт|попадет|идут|пойдут) в)\s*[(`"'\[]?\s*$/iu;
+const PATH =
+  /(?:^|[\s(:"'`\[])((?:\/?[A-Za-z]:|~)?[\\/]?(?:[\w.\-]+[\\/])*[\w\-]+\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|mp4|docx?|xlsx?|pptx?|csv))\b/gi;
 const NOTES = /(?:^|[\\/])(?:decisions|claude|handoff|memory)(?:\.md$|[\\/])/i; // where answers get written, not something to look at
 // "goes into x.md", "added to x.md", "save it as `x.png`", "counts are from x.xlsx"
-const NOT_TO_LOOK = /\b(?:into|(?:added|written|saved|copied|moved|appended) to|as|from)\s*[(`"'\[]?\s*$/i;
+const NOT_TO_LOOK =
+  /\b(?:into|(?:added|written|saved|copied|moved|appended) to|as|from)\s*[(`"'\[]?\s*$/i;
 // Links Nimbalyst's chat opens: an absolute local path with forward slashes (/C:/..., or /Users/... on
 // a Mac), or a web address
 const LOCAL_LINK = /\]\(\s*<?(?:\/?[A-Za-z]:\/|\/(?![\/\\]|[A-Za-z]\/))[^)]*\)/; // not //host or Git Bash's /c/...
 const WEB_LINK = /https?:\/\/[^\s)]+/i;
 export const LINK = new RegExp(`${LOCAL_LINK.source}|${WEB_LINK.source}`, "i");
-// The form's own words; option descriptions hold the "Checked:" reasons, so they are left out
+// The form's own words; option descriptions hold the reasons for an option, which often name files, so they are left out
 const formText = (input, fields, withDrafts = false) => {
   const out = [input.title, input.intro];
   for (const f of fields) {
     if (!f) continue;
     out.push(f.label, f.description);
     if (withDrafts) out.push(f.initialText);
-    for (const o of [...(Array.isArray(f.options) ? f.options : []), ...(Array.isArray(f.items) ? f.items : [])]) out.push(o?.label, o?.title);
+    for (const o of [
+      ...(Array.isArray(f.options) ? f.options : []),
+      ...(Array.isArray(f.items) ? f.items : []),
+    ])
+      out.push(o?.label, o?.title);
   }
   return out.filter((s) => typeof s === "string").join("\n");
 };
@@ -163,12 +276,28 @@ const formText = (input, fields, withDrafts = false) => {
 // A markdown link to a local file is read by its target, not its label: the label is a bare name
 // ("x.md") that would resolve against the cwd.
 export function pointer(input, fields) {
-  const text = formText(input, fields).replace(/\[[^\]\n]*\]\(\s*<?((?!https?:)[^)\s>]+)>?\s*\)/gi, " $1 ");
+  const text = formText(input, fields).replace(
+    /\[[^\]\n]*\]\(\s*<?((?!https?:)[^)\s>]+)>?\s*\)/gi,
+    " $1 ",
+  );
   const phrase = text.match(POINTS) || text.match(RU_POINTS);
   if (phrase) return { text: phrase[0], file: false };
-  const path = [...text.matchAll(PATH)].find((m) =>
-    !NOTES.test(m[1]) && !NOT_TO_LOOK.test(text.slice(Math.max(0, m.index - 30), m.index + m[0].length - m[1].length)) &&
-    !RU_NOT_TO_LOOK.test(text.slice(Math.max(0, m.index - 30), m.index + m[0].length - m[1].length)));
+  const path = [...text.matchAll(PATH)].find(
+    (m) =>
+      !NOTES.test(m[1]) &&
+      !NOT_TO_LOOK.test(
+        text.slice(
+          Math.max(0, m.index - 30),
+          m.index + m[0].length - m[1].length,
+        ),
+      ) &&
+      !RU_NOT_TO_LOOK.test(
+        text.slice(
+          Math.max(0, m.index - 30),
+          m.index + m[0].length - m[1].length,
+        ),
+      ),
+  );
   return path ? { text: path[1], file: true } : null;
 }
 
@@ -189,112 +318,235 @@ const absolute = (file, cwd) => {
 export function outsideProject(file, cwd) {
   if (!cwd) return false;
   const norm = (p) => slashed(p).replace(/\/+$/, "").toLowerCase();
-  const a = norm(absolute(file, cwd)), r = norm(projectRoot({ cwd: gitBashToNative(slashed(cwd)) }));
+  const a = norm(absolute(file, cwd)),
+    r = norm(projectRoot({ cwd: gitBashToNative(slashed(cwd)) }));
   return !(a === r || a.startsWith(r + "/"));
 }
 // A path in inline code that names the file (its name, plus a folder or ~)
 const inCode = (s, file) => {
   const name = file.split(/[\\/]/).pop().toLowerCase();
-  return [...s.matchAll(/`([^`\n]+)`/g)].some((m) => /[\\/~]/.test(m[1]) && m[1].toLowerCase().includes(name));
+  return [...s.matchAll(/`([^`\n]+)`/g)].some(
+    (m) => /[\\/~]/.test(m[1]) && m[1].toLowerCase().includes(name),
+  );
 };
 
-const REC_ASK = `This form recommends an option and no rec-check agent has looked at it: none since the user's last message, or none since the last form went through. ` +
-  `The user clicks the recommended option on trust and about a third of them missed. Call the Agent tool once, in the foreground, with subagent_type "rec-check". Its prompt: the user's own words on this, ` +
-  `the question, every option with its reason, and what you looked at. Act on what it says, then send the form again. Fix anything it changes; if you overrule it, say why in the reply.`;
-
-const REC_NOTE = `the form recommends an option and no rec-check agent looked at it since the user's last message (or since the last form went through); it went out as is. ` +
-  `The user clicks the recommended option on trust and about a third of them missed, so before the next recommended form call the Agent tool once, in the foreground, ` +
-  `with subagent_type "rec-check" (the user's own words, the question, every option with its reason, what you looked at). If its answer would have changed this pick, tell the user in the reply.`;
-
-// One call's faults: { deny, parts }. deny: refuse it (a question without a typing box); otherwise the parts go to
-// Claude as a note and the form goes out as is. seen = readRecord(...) or null.
-export function review(event, seen) {
-  const tool = String(event.tool_name || "");
-  if (/AskUserQuestion$/.test(tool)) {
-    // Nimbalyst's own question card is never refused: it already has a typing box on every question, and a refusal
-    // leaves the refused card on screen next to the resent form (the user saw every such question twice).
-    const pick = (event.tool_input?.questions || []).some((q) => (q?.options || []).some(recommended));
-    return { deny: false, parts: pick && seen?.recChecked === false && recCheckOn() ? [REC_NOTE] : [] };
-  }
-  const none = { deny: false, parts: [] };
-  if (!tool.endsWith("PromptForUserInput")) return none;
-  const input = event.tool_input || {};
+// A form's fields, or null when they can't be read
+const fieldsOf = (input) => {
   let fields = input.fields;
-  if (typeof fields === "string") try { fields = JSON.parse(fields); } catch { return none; }
-  if (!Array.isArray(fields)) return none;
+  if (typeof fields === "string")
+    try {
+      fields = JSON.parse(fields);
+    } catch {
+      return null;
+    }
+  return Array.isArray(fields) ? fields : null;
+};
+const OWN_NUMBER = /^\s*([A-Z]{1,3}-?\d{1,3}[a-z]?)\.\s/;
+// A range of two ids, as ROW_ID finds it: "WT2-WT4" -> WT2, WT4 ("C-2" is one id)
+const RANGE = /^([A-Z]{1,3}-?\d{1,3}[a-z]?)-([A-Z]{1,3}-?\d{1,3}[a-z]?)$/;
+// A project's own labels the user knows (game tiers, keys, product codes): <project>/.claude/card-labels.txt, one
+// label per line (exact, case-sensitive: T3) or /regex/ for a family (/T[1-5]/, matched whole); # comment lines,
+// a # comment after a space at the end of a line and blank lines are skipped. A listed label is never a label fault,
+// and a range (WT2-WT4) is listed when each of its parts is. No file is no list; a bad regex line is skipped and
+// named in the note.
+export const NO_LIST = { has: () => false, bad: [] };
+export function readLabels(root) {
+  let text;
+  try {
+    text = readFileSync(join(root, ".claude", "card-labels.txt"), "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return NO_LIST;
+    throw err;
+  }
+  const exact = new Set(),
+    families = [],
+    bad = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/(?:^|\s)#.*$/, "").trim();
+    if (!line) return;
+    const re = line.match(/^\/(.+)\/$/);
+    if (!re) return void exact.add(line);
+    try {
+      families.push(new RegExp(`^(?:${re[1]})$`));
+    } catch {
+      bad.push(`line ${i + 1} "${line}"`);
+    }
+  });
+  const one = (l) => exact.has(l) || families.some((f) => f.test(l));
+  const range = (l) => l.match(RANGE)?.slice(1);
+  // "worker L" is listed when "L" is; "WT2-WT4" when "WT2" and "WT4" are
+  return {
+    has: (l) =>
+      one(l) ||
+      one(l.replace(/^\S+\s+/, "")) ||
+      !!range(l)?.every(one),
+    bad,
+  };
+}
+const badNote = (bad) =>
+  `.claude/card-labels.txt has lines that are no valid regex, so they were skipped: ${bad.join(", ")}. Fix them.`;
+const optionsOf = (f) => [
+  ...(Array.isArray(f?.options) ? f.options : []),
+  ...(Array.isArray(f?.items) ? f.items : []),
+];
+// The faults a card is refused for: { labels: ids and letter names the user never used, nag: the question that asks
+// no decision, or null }. Labels are looked for in every word on the card, the lines under the options and items too;
+// the nag only in the questions (a form's title and field labels), not in option lines.
+export function cardFaults(event, seen, list = NO_LIST) {
+  const tool = String(event.tool_name || "");
+  const asked = seen?.asked || "";
+  let text, optionLabels, questions;
+  if (/AskUserQuestion$/.test(tool)) {
+    const qs = Array.isArray(event.tool_input?.questions)
+      ? event.tool_input.questions
+      : [];
+    text = askText(qs);
+    optionLabels = qs.flatMap((q) =>
+      (Array.isArray(q?.options) ? q.options : []).map((o) => o?.label),
+    );
+    questions = qs.map((q) => q?.question);
+  } else if (tool.endsWith("PromptForUserInput")) {
+    const input = event.tool_input || {};
+    const fields = fieldsOf(input);
+    if (!fields) return { labels: [], nag: null };
+    const subLines = fields
+      .flatMap((f) => optionsOf(f).flatMap((o) => [o?.description, o?.subtitle]))
+      .filter((s) => typeof s === "string");
+    text = [formText(input, fields), ...subLines].join("\n");
+    optionLabels = fields.flatMap((f) =>
+      optionsOf(f).flatMap((o) => [o?.label, o?.title]),
+    );
+    questions = [input.title, ...fields.map((f) => f?.label)];
+  } else return { labels: [], nag: null };
+  // The card's own numbering ("Q8. How many releases?") is defined right there, so the user knows it
+  const own = questions
+    .map((q) => (typeof q === "string" ? q.match(OWN_NUMBER)?.[1] : null))
+    .filter(Boolean);
+  return {
+    labels: [
+      ...rowIds(text, asked).filter((id) => !own.includes(id)),
+      ...letterNames(text, optionLabels.filter((l) => typeof l === "string"), asked),
+    ].filter((l) => !list.has(l)),
+    nag: nagQuestion(questions),
+  };
+}
+
+// One call's faults: a list of notes for Claude, used when the card goes out. seen = readRecord(...) or null.
+export function review(event, seen, list = NO_LIST) {
+  const tool = String(event.tool_name || "");
+  const { labels, nag } = cardFaults(event, seen, list);
+  const cardNotes = [
+    ...(labels.length ? [idNote(labels)] : []),
+    ...(nag ? [nagNote(nag)] : []),
+    ...(list.bad.length ? [badNote(list.bad)] : []),
+  ];
+  // Nimbalyst's own question card has a typing box on every question
+  if (/AskUserQuestion$/.test(tool)) return cardNotes;
+  if (!tool.endsWith("PromptForUserInput")) return [];
+  const input = event.tool_input || {};
+  const fields = fieldsOf(input);
+  if (!fields) return [];
   const noBox = untypeable(fields);
-  const noReason = [], noShape = [], notChecked = [], twoRecommended = [], oneOption = [];
-  let anyPick = false;
+  const twoRecommended = [],
+    oneOption = [];
   for (const f of fields) {
-    if (!f) continue;
+    if (!f || f.type !== "singleSelect" || !Array.isArray(f.options)) continue;
     const name = `"${f.label || f.id}"`;
-    const options = f.type === "singleSelect" ? f.options : f.type === "multiSelect" ? f.items : null;
-    if (!Array.isArray(options)) continue;
-    const picks = options.filter(recommended);
-    anyPick ||= picks.length > 0;
-    if (f.type === "singleSelect" && options.length < 2) oneOption.push(name);
-    if (f.type === "singleSelect" && picks.length > 1) twoRecommended.push(name);
-    if (picks.some((o) => !hasReason(o))) noReason.push(name);
-    else if (picks.some((o) => !hasShape(o))) noShape.push(name);
-    else if (seen && picks.some((o) => !backed(o, seen))) notChecked.push(name);
+    if (f.options.length < 2) oneOption.push(name);
+    if (f.options.filter(recommended).length > 1) twoRecommended.push(name);
   }
   const parts = [];
   if (noBox.length)
     parts.push(
       `${noBox.join(", ")} has no box where the user can type their own answer, and the user wants one on every question. ` +
-      `Nimbalyst draws a form as soon as it is sent, so this refused one stays on screen and the user sees the question twice: get it right the first time. ` +
-      `A plain choice (single or multi pick) goes on mcp__nimbalyst__AskUserQuestion, whose card has a typing box on every question; resend it there. ` +
-      `Keep this form only for a draft to edit, a reorder or many fields, and then: allowOther: true on each singleSelect, an optional editText ` +
-      `("Other (optional)", minLength 0) right after each multiSelect, and an optional "Anything else?" editText when only confirm or reorder fields remain.`);
+        `The form is on screen as sent (a refusal can't take it back), so in the reply after the answer name it and invite a typed change: ` +
+        `"The form's ${noBox[0]} had no box to type in; write here if you want something other than the options." ` +
+        `On the next form, a plain choice (single or multi pick) goes on mcp__nimbalyst__AskUserQuestion, whose card has a typing box on every question. ` +
+        `Keep PromptForUserInput only for a draft to edit, a reorder or many fields, and then: allowOther: true on each singleSelect, an optional editText ` +
+        `("Other (optional)", minLength 0) right after each multiSelect, and an optional "Anything else?" editText when only confirm or reorder fields remain.`,
+    );
+  parts.push(...cardNotes);
   // A link in the form's own words or in the reply right before it, or a picture shown there, counts as
   // presented. A local file needs a local link: a web address does not open it.
   const point = pointer(input, fields);
-  const outside = !!point?.file && outsideProject(point.text, typeof event.cwd === "string" ? event.cwd : "");
-  const presented = (s) => (outside ? inCode(s, point.text) : (point.file ? LOCAL_LINK : LINK).test(s));
-  if (point && seen && !presented(formText(input, fields, true)) && !presented(seen.replyText) && !seen.shown)
-    parts.push(outside
-      ? `This form sends the user to look at a file ("${point.text}") that is outside the open project, and neither the form nor the reply text right before it names its path in code. ` +
-        `Nimbalyst opens a markdown link only for a file inside the open project (a file inside the project: a markdown link; outside it: its path in code), so a link would not open. ` +
-        `Write the path in inline code in the reply text (\`~/.claude/skills/x/SKILL.md\` or \`C:/Users/you/x.md\`), with what you wrote, what you think of it and what you recommend.`
-      : `This form sends the user to look at something ("${point.text}"), but neither the form nor the reply text right before it has a clickable link to it, ` +
-        `so the user cannot find it. Write it in the reply text: what you built or wrote, as a markdown link ` +
-        `([name](/C:/path/to/file.md): forward slashes, no file:///, no backslashes; or a web address for a site), what you think of it and what you recommend. ` +
-        `(A file inside the project: a markdown link; outside it: its path in code.)`);
-  if (noReason.length)
+  const outside =
+    !!point?.file &&
+    outsideProject(point.text, typeof event.cwd === "string" ? event.cwd : "");
+  const presented = (s) =>
+    outside ? inCode(s, point.text) : (point.file ? LOCAL_LINK : LINK).test(s);
+  if (
+    point &&
+    seen &&
+    !presented(formText(input, fields, true)) &&
+    !presented(seen.replyText) &&
+    !seen.shown
+  )
     parts.push(
-      `${noReason.join(", ")} recommends an option without a reason. The user accepts the recommended option with one click, so say in its ` +
-      `description (subtitle in a multiSelect) why it is the best choice, as "Checked: <what you looked at and what it showed>" or ` +
-      `"Judgment: <why>", followed by "Other wins if: <the case where another option is better>". ` +
-      `If you have no basis (a matter of taste, or it depends on something only the user knows), drop the "(recommended)" mark and the pre-selection.`);
-  if (noShape.length)
-    parts.push(
-      `${noShape.join(", ")} recommends an option whose reason is not in the two-part shape. Write it as "Checked: <what you looked at and ` +
-      `what it showed>" (or "Judgment: <why>" when nothing was looked up), followed by "Other wins if: <the case where another option is better>". ` +
-      `Write "Checked:" only for something really looked up. A hard-to-undo choice that rests on judgment alone gets no "(recommended)" mark.`);
-  if (notChecked.length)
-    parts.push(
-      `${notChecked.join(", ")} says "Checked:" but this session's record shows no tool call that touched the file or site it names (or, when it ` +
-      `names none, nothing was looked up since the user's last message). Look it up now (one file, DECISIONS.md or one search) and name it after "Checked:", ` +
-      `or write "Judgment:" instead. The user clicks the recommended option on trust, so "Checked:" has to be true.`);
+      outside
+        ? `This form sends the user to look at a file ("${point.text}") that is outside the open project, and neither the form nor the reply text right before it names its path in code. ` +
+            `Nimbalyst opens a markdown link only for a file inside the open project (a file inside the project: a markdown link; outside it: its path in code), so a link would not open. ` +
+            `Write the path in inline code in the reply text (\`~/.claude/skills/x/SKILL.md\` or \`C:/Users/you/x.md\`), with what you wrote, what you think of it and what you recommend.`
+        : `This form sends the user to look at something ("${point.text}"), but neither the form nor the reply text right before it has a clickable link to it, ` +
+            `so the user cannot find it. Write it in the reply text: what you built or wrote, as a markdown link ` +
+            `([name](/C:/path/to/file.md): forward slashes, no file:///, no backslashes; or a web address for a site), what you think of it and what you recommend. ` +
+            `(A file inside the project: a markdown link; outside it: its path in code.)`,
+    );
   if (twoRecommended.length)
-    parts.push(`${twoRecommended.join(", ")} marks more than one option as recommended. Recommend one, or none.`);
+    parts.push(
+      `${twoRecommended.join(", ")} marks more than one option as recommended. Recommend one, or none.`,
+    );
   if (oneOption.length)
-    parts.push(`${oneOption.join(", ")} has fewer than 2 options, so it asks nothing. Add the real alternative, or use a confirm field if it is a plain yes/no, or decide it yourself and say so.`);
-  if (anyPick && seen?.recChecked === false && recCheckOn()) parts.push(noBox.length ? REC_ASK : REC_NOTE);
-  return { deny: noBox.length > 0, parts };
+    parts.push(
+      `${oneOption.join(", ")} has fewer than 2 options, so it asks nothing. Add the real alternative, or use a confirm field if it is a plain yes/no, or decide it yourself and say so.`,
+    );
+  return parts;
 }
 
 if (isMain(import.meta.url)) {
   runHook("question-other", (event) => {
-    let seen = null; // no session record (or an unreadable one) lets "Checked:" and the link check through
-    const needsRecord = /PromptForUserInput$|AskUserQuestion$/.test(String(event.tool_name || ""));
-    try { if (needsRecord && event.transcript_path) seen = readRecord(event.transcript_path); } catch {}
-    const { deny, parts } = review(event, seen);
-    if (deny) emit.deny(`question-other: ${parts.join(" ")}`);
-    // Not refused: the form is on screen already, so a refusal would show it twice. The faults go to Claude instead.
-    else if (parts.length) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse",
-      additionalContext: `question-other: this form went out as is (a refused form would stay on screen and show twice). ` +
-        `Get these right on the next form; where one could change the user's answer (a missing link, an unbacked reason), tell the user in your reply after the answer. ` +
-        `Its faults: ${parts.join(" ")}` } }));
+    let seen = null; // no session record (or an unreadable one) lets the link check through
+    const needsRecord = /PromptForUserInput$|AskUserQuestion$/.test(
+      String(event.tool_name || ""),
+    );
+    try {
+      if (needsRecord && event.transcript_path)
+        seen = readRecord(event.transcript_path);
+    } catch {}
+    // Labels the user never used and a card that asks no decision are refused (the card-refused patch hides the
+    // dead card), at most MAX_REFUSALS times in a row; every other fault goes to Claude as a note. With no readable
+    // record neither the run nor the user's words are known, so the card goes through with a note.
+    // The project: CLAUDE_PROJECT_DIR, else the nearest folder at or above the cwd with a CLAUDE.md or .git
+    const list = needsRecord ? readLabels(projectRoot(event)) : NO_LIST;
+    const { labels, nag } = cardFaults(event, seen, list);
+    const faulty = labels.length > 0 || !!nag;
+    if (faulty && seen && seen.refusedRun < MAX_REFUSALS) {
+      emit.deny(
+        (nag ? NAG_REFUSAL : idRefusal(labels)) +
+          (list.bad.length ? ` ${badNote(list.bad)}` : ""),
+      );
+      return;
+    }
+    const parts = review(event, seen, list);
+    if (parts.length)
+      emit.context(
+        "PreToolUse",
+        `question-other: this form went out as is` +
+          (!faulty
+            ? ""
+            : seen
+              ? ` (${MAX_REFUSALS} refusals in a row already; another could loop)`
+              : " (no session record to count refusals by, so it was not refused)") +
+          `. Get these right on the next form; where one could change the user's answer (a question with no typing box, a missing link), ` +
+          `tell the user in your reply after the answer. Its faults: ${parts.join(" ")}`,
+      );
+    if (faulty && seen) {
+      const file = join(STATE_DIR, "question-other", "let-through.log");
+      mkdirSync(join(STATE_DIR, "question-other"), { recursive: true });
+      appendFileSync(
+        file,
+        `${new Date().toISOString()} ${event.session_id || "-"} ${event.tool_name}: ` +
+          `let through after ${MAX_REFUSALS} refusals; ${nag ? `asks no decision: ${nag}` : `labels: ${labels.join(", ")}`}\n`,
+      );
+    }
   });
 }

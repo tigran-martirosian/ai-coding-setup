@@ -6,12 +6,20 @@ process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the h
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const HOOK = fileURLToPath(new URL("../hooks/slow-output-gate.mjs", import.meta.url));
-const { offending, declaredSeconds, reason } = await import(pathToFileURL(HOOK).href);
+const HOOK = fileURLToPath(
+  new URL("../hooks/slow-output-gate.mjs", import.meta.url),
+);
+const { offending, declaredSeconds, reason } = await import(
+  pathToFileURL(HOOK).href
+);
 
-let pass = 0, fail = 0;
+let pass = 0,
+  fail = 0;
 const ok = (name, cond, extra = "") => {
-  if (cond) { pass++; return; }
+  if (cond) {
+    pass++;
+    return;
+  }
   fail++;
   console.log(`FAIL  ${name}${extra ? `\n      ${extra}` : ""}`);
 };
@@ -26,10 +34,14 @@ const SECONDS = [
   ["timeout --signal=KILL 600 node y.mjs", 600],
   ["cd /tmp && timeout 180 ./slow", 180],
   ["python x.py plan", 0],
-  ["echo timeout 420", 420],  // only a shape check; the pipe test decides whether it is refused
+  ["echo timeout 420", 420], // only a shape check; the pipe test decides whether it is refused
 ];
 for (const [cmd, want] of SECONDS) {
-  ok(`declaredSeconds: ${cmd}`, declaredSeconds(cmd) === want, `got ${declaredSeconds(cmd)}, want ${want}`);
+  ok(
+    `declaredSeconds: ${cmd}`,
+    declaredSeconds(cmd) === want,
+    `got ${declaredSeconds(cmd)}, want ${want}`,
+  );
 }
 
 // ---------------- refused ----------------
@@ -47,7 +59,11 @@ const REFUSED = [
   `{ timeout 420 ./x.sh | tail -5; } > /dev/null`,
 ];
 for (const cmd of REFUSED) {
-  ok(`refused: ${cmd.slice(0, 60)}`, offending(cmd) !== "", `offending() returned ""`);
+  ok(
+    `refused: ${cmd.slice(0, 60)}`,
+    offending(cmd) !== "",
+    `offending() returned ""`,
+  );
 }
 
 // ---------------- allowed ----------------
@@ -76,21 +92,38 @@ const ALLOWED = [
   ``,
 ];
 for (const cmd of ALLOWED) {
-  ok(`allowed: ${(cmd || "(empty)").slice(0, 60)}`, offending(cmd) === "", `offending() returned ${JSON.stringify(offending(cmd))}`);
+  ok(
+    `allowed: ${(cmd || "(empty)").slice(0, 60)}`,
+    offending(cmd) === "",
+    `offending() returned ${JSON.stringify(offending(cmd))}`,
+  );
 }
 
-ok("a non-string command is ignored", offending(undefined) === "" && offending(null) === "");
+ok(
+  "a non-string command is ignored",
+  offending(undefined) === "" && offending(null) === "",
+);
 
 // ---------------- the threshold can be moved ----------------
 
-ok("a 60s command is fine at the default threshold", offending(`timeout 60 ./x.sh | tail -5`) === "");
-ok("...and refused when the threshold is 30", offending(`timeout 60 ./x.sh | tail -5`, 30) !== "");
+ok(
+  "a 60s command is fine at the default threshold",
+  offending(`timeout 60 ./x.sh | tail -5`) === "",
+);
+ok(
+  "...and refused when the threshold is 30",
+  offending(`timeout 60 ./x.sh | tail -5`, 30) !== "",
+);
 
 // ---------------- what the refusal says ----------------
 
 {
   const text = reason(`timeout 420 python x.py plan | tail -40`);
-  ok("the refusal shows how to save the output", /> out\.txt 2>&1/.test(text), text.slice(0, 120));
+  ok(
+    "the refusal shows how to save the output",
+    /> out\.txt 2>&1/.test(text),
+    text.slice(0, 120),
+  );
   ok("the refusal asks for the cheapest call", /cheapest call/.test(text));
   ok("the refusal names its off switch", /SLOW_OUTPUT_GATE=off/.test(text));
 }
@@ -98,30 +131,52 @@ ok("...and refused when the threshold is 30", offending(`timeout 60 ./x.sh | tai
 // ---------------- run as a real hook ----------------
 
 const runHook = (payload) => {
-  const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(payload), encoding: "utf8" });
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify(payload),
+    encoding: "utf8",
+  });
   return { out: (r.stdout || "").trim(), code: r.status };
 };
 
 {
-  const { out } = runHook({ tool_name: "Bash", tool_input: { command: `timeout 420 python x.py plan | tail -40` } });
+  const { out } = runHook({
+    tool_name: "Bash",
+    tool_input: { command: `timeout 420 python x.py plan | tail -40` },
+  });
   const parsed = out ? JSON.parse(out) : null;
-  ok("the hook denies the real payload", parsed?.hookSpecificOutput?.permissionDecision === "deny", out.slice(0, 160));
+  ok(
+    "the hook denies the real payload",
+    parsed?.hookSpecificOutput?.permissionDecision === "deny",
+    out.slice(0, 160),
+  );
 }
 {
-  const { out } = runHook({ tool_name: "Bash", tool_input: { command: `timeout 420 python x.py plan > out.txt 2>&1` } });
+  const { out } = runHook({
+    tool_name: "Bash",
+    tool_input: { command: `timeout 420 python x.py plan > out.txt 2>&1` },
+  });
   ok("the hook stays silent on a saved run", out === "", out.slice(0, 160));
 }
 {
   const r = spawnSync(process.execPath, [HOOK], {
-    input: JSON.stringify({ tool_name: "Bash", tool_input: { command: `timeout 420 ./x.sh | tail -5` } }),
+    input: JSON.stringify({
+      tool_name: "Bash",
+      tool_input: { command: `timeout 420 ./x.sh | tail -5` },
+    }),
     encoding: "utf8",
     env: { ...process.env, SLOW_OUTPUT_GATE: "off" },
   });
   ok("the off switch silences it", (r.stdout || "").trim() === "");
 }
 {
-  const r = spawnSync(process.execPath, [HOOK], { input: "not json", encoding: "utf8" });
-  ok("broken input fails open", (r.stdout || "").trim() === "" && r.status === 0);
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: "not json",
+    encoding: "utf8",
+  });
+  ok(
+    "broken input fails open",
+    (r.stdout || "").trim() === "" && r.status === 0,
+  );
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

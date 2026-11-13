@@ -5,12 +5,12 @@
 // it and the same view is drawn in a popover instead. If the app ever changes its button, the click
 // goes through and the sidebar panel opens as before.
 
-import type { ReactNode } from 'react';
-import { createRoot } from 'react-dom/client';
-import type { Root } from 'react-dom/client';
+import type { ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 
 export const BUTTON = 'button[data-panel-id*="commandbuttons"]';
-const ID = 'command-buttons-popover';
+const ID = "command-buttons-popover";
 const GAP = 8;
 
 let view: (() => ReactNode) | undefined;
@@ -18,9 +18,10 @@ let root: Root | undefined;
 let box: HTMLDivElement | undefined;
 let sized: ResizeObserver | undefined;
 let anchored: Element | undefined;
-let label = '';
+let label = "";
 
-const button = (target: EventTarget | null) => (target instanceof Element ? target.closest(BUTTON) : null);
+const button = (target: EventTarget | null) =>
+  target instanceof Element ? target.closest(BUTTON) : null;
 
 function place(anchor: Element) {
   if (!box) return;
@@ -41,10 +42,10 @@ export function closePopover(giveBack = false) {
 
 function open(anchor: Element) {
   anchored = anchor;
-  box = document.createElement('div');
+  box = document.createElement("div");
   box.id = ID;
-  box.setAttribute('role', 'dialog');
-  box.setAttribute('aria-label', label);
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", label);
   box.tabIndex = -1;
   document.body.appendChild(box);
   root = createRoot(box);
@@ -53,7 +54,8 @@ function open(anchor: Element) {
   // Focus goes in once React has drawn the list: onto the first row, or the window itself if there is none
   const drawn = box;
   requestAnimationFrame(() => {
-    if (box === drawn) (drawn.querySelector<HTMLElement>('button') ?? drawn).focus();
+    if (box === drawn)
+      (drawn.querySelector<HTMLElement>("button") ?? drawn).focus();
   });
   sized = new ResizeObserver(() => place(anchor));
   sized.observe(box);
@@ -69,7 +71,12 @@ function onClick(e: MouseEvent) {
 }
 
 function onDown(e: MouseEvent) {
-  if (box && !button(e.target) && !(e.target instanceof Node && box.contains(e.target))) closePopover();
+  if (
+    box &&
+    !button(e.target) &&
+    !(e.target instanceof Node && box.contains(e.target))
+  )
+    closePopover();
 }
 
 const onResize = () => {
@@ -78,24 +85,25 @@ const onResize = () => {
 
 const onKey = (e: KeyboardEvent) => {
   // while a row asks "start again?", Esc answers that question first
-  if (e.key === 'Escape' && box && !box.querySelector('[data-asking]')) closePopover(true);
+  if (e.key === "Escape" && box && !box.querySelector("[data-asking]"))
+    closePopover(true);
 };
 
 export function installPopover(render: () => ReactNode, title: string) {
   if (view) return;
   view = render;
   label = title;
-  window.addEventListener('click', onClick, true);
-  window.addEventListener('mousedown', onDown, true);
-  window.addEventListener('keydown', onKey, true);
-  window.addEventListener('resize', onResize);
+  window.addEventListener("click", onClick, true);
+  window.addEventListener("mousedown", onDown, true);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("resize", onResize);
 }
 
 export function removePopover() {
   closePopover();
   view = undefined;
-  window.removeEventListener('click', onClick, true);
-  window.removeEventListener('mousedown', onDown, true);
-  window.removeEventListener('keydown', onKey, true);
-  window.removeEventListener('resize', onResize);
+  window.removeEventListener("click", onClick, true);
+  window.removeEventListener("mousedown", onDown, true);
+  window.removeEventListener("keydown", onKey, true);
+  window.removeEventListener("resize", onResize);
 }

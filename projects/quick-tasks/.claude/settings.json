@@ -1,3 +1,10 @@
 {
-  "model": "sonnet"
+  "model": "opus",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "node .claude/hooks/finder-link-gate.mjs", "timeout": 10 }]
+      }
+    ]
+  }
 }

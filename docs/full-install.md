@@ -19,17 +19,23 @@ For Claude: the user ran one command and expects the rest to happen by itself. D
 6. **No git in the user's projects.** Git is installed only because the plugin installer downloads with it.
 7. On a Mac, **never use `sudo` yourself**: your shell can't show a password prompt.
 
-## 1. Ask: the subscriptions and the projects folder
+## 1. Ask: the subscriptions, the projects folder and the two opt-ins
 
-One form, three questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in a terminal AskUserQuestion):
+First check whether Handy is installed: on Windows `winget list --id cjpais.Handy -e --accept-source-agreements`, on a Mac `ls -d /Applications/Handy.app`. If it is, leave the voice typing question out and take HANDY as yes.
+
+Then one form, up to five questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in a terminal AskUserQuestion):
 
 | Question | What a yes adds |
 |---|---|
 | Do you have a paid **ChatGPT** subscription? | **Codex**, for the generated pictures. |
-| Where should the projects folder go? | Four small project folders are made in it. The default is `Projects` in the home folder; any folder works. |
+| Where should the projects folder go? | Two small project folders are made in it, `claude-settings` and `quick-tasks`. The default is `Projects` in the home folder; any folder works. |
 | Which **language**: English or Русский? | With Русский, Claude answers in Russian in every chat and the setup's Nimbalyst extensions show Russian text. |
+| Do you want **voice typing**? Yes / No | **Handy**: hold a key, speak, and the words are typed. Installed in step 2, set up in step 9; it keeps itself up to date. |
+| **Back up your Claude setup to the cloud, encrypted?** Yes, set it up / No | The backup, set up by `/backup` after the install (step 12). |
 
-Say that "no" is fine: everything works on Claude alone. In the form's intro, name what step 2 installs if it is missing (Nimbalyst, Node.js, Git, uv, Handy for voice typing, Codex and ffmpeg with the ChatGPT yes; on a Mac also Homebrew, which asks once for the Mac password) and that it takes about ten to twenty minutes. Remember the answers as CODEX, PROJECTS and LANGUAGE (`english` or `russian`).
+The backup question has this text, and neither answer is marked recommended (not everybody needs it): "Your settings, rules, skills, memory and any project folders you pick are copied to your own Backblaze B2 storage on the schedule you pick (daily, weekly or only when you ask); it is free up to 10 GB, then about $7 per TB a month. They are locked on this computer with a password only you keep, so Backblaze or anyone with the storage key sees only scrambled data. Setup takes about 10 minutes: you make a Backblaze account and keep one password." With its No: "we won't ask again; `/backup` sets it up any time". Voice typing and the backup are asked only here, once: the answers are kept and no update asks again. How the user changes an answer later is in [setup.md](setup.md#asked-once-at-install).
+
+Say that "no" is fine: everything works on Claude alone. In the form's intro, name what step 2 installs if it is missing (Nimbalyst, Node.js, Git, uv, Codex and ffmpeg with the ChatGPT yes, Handy with the voice typing yes; on a Mac also Homebrew, which asks once for the Mac password) and that it takes about ten to twenty minutes. Remember the answers as CODEX, PROJECTS, LANGUAGE (`english` or `russian`), HANDY and BACKUP (`yes` or `no`).
 
 ## 2. Programs
 
@@ -37,7 +43,7 @@ Check each program first and install only what is missing and applies, one comma
 
 ### On Windows
 
-Checks: `node --version`, `git --version`, `uvx --version`, `winget list --id Nimbalyst.Nimbalyst -e --accept-source-agreements`, `winget list --id cjpais.Handy -e --accept-source-agreements`, and with a yes `codex --version`, `ffmpeg -version`. Add `--silent --accept-package-agreements --accept-source-agreements` to each `winget install`. If Windows asks to allow an app to make changes, tell the user to click Yes.
+Checks: `node --version`, `git --version`, `uvx --version`, `winget list --id Nimbalyst.Nimbalyst -e --accept-source-agreements`, and with a yes `codex --version`, `ffmpeg -version` (Handy was checked in step 1). Add `--silent --accept-package-agreements --accept-source-agreements` to each `winget install`. If Windows asks to allow an app to make changes, tell the user to click Yes.
 
 | Program | Applies | Install |
 |---|---|---|
@@ -45,7 +51,7 @@ Checks: `node --version`, `git --version`, `uvx --version`, `winget list --id Ni
 | Node.js 18 or newer | always, required | `winget install --id OpenJS.NodeJS.LTS -e --source winget` |
 | Git | always | `winget install --id Git.Git -e --source winget` |
 | uv | always | `winget install --id astral-sh.uv -e --source winget` |
-| Handy | always | `winget install --id cjpais.Handy -e --source winget` |
+| Handy | HANDY yes, not installed | `winget install --id cjpais.Handy -e --source winget` |
 | Codex CLI | CODEX yes | `npm i -g @openai/codex` |
 | ffmpeg | CODEX yes | `winget install --id Gyan.FFmpeg -e --source winget` |
 
@@ -59,7 +65,7 @@ Start every command from here on that names `brew`, `node`, `npm`, `npx`, `git`,
 
 **Homebrew first.** If `brew --version` fails, open a Terminal window that runs its installer: `osascript -e 'tell application "Terminal" to do script "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""' -e 'tell application "Terminal" to activate'`. Tell the user: "A Terminal window opened. Type your Mac password there when it asks (nothing shows while you type), press Return, and Return once more to continue. When it prints 'Installation successful', come back and say done." Then add Homebrew to the shell files, once: for `~/.zprofile` and `~/.zshrc`, if the file has no `brew shellenv`, append `eval "$(<the brew path> shellenv)"`; if `~/.zshrc` has no `.local/bin`, append `export PATH="$HOME/.local/bin:$PATH"`.
 
-Checks: `xcode-select -p` (Git is there when it prints a folder; don't run `git --version`, it opens a dialog), `node --version`, `uvx --version`, `ls -d /Applications/Nimbalyst.app`, `ls -d /Applications/Handy.app`, and with a yes `codex --version`, `ffmpeg -version`.
+Checks: `xcode-select -p` (Git is there when it prints a folder; don't run `git --version`, it opens a dialog), `node --version`, `uvx --version`, `ls -d /Applications/Nimbalyst.app`, and with a yes `codex --version`, `ffmpeg -version` (Handy was checked in step 1).
 
 | Program | Applies | Install |
 |---|---|---|
@@ -67,7 +73,7 @@ Checks: `xcode-select -p` (Git is there when it prints a folder; don't run `git 
 | Node.js 18 or newer | always, required | `brew install node` |
 | Git | only if `xcode-select -p` fails | `brew install git` |
 | uv | always | `brew install uv` |
-| Handy | always | `brew install --cask handy` |
+| Handy | HANDY yes, not installed | `brew install --cask handy` |
 | Codex CLI | CODEX yes | `npm i -g @openai/codex` |
 | ffmpeg | CODEX yes | `brew install ffmpeg ffmpeg-full` (`/watch` needs the full one to write the time on a still) |
 
@@ -77,15 +83,15 @@ If Nimbalyst was installed just now, run `open -a Nimbalyst` and wait until `~/L
 
 If Node can't be installed, stop and tell the user. If Codex can't be installed, set its answer to no for the rest of this file. Anything else that fails: note it for step 10 with its install command and go on.
 
-## 3. The files: rules, hooks, skills and the four projects
+## 3. The files: rules, hooks, skills and the two projects
 
 From `<repo>`:
 
 ```
-node install.mjs --projects "<projects>" --codex <yes|no> --language <english|russian>
+node install.mjs --projects "<projects>" --codex <yes|no> --language <english|russian> --handy <yes|no> --backup <yes|no>
 ```
 
-On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. The rules file `~/.claude/CLAUDE.md` is written whole. If it says `rules: brought up to this version` with some `of yours moved to`, the user already had rules of their own: tell them in one line that those now sit in `~/.claude/rules/my-rules.md`, which every chat loads too, and that a dated copy of the old file is kept.
+On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. `--handy` and `--backup` are only put on record: the run neither installs nor removes Handy or a backup. The run also puts Obscura, the headless browser the page reader `peek.mjs` falls back on, in `~/.claude/obscura` (one pinned release of about 70 MB, its SHA-256 checked). The rules file `~/.claude/CLAUDE.md` is written whole. If it says `rules: brought up to this version` with some `of yours moved to`, the user already had rules of their own: tell them in one line that those now sit in `~/.claude/rules/my-rules.md`, which every chat loads too, and that a dated copy of the old file is kept.
 
 When Nimbalyst is already installed, this run also builds the editor extensions and puts them into Nimbalyst (`extension installed: <name>`); the extensions step further down is then only for one that says `extension failed` or `extension not built`. The same run adds the Claude Code settings of step 5 and installs the plugins of step 4 (`plugin installed: <name>`), so those two steps are only for what it reports as failed or not installed. Its line `Left for a chat, once` means steps 8 and 9 below: you are that chat. Only this first run prints it; a later run or an update does not, and never opens a folder or asks about a theme or voice typing.
 
@@ -103,7 +109,7 @@ npx -y skills add vercel-labs/skills --skill find-skills -g -y
 
 `claude-hud` stays on everywhere. If `uvx` is there, warm up the document converter: `uvx --from "markitdown[all]" markitdown --help`.
 
-The `phone-bot` skill, the `shared-usage` skill and the `read-aloud` extension are add-ons, left out of step 3's run. To add any of them, run step 3 again with `--with phone-bot,shared-usage,read-aloud` (any subset); a copy already in place stays and keeps being updated by a plain run.
+The `phone-bot` skill and the `read-aloud` extension are add-ons, left out of step 3's run. To add either, run step 3 again with `--with phone-bot,read-aloud` (either or both); a copy already in place stays and keeps being updated by a plain run.
 
 ## 5. Claude Code settings
 
@@ -131,7 +137,7 @@ For `usage-plan`, `commands` and `systems-map`, in `<repo>/extensions/<name>`: `
 
 Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__nimbalyst-host__...`). Otherwise skip to step 9; step 10 gives the user a prompt for it.
 
-1. `workspace_open` once for each of the four folders under `<projects>`, so each shows up as a project.
+1. `workspace_open` once for each of the two folders under `<projects>`, so each shows up as a project.
 2. `settings_get_overview`, then `ai_set_default_model` with `providerModel: "claude-code:opus"`. If LANGUAGE is `russian`, also `ai_set_preferred_language` with `ru`.
 3. Turn on **worktrees** and **terminal** if they are off: `features_toggle` with `bucket: "alpha"`, the feature's tag from the overview, `enabled: true`. If the call answers `requiresUserAction: "developer-mode"`, tell the user: "Turn on Developer Mode in Nimbalyst: Settings > Advanced. Then say done." and call it again.
 4. **The look.** If `<extensions>/inktheme/manifest.json` is there: step 3's run set Ink Cobalt where no theme was picked yet (its line `theme: set to Ink Cobalt`; `--no-theme` leaves the theme alone). When it printed a line starting `theme: set now:` instead (Nimbalyst is open, so it could not write it): call `appearance_set_theme` with `com.local.inktheme:ink-cobalt` and, only if the call succeeded, run `node <repo>/install.mjs --theme-done`; if it failed, the extension loads after a restart: tell them to quit and reopen Nimbalyst and run `/update-setup` again. Ask once which theme they want: Ink Aurora, Ink Ivy, Ink Graphite, Ink Tide, Ink Ember, Ink Noir, Ink Cobalt, Ink Neon (dark), Ink Bone, Ink Frost, Ink Blossom (light), or the one they have now. For one of the eleven: `appearance_set_theme` with `com.local.inktheme:<id>`, the id being the name in small letters with a dash (`ink-aurora`, `ink-frost` and so on). If the call fails, the extension was installed in this run and loads when Nimbalyst starts: tell them to quit Nimbalyst, open it again and pick the theme with the Theme button at the bottom of the side bar.
@@ -139,7 +145,7 @@ Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__n
 
 ## 9. Handy, for voice typing
 
-**If step 2's check found Handy already installed, skip this step:** the user has it set up their way. Say in one line that voice typing was already there, and change nothing in it.
+Only with HANDY yes; with no, skip this step and change nothing (a Handy that is there stays). **If step 1's check found Handy already installed, skip this step too:** the user has it set up their way. Say in one line that voice typing was already there, and change nothing in it.
 
 Otherwise: Handy writes its settings file on first start, so tell the user: "Open Handy, follow its first-start setup (allow the microphone, pick the model Whisper Large v3 Turbo), then quit it from its tray or menu bar icon and say done." On a Mac it also needs System Settings > Privacy & Security > Accessibility.
 
@@ -148,7 +154,7 @@ Otherwise: Handy writes its settings file on first start, so tell the user: "Ope
 
 If the user doesn't want to do it now, note it for step 10.
 
-Steps 8 and 9 belong to this first install only. Nothing has to be put on record for them: a later run of the installer and every update leave them alone.
+Steps 8, 9 and 12 belong to this first install only. Nothing has to be put on record for them: a later run of the installer and every update leave them alone.
 
 ## 10. Test, then tell the user
 
@@ -159,16 +165,29 @@ Run each check once; fix an obvious failure, report any other with its output. B
 3. Write a temp text file of 400 lines and pipe `{"tool_name":"Read","tool_input":{"file_path":"<that file>"}}` into `node ~/.claude/hooks/big-read-gate.mjs`: the output contains `"deny"`. Delete the file.
 4. `permissions.deny` in `~/.claude/settings.json` holds `Agent(Explore)` and `Agent(general-purpose)`.
 5. `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
-6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
+6. `node "<projects>/quick-tasks/tools/test-finder.mjs"` ends with `all passed`.
 7. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.
 8. `node ~/.claude/skills/update-setup/update.mjs --check` prints `Already on the newest version`.
 9. On a Mac: `zsh -lic 'command -v node uvx'` prints two paths, and every hook command in `~/.claude/settings.json` starts with a Node that exists.
 
 Then reply in the user's language, in short lines:
 
-- **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, Codex, the four extensions, the four folders with their full path, voice typing.
-- **Do this once.** Quit Nimbalyst and open it again: the two new buttons then sit in the side bar and every chat finds the programs installed today. Start a new chat for the next task, because rules and hooks load when a chat starts. In each project folder you work in, type `/new-project` once. Any sign-in still open, with the exact command. If step 8 was skipped: open `<projects>/claude-settings` in Nimbalyst, turn on Developer Mode under Settings > Advanced, and paste in a new chat: `Open these four folders as projects: <the four full paths>. Set the default model for new chats to claude-code:sonnet. Turn on the alpha features worktrees and terminal if they are off. Then show me the settings overview.`
-- **What was already there:** the files kept as theirs and the files replaced (each old one is next to the new one as `<name>.before-install-<date>`), any hook whose script is not there, and the file under `~/.claude/setup-logs` that has the whole run. Leave this out on a computer that had no setup before.
+- **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, Codex, the four extensions, the two folders with their full path, voice typing (or not wanted), the backup (set up next with `/backup`, or not wanted).
+- **Memory:** one line: the setup relies on Claude Code's built-in auto memory (on by default, `autoMemoryEnabled`; per project under `~/.claude/projects/<project>/memory/`), which it checks (`/setup-audit memory`) and backs up (`/backup`).
+- **Do this once.** Quit Nimbalyst and open it again: the two new buttons then sit in the side bar and every chat finds the programs installed today. Start a new chat for the next task, because rules and hooks load when a chat starts. In a new project folder, the first message of the day offers `/new-project` on a card; in one that already has a `CLAUDE.md`, `/update-project` brings it up to the setup. Any sign-in still open, with the exact command. If step 8 was skipped: open `<projects>/claude-settings` in Nimbalyst, turn on Developer Mode under Settings > Advanced, and paste in a new chat: `Open these two folders as projects: <the two full paths>. Set the default model for new chats to claude-code:sonnet. Turn on the alpha features worktrees and terminal if they are off. Then show me the settings overview.`
+- **What was already there:** the files kept as theirs and the files replaced (each old one is kept in `~/.claude/setup-logs/<YYYY-MM-DD>-install-backup/`), any hook whose script is not there, and the file under `~/.claude/setup-logs` that has the whole run. Leave this out on a computer that had no setup before.
 - **What was left out** and how to add it: a missing Codex (run `node install.mjs --codex yes` from `<repo>` after installing and signing in), a program that could not be installed with its install command.
-- **How to use it:** `<projects>/claude-settings/HOW-TO.md` has an example for each feature; typing the single word `usage` shows how much of the plan is used.
+- **How to use it:** `<projects>/claude-settings/how-to.md` has an example for each feature; typing the single word `usage` shows how much of the plan is used.
 - **Updates:** every 12 hours the setup checks and says when a newer version is out; typing `/update-setup` installs it and keeps their own files, clears the setup's own leftovers, and offers theirs and a file reorganize on one card. `/disk-tidy` shows what fills the disk and `/file-upkeep` puts a project's files in order, any time.
+
+## 11. Project folders set up before this setup
+
+Run `node ~/.claude/skills/update-project/pass.mjs --list`. Only when its last line counts one or more `behind`: one question card (`AskUserQuestion`; in Nimbalyst `mcp__nimbalyst__AskUserQuestion`): `<n> project folders you worked in lately were set up before this setup. When you next work in one, offer to bring it up to date, so sessions there get the current rules, systems map and file layout (about 15 minutes each, every change shown first)?` Options `Yes, when I open each (recommended)` / `Now, starting with <newest folder>` (the first `behind` line) / `No, don't offer`.
+
+- Yes: nothing to run; the install started the offer as on.
+- Now: run `/update-project` on that folder by its path. Open no window.
+- No: `node ~/.claude/skills/update-project/pass.mjs --skip-all`. `/update-project` in a project folder still works any time.
+
+## 12. Backup, last
+
+Only with BACKUP yes: after the reply of step 10 and the question of step 11, run `/backup`. It sets the backup up with the user. With no, nothing: `/backup` sets it up any time.

@@ -28,71 +28,137 @@ import path from "node:path";
 const EDIT_TOOLS = /^(Edit|Write|MultiEdit)$/;
 const SHELL_TOOLS = /^(Bash|PowerShell)$/;
 
-// One command at a time (split on && || ; | and newlines), each anchored at its start, after env assignments and a shell wrapper
+// One command at a time (split on && || ; | and newlines), each anchored at its start, after env assignments, a shell wrapper
+// and a Python runner prefix (uv run, poetry run, pipenv run, hatch run)
 const BUILD = new RegExp(
-  "^(?:\\w+=(?:\"[^\"]*\"|'[^']*'|\\S*)\\s+)*(?:(?:bash|sh|call|cmd\\s+/c)\\s+)?(?:\\S*[\\\\/])?(?:" + [
-    "gradlew(?:\\.bat)?", "mvnw?", "qbuild(?:\\.\\w+)?", "run_all\\.\\w+", "run-all\\.\\w+", "run-tests?\\.\\w+",
-    "make", "pytest", "tox", "tsc", "vitest", "jest",
-    "(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:test|build)\\b", "npx\\s+(?:tsc|vitest|jest|playwright)\\b",
-    "cargo\\s+(?:build|test|check|clippy)\\b", "go\\s+(?:build|test|vet)\\b", "dotnet\\s+(?:build|test)\\b",
-    "cmake\\s+--build\\b", "(?:python3?|py)\\s+(?:-3\\s+)?-m\\s+(?:pytest|unittest)\\b",
-    "node\\s+(?:--test\\b|(?:\"[^\"]*[\\\\/]|'[^']*[\\\\/]|[\"']|\\S*[\\\\/])?(?:test-[\\w.-]*|[\\w.-]*[-.]tests?|run-tests?[\\w.-]*|run-all)\\.[cm]?js\\b)",
-  ].join("|") + ")[\"']?(?:\\s|$)", "i");
-const isBuild = (command, pattern) => pattern ? pattern.test(command) : command.split(/&&|\|\||;|\||\r?\n/).some((s) => BUILD.test(s.trim()));
+  "^(?:\\w+=(?:\"[^\"]*\"|'[^']*'|\\S*)\\s+)*(?:(?:bash|sh|call|cmd\\s+/c)\\s+)?(?:(?:uv|poetry|pipenv|hatch)\\s+run\\s+(?:(?:--(?:with|with-requirements|group|extra|project|directory|package|python|env-file|index|from)|-[pe])\\s+\\S+\\s+|-(?!-(?:with|with-requirements|group|extra|project|directory|package|python|env-file|index|from)\\s|[pe]\\s)\\S+\\s+)*)?(?:\\S*[\\\\/])?(?:" +
+    [
+      "gradlew(?:\\.bat)?",
+      "mvnw?",
+      "qbuild(?:\\.\\w+)?",
+      "run_all\\.\\w+",
+      "run-all\\.\\w+",
+      "run-tests?\\.\\w+",
+      "make",
+      "pytest",
+      "tox",
+      "tsc",
+      "vitest",
+      "jest",
+      "(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:test|build)\\b",
+      "npx\\s+(?:tsc|vitest|jest|playwright)\\b",
+      "cargo\\s+(?:build|test|check|clippy)\\b",
+      "go\\s+(?:build|test|vet)\\b",
+      "dotnet\\s+(?:build|test)\\b",
+      "cmake\\s+--build\\b",
+      "(?:python3?|py)\\s+(?:-3\\s+)?-m\\s+(?:pytest|unittest)\\b",
+      "node\\s+(?:--test\\b|(?:\"[^\"]*[\\\\/]|'[^']*[\\\\/]|[\"']|\\S*[\\\\/])?(?:test-[\\w.-]*|[\\w.-]*[-.]tests?|run-tests?[\\w.-]*|run-all)\\.[cm]?js\\b)",
+    ].join("|") +
+    ")[\"']?(?:\\s|$)",
+  "i",
+);
+const isBuild = (command, pattern) =>
+  pattern
+    ? pattern.test(command)
+    : command.split(/&&|\|\||;|\||\r?\n/).some((s) => BUILD.test(s.trim()));
 // Running an edited script is its check: a generator or tool whose own asserts are its test (the gate asked
 // for a build three times after such a script had run and passed)
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-export const runsEdited = (command, names) => names.some((n) => new RegExp(
-  "(?:^|[\\s;&|(])(?:python3?|py|node|bash|sh|pwsh|powershell)(?:\\.exe)?(?:\\s+-\\S+)*\\s+[\"']?(?:\\S*[\\\\/])?" + esc(n) + "[\"']?(?:\\s|$)", "i").test(command));
+export const runsEdited = (command, names) =>
+  names.some((n) =>
+    new RegExp(
+      "(?:^|[\\s;&|(])(?:python3?|py|node|bash|sh|pwsh|powershell)(?:\\.exe)?(?:\\s+-\\S+)*\\s+[\"']?(?:\\S*[\\\\/])?" +
+        esc(n) +
+        "[\"']?(?:\\s|$)",
+      "i",
+    ).test(command),
+  );
 
 // The code files edited in the turn, and whether a build or test ran after the last of those edits
 export function unverified(entries, pattern) {
   const failed = new Set();
   for (const e of entries) {
     if (e.type !== "user" || !Array.isArray(e.message?.content)) continue;
-    for (const b of e.message.content) if (b.type === "tool_result" && b.is_error) failed.add(b.tool_use_id);
+    for (const b of e.message.content)
+      if (b.type === "tool_result" && b.is_error) failed.add(b.tool_use_id);
   }
   // per file: its last edit and its last own run; a build clears every file, running a script clears only that script
   const files = new Map();
-  let step = 0, lastBuild = -1;
+  let step = 0,
+    lastBuild = -1;
   for (const e of entries) {
-    if (e.type !== "assistant" || e.isSidechain || !Array.isArray(e.message?.content)) continue;
+    if (
+      e.type !== "assistant" ||
+      e.isSidechain ||
+      !Array.isArray(e.message?.content)
+    )
+      continue;
     for (const b of e.message.content) {
       if (b.type !== "tool_use" || failed.has(b.id)) continue;
       step++;
       const p = b.input?.file_path;
       if (EDIT_TOOLS.test(b.name) && p && isCode(p)) {
         const k = fileKey(p);
-        files.set(k, { name: path.win32.basename(String(p)), edit: step, run: files.get(k)?.run ?? -1 });
+        files.set(k, {
+          name: path.win32.basename(String(p)),
+          edit: step,
+          run: files.get(k)?.run ?? -1,
+        });
       } else if (SHELL_TOOLS.test(b.name)) {
         const c = String(b.input?.command || "");
         if (isBuild(c, pattern)) lastBuild = step;
-        else for (const f of files.values()) if (runsEdited(c, [f.name])) f.run = step;
+        else
+          for (const f of files.values())
+            if (runsEdited(c, [f.name])) f.run = step;
       }
     }
   }
   const all = [...files.values()];
-  return { files: all.map((f) => f.name), due: all.some((f) => f.edit > Math.max(lastBuild, f.run)) };
+  return {
+    files: all.map((f) => f.name),
+    due: all.some((f) => f.edit > Math.max(lastBuild, f.run)),
+  };
 }
 
 // VERIFY_GATE and VERIFY_PATTERN can sit in the project's settings env (setting() looks in settings.local.json too,
 // and in the folders above the project)
 if (isMain(import.meta.url)) {
-  runHook("verify-gate", (input) => {
-    if (input.agent_id || !input.transcript_path || !input.session_id || !fs.existsSync(input.transcript_path)) return;
-    // The turn starts at the user's last typed message: a task's notice after it is part of it
-    const { start, entries } = currentTurn(readEntries(fs.readFileSync(input.transcript_path, "utf8")), { typed: true });
-    const custom = setting("VERIFY_PATTERN");
-    const { files, due } = unverified(entries, custom ? new RegExp(custom, "i") : null); // a bad pattern throws: logged, fails open
-    if (!due) return;
-    if (/\?\s*$/.test(String(input.last_assistant_message || ""))) return;
-    // Once per turn: the state file holds the turn this hook last blocked; files untouched for two days go
-    const marker = stateFile("verify-gate", sessionKey(input.session_id));
-    const turnKey = start?.uuid || start?.timestamp || "no-typed-message";
-    if (readJson(marker)?.turn === turnKey) return;
-    writeJson(marker, { turn: turnKey }); // throws when it can't be written, so no block that could repeat
-    const names = files.length > 6 ? `${files.slice(0, 6).join(", ")} and ${files.length - 6} more` : files.join(", ");
-    emit.block(`${VERIFY_GATE} code was edited this turn (${names}) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.`);
-    sweep("verify-gate", 2);
-  }, { projectSettings: true });
+  runHook(
+    "verify-gate",
+    (input) => {
+      if (
+        input.agent_id ||
+        !input.transcript_path ||
+        !input.session_id ||
+        !fs.existsSync(input.transcript_path)
+      )
+        return;
+      // The turn starts at the user's last typed message: a task's notice after it is part of it
+      const { start, entries } = currentTurn(
+        readEntries(fs.readFileSync(input.transcript_path, "utf8")),
+        { typed: true },
+      );
+      const custom = setting("VERIFY_PATTERN");
+      const { files, due } = unverified(
+        entries,
+        custom ? new RegExp(custom, "i") : null,
+      ); // a bad pattern throws: logged, fails open
+      if (!due) return;
+      if (/\?\s*$/.test(String(input.last_assistant_message || ""))) return;
+      // Once per turn: the state file holds the turn this hook last blocked; files untouched for two days go
+      const marker = stateFile("verify-gate", sessionKey(input.session_id));
+      const turnKey = start?.uuid || start?.timestamp || "no-typed-message";
+      if (readJson(marker)?.turn === turnKey) return;
+      writeJson(marker, { turn: turnKey }); // throws when it can't be written, so no block that could repeat
+      const names =
+        files.length > 6
+          ? `${files.slice(0, 6).join(", ")} and ${files.length - 6} more`
+          : files.join(", ");
+      emit.block(
+        `${VERIFY_GATE} code was edited this turn (${names}) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.`,
+      );
+      sweep("verify-gate", 2);
+    },
+    { projectSettings: true },
+  );
 }

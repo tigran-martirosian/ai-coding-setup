@@ -14,7 +14,8 @@ default to 7; pass the user's `--days N` or `--project <name>` to all three scan
 
 ## 1. Last time
 
-Open the newest `audits/*-review.md` (not the `-numbers` file) and read only its **Decided** and
+Open the newest `audits/*-review.md`, or from before the files were renamed `audits/review-<date>.md` (the
+newest of both by the date in the name; never a `-numbers` file), and read only its **Decided** and
 **Still open** tables. What was declined is not offered again unless its number moved a lot, and then
 say by how much. What was done is measured this time: did it move the number it was meant to move.
 
@@ -26,8 +27,8 @@ first day a measurement makes sense.
 ## 2. Numbers (one shell call)
 
 `bash $S/numbers.sh --days N` runs `~/.claude/skills/setup-audit/scripts/usage-scan.mjs` and
-`$S/review-scan.mjs` and writes both reports to `audits/review-<date>-numbers.md` (`-2-numbers` when the
-day already has one; it prints the name). Read that file
+`$S/review-scan.mjs` and writes both reports to `audits/<date>-review-numbers.md` (`<date>-review-numbers-2.md`
+when the day already has one; it prints the name). Read that file
 (about 250 lines) in two parts.
 
 - usage-scan: totals, top sessions, subagents by type and model, workers, hook blocks, what gets used,
@@ -52,6 +53,14 @@ one message (`run_in_background: false`, so they run side by side), each told to
 names the digest to read and the `<project>.findings.md` to write. Headings B (went wrong),
 C (questions that missed), G (reasoning) and H (pace: LONG or SHORT) are the ones this review uses.
 
+In the same message, start one `blind-reviewer` agent for the blind look at the whole setup, the
+once-per-release look of the `lead` skill. It has only the Read tool, so its brief names every file by
+full path: `~/.claude/CLAUDE.md`, each file in `~/.claude/rules/`, and each digest of this run. Paste
+the `description:` line of every `~/.claude/skills/*/SKILL.md` (one Grep) as the list of skills. Ask:
+"Read these as the person who works with this setup each day: where does the way they work fight it?"
+Leave out `DECISIONS.md`, `HANDOFF.md`, design notes and every reason behind the setup. End the brief
+with `SYSTEMS MAP: none`.
+
 ## 4. Health
 
 Step 3 of `audit.md` (next to SKILL.md), in as few shell calls as possible: every test suite
@@ -62,8 +71,8 @@ dropped" (that skill loads with no description, so Claude never matches it) and 
 
 ## 5. Judge (this stays with you)
 
-Seven sections, each two to six lines. A scanner's "pushed back" list and the reader's lines are
-leads: before one becomes a finding, check it in the digest (Grep the chat label, Read those lines).
+Nine sections, each two to six lines. A scanner's "pushed back" list, the reader's lines and the
+blind reviewer's findings are leads: before one becomes a finding, check it in the digest (Grep the chat label, Read those lines).
 Something counts when it was seen in two or more chats, or once at a cost you can name. Where the
 numbers don't show a cause, write "cause not measured" instead of guessing one.
 
@@ -83,6 +92,13 @@ numbers don't show a cause, write "cause not measured" instead of guessing one.
 6. **Too short:** quick answers the user pushed back on; reader heading H marked SHORT.
 7. **Failing:** failed suites, tools with a high failure rate, the most frequent errors, failure
    streaks, failed worker calls, hooks whose blocks cost more than they save.
+8. **Rule or preference:** each hook wired in settings.json marked *rule* (secrets, read-only guards, push scan,
+   a check before done) or *preference* (reply wording, nudges, format). Per preference hook: blocks in 14 days
+   and, from a sample of up to 10, how many were right. Propose dropping only a hook whose blocks were mostly
+   wrong or a hook that repeats another; a hook that rarely fires is not a finding (ask what it was set up for).
+   Basis: Anthropic's best-practices page, "if you have hooks for things that are only preferences, delete them".
+9. **A newcomer's look:** the blind reviewer's whole-approach line and its findings, each checked in
+   the digest it cites; the number behind one is the count of chats it was seen in.
 
 ## 6. Options
 
@@ -108,7 +124,7 @@ offered as a rule. A rule is for what no script can check.
 
 ## 7. Save
 
-`audits/YYYY-MM-DD-review.md` (a second review that day replaces it; git keeps the first): the seven sections, each with its numbers; the
+`audits/YYYY-MM-DD-review.md` (a second review that day replaces it; git keeps the first): the nine sections, each with its numbers; the
 options; a **Decided** table (option | ticked, declined or open | where it went), filled in after
 step 8; **Still open** (what to measure next time). Findings in your own words, no quotes from chats.
 
@@ -118,12 +134,12 @@ One `PromptForUserInput`:
 
 - a `singleSelect` "Who leads and who does the work", `allowOther: true`, one option per row of the
   what-if table that is worth choosing, each with its weight against now in the description. Mark one
-  "(recommended)" only as `~/.claude/CLAUDE.md` allows (`Checked:` or `Judgment:`, `Other wins if:`);
+  "(recommended)" only with one plain reason from what this review measured;
   when it comes down to how much quality the user will trade for usage, recommend nothing and say so.
 - a `multiSelect` with the other options, nothing ticked in advance, the largest effect first.
   **title:** the change in plain words. **subtitle:** what was seen, what it should move, what it costs.
-- right after it, an optional `editText` "Anything else?" (`minLength: 0`): the question-other hook refuses a
-  `multiSelect` with no typing box after it.
+- right after it, an optional `editText` "Anything else?" (`minLength: 0`): the question-other hook sends a note
+  on a `multiSelect` with no typing box after it (a note, not a refusal).
 
 If nothing counted, say so plainly and ask nothing. If the form is lost or interrupted, never show it
 again: list the options as text and change nothing.

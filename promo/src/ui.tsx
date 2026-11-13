@@ -11,7 +11,15 @@ export const Window: React.FC<{
   style?: React.CSSProperties;
   bodyStyle?: React.CSSProperties;
   children: React.ReactNode;
-}> = ({ title, chip, chipColor = color.sky, active, style, bodyStyle, children }) => (
+}> = ({
+  title,
+  chip,
+  chipColor = color.sky,
+  active,
+  style,
+  bodyStyle,
+  children,
+}) => (
   <div
     style={{
       background: color.panel,
@@ -39,15 +47,25 @@ export const Window: React.FC<{
       <span>{title}</span>
       {chip ? <Chip color={chipColor}>{chip}</Chip> : null}
     </div>
-    <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16, ...bodyStyle }}>{children}</div>
+    <div
+      style={{
+        padding: 24,
+        display: "flex",
+        flexDirection: "column",
+        gap: 16,
+        ...bodyStyle,
+      }}
+    >
+      {children}
+    </div>
   </div>
 );
 
-export const Chip: React.FC<{ color?: string; style?: React.CSSProperties; children: React.ReactNode }> = ({
-  color: c = color.sky,
-  style,
-  children,
-}) => (
+export const Chip: React.FC<{
+  color?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}> = ({ color: c = color.sky, style, children }) => (
   <span
     style={{
       fontSize: 20,
@@ -67,11 +85,11 @@ export const Chip: React.FC<{ color?: string; style?: React.CSSProperties; child
 );
 
 /** One chat message. `struck` greys it out and strikes it through (a reply that was sent back). */
-export const Bubble: React.FC<{ who: "you" | "agent"; struck?: boolean; children: React.ReactNode }> = ({
-  who,
-  struck,
-  children,
-}) => (
+export const Bubble: React.FC<{
+  who: "you" | "agent";
+  struck?: boolean;
+  children: React.ReactNode;
+}> = ({ who, struck, children }) => (
   <div
     style={{
       alignSelf: who === "you" ? "flex-end" : "flex-start",
@@ -84,27 +102,70 @@ export const Bubble: React.FC<{ who: "you" | "agent"; struck?: boolean; children
       lineHeight: 1.35,
     }}
   >
-    <div style={{ fontSize: 20, fontWeight: 600, color: color.dim, marginBottom: 4 }}>{who === "you" ? "You" : "Agent"}</div>
-    <div style={{ opacity: struck ? 0.5 : 1, textDecoration: struck ? "line-through" : "none" }}>{children}</div>
+    <div
+      style={{
+        fontSize: 20,
+        fontWeight: 600,
+        color: color.dim,
+        marginBottom: 4,
+      }}
+    >
+      {who === "you" ? "You" : "Agent"}
+    </div>
+    <div
+      style={{
+        opacity: struck ? 0.5 : 1,
+        textDecoration: struck ? "line-through" : "none",
+      }}
+    >
+      {children}
+    </div>
   </div>
 );
 
 export type Status = "plain" | "running" | "ok" | "blocked";
 
-export const StatusIcon: React.FC<{ status: Status; size?: number }> = ({ status, size = 30 }) => {
+export const StatusIcon: React.FC<{ status: Status; size?: number }> = ({
+  status,
+  size = 30,
+}) => {
   const frame = useCurrentFrame();
-  if (status === "plain") return <span style={{ width: size, height: size, flexShrink: 0 }} />;
+  if (status === "plain")
+    return <span style={{ width: size, height: size, flexShrink: 0 }} />;
   if (status === "running") {
     return (
-      <svg width={size} height={size} viewBox="0 0 24 24" style={{ rotate: `${frame * 14}deg`, flexShrink: 0 }}>
-        <circle cx="12" cy="12" r="9" fill="none" stroke={color.line} strokeWidth="3" />
-        <path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke={color.sky} strokeWidth="3" strokeLinecap="round" />
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        style={{ rotate: `${frame * 14}deg`, flexShrink: 0 }}
+      >
+        <circle
+          cx="12"
+          cy="12"
+          r="9"
+          fill="none"
+          stroke={color.line}
+          strokeWidth="3"
+        />
+        <path
+          d="M12 3 a9 9 0 0 1 9 9"
+          fill="none"
+          stroke={color.sky}
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
   const ok = status === "ok";
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      style={{ flexShrink: 0 }}
+    >
       <circle cx="12" cy="12" r="11" fill={ok ? color.green : color.red} />
       <path
         d={ok ? "M7 12.5 l3.4 3.4 l6.6 -7.4" : "M8 8 l8 8 M16 8 l-8 8"}
@@ -119,7 +180,11 @@ export const StatusIcon: React.FC<{ status: Status; size?: number }> = ({ status
 };
 
 /** One tool call of the agent: the tool's name, what it was called with, and how it ended. */
-export const ToolRow: React.FC<{ tool: string; text: string; status: Status }> = ({ tool, text, status }) => (
+export const ToolRow: React.FC<{
+  tool: string;
+  text: string;
+  status: Status;
+}> = ({ tool, text, status }) => (
   <div
     style={{
       display: "flex",
@@ -150,7 +215,10 @@ export const ToolRow: React.FC<{ tool: string; text: string; status: Status }> =
 );
 
 /** The message a hook sends back when it blocks a step. */
-export const BlockNote: React.FC<{ hook: string; children: React.ReactNode }> = ({ hook, children }) => (
+export const BlockNote: React.FC<{
+  hook: string;
+  children: React.ReactNode;
+}> = ({ hook, children }) => (
   <div
     style={{
       background: `${color.red}1c`,
@@ -161,13 +229,25 @@ export const BlockNote: React.FC<{ hook: string; children: React.ReactNode }> = 
       lineHeight: 1.35,
     }}
   >
-    <span style={{ fontFamily: mono, fontWeight: 600, color: "#fca5a5", marginRight: 12 }}>{hook}</span>
+    <span
+      style={{
+        fontFamily: mono,
+        fontWeight: 600,
+        color: "#fca5a5",
+        marginRight: 12,
+      }}
+    >
+      {hook}
+    </span>
     {children}
   </div>
 );
 
 /** A step in a session's work list. */
-export const Step: React.FC<{ status: Status; children: React.ReactNode }> = ({ status, children }) => (
+export const Step: React.FC<{ status: Status; children: React.ReactNode }> = ({
+  status,
+  children,
+}) => (
   <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 29 }}>
     <StatusIcon status={status} />
     <span>{children}</span>
@@ -175,14 +255,44 @@ export const Step: React.FC<{ status: Status; children: React.ReactNode }> = ({ 
 );
 
 /** Panels side by side at the same height. */
-export const Columns: React.FC<{ gap?: number; height?: number; children: React.ReactNode }> = ({
-  gap = 40,
-  height,
-  children,
-}) => <div style={{ display: "flex", gap, height, width: "100%", alignItems: "stretch" }}>{children}</div>;
+export const Columns: React.FC<{
+  gap?: number;
+  height?: number;
+  children: React.ReactNode;
+}> = ({ gap = 40, height, children }) => (
+  <div
+    style={{
+      display: "flex",
+      gap,
+      height,
+      width: "100%",
+      alignItems: "stretch",
+    }}
+  >
+    {children}
+  </div>
+);
 
-export const Bar: React.FC<{ value: number; color: string; height?: number }> = ({ value, color: c, height = 10 }) => (
-  <div style={{ height, borderRadius: height, background: color.line, overflow: "hidden" }}>
-    <div style={{ width: `${Math.min(100, value)}%`, height: "100%", borderRadius: height, background: c }} />
+export const Bar: React.FC<{
+  value: number;
+  color: string;
+  height?: number;
+}> = ({ value, color: c, height = 10 }) => (
+  <div
+    style={{
+      height,
+      borderRadius: height,
+      background: color.line,
+      overflow: "hidden",
+    }}
+  >
+    <div
+      style={{
+        width: `${Math.min(100, value)}%`,
+        height: "100%",
+        borderRadius: height,
+        background: c,
+      }}
+    />
   </div>
 );

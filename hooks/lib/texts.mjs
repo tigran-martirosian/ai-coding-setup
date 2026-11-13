@@ -9,7 +9,9 @@ export const WHAT_THIS_DOES = `# ${NOTE_WORDS}`;
 export const NO_NOTE = "(no note given)";
 export const NOTE_LINE_RE = new RegExp(`^#\\s*${esc(NOTE_WORDS)}\\s*(.*)$`); // the command's last line, note in group 1
 export const NOTE_ANYWHERE_RE = new RegExp(`#\\s*${esc(NOTE_WORDS)}\\s*(.*)`);
-export const STAND_IN_RE = new RegExp(`\\n\\n${esc(WHAT_THIS_DOES)} ${esc(NO_NOTE)} [\\s\\S]*$`); // as appended to a command
+export const STAND_IN_RE = new RegExp(
+  `\\n\\n${esc(WHAT_THIS_DOES)} ${esc(NO_NOTE)} [\\s\\S]*$`,
+); // as appended to a command
 export const COMMAND_EXPLAIN = "command-explain:";
 export const POWERSHELL_TOOL = "PowerShell tool"; // a retired refusal ("don't use the PowerShell tool here"; the tool is now off by setting), still in old transcripts
 // Refusals older versions wrote, still in old transcripts
@@ -23,7 +25,8 @@ export const BIG_READ_GATE = "[big-read-gate]";
 export const VERIFY_GATE = "verify-gate:";
 
 // chat-scan.mjs writes it in a digest's header, read-digests.mjs reads it back
-export const chatCounts = (chats, requests) => `${chats} chats, ${requests} requests`;
+export const chatCounts = (chats, requests) =>
+  `${chats} chats, ${requests} requests`;
 export const CHAT_COUNTS_RE = /chats, (\d+) requests/;
 
 // app text, outside fact

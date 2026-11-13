@@ -6,20 +6,30 @@
  * This file only draws them.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
-import type { PanelHostProps } from '@nimbalyst/extension-sdk';
-import '../../shared/tokens.css';
-import './panel.css';
-import { t } from './strings.ts';
-import { absolute, checkLine, driftedLinks, legend, projectName, sizeLine } from './map.ts';
-import type { Check, Evidence, Link, MapData, Thing } from './map.ts';
-import { search } from './search.ts';
-import { layout, radius } from './layout.ts';
-import type { Place } from './layout.ts';
-import { REFRESH_MS, build, read } from './store.ts';
-import type { Snapshot } from './store.ts';
-import { hostError, hostInvoke as invoke } from '../../shared/host.ts';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
+import type { PanelHostProps } from "@nimbalyst/extension-sdk";
+import "../../shared/tokens.css";
+import "./panel.css";
+import { t } from "./strings.ts";
+import {
+  absolute,
+  checkLine,
+  driftedLinks,
+  legend,
+  projectName,
+  sizeLine,
+} from "./map.ts";
+import type { Check, Evidence, Link, MapData, Thing } from "./map.ts";
+import { search } from "./search.ts";
+import { layout, radius } from "./layout.ts";
+import type { Place } from "./layout.ts";
+import { REFRESH_MS, build, read } from "./store.ts";
+import type { Snapshot } from "./store.ts";
+import { hostError, hostInvoke as invoke } from "../../shared/host.ts";
 
 const Sym = ({ name }: { name: string }) => (
   <span className="material-symbols-outlined sm-sym" aria-hidden="true">
@@ -38,9 +48,12 @@ interface Reading {
 }
 
 /** Reads on mount, every REFRESH_MS while the panel is on screen, and when it comes back on screen. */
-function useReading(host: PanelHostProps['host'], rootRef: React.RefObject<HTMLDivElement | null>): Reading {
+function useReading(
+  host: PanelHostProps["host"],
+  rootRef: React.RefObject<HTMLDivElement | null>,
+): Reading {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
 
@@ -49,9 +62,11 @@ function useReading(host: PanelHostProps['host'], rootRef: React.RefObject<HTMLD
     running.current = true;
     setBusy(true);
     try {
-      const next = await read(host.workspacePath, invoke, (command, options) => host.exec(command, options));
+      const next = await read(host.workspacePath, invoke, (command, options) =>
+        host.exec(command, options),
+      );
       setSnapshot((old) => (old && old.key === next.key ? old : next));
-      setError('');
+      setError("");
     } catch (e) {
       setError(hostError(e));
     } finally {
@@ -98,7 +113,8 @@ interface View {
   k: number;
 }
 
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, v));
 
 /** The view that shows the whole layout in a box of this size. */
 function fitView(w: number, h: number): View {
@@ -119,14 +135,27 @@ interface GraphProps {
 
 const linkKey = (from: string, to: string) => `${from}\u0000${to}`;
 
-function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphProps) {
+function Graph({
+  map,
+  selected,
+  onSelect,
+  query,
+  focusRequest,
+  drifted,
+}: GraphProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
-  const [hover, setHover] = useState('');
+  const [hover, setHover] = useState("");
   const touched = useRef(false);
-  const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null);
+  const drag = useRef<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    moved: boolean;
+  } | null>(null);
 
   const degree = useMemo(() => {
     const d = new Map<string, number>(map.things.map((n) => [n.id, 0]));
@@ -137,7 +166,9 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
     return d;
   }, [map]);
   const neighbours = useMemo(() => {
-    const m = new Map<string, Set<string>>(map.things.map((n) => [n.id, new Set<string>()]));
+    const m = new Map<string, Set<string>>(
+      map.things.map((n) => [n.id, new Set<string>()]),
+    );
     for (const l of map.links) {
       m.get(l.from)?.add(l.to);
       m.get(l.to)?.add(l.from);
@@ -155,16 +186,21 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
           pad: radius(Math.max(0, ...degree.values())) + 6,
           groups: map.things.map((n) => n.group),
           radii: map.things.map((n) => radius(degree.get(n.id) ?? 0)),
-        }
+        },
       ),
-    [map, degree]
+    [map, degree],
   );
-  const found = useMemo(() => search(query, map.things, map.links), [query, map]);
+  const found = useMemo(
+    () => search(query, map.things, map.links),
+    [query, map],
+  );
 
   useEffect(() => {
     const el = boxRef.current;
     if (!el) return;
-    const watcher = new ResizeObserver(([entry]) => setSize({ w: entry.contentRect.width, h: entry.contentRect.height }));
+    const watcher = new ResizeObserver(([entry]) =>
+      setSize({ w: entry.contentRect.width, h: entry.contentRect.height }),
+    );
     watcher.observe(el);
     return () => watcher.disconnect();
   }, []);
@@ -174,7 +210,8 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
     touched.current = false;
   }, [places]);
   useEffect(() => {
-    if (size.w > 0 && size.h > 0 && !touched.current) setView(fitView(size.w, size.h));
+    if (size.w > 0 && size.h > 0 && !touched.current)
+      setView(fitView(size.w, size.h));
   }, [size, places]);
 
   const zoomAt = useCallback((factor: number, px: number, py: number) => {
@@ -193,10 +230,14 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = svg.getBoundingClientRect();
-      zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
+      zoomAt(
+        Math.exp(-e.deltaY * 0.0015),
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+      );
     };
-    svg.addEventListener('wheel', onWheel, { passive: false });
-    return () => svg.removeEventListener('wheel', onWheel);
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
   }, [zoomAt]);
 
   // Centre on a part when asked (Enter in the search box, a link in the card).
@@ -204,12 +245,22 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
     const p = places.get(focusRequest.id);
     if (!p || !focusRequest.n || size.w === 0) return;
     touched.current = true;
-    setView((v) => ({ ...v, x: size.w / 2 - p.x * v.k, y: size.h / 2 - p.y * v.k }));
+    setView((v) => ({
+      ...v,
+      x: size.w / 2 - p.x * v.k,
+      y: size.h / 2 - p.y * v.k,
+    }));
   }, [focusRequest, places, size]);
 
   const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
-    drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false };
+    drag.current = {
+      x: e.clientX,
+      y: e.clientY,
+      vx: view.x,
+      vy: view.y,
+      moved: false,
+    };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
@@ -225,22 +276,42 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
   const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
     const d = drag.current;
     drag.current = null;
-    if (d && !d.moved && (e.target as Element).closest('.sm-node') === null) onSelect('');
+    if (d && !d.moved && (e.target as Element).closest(".sm-node") === null)
+      onSelect("");
   };
 
   const focusId = hover || selected;
-  const focusSet = useMemo(() => (focusId ? new Set([focusId, ...(neighbours.get(focusId) ?? [])]) : null), [focusId, neighbours]);
+  const focusSet = useMemo(
+    () =>
+      focusId ? new Set([focusId, ...(neighbours.get(focusId) ?? [])]) : null,
+    [focusId, neighbours],
+  );
   const lit = focusSet ?? found?.shown ?? null;
   const matches = useMemo(() => new Set(found?.matches ?? []), [found]);
-  const r = (id: string) => radius(degree.get(id) ?? 0) * clamp(Math.sqrt(view.k), 0.75, 1.5);
+  const r = (id: string) =>
+    radius(degree.get(id) ?? 0) * clamp(Math.sqrt(view.k), 0.75, 1.5);
 
-  const screen = (p: Place) => ({ x: p.x * view.k + view.x, y: p.y * view.k + view.y });
+  const screen = (p: Place) => ({
+    x: p.x * view.k + view.x,
+    y: p.y * view.k + view.y,
+  });
 
   // Labels: the focused part and its neighbours first, then matches, then the busiest parts; one that
   // would cover an earlier label is left out. Zooming in makes room for the rest.
   const labels = useMemo(() => {
-    const order = [...map.things].sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0));
-    const rank = (n: Thing) => (n.id === focusId ? 0 : focusSet?.has(n.id) ? 1 : matches.has(n.id) ? 2 : lit && !lit.has(n.id) ? 4 : 3);
+    const order = [...map.things].sort(
+      (a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0),
+    );
+    const rank = (n: Thing) =>
+      n.id === focusId
+        ? 0
+        : focusSet?.has(n.id)
+          ? 1
+          : matches.has(n.id)
+            ? 2
+            : lit && !lit.has(n.id)
+              ? 4
+              : 3;
     order.sort((a, b) => rank(a) - rank(b));
     const boxes: Array<[number, number, number, number]> = [];
     // label baseline per shown part: under its dot, or above it when the space below is taken
@@ -252,7 +323,14 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
     });
     // a label that would sit on another part's dot is left out, unless it is the one in focus
     const underDot = (id: string, b: [number, number, number, number]) =>
-      dots.some((d) => d.id !== id && d.x + d.r > b[0] && d.x - d.r < b[2] && d.y + d.r > b[1] && d.y - d.r < b[3]);
+      dots.some(
+        (d) =>
+          d.id !== id &&
+          d.x + d.r > b[0] &&
+          d.x - d.r < b[2] &&
+          d.y + d.r > b[1] &&
+          d.y - d.r < b[3],
+      );
     for (const n of order) {
       const p = places.get(n.id);
       if (!p) continue;
@@ -261,12 +339,33 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
       const s = screen(p);
       const w = n.name.length * LABEL_CHAR + 6;
       const rn = r(n.id);
-      const below: [number, number, number, number] = [s.x - w / 2, s.y + rn + 2, s.x + w / 2, s.y + rn + 2 + LABEL_HEIGHT];
-      const above: [number, number, number, number] = [s.x - w / 2, s.y - rn - 2 - LABEL_HEIGHT, s.x + w / 2, s.y - rn - 2];
-      if (below[2] < 0 || below[0] > size.w || below[3] < 0 || above[1] > size.h) continue;
-      const free = (box: [number, number, number, number]) => !boxes.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1]);
+      const below: [number, number, number, number] = [
+        s.x - w / 2,
+        s.y + rn + 2,
+        s.x + w / 2,
+        s.y + rn + 2 + LABEL_HEIGHT,
+      ];
+      const above: [number, number, number, number] = [
+        s.x - w / 2,
+        s.y - rn - 2 - LABEL_HEIGHT,
+        s.x + w / 2,
+        s.y - rn - 2,
+      ];
+      if (
+        below[2] < 0 ||
+        below[0] > size.w ||
+        below[3] < 0 ||
+        above[1] > size.h
+      )
+        continue;
+      const free = (box: [number, number, number, number]) =>
+        !boxes.some(
+          (b) =>
+            box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1],
+        );
       let box: [number, number, number, number] | undefined;
-      if (rk === 0) box = [below, above].find((b) => !underDot(n.id, b)) ?? below;
+      if (rk === 0)
+        box = [below, above].find((b) => !underDot(n.id, b)) ?? below;
       else box = [below, above].find((b) => free(b) && !underDot(n.id, b));
       // the parts linked to the one in focus may sit over a dimmed dot; never over a label
       if (!box && rk === 1) box = [below, above].find(free);
@@ -280,12 +379,21 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
 
   const name = new Map(map.things.map((n) => [n.id, n.name]));
   const keyRows = useMemo(() => legend(map), [map]);
-  const slotOf = useMemo(() => new Map(keyRows.map((g) => [g.name, g.slot])), [keyRows]);
-  const lineLit = (l: Link) => (focusId ? l.from === focusId || l.to === focusId : found ? found.shown.has(l.from) && found.shown.has(l.to) : true);
-  const noMatch = query.trim() !== '' && found !== null && found.matches.length === 0;
+  const slotOf = useMemo(
+    () => new Map(keyRows.map((g) => [g.name, g.slot])),
+    [keyRows],
+  );
+  const lineLit = (l: Link) =>
+    focusId
+      ? l.from === focusId || l.to === focusId
+      : found
+        ? found.shown.has(l.from) && found.shown.has(l.to)
+        : true;
+  const noMatch =
+    query.trim() !== "" && found !== null && found.matches.length === 0;
 
   const key = (e: ReactKeyboardEvent, id: string) => {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onSelect(id);
     }
@@ -313,7 +421,7 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
             return (
               <line
                 key={i}
-                className={`sm-edge t-${l.type}${drifted.has(linkKey(l.from, l.to)) ? ' is-drift' : ''}${focusId && on ? ' is-lit' : ''}${on ? '' : ' is-dim'}`}
+                className={`sm-edge t-${l.type}${drifted.has(linkKey(l.from, l.to)) ? " is-drift" : ""}${focusId && on ? " is-lit" : ""}${on ? "" : " is-dim"}`}
                 x1={sa.x}
                 y1={sa.y}
                 x2={sb.x}
@@ -328,11 +436,17 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
             if (!p) return null;
             const s = screen(p);
             const dim = lit !== null && !lit.has(n.id);
-            const cls = ['sm-node', n.group ? `g${slotOf.get(n.group)}` : '', n.id === selected ? 'is-selected' : '', matches.has(n.id) ? 'is-match' : '', dim ? 'is-dim' : ''];
+            const cls = [
+              "sm-node",
+              n.group ? `g${slotOf.get(n.group)}` : "",
+              n.id === selected ? "is-selected" : "",
+              matches.has(n.id) ? "is-match" : "",
+              dim ? "is-dim" : "",
+            ];
             return (
               <g
                 key={n.id}
-                className={cls.filter(Boolean).join(' ')}
+                className={cls.filter(Boolean).join(" ")}
                 role="button"
                 tabIndex={0}
                 aria-pressed={n.id === selected}
@@ -340,9 +454,9 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
                 onClick={() => onSelect(n.id)}
                 onKeyDown={(e) => key(e, n.id)}
                 onPointerEnter={() => setHover(n.id)}
-                onPointerLeave={() => setHover('')}
+                onPointerLeave={() => setHover("")}
                 onFocus={() => setHover(n.id)}
-                onBlur={() => setHover('')}
+                onBlur={() => setHover("")}
               >
                 <circle className="sm-hit" cx={s.x} cy={s.y} r={r(n.id) + 6} />
                 <circle className="sm-dot" cx={s.x} cy={s.y} r={r(n.id)} />
@@ -357,7 +471,13 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
             if (!p || !labels.has(n.id)) return null;
             const s = screen(p);
             return (
-              <text key={n.id} className="sm-label" x={s.x} y={labels.get(n.id)} textAnchor="middle">
+              <text
+                key={n.id}
+                className="sm-label"
+                x={s.x}
+                y={labels.get(n.id)}
+                textAnchor="middle"
+              >
                 {name.get(n.id)}
               </text>
             );
@@ -365,10 +485,22 @@ function Graph({ map, selected, onSelect, query, focusRequest, drifted }: GraphP
         </g>
       </svg>
       <div className="sm-zoom">
-        <button type="button" className="sm-icon" aria-label={t.zoomIn} title={t.zoomIn} onClick={() => zoomAt(1.4, size.w / 2, size.h / 2)}>
+        <button
+          type="button"
+          className="sm-icon"
+          aria-label={t.zoomIn}
+          title={t.zoomIn}
+          onClick={() => zoomAt(1.4, size.w / 2, size.h / 2)}
+        >
           <Sym name="add" />
         </button>
-        <button type="button" className="sm-icon" aria-label={t.zoomOut} title={t.zoomOut} onClick={() => zoomAt(1 / 1.4, size.w / 2, size.h / 2)}>
+        <button
+          type="button"
+          className="sm-icon"
+          aria-label={t.zoomOut}
+          title={t.zoomOut}
+          onClick={() => zoomAt(1 / 1.4, size.w / 2, size.h / 2)}
+        >
           <Sym name="remove" />
         </button>
         <button
@@ -405,7 +537,7 @@ interface CardProps {
   thing: Thing;
   map: MapData;
   gone: Set<string>;
-  drift: Check['driftLinks'];
+  drift: Check["driftLinks"];
   workspace: string;
   onSelect: (id: string) => void;
   onClose: () => void;
@@ -436,42 +568,86 @@ function FileList({
           </li>
         ) : (
           <li key={p}>
-            <button type="button" className="sm-file" title={absolute(workspace, p)} aria-label={t.openFile(p)} onClick={() => onOpen(absolute(workspace, p))}>
+            <button
+              type="button"
+              className="sm-file"
+              title={absolute(workspace, p)}
+              aria-label={t.openFile(p)}
+              onClick={() => onOpen(absolute(workspace, p))}
+            >
               <span className="sm-path">{breakable(p)}</span>
-              {changed?.has(p) && <span className="sm-aside sm-bad">{t.lacks(changed.get(p) ?? '')}</span>}
+              {changed?.has(p) && (
+                <span className="sm-aside sm-bad">
+                  {t.lacks(changed.get(p) ?? "")}
+                </span>
+              )}
             </button>
           </li>
-        )
+        ),
       )}
     </ul>
   );
 }
 
 /** A path that wraps only after a slash, never inside a file name. */
-const breakable = (p: string) => p.split('/').flatMap((part, i) => (i ? ['/', <wbr key={i} />, part] : [part]));
+const breakable = (p: string) =>
+  p
+    .split("/")
+    .flatMap((part, i) => (i ? ["/", <wbr key={i} />, part] : [part]));
 
-function Card({ thing, map, gone, drift, workspace, onSelect, onClose, onOpen }: CardProps) {
+function Card({
+  thing,
+  map,
+  gone,
+  drift,
+  workspace,
+  onSelect,
+  onClose,
+  onOpen,
+}: CardProps) {
   const names = new Map(map.things.map((n) => [n.id, n.name]));
-  const mine = map.links.filter((l) => l.from === thing.id || l.to === thing.id);
+  const mine = map.links.filter(
+    (l) => l.from === thing.id || l.to === thing.id,
+  );
   const [open, setOpen] = useState<number | null>(null);
   useEffect(() => setOpen(null), [thing.id]);
   return (
     <aside className="sm-card" aria-label={thing.name}>
       <div className="sm-card-head">
         <h2 className="sm-card-title">{thing.name}</h2>
-        <button type="button" className="sm-icon" aria-label={t.close} title={t.close} onClick={onClose}>
+        <button
+          type="button"
+          className="sm-icon"
+          aria-label={t.close}
+          title={t.close}
+          onClick={onClose}
+        >
           <Sym name="close" />
         </button>
       </div>
       {thing.what && <p className="sm-what">{thing.what}</p>}
 
       <h3 className="sm-heading">{t.files}</h3>
-      {thing.files.length ? <FileList paths={thing.files} gone={gone} workspace={workspace} onOpen={onOpen} /> : <p className="sm-quiet">{t.noFiles}</p>}
+      {thing.files.length ? (
+        <FileList
+          paths={thing.files}
+          gone={gone}
+          workspace={workspace}
+          onOpen={onOpen}
+        />
+      ) : (
+        <p className="sm-quiet">{t.noFiles}</p>
+      )}
 
       {thing.notes.length > 0 && (
         <>
           <h3 className="sm-heading">{t.notes}</h3>
-          <FileList paths={thing.notes} gone={gone} workspace={workspace} onOpen={onOpen} />
+          <FileList
+            paths={thing.notes}
+            gone={gone}
+            workspace={workspace}
+            onOpen={onOpen}
+          />
         </>
       )}
 
@@ -486,19 +662,46 @@ function Card({ thing, map, gone, drift, workspace, onSelect, onClose, onOpen }:
           const files = l.evidence.map((e: Evidence) => e.file);
           return (
             <li key={i} className="sm-link">
-              <button type="button" className="sm-link-main" onClick={() => onSelect(other)}>
-                <span className={`sm-link-name${hits.length ? ' sm-bad' : ''}`}>
-                  {out ? t.linkOut(l.typed ? l.type : '', names.get(other) ?? other) : t.linkIn(l.typed ? l.type : '', names.get(other) ?? other)}
-                  {hits.length > 0 && <span className="sm-aside"> · {t.codeChanged}</span>}
+              <button
+                type="button"
+                className="sm-link-main"
+                onClick={() => onSelect(other)}
+              >
+                <span className={`sm-link-name${hits.length ? " sm-bad" : ""}`}>
+                  {out
+                    ? t.linkOut(
+                        l.typed ? l.type : "",
+                        names.get(other) ?? other,
+                      )
+                    : t.linkIn(
+                        l.typed ? l.type : "",
+                        names.get(other) ?? other,
+                      )}
+                  {hits.length > 0 && (
+                    <span className="sm-aside"> · {t.codeChanged}</span>
+                  )}
                 </span>
                 {l.says && <span className="sm-says">{l.says}</span>}
               </button>
               {files.length > 0 && (
                 <>
-                  <button type="button" className="sm-more" aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)}>
+                  <button
+                    type="button"
+                    className="sm-more"
+                    aria-expanded={open === i}
+                    onClick={() => setOpen(open === i ? null : i)}
+                  >
                     {t.evidence(files.length)}
                   </button>
-                  {open === i && <FileList paths={[...new Set(files)]} gone={gone} workspace={workspace} onOpen={onOpen} changed={changed} />}
+                  {open === i && (
+                    <FileList
+                      paths={[...new Set(files)]}
+                      gone={gone}
+                      workspace={workspace}
+                      onOpen={onOpen}
+                      changed={changed}
+                    />
+                  )}
                 </>
               )}
             </li>
@@ -512,17 +715,17 @@ function Card({ thing, map, gone, drift, workspace, onSelect, onClose, onOpen }:
 // ---- the panel ----------------------------------------------------------------------------------------------------------------------
 
 function NoMap({ onStarted }: { onStarted: () => void }) {
-  const [state, setState] = useState<'idle' | 'starting' | 'started'>('idle');
-  const [why, setWhy] = useState('');
+  const [state, setState] = useState<"idle" | "starting" | "started">("idle");
+  const [why, setWhy] = useState("");
   const press = async () => {
-    setState('starting');
-    setWhy('');
+    setState("starting");
+    setWhy("");
     const refusal = await build(invoke, t.buildSession);
     if (refusal) {
       setWhy(refusal);
-      setState('idle');
+      setState("idle");
     } else {
-      setState('started');
+      setState("started");
       onStarted();
     }
   };
@@ -530,10 +733,15 @@ function NoMap({ onStarted }: { onStarted: () => void }) {
     <div className="sm-empty">
       <h2 className="sm-empty-title">{t.noMapTitle}</h2>
       <p className="sm-quiet">{t.noMapBody}</p>
-      <button type="button" className="sm-btn" disabled={state !== 'idle'} onClick={press}>
+      <button
+        type="button"
+        className="sm-btn"
+        disabled={state !== "idle"}
+        onClick={press}
+      >
         {t.build}
       </button>
-      {state === 'started' && <p className="sm-quiet">{t.buildStarted}</p>}
+      {state === "started" && <p className="sm-quiet">{t.buildStarted}</p>}
       {why && <p className="sm-error">{t.buildFailed(why)}</p>}
     </div>
   );
@@ -543,20 +751,26 @@ function SystemsMapPanel({ host }: PanelHostProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const { snapshot, error, busy, refresh } = useReading(host, rootRef);
-  const [selected, setSelected] = useState('');
-  const [query, setQuery] = useState('');
-  const [focusRequest, setFocusRequest] = useState({ id: '', n: 0 });
+  const [selected, setSelected] = useState("");
+  const [query, setQuery] = useState("");
+  const [focusRequest, setFocusRequest] = useState({ id: "", n: 0 });
 
   const loaded = snapshot?.loaded;
-  const map = loaded?.kind === 'map' ? loaded.map : null;
+  const map = loaded?.kind === "map" ? loaded.map : null;
   const thing = map?.things.find((n) => n.id === selected) ?? null;
   useEffect(() => {
-    if (selected && !thing) setSelected('');
+    if (selected && !thing) setSelected("");
   }, [selected, thing]);
 
   const gone = useMemo(() => new Set(snapshot?.check?.gone ?? []), [snapshot]);
   const driftLinks = snapshot?.check?.driftLinks ?? [];
-  const drifted = useMemo(() => new Set((snapshot?.check?.driftLinks ?? []).map((d) => linkKey(d.from, d.to))), [snapshot]);
+  const drifted = useMemo(
+    () =>
+      new Set(
+        (snapshot?.check?.driftLinks ?? []).map((d) => linkKey(d.from, d.to)),
+      ),
+    [snapshot],
+  );
   const changedCount = snapshot?.check ? driftedLinks(snapshot.check) : 0;
   const select = useCallback((id: string) => {
     setSelected(id);
@@ -564,18 +778,21 @@ function SystemsMapPanel({ host }: PanelHostProps) {
   }, []);
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
-    if (e.key !== 'Escape') return;
-    if (selected) setSelected('');
-    else if (query) setQuery('');
+    if (e.key !== "Escape") return;
+    if (selected) setSelected("");
+    else if (query) setQuery("");
   };
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter' || !map) return;
+    if (e.key !== "Enter" || !map) return;
     const first = search(query, map.things, map.links)?.matches[0];
     if (first) select(first);
   };
 
   const check = snapshot ? checkLine(snapshot.check) : null;
-  const goneLine = snapshot?.check && snapshot.check.gone.length > 0 ? snapshot.check.gone.join(', ') : '';
+  const goneLine =
+    snapshot?.check && snapshot.check.gone.length > 0
+      ? snapshot.check.gone.join(", ")
+      : "";
 
   let body;
   if (error && !snapshot) {
@@ -590,15 +807,15 @@ function SystemsMapPanel({ host }: PanelHostProps) {
     );
   } else if (!snapshot || !loaded) {
     body = <div className="sm-empty sm-quiet">{t.reading}</div>;
-  } else if (loaded.kind === 'none') {
+  } else if (loaded.kind === "none") {
     body = <NoMap onStarted={refresh} />;
-  } else if (loaded.kind === 'elsewhere') {
+  } else if (loaded.kind === "elsewhere") {
     body = (
       <div className="sm-empty">
         <p>{t.elsewhere(loaded.by)}</p>
       </div>
     );
-  } else if (loaded.kind === 'error') {
+  } else if (loaded.kind === "error") {
     body = (
       <div className="sm-empty">
         <h2 className="sm-empty-title">{t.errorTitle}</h2>
@@ -611,7 +828,14 @@ function SystemsMapPanel({ host }: PanelHostProps) {
   } else {
     body = (
       <div className="sm-main">
-        <Graph map={loaded.map} selected={selected} onSelect={select} query={query} focusRequest={focusRequest} drifted={drifted} />
+        <Graph
+          map={loaded.map}
+          selected={selected}
+          onSelect={select}
+          query={query}
+          focusRequest={focusRequest}
+          drifted={drifted}
+        />
         {thing && (
           <Card
             thing={thing}
@@ -620,7 +844,7 @@ function SystemsMapPanel({ host }: PanelHostProps) {
             drift={driftLinks}
             workspace={host.workspacePath}
             onSelect={select}
-            onClose={() => setSelected('')}
+            onClose={() => setSelected("")}
             onOpen={(p) => host.openFile(p)}
           />
         )}
@@ -632,7 +856,9 @@ function SystemsMapPanel({ host }: PanelHostProps) {
     <div className="sm" ref={rootRef} onKeyDown={onKeyDown} data-systems-map>
       <header className="sm-head">
         <div className="sm-titles">
-          <h1 className="sm-title">{projectName(host.workspacePath) || t.title}</h1>
+          <h1 className="sm-title">
+            {projectName(host.workspacePath) || t.title}
+          </h1>
           {map && snapshot && check && (
             <p className="sm-caption">
               <span>{sizeLine(map)}</span>
@@ -642,7 +868,7 @@ function SystemsMapPanel({ host }: PanelHostProps) {
                   <span className="sm-sep" aria-hidden="true">
                     ·
                   </span>
-                  <span className={check.bad ? 'sm-bad' : ''} title={goneLine}>
+                  <span className={check.bad ? "sm-bad" : ""} title={goneLine}>
                     {check.text}
                   </span>
                 </>
@@ -669,7 +895,7 @@ function SystemsMapPanel({ host }: PanelHostProps) {
                 aria-label={t.clearSearch}
                 title={t.clearSearch}
                 onClick={() => {
-                  setQuery('');
+                  setQuery("");
                   searchRef.current?.focus();
                 }}
               >
@@ -679,13 +905,24 @@ function SystemsMapPanel({ host }: PanelHostProps) {
           </div>
         )}
         {snapshot && (
-          <button type="button" className="sm-icon" aria-label={t.refresh} title={t.refresh} disabled={busy} onClick={refresh}>
+          <button
+            type="button"
+            className="sm-icon"
+            aria-label={t.refresh}
+            title={t.refresh}
+            disabled={busy}
+            onClick={refresh}
+          >
             <Sym name="refresh" />
           </button>
         )}
       </header>
       {changedCount > 0 && snapshot?.check && (
-        <p className="sm-gone" role="status" title={snapshot.check.drift.join(', ')}>
+        <p
+          className="sm-gone"
+          role="status"
+          title={snapshot.check.drift.join(", ")}
+        >
           {t.banner(changedCount, snapshot.check.gone.length)}
         </p>
       )}
@@ -704,5 +941,5 @@ export function activate() {}
 export function deactivate() {}
 
 export const panels = {
-  'systems-map': { component: SystemsMapPanel },
+  "systems-map": { component: SystemsMapPanel },
 };

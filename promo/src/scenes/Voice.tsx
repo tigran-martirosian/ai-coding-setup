@@ -5,7 +5,8 @@ import { Scene, SceneProps } from "../Scene";
 import { color, mono } from "../theme";
 import { Columns, Window } from "../ui";
 
-const PROMPT = "Add a test for empty files to the importer, then run the tests.";
+const PROMPT =
+  "Add a test for empty files to the importer, then run the tests.";
 
 const HOLD_AT = 24;
 const RELEASE_AT = 104;
@@ -24,7 +25,12 @@ export const Voice: React.FC<SceneProps> = ({ durationInFrames }) => {
     >
       <Columns>
         <Appear at={8} style={{ width: 600 }}>
-          <Window title="Handy" chip="WHISPER TURBO · ON THIS COMPUTER" chipColor={color.violet} bodyStyle={{ alignItems: "center", gap: 26, padding: 30 }}>
+          <Window
+            title="Handy"
+            chip="WHISPER TURBO · ON THIS COMPUTER"
+            chipColor={color.violet}
+            bodyStyle={{ alignItems: "center", gap: 26, padding: 30 }}
+          >
             <div
               style={{
                 fontFamily: mono,
@@ -40,13 +46,43 @@ export const Voice: React.FC<SceneProps> = ({ durationInFrames }) => {
             >
               Right Alt
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, height: 60 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                height: 60,
+              }}
+            >
               {Array.from({ length: 34 }, (_, i) => {
-                const level = held ? 0.2 + 0.8 * Math.abs(Math.sin(frame * 0.4 + i * 1.3) * Math.sin(i * 0.7 + frame * 0.13)) : 0.1;
-                return <span key={i} style={{ width: 7, height: 60 * level, borderRadius: 3, background: color.violet }} />;
+                const level = held
+                  ? 0.2 +
+                    0.8 *
+                      Math.abs(
+                        Math.sin(frame * 0.4 + i * 1.3) *
+                          Math.sin(i * 0.7 + frame * 0.13),
+                      )
+                  : 0.1;
+                return (
+                  <span
+                    key={i}
+                    style={{
+                      width: 7,
+                      height: 60 * level,
+                      borderRadius: 3,
+                      background: color.violet,
+                    }}
+                  />
+                );
               })}
             </div>
-            <div style={{ fontSize: 24, color: color.dim }}>{held ? "Listening" : frame < HOLD_AT ? "Hold the key and talk" : "Released"}</div>
+            <div style={{ fontSize: 24, color: color.dim }}>
+              {held
+                ? "Listening"
+                : frame < HOLD_AT
+                  ? "Hold the key and talk"
+                  : "Released"}
+            </div>
           </Window>
         </Appear>
 
@@ -63,8 +99,19 @@ export const Voice: React.FC<SceneProps> = ({ durationInFrames }) => {
                 lineHeight: 1.4,
               }}
             >
-              {text ? text : <span style={{ color: color.faint }}>Type a message</span>}
-              <span style={{ color: color.sky, opacity: Math.floor(frame / 12) % 2 ? 1 : 0.2 }}>|</span>
+              {text ? (
+                text
+              ) : (
+                <span style={{ color: color.faint }}>Type a message</span>
+              )}
+              <span
+                style={{
+                  color: color.sky,
+                  opacity: Math.floor(frame / 12) % 2 ? 1 : 0.2,
+                }}
+              >
+                |
+              </span>
             </div>
           </Window>
         </Appear>

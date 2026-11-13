@@ -210,10 +210,11 @@ floating layer (popover, menu): `0 8px 24px rgba(0, 0, 0, 0.24)` plus a hairline
 - Build from `--x-*` tokens only, so all eleven themes and the light ones work unchanged.
 - Put the most-used reading first and largest; label every number with its basis and its time.
 - Say states in words ("2 running", "as of 14:20", "rebuilding, up to 3 min").
-- Check both a dark and a light theme (Ink Aurora and Ink Bone) before calling a screen done, then `/blind-screen-review`.
+- Check both a dark and a light theme (Ink Aurora and Ink Bone) before calling a screen done, then a blind look by the `blind-reviewer` agent.
 
 ### Don't:
 - No raw hex, no second accent, no gradients, glows, emoji or sparkles (the one kept sparkle is Nimbalyst's own "Commit with AI").
 - No green for done; no colour without words.
+- No word that makes working look stuck: a running item never reads "quiet", "idle" or "stalled". Say what it is still doing or waiting on, and for how long ("running a command (Bash) · 3m", "thinking · 2m").
 - No card around every group, no row of identical KPI tiles, no uppercase labels.
 - No browser-only features in a panel (no "Open in browser" link inside Nimbalyst).

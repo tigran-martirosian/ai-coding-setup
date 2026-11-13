@@ -29,15 +29,21 @@ export function splitBlocks(text) {
       if (FENCE.test(line)) fence = false;
       continue;
     }
-    if (line.trim() === "") { close(); continue; }
+    if (line.trim() === "") {
+      close();
+      continue;
+    }
     if (HEADING.test(line)) {
       close();
       heading = headingName(line);
       blocks.push({ heading, text: line });
       continue;
     }
-    if (ITEM.test(line)) { close(); cur = { kind: "item", lines: [line] }; }
-    else if (cur) cur.lines.push(line); // an indented line, a nested bullet or a re-wrapped line
+    if (ITEM.test(line)) {
+      close();
+      cur = { kind: "item", lines: [line] };
+    } else if (cur)
+      cur.lines.push(line); // an indented line, a nested bullet or a re-wrapped line
     else cur = { kind: "para", lines: [line] };
     if (FENCE.test(line)) fence = true;
   }
@@ -46,11 +52,21 @@ export function splitBlocks(text) {
 }
 
 export function normal(text) {
-  return text.replace(/\r\n/g, "\n").split("\n").map((l) => l.trim()).join(" ").replace(/\s+/g, " ").trim();
+  return text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function key(text) {
-  return crypto.createHash("sha256").update(normal(text)).digest("hex").slice(0, 16);
+  return crypto
+    .createHash("sha256")
+    .update(normal(text))
+    .digest("hex")
+    .slice(0, 16);
 }
 
 // How a person names a block: its bold opening, else its first six words.
@@ -71,7 +87,12 @@ export function unfit(text, projects, win) {
 // Blocks of the person's text that are neither this version's shipped text nor old setup text. Headings
 // are never own blocks: they only name the section an own block sat in. asShipped gives the form a block
 // is keyed in (unfit() for an installed file), while an own block keeps the person's own text.
-export function carve(personText, shippedKeys, historyKeys, asShipped = (t) => t) {
+export function carve(
+  personText,
+  shippedKeys,
+  historyKeys,
+  asShipped = (t) => t,
+) {
   const shipped = new Set(shippedKeys);
   const history = new Set(historyKeys);
   const own = [];
@@ -98,7 +119,9 @@ export function appendOwn(myRulesText, own) {
 function appendLf(myRulesText, own) {
   const have = new Set(splitBlocks(myRulesText).map((b) => key(b.text)));
   const existing = splitBlocks(myRulesText).filter((b) => HEADING.test(b.text));
-  let section = existing.length ? existing[existing.length - 1].heading : undefined;
+  let section = existing.length
+    ? existing[existing.length - 1].heading
+    : undefined;
   let out = myRulesText;
   let lastItem = false; // the block just appended was a list item: the next one in its section joins the list
   for (const b of own) {
@@ -109,7 +132,10 @@ function appendLf(myRulesText, own) {
     const item = ITEM.test(b.text);
     if (out !== "" && !out.endsWith("\n")) out += "\n";
     if (out !== "" && !(lastItem && item && name === section)) out += "\n";
-    if (name !== section) { out += `## ${name}\n\n`; section = name; }
+    if (name !== section) {
+      out += `## ${name}\n\n`;
+      section = name;
+    }
     out += b.text.replace(/\r\n/g, "\n") + "\n";
     lastItem = item;
   }
@@ -120,8 +146,10 @@ function appendLf(myRulesText, own) {
 // scripts/rules-history.mjs --write) and of the friend patches' texts ("added", kept across --write).
 export function historyKeys(REPO) {
   const file = path.join(REPO, "rules", "history.json");
-  if (!fs.existsSync(file)) throw new Error(`no ${file}; run node scripts/rules-history.mjs --write`);
+  if (!fs.existsSync(file))
+    throw new Error(`no ${file}; run node scripts/rules-history.mjs --write`);
   const h = JSON.parse(fs.readFileSync(file, "utf8"));
-  if (!Array.isArray(h.shipped) || !Array.isArray(h.added)) throw new Error(`${file} has no "shipped" and "added" lists`);
+  if (!Array.isArray(h.shipped) || !Array.isArray(h.added))
+    throw new Error(`${file} has no "shipped" and "added" lists`);
   return new Set([...h.shipped, ...h.added]);
 }

@@ -9,7 +9,11 @@ import { scenesById } from "./scenes";
 export const Promo: React.FC<{ sceneIds: string[] }> = ({ sceneIds }) => (
   <Series>
     {scenesById(sceneIds).map((scene) => (
-      <Series.Sequence key={scene.id} name={scene.id} durationInFrames={scene.durationInFrames}>
+      <Series.Sequence
+        key={scene.id}
+        name={scene.id}
+        durationInFrames={scene.durationInFrames}
+      >
         <scene.component durationInFrames={scene.durationInFrames} />
       </Series.Sequence>
     ))}

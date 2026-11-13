@@ -1,6 +1,6 @@
 {
   "picture": {
-    "homes": ["ask-anything", "quick-tasks"],
+    "homes": ["quick-tasks"],
     "hooks": {
       "PreToolUse": [
         {
@@ -16,15 +16,10 @@
     }
   },
   "notes": {
-    "ask-anything": [
-      { "without": ["codex"], "line": "- Codex is not set up. Where this file or a skill says Codex, look things up with WebSearch and WebFetch (several searches in one turn)." },
-      { "without": ["codex"], "line": "- No generated pictures here (the picture skill needs Codex): say so in one line and offer a description or a diagram." }
-    ],
-    "internet-search": [
-      { "without": ["codex"], "line": "- Codex is not set up. Do each sweep the finder skill gives to Codex with WebSearch (several searches in one turn), and open the pages with `tools/peek.mjs` as usual." }
-    ],
     "quick-tasks": [
+      { "without": ["codex"], "line": "- Codex is not set up. Where this file or a skill says Codex, look things up with WebSearch (several searches in one turn); in a hunt, open the pages with `tools/peek.mjs` as usual." },
       { "without": ["codex"], "line": "- No generated pictures here (the picture skill needs Codex): say so in one line and offer a description or a diagram." }
     ]
-  }
+  },
+  "retired": ["ask-anything", "internet-search"]
 }

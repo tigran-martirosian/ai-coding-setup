@@ -8,11 +8,13 @@ import { runHook, isMain, emit } from "./lib/hook-io.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
-const MAX_LINES = 10, LINE_CHARS = 160;
+const MAX_LINES = 10,
+  LINE_CHARS = 160;
 // A line's status is what follows its last "Status:": closed when it says shipped, deployed, released or done,
 // not negated ("not deployed yet" stays open). A line without "Status:" is open unless it starts with "[x]".
 const CLOSED = /\b(shipped|deployed|released|done)\b/i;
-const NEGATED = /\b(not|never|yet to be)\s+(yet\s+|been\s+)?(shipped|deployed|released|done)\b|\bun(shipped|deployed|released|done)\b/i;
+const NEGATED =
+  /\b(not|never|yet to be)\s+(yet\s+|been\s+)?(shipped|deployed|released|done)\b|\bun(shipped|deployed|released|done)\b/i;
 const closed = (status) => CLOSED.test(status) && !NEGATED.test(status);
 
 // The Items section's lines ("- " starts one; an indented line continues it), each { text, open }
@@ -22,7 +24,8 @@ export function items(text) {
   for (const line of (at >= 0 ? text.slice(at + 8) : text).split(/\r?\n/)) {
     if (/^#{1,2}\s/.test(line)) break;
     if (/^[-*]\s/.test(line)) out.push(line.replace(/^[-*]\s+/, "").trim());
-    else if (/^\s+\S/.test(line) && out.length) out[out.length - 1] += " " + line.trim();
+    else if (/^\s+\S/.test(line) && out.length)
+      out[out.length - 1] += " " + line.trim();
   }
   return out.map((t) => {
     const s = t.lastIndexOf("Status:");
@@ -31,12 +34,20 @@ export function items(text) {
 }
 
 export function note(text) {
-  const all = items(text), open = all.filter((i) => i.open);
-  const head = `[patch-next] The next release's shared list is docs/patches/next.md: ${all.length} line(s), ${open.length} open. `
-    + "Anything you build for the next release gets its line there when you start (what, files, session id, status) and is "
-    + "updated when tested; don't keep it only in your reply or pass it to another session by message. Read the whole file before shipping.";
-  const shown = open.slice(0, MAX_LINES).map((i) => `- ${i.text.length > LINE_CHARS ? i.text.slice(0, LINE_CHARS) + " …" : i.text}`);
-  if (open.length > MAX_LINES) shown.push(`- and ${open.length - MAX_LINES} more`);
+  const all = items(text),
+    open = all.filter((i) => i.open);
+  const head =
+    `[patch-next] The next release's shared list is docs/patches/next.md: ${all.length} line(s), ${open.length} open. ` +
+    "Anything you build for the next release gets its line there when you start (what, files, session id, status) and is " +
+    "updated when tested; don't keep it only in your reply or pass it to another session by message. Read the whole file before shipping.";
+  const shown = open
+    .slice(0, MAX_LINES)
+    .map(
+      (i) =>
+        `- ${i.text.length > LINE_CHARS ? i.text.slice(0, LINE_CHARS) + " …" : i.text}`,
+    );
+  if (open.length > MAX_LINES)
+    shown.push(`- and ${open.length - MAX_LINES} more`);
   return shown.length ? `${head}\nOpen lines:\n${shown.join("\n")}` : head;
 }
 

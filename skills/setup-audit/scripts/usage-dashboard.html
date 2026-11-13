@@ -148,6 +148,7 @@
   .ranks.picked .rank:not(.on) .bar { opacity: .3; }
   .ranks.picked .rank.on .lab { font-weight: 600; }
   #types .rank { grid-template-columns: minmax(90px, 200px) 1fr 64px 170px; }
+  #models .rank { grid-template-columns: minmax(90px, 170px) 1fr 84px 96px; }
 
   /* chats */
   tr.row { cursor: pointer; transition: background .15s; }
@@ -215,7 +216,7 @@
 
   <div class="cols2">
     <section class="panel"><div class="head"><h2>Projects</h2></div><div id="projects"></div></section>
-    <section class="panel"><div class="head"><h2>Models</h2></div><div id="models"></div></section>
+    <section class="panel"><div class="head"><h2>Models</h2><span class="note" title="Each model's share of what it costs the plan: tokens weighed at list prices, so a Fable token counts twice an Opus one">share of plan use</span></div><div id="models"></div></section>
   </div>
 
   <section class="panel" id="daily-s">
@@ -267,7 +268,7 @@ const otherTokens = (d) => otherTokensFor(P, SHARED, !!(state.project || state.t
 function ranks(items, attr, picked) {
   const max = Math.max(...items.map((x) => x.value));
   return `<div class="ranks${picked ? " picked" : ""}">` + items.map((x) => {
-    const inner = `<span class="lab" title="${esc(x.label)}">${esc(x.label)}</span><span><i class="bar" style="width:${x.value / max * 100}%"></i></span><span class="val">${fmt(x.value)}</span><span class="note">${esc(x.note || "")}</span>`;
+    const inner = `<span class="lab" title="${esc(x.label)}">${esc(x.label)}</span><span><i class="bar" style="width:${x.value / max * 100}%"></i></span><span class="val">${x.shown ?? fmt(x.value)}</span><span class="note">${esc(x.note || "")}</span>`;
     return attr && x.key != null
       ? `<button class="rank${picked === x.key ? " on" : ""}" data-${attr}="${esc(x.key)}" aria-pressed="${picked === x.key}">${inner}</button>`
       : `<div class="rank">${inner}</div>`;
@@ -423,13 +424,20 @@ function renderProjects(days) {
 }
 
 function renderModels(rs, days) {
-  const by = {};
-  for (const r of rs) for (const u of [r.s, ...r.s.subagents]) for (const [d, m] of Object.entries(u.days || {})) {
-    if (!days.has(d)) continue;
-    for (const [name, t] of Object.entries(m)) if (t > 0 && name !== "<synthetic>") by[modelName(name)] = (by[modelName(name)] ?? 0) + t;
+  // Ranked and shared by plan weight (list-price dollars: a Fable token weighs twice an Opus one), tokens shown beside
+  const tok = {}, use = {};
+  const add = (o, k, v) => { o[k] = (o[k] ?? 0) + v; };
+  for (const r of rs) for (const u of [r.s, ...r.s.subagents]) {
+    if (!u.dayUsd) throw new Error("usage data has no per-model cost: rerun the usage scan");
+    for (const [d, m] of Object.entries(u.days || {})) if (days.has(d))
+      for (const [name, t] of Object.entries(m)) if (t > 0 && name !== "<synthetic>") add(tok, modelName(name), t);
+    for (const [d, m] of Object.entries(u.dayUsd)) if (days.has(d))
+      for (const [name, c] of Object.entries(m)) if (c > 0) add(use, modelName(name), c);
   }
-  const total = Object.values(by).reduce((a, b) => a + b, 0);
-  const list = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value, note: value / total < 0.005 ? "under 1%" : pct(value, total) }));
+  const total = Object.values(use).reduce((a, b) => a + b, 0);
+  const list = Object.entries(tok).map(([label, t]) => ({ label, value: use[label] ?? 0, shown: `${fmt(t)} tok` }))
+    .sort((a, b) => b.value - a.value)
+    .map((x) => ({ ...x, note: x.value / total < 0.005 ? "under 1% of use" : `${pct(x.value, total)} of use` }));
   $("models").innerHTML = list.length ? ranks(list) : `<p class="empty">No Claude usage in this period.</p>`;
 }
 

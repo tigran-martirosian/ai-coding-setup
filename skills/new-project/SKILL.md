@@ -1,6 +1,6 @@
 ---
 name: new-project
-description: Set up a new or existing project folder so Claude can work in it efficiently from day one — a short CLAUDE.md, HANDOFF.md and DECISIONS.md, .claude/ rules/skills/agents folders, and a check of which installed tools (plugins, MCP servers, cheap workers) this project should use, turned on for this project only. Use when the user starts a new project, says "set this project up", "bootstrap", "new-project", or opens a folder that has no CLAUDE.md.
+description: Set up a new project folder so Claude can work in it efficiently from day one — a short CLAUDE.md, HANDOFF.md and DECISIONS.md, .claude/ rules/skills/agents folders, and a check of which installed tools (plugins, MCP servers, cheap workers) this project should use, turned on for this project only. Use when the user starts a new project, says "set this project up", "bootstrap", "new-project", or opens a folder that has no CLAUDE.md.
 ---
 
 # New project setup
@@ -31,23 +31,22 @@ each as its own question (not a tick-list):
 |---|---|
 | `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · for any project that keeps data (a database, a log, data files): where each one lives as a full path, and the exact command that reads it with a tool that is installed · `Designs and plans live in docs/ as dated markdown files, docs/YYYY-MM-DD-topic-design.md and -plan.md; reply with a short summary and a link, not the whole design in chat` · `New files follow ~/.claude/skills/file-upkeep/standard.md: dated notes in docs/, docs/research/, audits/; scratch and test output in the temp folder, deleted after the run; no copies beside a file` · which tools to use here (step 3) · a **Checks** section: which check runs when (build, tests, review, release), written once with the user; a check the user asks for once is a one-off until they say it is standing |
 | `HANDOFF.md` | Current state only, under about 120 lines: what's next, open questions. Rewritten at the end of every working session so a fresh session can pick up cold. |
-| `DECISIONS.md` | The decisions in force, by topic, each as **decision** — why · *origin, date*. It wins over older docs. A new decision replaces the line it overrides; the old text moves to `docs/decisions-archive.md`. |
+| `DECISIONS.md` | First the section `## What each thing is for` (the purpose record, empty at the start), then the decisions in force in dated sections, newest first, each as **decision** — why · *origin, date*. It wins over older docs. A new decision replaces the line it overrides; the old text moves to `docs/decisions-archive.md`. |
 | `docs/` | Design documents and plans, one dated markdown file per topic: `YYYY-MM-DD-topic-design.md`, `-plan.md`. |
 | `docs/research/` | Dated research notes, `YYYY-MM-DD-topic.md`. |
 | `audits/` | Dated audit and test-run reports, `YYYY-MM-DD-topic.md`; one run's scripts and raw output in `audits/YYYY-MM-DD-topic/`. |
 | `tests/`, `scripts/` | Tests, and scripts that run again; the root holds only the entry point. |
+| `docs/facts.md` | Facts about the project and its tools, one per line, read before one is added. Its header, under the title: `A fact that can change (version, price, limit, how a tool behaves) ends with (recheck YYYY-MM-DD): 90 days out, 180 for facts about this computer.` and `A trap (learned the hard way) is one line: Trap: <what it seems to do>. Really: <what it does>. Cost: <what it cost>. Check: <how to check it>.` |
 | `docs/known-failures.md` | Checks that fail for a known reason, each with that reason. A failure that stays after one rerun is added here. CLAUDE.md names the file: a failure listed there is expected. |
 | `docs/speech-glossary.md` | Offered when the user dictates: misheard word → meant word, started with the project's own names. |
 | `.claude/rules/` | One short file per rule area (e.g. `content-sources.md`, `code-style.md`) that is too long for CLAUDE.md |
 | `.claude/skills/`, `.claude/agents/` | Project-only skills from step 3; otherwise empty for now. The project's CLAUDE.md names each skill in one line, with the ask in the user's words (example: "a deploy, hotfix or rollback → `.claude/skills/deploy`"). Add a read-only reviewer agent when output quality needs an independent check. When step 1 shows distinct kinds of sessions (for example building, answering questions, releasing), offer one skill per kind and a "Which skill" table in CLAUDE.md. |
 | `.claude/settings.json` | `permissions.allow` for the project's safe, frequent commands (test, lint, build) so they don't prompt, and `enabledPlugins` from step 3 |
 
-Names and places follow `~/.claude/skills/file-upkeep/standard.md`. In an existing folder, run
-`node ~/.claude/skills/file-upkeep/file-check.mjs --report`; when it finds anything, offer `/file-upkeep`.
+Names and places follow `~/.claude/skills/file-upkeep/standard.md`. A folder that already has a
+`CLAUDE.md`: run `/update-project` instead.
 
 Keep everything short. CLAUDE.md is loaded into every session and every line costs tokens.
-An existing `CLAUDE.md` is never rewritten: add only the parts of its row that it lacks, after
-showing the user those lines and getting a yes.
 
 ## 3. Pick the tools this project should use, and turn them on here only
 
@@ -85,6 +84,12 @@ a `worker` subagent before building.
 
 ## 4. Finish
 
+- Start the project's Systems map: one background `worker` (Agent, `run_in_background: true`, description
+  `Systems map: build for this project`) told to read `~/.claude/skills/systems-map/SKILL.md` and follow it for
+  this folder. A folder with no code yet still gets its topics (from step 1) and how-to things (research, web
+  research and the jobs step 1 named). Don't wait for it.
+- Stamp the folder as on the current setup, so the next day's first message does not offer to bring it up to
+  date: `node ~/.claude/skills/update-project/pass.mjs --done "<folder>"`, with the folder's full path.
 - Tell the user what was created and turned on, in a short table, and what to fill in (open questions).
 - Don't run `/init` on top of this. It tends to pad CLAUDE.md. Keep CLAUDE.md accurate and short
   by editing it when something changes.

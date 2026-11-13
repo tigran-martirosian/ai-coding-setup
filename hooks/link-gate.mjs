@@ -14,16 +14,35 @@ import fs from "node:fs";
 
 const MAX_BLOCKS = 3;
 const URL_RE = /https?:\/\/[^\s<>"'`)\]|\\]+/g;
-const IGNORED_HOST = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$|(^|\.)example\.(com|org|net)$|\.(test|example|invalid|localhost)$/;
+const IGNORED_HOST =
+  /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$|(^|\.)example\.(com|org|net)$|\.(test|example|invalid|localhost)$/;
 const textOf = (content) =>
-  typeof content === "string" ? content : Array.isArray(content) ? content.map((b) => (b.type === "text" ? b.text : typeof b.content === "string" ? b.content : "")).join("\n") : "";
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content
+          .map((b) =>
+            b.type === "text"
+              ? b.text
+              : typeof b.content === "string"
+                ? b.content
+                : "",
+          )
+          .join("\n")
+      : "";
 
 function parse(url) {
   try {
     const x = new URL(String(url));
     if (!/^https?:$/.test(x.protocol)) return null;
-    return { x, host: x.hostname.toLowerCase().replace(/^(www|m|mobile)\./, ""), path: x.pathname.replace(/\/+$/, "").toLowerCase() };
-  } catch { return null; }
+    return {
+      x,
+      host: x.hostname.toLowerCase().replace(/^(www|m|mobile)\./, ""),
+      path: x.pathname.replace(/\/+$/, "").toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 // One key per page: host and path. The query is ignored (tracking), except on a bare home page
@@ -39,20 +58,30 @@ export function linksIn(text) {
   for (const m of String(text || "").matchAll(URL_RE)) {
     const url = m[0].replace(/[.,;:!?*]+$/, "");
     const p = parse(url);
-    if (p && !IGNORED_HOST.test(p.x.hostname.toLowerCase()) && !/[{}]/.test(url)) out.push(url);
+    if (
+      p &&
+      !IGNORED_HOST.test(p.x.hostname.toLowerCase()) &&
+      !/[{}]/.test(url)
+    )
+      out.push(url);
   }
   return out;
 }
 
 // What the session did, from its transcript entries (parsed JSON lines, in order)
 export function scan(entries) {
-  const opened = new Set(), typed = new Set(), calls = new Map();
+  const opened = new Set(),
+    typed = new Set(),
+    calls = new Map();
   let reply = [];
   for (const e of entries) {
     if (e.isSidechain) continue;
     const content = e.message?.content;
     if (e.type === "user") {
-      if (typeof content === "string" || (Array.isArray(content) && content.some((b) => b.type === "text"))) {
+      if (
+        typeof content === "string" ||
+        (Array.isArray(content) && content.some((b) => b.type === "text"))
+      ) {
         for (const u of textOf(content).match(URL_RE) || []) typed.add(key(u));
       }
       for (const b of Array.isArray(content) ? content : []) {
@@ -63,15 +92,29 @@ export function scan(entries) {
       continue;
     }
     if (e.type !== "assistant" || !Array.isArray(content)) continue;
-    const said = content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    const said = content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
     if (content.some((b) => b.type === "tool_use")) reply = [];
     else if (said) reply.push(said);
     for (const b of content) {
       if (b.type !== "tool_use") continue;
       const input = b.input || {};
-      if (/browser_(navigate|open_session)$|^WebFetch$|fetch_and_index$/.test(b.name) && input.url) calls.set(b.id, [input.url]);
+      if (
+        /browser_(navigate|open_session)$|^WebFetch$|fetch_and_index$/.test(
+          b.name,
+        ) &&
+        input.url
+      )
+        calls.set(b.id, [input.url]);
       // a fetch written in a browser script or a sandboxed script, or an address fetched in the shell
-      else if (/browser_evaluate$|ctx_(execute|execute_file|batch_execute)$|^(Bash|PowerShell)$/.test(b.name)) calls.set(b.id, JSON.stringify(input).match(URL_RE) || []);
+      else if (
+        /browser_evaluate$|ctx_(execute|execute_file|batch_execute)$|^(Bash|PowerShell)$/.test(
+          b.name,
+        )
+      )
+        calls.set(b.id, JSON.stringify(input).match(URL_RE) || []);
     }
   }
   return { opened, typed, reply: reply.join("\n") };
@@ -79,7 +122,8 @@ export function scan(entries) {
 
 // The links in a text that were never opened, each once
 export function problems(text, { opened, typed = new Set() }) {
-  const out = [], seen = new Set();
+  const out = [],
+    seen = new Set();
   for (const url of linksIn(text)) {
     const k = key(url);
     if (!k || seen.has(k) || typed.has(k)) continue;
@@ -91,16 +135,24 @@ export function problems(text, { opened, typed = new Set() }) {
 
 export function verdict(input) {
   const s = scan(entries(fs.readFileSync(input.transcript_path, "utf8")));
-  const reply = typeof input.last_assistant_message === "string" && input.last_assistant_message ? input.last_assistant_message : s.reply;
+  const reply =
+    typeof input.last_assistant_message === "string" &&
+    input.last_assistant_message
+      ? input.last_assistant_message
+      : s.reply;
   return problems(reply, s);
 }
 
 export function reason(bad) {
-  const lines = [`[link-gate] ${bad.length} link(s) in this reply were never opened in this session:`];
+  const lines = [
+    `[link-gate] ${bad.length} link(s) in this reply were never opened in this session:`,
+  ];
   for (const url of bad.slice(0, 12)) lines.push(`- ${url}`);
   if (bad.length > 12) lines.push(`- and ${bad.length - 12} more`);
-  lines.push("Open each one (WebFetch or the browser) and keep it only if it loads and says what the reply claims, " +
-    "or take it out and say in words that it was not checked. Then answer again.");
+  lines.push(
+    "Open each one (WebFetch or the browser) and keep it only if it loads and says what the reply claims, " +
+      "or take it out and say in words that it was not checked. Then answer again.",
+  );
   return lines.join("\n");
 }
 
@@ -114,7 +166,10 @@ if (isMain(import.meta.url)) {
     if (!input.stop_hook_active) blocks = 0;
     if (!bad.length || blocks >= MAX_BLOCKS) {
       writeJson(file, { blocks: 0 });
-      if (bad.length) process.stderr.write(`link-gate: let through after ${MAX_BLOCKS} blocks, ${bad.length} link(s) still unopened\n`);
+      if (bad.length)
+        process.stderr.write(
+          `link-gate: let through after ${MAX_BLOCKS} blocks, ${bad.length} link(s) still unopened\n`,
+        );
       return;
     }
     writeJson(file, { blocks: blocks + 1 });

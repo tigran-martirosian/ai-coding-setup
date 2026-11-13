@@ -1,9 +1,14 @@
 // node --experimental-strip-types test/note.test.ts
-import assert from 'node:assert/strict';
-import { findComposers, readFiles, removeFiles } from '../src/find.ts';
-import { endMessage, GIVE_UP_MS, noteEnds, sendNote } from '../src/note.ts';
-import type { Attachment } from '../src/note.ts';
-import { pollOutbox, newState as slowState, MAX_TRIES, LOCK_MS } from '../src/bridge.ts';
+import assert from "node:assert/strict";
+import { findComposers, readFiles, removeFiles } from "../src/find.ts";
+import { endMessage, GIVE_UP_MS, noteEnds, sendNote } from "../src/note.ts";
+import type { Attachment } from "../src/note.ts";
+import {
+  pollOutbox,
+  newState as slowState,
+  MAX_TRIES,
+  LOCK_MS,
+} from "../src/bridge.ts";
 
 let n = 0;
 const ok = (name: string) => console.log(`ok ${++n} ${name}`);
@@ -20,23 +25,39 @@ class Node {
     this.attrs = attrs;
   }
   add(...c: Node[]) {
-    for (const x of c) (x.parentElement = this), this.children.push(x);
+    for (const x of c) ((x.parentElement = this), this.children.push(x));
     return this;
   }
   matches(sel: string): boolean {
-    return sel.split(',').some((part) => {
-      const m = part.trim().match(/^([a-z]*)((?:\.[\w-]+)*)(?:\[([\w-]+)(?:="([^"]*)")?\])?$/);
+    return sel.split(",").some((part) => {
+      const m = part
+        .trim()
+        .match(/^([a-z]*)((?:\.[\w-]+)*)(?:\[([\w-]+)(?:="([^"]*)")?\])?$/);
       if (!m) throw new Error(`selector not understood by the test: ${part}`);
       const [, tag, classes, attr, value] = m;
       if (tag && tag !== this.tag) return false;
-      const have = (this.attrs.class ?? '').split(/\s+/);
-      if (classes && !classes.slice(1).split('.').every((c) => have.includes(c))) return false;
-      if (attr && (value === undefined ? !(attr in this.attrs) : this.attrs[attr] !== value)) return false;
+      const have = (this.attrs.class ?? "").split(/\s+/);
+      if (
+        classes &&
+        !classes
+          .slice(1)
+          .split(".")
+          .every((c) => have.includes(c))
+      )
+        return false;
+      if (
+        attr &&
+        (value === undefined
+          ? !(attr in this.attrs)
+          : this.attrs[attr] !== value)
+      )
+        return false;
       return true;
     });
   }
   closest(sel: string): Node | null {
-    for (let e: Node | null = this; e; e = e.parentElement) if (e.matches(sel)) return e;
+    for (let e: Node | null = this; e; e = e.parentElement)
+      if (e.matches(sel)) return e;
     return null;
   }
   getAttribute(name: string) {
@@ -52,126 +73,325 @@ class Node {
     return this.querySelectorAll(sel)[0] ?? null;
   }
 }
-const el = (tag: string, attrs: Record<string, string>, ...kids: Node[]) => new Node(tag, attrs).add(...kids);
+const el = (tag: string, attrs: Record<string, string>, ...kids: Node[]) =>
+  new Node(tag, attrs).add(...kids);
 const composer = (button: Node, session?: string) =>
-  el('div', session ? { class: 'agent-session-panel flex flex-col', 'data-session-id': session } : { class: 'no-id' },
-    el('div', { class: 'transcript' }),
-    el('div', { class: 'flex flex-row' },
-      el('div', { class: 'ai-chat-input-textarea-wrap relative flex flex-1 min-w-0' }, el('textarea', { class: 'ai-chat-input-field nim-scrollbar-hidden' })),
-      button));
-const send = () => el('button', { class: 'ai-chat-send-button w-9 h-9', title: 'Send message (Enter)', 'aria-label': 'Send message' });
-const cancel = () => el('button', { class: 'ai-chat-cancel-button w-9 h-9', 'aria-label': 'Cancel request' });
+  el(
+    "div",
+    session
+      ? {
+          class: "agent-session-panel flex flex-col",
+          "data-session-id": session,
+        }
+      : { class: "no-id" },
+    el("div", { class: "transcript" }),
+    el(
+      "div",
+      { class: "flex flex-row" },
+      el(
+        "div",
+        { class: "ai-chat-input-textarea-wrap relative flex flex-1 min-w-0" },
+        el("textarea", { class: "ai-chat-input-field nim-scrollbar-hidden" }),
+      ),
+      button,
+    ),
+  );
+const send = () =>
+  el("button", {
+    class: "ai-chat-send-button w-9 h-9",
+    title: "Send message (Enter)",
+    "aria-label": "Send message",
+  });
+const cancel = () =>
+  el("button", {
+    class: "ai-chat-cancel-button w-9 h-9",
+    "aria-label": "Cancel request",
+  });
 
-const page = el('body', {}, composer(send(), 'abc-123'), composer(cancel(), 'def_456'), composer(send()), el('div', {}, el('button', { class: 'other' })));
+const page = el(
+  "body",
+  {},
+  composer(send(), "abc-123"),
+  composer(cancel(), "def_456"),
+  composer(send()),
+  el("div", {}, el("button", { class: "other" })),
+);
 const found = findComposers(page as never);
-assert.deepEqual(found.map((c) => c.sessionId), ['abc-123', 'def_456', null]);
-assert.ok(found.every((c) => (c.row as never as Node).querySelector('textarea')));
+assert.deepEqual(
+  found.map((c) => c.sessionId),
+  ["abc-123", "def_456", null],
+);
+assert.ok(
+  found.every((c) => (c.row as never as Node).querySelector("textarea")),
+);
 assert.equal(found[0].button, (found[0].row as never as Node).children[1]);
-ok('finds the Send (and the Cancel) button of each chat box, with its session id; none without an id');
+ok(
+  "finds the Send (and the Cancel) button of each chat box, with its session id; none without an id",
+);
 
 // ---- sending
-const run = async (execCode: number | null, throwOn?: string, text = '  look at X  ', files: Attachment[] = [], stdout = 'Delivered to it') => {
+const run = async (
+  execCode: number | null,
+  throwOn?: string,
+  text = "  look at X  ",
+  files: Attachment[] = [],
+  stdout = "Delivered to it",
+) => {
   const calls: unknown[][] = [];
   const invoke = async (channel: string, ...args: unknown[]) => {
     calls.push([channel, ...args]);
-    if (throwOn === channel) throw new Error(`Error invoking remote method '${channel}': Error: boom`);
-    if (channel === 'extension:exec') return execCode === 0 ? { success: true, stdout, stderr: '', exitCode: 0 } : { success: false, stdout: 'NOT SENT: idle', stderr: '', exitCode: execCode };
+    if (throwOn === channel)
+      throw new Error(`Error invoking remote method '${channel}': Error: boom`);
+    if (channel === "extension:exec")
+      return execCode === 0
+        ? { success: true, stdout, stderr: "", exitCode: 0 }
+        : {
+            success: false,
+            stdout: "NOT SENT: idle",
+            stderr: "",
+            exitCode: execCode,
+          };
     return undefined;
   };
-  return { calls, outcome: await sendNote(text, 'sess-1', 'C:/Users/you', invoke, files) };
+  return {
+    calls,
+    outcome: await sendNote(text, "sess-1", "C:/Users/you", invoke, files),
+  };
 };
 let r = await run(0);
-assert.deepEqual(r.calls.map((c) => c[0]), ['extensions:write-file', 'extension:exec']);
-assert.deepEqual(r.calls[0].slice(1), ['C:/Users/you/.claude/steer/button-note-sess-1.txt', 'look at X']);
+assert.deepEqual(
+  r.calls.map((c) => c[0]),
+  ["extensions:write-file", "extension:exec"],
+);
+assert.deepEqual(r.calls[0].slice(1), [
+  "C:/Users/you/.claude/steer/button-note-sess-1.txt",
+  "look at X",
+]);
 const exec = r.calls[1][1] as { extensionId: string; command: string };
-assert.equal(exec.extensionId, 'com.local.commandbuttons');
-assert.equal(exec.command, 'node "C:/Users/you/.claude/skills/steer/steer.mjs" send --to sess-1 - --nowait < "C:/Users/you/.claude/steer/button-note-sess-1.txt"');
+assert.equal(exec.extensionId, "com.local.commandbuttons");
+assert.equal(
+  exec.command,
+  'node "C:/Users/you/.claude/skills/steer/steer.mjs" send --to sess-1 - --nowait < "C:/Users/you/.claude/steer/button-note-sess-1.txt"',
+);
 assert.equal(r.outcome.ok, true);
-ok('a busy session (exit 0): the file is written, steer.mjs runs, nothing is queued');
+ok(
+  "a busy session (exit 0): the file is written, steer.mjs runs, nothing is queued",
+);
 
 r = await run(3);
-assert.deepEqual(r.calls.map((c) => c[0]), ['extensions:write-file', 'extension:exec', 'ai:createQueuedPrompt']);
-assert.deepEqual(r.calls[2].slice(1), ['sess-1', 'look at X', []]);
-assert.deepEqual(r.outcome, { ok: true, message: 'Queued, it starts now' });
-ok('an idle session (exit 3): steer.mjs, then createQueuedPrompt(sessionId, text)');
+assert.deepEqual(
+  r.calls.map((c) => c[0]),
+  ["extensions:write-file", "extension:exec", "ai:createQueuedPrompt"],
+);
+assert.deepEqual(r.calls[2].slice(1), ["sess-1", "look at X", []]);
+assert.deepEqual(r.outcome, { ok: true, message: "Queued, it starts now" });
+ok(
+  "an idle session (exit 3): steer.mjs, then createQueuedPrompt(sessionId, text)",
+);
 
 r = await run(2);
 assert.equal(r.outcome.ok, false);
-assert.equal(r.outcome.message, 'Not sent: idle');
+assert.equal(r.outcome.message, "Not sent: idle");
 assert.ok(!/code|steer|exit/i.test(r.outcome.message));
-assert.ok(!r.calls.some((c) => c[0] === 'ai:createQueuedPrompt'));
-r = await run(3, 'ai:createQueuedPrompt');
-assert.deepEqual(r.outcome, { ok: false, message: 'Not sent: boom' });
-r = await run(0, 'extensions:write-file');
+assert.ok(!r.calls.some((c) => c[0] === "ai:createQueuedPrompt"));
+r = await run(3, "ai:createQueuedPrompt");
+assert.deepEqual(r.outcome, { ok: false, message: "Not sent: boom" });
+r = await run(0, "extensions:write-file");
 assert.equal(r.outcome.ok, false);
-assert.equal((await sendNote('   ', 's', 'C:/h', async () => ({}))).ok, false);
-const odd = await sendNote('x', 'a & del *', 'C:/h', async () => ({}));
+assert.equal((await sendNote("   ", "s", "C:/h", async () => ({}))).ok, false);
+const odd = await sendNote("x", "a & del *", "C:/h", async () => ({}));
 assert.equal(odd.ok, false);
-assert.ok(!odd.message.includes('del'), 'the id is not shown');
-ok('errors come back as text: unknown session, failed queue, failed write, empty note, unsafe id');
+assert.ok(!odd.message.includes("del"), "the id is not shown");
+ok(
+  "errors come back as text: unknown session, failed queue, failed write, empty note, unsafe id",
+);
 
-const shot = { id: 'a1', filename: 'shot.png', filepath: 'C:/Temp/att/shot.png' };
-r = await run(0, undefined, '@shot.png look at this', [shot]);
-assert.equal(r.calls[0][2], '@shot.png look at this\nAttached file: C:/Temp/att/shot.png (open it with the Read tool)');
-r = await run(0, undefined, '', [shot]);
-assert.equal(r.calls[0][2], 'Attached file: C:/Temp/att/shot.png (open it with the Read tool)');
+const shot = {
+  id: "a1",
+  filename: "shot.png",
+  filepath: "C:/Temp/att/shot.png",
+};
+r = await run(0, undefined, "@shot.png look at this", [shot]);
+assert.equal(
+  r.calls[0][2],
+  "@shot.png look at this\nAttached file: C:/Temp/att/shot.png (open it with the Read tool)",
+);
+r = await run(0, undefined, "", [shot]);
+assert.equal(
+  r.calls[0][2],
+  "Attached file: C:/Temp/att/shot.png (open it with the Read tool)",
+);
 assert.equal(r.outcome.ok, true);
-r = await run(3, undefined, 'see this', [shot]);
-assert.deepEqual(r.calls[2].slice(2), ['see this', [shot]]);
-ok('a file goes along: its path in the note, a note with only a file is sent, an idle session gets it as an attachment');
+r = await run(3, undefined, "see this", [shot]);
+assert.deepEqual(r.calls[2].slice(2), ["see this", [shot]]);
+ok(
+  "a file goes along: its path in the note, a note with only a file is sent, an idle session gets it as an attachment",
+);
 
 const clicks: string[] = [];
 const chip = (cls: string, attachment?: Attachment, button = true) => ({
-  classList: { contains: (c: string) => cls.split(' ').includes(c) },
-  querySelector: () => (button ? { click: () => clicks.push(attachment?.id ?? '') } : null),
-  __reactFiber$x: { memoizedProps: {}, return: { memoizedProps: { attachment } } },
+  classList: { contains: (c: string) => cls.split(" ").includes(c) },
+  querySelector: () =>
+    button ? { click: () => clicks.push(attachment?.id ?? "") } : null,
+  __reactFiber$x: {
+    memoizedProps: {},
+    return: { memoizedProps: { attachment } },
+  },
 });
-const scope = (...chips: unknown[]) => ({ querySelectorAll: () => chips }) as unknown as Element;
-assert.deepEqual(readFiles(scope(), 'plain text'), []);
-assert.deepEqual(readFiles(scope(chip('attachment-preview', shot)), ''), [shot]);
-assert.throws(() => readFiles(scope(chip('attachment-preview')), ''), /could not read the path/);
-assert.throws(() => readFiles(scope(chip('attachment-preview attachment-preview-processing')), ''), /still being added/);
-assert.throws(() => readFiles(scope(), '@pasted-image-1.png look'), /could not read the path/);
-ok('the chat box files: read from each chip, a chip with no path or still processing stops the note');
+const scope = (...chips: unknown[]) =>
+  ({ querySelectorAll: () => chips }) as unknown as Element;
+assert.deepEqual(readFiles(scope(), "plain text"), []);
+assert.deepEqual(readFiles(scope(chip("attachment-preview", shot)), ""), [
+  shot,
+]);
+assert.throws(
+  () => readFiles(scope(chip("attachment-preview")), ""),
+  /could not read the path/,
+);
+assert.throws(
+  () =>
+    readFiles(
+      scope(chip("attachment-preview attachment-preview-processing")),
+      "",
+    ),
+  /still being added/,
+);
+assert.throws(
+  () => readFiles(scope(), "@pasted-image-1.png look"),
+  /could not read the path/,
+);
+ok(
+  "the chat box files: read from each chip, a chip with no path or still processing stops the note",
+);
 
-const second = { id: 'a2', filename: 'second.png', filepath: 'C:/Temp/att/second.png' };
-assert.equal(removeFiles(scope(chip('attachment-preview', shot), chip('attachment-preview', second)), [shot]), true);
-assert.deepEqual(clicks, ['a1']);
-assert.equal(removeFiles(scope(chip('attachment-preview', shot, false)), [shot]), false);
+const second = {
+  id: "a2",
+  filename: "second.png",
+  filepath: "C:/Temp/att/second.png",
+};
+assert.equal(
+  removeFiles(
+    scope(chip("attachment-preview", shot), chip("attachment-preview", second)),
+    [shot],
+  ),
+  true,
+);
+assert.deepEqual(clicks, ["a1"]);
+assert.equal(
+  removeFiles(scope(chip("attachment-preview", shot, false)), [shot]),
+  false,
+);
 assert.equal(removeFiles(scope(), [shot]), false);
-ok('only the sent files leave the chat box; a chip that cannot be removed is reported');
+ok(
+  "only the sent files leave the chat box; a chip that cannot be removed is reported",
+);
 
-r = await run(0, undefined, 'x', [], 'Queued for it, not delivered yet.\nNote id: mvw123\n');
-assert.deepEqual(r.outcome, { ok: true, message: 'Note on its way', noteId: 'mvw123' });
-r = await run(0, undefined, 'x', [], 'Sent.');
+r = await run(
+  0,
+  undefined,
+  "x",
+  [],
+  "Queued for it, not delivered yet.\nNote id: mvw123\n",
+);
+assert.deepEqual(r.outcome, {
+  ok: true,
+  message: "Note on its way",
+  noteId: "mvw123",
+});
+r = await run(0, undefined, "x", [], "Sent.");
 assert.equal(r.outcome.noteId, undefined);
 assert.ok(!/steer\.mjs/.test(r.outcome.message));
 assert.match(r.outcome.message, /cannot be followed/);
-ok('steer answers at once: the note counts as on its way with its id, and a missing id is said');
+ok(
+  "steer answers at once: the note counts as on its way with its id, and a missing id is said",
+);
 
-const NOTE = (id: string, ts = 1000) => ({ id, session: 's1', home: 'C:/h', ts, text: 'look at X' });
-const receipts = (text?: string, code = 'ENOENT') => async (channel: string, file: unknown) => {
-  assert.equal(channel, 'extensions:read-file');
-  assert.equal(file, 'C:/h/.claude/steer/receipts.json');
-  if (text === undefined) throw new Error(`Error invoking remote method: Error: ${code}: nope`);
-  return text;
-};
-const two = JSON.stringify([{ id: 'a', state: 'delivered' }, { id: 'b', state: 'failed' }]);
-assert.deepEqual((await noteEnds([NOTE('a'), NOTE('b'), NOTE('c')], receipts(two), 2000)).map((e) => [e.note.id, e.state]), [['a', 'delivered'], ['b', 'failed']]);
-assert.deepEqual(await noteEnds([NOTE('c')], receipts(), 2000), [], 'no receipts file yet: still waiting');
-assert.deepEqual((await noteEnds([NOTE('c')], receipts('[]'), 1000 + GIVE_UP_MS + 1)).map((e) => e.state), ['unconfirmed']);
-assert.deepEqual(await noteEnds([], receipts('not read'), 2000), []);
+const NOTE = (id: string, ts = 1000) => ({
+  id,
+  session: "s1",
+  home: "C:/h",
+  ts,
+  text: "look at X",
+});
+const receipts =
+  (text?: string, code = "ENOENT") =>
+  async (channel: string, file: unknown) => {
+    assert.equal(channel, "extensions:read-file");
+    assert.equal(file, "C:/h/.claude/steer/receipts.json");
+    if (text === undefined)
+      throw new Error(`Error invoking remote method: Error: ${code}: nope`);
+    return text;
+  };
+const two = JSON.stringify([
+  { id: "a", state: "delivered" },
+  { id: "b", state: "failed" },
+]);
+assert.deepEqual(
+  (await noteEnds([NOTE("a"), NOTE("b"), NOTE("c")], receipts(two), 2000)).map(
+    (e) => [e.note.id, e.state],
+  ),
+  [
+    ["a", "delivered"],
+    ["b", "failed"],
+  ],
+);
+assert.deepEqual(
+  await noteEnds([NOTE("c")], receipts(), 2000),
+  [],
+  "no receipts file yet: still waiting",
+);
+assert.deepEqual(
+  (await noteEnds([NOTE("c")], receipts("[]"), 1000 + GIVE_UP_MS + 1)).map(
+    (e) => e.state,
+  ),
+  ["unconfirmed"],
+);
+assert.deepEqual(await noteEnds([], receipts("not read"), 2000), []);
 const seen: string[] = [];
 const say = (m: string) => seen.push(m);
-assert.deepEqual(await noteEnds([NOTE('c')], receipts(undefined, 'EBUSY'), 2000, say), []);
-assert.deepEqual(await noteEnds([NOTE('c')], receipts('half{'), 2000, say), []);
-assert.deepEqual(await noteEnds([NOTE('c')], receipts('{}'), 2000, say), []);
-assert.equal(seen.length, 3, 'each bad read is logged');
-assert.deepEqual((await noteEnds([NOTE('a')], receipts('[null,{"id":"a","state":"delivered"}]'), 2000, say)).map((e) => e.state), ['delivered'], 'a bad line does not stop the rest');
-assert.deepEqual((await noteEnds([NOTE('c')], receipts(undefined, 'EBUSY'), 1000 + GIVE_UP_MS + 1, say)).map((e) => e.state), ['unconfirmed'], 'bad reads still end at the limit');
-assert.deepEqual(endMessage('delivered', 'look at X'), { ok: true, message: 'Note delivered' });
-for (const state of ['failed', 'unconfirmed']) assert.deepEqual(endMessage(state, 'look at X'), { ok: false, message: 'Not confirmed, send it again if needed: "look at X"' });
-ok('a note ends on its receipt or at the time limit, even when the receipts cannot be read; a failure names the note');
+assert.deepEqual(
+  await noteEnds([NOTE("c")], receipts(undefined, "EBUSY"), 2000, say),
+  [],
+);
+assert.deepEqual(await noteEnds([NOTE("c")], receipts("half{"), 2000, say), []);
+assert.deepEqual(await noteEnds([NOTE("c")], receipts("{}"), 2000, say), []);
+assert.equal(seen.length, 3, "each bad read is logged");
+assert.deepEqual(
+  (
+    await noteEnds(
+      [NOTE("a")],
+      receipts('[null,{"id":"a","state":"delivered"}]'),
+      2000,
+      say,
+    )
+  ).map((e) => e.state),
+  ["delivered"],
+  "a bad line does not stop the rest",
+);
+assert.deepEqual(
+  (
+    await noteEnds(
+      [NOTE("c")],
+      receipts(undefined, "EBUSY"),
+      1000 + GIVE_UP_MS + 1,
+      say,
+    )
+  ).map((e) => e.state),
+  ["unconfirmed"],
+  "bad reads still end at the limit",
+);
+assert.deepEqual(endMessage("delivered", "look at X"), {
+  ok: true,
+  message: "Note delivered",
+});
+for (const state of ["failed", "unconfirmed"])
+  assert.deepEqual(endMessage(state, "look at X"), {
+    ok: false,
+    message: 'Not confirmed, send it again if needed: "look at X"',
+  });
+ok(
+  "a note ends on its receipt or at the time limit, even when the receipts cannot be read; a failure names the note",
+);
 
 // ---- wake bridge
 const NOW = 1_000_000_000_000;
@@ -179,68 +399,110 @@ const world = (files: Record<string, string>, failQueue = 0) => {
   const delivered: unknown[][] = [];
   let fails = failQueue;
   const invoke = async (channel: string, ...args: unknown[]) => {
-    if (channel === 'extensions:read-file') {
+    if (channel === "extensions:read-file") {
       const f = files[args[0] as string];
-      if (f === undefined) throw new Error(`Error invoking remote method 'extensions:read-file': Error: ENOENT: no such file or directory, open '${args[0]}'`);
+      if (f === undefined)
+        throw new Error(
+          `Error invoking remote method 'extensions:read-file': Error: ENOENT: no such file or directory, open '${args[0]}'`,
+        );
       return f;
     }
-    if (channel === 'extensions:write-file') return void (files[args[0] as string] = args[1] as string);
-    if (channel === 'ai:createQueuedPrompt') {
-      if (fails-- > 0) throw new Error('session busy');
+    if (channel === "extensions:write-file")
+      return void (files[args[0] as string] = args[1] as string);
+    if (channel === "ai:createQueuedPrompt") {
+      if (fails-- > 0) throw new Error("session busy");
       return void delivered.push(args);
     }
     throw new Error(`unexpected ${channel}`);
   };
   return { invoke, delivered, files };
 };
-const OUT = 'C:/h/.claude/steer/outbox.jsonl';
-const DONE = 'C:/h/.claude/steer/outbox-done.json';
-const line = (id: string, age: number, session = 's1') => JSON.stringify({ id, ts: NOW - age, session, prompt: `p-${id}` });
+const OUT = "C:/h/.claude/steer/outbox.jsonl";
+const DONE = "C:/h/.claude/steer/outbox-done.json";
+const line = (id: string, age: number, session = "s1") =>
+  JSON.stringify({ id, ts: NOW - age, session, prompt: `p-${id}` });
 const quiet = () => {};
 const newState = () => ({ ...slowState(), wait: async () => {} });
 
 let w = world({});
-assert.equal(await pollOutbox(w.invoke, 'C:/h', newState(), NOW, quiet), 0);
-w = world({ [OUT]: [line('a', 1000), 'half-written {', line('old', 11 * 60_000)].join('\n') + '\n' });
+assert.equal(await pollOutbox(w.invoke, "C:/h", newState(), NOW, quiet), 0);
+w = world({
+  [OUT]:
+    [line("a", 1000), "half-written {", line("old", 11 * 60_000)].join("\n") +
+    "\n",
+});
 const st = newState();
-assert.equal(await pollOutbox(w.invoke, 'C:/h', st, NOW, quiet), 1);
-assert.deepEqual(w.delivered, [['s1', 'p-a']]);
-assert.deepEqual(JSON.parse(w.files[DONE]), ['a']);
-assert.equal(await pollOutbox(w.invoke, 'C:/h', st, NOW + 3000, quiet), 0);
+assert.equal(await pollOutbox(w.invoke, "C:/h", st, NOW, quiet), 1);
+assert.deepEqual(w.delivered, [["s1", "p-a"]]);
+assert.deepEqual(JSON.parse(w.files[DONE]), ["a"]);
+assert.equal(await pollOutbox(w.invoke, "C:/h", st, NOW + 3000, quiet), 0);
 assert.equal(w.delivered.length, 1);
-assert.equal(w.files[OUT].split('\n').length, 4, 'outbox.jsonl is never rewritten');
-ok('a new entry is delivered once; one older than 10 minutes and a missing file are skipped');
+assert.equal(
+  w.files[OUT].split("\n").length,
+  4,
+  "outbox.jsonl is never rewritten",
+);
+ok(
+  "a new entry is delivered once; one older than 10 minutes and a missing file are skipped",
+);
 
-w = world({ [OUT]: line('a', 1000) + '\n' + line('b', 2000) + '\n', [DONE]: '["a"]' });
-assert.equal(await pollOutbox(w.invoke, 'C:/h', newState(), NOW, quiet), 1);
-assert.deepEqual(w.delivered, [['s1', 'p-b']]);
-assert.deepEqual(JSON.parse(w.files[DONE]).sort(), ['a', 'b']);
-ok('an id in outbox-done.json is skipped after a restart');
+w = world({
+  [OUT]: line("a", 1000) + "\n" + line("b", 2000) + "\n",
+  [DONE]: '["a"]',
+});
+assert.equal(await pollOutbox(w.invoke, "C:/h", newState(), NOW, quiet), 1);
+assert.deepEqual(w.delivered, [["s1", "p-b"]]);
+assert.deepEqual(JSON.parse(w.files[DONE]).sort(), ["a", "b"]);
+ok("an id in outbox-done.json is skipped after a restart");
 
 const logs: unknown[] = [];
-w = world({ [OUT]: line('c', 1000) + '\n' }, 99);
+w = world({ [OUT]: line("c", 1000) + "\n" }, 99);
 const st2 = newState();
-for (let i = 0; i < 5; i++) await pollOutbox(w.invoke, 'C:/h', st2, NOW + i * 3000, (m) => logs.push(m));
+for (let i = 0; i < 5; i++)
+  await pollOutbox(w.invoke, "C:/h", st2, NOW + i * 3000, (m) => logs.push(m));
 assert.equal(logs.length, MAX_TRIES);
 assert.match(String(logs[0]), /id c \(try 1 of 3\): session busy/);
 assert.equal(w.delivered.length, 0);
-w = world({ [OUT]: line('d', 1000) + '\n' }, 1);
+w = world({ [OUT]: line("d", 1000) + "\n" }, 1);
 const st3 = newState();
-await pollOutbox(w.invoke, 'C:/h', st3, NOW, quiet);
-assert.equal(await pollOutbox(w.invoke, 'C:/h', st3, NOW + 3000, quiet), 1);
-ok('a failed delivery is logged with its id and retried, at most 3 times');
+await pollOutbox(w.invoke, "C:/h", st3, NOW, quiet);
+assert.equal(await pollOutbox(w.invoke, "C:/h", st3, NOW + 3000, quiet), 1);
+ok("a failed delivery is logged with its id and retried, at most 3 times");
 
-w = world({ [OUT]: line('e', 1000) + '\n' });
-const winA = newState(), winB = newState();
-const both = await Promise.all([pollOutbox(w.invoke, 'C:/h', winA, NOW, quiet), pollOutbox(w.invoke, 'C:/h', winB, NOW, quiet)]);
-assert.deepEqual(w.delivered, [['s1', 'p-e']], 'two windows starting together: one delivery');
+w = world({ [OUT]: line("e", 1000) + "\n" });
+const winA = newState(),
+  winB = newState();
+const both = await Promise.all([
+  pollOutbox(w.invoke, "C:/h", winA, NOW, quiet),
+  pollOutbox(w.invoke, "C:/h", winB, NOW, quiet),
+]);
+assert.deepEqual(
+  w.delivered,
+  [["s1", "p-e"]],
+  "two windows starting together: one delivery",
+);
 assert.equal(both[0] + both[1], 1);
-const lead = both[0] ? winA : winB, other = both[0] ? winB : winA;
-w.files[OUT] += line('f', 500) + '\n';
-assert.equal(await pollOutbox(w.invoke, 'C:/h', other, NOW + 3000, quiet), 0, 'the other window leaves a fresh lock alone');
-assert.equal(await pollOutbox(w.invoke, 'C:/h', lead, NOW + 3000, quiet), 1);
-w.files[OUT] += line('g', 500) + '\n';
+const lead = both[0] ? winA : winB,
+  other = both[0] ? winB : winA;
+w.files[OUT] += line("f", 500) + "\n";
+assert.equal(
+  await pollOutbox(w.invoke, "C:/h", other, NOW + 3000, quiet),
+  0,
+  "the other window leaves a fresh lock alone",
+);
+assert.equal(await pollOutbox(w.invoke, "C:/h", lead, NOW + 3000, quiet), 1);
+w.files[OUT] += line("g", 500) + "\n";
 const later = NOW + 3000 + LOCK_MS + 1;
-assert.equal(await pollOutbox(w.invoke, 'C:/h', other, later, quiet), 1, 'a lock not refreshed for LOCK_MS is taken over');
-assert.deepEqual(w.delivered.map((d) => d[1]), ['p-e', 'p-f', 'p-g'], 'the new holder does not re-deliver what the old one sent');
-ok('two windows: only the lock holder delivers; a stale lock is taken over without repeats');
+assert.equal(
+  await pollOutbox(w.invoke, "C:/h", other, later, quiet),
+  1,
+  "a lock not refreshed for LOCK_MS is taken over",
+);
+assert.deepEqual(
+  w.delivered.map((d) => d[1]),
+  ["p-e", "p-f", "p-g"],
+  "the new holder does not re-deliver what the old one sent",
+);
+ok(
+  "two windows: only the lock holder delivers; a stale lock is taken over without repeats",
+);

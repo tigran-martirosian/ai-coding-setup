@@ -52,9 +52,18 @@
 //   STEER_FORWARD=off        turns off forwarding of typed messages (kind "user") from a handed-off
 //                            session, so the user can keep working in the old one; child reports
 //                            are still forwarded.
+//   child reports            Nimbalyst queues a child session's final report ("[Child Session Update]") for the
+//                            session that started it, and a busy parent only gets it when its turn ends. The
+//                            parent's --hook reads that queue (read-only) and hands the report over as a
+//                            "[report]" note, which asks the model to call consume_session_inbox so the queued
+//                            copy never comes as a turn. A copy that still comes as a turn after it was read
+//                            is dropped; one that was not read runs, labelled "[report]".
+//   STEER_REPORTS=off        stops reading Nimbalyst's queue at each tool call (busy parents then get child
+//                            reports only when their turn ends, as before).
 // Fails open: any hook error means no output.
 import { crashLog } from "../../hooks/lib/crash-log.mjs";
 import { currentTurn, SYNTHETIC } from "../../hooks/lib/transcript.mjs";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -80,15 +89,32 @@ const WARN = 10 * 60e3;
 // send waits this long for the receipt, so it can say what really happened.
 const WAIT = Number(process.env.STEER_WAIT ?? 20) * 1000;
 const OUTBOX = path.join(DIR, "outbox.jsonl");
-const REPORT = "This is a child session's report, forwarded to you because you took over the work of the session that started that child. It is information, not a new request from the user: finish the step you are on, then judge it as the lead skill says (read the result, check it, route it).";
-const TYPED = "This message reached the session you took over from and was forwarded to you. It was most likely typed there by the user: treat it as the user's request and answer or act on it as you would if they had typed it here, after the step you are on if it does not change that step. Only if it reads like one session writing to another (a lead's instruction, a status report) treat it as that instead.";
-const RULES ="It is an addition or a correction to the current task, not a new task. First ask yourself whether it touches what you are doing right now or are about to do: if it does, stop or change course before going on. Keep doing everything you were already asked, except exactly what this note changes: if it says to skip, stop, drop or replace something (a step, a style, a technique), do that from now on, and keep the rest. If it only adds something, add it and change nothing else. If it belongs to a later step, act on it at the point it names (if you keep a task list, update it so it isn't forgotten). In your final reply, list it back under \"### Your notes\": its first words in quotes, then what you did (done, moved to a named step, or not done and why).";
+const REPORT =
+  "This is a child session's report, forwarded to you because you took over the work of the session that started that child. It is information, not a new request from the user: finish the step you are on, then judge it as the lead skill says (read the result, check it, route it).";
+// A child's report that Nimbalyst queued for this session itself (not forwarded after a handoff).
+const CHILD =
+  "This is the report of a child session you started. It is information, not a request from the user.";
+// The row stays in Nimbalyst's queue until the model claims it; only the model's own tool call can.
+const consumeLine = (id) =>
+  ` Nimbalyst still holds it in your queue: call \`mcp__nimbalyst-host__consume_session_inbox\` once now with \`{ "checkpointId": "report_${String(id).replace(/\D/g, "")}" }\` so it does not come again as a new turn (load the tool with ToolSearch if it is not loaded); its result repeats this report, do not act on it twice.`;
+const TYPED =
+  "This message reached the session you took over from and was forwarded to you. It was most likely typed there by the user: treat it as the user's request and answer or act on it as you would if they had typed it here, after the step you are on if it does not change that step. Only if it reads like one session writing to another (a lead's instruction, a status report) treat it as that instead.";
+const RULES =
+  'It is an addition or a correction to the current task, not a new task. First ask yourself whether it touches what you are doing right now or are about to do: if it does, stop or change course before going on. Keep doing everything you were already asked, except exactly what this note changes: if it says to skip, stop, drop or replace something (a step, a style, a technique), do that from now on, and keep the rest. If it only adds something, add it and change nothing else. If it belongs to a later step, act on it at the point it names (if you keep a task list, update it so it isn\'t forgotten). In your final reply, list it back under "### Your notes": its first words in quotes, then what you did (done, moved to a named step, or not done and why).';
 // A line that does not parse is skipped: one bad line must not drop the good ones (the next write would wipe them).
 const read = (f) => {
   let text;
-  try { text = fs.readFileSync(f, "utf8"); } catch { return []; }
+  try {
+    text = fs.readFileSync(f, "utf8");
+  } catch {
+    return [];
+  }
   const out = [];
-  for (const l of text.split("\n").filter(Boolean)) { try { out.push(JSON.parse(l)); } catch {} }
+  for (const l of text.split("\n").filter(Boolean)) {
+    try {
+      out.push(JSON.parse(l));
+    } catch {}
+  }
   return out;
 };
 // Written to a temp file in the same folder and renamed over, so a reader never sees a half-written file.
@@ -98,58 +124,117 @@ const write = (f, a) => {
   fs.writeFileSync(tmp, a.map((e) => JSON.stringify(e)).join("\n") + "\n");
   fs.renameSync(tmp, f);
 };
-const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const newId = () =>
+  `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const mark = (e) => (e.id ? `[note ${e.id}] ` : "");
 // The inboxes are read, changed and rewritten by every session's hook, so changes take turns. A hook
 // must never hang, so after a short wait it goes on without the lock.
 const LOCK = path.join(DIR, ".lock");
-const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const sleep = (ms) =>
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 const locked = (fn) => {
   const end = Date.now() + 800;
   for (;;) {
-    try { fs.mkdirSync(LOCK); break; } catch {}
-    try { if (Date.now() - fs.statSync(LOCK).mtimeMs > 3000) fs.rmdirSync(LOCK); } catch {}
+    try {
+      fs.mkdirSync(LOCK);
+      break;
+    } catch {}
+    try {
+      if (Date.now() - fs.statSync(LOCK).mtimeMs > 3000) fs.rmdirSync(LOCK);
+    } catch {}
     if (Date.now() > end) break;
     sleep(15);
   }
-  try { return fn(); } finally { try { fs.rmdirSync(LOCK); } catch {} }
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.rmdirSync(LOCK);
+    } catch {}
+  }
 };
-const receipts = () => { try { return JSON.parse(fs.readFileSync(RECEIPTS, "utf8")); } catch { return []; } };
+const receipts = () => {
+  try {
+    return JSON.parse(fs.readFileSync(RECEIPTS, "utf8"));
+  } catch {
+    return [];
+  }
+};
 const saveReceipts = (all) => {
   const tmp = `${RECEIPTS}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(all.slice(-200)));
   fs.renameSync(tmp, RECEIPTS);
 };
+// A child report's receipt keeps a hash of its whole text: the copy Nimbalyst may still send as a turn is matched by it.
+const sha1 = (s) =>
+  crypto.createHash("sha1").update(String(s).trim()).digest("hex");
 const receipt = (e, state) => {
   if (!e.id) return;
-  saveReceipts([...receipts().filter((r) => r.id !== e.id), { id: e.id, to: e.to, from: e.from, state, ts: Date.now(), msg: String(e.msg).slice(0, 80) }]);
+  saveReceipts([
+    ...receipts().filter((r) => r.id !== e.id),
+    {
+      id: e.id,
+      to: e.to,
+      from: e.from,
+      state,
+      ts: Date.now(),
+      msg: String(e.msg).slice(0, 80),
+      ...(e.child ? { sha: sha1(e.msg) } : {}),
+    },
+  ]);
 };
 const tailOf = (p, n = 2e6) => {
   try {
-    const fd = fs.openSync(p, "r"), size = fs.fstatSync(fd).size, len = Math.min(size, n), b = Buffer.alloc(len);
+    const fd = fs.openSync(p, "r"),
+      size = fs.fstatSync(fd).size,
+      len = Math.min(size, n),
+      b = Buffer.alloc(len);
     fs.readSync(fd, b, 0, len, size - len);
     fs.closeSync(fd);
     return b.toString("utf8");
-  } catch { return ""; }
+  } catch {
+    return "";
+  }
 };
 // Each string inside a transcript entry, one by one: a note's marker can sit in hook context, a held call's
 // result or a Stop hook's feedback
-const stringList = (v) => (typeof v === "string" ? [v] : Array.isArray(v) ? v.flatMap(stringList) : v && typeof v === "object" ? Object.values(v).flatMap(stringList) : []);
+const stringList = (v) =>
+  typeof v === "string"
+    ? [v]
+    : Array.isArray(v)
+      ? v.flatMap(stringList)
+      : v && typeof v === "object"
+        ? Object.values(v).flatMap(stringList)
+        : [];
 // A text steer delivered (hook context, a held call's reason, Stop feedback, a watch wake-up): a "[btw]" line or the rules
 // ("PreToolUse:Bash hook error: [btw] ...", "Stop hook blocking error from command \"Stop\": It is an addition ...")
-const DELIVERED = /(^|\n|: )(\[btw\] |It is an addition or a correction to the current task)/;
+const DELIVERED =
+  /(^|\n|: )(\[btw\] |It is an addition or a correction to the current task)/;
 // The notes ({ id, text }) delivered since the last real reply before this turn began, so notes from a turn
 // cut off by a stop (no real reply, only Claude Code's synthetic "No response requested.") carry over. Only
 // note lines ("- [note id] text") in a text steer delivered count: not a forwarded report's marker, nor a file read.
 const notesSinceLastReply = (text) => {
   const list = [];
-  for (const l of text.split("\n")) { try { list.push(JSON.parse(l)); } catch {} }
+  for (const l of text.split("\n")) {
+    try {
+      list.push(JSON.parse(l));
+    } catch {}
+  }
   let i = list.length - 1 - currentTurn(list).entries.length;
-  while (i >= 0 && !(list[i].type === "assistant" && list[i].message?.model !== SYNTHETIC && list[i].message?.stop_reason === "end_turn")) i--;
+  while (
+    i >= 0 &&
+    !(
+      list[i].type === "assistant" &&
+      list[i].message?.model !== SYNTHETIC &&
+      list[i].message?.stop_reason === "end_turn"
+    )
+  )
+    i--;
   const seen = new Map();
   for (const e of list.slice(i + 1).filter((x) => x.type !== "assistant"))
     for (const s of stringList(e).filter((x) => DELIVERED.test(x)))
-      for (const m of s.matchAll(/^- \[note ([a-z0-9]+)\] ([^\n]*)/gm)) if (!seen.has(m[1])) seen.set(m[1], { id: m[1], text: m[2].trim() });
+      for (const m of s.matchAll(/^- \[note ([a-z0-9]+)\] ([^\n]*)/gm))
+        if (!seen.has(m[1])) seen.set(m[1], { id: m[1], text: m[2].trim() });
   return [...seen.values()];
 };
 // The reply lists the note back: it has a ### heading and, for this note, its id or 2 of its first 8 words of
@@ -158,17 +243,36 @@ const listedBack = (n, reply) => {
   const r = reply.toLowerCase();
   if (!/^\s*###/m.test(r)) return false;
   if (r.includes(n.id)) return true;
-  const w = (n.text.toLowerCase().match(/[\p{L}\p{N}']{4,}/gu) || []).slice(0, 8);
-  return w.length > 0 && w.filter((x) => r.includes(x)).length >= Math.min(2, w.length);
+  const w = (n.text.toLowerCase().match(/[\p{L}\p{N}']{4,}/gu) || []).slice(
+    0,
+    8,
+  );
+  return (
+    w.length > 0 &&
+    w.filter((x) => r.includes(x)).length >= Math.min(2, w.length)
+  );
 };
 // The command line this session's Claude was started with, "" when it can't be read.
 const claudeArgs = () => {
-  if (process.env.STEER_WATCH_ARGS !== undefined) return process.env.STEER_WATCH_ARGS;
+  if (process.env.STEER_WATCH_ARGS !== undefined)
+    return process.env.STEER_WATCH_ARGS;
   const pid = Number(process.env.CLAUDE_PID);
   if (!pid) return "";
-  const r = process.platform === "win32"
-    ? spawnSync("powershell", ["-NoProfile", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`], { encoding: "utf8", timeout: 15000, windowsHide: true })
-    : spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8", timeout: 5000 });
+  const r =
+    process.platform === "win32"
+      ? spawnSync(
+          "powershell",
+          [
+            "-NoProfile",
+            "-Command",
+            `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+          ],
+          { encoding: "utf8", timeout: 15000, windowsHide: true },
+        )
+      : spawnSync("ps", ["-o", "args=", "-p", String(pid)], {
+          encoding: "utf8",
+          timeout: 5000,
+        });
   return (r.stdout || "").trim();
 };
 // A background command or agent leaves its id in the transcript when it starts (or is resumed with
@@ -178,29 +282,52 @@ const claudeArgs = () => {
 // it grow fast, and a 2 MB tail missed a job started 30 min before (a note waited 8 min).
 const jobRunning = (text) => {
   const last = {};
-  for (const m of text.matchAll(/"backgroundTaskId":"([^"]+)"|"status":"async_launched","agentId":"([^"]+)"|"resumedAgentId":"([^"]+)"/g)) last[m[1] || m[2] || m[3]] = m.index;
-  return Object.entries(last).some(([id, i]) => text.lastIndexOf(`<task-id>${id}</task-id>`) < i);
+  for (const m of text.matchAll(
+    /"backgroundTaskId":"([^"]+)"|"status":"async_launched","agentId":"([^"]+)"|"resumedAgentId":"([^"]+)"/g,
+  ))
+    last[m[1] || m[2] || m[3]] = m.index;
+  return Object.entries(last).some(
+    ([id, i]) => text.lastIndexOf(`<task-id>${id}</task-id>`) < i,
+  );
 };
 // Holding a call costs a request and the call itself: it does not run, and is sent again in full. A note
 // that rides with the result comes as soon as the call ends, which for most calls is seconds. Only these
 // are held: they take long (a Bash call with a timeout over 2 min, a foreground helper) or start
 // work the note may change.
-const holdsCall = (name = "", input = {}) => /^(Agent|Task)$/.test(name) || /(spawn_session|AskUserQuestion|schedule_wakeup)$/.test(name)
-  || (/^(Bash|PowerShell)$/.test(name) && !input?.run_in_background && Number(input?.timeout) > 120000);
+const holdsCall = (name = "", input = {}) =>
+  /^(Agent|Task)$/.test(name) ||
+  /(spawn_session|AskUserQuestion|schedule_wakeup)$/.test(name) ||
+  (/^(Bash|PowerShell)$/.test(name) &&
+    !input?.run_in_background &&
+    Number(input?.timeout) > 120000);
 // The session is waiting for a foreground helper: one of its Agent calls has no result yet (a
 // background one gets its result at once). A subagent's hooks may name the session's transcript or
 // the helper's own, which lies in <session>/subagents/.
 const waitsOnHelper = (tp) => {
   if (!tp) return false;
-  const m = String(tp).replace(/\\/g, "/").match(/^(.*)\/subagents\/[^/]+$/);
+  const m = String(tp)
+    .replace(/\\/g, "/")
+    .match(/^(.*)\/subagents\/[^/]+$/);
   const text = tailOf(m ? `${m[1]}.jsonl` : tp);
-  const calls = [...text.matchAll(/"type":"tool_use","id":"([^"]+)","name":"(?:Agent|Task)"/g)].map((x) => x[1]);
+  const calls = [
+    ...text.matchAll(
+      /"type":"tool_use","id":"([^"]+)","name":"(?:Agent|Task)"/g,
+    ),
+  ].map((x) => x[1]);
   return calls.some((id) => !text.includes(`"tool_use_id":"${id}"`));
 };
-const stdin = () => new Promise((r) => { let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => r(s)); });
+const stdin = () =>
+  new Promise((r) => {
+    let s = "";
+    process.stdin.on("data", (d) => (s += d)).on("end", () => r(s));
+  });
 const chunk = (p, fromEnd, n) => {
-  const size = fs.statSync(p).size, len = Math.min(size, n), b = Buffer.alloc(len);
-  const fd = fs.openSync(p, "r"); fs.readSync(fd, b, 0, len, fromEnd ? size - len : 0); fs.closeSync(fd);
+  const size = fs.statSync(p).size,
+    len = Math.min(size, n),
+    b = Buffer.alloc(len);
+  const fd = fs.openSync(p, "r");
+  fs.readSync(fd, b, 0, len, fromEnd ? size - len : 0);
+  fs.closeSync(fd);
   const lines = b.toString("utf8").split("\n");
   if (len < size) fromEnd ? lines.shift() : lines.pop();
   return lines;
@@ -208,15 +335,24 @@ const chunk = (p, fromEnd, n) => {
 const texts = (lines, role) => {
   const out = [];
   for (const l of lines) {
-    let e; try { e = JSON.parse(l); } catch { continue; }
+    let e;
+    try {
+      e = JSON.parse(l);
+    } catch {
+      continue;
+    }
     const c = e.message?.content;
     if (e.type === "user" && role !== "assistant") {
       if (typeof c === "string") out.push(`USER: ${c}`);
-      else if (Array.isArray(c)) c.filter((x) => x.type === "text").forEach((x) => out.push(`USER: ${x.text}`));
+      else if (Array.isArray(c))
+        c.filter((x) => x.type === "text").forEach((x) =>
+          out.push(`USER: ${x.text}`),
+        );
     } else if (e.type === "assistant" && role !== "user" && Array.isArray(c)) {
       for (const x of c) {
         if (x.type === "text" && x.text.trim()) out.push(`CLAUDE: ${x.text}`);
-        if (x.type === "tool_use") out.push(`TOOL ${x.name}: ${JSON.stringify(x.input).slice(0, 200)}`);
+        if (x.type === "tool_use")
+          out.push(`TOOL ${x.name}: ${JSON.stringify(x.input).slice(0, 200)}`);
       }
     }
   }
@@ -226,25 +362,49 @@ const texts = (lines, role) => {
 // in every update_session_meta result; without one, Claude Code's own title is used. The whole
 // transcript is scanned, but only the lines that can hold a name are parsed.
 const nameOf = (p) => {
-  let tab = "", title = "";
+  let tab = "",
+    title = "";
   const ids = [];
   try {
     for (const l of fs.readFileSync(p, "utf8").split("\n")) {
-      if (!l.includes("update_session_meta") && !l.includes('"ai-title"') && !ids.some((id) => l.includes(id))) continue;
-      let e; try { e = JSON.parse(l); } catch { continue; }
-      if (e.type === "ai-title") { title = e.aiTitle || title; continue; }
+      if (
+        !l.includes("update_session_meta") &&
+        !l.includes('"ai-title"') &&
+        !ids.some((id) => l.includes(id))
+      )
+        continue;
+      let e;
+      try {
+        e = JSON.parse(l);
+      } catch {
+        continue;
+      }
+      if (e.type === "ai-title") {
+        title = e.aiTitle || title;
+        continue;
+      }
       const c = e.message?.content;
       if (e.isSidechain || !Array.isArray(c)) continue;
       for (const x of c) {
-        if (x.type === "tool_use" && /update_session_meta$/.test(x.name)) { ids.push(x.id); tab = x.input?.name || tab; }
-        else if (x.type === "tool_result" && ids.includes(x.tool_use_id)) {
-          const s = typeof x.content === "string" ? x.content : (x.content || []).map((y) => y.text || "").join("");
-          try { tab = JSON.parse(s).after?.name || tab; } catch {}
+        if (x.type === "tool_use" && /update_session_meta$/.test(x.name)) {
+          ids.push(x.id);
+          tab = x.input?.name || tab;
+        } else if (x.type === "tool_result" && ids.includes(x.tool_use_id)) {
+          const s =
+            typeof x.content === "string"
+              ? x.content
+              : (x.content || []).map((y) => y.text || "").join("");
+          try {
+            tab = JSON.parse(s).after?.name || tab;
+          } catch {}
         }
       }
     }
   } catch {}
-  return String(tab || title).replace(/\s+/g, " ").trim().slice(0, 60);
+  return String(tab || title)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
 };
 // Other sessions in this folder that were active recently, newest first. The calling session is
 // skipped: by its id when Claude Code gives it, else because its transcript already holds this
@@ -254,11 +414,25 @@ const others = () => {
   const proj = path.join(HOME, ".claude", "projects", key(process.cwd()));
   let files = [];
   try {
-    files = fs.readdirSync(proj).filter((n) => n.endsWith(".jsonl"))
-      .map((n) => ({ id: n.slice(0, -6), p: path.join(proj, n), t: fs.statSync(path.join(proj, n)).mtimeMs }))
-      .filter((f) => Date.now() - f.t < ACTIVE).sort((a, b) => b.t - a.t);
+    files = fs
+      .readdirSync(proj)
+      .filter((n) => n.endsWith(".jsonl"))
+      .map((n) => ({
+        id: n.slice(0, -6),
+        p: path.join(proj, n),
+        t: fs.statSync(path.join(proj, n)).mtimeMs,
+      }))
+      .filter((f) => Date.now() - f.t < ACTIVE)
+      .sort((a, b) => b.t - a.t);
   } catch {}
-  return files.filter((f) => f.id !== me && !/steer\.mjs\\?"?\s+(send|btw|list)\b/.test(chunk(f.p, true, 60000).slice(-40).join("\n")))
+  return files
+    .filter(
+      (f) =>
+        f.id !== me &&
+        !/steer\.mjs\\?"?\s+(send|btw|list)\b/.test(
+          chunk(f.p, true, 60000).slice(-40).join("\n"),
+        ),
+    )
     .map(describe);
 };
 // Thousands of tokens in a transcript's last main-conversation API call, 0 when none is found
@@ -267,53 +441,140 @@ const contextK = (p) => {
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].includes('"usage"')) continue;
     try {
-      const e = JSON.parse(lines[i]), u = e.message?.usage;
-      if (e.type !== "assistant" || e.isSidechain || !u || e.message.model === "<synthetic>") continue;
-      return Math.round(((u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)) / 1000);
+      const e = JSON.parse(lines[i]),
+        u = e.message?.usage;
+      if (
+        e.type !== "assistant" ||
+        e.isSidechain ||
+        !u ||
+        e.message.model === "<synthetic>"
+      )
+        continue;
+      return Math.round(
+        ((u.input_tokens ?? 0) +
+          (u.cache_read_input_tokens ?? 0) +
+          (u.cache_creation_input_tokens ?? 0)) /
+          1000,
+      );
     } catch {}
   }
   return 0;
 };
 const describe = (f) => {
-      // Label with the latest real user request (what the user remembers), not the first one.
-      const lines = chunk(f.p, true, 3000000);
-      const all = texts(lines);
-      // Finished = its last message is Claude's closing reply, so no hook will run until the user
-      // writes to it again.
-      let last;
-      for (let i = lines.length - 1; i >= 0 && !last; i--) {
-        try { const e = JSON.parse(lines[i]); if ((e.type === "user" || e.type === "assistant") && !e.isSidechain) last = e; } catch {}
-      }
-      const done = last?.type === "assistant" && last.message?.stop_reason === "end_turn";
-      const real = (a) => a.filter((s) => s.startsWith("USER: ") && !/^USER: [<[]/.test(s) && !s.includes("Base directory for this skill"));
-      // A long run can push its only request out of the recent part: look at the start then.
-      const users = real(all).length ? real(all) : real(texts(chunk(f.p, false, 1000000), "user"));
-      const said = all.filter((s) => s.startsWith("CLAUDE: ")).at(-1) || "CLAUDE: ?";
-      const cut = (x, n) => x.replace(/\s+/g, " ").slice(0, n);
-      return { ...f, done, ago: Math.round((Date.now() - f.t) / 1000), name: nameOf(f.p),
-        first: cut((users.at(-1) || "USER: ?").slice(6), 80), said: cut(said.slice(8), 80) };
+  // Label with the latest real user request (what the user remembers), not the first one.
+  const lines = chunk(f.p, true, 3000000);
+  const all = texts(lines);
+  // Finished = its last message is Claude's closing reply, so no hook will run until the user
+  // writes to it again.
+  let last;
+  for (let i = lines.length - 1; i >= 0 && !last; i--) {
+    try {
+      const e = JSON.parse(lines[i]);
+      if ((e.type === "user" || e.type === "assistant") && !e.isSidechain)
+        last = e;
+    } catch {}
+  }
+  const done =
+    last?.type === "assistant" && last.message?.stop_reason === "end_turn";
+  const real = (a) =>
+    a.filter(
+      (s) =>
+        s.startsWith("USER: ") &&
+        !/^USER: [<[]/.test(s) &&
+        !s.includes("Base directory for this skill"),
+    );
+  // A long run can push its only request out of the recent part: look at the start then.
+  const users = real(all).length
+    ? real(all)
+    : real(texts(chunk(f.p, false, 1000000), "user"));
+  const said =
+    all.filter((s) => s.startsWith("CLAUDE: ")).at(-1) || "CLAUDE: ?";
+  const cut = (x, n) => x.replace(/\s+/g, " ").slice(0, n);
+  return {
+    ...f,
+    done,
+    ago: Math.round((Date.now() - f.t) / 1000),
+    name: nameOf(f.p),
+    first: cut((users.at(-1) || "USER: ?").slice(6), 80),
+    said: cut(said.slice(8), 80),
+  };
 };
 // A Nimbalyst session id (what spawn_session and the tab give) -> that session's Claude transcript,
 // in whatever folder it runs. Null when the id is not in Nimbalyst's database or has no transcript.
-const NIMBALYST_DB = process.env.STEER_NIMBALYST_DB ||
-  path.join(process.env.APPDATA || path.join(HOME, "AppData", "Roaming"), "@nimbalyst", "electron", "sqlite-db", "nimbalyst.sqlite");
+const NIMBALYST_DB =
+  process.env.STEER_NIMBALYST_DB ||
+  path.join(
+    process.env.APPDATA || path.join(HOME, "AppData", "Roaming"),
+    "@nimbalyst",
+    "electron",
+    "sqlite-db",
+    "nimbalyst.sqlite",
+  );
 // Nimbalyst's row for a session, by its Nimbalyst id (or the start of it) or by its Claude session id.
 // Its status (running, waiting_for_input, idle, error) is what decides how a note gets there: the
 // transcript alone can't tell, e.g. a session that ended its reply but waits for a background job
 // looks finished there.
-const dbRow = async (sql, ...args) => {
-  if (!fs.existsSync(NIMBALYST_DB)) return null;
+const dbRun = async (how, sql, args) => {
   process.removeAllListeners("warning");
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(NIMBALYST_DB, { readOnly: true });
-  const row = db.prepare(sql).get(...args);
-  db.close();
-  return row || null;
+  try {
+    return db.prepare(sql)[how](...args);
+  } finally {
+    db.close();
+  }
 };
-const nimbalystRow = (id) => (id ? dbRow("SELECT id, title, status, provider_session_id AS sid, workspace_id AS ws FROM ai_sessions WHERE (id LIKE ? OR provider_session_id LIKE ?) AND provider_session_id IS NOT NULL ORDER BY updated_at DESC", `${id}%`, `${id}%`) : null);
+const dbRow = async (sql, ...args) =>
+  fs.existsSync(NIMBALYST_DB) ? (await dbRun("get", sql, args)) || null : null;
+const dbAll = async (sql, ...args) =>
+  fs.existsSync(NIMBALYST_DB) ? dbRun("all", sql, args) : [];
+// The queue is read on every tool call. A read that fails (Node before 22.5 has no node:sqlite, an older Nimbalyst
+// has no queued_prompts table) goes to the crash log once per distinct error, not once per call.
+const readFailed = (err) => {
+  const seen = path.join(DIR, "report-read-error.txt"),
+    msg = String(err?.message || err).slice(0, 300);
+  let last = "";
+  try {
+    last = fs.readFileSync(seen, "utf8");
+  } catch {}
+  if (last === msg) return;
+  crashLog("steer", err);
+  try {
+    fs.mkdirSync(DIR, { recursive: true });
+    fs.writeFileSync(seen, msg);
+  } catch {}
+};
+// Child reports Nimbalyst holds in this Claude session's queue: { id, prompt, origin, kind }, oldest first. The queue
+// is the queued_prompts table; a row's document_context says where it came from (WAL: reading never blocks the app).
+const PROVENANCE = "json_extract(q.document_context, '$.promptProvenance";
+const queuedReports = (sid, prompt) =>
+  dbAll(
+    `SELECT q.id, q.prompt, ${PROVENANCE}.originSessionId') AS origin, ${PROVENANCE}.messageKind') AS kind FROM queued_prompts q JOIN ai_sessions s ON s.id = q.session_id
+  WHERE s.provider_session_id = ? AND ${PROVENANCE}.origin') = 'child-session-update' AND ${
+    prompt === undefined
+      ? `q.status = 'pending' AND ${PROVENANCE}.messageKind') = 'report'`
+      : "q.prompt = ?"
+  } ORDER BY q.created_at, q.id`,
+    sid,
+    ...(prompt === undefined ? [] : [prompt]),
+  );
+const nimbalystRow = (id) =>
+  id
+    ? dbRow(
+        "SELECT id, title, status, provider_session_id AS sid, workspace_id AS ws FROM ai_sessions WHERE (id LIKE ? OR provider_session_id LIKE ?) AND provider_session_id IS NOT NULL ORDER BY updated_at DESC",
+        `${id}%`,
+        `${id}%`,
+      )
+    : null;
 // A session that has never run has a row but no Claude session id, so no transcript to deliver to.
 // Only a first message starts it.
-const unstartedRow = (id) => (id ? dbRow("SELECT id FROM ai_sessions WHERE id = ? AND provider_session_id IS NULL", id) : null);
+const unstartedRow = (id) =>
+  id
+    ? dbRow(
+        "SELECT id FROM ai_sessions WHERE id = ? AND provider_session_id IS NULL",
+        id,
+      )
+    : null;
 const fromNimbalyst = async (id) => {
   const row = await nimbalystRow(id);
   if (!row) return null;
@@ -323,8 +584,12 @@ const fromNimbalyst = async (id) => {
   let p = path.join(projects, key(row.ws), `${row.sid}.jsonl`);
   if (!fs.existsSync(p)) {
     let dirs = [];
-    try { dirs = fs.readdirSync(projects); } catch {}
-    p = dirs.map((d) => path.join(projects, d, `${row.sid}.jsonl`)).find((f) => fs.existsSync(f));
+    try {
+      dirs = fs.readdirSync(projects);
+    } catch {}
+    p = dirs
+      .map((d) => path.join(projects, d, `${row.sid}.jsonl`))
+      .find((f) => fs.existsSync(f));
     if (!p) return null;
   }
   const f = describe({ id: row.sid, p, t: fs.statSync(p).mtimeMs });
@@ -334,22 +599,42 @@ const fromNimbalyst = async (id) => {
 // message (send_prompt) starts it.
 const BUSY = new Set(["running", "waiting_for_input"]);
 // What to call a session when talking to the user: its tab name, else its last request, else its id.
-const label = (f) => (f.name ? `"${f.name}"` : f.first !== "?" ? `the session last asked "${f.first}"` : `session ${f.id.slice(0, 8)}`);
+const label = (f) =>
+  f.name
+    ? `"${f.name}"`
+    : f.first !== "?"
+      ? `the session last asked "${f.first}"`
+      : `session ${f.id.slice(0, 8)}`;
 const pickTarget = async (args) => {
   const i = args.indexOf("--to");
   const to = i >= 0 ? args.splice(i, 2)[1] : null;
   const list = others();
   // An unknown id must not be queued: it would never arrive.
-  if (to) return { t: list.find((f) => f.id.startsWith(to)) || (await fromNimbalyst(to)), list, bad: to };
+  if (to)
+    return {
+      t: list.find((f) => f.id.startsWith(to)) || (await fromNimbalyst(to)),
+      list,
+      bad: to,
+    };
   return { t: list.length === 1 ? list[0] : null, list };
 };
-const show = (list) => list.map((f) => `- ${f.id.slice(0, 8)}  ${f.name ? `"${f.name}"  ` : ""}${f.done ? "finished its reply" : "busy"}, active ${f.ago}s ago  last request: "${f.first}"  last said: "${f.said}"`).join("\n");
+const show = (list) =>
+  list
+    .map(
+      (f) =>
+        `- ${f.id.slice(0, 8)}  ${f.name ? `"${f.name}"  ` : ""}${f.done ? "finished its reply" : "busy"}, active ${f.ago}s ago  last request: "${f.first}"  last said: "${f.said}"`,
+    )
+    .join("\n");
 
 const [mode, ...rest] = process.argv.slice(2);
 
 if (mode === "list") {
   const list = others();
-  console.log(list.length ? show(list) : "No other session was active in this folder in the last 10 minutes.");
+  console.log(
+    list.length
+      ? show(list)
+      : "No other session was active in this folder in the last 10 minutes.",
+  );
 } else if (mode === "send") {
   const { t: one, list, bad } = await pickTarget(rest);
   // Several active and none named: a busy one, else the most recent (the list is newest first).
@@ -357,18 +642,28 @@ if (mode === "list") {
   const passes = ["--last", "--user"].filter((f) => rest.includes(f));
   for (const f of passes) rest.splice(rest.indexOf(f), 1);
   // Only where a flag can be: a note that mentions the word keeps it
-  const noWait = rest[0] === "--nowait" || (rest[0] === "-" && rest[1] === "--nowait");
+  const noWait =
+    rest[0] === "--nowait" || (rest[0] === "-" && rest[1] === "--nowait");
   if (noWait) rest.splice(rest.indexOf("--nowait"), 1);
   const msg = (rest[0] === "-" ? await stdin() : rest.join(" ")).trim();
-  if (!msg) { console.log("usage: steer.mjs send [--to <id>] <note>"); process.exit(1); }
+  if (!msg) {
+    console.log("usage: steer.mjs send [--to <id>] <note>");
+    process.exit(1);
+  }
   if (!t) {
     const unstarted = await unstartedRow(bad);
     if (unstarted) {
-      console.log(`NOT SENT: session ${unstarted.id} has not started yet. Send the note with send_prompt to it instead: it starts at once.`);
+      console.log(
+        `NOT SENT: session ${unstarted.id} has not started yet. Send the note with send_prompt to it instead: it starts at once.`,
+      );
       process.exit(3);
     }
-    console.log(bad ? `NOT SENT: "${bad}" is not one of the active sessions (use an id from this list, not the tab id):
-${show(list)}` : "NOT SENT: no other session was active in this folder in the last 10 minutes.");
+    console.log(
+      bad
+        ? `NOT SENT: "${bad}" is not one of the active sessions (use an id from this list, not the tab id):
+${show(list)}`
+        : "NOT SENT: no other session was active in this folder in the last 10 minutes.",
+    );
     process.exit(2);
   }
   // Nimbalyst's own status beats the transcript's guess. An idle Nimbalyst session is woken by a
@@ -377,56 +672,109 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
   // A reply that ended with no background job left is idle, whatever Nimbalyst's status says: no hook
   // runs there until a new message. A session waiting for an answer in its tab is not finished.
   const ended = t.done && !jobRunning(fs.readFileSync(t.p, "utf8"));
-  const busy = row ? BUSY.has(row.status) && !(row.status === "running" && ended) : !ended;
+  const busy = row
+    ? BUSY.has(row.status) && !(row.status === "running" && ended)
+    : !ended;
   if (row && !busy) {
-    console.log(`NOT SENT: ${label(t)} ${BUSY.has(row.status) ? "has finished its reply and runs no background job" : `is ${row.status}`}, not busy. Send the note with send_prompt to session ${row.id} instead: it starts at once.`);
+    console.log(
+      `NOT SENT: ${label(t)} ${BUSY.has(row.status) ? "has finished its reply and runs no background job" : `is ${row.status}`}, not busy. Send the note with send_prompt to session ${row.id} instead: it starts at once.`,
+    );
     process.exit(3);
   }
   // A running session never reaches its end of turn while notes keep coming, so nothing else stops
   // one from growing.
   const maxK = Number(process.env.STEER_MAX_K) || 300;
-  const sizeK = process.env.CLAUDE_CODE_SESSION_ID && !passes.length && t.p ? contextK(t.p) : 0;
+  const sizeK =
+    process.env.CLAUDE_CODE_SESSION_ID && !passes.length && t.p
+      ? contextK(t.p)
+      : 0;
   if (sizeK >= maxK) {
-    console.log(`NOT SENT: ${label(t)} holds ~${sizeK}k tokens and re-sends all of it on every call. Start new work in a fresh session (spawn_session). If this note only finishes the job it is on, send it again with --last; if the user wrote it, with --user.`);
+    console.log(
+      `NOT SENT: ${label(t)} holds ~${sizeK}k tokens and re-sends all of it on every call. Start new work in a fresh session (spawn_session). If this note only finishes the job it is on, send it again with --last; if the user wrote it, with --user.`,
+    );
     process.exit(4);
   }
   fs.mkdirSync(DIR, { recursive: true });
   const id = newId();
-  locked(() => fs.appendFileSync(inboxOf(), JSON.stringify({ ts: Date.now(), id, to: t.id, from: process.env.CLAUDE_CODE_SESSION_ID || undefined, msg }) + "\n"));
+  locked(() =>
+    fs.appendFileSync(
+      inboxOf(),
+      JSON.stringify({
+        ts: Date.now(),
+        id,
+        to: t.id,
+        from: process.env.CLAUDE_CODE_SESSION_ID || undefined,
+        msg,
+      }) + "\n",
+    ),
+  );
   // "Sent" used to mean only "put in the inbox" and was reported as delivered. Wait for the receipt.
   const end = Date.now() + (busy && !noWait ? WAIT : 0);
   let got = null;
-  while (Date.now() < end && !(got = receipts().find((r) => r.id === id))) sleep(500);
-  if (got?.state === "delivered") console.log(`Delivered to ${label(t)}: the note is in its session.`);
-  else console.log(!busy
-    ? `Left for ${label(t)}. It is idle, so it reads the note with your next message there (within ${MAX_AGE / 3600e3} hours).`
-    : row?.status === "waiting_for_input"
-      ? `Queued for ${label(t)}, not delivered yet. It is waiting for an answer in its tab; it reads the note right after that answer.`
-      : `Queued for ${label(t)}, not delivered yet. It reads the note before its next step; you are told if that isn't confirmed within ${WARN / 60e3} minutes. Check with: steer.mjs status`);
+  while (Date.now() < end && !(got = receipts().find((r) => r.id === id)))
+    sleep(500);
+  if (got?.state === "delivered")
+    console.log(`Delivered to ${label(t)}: the note is in its session.`);
+  else
+    console.log(
+      !busy
+        ? `Left for ${label(t)}. It is idle, so it reads the note with your next message there (within ${MAX_AGE / 3600e3} hours).`
+        : row?.status === "waiting_for_input"
+          ? `Queued for ${label(t)}, not delivered yet. It is waiting for an answer in its tab; it reads the note right after that answer.`
+          : `Queued for ${label(t)}, not delivered yet. It reads the note before its next step; you are told if that isn't confirmed within ${WARN / 60e3} minutes. Check with: steer.mjs status`,
+    );
   if (noWait) console.log(`Note id: ${id}`);
 } else if (mode === "status") {
   const me = process.env.CLAUDE_CODE_SESSION_ID;
-  const waiting = fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((n) => n.endsWith(".jsonl")).flatMap((n) => read(path.join(DIR, n))).filter((e) => e.id && e.from === me) : [];
-  const failed = receipts().filter((r) => r.from === me && r.state === "failed");
-  for (const e of waiting) console.log(`on its way (${Math.round((Date.now() - e.ts) / 60e3)} min, ${e.tries || 0} tries) to ${e.to}: ${String(e.msg).slice(0, 80)}`);
-  for (const r of failed) console.log(`FAILED, send it again with send_prompt, to ${r.to}: ${r.msg}`);
-  if (!waiting.length && !failed.length) console.log("All notes from this session are delivered.");
+  const waiting = fs.existsSync(DIR)
+    ? fs
+        .readdirSync(DIR)
+        .filter((n) => n.endsWith(".jsonl"))
+        .flatMap((n) => read(path.join(DIR, n)))
+        .filter((e) => e.id && e.from === me)
+    : [];
+  const failed = receipts().filter(
+    (r) => r.from === me && r.state === "failed",
+  );
+  for (const e of waiting)
+    console.log(
+      `on its way (${Math.round((Date.now() - e.ts) / 60e3)} min, ${e.tries || 0} tries) to ${e.to}: ${String(e.msg).slice(0, 80)}`,
+    );
+  for (const r of failed)
+    console.log(`FAILED, send it again with send_prompt, to ${r.to}: ${r.msg}`);
+  if (!waiting.length && !failed.length)
+    console.log("All notes from this session are delivered.");
 } else if (mode === "moved") {
-  const i = rest.indexOf("--to"), to = i >= 0 ? rest[i + 1] : null;
-  const j = rest.indexOf("--from"), from = j >= 0 ? rest[j + 1] : process.env.CLAUDE_CODE_SESSION_ID;
-  if (!to || !from) { console.log("usage: steer.mjs moved --to <new Nimbalyst session id> [--from <this session's Claude id>]"); process.exit(1); }
+  const i = rest.indexOf("--to"),
+    to = i >= 0 ? rest[i + 1] : null;
+  const j = rest.indexOf("--from"),
+    from = j >= 0 ? rest[j + 1] : process.env.CLAUDE_CODE_SESSION_ID;
+  if (!to || !from) {
+    console.log(
+      "usage: steer.mjs moved --to <new Nimbalyst session id> [--from <this session's Claude id>]",
+    );
+    process.exit(1);
+  }
   let map = {};
-  try { map = JSON.parse(fs.readFileSync(MOVED, "utf8")); } catch {}
+  try {
+    map = JSON.parse(fs.readFileSync(MOVED, "utf8"));
+  } catch {}
   // Entries older than two weeks are dropped: no child runs that long.
-  for (const [k, v] of Object.entries(map)) if (Date.now() - v.ts > 14 * 864e5) delete map[k];
+  for (const [k, v] of Object.entries(map))
+    if (Date.now() - v.ts > 14 * 864e5) delete map[k];
   map[from] = { to, ts: Date.now() };
   fs.mkdirSync(DIR, { recursive: true });
   fs.writeFileSync(MOVED, JSON.stringify(map, null, 1));
-  console.log(`Child reports that reach this session from now on go to session ${to}.`);
+  console.log(
+    `Child reports that reach this session from now on go to session ${to}.`,
+  );
 } else if (mode === "--hook") {
   try {
     const inp = JSON.parse(await stdin());
-    const ev = inp.hook_event_name, now = Date.now(), fresh = [], held = [];
+    const ev = inp.hook_event_name,
+      now = Date.now(),
+      fresh = [],
+      held = [];
     if (ev === "UserPromptSubmit") {
       // Nimbalyst sends a child's final reply to the session that started it, as a new turn. After a
       // handoff that session would wake at its old size and act on it. Forward it instead, without a model call here.
@@ -436,40 +784,136 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
       const prompt = String(inp.prompt ?? "");
       const text = prompt.trim();
       const isReport = text.startsWith("[Child Session Update]");
-      if (!isReport && (!text || text.startsWith("/") || text.startsWith("<") || /^\[(system|report)\b/i.test(text))) process.exit(0);
+      if (
+        !isReport &&
+        (!text ||
+          text.startsWith("/") ||
+          text.startsWith("<") ||
+          /^\[(system|report)\b/i.test(text))
+      )
+        process.exit(0);
       if (!isReport && process.env.STEER_FORWARD === "off") process.exit(0);
       let map = {};
-      try { map = JSON.parse(fs.readFileSync(MOVED, "utf8")); } catch {}
-      if (!isReport && !(Date.now() - map[inp.session_id]?.ts <= 24 * 3600e3)) process.exit(0);
+      try {
+        map = JSON.parse(fs.readFileSync(MOVED, "utf8"));
+      } catch {}
+      if (isReport) {
+        // Already handed over as a note: this is Nimbalyst's queued copy, which the model did not claim.
+        const h = sha1(prompt);
+        if (
+          receipts().some(
+            (r) =>
+              r.to === inp.session_id && r.state === "delivered" && r.sha === h,
+          )
+        ) {
+          process.stdout.write(
+            JSON.stringify({
+              decision: "block",
+              reason: "→ Already read as a note.",
+              hookSpecificOutput: {
+                hookEventName: "UserPromptSubmit",
+                suppressOriginalPrompt: true,
+              },
+            }),
+          );
+          process.exit(0);
+        }
+        // An idle parent gets it as this turn: the turn runs, labelled, and the receipt stops a second copy.
+        if (!map[inp.session_id]) {
+          let row;
+          try {
+            row = (await queuedReports(inp.session_id, prompt)).at(-1);
+          } catch (err) {
+            readFailed(err);
+          }
+          // A child's question or error comes with the same prefix: it is a request, left as it comes.
+          if (row?.kind && row.kind !== "report") process.exit(0);
+          fs.mkdirSync(DIR, { recursive: true });
+          locked(() =>
+            receipt(
+              {
+                id: row?.id || newId(),
+                to: inp.session_id,
+                from: row?.origin ?? undefined,
+                msg: prompt,
+                child: true,
+              },
+              "delivered",
+            ),
+          );
+          process.stdout.write(
+            JSON.stringify({
+              hookSpecificOutput: {
+                hookEventName: "UserPromptSubmit",
+                additionalContext: `[report] ${CHILD}`,
+              },
+            }),
+          );
+          process.exit(0);
+        }
+      }
+      if (!isReport && !(Date.now() - map[inp.session_id]?.ts <= 24 * 3600e3))
+        process.exit(0);
       const what = isReport ? "report" : "message";
-      let hop = map[inp.session_id], row = null;
+      let hop = map[inp.session_id],
+        row = null;
       for (let n = 0; hop && n < 10; n++) {
         row = await nimbalystRow(hop.to);
         hop = row?.sid ? map[row.sid] : null;
       }
       if (!map[inp.session_id]) process.exit(0);
       if (!row?.sid) {
-        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext:
-          `[steer] This session handed its work to session ${map[inp.session_id].to}, but that session was not found in Nimbalyst, so the ${what} stays here. Deal with it here and tell the user it could not be forwarded.` } }));
+        process.stdout.write(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "UserPromptSubmit",
+              additionalContext: `[steer] This session handed its work to session ${map[inp.session_id].to}, but that session was not found in Nimbalyst, so the ${what} stays here. Deal with it here and tell the user it could not be forwarded.`,
+            },
+          }),
+        );
         process.exit(0);
       }
       fs.mkdirSync(DIR, { recursive: true });
-      fs.appendFileSync(inboxOf(inp.cwd), JSON.stringify({ ts: now, id: newId(), to: row.sid, msg: prompt, kind: isReport ? "report" : "user" }) + "\n");
+      fs.appendFileSync(
+        inboxOf(inp.cwd),
+        JSON.stringify({
+          ts: now,
+          id: newId(),
+          to: row.sid,
+          msg: prompt,
+          kind: isReport ? "report" : "user",
+        }) + "\n",
+      );
       const busy = BUSY.has(row.status);
       if (!busy) {
         const keep = read(OUTBOX).filter((e) => now - e.ts < 2 * 3600e3);
-        keep.push({ id: `${now}-${Math.random().toString(36).slice(2, 8)}`, ts: now, session: row.id,
-          prompt: isReport ? "A child session's report was forwarded to you from the session you took over from. It reaches you as a note at your first step."
-            : "A message that reached the session you took over from was forwarded to you; most likely the user typed it there. It reaches you as a note at your first step: treat it as the user's request unless it reads like one session writing to another." });
+        keep.push({
+          id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+          ts: now,
+          session: row.id,
+          prompt: isReport
+            ? "A child session's report was forwarded to you from the session you took over from. It reaches you as a note at your first step."
+            : "A message that reached the session you took over from was forwarded to you; most likely the user typed it there. It reaches you as a note at your first step: treat it as the user's request unless it reads like one session writing to another.",
+        });
         write(OUTBOX, keep);
       }
-      const name = row.title ? `"${String(row.title).slice(0, 60)}"` : `session ${row.id.slice(0, 8)}`;
+      const name = row.title
+        ? `"${String(row.title).slice(0, 60)}"`
+        : `session ${row.id.slice(0, 8)}`;
       // Nimbalyst shows any blocked prompt as a red box (a CLI "warning"; no hook field changes that), so the
       // line stays short and the CLI's "Original prompt: <whole message>" echo is switched off.
-      process.stdout.write(JSON.stringify({ decision: "block", reason: isReport
-        ? `→ Report sent to ${name}, which leads this work now${busy ? "; it reads it before its next step" : " (woken to read it)"}.`
-        : `→ Sent to ${name}, which continues this work${busy ? "; it reads this before its next step" : " (woken to read it)"}.`,
-        hookSpecificOutput: { hookEventName: "UserPromptSubmit", suppressOriginalPrompt: true } }));
+      process.stdout.write(
+        JSON.stringify({
+          decision: "block",
+          reason: isReport
+            ? `→ Report sent to ${name}, which leads this work now${busy ? "; it reads it before its next step" : " (woken to read it)"}.`
+            : `→ Sent to ${name}, which continues this work${busy ? "; it reads this before its next step" : " (woken to read it)"}.`,
+          hookSpecificOutput: {
+            hookEventName: "UserPromptSubmit",
+            suppressOriginalPrompt: true,
+          },
+        }),
+      );
       process.exit(0);
     }
     // Inside a subagent the hook carries the parent's session id. The note stays for the parent, but
@@ -478,53 +922,180 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     // foreground helper: a parent with background helpers reads the note itself at its next step (a copy to a
     // background helper only costs and could be acted on twice).
     if (inp.agent_id) {
-      if (ev !== "PostToolUse" || !fs.existsSync(DIR) || !waitsOnHelper(inp.transcript_path)) process.exit(0);
+      if (
+        ev !== "PostToolUse" ||
+        !fs.existsSync(DIR) ||
+        !waitsOnHelper(inp.transcript_path)
+      )
+        process.exit(0);
       const relay = [];
       for (const n of fs.readdirSync(DIR)) {
         if (!n.endsWith(".jsonl")) continue;
-        const f = path.join(DIR, n), all = read(f);
+        const f = path.join(DIR, n),
+          all = read(f);
         let changed = false;
         for (const e of all) {
-          if (e.to !== inp.session_id || e.seen || e.kind === "report" || e.kind === "user" || now - e.ts > MAX_AGE || (e.relayed || []).includes(inp.agent_id)) continue;
-          relay.push(e); e.relayed = [...(e.relayed || []), inp.agent_id]; changed = true;
+          if (
+            e.to !== inp.session_id ||
+            e.seen ||
+            e.kind === "report" ||
+            e.kind === "user" ||
+            now - e.ts > MAX_AGE ||
+            (e.relayed || []).includes(inp.agent_id)
+          )
+            continue;
+          relay.push(e);
+          e.relayed = [...(e.relayed || []), inp.agent_id];
+          changed = true;
         }
         if (changed) write(f, all);
       }
-      if (relay.length) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext:
-        `[btw] The user sent this note to the session that started you, while you were working. If it changes your task, follow it from now on and keep the rest. Either way, begin your final report with "User note received:" and what you did about it, so that session sees it too.\n${relay.map((e) => `- ${e.msg}`).join("\n")}` } }));
+      if (relay.length)
+        process.stdout.write(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PostToolUse",
+              additionalContext: `[btw] The user sent this note to the session that started you, while you were working. If it changes your task, follow it from now on and keep the rest. Either way, begin your final report with "User note received:" and what you did about it, so that session sees it too.\n${relay.map((e) => `- ${e.msg}`).join("\n")}`,
+            },
+          }),
+        );
       process.exit(0);
     }
     // send_prompt to a busy session only waits in the queue until its turn ends, and interrupt throws
     // away the step it is on. A steer note
     // reaches it before its next step, so a send_prompt to a running session is turned into one.
-    if (ev === "PreToolUse" && /send_prompt$/.test(inp.tool_name || "") && !inp.tool_input?.interrupt) {
+    if (
+      ev === "PreToolUse" &&
+      /send_prompt$/.test(inp.tool_name || "") &&
+      !inp.tool_input?.interrupt
+    ) {
       let row = null;
-      try { row = await nimbalystRow(inp.tool_input?.sessionId); } catch {}
+      try {
+        row = await nimbalystRow(inp.tool_input?.sessionId);
+      } catch {}
       if (row && BUSY.has(row.status)) {
-        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason:
-          `[steer] That session is ${row.status === "running" ? "busy" : "waiting for an answer in its tab"}: send_prompt would only queue until its whole turn ends. Send the same text as a steer note, which it reads before its next step:\nnode ~/.claude/skills/steer/steer.mjs send --to ${inp.tool_input.sessionId} - <<'EOF'\n<the same text>\nEOF\nIf it is a new task for after the current one, say so in the note.` } }));
+        process.stdout.write(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: `[steer] That session is ${row.status === "running" ? "busy" : "waiting for an answer in its tab"}: send_prompt would only queue until its whole turn ends. Send the same text as a steer note, which it reads before its next step:\nnode ~/.claude/skills/steer/steer.mjs send --to ${inp.tool_input.sessionId} - <<'EOF'\n<the same text>\nEOF\nIf it is a new task for after the current one, say so in the note.`,
+            },
+          }),
+        );
         process.exit(0);
       }
     }
     // Not in Nimbalyst's database (or no status): the old check, which only catches a /btw note.
-    if (ev === "PreToolUse" && /send_prompt$/.test(inp.tool_name || "") && !inp.tool_input?.interrupt && !(await nimbalystRow(inp.tool_input?.sessionId).catch(() => null))) {
-      let typed = "", tried = false;
+    if (
+      ev === "PreToolUse" &&
+      /send_prompt$/.test(inp.tool_name || "") &&
+      !inp.tool_input?.interrupt &&
+      !(await nimbalystRow(inp.tool_input?.sessionId).catch(() => null))
+    ) {
+      let typed = "",
+        tried = false;
       try {
         for (const l of chunk(inp.transcript_path, true, 400000)) {
-          let e; try { e = JSON.parse(l); } catch { continue; }
+          let e;
+          try {
+            e = JSON.parse(l);
+          } catch {
+            continue;
+          }
           const c = e.message?.content;
           if (e.type === "user" && !e.isSidechain && !e.isMeta) {
-            const t = typeof c === "string" ? c : Array.isArray(c) ? c.filter((x) => x.type === "text").map((x) => x.text).join("\n") : "";
-            if (t.trim() && !/^\s*</.test(t)) { typed = t; tried = false; }
-          } else if (e.type === "assistant" && Array.isArray(c) &&
-            c.some((x) => x.type === "tool_use" && /steer\.mjs\\?"?\s+send\b/.test(x.input?.command || ""))) tried = true;
+            const t =
+              typeof c === "string"
+                ? c
+                : Array.isArray(c)
+                  ? c
+                      .filter((x) => x.type === "text")
+                      .map((x) => x.text)
+                      .join("\n")
+                  : "";
+            if (t.trim() && !/^\s*</.test(t)) {
+              typed = t;
+              tried = false;
+            }
+          } else if (
+            e.type === "assistant" &&
+            Array.isArray(c) &&
+            c.some(
+              (x) =>
+                x.type === "tool_use" &&
+                /steer\.mjs\\?"?\s+send\b/.test(x.input?.command || ""),
+            )
+          )
+            tried = true;
         }
       } catch {}
       const btw = (s) => /(^|[\s/])btw\b/i.test(s || "");
-      if (!tried && (/^\s*\/btw\b/i.test(inp.tool_input?.prompt || "") || btw(typed))) {
-        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason:
-          `[btw] send_prompt only queues: a busy session reads it when its turn ends, and interrupt throws away the step it is on. A /btw note reaches it before its next step this way:\nnode ~/.claude/skills/steer/steer.mjs send --to ${inp.tool_input?.sessionId || "<session id>"} - <<'EOF'\n<the note>\nEOF\nIf that prints NOT SENT (the session is idle), make this send_prompt call again.` } }));
+      if (
+        !tried &&
+        (/^\s*\/btw\b/i.test(inp.tool_input?.prompt || "") || btw(typed))
+      ) {
+        process.stdout.write(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: `[btw] send_prompt only queues: a busy session reads it when its turn ends, and interrupt throws away the step it is on. A /btw note reaches it before its next step this way:\nnode ~/.claude/skills/steer/steer.mjs send --to ${inp.tool_input?.sessionId || "<session id>"} - <<'EOF'\n<the note>\nEOF\nIf that prints NOT SENT (the session is idle), make this send_prompt call again.`,
+            },
+          }),
+        );
         process.exit(0);
+      }
+    }
+    // Child reports Nimbalyst holds for this session become notes here, so a busy parent reads them at its next
+    // step, not after its turn. Each queue row once: one already in an inbox or with a receipt is skipped (a row
+    // stays pending when the model did not claim it). After a handoff the forwarding above takes them.
+    const steerIds = () => {
+      const ids = new Set(receipts().map((r) => r.id));
+      for (const n of fs.existsSync(DIR) ? fs.readdirSync(DIR) : [])
+        if (n.endsWith(".jsonl"))
+          for (const e of read(path.join(DIR, n))) ids.add(e.id);
+      return ids;
+    };
+    let movedMap = {};
+    try {
+      movedMap = JSON.parse(fs.readFileSync(MOVED, "utf8"));
+    } catch {}
+    if (
+      /^(PreToolUse|PostToolUse|Stop)$/.test(ev) &&
+      !movedMap[inp.session_id] &&
+      process.env.STEER_REPORTS !== "off"
+    ) {
+      let rows = [];
+      try {
+        rows = await queuedReports(inp.session_id);
+      } catch (err) {
+        readFailed(err);
+      }
+      if (rows.length) {
+        fs.mkdirSync(DIR, { recursive: true });
+        locked(() => {
+          const known = steerIds(),
+            add = rows.filter((q) => !known.has(q.id));
+          if (add.length)
+            fs.appendFileSync(
+              inboxOf(inp.cwd),
+              add
+                .map(
+                  (q) =>
+                    JSON.stringify({
+                      ts: now,
+                      id: q.id,
+                      to: inp.session_id,
+                      from: q.origin ?? undefined,
+                      msg: q.prompt,
+                      kind: "report",
+                      child: true,
+                    }) + "\n",
+                )
+                .join(""),
+            );
+        });
       }
     }
     // Every folder's inbox is checked: the session may have changed folder since the note was sent.
@@ -533,7 +1104,8 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     // this". So a note stays in the
     // inbox until its marker is in this session's transcript. Without a transcript there is nothing to check.
     let tail = null;
-    const holds = ev === "PreToolUse" && holdsCall(inp.tool_name, inp.tool_input);
+    const holds =
+      ev === "PreToolUse" && holdsCall(inp.tool_name, inp.tool_input);
     const arrived = (e) => {
       if (!e.id || !inp.transcript_path) return true;
       tail ??= tailOf(inp.transcript_path);
@@ -541,149 +1113,361 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     };
     // Tool calls run while their reply is still coming and their results land later, so a missing marker
     // says nothing until the call that carried the note has its result in the file. A Stop means the reply is over.
-    const landed = (e) => ev === "Stop" || !e.call || tail.includes(`"tool_use_id":"${e.call}"`);
+    const landed = (e) =>
+      ev === "Stop" || !e.call || tail.includes(`"tool_use_id":"${e.call}"`);
     const warnings = [];
-    const late = (e) => e.id && e.from === inp.session_id && !e.warned && now - e.ts > WARN;
+    const late = (e) =>
+      e.id && e.from === inp.session_id && !e.warned && now - e.ts > WARN;
     for (const n of fs.readdirSync(DIR)) {
       if (!n.endsWith(".jsonl")) continue;
       const f = path.join(DIR, n);
-      if (!read(f).some((e) => e.to === inp.session_id || now - e.ts > MAX_AGE || late(e))) continue;
+      if (
+        !read(f).some(
+          (e) => e.to === inp.session_id || now - e.ts > MAX_AGE || late(e),
+        )
+      )
+        continue;
       locked(() => {
-        const before = read(f), keep = [];
+        const before = read(f),
+          keep = [];
         for (const e0 of before) {
           let e = e0;
           // Any session's hook can reach this, so a handed-over note is looked for in its own session's transcript.
-          if (now - e.ts > MAX_AGE) { if (e.to) receipt(e, e.transcript && tailOf(e.transcript).includes(`[note ${e.id}]`) ? "delivered" : "failed"); continue; }
-          if (late(e)) { warnings.push(e); e = { ...e, warned: true }; }
-          if (e.to !== inp.session_id) { keep.push(e); continue; }
+          if (now - e.ts > MAX_AGE) {
+            if (e.to)
+              receipt(
+                e,
+                e.transcript && tailOf(e.transcript).includes(`[note ${e.id}]`)
+                  ? "delivered"
+                  : "failed",
+              );
+            continue;
+          }
+          if (late(e)) {
+            warnings.push(e);
+            e = { ...e, warned: true };
+          }
+          if (e.to !== inp.session_id) {
+            keep.push(e);
+            continue;
+          }
           // The wake-up is queued in the session and carries the note itself, so it isn't handed over
           // again here; only one that never showed up after WARN is treated as lost.
           if (e.via === "watch" && now - e.seen <= WARN) {
-            if (arrived(e)) receipt(e, "delivered"); else keep.push(e);
+            if (arrived(e)) receipt(e, "delivered");
+            else keep.push(e);
             continue;
           }
-          if (e.seen && now - e.seen <= HOLD) { if (holds) held.push(e); keep.push(e); continue; }
+          if (e.seen && now - e.seen <= HOLD) {
+            if (holds) held.push(e);
+            keep.push(e);
+            continue;
+          }
           if (e.seen) {
-            if (arrived(e)) { receipt(e, "delivered"); continue; }
-            if (!landed(e)) { keep.push(e); continue; }
-            if ((e.tries || 0) >= TRIES) { receipt(e, "failed"); continue; }
+            if (arrived(e)) {
+              receipt(e, "delivered");
+              continue;
+            }
+            if (!landed(e)) {
+              keep.push(e);
+              continue;
+            }
+            if ((e.tries || 0) >= TRIES) {
+              receipt(e, "failed");
+              continue;
+            }
             // Lost once while holding a call: this time it rides with the call's result.
-            if (ev === "PreToolUse") { keep.push(e); continue; }
+            if (ev === "PreToolUse") {
+              keep.push(e);
+              continue;
+            }
           }
           // A quick call runs; the note comes with its result.
-          if (ev === "PreToolUse" && !holds) { keep.push(e); continue; }
+          if (ev === "PreToolUse" && !holds) {
+            keep.push(e);
+            continue;
+          }
           fresh.push(e);
-          if (ev !== "PreToolUse" && !inp.transcript_path) receipt(e, "delivered");
-          else keep.push({ ...e, seen: now, call: inp.tool_use_id, transcript: inp.transcript_path, tries: (e.tries || 0) + 1 });
+          if (ev !== "PreToolUse" && !inp.transcript_path)
+            receipt(e, "delivered");
+          else
+            keep.push({
+              ...e,
+              seen: now,
+              call: inp.tool_use_id,
+              transcript: inp.transcript_path,
+              tries: (e.tries || 0) + 1,
+            });
         }
         if (JSON.stringify(keep) !== JSON.stringify(before)) write(f, keep);
       });
     }
-    const failedMine = receipts().filter((r) => r.from === inp.session_id && r.state === "failed" && !r.warned);
+    // The model's consume_session_inbox call can claim a report that landed after this hook last read the queue:
+    // it is read there, so it is labelled and gets its receipt here. Its result is MCP text blocks holding JSON.
+    const claimed = (v) => {
+      if (typeof v === "string") {
+        try {
+          return claimed(JSON.parse(v));
+        } catch {
+          return [];
+        }
+      }
+      if (Array.isArray(v))
+        return v.flatMap((x) => claimed(x?.type === "text" ? x.text : x));
+      if (v && typeof v === "object")
+        return Array.isArray(v.messages)
+          ? v.messages
+          : claimed(v.content ?? v.structuredContent ?? []);
+      return [];
+    };
+    if (
+      ev === "PostToolUse" &&
+      /consume_session_inbox$/.test(inp.tool_name || "")
+    ) {
+      const known = steerIds();
+      for (const m of claimed(inp.tool_response)) {
+        // The claim also returns status messages and other sessions' reports: only a child's report is labelled here.
+        if (
+          !m?.id ||
+          known.has(m.id) ||
+          m.kind !== "report" ||
+          !String(m.text ?? "").startsWith("[Child Session Update]")
+        )
+          continue;
+        const e = {
+          id: m.id,
+          to: inp.session_id,
+          from: m.sourceSessionId ?? undefined,
+          msg: String(m.text),
+          kind: "report",
+          child: true,
+          taken: true,
+        };
+        known.add(m.id);
+        fs.mkdirSync(DIR, { recursive: true });
+        locked(() => receipt(e, "delivered"));
+        fresh.push(e);
+      }
+    }
+    const failedMine = receipts().filter(
+      (r) => r.from === inp.session_id && r.state === "failed" && !r.warned,
+    );
     if (failedMine.length) {
       const told = new Set(failedMine.map((r) => r.id));
-      saveReceipts(receipts().map((r) => (told.has(r.id) ? { ...r, warned: true } : r)));
+      saveReceipts(
+        receipts().map((r) => (told.has(r.id) ? { ...r, warned: true } : r)),
+      );
     }
-    const warnText = [...warnings, ...failedMine].map((e) => `[steer] Your note to session ${e.to} has NOT been confirmed as delivered: "${String(e.msg).slice(0, 80)}". Send it again with send_prompt, or check with steer.mjs status.`).join("\n");
-    const userNotes = fresh.filter((e) => e.kind !== "report" && e.kind !== "user"), reports = fresh.filter((e) => e.kind === "report");
+    const warnText = [...warnings, ...failedMine]
+      .map(
+        (e) =>
+          `[steer] Your note to session ${e.to} has NOT been confirmed as delivered: "${String(e.msg).slice(0, 80)}". Send it again with send_prompt, or check with steer.mjs status.`,
+      )
+      .join("\n");
+    const userNotes = fresh.filter(
+        (e) => e.kind !== "report" && e.kind !== "user",
+      ),
+      reports = fresh.filter((e) => e.kind === "report");
     const typed = fresh.filter((e) => e.kind === "user");
     const notes = userNotes.map((e) => `- ${mark(e)}${e.msg}`).join("\n");
     // A forwarded child report says what it is; it is not the user's note. A message the user typed in
-    // the old session says so too, and is a request.
-    const rep = (reports.length ? `\n[report] ${REPORT}\n${reports.map((e) => mark(e) + e.msg).join("\n\n")}` : "")
-      + (typed.length ? `\n[user] ${TYPED}\n${typed.map((e) => mark(e) + e.msg).join("\n\n")}` : "");
+    // the old session says so too, and is a request. A report of this session's own child asks to be claimed
+    // from Nimbalyst's queue, unless it came from that claim.
+    const forwarded = reports.filter((e) => !e.child),
+      kids = reports.filter((e) => e.child),
+      unclaimed = kids.filter((e) => !e.taken);
+    const rep =
+      (forwarded.length
+        ? `\n[report] ${REPORT}\n${forwarded.map((e) => mark(e) + e.msg).join("\n\n")}`
+        : "") +
+      (kids.length
+        ? `\n[report] ${CHILD}${unclaimed.length ? consumeLine(unclaimed[0].id) : ""}\n${kids.map((e) => mark(e) + e.msg).join("\n\n")}`
+        : "") +
+      (typed.length
+        ? `\n[user] ${TYPED}\n${typed.map((e) => mark(e) + e.msg).join("\n\n")}`
+        : "");
     const out = (o) => process.stdout.write(JSON.stringify(o));
     // A note asks to be listed back in the final reply; a reply that skips one is sent back once
-    const unlisted = ev === "Stop" && !fresh.length && !inp.stop_hook_active && inp.transcript_path
-      ? notesSinceLastReply(tail ?? tailOf(inp.transcript_path)).filter((n) => !listedBack(n, inp.last_assistant_message || "")) : [];
+    const unlisted =
+      ev === "Stop" &&
+      !fresh.length &&
+      !inp.stop_hook_active &&
+      inp.transcript_path
+        ? notesSinceLastReply(tail ?? tailOf(inp.transcript_path)).filter(
+            (n) => !listedBack(n, inp.last_assistant_message || ""),
+          )
+        : [];
     if (ev === "PreToolUse" && (fresh.length || held.length)) {
-      out({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: !fresh.length
-        ? "[btw] Held together with your other tool call: the note is in that call's message. This call did not run. Read the note first, then send this call again in full if it still applies."
-        : userNotes.length
-          ? `[btw] The user sent this while you were working, so this tool call was held (not refused) until you have read it. Nothing in it ran: no command, no file written. ${RULES}\n${notes}${rep}\nNow decide about the held call: if the note changes it, do the changed thing instead; if it doesn't, send the same call again in full.`
-          : `This tool call was held (not refused) so you read this first; nothing in it ran.${rep}\nThen send the same call again in full, unless the report changes it.` } });
+      out({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: !fresh.length
+            ? "[btw] Held together with your other tool call: the note is in that call's message. This call did not run. Read the note first, then send this call again in full if it still applies."
+            : userNotes.length
+              ? `[btw] The user sent this while you were working, so this tool call was held (not refused) until you have read it. Nothing in it ran: no command, no file written. ${RULES}\n${notes}${rep}\nNow decide about the held call: if the note changes it, do the changed thing instead; if it doesn't, send the same call again in full.`
+              : `This tool call was held (not refused) so you read this first; nothing in it ran.${rep}\nThen send the same call again in full, unless the report changes it.`,
+        },
+      });
     } else if (ev === "Stop" && fresh.length) {
-      out({ decision: "block", reason: userNotes.length
-        ? `[btw] The user sent this just as you were finishing, so don't stop yet. ${RULES}\n${notes}${rep}\nDeal with it now, then finish. If it changes nothing, say so in one line.`
-        : `Don't stop yet: this arrived as you were finishing.${rep}` });
+      out({
+        decision: "block",
+        reason: userNotes.length
+          ? `[btw] The user sent this just as you were finishing, so don't stop yet. ${RULES}\n${notes}${rep}\nDeal with it now, then finish. If it changes nothing, say so in one line.`
+          : `Don't stop yet: this arrived as you were finishing.${rep}`,
+      });
     } else if (unlisted.length) {
-      out({ decision: "block", reason: `[btw] The user sent ${unlisted.length === 1 ? "a note" : unlisted.length + " notes"} while you worked and your reply doesn't list ${unlisted.length === 1 ? "it" : "them"} back. ` +
-        `Add "### Your notes" to the reply: each note's first words in quotes, then what you did.\n${unlisted.map((n) => `- "${n.text.slice(0, 80)}"`).join("\n")}` });
+      out({
+        decision: "block",
+        reason:
+          `[btw] The user sent ${unlisted.length === 1 ? "a note" : unlisted.length + " notes"} while you worked and your reply doesn't list ${unlisted.length === 1 ? "it" : "them"} back. ` +
+          `Add "### Your notes" to the reply: each note's first words in quotes, then what you did.\n${unlisted.map((n) => `- "${n.text.slice(0, 80)}"`).join("\n")}`,
+      });
     } else if (fresh.length) {
       // A note that waited minutes sat behind one long tool call: the next long wait would do the same
-      const late = userNotes.length ? Math.round((now - Math.min(...userNotes.map((e) => e.ts))) / 60e3) : 0;
-      const lateText = late >= 2 ? `\n[btw] This note waited ${late} min for your last tool call to end: while a call runs, nothing reaches you. From now on, start no foreground wait over 2 minutes (a CI run, a download, a sleep): run it with run_in_background: true, say in one line what you wait for and end your turn, so the user's next note or message reaches you at once.` : "";
-      out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: (userNotes.length
-        ? `[btw] The user sent this while you were working. ${RULES}\n${notes}${rep}${lateText}` : rep.trim()) + (warnText ? `\n${warnText}` : "") } });
+      const late = userNotes.length
+        ? Math.round((now - Math.min(...userNotes.map((e) => e.ts))) / 60e3)
+        : 0;
+      const lateText =
+        late >= 2
+          ? `\n[btw] This note waited ${late} min for your last tool call to end: while a call runs, nothing reaches you. From now on, start no foreground wait over 2 minutes (a CI run, a download, a sleep): run it with run_in_background: true, say in one line what you wait for and end your turn, so the user's next note or message reaches you at once.`
+          : "";
+      out({
+        hookSpecificOutput: {
+          hookEventName: "PostToolUse",
+          additionalContext:
+            (userNotes.length
+              ? `[btw] The user sent this while you were working. ${RULES}\n${notes}${rep}${lateText}`
+              : rep.trim()) + (warnText ? `\n${warnText}` : ""),
+        },
+      });
     } else if (warnText && ev === "PostToolUse") {
-      out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: warnText } });
+      out({
+        hookSpecificOutput: {
+          hookEventName: "PostToolUse",
+          additionalContext: warnText,
+        },
+      });
     }
-  } catch (err) { crashLog("steer", err); }
+  } catch (err) {
+    crashLog("steer", err);
+  }
 } else if (mode === "--watch") {
   try {
     if (process.env.STEER_WATCH === "off") process.exit(0);
     const inp = JSON.parse(await stdin());
     const tp = inp.transcript_path;
     // Without a transcript a handed-over note can't be confirmed, and a subagent's Stop is not the session's.
-    if (inp.agent_id || !inp.session_id || !tp || !fs.existsSync(DIR)) process.exit(0);
+    if (inp.agent_id || !inp.session_id || !tp || !fs.existsSync(DIR))
+      process.exit(0);
     const start = fs.statSync(tp).size;
     if (!jobRunning(fs.readFileSync(tp, "utf8"))) process.exit(0);
     // Claude only runs this hook in the background for a session that takes streaming input; a plain
     // claude -p waits for it, so there it must end at once. Not sure means ending too.
-    const args = claudeArgs(), bare = args.replace(/"(\\"|[^"])*"|'[^']*'/g, " ");
-    if (!args || (/(^|\s)(-p|--print)(\s|$)/.test(bare) && !/--input-format[= ]stream-json/.test(bare))) process.exit(0);
+    const args = claudeArgs(),
+      bare = args.replace(/"(\\"|[^"])*"|'[^']*'/g, " ");
+    if (
+      !args ||
+      (/(^|\s)(-p|--print)(\s|$)/.test(bare) &&
+        !/--input-format[= ]stream-json/.test(bare))
+    )
+      process.exit(0);
     const tick = Number(process.env.STEER_WATCH_TICK ?? 2) * 1000;
     const end = Date.now() + Number(process.env.STEER_WATCH_MAX ?? 7100) * 1000;
     const pid = Number(process.env.CLAUDE_PID);
-    const gone = () => { if (!pid) return false; try { process.kill(pid, 0); return false; } catch { return true; } };
+    const gone = () => {
+      if (!pid) return false;
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    };
     // Hooks and the app add their own lines after a reply ends; only a message that starts a turn
     // counts. A compact, a local command or an interrupt writes a user line and no Stop follows it.
     const newTurn = () => {
       const size = fs.statSync(tp).size;
       if (size <= start) return false;
-      const fd = fs.openSync(tp, "r"), b = Buffer.alloc(size - start);
+      const fd = fs.openSync(tp, "r"),
+        b = Buffer.alloc(size - start);
       fs.readSync(fd, b, 0, size - start, start);
       fs.closeSync(fd);
-      return b.toString("utf8").split("\n").some((l) => /"type":"(user|assistant)"/.test(l)
-        && !/"(isSidechain|isMeta|isCompactSummary|isApiErrorMessage)":true|<local-command|<command-name>|\[Request interrupted/.test(l));
+      return b
+        .toString("utf8")
+        .split("\n")
+        .some(
+          (l) =>
+            /"type":"(user|assistant)"/.test(l) &&
+            !/"(isSidechain|isMeta|isCompactSummary|isApiErrorMessage)":true|<local-command|<command-name>|\[Request interrupted/.test(
+              l,
+            ),
+        );
     };
     for (;;) {
       // Waits first: a note that came in as the reply ended belongs to --hook, which runs at the same moment.
       sleep(tick);
       if (Date.now() > end || gone() || newTurn()) process.exit(0);
-      const got = [], mine = (e) => e.to === inp.session_id && !e.seen && !e.kind && Date.now() - e.ts <= MAX_AGE;
+      const got = [],
+        mine = (e) =>
+          e.to === inp.session_id &&
+          !e.seen &&
+          !e.kind &&
+          Date.now() - e.ts <= MAX_AGE;
       for (const n of fs.readdirSync(DIR)) {
         if (!n.endsWith(".jsonl")) continue;
         const f = path.join(DIR, n);
         if (!read(f).some(mine)) continue;
         locked(() => {
           const all = read(f);
-          write(f, all.map((e) => {
-            if (!mine(e)) return e;
-            got.push(e);
-            return { ...e, seen: Date.now(), via: "watch", transcript: tp, tries: (e.tries || 0) + 1 };
-          }));
+          write(
+            f,
+            all.map((e) => {
+              if (!mine(e)) return e;
+              got.push(e);
+              return {
+                ...e,
+                seen: Date.now(),
+                via: "watch",
+                transcript: tp,
+                tries: (e.tries || 0) + 1,
+              };
+            }),
+          );
         });
       }
       if (!got.length) continue;
-      fs.writeSync(2, `${RULES}\n${got.map((e) => `- ${mark(e)}${e.msg}`).join("\n")}`);
+      fs.writeSync(
+        2,
+        `${RULES}\n${got.map((e) => `- ${mark(e)}${e.msg}`).join("\n")}`,
+      );
       process.exit(2);
     }
-  } catch (err) { crashLog("steer", err); }
+  } catch (err) {
+    crashLog("steer", err);
+  }
 } else if (mode === "btw") {
   const { t, list } = await pickTarget(rest);
   if (!t || !t.p) {
-    console.log(list.length ? `Several sessions are active. Don't ask the user: pick the one the question means (else a busy one, else the most recent) and rerun with --to <id>:\n${show(list)}`
-      : "No other session was active in this folder in the last 10 minutes.");
+    console.log(
+      list.length
+        ? `Several sessions are active. Don't ask the user: pick the one the question means (else a busy one, else the most recent) and rerun with --to <id>:\n${show(list)}`
+        : "No other session was active in this folder in the last 10 minutes.",
+    );
     process.exit(0);
   }
   const out = [];
   let len = 0;
-  for (const s of texts(chunk(t.p, true, 400000)).reverse().map((s) => (s.length > 800 ? s.slice(0, 800) + " …" : s))) {
+  for (const s of texts(chunk(t.p, true, 400000))
+    .reverse()
+    .map((s) => (s.length > 800 ? s.slice(0, 800) + " …" : s))) {
     if (len + s.length > 14000) break;
-    out.unshift(s); len += s.length;
+    out.unshift(s);
+    len += s.length;
   }
-  console.log(`# Session ${label(t)} (${t.id.slice(0, 8)}, last activity ${t.ago}s ago), most recent last\n`);
+  console.log(
+    `# Session ${label(t)} (${t.id.slice(0, 8)}, last activity ${t.ago}s ago), most recent last\n`,
+  );
   console.log(out.join("\n\n"));
   console.log(`\n# Question\n${rest.join(" ").trim()}`);
 }

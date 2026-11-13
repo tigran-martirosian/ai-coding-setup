@@ -32,7 +32,7 @@ each glob with its reason.
 
 | Kind | Name and place | Lifetime |
 |---|---|---|
-| Decisions in force | one `DECISIONS.md` at the root, by topic, newest first | each line stays until a new decision replaces it |
+| Decisions in force | one `DECISIONS.md` at the root: `## What each thing is for` first, then dated sections, newest first | each line stays until a new decision replaces it |
 | Replaced decisions | one `docs/decisions-archive.md`, newest first, each with what replaced it | kept for good (ADR, Nygard and MADR: a reversed decision is kept, marked superseded) |
 | Handoff | one `HANDOFF.md` at the root, current state only | rewritten each session; older states live in git history |
 | Research notes | `docs/research/YYYY-MM-DD-topic.md` | kept while a decision, design or doc links to it |

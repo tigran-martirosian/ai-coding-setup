@@ -4,11 +4,18 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const read = (rel) => fs.readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
+const read = (rel) =>
+  fs
+    .readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8")
+    .replace(/\r\n/g, "\n");
 const skill = read("../skills/setup-audit/scripts/usage-dashboard-lib.mjs");
 const panel = read("../extensions/usage-plan/src/usage-dashboard-lib.mjs");
 if (skill !== panel) {
-  console.error("FAIL  extensions/usage-plan/src/usage-dashboard-lib.mjs differs from skills/setup-audit/scripts/usage-dashboard-lib.mjs\nCopy the skill file over the extension copy.");
+  console.error(
+    "FAIL  extensions/usage-plan/src/usage-dashboard-lib.mjs differs from skills/setup-audit/scripts/usage-dashboard-lib.mjs\nCopy the skill file over the extension copy.",
+  );
   process.exit(1);
 }
-console.log("ok  the panel's copy of usage-dashboard-lib.mjs matches the skill's");
+console.log(
+  "ok  the panel's copy of usage-dashboard-lib.mjs matches the skill's",
+);

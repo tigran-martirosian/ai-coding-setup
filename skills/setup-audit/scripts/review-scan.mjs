@@ -17,7 +17,23 @@ import path from "node:path";
 import { opt } from "./lib/opt.mjs";
 import { daysWindow } from "./lib/days.mjs";
 import { FABLE_NOW, FAMILY, FAMILY_UNLISTED } from "./lib/prices.mjs";
-import { defaultRoot, walkChats, subagentMetas, EDIT, AGENT, SHELL as RUN, QUESTION_TOOL as ASK, CAPPED, MACHINE, INTERRUPTED, FILLER, PUSH, one, textOf, editedFile } from "./lib/chats.mjs";
+import {
+  defaultRoot,
+  walkChats,
+  subagentMetas,
+  EDIT,
+  AGENT,
+  SHELL as RUN,
+  QUESTION_TOOL as ASK,
+  CAPPED,
+  MACHINE,
+  INTERRUPTED,
+  FILLER,
+  PUSH,
+  one,
+  textOf,
+  editedFile,
+} from "./lib/chats.mjs";
 
 const root = opt("root", defaultRoot());
 const { days, since } = daysWindow();
@@ -25,26 +41,47 @@ const only = String(opt("project", "")).toLowerCase();
 const top = Number(opt("top", 8));
 
 // FAMILY (lib/prices.mjs) weighs by model family; only shares within one review are compared, so it need not match the plan weight in usage-scan.mjs.
-const famOf = (model) => FAMILY.find(([re]) => re.test(model))?.[1] ?? FAMILY_UNLISTED;
+const famOf = (model) =>
+  FAMILY.find(([re]) => re.test(model))?.[1] ?? FAMILY_UNLISTED;
 const weightOf = (u, model) => {
   const write = u.cache_creation_input_tokens ?? 0;
   const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-  return famOf(model) * ((u.input_tokens ?? 0) + 1.25 * (write - write1h) + 2 * write1h +
-    0.1 * (u.cache_read_input_tokens ?? 0) + 5 * (u.output_tokens ?? 0)) / 1e6;
+  return (
+    (famOf(model) *
+      ((u.input_tokens ?? 0) +
+        1.25 * (write - write1h) +
+        2 * write1h +
+        0.1 * (u.cache_read_input_tokens ?? 0) +
+        5 * (u.output_tokens ?? 0))) /
+    1e6
+  );
 };
-const tokensOf = (u) => (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.output_tokens ?? 0);
+const tokensOf = (u) =>
+  (u.input_tokens ?? 0) +
+  (u.cache_creation_input_tokens ?? 0) +
+  (u.cache_read_input_tokens ?? 0) +
+  (u.output_tokens ?? 0);
 
-const NOT_A_FAILURE = /hook (?:blocking )?error|The user doesn't want to|interrupted by user/i;
+const NOT_A_FAILURE =
+  /hook (?:blocking )?error|The user doesn't want to|interrupted by user/i;
 
-const LOOK = /^(Read|Grep|Glob|WebSearch|WebFetch|ToolSearch)$|browser_(screenshot|get_page_info|list_sessions)|memory_(recall|search|read|list)|tracker_(get|list)|__(list|get)_/;
+const LOOK =
+  /^(Read|Grep|Glob|WebSearch|WebFetch|ToolSearch)$|browser_(screenshot|get_page_info|list_sessions)|memory_(recall|search|read|list)|tracker_(get|list)|__(list|get)_/;
 const DELEGATE = /^(Agent|Task)$|spawn_session|send_prompt|create_session/;
 const BOARD = /update_session_meta|update_session_board/;
-const READ_ONLY = /^(?:cd|ls|dir|cat|head|tail|grep|rg|find|wc|stat|du|file|which|where|echo|sort|uniq|cut|tr|sed -n|git (?:-C \S+ )?(?:status|log|diff|show|branch)|Get-Content|Get-ChildItem|Select-String|Test-Path)\b/;
+const READ_ONLY =
+  /^(?:cd|ls|dir|cat|head|tail|grep|rg|find|wc|stat|du|file|which|where|echo|sort|uniq|cut|tr|sed -n|git (?:-C \S+ )?(?:status|log|diff|show|branch)|Get-Content|Get-ChildItem|Select-String|Test-Path)\b/;
 // A shell command that only looks: every part starts with a reading program and nothing is written to a file.
 const readOnlyShell = (cmd) => {
-  const body = String(cmd ?? "").split(/\n\s*#/)[0].replace(/2>(?:&1|\/dev\/null|\$null)/g, "");
+  const body = String(cmd ?? "")
+    .split(/\n\s*#/)[0]
+    .replace(/2>(?:&1|\/dev\/null|\$null)/g, "");
   if (!body.trim() || />/.test(body)) return false;
-  return body.split(/&&|\|\||;|\||\n/).map((s) => s.trim()).filter(Boolean).every((s) => READ_ONLY.test(s));
+  return body
+    .split(/&&|\|\||;|\||\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .every((s) => READ_ONLY.test(s));
 };
 function kindOf(tools) {
   if (!tools.length) return "talk";
@@ -54,7 +91,14 @@ function kindOf(tools) {
   if (names.some((n) => EDIT.test(n))) return "edit";
   const rest = tools.filter((x) => !BOARD.test(x.name));
   if (!rest.length) return "board";
-  if (rest.every((x) => LOOK.test(x.name) || (RUN.test(x.name) && readOnlyShell(x.input.command)))) return "look";
+  if (
+    rest.every(
+      (x) =>
+        LOOK.test(x.name) ||
+        (RUN.test(x.name) && readOnlyShell(x.input.command)),
+    )
+  )
+    return "look";
   return names.some((n) => RUN.test(n)) ? "run" : "other";
 }
 const KINDS = {
@@ -69,7 +113,10 @@ const KINDS = {
 };
 const LEAD_KINDS = new Set(["talk", "ask", "delegate", "board"]);
 
-const cut = (s, n = 60) => { const t = one(s).replace(/\|/g, "/"); return t.length > n ? `${t.slice(0, n)}…` : t; };
+const cut = (s, n = 60) => {
+  const t = one(s).replace(/\|/g, "/");
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+};
 const PAUSE = 15 * 60000; // a longer gap before the model's next line: the computer slept or the chat was left
 const SHELL_MAX = 10 * 60000; // a shell call cannot run longer; the rest of the gap was a permission prompt
 const TOOL_MAX = 2 * 60000;
@@ -77,17 +124,32 @@ const owner = new Map(); // API message id -> file, because a resumed chat repea
 const turnSeen = new Set();
 
 function readChat(file) {
-  const chat = { cwd: "", turns: [], errors: [], calls: {}, agents: [], edits: [], file };
+  const chat = {
+    cwd: "",
+    turns: [],
+    errors: [],
+    calls: {},
+    agents: [],
+    edits: [],
+    file,
+  };
   const agentById = new Map();
   let seq = 0; // line number in this chat: orders helper results against later edits
   const uses = new Map();
   const reqs = new Map();
-  let turn = null, effort = "";
-  const add = (bucket, ms) => { if (turn && ms > 0) turn.time[bucket] = (turn.time[bucket] ?? 0) + ms; };
+  let turn = null,
+    effort = "";
+  const add = (bucket, ms) => {
+    if (turn && ms > 0) turn.time[bucket] = (turn.time[bucket] ?? 0) + ms;
+  };
   for (const raw of fs.readFileSync(file, "utf8").split("\n")) {
     if (!raw) continue;
     let l;
-    try { l = JSON.parse(raw); } catch { continue; }
+    try {
+      l = JSON.parse(raw);
+    } catch {
+      continue;
+    }
     const eff = raw.length < 4000 && raw.match(/"effort":"(\w+)"/);
     if (eff) effort = eff[1];
     if (l.isSidechain) continue;
@@ -96,14 +158,35 @@ function readChat(file) {
     const t = Date.parse(l.timestamp);
     if (isNaN(t)) continue;
     const content = l.message?.content;
-    if (l.type === "assistant" && l.message?.id && l.message.model !== "<synthetic>") {
+    if (
+      l.type === "assistant" &&
+      l.message?.id &&
+      l.message.model !== "<synthetic>"
+    ) {
       const id = l.message.id;
       if ((owner.get(id) ?? file) !== file) continue;
       owner.set(id, file);
-      turn ??= { t: t, text: "(the chat went on without a typed message)", reqs: [], time: {}, last: t };
+      turn ??= {
+        t: t,
+        text: "(the chat went on without a typed message)",
+        reqs: [],
+        time: {},
+        last: t,
+      };
       if (!chat.turns.includes(turn)) chat.turns.push(turn);
       let r = reqs.get(id);
-      if (!r) { r = { model: l.message.model ?? "?", usage: {}, tools: [], thinking: false, visible: 0, effort }; reqs.set(id, r); turn.reqs.push(r); }
+      if (!r) {
+        r = {
+          model: l.message.model ?? "?",
+          usage: {},
+          tools: [],
+          thinking: false,
+          visible: 0,
+          effort,
+        };
+        reqs.set(id, r);
+        turn.reqs.push(r);
+      }
       r.usage = l.message.usage ?? r.usage;
       for (const b of Array.isArray(content) ? content : []) {
         if (b.type === "thinking") r.thinking = true;
@@ -112,8 +195,21 @@ function readChat(file) {
           r.tools.push({ name: b.name, input: b.input ?? {} });
           r.visible += JSON.stringify(b.input ?? {}).length;
           uses.set(b.id, b.name);
-          if (AGENT.test(b.name)) { const a = { id: b.id, input: b.input ?? {}, t, seq, resultSeq: 0, turn: null, capped: false }; agentById.set(b.id, a); chat.agents.push(a); }
-          if (EDIT.test(b.name)) chat.edits.push({ file: editedFile(b.input), seq });
+          if (AGENT.test(b.name)) {
+            const a = {
+              id: b.id,
+              input: b.input ?? {},
+              t,
+              seq,
+              resultSeq: 0,
+              turn: null,
+              capped: false,
+            };
+            agentById.set(b.id, a);
+            chat.agents.push(a);
+          }
+          if (EDIT.test(b.name))
+            chat.edits.push({ file: editedFile(b.input), seq });
           const name = b.name.replace(/^mcp__[\w-]+?__/, "");
           (chat.calls[name] ??= { n: 0, failed: 0 }).n++;
         }
@@ -126,7 +222,11 @@ function readChat(file) {
     if (l.type !== "user" || l.isMeta) continue;
     const typed = [];
     let timed = false;
-    for (const b of typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content : []) {
+    for (const b of typeof content === "string"
+      ? [{ type: "text", text: content }]
+      : Array.isArray(content)
+        ? content
+        : []) {
       if (b.type === "tool_result") {
         const name = uses.get(b.tool_use_id);
         if (!name) continue;
@@ -145,41 +245,67 @@ function readChat(file) {
         const ag = agentById.get(b.tool_use_id);
         // The first result of a foreground helper is its report. A background helper answers "launched" first and
         // reports later in a task-notification (see below), which then replaces this.
-        if (ag && !ag.resultSeq) { ag.resultSeq = seq; ag.turn = turn; }
+        if (ag && !ag.resultSeq) {
+          ag.resultSeq = seq;
+          ag.turn = turn;
+        }
         // Capped: the app starts the report of a helper that hit its turn limit with "NOTE: this agent stopped at its N-turn limit before finishing".
         if (ag && CAPPED.test(text.slice(0, 300))) ag.capped = true;
         if (b.is_error && !NOT_A_FAILURE.test(text.slice(0, 300))) {
           const short = name.replace(/^mcp__[\w-]+?__/, "");
           if (chat.calls[short]) chat.calls[short].failed++;
-          chat.errors.push({ tool: short, what: cut(text.replace(/\d+/g, "N"), 70) });
+          chat.errors.push({
+            tool: short,
+            what: cut(text.replace(/\d+/g, "N"), 70),
+          });
           if (turn) turn.failed = (turn.failed ?? 0) + 1;
         }
       } else if (b.type === "text" && b.text?.trim()) {
         const text = b.text.trim();
-        const note = text.match(/^<task-notification>[\s\S]*?<tool-use-id>([\w-]+)<\/tool-use-id>/);
+        const note = text.match(
+          /^<task-notification>[\s\S]*?<tool-use-id>([\w-]+)<\/tool-use-id>/,
+        );
         if (note && agentById.has(note[1])) {
           const ag = agentById.get(note[1]);
-          ag.resultSeq = seq; ag.turn = turn;
+          ag.resultSeq = seq;
+          ag.turn = turn;
           if (CAPPED.test(text)) ag.capped = true;
         }
-        if (INTERRUPTED.test(text)) { if (turn) turn.interrupted = true; continue; }
-        const command = text.match(/<command-name>\/?([\w:-]+)<\/command-name>/);
-        if (command) typed.push(`/${command[1]} ${text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1] ?? ""}`);
-        else if (/^# \/[\w:-]+/.test(text)) continue; // the text of a slash command, loaded by the app
+        if (INTERRUPTED.test(text)) {
+          if (turn) turn.interrupted = true;
+          continue;
+        }
+        const command = text.match(
+          /<command-name>\/?([\w:-]+)<\/command-name>/,
+        );
+        if (command)
+          typed.push(
+            `/${command[1]} ${text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1] ?? ""}`,
+          );
+        else if (/^# \/[\w:-]+/.test(text))
+          continue; // the text of a slash command, loaded by the app
         else if (!MACHINE.test(text)) typed.push(text);
-        else if (turn && !timed) { timed = true; add("background", t - turn.last); }
+        else if (turn && !timed) {
+          timed = true;
+          add("background", t - turn.last);
+        }
       }
     }
     const message = one(typed.join(" "));
-    if (message) { turn = { t, text: message, reqs: [], time: {}, last: t }; chat.turns.push(turn); }
-    else if (turn) turn.last = t;
+    if (message) {
+      turn = { t, text: message, reqs: [], time: {}, last: t };
+      chat.turns.push(turn);
+    } else if (turn) turn.last = t;
   }
   return chat;
 }
 
 // Collect the turns of the window
 const chats = [];
-if (!fs.existsSync(root)) { console.error(`No chats folder: ${root}`); process.exit(1); }
+if (!fs.existsSync(root)) {
+  console.error(`No chats folder: ${root}`);
+  process.exit(1);
+}
 for (const { file, dir, name } of walkChats(root, since)) {
   const chat = readChat(file);
   const where = chat.cwd || dir;
@@ -194,11 +320,21 @@ for (const { file, dir, name } of walkChats(root, since)) {
   });
   if (chat.turns.length) chats.push(chat);
 }
-const turns = chats.flatMap((c) => c.turns.map((u, i) => Object.assign(u, { project: c.project, id: c.id, next: c.turns[i + 1] })));
-if (!turns.length) { console.log(`No turns in the last ${days} days${only ? ` for "${only}"` : ""}.`); process.exit(0); }
+const turns = chats.flatMap((c) =>
+  c.turns.map((u, i) =>
+    Object.assign(u, { project: c.project, id: c.id, next: c.turns[i + 1] }),
+  ),
+);
+if (!turns.length) {
+  console.log(
+    `No turns in the last ${days} days${only ? ` for "${only}"` : ""}.`,
+  );
+  process.exit(0);
+}
 
 // Kind of each request, and the stretches a helper could have taken
-const kinds = {}, models = {};
+const kinds = {},
+  models = {};
 let total = 0;
 const sum = (list, f) => list.reduce((a, x) => a + f(x), 0);
 for (const u of turns) {
@@ -209,9 +345,12 @@ for (const u of turns) {
     r.fam = famOf(r.model);
     total += r.w;
     const k = (kinds[r.kind] ??= { n: 0, tok: 0, w: 0 });
-    k.n++; k.tok += r.tok; k.w += r.w;
+    k.n++;
+    k.tok += r.tok;
+    k.w += r.w;
     const m = (models[r.model.replace(/^claude-/, "")] ??= { n: 0, w: 0 });
-    m.n++; m.w += r.w;
+    m.n++;
+    m.w += r.w;
   }
   // look stretch: 3 or more "look" requests in a row. build stretch: 10 or more work requests in a row
   // (no talking, asking or delegating between them) with at least 3 edits.
@@ -220,92 +359,240 @@ for (const u of turns) {
       let j = i;
       while (j < u.reqs.length && ok(u.reqs[j])) j++;
       const part = u.reqs.slice(i, j);
-      if (part.length >= min && extra(part)) part.forEach((r, n) => { r[mark] = n === 0 ? "first" : "rest"; });
+      if (part.length >= min && extra(part))
+        part.forEach((r, n) => {
+          r[mark] = n === 0 ? "first" : "rest";
+        });
       i = Math.max(j, i + 1);
     }
   };
   stretch((r) => r.kind === "look", 3, "inLook");
-  stretch((r) => !LEAD_KINDS.has(r.kind) || r.kind === "board", 10, "inBuild", (part) => part.filter((r) => r.kind === "edit").length >= 3);
+  stretch(
+    (r) => !LEAD_KINDS.has(r.kind) || r.kind === "board",
+    10,
+    "inBuild",
+    (part) => part.filter((r) => r.kind === "edit").length >= 3,
+  );
   u.w = sum(u.reqs, (r) => r.w);
   u.tok = sum(u.reqs, (r) => r.tok);
-  u.active = (u.time.model ?? 0) + (u.time.shell ?? 0) + (u.time.subagents ?? 0) + (u.time.tools ?? 0);
+  u.active =
+    (u.time.model ?? 0) +
+    (u.time.shell ?? 0) +
+    (u.time.subagents ?? 0) +
+    (u.time.tools ?? 0);
 }
 const reqs = turns.flatMap((u) => u.reqs);
-const M = (n) => n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 1 : 2)}M` : `${Math.round(n / 1e3)}k`;
-const pct = (a, b = total) => b ? `${Math.round(a / b * 100)}%` : "0%";
-const mins = (ms) => ms >= 3600000 ? `${(ms / 3600000).toFixed(1)} h` : `${(ms / 60000).toFixed(ms >= 600000 ? 0 : 1)} min`;
-const median = (list) => { const s = [...list].sort((a, b) => a - b); return s.length ? s[s.length >> 1] : 0; };
+const M = (n) =>
+  n >= 1e6
+    ? `${(n / 1e6).toFixed(n >= 1e7 ? 1 : 2)}M`
+    : `${Math.round(n / 1e3)}k`;
+const pct = (a, b = total) => (b ? `${Math.round((a / b) * 100)}%` : "0%");
+const mins = (ms) =>
+  ms >= 3600000
+    ? `${(ms / 3600000).toFixed(1)} h`
+    : `${(ms / 60000).toFixed(ms >= 600000 ? 0 : 1)} min`;
+const median = (list) => {
+  const s = [...list].sort((a, b) => a - b);
+  return s.length ? s[s.length >> 1] : 0;
+};
 const out = [];
 const p = (...lines) => out.push(...lines);
 
-p("# Review scan", `Last ${days} days${only ? `, "${only}" only` : ""}: ${chats.length} main chats, ${turns.length} turns, ${reqs.length} requests. Subagents are not in these numbers.`, "");
+p(
+  "# Review scan",
+  `Last ${days} days${only ? `, "${only}" only` : ""}: ${chats.length} main chats, ${turns.length} turns, ${reqs.length} requests. Subagents are not in these numbers.`,
+  "",
+);
 
-p("## Kind of work (main chats)", "",
-  `Models: ${Object.entries(models).sort((a, b) => b[1].w - a[1].w).map(([m, v]) => `${m} ${v.n} requests, ${pct(v.w)} of the weight`).join("; ")}.`, "",
-  "| Kind | What the request did | Requests | Tokens | Share of weight |", "|---|---|---|---|---|",
-  ...Object.entries(kinds).sort((a, b) => b[1].w - a[1].w).map(([k, v]) => `| ${k} | ${KINDS[k]} | ${v.n} | ${M(v.tok)} | ${pct(v.w)} |`), "");
-const lookAll = reqs.filter((r) => r.inLook), lookRest = lookAll.filter((r) => r.inLook === "rest");
+p(
+  "## Kind of work (main chats)",
+  "",
+  `Models: ${Object.entries(models)
+    .sort((a, b) => b[1].w - a[1].w)
+    .map(([m, v]) => `${m} ${v.n} requests, ${pct(v.w)} of the weight`)
+    .join("; ")}.`,
+  "",
+  "| Kind | What the request did | Requests | Tokens | Share of weight |",
+  "|---|---|---|---|---|",
+  ...Object.entries(kinds)
+    .sort((a, b) => b[1].w - a[1].w)
+    .map(
+      ([k, v]) => `| ${k} | ${KINDS[k]} | ${v.n} | ${M(v.tok)} | ${pct(v.w)} |`,
+    ),
+  "",
+);
+const lookAll = reqs.filter((r) => r.inLook),
+  lookRest = lookAll.filter((r) => r.inLook === "rest");
 const build = reqs.filter((r) => r.inBuild && !r.inLook);
-const lookW = sum(lookAll, (r) => r.w), buildW = sum(build, (r) => r.w);
-p(`**Looking stretches** (3 or more look requests in a row): ${lookAll.filter((r) => r.inLook === "first").length} stretches, ${lookAll.length} requests, ${pct(lookW)} of the weight. One worker call could have stood in for each stretch.`,
+const lookW = sum(lookAll, (r) => r.w),
+  buildW = sum(build, (r) => r.w);
+p(
+  `**Looking stretches** (3 or more look requests in a row): ${lookAll.filter((r) => r.inLook === "first").length} stretches, ${lookAll.length} requests, ${pct(lookW)} of the weight. One worker call could have stood in for each stretch.`,
   `**Building stretches** (10 or more work requests in a row with at least 3 edits; the looking stretches inside them are counted above): ${reqs.filter((r) => r.inBuild === "first").length} stretches, ${build.length} requests, ${pct(buildW)} of the weight. An upper limit: only the part that follows a clear plan can go to a helper.`,
-  `**Could have gone to a helper:** between ${pct(lookW)} (looking only) and ${pct(lookW + buildW)} (looking and all building) of the weight.`, "");
+  `**Could have gone to a helper:** between ${pct(lookW)} (looking only) and ${pct(lookW + buildW)} (looking and all building) of the weight.`,
+  "",
+);
 // Every request sends the whole chat so far, so a long chat makes each further step dearer
 const ctxOf = (r) => r.tok - (r.usage.output_tokens ?? 0);
 const over = (n) => reqs.filter((r) => ctxOf(r) > n);
-p(`**Context size:** an average request sent ${M(sum(reqs, ctxOf) / reqs.length)} tokens of context. Requests sent with over 150k: ${over(150000).length}, ${pct(sum(over(150000), (r) => r.w))} of the weight; over 200k: ${over(200000).length}, ${pct(sum(over(200000), (r) => r.w))}; over 300k: ${over(300000).length}, ${pct(sum(over(300000), (r) => r.w))}.`, "");
+p(
+  `**Context size:** an average request sent ${M(sum(reqs, ctxOf) / reqs.length)} tokens of context. Requests sent with over 150k: ${over(150000).length}, ${pct(sum(over(150000), (r) => r.w))} of the weight; over 200k: ${over(200000).length}, ${pct(sum(over(200000), (r) => r.w))}; over 300k: ${over(300000).length}, ${pct(sum(over(300000), (r) => r.w))}.`,
+  "",
+);
 
 // What-if totals. Same requests and context sizes; only who runs them changes.
-const to = (r, fam) => r.w * Math.min(fam, r.fam) / r.fam;
+const to = (r, fam) => (r.w * Math.min(fam, r.fam)) / r.fam;
 const whatIf = [
-  ["Looking stretches run on Sonnet `worker` helpers (one request per stretch stays)", total - sum(lookRest, (r) => r.w - to(r, 3))],
-  ["That, and the building stretches run on Sonnet helpers", total - sum(lookRest, (r) => r.w - to(r, 3)) - sum(build, (r) => r.w - to(r, 3))],
-  ["Opus leads (talks, asks, delegates), Sonnet does all the work requests", sum(reqs, (r) => LEAD_KINDS.has(r.kind) ? r.w : to(r, 3))],
-  ["Fable leads, Sonnet does all the work requests", sum(reqs, (r) => LEAD_KINDS.has(r.kind) ? r.w * FABLE_NOW / r.fam : to(r, 3))],
+  [
+    "Looking stretches run on Sonnet `worker` helpers (one request per stretch stays)",
+    total - sum(lookRest, (r) => r.w - to(r, 3)),
+  ],
+  [
+    "That, and the building stretches run on Sonnet helpers",
+    total -
+      sum(lookRest, (r) => r.w - to(r, 3)) -
+      sum(build, (r) => r.w - to(r, 3)),
+  ],
+  [
+    "Opus leads (talks, asks, delegates), Sonnet does all the work requests",
+    sum(reqs, (r) => (LEAD_KINDS.has(r.kind) ? r.w : to(r, 3))),
+  ],
+  [
+    "Fable leads, Sonnet does all the work requests",
+    sum(reqs, (r) =>
+      LEAD_KINDS.has(r.kind) ? (r.w * FABLE_NOW) / r.fam : to(r, 3),
+    ),
+  ],
   ["Sonnet runs everything", sum(reqs, (r) => to(r, 3))],
 ];
-p("## What if the work were split differently", "",
-  `The same requests with the same context sizes, only run by someone else. Sizes of the prize, not forecasts: a helper starts with a small context (cheaper than shown) but has to be briefed and checked (dearer than shown). Weights: Haiku 1, Sonnet 3, Opus 5, Fable ${FABLE_NOW} (Fable 5.1 and older 12.5).`, "",
-  "| Split | Weight | Against now |", "|---|---|---|", `| As it was | ${total.toFixed(0)} | |`,
-  ...whatIf.map(([name, w]) => `| ${name} | ${w.toFixed(0)} | ${w <= total ? "−" : "+"}${pct(Math.abs(total - w))} |`), "");
+p(
+  "## What if the work were split differently",
+  "",
+  `The same requests with the same context sizes, only run by someone else. Sizes of the prize, not forecasts: a helper starts with a small context (cheaper than shown) but has to be briefed and checked (dearer than shown). Weights: Haiku 1, Sonnet 3, Opus 5, Fable ${FABLE_NOW} (Fable 5.1 and older 12.5).`,
+  "",
+  "| Split | Weight | Against now |",
+  "|---|---|---|",
+  `| As it was | ${total.toFixed(0)} | |`,
+  ...whatIf.map(
+    ([name, w]) =>
+      `| ${name} | ${w.toFixed(0)} | ${w <= total ? "−" : "+"}${pct(Math.abs(total - w))} |`,
+  ),
+  "",
+);
 
 // Time
-const buckets = ["model", "shell", "subagents", "tools", "you", "background", "paused"];
+const buckets = [
+  "model",
+  "shell",
+  "subagents",
+  "tools",
+  "you",
+  "background",
+  "paused",
+];
 const timeOf = (list, b) => sum(list, (u) => u.time[b] ?? 0);
 const active = sum(turns, (u) => u.active);
-const where = (u) => ["model", "shell", "subagents", "tools"].map((b) => [b, u.time[b] ?? 0]).filter(([, v]) => v > 0)
-  .sort((a, b) => b[1] - a[1]).slice(0, 2).map(([b, v]) => `${b} ${pct(v, u.active)}`).join(", ");
-const row = (u) => `| ${u.project} | ${u.id} | ${mins(u.active)} | ${u.reqs.length} | ${M(u.tok)} | ${where(u)} | ${cut(u.text)} |`;
-p("## Time", "",
+const where = (u) =>
+  ["model", "shell", "subagents", "tools"]
+    .map((b) => [b, u.time[b] ?? 0])
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([b, v]) => `${b} ${pct(v, u.active)}`)
+    .join(", ");
+const row = (u) =>
+  `| ${u.project} | ${u.id} | ${mins(u.active)} | ${u.reqs.length} | ${M(u.tok)} | ${where(u)} | ${cut(u.text)} |`;
+p(
+  "## Time",
+  "",
   `Working time in all turns: **${mins(active)}** (the model ${pct(timeOf(turns, "model"), active)}, shell commands ${pct(timeOf(turns, "shell"), active)}, subagents ${pct(timeOf(turns, "subagents"), active)}, other tools ${pct(timeOf(turns, "tools"), active)}).`,
   `Not counted as working time: ${mins(timeOf(turns, "you"))} waiting for the user (forms and permission prompts), ${mins(timeOf(turns, "background"))} waiting for background work or another session, ${mins(timeOf(turns, "paused"))} in gaps over 15 minutes.`,
-  `A turn: median ${mins(median(turns.map((u) => u.active)))} and ${median(turns.map((u) => u.reqs.length))} requests; ${turns.filter((u) => u.active > 600000).length} turns took over 10 minutes, ${turns.filter((u) => u.active > 1800000).length} over 30.`, "",
-  "| Project | Turns | Working time | Model | Shell | Subagents | Other tools | Waiting for the user |", "|---|---|---|---|---|---|---|---|");
+  `A turn: median ${mins(median(turns.map((u) => u.active)))} and ${median(turns.map((u) => u.reqs.length))} requests; ${turns.filter((u) => u.active > 600000).length} turns took over 10 minutes, ${turns.filter((u) => u.active > 1800000).length} over 30.`,
+  "",
+  "| Project | Turns | Working time | Model | Shell | Subagents | Other tools | Waiting for the user |",
+  "|---|---|---|---|---|---|---|---|",
+);
 const byProject = {};
 for (const u of turns) (byProject[u.project] ??= []).push(u);
-for (const [name, list] of Object.entries(byProject).sort((a, b) => sum(b[1], (u) => u.active) - sum(a[1], (u) => u.active)).slice(0, 10)) {
+for (const [name, list] of Object.entries(byProject)
+  .sort((a, b) => sum(b[1], (u) => u.active) - sum(a[1], (u) => u.active))
+  .slice(0, 10)) {
   const a = sum(list, (u) => u.active);
-  p(`| ${name} | ${list.length} | ${mins(a)} | ${pct(timeOf(list, "model"), a)} | ${pct(timeOf(list, "shell"), a)} | ${pct(timeOf(list, "subagents"), a)} | ${pct(timeOf(list, "tools"), a)} | ${mins(timeOf(list, "you"))} |`);
+  p(
+    `| ${name} | ${list.length} | ${mins(a)} | ${pct(timeOf(list, "model"), a)} | ${pct(timeOf(list, "shell"), a)} | ${pct(timeOf(list, "subagents"), a)} | ${pct(timeOf(list, "tools"), a)} | ${mins(timeOf(list, "you"))} |`,
+  );
 }
-const head = ["| Project | Chat | Working time | Requests | Tokens | Where the time went | Message |", "|---|---|---|---|---|---|---|"];
-p("", "**Turns that took longest:**", "", ...head, ...[...turns].sort((a, b) => b.active - a.active).slice(0, top).map(row), "");
+const head = [
+  "| Project | Chat | Working time | Requests | Tokens | Where the time went | Message |",
+  "|---|---|---|---|---|---|---|",
+];
+p(
+  "",
+  "**Turns that took longest:**",
+  "",
+  ...head,
+  ...[...turns]
+    .sort((a, b) => b.active - a.active)
+    .slice(0, top)
+    .map(row),
+  "",
+);
 
 // Pushed back, interrupted
-const pushed = (u) => { let t = u.next?.text ?? ""; for (let i = 0; i < 2; i++) t = t.replace(FILLER, ""); return PUSH.test(t); };
-const quick = turns.filter((u) => u.reqs.length <= 2 && !u.reqs.some((r) => r.kind === "edit" || r.kind === "run"));
+const pushed = (u) => {
+  let t = u.next?.text ?? "";
+  for (let i = 0; i < 2; i++) t = t.replace(FILLER, "");
+  return PUSH.test(t);
+};
+const quick = turns.filter(
+  (u) =>
+    u.reqs.length <= 2 &&
+    !u.reqs.some((r) => r.kind === "edit" || r.kind === "run"),
+);
 const quickPushed = quick.filter(pushed);
 const longPushed = turns.filter((u) => u.reqs.length >= 10 && pushed(u));
 const stopped = turns.filter((u) => u.interrupted);
-const after = (u) => `| ${u.project} | ${u.id} | ${u.reqs.length} | ${mins(u.active)} | ${cut(u.text, 45)} | ${cut(u.next?.text ?? "", 60)} |`;
-const head2 = ["| Project | Chat | Requests | Working time | Message | The user's next message |", "|---|---|---|---|---|---|"];
-p("## Too short, or long and still wrong", "",
-  `"Pushed back" means the first words of the user's next message look like a correction (no, wrong, I said, again, still, didn't work...). A lead for a reader to check, not a verdict.`, "",
-  `**Quick answers** (1 or 2 requests, nothing edited or run): ${quick.length} of ${turns.length} turns; pushed back on: ${quickPushed.length}.`, "",
-  ...(quickPushed.length ? [...head2, ...quickPushed.slice(0, top).map(after), ""] : []),
-  `**Long turns** (10 or more requests) the user pushed back on: ${longPushed.length} of ${turns.filter((u) => u.reqs.length >= 10).length}.`, "",
-  ...(longPushed.length ? [...head2, ...longPushed.sort((a, b) => b.w - a.w).slice(0, top).map(after), ""] : []),
-  `**Replies the user interrupted:** ${stopped.length}; they had run a median of ${median(stopped.map((u) => u.reqs.length))} requests and ${mins(median(stopped.map((u) => u.active)))}, ${M(sum(stopped, (u) => u.tok))} tokens in all.`, "",
-  ...(stopped.length ? [...head, ...stopped.sort((a, b) => b.tok - a.tok).slice(0, top).map(row), ""] : []));
+const after = (u) =>
+  `| ${u.project} | ${u.id} | ${u.reqs.length} | ${mins(u.active)} | ${cut(u.text, 45)} | ${cut(u.next?.text ?? "", 60)} |`;
+const head2 = [
+  "| Project | Chat | Requests | Working time | Message | The user's next message |",
+  "|---|---|---|---|---|---|",
+];
+p(
+  "## Too short, or long and still wrong",
+  "",
+  `"Pushed back" means the first words of the user's next message look like a correction (no, wrong, I said, again, still, didn't work...). A lead for a reader to check, not a verdict.`,
+  "",
+  `**Quick answers** (1 or 2 requests, nothing edited or run): ${quick.length} of ${turns.length} turns; pushed back on: ${quickPushed.length}.`,
+  "",
+  ...(quickPushed.length
+    ? [...head2, ...quickPushed.slice(0, top).map(after), ""]
+    : []),
+  `**Long turns** (10 or more requests) the user pushed back on: ${longPushed.length} of ${turns.filter((u) => u.reqs.length >= 10).length}.`,
+  "",
+  ...(longPushed.length
+    ? [
+        ...head2,
+        ...longPushed
+          .sort((a, b) => b.w - a.w)
+          .slice(0, top)
+          .map(after),
+        "",
+      ]
+    : []),
+  `**Replies the user interrupted:** ${stopped.length}; they had run a median of ${median(stopped.map((u) => u.reqs.length))} requests and ${mins(median(stopped.map((u) => u.active)))}, ${M(sum(stopped, (u) => u.tok))} tokens in all.`,
+  "",
+  ...(stopped.length
+    ? [
+        ...head,
+        ...stopped
+          .sort((a, b) => b.tok - a.tok)
+          .slice(0, top)
+          .map(row),
+        "",
+      ]
+    : []),
+);
 
 // Helper rework. A helper run is one Agent call in a main chat. Its own record is <chat>/subagents/agent-*.jsonl,
 // found through the toolUseId in the .meta.json next to it. Files it changed = Edit/Write/NotebookEdit calls there.
@@ -315,68 +602,135 @@ p("## Too short, or long and still wrong", "",
 const badRecords = [];
 function readHelper(file) {
   const h = { tokens: 0, calls: 0, files: new Set(), model: "" };
-  const usage = new Map(), seen = new Set();
+  const usage = new Map(),
+    seen = new Set();
   for (const raw of fs.readFileSync(file, "utf8").split("\n")) {
     if (!raw) continue;
     let l;
-    try { l = JSON.parse(raw); } catch { badRecords.push(file); continue; }
+    try {
+      l = JSON.parse(raw);
+    } catch {
+      badRecords.push(file);
+      continue;
+    }
     if (l.type !== "assistant" || !l.message) continue;
-    if (l.message.id && l.message.model !== "<synthetic>") { usage.set(l.message.id, l.message.usage ?? {}); h.model = l.message.model ?? h.model; }
+    if (l.message.id && l.message.model !== "<synthetic>") {
+      usage.set(l.message.id, l.message.usage ?? {});
+      h.model = l.message.model ?? h.model;
+    }
     for (const b of Array.isArray(l.message.content) ? l.message.content : []) {
       if (b.type !== "tool_use" || seen.has(b.id)) continue;
-      seen.add(b.id); h.calls++;
+      seen.add(b.id);
+      h.calls++;
       if (EDIT.test(b.name)) h.files.add(editedFile(b.input));
     }
   }
   h.tokens = sum([...usage.values()], tokensOf);
   return h;
 }
-const labelOf = (m) => FAMILY.find(([re]) => re.test(String(m).toLowerCase()))?.[2] ?? (m ? String(m).replace(/^claude-/, "") : "unknown");
+const labelOf = (m) =>
+  FAMILY.find(([re]) => re.test(String(m).toLowerCase()))?.[2] ??
+  (m ? String(m).replace(/^claude-/, "") : "unknown");
 const runs = [];
 for (const c of chats) {
   const { sdir, metas } = subagentMetas(c.file, (f) => badRecords.push(f));
   for (const a of c.agents) {
     if (a.t < since) continue;
     const meta = metas.get(a.id);
-    const rec = meta && fs.existsSync(path.join(sdir, meta.base + ".jsonl")) ? readHelper(path.join(sdir, meta.base + ".jsonl")) : null;
-    runs.push({ chat: c, a, rec, project: c.project, id: c.id,
+    const rec =
+      meta && fs.existsSync(path.join(sdir, meta.base + ".jsonl"))
+        ? readHelper(path.join(sdir, meta.base + ".jsonl"))
+        : null;
+    runs.push({
+      chat: c,
+      a,
+      rec,
+      project: c.project,
+      id: c.id,
       type: meta?.agentType ?? a.input.subagent_type ?? "unknown",
       model: labelOf(rec?.model || meta?.model || a.input.model || ""),
-      title: one(a.input.description ?? ""), done: a.resultSeq > 0, files: rec?.files ?? null });
+      title: one(a.input.description ?? ""),
+      done: a.resultSeq > 0,
+      files: rec?.files ?? null,
+    });
   }
 }
 for (const r of runs) {
   if (!r.files?.size || !r.done) continue;
   const share = (set) => [...r.files].filter((f) => set.has(f));
-  r.byHelper = runs.filter((o) => o !== r && o.chat === r.chat && o.files && o.a.seq > r.a.resultSeq).flatMap((o) => share(o.files));
-  r.byLead = r.chat.edits.filter((e) => e.seq > r.a.resultSeq && r.files.has(e.file)).map((e) => e.file);
+  r.byHelper = runs
+    .filter(
+      (o) => o !== r && o.chat === r.chat && o.files && o.a.seq > r.a.resultSeq,
+    )
+    .flatMap((o) => share(o.files));
+  r.byLead = r.chat.edits
+    .filter((e) => e.seq > r.a.resultSeq && r.files.has(e.file))
+    .map((e) => e.file);
   r.push = !!r.a.turn && pushed(r.a.turn);
   r.clean = !r.byHelper.length && !r.byLead.length && !r.a.capped && !r.push;
 }
 const groups = {};
 for (const r of runs) {
-  const g = (groups[`${r.type} / ${r.model}`] ??= { runs: 0, unknown: 0, none: 0, changing: [], tokens: 0 });
+  const g = (groups[`${r.type} / ${r.model}`] ??= {
+    runs: 0,
+    unknown: 0,
+    none: 0,
+    changing: [],
+    tokens: 0,
+  });
   g.runs++;
   if (!r.files || !r.done) g.unknown++;
   else if (!r.files.size) g.none++;
-  else { g.changing.push(r); g.tokens += r.rec.tokens; }
+  else {
+    g.changing.push(r);
+    g.tokens += r.rec.tokens;
+  }
 }
 const unknownRuns = runs.filter((r) => !r.files || !r.done);
 const badNames = [...new Set(badRecords)];
-p("## Helper rework", "",
-  `Helper runs (Agent calls) in the window: ${runs.length}. Files unknown (helper record not found, or no report yet): ${unknownRuns.length}, left out of the rates. Records that could not be parsed: ${badRecords.length}${badNames.length ? ` (${badNames.slice(0, 3).map((f) => path.basename(f)).join(", ")}${badNames.length > 3 ? ", ..." : ""})` : ""}.`,
-  `The rates count only runs that changed at least one file; runs that changed none (research, checks) are in their own column and not in "clean". "Clean" = not touched again by a helper, not touched again by the lead, not capped, not pushed back on.`, "",
-  "| Agent / model | Runs | Files unknown | Changed no file | Changed files | Clean | Touched again by a helper | Touched again by the lead | Capped | Pushed back | Tokens per run | Tokens per clean run |", "|---|---|---|---|---|---|---|---|---|---|---|---|");
-for (const [name, g] of Object.entries(groups).sort((a, b) => b[1].runs - a[1].runs)) {
-  const ch = g.changing, clean = ch.filter((r) => r.clean).length;
-  p(`| ${name} | ${g.runs} | ${g.unknown} | ${g.none} | ${ch.length} | ${clean} | ${ch.filter((r) => r.byHelper.length).length} | ${ch.filter((r) => r.byLead.length).length} | ${ch.filter((r) => r.a.capped).length} | ${ch.filter((r) => r.push).length} | ${ch.length ? M(g.tokens / ch.length) : "-"} | ${clean ? M(g.tokens / clean) : "-"} |`);
+p(
+  "## Helper rework",
+  "",
+  `Helper runs (Agent calls) in the window: ${runs.length}. Files unknown (helper record not found, or no report yet): ${unknownRuns.length}, left out of the rates. Records that could not be parsed: ${badRecords.length}${
+    badNames.length
+      ? ` (${badNames
+          .slice(0, 3)
+          .map((f) => path.basename(f))
+          .join(", ")}${badNames.length > 3 ? ", ..." : ""})`
+      : ""
+  }.`,
+  `The rates count only runs that changed at least one file; runs that changed none (research, checks) are in their own column and not in "clean". "Clean" = not touched again by a helper, not touched again by the lead, not capped, not pushed back on.`,
+  "",
+  "| Agent / model | Runs | Files unknown | Changed no file | Changed files | Clean | Touched again by a helper | Touched again by the lead | Capped | Pushed back | Tokens per run | Tokens per clean run |",
+  "|---|---|---|---|---|---|---|---|---|---|---|---|",
+);
+for (const [name, g] of Object.entries(groups).sort(
+  (a, b) => b[1].runs - a[1].runs,
+)) {
+  const ch = g.changing,
+    clean = ch.filter((r) => r.clean).length;
+  p(
+    `| ${name} | ${g.runs} | ${g.unknown} | ${g.none} | ${ch.length} | ${clean} | ${ch.filter((r) => r.byHelper.length).length} | ${ch.filter((r) => r.byLead.length).length} | ${ch.filter((r) => r.a.capped).length} | ${ch.filter((r) => r.push).length} | ${ch.length ? M(g.tokens / ch.length) : "-"} | ${clean ? M(g.tokens / clean) : "-"} |`,
+  );
 }
-p("", "Touched again is an upper bound: a planned second step on the same file counts too. Tokens are those of the helper's own record, for runs that changed files.", "");
+p(
+  "",
+  "Touched again is an upper bound: a planned second step on the same file counts too. Tokens are those of the helper's own record, for runs that changed files.",
+  "",
+);
 const ex = (key, label) => {
   const list = runs.filter((r) => r[key]?.length);
   if (!list.length) return;
-  p(`**${label}** (${list.length} runs; first ${Math.min(top, list.length)}):`, "", "| Project | Day | Agent / model | Job | File |", "|---|---|---|---|---|");
-  for (const r of list.slice(0, top)) p(`| ${r.project} | ${new Date(r.a.t).toISOString().slice(0, 10)} | ${r.type} / ${r.model} | ${cut(r.title, 50)} | ${cut(r[key][0], 70)} |`);
+  p(
+    `**${label}** (${list.length} runs; first ${Math.min(top, list.length)}):`,
+    "",
+    "| Project | Day | Agent / model | Job | File |",
+    "|---|---|---|---|---|",
+  );
+  for (const r of list.slice(0, top))
+    p(
+      `| ${r.project} | ${new Date(r.a.t).toISOString().slice(0, 10)} | ${r.type} / ${r.model} | ${cut(r.title, 50)} | ${cut(r[key][0], 70)} |`,
+    );
   p("");
 };
 ex("byLead", "Touched again by the lead");
@@ -384,30 +738,82 @@ ex("byHelper", "Touched again by a helper");
 
 // Thinking
 const think = reqs.filter((r) => r.thinking);
-for (const r of think) r.hidden = Math.max(0, (r.usage.output_tokens ?? 0) - r.visible / 3.5);
-const hidden = sum(think, (r) => r.hidden), output = sum(reqs, (r) => r.usage.output_tokens ?? 0);
+for (const r of think)
+  r.hidden = Math.max(0, (r.usage.output_tokens ?? 0) - r.visible / 3.5);
+const hidden = sum(think, (r) => r.hidden),
+  output = sum(reqs, (r) => r.usage.output_tokens ?? 0);
 const efforts = {};
-for (const r of reqs) if (r.effort) efforts[r.effort] = (efforts[r.effort] ?? 0) + 1;
+for (const r of reqs)
+  if (r.effort) efforts[r.effort] = (efforts[r.effort] ?? 0) + 1;
 const sorted = think.map((r) => r.hidden).sort((a, b) => a - b);
 for (const u of turns) u.hidden = sum(u.reqs, (r) => r.hidden ?? 0);
-p("## Thinking", "",
-  "The records keep no thinking text, so what it thought cannot be read. Its size is estimated: output tokens minus the text and tool input that can be seen.", "",
-  `Requests with a thinking step: ${think.length} of ${reqs.length} (${pct(think.length, reqs.length)}). Hidden thinking: about ${M(hidden)} tokens, ${pct(hidden, output)} of all output and ${pct(sum(think, (r) => r.hidden * 5 * r.fam / 1e6))} of the weight.`,
+p(
+  "## Thinking",
+  "",
+  "The records keep no thinking text, so what it thought cannot be read. Its size is estimated: output tokens minus the text and tool input that can be seen.",
+  "",
+  `Requests with a thinking step: ${think.length} of ${reqs.length} (${pct(think.length, reqs.length)}). Hidden thinking: about ${M(hidden)} tokens, ${pct(hidden, output)} of all output and ${pct(sum(think, (r) => (r.hidden * 5 * r.fam) / 1e6))} of the weight.`,
   `Per thinking request: median ${Math.round(median(sorted))} tokens, 1 in 20 over ${Math.round(sorted[Math.floor(sorted.length * 0.95)] ?? 0)}.`,
-  `Effort setting seen: ${Object.entries(efforts).map(([e, n]) => `${e} ${n} requests`).join(", ") || "not recorded"}.`, "",
-  "**Turns with the most thinking:**", "", "| Project | Chat | Thinking | Requests | Working time | Message |", "|---|---|---|---|---|---|",
-  ...[...turns].sort((a, b) => b.hidden - a.hidden).slice(0, Math.min(top, 5)).map((u) => `| ${u.project} | ${u.id} | ${M(u.hidden)} | ${u.reqs.length} | ${mins(u.active)} | ${cut(u.text)} |`), "");
+  `Effort setting seen: ${
+    Object.entries(efforts)
+      .map(([e, n]) => `${e} ${n} requests`)
+      .join(", ") || "not recorded"
+  }.`,
+  "",
+  "**Turns with the most thinking:**",
+  "",
+  "| Project | Chat | Thinking | Requests | Working time | Message |",
+  "|---|---|---|---|---|---|",
+  ...[...turns]
+    .sort((a, b) => b.hidden - a.hidden)
+    .slice(0, Math.min(top, 5))
+    .map(
+      (u) =>
+        `| ${u.project} | ${u.id} | ${M(u.hidden)} | ${u.reqs.length} | ${mins(u.active)} | ${cut(u.text)} |`,
+    ),
+  "",
+);
 
 // Tool errors (hook blocks, refused calls and interruptions are not failures; usage-scan lists the blocks)
-const calls = {}, sigs = {};
+const calls = {},
+  sigs = {};
 for (const c of chats) {
-  for (const [name, v] of Object.entries(c.calls)) { const t = (calls[name] ??= { n: 0, failed: 0 }); t.n += v.n; t.failed += v.failed; }
-  for (const e of c.errors) { const s = (sigs[`${e.tool}: ${e.what}`] ??= { n: 0, projects: new Set() }); s.n++; s.projects.add(c.project); }
+  for (const [name, v] of Object.entries(c.calls)) {
+    const t = (calls[name] ??= { n: 0, failed: 0 });
+    t.n += v.n;
+    t.failed += v.failed;
+  }
+  for (const e of c.errors) {
+    const s = (sigs[`${e.tool}: ${e.what}`] ??= { n: 0, projects: new Set() });
+    s.n++;
+    s.projects.add(c.project);
+  }
 }
-const failed = Object.entries(calls).filter(([, v]) => v.failed).sort((a, b) => b[1].failed - a[1].failed);
-p("## Tool calls that failed", "",
-  `${sum(failed, ([, v]) => v.failed)} of ${sum(Object.values(calls), (v) => v.n)} tool calls came back as an error (hook blocks and refused calls left out).`, "",
-  "| Tool | Calls | Failed | Rate |", "|---|---|---|---|", ...failed.slice(0, top).map(([name, v]) => `| ${name} | ${v.n} | ${v.failed} | ${pct(v.failed, v.n)} |`), "",
-  "**Most frequent errors:**", "",
-  ...Object.entries(sigs).sort((a, b) => b[1].n - a[1].n).slice(0, top + 4).map(([what, s]) => `- ${s.n} times (${[...s.projects].slice(0, 3).join(", ")}): ${what}`));
+const failed = Object.entries(calls)
+  .filter(([, v]) => v.failed)
+  .sort((a, b) => b[1].failed - a[1].failed);
+p(
+  "## Tool calls that failed",
+  "",
+  `${sum(failed, ([, v]) => v.failed)} of ${sum(Object.values(calls), (v) => v.n)} tool calls came back as an error (hook blocks and refused calls left out).`,
+  "",
+  "| Tool | Calls | Failed | Rate |",
+  "|---|---|---|---|",
+  ...failed
+    .slice(0, top)
+    .map(
+      ([name, v]) =>
+        `| ${name} | ${v.n} | ${v.failed} | ${pct(v.failed, v.n)} |`,
+    ),
+  "",
+  "**Most frequent errors:**",
+  "",
+  ...Object.entries(sigs)
+    .sort((a, b) => b[1].n - a[1].n)
+    .slice(0, top + 4)
+    .map(
+      ([what, s]) =>
+        `- ${s.n} times (${[...s.projects].slice(0, 3).join(", ")}): ${what}`,
+    ),
+);
 console.log(out.join("\n"));

@@ -13,7 +13,8 @@ import { sessionKey } from "./lib/paths.mjs";
 import { stateFile, readJson, writeJson } from "./lib/state.mjs";
 import { createHash } from "node:crypto";
 
-const NEGATED = /\bnot\s+(?:yet\s+|been\s+)?(?:decided|confirmed|approved|chosen)(?:\s+by)?\b/gi;
+const NEGATED =
+  /\bnot\s+(?:yet\s+|been\s+)?(?:decided|confirmed|approved|chosen)(?:\s+by)?\b/gi;
 const CLAIMS = [
   /\bDECIDED\b/,
   /\b(?:decided|confirmed|approved|chosen|picked|ticked) by\b/i,
@@ -22,21 +23,43 @@ const CLAIMS = [
 // Russian twins (for `--language russian`). \b does not see Cyrillic letters, so these use the u flag and
 // lookarounds. "РЕШЕНО" is upper case like "DECIDED"; the rest of the words are lower case or sentence case.
 const RU_DECISION = String.raw`(?:[Рр]ешено|[Рр]ешён\p{L}*|[Рр]ешен\p{L}*|[Пп]одтверждено|[Пп]одтверждён\p{L}*|[Пп]одтвержден\p{L}*|[Оо]добрено|[Оо]добрен\p{L}*|[Вв]ыбрано|[Вв]ыбран\p{L}*|[Оо]тмечено|[Оо]тмечен\p{L}*|[Пп]ринято)`;
-const RU_NEGATED = new RegExp(String.raw`(?<!\p{L})не\s+(?:ещё\s+|еще\s+)?${RU_DECISION.replace(/\[Рр\]/g, "р").replace(/\[Пп\]/g, "п").replace(/\[Оо\]/g, "о").replace(/\[Вв\]/g, "в")}(?:\s+пользователем)?(?!\p{L})`, "giu");
+const RU_NEGATED = new RegExp(
+  String.raw`(?<!\p{L})не\s+(?:ещё\s+|еще\s+)?${RU_DECISION.replace(
+    /\[Рр\]/g,
+    "р",
+  )
+    .replace(/\[Пп\]/g, "п")
+    .replace(/\[Оо\]/g, "о")
+    .replace(/\[Вв\]/g, "в")}(?:\s+пользователем)?(?!\p{L})`,
+  "giu",
+);
 const RU_CLAIMS = [
   /(?<!\p{L})РЕШЕНО(?!\p{L})/u,
-  new RegExp(String.raw`(?<!\p{L})${RU_DECISION}\s+(?:пользовател\p{L}*|им|ею)(?!\p{L})`, "iu"),
-  new RegExp(String.raw`(?<!\p{L})${RU_DECISION}\s+\p{Lu}\p{Ll}+(?:ом|ем|ём|ой|ей)(?!\p{L})`, "u"),
+  new RegExp(
+    String.raw`(?<!\p{L})${RU_DECISION}\s+(?:пользовател\p{L}*|им|ею)(?!\p{L})`,
+    "iu",
+  ),
+  new RegExp(
+    String.raw`(?<!\p{L})${RU_DECISION}\s+\p{Lu}\p{Ll}+(?:ом|ем|ём|ой|ей)(?!\p{L})`,
+    "u",
+  ),
   /(?<!\p{L})\p{Lu}\p{Ll}+\s+(?:выбрал|выбрала|выбрали|решил|решила|согласился|согласилась|согласились|отметил|отметила|подтвердил|подтвердила|утвердил|утвердила)(?!\p{L})/u,
 ];
-const SPAWNERS =/^(?:Agent|Task)$|spawn_session$|create_session$|send_prompt$/;
+const SPAWNERS = /^(?:Agent|Task)$|spawn_session$|create_session$|send_prompt$/;
 
 export function claimLines(lines) {
   const out = [];
   lines.forEach((line, i) => {
     // A phrase inside quotation marks is a mention (a rule describing this hook), not a claim
-    const cleaned = line.replace(/"[^"\n]*"|“[^”\n]*”|«[^»\n]*»|„[^“”\n]*[“”]/g, " ").replace(NEGATED, " ").replace(RU_NEGATED, " ");
-    if (CLAIMS.some((re) => re.test(cleaned)) || RU_CLAIMS.some((re) => re.test(cleaned))) out.push(i);
+    const cleaned = line
+      .replace(/"[^"\n]*"|“[^”\n]*”|«[^»\n]*»|„[^“”\n]*[“”]/g, " ")
+      .replace(NEGATED, " ")
+      .replace(RU_NEGATED, " ");
+    if (
+      CLAIMS.some((re) => re.test(cleaned)) ||
+      RU_CLAIMS.some((re) => re.test(cleaned))
+    )
+      out.push(i);
   });
   return out;
 }
@@ -44,7 +67,8 @@ export function claimLines(lines) {
 function blockAround(lines, i) {
   let end = i + 1;
   while (end < lines.length && lines[end].trim() !== "") end++;
-  const alone = end === i + 1 && (/^\s*#/.test(lines[i]) || /:\s*$/.test(lines[i]));
+  const alone =
+    end === i + 1 && (/^\s*#/.test(lines[i]) || /:\s*$/.test(lines[i]));
   if (alone) {
     end++;
     while (end < lines.length && lines[end].trim() === "") end++;
@@ -55,8 +79,10 @@ function blockAround(lines, i) {
 
 export function hasQuote(text) {
   const spans = [];
-  for (const m of text.matchAll(/"([^"\n]+)"|“([^”\n]+)”/g)) spans.push(m[1] ?? m[2]);
-  for (const m of text.matchAll(/«([^»\n]+)»|„([^“”\n]+)[“”]/g)) spans.push(m[1] ?? m[2]);
+  for (const m of text.matchAll(/"([^"\n]+)"|“([^”\n]+)”/g))
+    spans.push(m[1] ?? m[2]);
+  for (const m of text.matchAll(/«([^»\n]+)»|„([^“”\n]+)[“”]/g))
+    spans.push(m[1] ?? m[2]);
   for (const m of text.matchAll(/^\s*>\s*(.+)$/gm)) spans.push(m[1]);
   return spans.some((s) => s.trim().split(/\s+/).length >= 3);
 }
@@ -73,10 +99,14 @@ function textOf(event) {
   const name = String(event.tool_name || "");
   const input = event.tool_input || {};
   if (name === "Write") {
-    return /(^|[\\/])handoffs[\\/]/.test(String(input.file_path || "")) ? String(input.content || "") : "";
+    return /(^|[\\/])handoffs[\\/]/.test(String(input.file_path || ""))
+      ? String(input.content || "")
+      : "";
   }
   if (!SPAWNERS.test(name)) return "";
-  return Object.values(input).filter((v) => typeof v === "string").join("\n");
+  return Object.values(input)
+    .filter((v) => typeof v === "string")
+    .join("\n");
 }
 
 function main(event) {
@@ -86,7 +116,9 @@ function main(event) {
   if (!bad.length) return;
 
   const file = stateFile("decided-quote", sessionKey(event.session_id));
-  const key = createHash("sha1").update(event.tool_name + text).digest("hex");
+  const key = createHash("sha1")
+    .update(event.tool_name + text)
+    .digest("hex");
   const seen = readJson(file, { missing: [] });
   if (seen.includes(key)) return;
   writeJson(file, [...seen, key].slice(-200));
@@ -100,4 +132,5 @@ function main(event) {
   emit.deny(reason);
 }
 
-if (isMain(import.meta.url)) runHook("decided-quote", main, { exitOnBadInput: true });
+if (isMain(import.meta.url))
+  runHook("decided-quote", main, { exitOnBadInput: true });

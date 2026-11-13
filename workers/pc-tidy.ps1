@@ -7,7 +7,7 @@
 #     shells of a closed Claude session, Git's command-line tools (tail, grep, sleep ... from a watcher),
 #     headless browsers, and node or python run from .claude, Temp or npx.
 #   Other orphaned node or python (a bot, a global tool's daemon) is listed as MAYBE WANTED and never stopped.
-# It never stops Nimbalyst, a terminal window, ssh or gpg agents, a browser you see, or anything whose
+# It never stops Nimbalyst, the setup's Nimbalyst delivery (anything run from tools/nimbalyst-patch), a terminal window, ssh or gpg agents, a browser you see, or anything whose
 # starter is still running, so run -Go when no build or test is running.
 # It also names listening ports still held by a program that has closed (they block a restart on that port).
 # Tests: -ProcessFile <json> and -PortFile <json> read a made-up process and port list instead of the real ones.
@@ -50,10 +50,12 @@ $kinds = @(
   @{ Why = 'script from Claude or Temp'; Test = { param($p) $p.Name -in $scripts -and $p.CommandLine -match '\\\.claude\\|/\.claude/|npm-cache|_npx|\\Temp\\' } }
 )
 $scripts = 'node.exe', 'python.exe', 'pythonw.exe', 'bun.exe', 'deno.exe'
+# The Nimbalyst delivery waits for Nimbalyst to close, then swaps its files: stopping it leaves a half-done update
+$delivery = 'tools[\\/]nimbalyst-patch[\\/]'
 $left = [System.Collections.Generic.List[object]]::new()
 $maybe = [System.Collections.Generic.List[object]]::new()
 foreach ($p in $all) {
-  if ($p.Name -eq 'Nimbalyst.exe' -or -not (& $old $p)) { continue }
+  if ($p.Name -eq 'Nimbalyst.exe' -or "$($p.CommandLine)" -match $delivery -or -not (& $old $p)) { continue }
   if ($p.Name -like 'java*' -and $p.CommandLine -match 'GradleDaemon|GradleWorkerMain') { $left.Add([pscustomobject]@{ P = $p; Why = 'Gradle daemon' }); continue }
   if (-not (& $orphan $p)) { continue }
   $hit = $null; foreach ($k in $kinds) { if (& $k.Test $p) { $hit = $k.Why; break } }

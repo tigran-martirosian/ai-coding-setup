@@ -5,14 +5,14 @@
 // it and the same view is drawn in a popover instead. If the app ever changes its button, the click
 // goes through and the sidebar panel opens as before.
 
-import type { ReactNode } from 'react';
-import { createRoot } from 'react-dom/client';
-import type { Root } from 'react-dom/client';
+import type { ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 
 // Nimbalyst draws the gutter button itself, from the manifest icon. Only the Usage Plan one: the dashboard
 // panel's hidden button must reach the app when "Full dashboard" clicks it.
 export const BUTTON = 'button[data-panel-id="com.local.usageplan.usage-plan"]';
-const ID = 'usage-plan-popover';
+const ID = "usage-plan-popover";
 const GAP = 8;
 
 let view: (() => ReactNode) | undefined;
@@ -20,9 +20,10 @@ let root: Root | undefined;
 let box: HTMLDivElement | undefined;
 let sized: ResizeObserver | undefined;
 let anchored: Element | undefined;
-let label = '';
+let label = "";
 
-const button = (target: EventTarget | null) => (target instanceof Element ? target.closest(BUTTON) : null);
+const button = (target: EventTarget | null) =>
+  target instanceof Element ? target.closest(BUTTON) : null;
 
 function place(anchor: Element) {
   if (!box) return;
@@ -43,10 +44,10 @@ export function closePopover(giveBack = false) {
 
 function open(anchor: Element) {
   anchored = anchor;
-  box = document.createElement('div');
+  box = document.createElement("div");
   box.id = ID;
-  box.setAttribute('role', 'dialog');
-  box.setAttribute('aria-label', label);
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", label);
   box.tabIndex = -1;
   document.body.appendChild(box);
   root = createRoot(box);
@@ -55,7 +56,10 @@ function open(anchor: Element) {
   // Focus goes in once React has drawn the panel: onto its first button, or the window itself
   const drawn = box;
   requestAnimationFrame(() => {
-    if (box === drawn) (drawn.querySelector<HTMLElement>('button:not(:disabled)') ?? drawn).focus();
+    if (box === drawn)
+      (
+        drawn.querySelector<HTMLElement>("button:not(:disabled)") ?? drawn
+      ).focus();
   });
   // the numbers arrive after the first paint and change the height
   sized = new ResizeObserver(() => place(anchor));
@@ -72,7 +76,12 @@ function onClick(e: MouseEvent) {
 }
 
 function onDown(e: MouseEvent) {
-  if (box && !button(e.target) && !(e.target instanceof Node && box.contains(e.target))) closePopover();
+  if (
+    box &&
+    !button(e.target) &&
+    !(e.target instanceof Node && box.contains(e.target))
+  )
+    closePopover();
 }
 
 const onResize = () => {
@@ -80,24 +89,24 @@ const onResize = () => {
 };
 
 const onKey = (e: KeyboardEvent) => {
-  if (e.key === 'Escape' && box) closePopover(true);
+  if (e.key === "Escape" && box) closePopover(true);
 };
 
 export function installPopover(render: () => ReactNode, title: string) {
   if (view) return;
   view = render;
   label = title;
-  window.addEventListener('click', onClick, true);
-  window.addEventListener('mousedown', onDown, true);
-  window.addEventListener('keydown', onKey, true);
-  window.addEventListener('resize', onResize);
+  window.addEventListener("click", onClick, true);
+  window.addEventListener("mousedown", onDown, true);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("resize", onResize);
 }
 
 export function removePopover() {
   closePopover();
   view = undefined;
-  window.removeEventListener('click', onClick, true);
-  window.removeEventListener('mousedown', onDown, true);
-  window.removeEventListener('keydown', onKey, true);
-  window.removeEventListener('resize', onResize);
+  window.removeEventListener("click", onClick, true);
+  window.removeEventListener("mousedown", onDown, true);
+  window.removeEventListener("keydown", onKey, true);
+  window.removeEventListener("resize", onResize);
 }

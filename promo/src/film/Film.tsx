@@ -9,7 +9,13 @@ import { ShotView } from "./Shots";
 export const Film: React.FC<{ shots?: string[] }> = ({ shots }) => (
   <AbsoluteFill style={{ background: color.bg }}>
     {timeline(shots).map((item) => (
-      <Sequence key={item.id} name={item.id} from={item.from} durationInFrames={item.frames} layout="none">
+      <Sequence
+        key={item.id}
+        name={item.id}
+        from={item.from}
+        durationInFrames={item.frames}
+        layout="none"
+      >
         <ShotView shot={item.shot} />
       </Sequence>
     ))}

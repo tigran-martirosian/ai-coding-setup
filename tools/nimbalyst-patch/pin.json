@@ -1,0 +1,17 @@
+{
+  "version": "0.83.0",
+  "url": "https://github.com/nimbalyst/nimbalyst/releases/download/v0.83.0/Nimbalyst-Windows-x64.exe",
+  "sha512": "Ie7jNdiCR2XCkbVmWWhJsjvRJ1vpMWXcPPdHpeROsr8A5mWGeC2Q/2xDYV3DjPjfz2p9iOD2y0YrDeJXxJO5nA==",
+  "size": 457608240,
+  "electron": "43.7.0",
+  "asarSha256": "8ad91ab189698b1e006d75e8ca79d995830cb4bf1feae097bc97bff0106108d0",
+  "patches": [
+    "updater-block",
+    "1558",
+    "1792",
+    "1836",
+    "1944",
+    "ask-line"
+  ],
+  "checkedAt": "2026-11-12T11:24:48.266Z"
+}

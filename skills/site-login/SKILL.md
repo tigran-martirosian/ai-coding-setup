@@ -1,6 +1,6 @@
 ---
 name: site-login
-description: Get the user signed in to a website so Claude can work there in its own headless browser - one visible Chromium window for the password that closes itself once the user is in, then headless reuse of the saved login. Use when a site job (LinkedIn, GitHub, any account page) finds the browser signed out, when a password is needed, or on /site-login [name] [url]. Never use the Nimbalyst browser's headless:false tab for this, since it does not show a window.
+description: Get the user signed in to a website so Claude can work there in its own headless browser - one visible Chromium window for the password that closes itself once the user is in, then headless reuse of the saved login. Use when a site job (LinkedIn, GitHub, any account page) finds the browser signed out, when a password is needed, or on /site-login [name] [url].
 argument-hint: "[name] [url]"
 ---
 

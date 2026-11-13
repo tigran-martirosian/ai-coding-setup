@@ -5,8 +5,8 @@
 // `data-session-id` of the nearest ancestor (agent-session-panel, panel-session-transcript or
 // chat-sidebar), and it is the Nimbalyst session id, the one steer.mjs and createQueuedPrompt take.
 
-import { t } from './strings.ts';
-import type { Attachment } from './note.ts';
+import { t } from "./strings.ts";
+import type { Attachment } from "./note.ts";
 
 export interface El {
   parentElement: El | null;
@@ -21,15 +21,20 @@ export interface Composer {
   sessionId: string | null;
 }
 
-export const SEND_BUTTON = 'button.ai-chat-send-button, button.ai-chat-cancel-button, button[aria-label="Send message"]';
+export const SEND_BUTTON =
+  'button.ai-chat-send-button, button.ai-chat-cancel-button, button[aria-label="Send message"]';
 
-export const CHIP = '.attachment-preview';
-const REMOVE = '.attachment-preview-remove';
+export const CHIP = ".attachment-preview";
+const REMOVE = ".attachment-preview-remove";
 
 function chipFile(chip: Element): Attachment | undefined {
-  const key = Object.keys(chip).find((k) => k.startsWith('__reactFiber$'));
+  const key = Object.keys(chip).find((k) => k.startsWith("__reactFiber$"));
   type Fiber = { memoizedProps?: { attachment?: Attachment }; return?: Fiber };
-  for (let f = key ? (chip as unknown as Record<string, Fiber>)[key] : undefined; f; f = f.return) {
+  for (
+    let f = key ? (chip as unknown as Record<string, Fiber>)[key] : undefined;
+    f;
+    f = f.return
+  ) {
     const file = f.memoizedProps?.attachment;
     if (file?.filepath) return file;
   }
@@ -43,13 +48,15 @@ function chipFile(chip: Element): Attachment | undefined {
  */
 export function readFiles(scope: Element, text: string): Attachment[] {
   const files = Array.from(scope.querySelectorAll(CHIP)).map((chip) => {
-    if (chip.classList.contains('attachment-preview-processing')) throw new Error(t.note.fileBusy);
+    if (chip.classList.contains("attachment-preview-processing"))
+      throw new Error(t.note.fileBusy);
     const file = chipFile(chip);
     if (!file) throw new Error(t.note.fileNoPath);
     return file;
   });
   // The app writes @pasted-image-… into the text: with no chip beside it, the chip's markup has changed
-  if (!files.length && /@pasted-image-\S/.test(text)) throw new Error(t.note.fileNoPath);
+  if (!files.length && /@pasted-image-\S/.test(text))
+    throw new Error(t.note.fileNoPath);
   return files;
 }
 
@@ -59,18 +66,33 @@ export function readFiles(scope: Element, text: string): Attachment[] {
  */
 export function removeFiles(scope: Element, sent: Attachment[]): boolean {
   const ids = new Set(sent.map((f) => f.id));
-  const chips = Array.from(scope.querySelectorAll(CHIP)).filter((chip) => ids.has(chipFile(chip)?.id ?? ''));
+  const chips = Array.from(scope.querySelectorAll(CHIP)).filter((chip) =>
+    ids.has(chipFile(chip)?.id ?? ""),
+  );
   const buttons = chips.map((chip) => chip.querySelector<HTMLElement>(REMOVE));
   buttons.forEach((remove) => remove?.click());
   return chips.length === sent.length && buttons.every(Boolean);
 }
 
-export function findComposers(root: { querySelectorAll(selector: string): ArrayLike<El> }): Composer[] {
+export function findComposers(root: {
+  querySelectorAll(selector: string): ArrayLike<El>;
+}): Composer[] {
   const found: Composer[] = [];
   for (const button of Array.from(root.querySelectorAll(SEND_BUTTON))) {
     const row = button.parentElement;
-    if (!row || !row.querySelector('textarea') || found.some((c) => c.row === row)) continue;
-    found.push({ button, row, sessionId: button.closest('[data-session-id]')?.getAttribute('data-session-id') || null });
+    if (
+      !row ||
+      !row.querySelector("textarea") ||
+      found.some((c) => c.row === row)
+    )
+      continue;
+    found.push({
+      button,
+      row,
+      sessionId:
+        button.closest("[data-session-id]")?.getAttribute("data-session-id") ||
+        null,
+    });
   }
   return found;
 }

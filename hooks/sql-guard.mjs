@@ -54,11 +54,14 @@ runHook("sql-guard", (event) => {
   if (!hits.length) return;
 
   // "ask" is the one verdict emit has no helper for
-  writeSync(1, JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "ask",
-      permissionDecisionReason: `[sql-guard] This command contains ${hits.join(", ")}. It can delete data for good. Run it only if you meant to, on the right database.`,
-    },
-  }));
+  writeSync(
+    1,
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "ask",
+        permissionDecisionReason: `[sql-guard] This command contains ${hits.join(", ")}. It can delete data for good. Run it only if you meant to, on the right database.`,
+      },
+    }),
+  );
 });

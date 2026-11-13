@@ -16,18 +16,34 @@ const HELPER_STOPPED_NOTE =
 // The report's text: a string, or the blocks of tool_response.content
 function reportText(response) {
   if (typeof response === "string") return response;
-  const blocks = Array.isArray(response?.content) ? response.content : Array.isArray(response) ? response : [];
-  return blocks.map((b) => (typeof b === "string" ? b : typeof b?.text === "string" ? b.text : "")).join("\n");
+  const blocks = Array.isArray(response?.content)
+    ? response.content
+    : Array.isArray(response)
+      ? response
+      : [];
+  return blocks
+    .map((b) =>
+      typeof b === "string" ? b : typeof b?.text === "string" ? b.text : "",
+    )
+    .join("\n");
 }
 
 runHook("helper-stopped", (event) => {
   if (event.agent_id || !["Agent", "Task"].includes(event.tool_name)) return;
   const response = event.tool_response;
-  const status = response && typeof response === "object" && !Array.isArray(response) ? response.status : undefined;
+  const status =
+    response && typeof response === "object" && !Array.isArray(response)
+      ? response.status
+      : undefined;
   if (status !== undefined && status !== "completed") return; // a background launch, not a report
   const text = reportText(response);
-  const report = text.split("\n").filter((line) => !/^\s*\[harness:/.test(line)).join("\n").trim();
+  const report = text
+    .split("\n")
+    .filter((line) => !/^\s*\[harness:/.test(line))
+    .join("\n")
+    .trim();
   // The app puts its note first; a finished report that only quotes the words (as a hook test report does) is not cut
   const firstLine = report.split("\n").find((line) => line.trim()) ?? "";
-  if (TURN_LIMIT_RE.test(firstLine) || !report) emit.context("PostToolUse", HELPER_STOPPED_NOTE);
+  if (TURN_LIMIT_RE.test(firstLine) || !report)
+    emit.context("PostToolUse", HELPER_STOPPED_NOTE);
 });

@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
-import { callBackend } from './bridge';
-import { player, usePlayer } from './player';
-import { DEFAULTS, updateSetting, useSettings, VOICES, type ReadAloudSettings } from './settings';
-import { setAutoRead } from './autoRead';
-import { formatSpeed, t } from './strings';
-import { TRANSCRIPT_CSS } from './transcript';
+import { useCallback, useEffect, useState } from "react";
+import { callBackend } from "./bridge";
+import { player, usePlayer } from "./player";
+import {
+  DEFAULTS,
+  updateSetting,
+  useSettings,
+  VOICES,
+  type ReadAloudSettings,
+} from "./settings";
+import { setAutoRead } from "./autoRead";
+import { formatSpeed, t } from "./strings";
+import { TRANSCRIPT_CSS } from "./transcript";
 
 interface WorkerStatus {
-  worker: 'stopped' | 'starting' | 'ready' | 'error';
+  worker: "stopped" | "starting" | "ready" | "error";
   pid: number | null;
   loadMs: number | null;
   uptimeSec: number;
@@ -17,7 +23,8 @@ interface WorkerStatus {
   dir: string;
 }
 
-const SAMPLE = 'Read Aloud is working. This voice runs entirely on your computer.';
+const SAMPLE =
+  "Read Aloud is working. This voice runs entirely on your computer.";
 
 const STATE_TEXT = {
   stopped: t.stateStopped,
@@ -25,7 +32,12 @@ const STATE_TEXT = {
   ready: t.stateReady,
   error: t.stateError,
 } as const;
-const STATE_DOT = { stopped: '', starting: '', ready: ' live', error: ' error' } as const;
+const STATE_DOT = {
+  stopped: "",
+  starting: "",
+  ready: " live",
+  error: " error",
+} as const;
 
 export function ReadAloudSettingsPanel() {
   const s = useSettings();
@@ -40,7 +52,9 @@ export function ReadAloudSettingsPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await callBackend<WorkerStatus>('status', { dir: s.ttsDirectory }));
+      setStatus(
+        await callBackend<WorkerStatus>("status", { dir: s.ttsDirectory }),
+      );
       setStatusError(null);
     } catch (err) {
       setStatusError(err instanceof Error ? err.message : String(err));
@@ -53,9 +67,12 @@ export function ReadAloudSettingsPanel() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const set = <K extends keyof ReadAloudSettings>(k: K, v: ReadAloudSettings[K]) => void updateSetting(k, v);
+  const set = <K extends keyof ReadAloudSettings>(
+    k: K,
+    v: ReadAloudSettings[K],
+  ) => void updateSetting(k, v);
 
-  const act = async (tool: 'warmup' | 'shutdown_worker') => {
+  const act = async (tool: "warmup" | "shutdown_worker") => {
     setBusy(true);
     try {
       await callBackend(tool, { dir: s.ttsDirectory });
@@ -66,8 +83,8 @@ export function ReadAloudSettingsPanel() {
     void refresh();
   };
 
-  const testing = st.key === 'settings-test';
-  const testError = st.error?.key === 'settings-test' ? st.error.message : null;
+  const testing = st.key === "settings-test";
+  const testError = st.error?.key === "settings-test" ? st.error.message : null;
 
   return (
     <div className="ra-panel">
@@ -76,7 +93,13 @@ export function ReadAloudSettingsPanel() {
 
       <label className="ra-row">
         <span className="ra-label">{t.enable}</span>
-        <input type="checkbox" role="switch" className="ra-switch" checked={s.enabled} onChange={(e) => set('enabled', e.target.checked)} />
+        <input
+          type="checkbox"
+          role="switch"
+          className="ra-switch"
+          checked={s.enabled}
+          onChange={(e) => set("enabled", e.target.checked)}
+        />
       </label>
 
       <label className="ra-row">
@@ -87,7 +110,7 @@ export function ReadAloudSettingsPanel() {
           className="ra-switch"
           checked={s.autoRead}
           onChange={(e) => {
-            set('autoRead', e.target.checked);
+            set("autoRead", e.target.checked);
             setAutoRead(e.target.checked);
           }}
         />
@@ -98,10 +121,17 @@ export function ReadAloudSettingsPanel() {
         <label className="ra-label" htmlFor="ra-voice">
           {t.voice}
         </label>
-        <select id="ra-voice" className="ra-select" value={s.voice} onChange={(e) => set('voice', e.target.value)}>
+        <select
+          id="ra-voice"
+          className="ra-select"
+          value={s.voice}
+          onChange={(e) => set("voice", e.target.value)}
+        >
           {VOICES.map((v) => (
             <option key={v} value={v}>
-              {v === DEFAULTS.voice ? `${t.voiceNames[v]} (${t.defaultWord})` : t.voiceNames[v]}
+              {v === DEFAULTS.voice
+                ? `${t.voiceNames[v]} (${t.defaultWord})`
+                : t.voiceNames[v]}
             </option>
           ))}
         </select>
@@ -120,11 +150,15 @@ export function ReadAloudSettingsPanel() {
           max={2}
           step={0.05}
           value={s.speed}
-          onChange={(e) => set('speed', Number(e.target.value))}
+          onChange={(e) => set("speed", Number(e.target.value))}
         />
         <span className="ra-speed-value">{formatSpeed(s.speed)}</span>
         {s.speed !== DEFAULTS.speed && (
-          <button type="button" className="ra-btn compact" onClick={() => set('speed', DEFAULTS.speed)}>
+          <button
+            type="button"
+            className="ra-btn compact"
+            onClick={() => set("speed", DEFAULTS.speed)}
+          >
             {t.reset}
           </button>
         )}
@@ -132,21 +166,44 @@ export function ReadAloudSettingsPanel() {
 
       <label className="ra-row">
         <span className="ra-label">{t.skipCode}</span>
-        <input type="checkbox" role="switch" className="ra-switch" checked={s.skipCodeBlocks} onChange={(e) => set('skipCodeBlocks', e.target.checked)} />
+        <input
+          type="checkbox"
+          role="switch"
+          className="ra-switch"
+          checked={s.skipCodeBlocks}
+          onChange={(e) => set("skipCodeBlocks", e.target.checked)}
+        />
       </label>
 
       <label className="ra-row">
         <span className="ra-label">{t.skipTerminal}</span>
-        <input type="checkbox" role="switch" className="ra-switch" checked={s.skipTerminalOutput} onChange={(e) => set('skipTerminalOutput', e.target.checked)} />
+        <input
+          type="checkbox"
+          role="switch"
+          className="ra-switch"
+          checked={s.skipTerminalOutput}
+          onChange={(e) => set("skipTerminalOutput", e.target.checked)}
+        />
       </label>
 
       <div className="ra-row">
         <label className="ra-label" htmlFor="ra-folder">
           {t.ttsFolder}
         </label>
-        <input id="ra-folder" className="ra-input" value={dirDraft} onChange={(e) => setDirDraft(e.target.value)} />
+        <input
+          id="ra-folder"
+          className="ra-input"
+          value={dirDraft}
+          onChange={(e) => setDirDraft(e.target.value)}
+        />
         {dirDraft !== s.ttsDirectory && (
-          <button type="button" className="ra-btn" onClick={() => set('ttsDirectory', dirDraft.trim() || DEFAULTS.ttsDirectory)}>
+          <button
+            type="button"
+            className="ra-btn"
+            onClick={() =>
+              set("ttsDirectory", dirDraft.trim() || DEFAULTS.ttsDirectory)
+            }
+          >
             {t.save}
           </button>
         )}
@@ -159,14 +216,26 @@ export function ReadAloudSettingsPanel() {
             type="button"
             className="ra-btn primary"
             disabled={!s.enabled}
-            onClick={() => (testing ? player.stop() : player.play('settings-test', SAMPLE))}
+            onClick={() =>
+              testing ? player.stop() : player.play("settings-test", SAMPLE)
+            }
           >
             {testing ? t.stopTest : t.testVoice}
           </button>
-          <button type="button" className="ra-btn" disabled={busy} onClick={() => act('warmup')}>
+          <button
+            type="button"
+            className="ra-btn"
+            disabled={busy}
+            onClick={() => act("warmup")}
+          >
             {t.startEngine}
           </button>
-          <button type="button" className="ra-btn" disabled={busy} onClick={() => act('shutdown_worker')}>
+          <button
+            type="button"
+            className="ra-btn"
+            disabled={busy}
+            onClick={() => act("shutdown_worker")}
+          >
             {t.stopEngine}
           </button>
         </div>
@@ -182,18 +251,29 @@ export function ReadAloudSettingsPanel() {
                   <span className={`ra-dot${STATE_DOT[status.worker]}`} />
                   {STATE_TEXT[status.worker]}
                 </span>
-                <button type="button" className="ra-link" aria-expanded={details} onClick={() => setDetails(!details)}>
+                <button
+                  type="button"
+                  className="ra-link"
+                  aria-expanded={details}
+                  onClick={() => setDetails(!details)}
+                >
                   {details ? t.hideDetails : t.showDetails}
                 </button>
               </div>
               {details && (
                 <p className="ra-hint ra-note">
                   {t.engineDetails(status.uptimeSec, status.requestsServed)}
-                  {status.loadMs != null ? `. ${t.modelLoaded(status.loadMs)}` : ''}
+                  {status.loadMs != null
+                    ? `. ${t.modelLoaded(status.loadMs)}`
+                    : ""}
                 </p>
               )}
-              {status.missing.length > 0 && <p className="ra-error">{t.missingFiles}</p>}
-              {status.lastError && <p className="ra-error">{status.lastError}</p>}
+              {status.missing.length > 0 && (
+                <p className="ra-error">{t.missingFiles}</p>
+              )}
+              {status.lastError && (
+                <p className="ra-error">{status.lastError}</p>
+              )}
             </>
           )}
         </div>

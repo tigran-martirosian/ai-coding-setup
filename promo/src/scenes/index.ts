@@ -14,7 +14,11 @@ import { Update } from "./Update";
 import { Usage } from "./Usage";
 import { Voice } from "./Voice";
 
-export type SceneEntry = { id: string; component: React.FC<SceneProps>; durationInFrames: number };
+export type SceneEntry = {
+  id: string;
+  component: React.FC<SceneProps>;
+  durationInFrames: number;
+};
 
 /** The scenes behind the short clips in docs/features.md. The tour film itself is in ../film. */
 export const SCENES: SceneEntry[] = [
@@ -44,11 +48,15 @@ const CLIP_SCENES: Record<string, string[]> = {
   update: ["Update"],
 };
 
-export const CLIPS = Object.entries(CLIP_SCENES).map(([id, sceneIds]) => ({ id, sceneIds }));
+export const CLIPS = Object.entries(CLIP_SCENES).map(([id, sceneIds]) => ({
+  id,
+  sceneIds,
+}));
 
 export const ALL_SCENE_IDS = SCENES.map((scene) => scene.id);
 
-export const scenesById = (ids: string[]): SceneEntry[] => ids.map((id) => SCENES.find((scene) => scene.id === id)!);
+export const scenesById = (ids: string[]): SceneEntry[] =>
+  ids.map((id) => SCENES.find((scene) => scene.id === id)!);
 
 export const totalFrames = (ids: string[]): number =>
   scenesById(ids).reduce((sum, scene) => sum + scene.durationInFrames, 0);

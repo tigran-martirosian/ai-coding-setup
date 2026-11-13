@@ -1,122 +1,142 @@
 # AI coding setup for Claude Code
 
-I run all my development through Claude Code. These are the rules, checks and tools I built around it. The checks compare what the agent says with the log of what it did, and send the reply back to the agent when the two don't match.
+Rules, hooks, agents and tools for Claude Code. I use it for all my development. Claude Code logs every action the agent takes; the hooks compare the agent's reply with that log and send the reply back when they don't match.
 
-Professionals in finance, data engineering and government IT installed it and use it at work.
+It's in use at work by people in finance, data engineering and government IT.
 
-https://github.com/user-attachments/assets/27739b7d-3533-479b-8ef5-f44e8d9e77ee
+https://github.com/user-attachments/assets/afb359f9-9d7c-4a07-a691-b6efef3297c0
 
-If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/27739b7d-3533-479b-8ef5-f44e8d9e77ee).
+If the video doesn't load (the GitHub app sometimes won't play it), [watch it here](https://github.com/user-attachments/assets/afb359f9-9d7c-4a07-a691-b6efef3297c0).
+
+## Test results
+
+- **The reviewer agent finds as many planted bugs as a plain "review this change" prompt, with 40% fewer tokens, 16% lower cost and 22% less time.** Both ran the same model, effort, tools and 16 changes; only the instructions differed. It also raised fewer false alarms on clean code than the plain prompt did (2 of 7 against 3 of 7).
+- **The hooks ran over 12,000 times on real past sessions and hard made-up cases with no crashes.** The delete, long-sleep and find guards were right on all 30 test commands: risky ones stopped, harmless look-alikes let through. "Tests pass" with no test run after the last edit was caught 4 times out of 4.
+- Hooks sending back honest work: 4 of 12 real sessions before the fixes these tests led to, 1 of 13 after. That last case is still being worked on.
+
+How each test ran: [docs/test-results.md](docs/test-results.md).
 
 ## How it compares
 
-Claude Code gives you hooks and skills. This is what I built with them.
+Claude Code gives you hooks and skills. Here's what I built with them:
 
 | | Claude Code with a few skills | With this setup |
 |---|---|---|
-| Its claims | Nothing checks them | Hooks compare them with the log of what it did |
+| Its claims | Nothing checks them | Hooks check them against the log of what it did |
 | Commands | It may ask you to run them | It runs them itself |
 | Long chats | Compact when nearly full, or by hand | Compact themselves at about 200k, mid-work, and leave finished chats alone |
-| Big jobs | Subagents you arrange | `/lead`: a plan in numbered steps, workers that know the goal, then one reviewer |
-| Spending | `/usage`: the last 14 days | Per project, with a forecast of when the limit runs out |
+| Big jobs | Subagents you arrange | `/lead`: a numbered plan, workers that know the goal, then reviewers sized to the job |
+| Spending | `/usage`: the last 14 days | Per project, with a forecast of when you'll hit your limit |
 
 ## What it does
 
 ### Checks
 
-Claude Code logs every tool call. A hook is a small script that runs before or after a step. It can read that log, compare it with the reply and stop the step. [hooks/link-gate.mjs](hooks/link-gate.mjs) is a good first example.
+A hook is a small script Claude Code runs before or after a step. It can read the tool-call log, compare it with the reply and stop the step. [hooks/link-gate.mjs](hooks/link-gate.mjs) is a short example.
 
-These go back to the agent:
+Sent back to the agent:
 
-- a reply with a link it never opened
-- "now run this in a terminal", when it can run that itself
-- a bigger change (10 or more code files over a session, a job of several helpers, or hooks, settings or CI files) that ends with no reviewer agent having looked at it
-- a recommended answer in a question that no second agent has checked
+- a reply with a link it never actually opened
+- "now run this in a terminal", when it could have run it itself
+- a bigger change (10+ code files in a session, a job split across several helpers, or edits to hooks, settings or CI) that nobody reviewed
+- a question card that uses a plan-step code you've never seen, or doesn't actually ask you anything
+- a helper started on a plan step that uses a tool you never said what you wanted it for
 
-`DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
+`DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without a `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 41 hooks are listed in [docs/features.md](docs/features.md#hooks).
+All 50 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 
-- A hook refuses a read of a whole large file, so the agent reads the part it needs. It refused 607 in those 30 days.
-- A long chat compacts itself at about 200k, while it works, and a finished chat is left alone. In one audit a compact cost about 44k tokens with a warm cache; after a long pause, when the cache has expired, about 590k.
-- Typing `usage` opens a dashboard of token use and plan use by plan week (this week, last week, the weeks before), with this computer's part, and a forecast for your plan limit. In Nimbalyst it opens from the Usage icon's Full dashboard button. It makes no model call.
+- Reading a whole large file gets refused, so the agent reads just the part it needs. On my machine that happened 1,072 times in the last 30 days.
+- Long chats compact themselves at about 200k while they're still working, and finished chats are left alone. In one audit a compact cost about 44k tokens with a warm cache and about 590k after a long pause, once the cache had expired.
+- `usage` opens a dashboard of your token and plan use, week by week, how much of it came from this computer, and when you'll hit your plan limit. In Nimbalyst it's under the Usage icon (Full dashboard). It doesn't make any model calls.
 
 ### Long work
 
-- A hook rewrites a short handoff note after every reply, so a fresh session can start from it.
-- I hand big jobs to `/lead`. It writes a numbered plan, hands each step to a worker agent that knows the goal of the whole job, and one reviewer agent checks the result.
+- After every reply a hook updates a short handoff note, so a fresh session can pick up where the old one stopped.
+- When a session ends, it closes whatever it started (dev servers, watchers, background shells). It starts out in report mode, only logging what it would close, until you set `SESSION_CLEANUP=on`.
+- When you start a session, it tells you which facts in your notes are past their `(recheck YYYY-MM-DD)` date (`RECHECK_DATES=off` turns that off).
+- `/update-project` brings an older project folder up to date with the setup, and shows you every change first.
+- I hand big jobs to `/lead`. It writes a numbered plan, gives each step to a worker that knows what the whole job is for, and has a reviewer check the result (2 or 3 reviewers on a big job, each taking its own part). A `blind-reviewer` looks at anything a person will see, the way a newcomer would.
 
 ### Systems map
 
-In a project with 100 or more code files, the setup builds a map of it by itself, in the background. The map is a dictionary of the project's parts and what connects to what. A helper's brief gets only the lines for the parts it touches, so no session hunts for files or loads a whole graph.
+Each project gets a map, built in the background: a dictionary of its parts and what connects to what, the topics that span several parts ("pricing", "damage balance"), and how this project does its recurring jobs (research, tests, a release), each pointing at the files to read first. A helper's brief includes only the entries it will touch, so no session hunts for files or loads the whole graph. `/new-project` starts the map, `/update-project` offers one to an older project, and a project with 100+ code files and no map gets one without asking.
 
 ## What changes on day one
 
-- Replies lead with the answer, and shell commands end with a line saying what they do in plain words.
-- The agent runs commands itself instead of asking you to paste them, except for passwords and decisions that are yours.
-- Some replies are sent back, and the agent does the missing step first.
-- In Nimbalyst, a choice question always has a box for your own answer.
-- If you have set no model, it sets Opus at medium effort. Fable as an advisor Opus consults at decision points is off until it is measured here; `/advisor fable` turns it on and `/advisor off` turns it off again. The planner and both reviewers run Fable at high effort; helpers that write code run Opus at high effort. Each helper runs at the effort its agent file sets: Nimbalyst passes its effort pick to Claude Code as `CLAUDE_CODE_EFFORT_LEVEL`, which would override every helper, so the installer sets that variable to an empty value in `~/.claude/settings.json`. Nimbalyst's effort picker then no longer changes the level; use `/effort` in the chat to change the main session's. A build or design request goes to the `planner` agent first, in every project.
-- If you have set no time for keeping transcripts, it keeps them 120 days.
-- Every 12 hours you may see one line saying a newer version is out. A small fix installs itself in the background (`AUTO_UPDATE=off` stops that); anything bigger waits until you type `/update-setup`.
+- Replies start with the answer, and every shell command ends with a short line saying what it does.
+- The agent runs commands itself instead of asking you to paste them. The exceptions are passwords and decisions that are yours to make.
+- Some replies get sent back, and the agent does the step it skipped.
+- In Nimbalyst, every multiple-choice question has a box to type your own answer.
+- If you haven't picked a model, it sets Opus at medium effort. The planner and both reviewers run Fable at high effort, and any build or design request goes to the planner first. Nimbalyst's effort picker stops changing the level, so use `/effort` in the chat instead ([why](docs/features.md#install-details)).
+- If you haven't set how long to keep transcripts, it keeps them for 120 days.
+- Every 12 hours you might see a line saying there's a new version. Small fixes install themselves in the background (`AUTO_UPDATE=off` stops that); anything bigger waits for you to type `/update-setup`.
 
 ## Install and undo
 
-You need Claude Code, installed and signed in, on a Max plan or higher (Ultra is better): the planner, the reviewers, long refactors, charts, science and maths run Fable, which uses up a Pro plan's limits fast. On the $20 Pro plan the setup will probably not work as well. The installer updates Claude Code to the newest version and stops below 2.1.321. Nimbalyst's chats are pointed at your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes on the day they ship (a newer line than Nimbalyst's waits for Nimbalyst; `SETUP_NIMBALYST_CLAUDE=off` leaves Nimbalyst on its own). Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions and the session board don't. `/lead` runs its steps as subagents, but keeps its job card in Nimbalyst's tracker. Download the ZIP or clone the repository, then in its folder:
+You need Claude Code installed and signed in. It works best on a Max plan or higher. On the $20 Pro plan there's no Fable, so the Fable helpers run on Opus instead and go less deep. Nimbalyst is optional: without it the rules, hooks and skills all work, but you won't get the extensions or the session board. More in [docs/features.md](docs/features.md#install-details).
+
+Download the ZIP or clone the repo, then run this in its folder:
 
 ```
 claude "Read docs/full-install.md and carry out every step in it."
 ```
 
-It asks which subscriptions you have, then installs what is missing. For only the setup files, with Node.js 18 or newer (22.5 or newer for `steer --to` and `compact-self`; Claude Code's own compact needs nothing):
+It asks which subscriptions you have and installs whatever's missing.
+
+If you only want the setup files, you'll need Node.js 18 or newer (22.5+ for `steer --to` and `compact-self`). This also installs Obscura, a headless browser for reading web pages, about 70 MB (`--obscura no` skips it):
 
 ```
 node install.mjs --dry-run
 node install.mjs
 ```
 
-`--dry-run` prints what would change and changes nothing. Your own hooks and skills stay as they are, and a file the installer replaces is kept as `<name>.before-install-<date>`. If your `CLAUDE.md` already has your own rules, they move to `~/.claude/rules/my-rules.md`, which Claude Code loads in every session too, and a dated copy of the old file is kept.
+`--dry-run` shows what would change without changing anything. Your own hooks and skills are left alone. Any file the installer replaces is backed up to `~/.claude/setup-logs/<YYYY-MM-DD>-install-backup/`. If your `CLAUDE.md` already has rules of your own, they move to `~/.claude/rules/my-rules.md`, which Claude Code also loads in every session, and a copy of the old file is kept.
 
-Windows is what the setup is run on. On macOS the repository's tests run, but the installer and the full install have not been run on a real Mac: on a Mac, pass `--node "$(command -v node)"` so the hooks start with Node by its full path.
+I run this on Windows. The tests pass on macOS too, but I haven't run the installer on a real Mac yet. If you're on a Mac, pass `--node "$(command -v node)"` so the hooks find Node by its full path.
+
+To remove it:
 
 ```
 node install.mjs --uninstall
 ```
 
-This takes the setup's hooks out of `settings.json` and the project folders' settings, removes its files unless you changed them, and restores files of yours that the installer replaced. Your work in the project folders stays, and so do the plugins, the extensions and the setup's permission, model and language settings. The run prints how to remove each.
+This takes the setup's hooks out of `settings.json` and your project settings, removes its files (unless you changed them) and puts back any of your files it replaced. Your project work stays, and so do the plugins, the extensions and the permission, model and language settings; it prints how to remove each of those. It also puts Nimbalyst's original app files back, or if Nimbalyst is open, tells you the command to run after you close it.
 
-Every hook in `hooks/` has an off switch, an environment variable set in your shell or system, such as `LINK_GATE=off`. [docs/HOW-TO.md](docs/HOW-TO.md) says what to type and what you should see.
+On Windows, Nimbalyst updates through the setup, so a Nimbalyst update can't wipe out the setup's fixes. `/update-setup` installs the right version when you close Nimbalyst. If you'd rather let Nimbalyst update itself, run `node ~/.claude/tools/nimbalyst-patch/deliver.mjs --off` ([details](docs/features.md#updating-details)).
+
+Every hook can be turned off with an environment variable, like `LINK_GATE=off`. [docs/HOW-TO.md](docs/HOW-TO.md) walks through what to type and what you should see.
 
 ## What leaves your computer
 
-Claude Code itself sends your work to Anthropic, as it does without this setup. On top of that:
+Claude Code sends your work to Anthropic either way. On top of that, this setup sends:
 
 | What | Where it goes | When | Off switch |
 |---|---|---|---|
 | Your saved Claude sign-in, to read your plan percentages | api.anthropic.com | At most every 5 minutes, during a session | `PLAN_USAGE_LOGGER=off` |
 | A request for the latest version number | GitHub | Every 12 hours; an hour after a failed try | `UPDATE_CHECK=off` |
-| The download of a small release (only hook, skill, agent or worker files: no restart, no question), which installs itself in the background; a file you changed stays yours | GitHub | When such a release is out | `AUTO_UPDATE=off` |
-| The project's files, read by the systems map's background worker (a Claude helper, about 60 tool calls per build or refresh) | Anthropic, as for any Claude work | In a project with 100 or more code files and no map, at most three tries a week apart, and a refresh at most once a week | `MAP_NUDGE=off` |
+| The download of a small release (hook, skill, agent or worker files only; no restart, no question), installed in the background. Files you changed stay yours | GitHub | When one comes out | `AUTO_UPDATE=off` |
+| Your project's files, read by the systems map's background worker (a Claude helper, about 60 tool calls per build or refresh) | Anthropic, like any Claude work | In a project with 100+ code files and no map: at most three tries a week apart, then a refresh at most once a week | `MAP_NUDGE=off` |
 | Project and package names, when the agent looks up a version | endoflife.date, GitHub, npm, PyPI, crates.io, Docker Hub, Maven Central, NuGet | When it checks a version | None |
 | Messages to and from your sessions | Telegram | Only if you add `/phone-bot` and run it | Don't run it |
-| Your name, token counts, model and limit percentages | ccpool.hexxt.dev, someone else's server | Only if you add and set up `/shared-usage` | Don't set it up |
+| Your Claude folder and the project folders you pick, encrypted on your computer with a password only you have | Your own Backblaze B2 storage | Only if you set up `/backup`: when you ask, or daily or weekly | `/backup off` stops the schedule |
 
-The tools in the starter projects that read web pages open the pages you ask for.
+The web-reading tools in the starter projects only open the pages you ask for.
 
-The installer adds rules that stop Claude Code reading saved sign-ins for Claude, Codex and Gemini, or SSH keys, through its own tools, and that ask before a `.env` file. A script that reaches a file without naming it is not stopped. These rules bind Claude Code only.
+The installer also adds rules that stop Claude Code from reading saved sign-ins for Claude, Codex and Gemini, or your SSH keys, through its own tools, and makes it ask before opening a `.env` file. A script that reaches a file without naming it won't be stopped, and the rules only apply to Claude Code.
 
 ## Limits
 
-- A check knows a page was opened, not what it said. An agent that opens the page and still gets it wrong passes.
-- A hook that hits an error lets the call through, so a broken check stops nothing; the guards (the secret scan before a push, the OpenCLI and planner read-only checks) stop the call instead; the crash is logged in `~/.claude/hooks/state/hook-errors.log` and the next session says so (`HOOK_CRASH_ALARM=off` silences that).
-- Only some rules have a check behind them. "Lead with the answer" is text the model reads and can ignore. The rules file adds about 4,600 tokens to every session.
-- Checks are sometimes wrong: a send-back can be a false alarm. I measure that and fix the checks that cause it.
+- A check knows a page was opened, not what was on it. If the agent opens the page and still gets it wrong, that passes.
+- If a hook hits an error, it lets the call through, so a broken check doesn't block anything. The guards are the exception (the secret scan before a push, the OpenCLI and planner read-only checks): they block the call instead. Either way the crash goes into `~/.claude/hooks/state/hook-errors.log` and the next session tells you (`HOOK_CRASH_ALARM=off` silences that).
+- Not every rule has a check behind it. "Lead with the answer" is just text the model reads, and it can ignore it. The rules file adds about 4,600 tokens to every session.
+- Checks are sometimes wrong, and a send-back can be a false alarm. I track those and fix the checks behind them.
 
 ## Everything else
 
-Four starter projects, a planner agent, capped worker agents, a reviewer, a checker for recommended answers, a map of big projects, reading videos (`/watch`), a phone bot, voice typing, Read Aloud and colour themes are in [docs/features.md](docs/features.md). Changes per version are in [CHANGELOG.md](CHANGELOG.md).
+Two starter projects, a planner, capped worker agents, a reviewer, a blind reviewer, an advisor for when a session gets stuck, a plan reviewer, the map for big projects, reading web pages and videos (`/watch` transcribes the audio when a video has no subtitles), encrypted backups (`/backup`), a phone bot, voice typing, Read Aloud and color themes are all covered in [docs/features.md](docs/features.md). What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tests
 
@@ -124,10 +144,12 @@ Four starter projects, a planner agent, capped worker agents, a reviewer, a chec
 node tests/run-all.mjs
 ```
 
-Each hook runs as a separate process on made-up session logs, the installer runs twice on an empty home folder, and `scripts/privacy-check.mjs` scans the repository for home folder paths, email addresses and API keys. GitHub Actions runs all of it on every push, on Windows and on macOS.
+Each hook runs as its own process on made-up session logs, the installer runs twice on an empty home folder, and `scripts/privacy-check.mjs` scans the repo for home folder paths, email addresses and API keys. GitHub Actions runs all of it on every push, on Windows and macOS.
 
-The test files run side by side, and a passing file prints one line. `--only a,b` runs only those files, `--failed` reruns the files that failed in the last run, and `--verbose` runs one file at a time with its full output (GitHub Actions uses it).
+The test files run in parallel, and a passing file prints one line. `--only a,b` runs just those files, `--failed` reruns whatever failed last time, and `--verbose` runs one file at a time with full output (that's what GitHub Actions uses).
+
+The replay of the hooks on real sessions and the reviewer-against-plain-prompt test are in [docs/test-results.md](docs/test-results.md).
 
 ## License
 
-This is not open source. You may use this code and change your own copy, at home or at work. You may not publish, share or sell it, or present it as your own, without my written permission. See [LICENSE](LICENSE).
+This isn't open source. You can use the code and change your own copy, at home or at work. You can't publish, share or sell it, or present it as your own, without my written permission. See [LICENSE](LICENSE).

@@ -33,9 +33,27 @@ const DAYS = [
 ] as const;
 
 const CHATS = [
-  { title: "Import orders from CSV", project: "shop-backend", tokens: "58.2M", main: 78, sub: 22 },
-  { title: "Monthly report job", project: "data-pipeline", tokens: "41.7M", main: 62, sub: 8 },
-  { title: "Rewrite the install guide", project: "docs-site", tokens: "19.4M", main: 31, sub: 2 },
+  {
+    title: "Import orders from CSV",
+    project: "shop-backend",
+    tokens: "58.2M",
+    main: 78,
+    sub: 22,
+  },
+  {
+    title: "Monthly report job",
+    project: "data-pipeline",
+    tokens: "41.7M",
+    main: 62,
+    sub: 8,
+  },
+  {
+    title: "Rewrite the install guide",
+    project: "docs-site",
+    tokens: "19.4M",
+    main: 31,
+    sub: 2,
+  },
 ] as const;
 
 const CHART_HEIGHT = 150;
@@ -47,12 +65,36 @@ const panel: React.CSSProperties = {
   padding: "18px 24px",
   boxShadow: "0 30px 80px rgba(0, 0, 0, 0.45)",
 };
-const heading: React.CSSProperties = { fontSize: 26, fontWeight: 700, marginBottom: 10 };
-const row: React.CSSProperties = { display: "flex", alignItems: "center", gap: 18, fontSize: 24, padding: "7px 0" };
+const heading: React.CSSProperties = {
+  fontSize: 26,
+  fontWeight: 700,
+  marginBottom: 10,
+};
+const row: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 18,
+  fontSize: 24,
+  padding: "7px 0",
+};
 
-const Legend: React.FC<{ tint: string; children: React.ReactNode }> = ({ tint, children }) => (
-  <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 20, color: color.dim, fontWeight: 400 }}>
-    <span style={{ width: 12, height: 12, borderRadius: 3, background: tint }} />
+const Legend: React.FC<{ tint: string; children: React.ReactNode }> = ({
+  tint,
+  children,
+}) => (
+  <span
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 20,
+      color: color.dim,
+      fontWeight: 400,
+    }}
+  >
+    <span
+      style={{ width: 12, height: 12, borderRadius: 3, background: tint }}
+    />
     {children}
   </span>
 );
@@ -66,11 +108,23 @@ export const Dashboard: React.FC<SceneProps> = ({ durationInFrames }) => {
       tag="type: usage"
       caption="Typing “usage” opens the dashboard: where the tokens went by project, model, day and chat, and what the same work would cost at API prices."
       durationInFrames={durationInFrames}
-      stageStyle={{ flexDirection: "column", gap: 18, alignItems: "stretch", justifyContent: "center" }}
+      stageStyle={{
+        flexDirection: "column",
+        gap: 18,
+        alignItems: "stretch",
+        justifyContent: "center",
+      }}
     >
       <Appear at={6}>
         <div style={{ display: "flex", alignItems: "center", gap: 26 }}>
-          <div style={{ display: "flex", border: `1.5px solid ${color.line}`, borderRadius: 10, overflow: "hidden" }}>
+          <div
+            style={{
+              display: "flex",
+              border: `1.5px solid ${color.line}`,
+              borderRadius: 10,
+              overflow: "hidden",
+            }}
+          >
             {RANGES.map((range) => (
               <span
                 key={range}
@@ -87,8 +141,12 @@ export const Dashboard: React.FC<SceneProps> = ({ durationInFrames }) => {
             ))}
           </div>
           <span style={{ fontSize: 28 }}>
-            {Math.round(899 * appear(frame, 12, 40))}M tokens in 138 chats, about{" "}
-            <b style={{ color: color.amber }}>${Math.round(486 * appear(frame, 12, 40))}</b> at API prices
+            {Math.round(899 * appear(frame, 12, 40))}M tokens in 138 chats,
+            about{" "}
+            <b style={{ color: color.amber }}>
+              ${Math.round(486 * appear(frame, 12, 40))}
+            </b>{" "}
+            at API prices
           </span>
         </div>
       </Appear>
@@ -98,13 +156,27 @@ export const Dashboard: React.FC<SceneProps> = ({ durationInFrames }) => {
           <div style={panel}>
             <div style={heading}>Projects</div>
             {PROJECTS.map((project, i) => (
-              <div key={project.name} style={{ ...row, borderTop: i ? `1px solid ${color.line}` : "none" }}>
+              <div
+                key={project.name}
+                style={{
+                  ...row,
+                  borderTop: i ? `1px solid ${color.line}` : "none",
+                }}
+              >
                 <span style={{ width: 230 }}>{project.name}</span>
                 <div style={{ flex: 1 }}>
-                  <Bar value={project.share * appear(frame, 30 + i * 6, 34)} color={color.sky} height={8} />
+                  <Bar
+                    value={project.share * appear(frame, 30 + i * 6, 34)}
+                    color={color.sky}
+                    height={8}
+                  />
                 </div>
-                <b style={{ width: 80, textAlign: "right" }}>{project.tokens}</b>
-                <span style={{ width: 110, color: color.dim, fontSize: 21 }}>{project.chats}</span>
+                <b style={{ width: 80, textAlign: "right" }}>
+                  {project.tokens}
+                </b>
+                <span style={{ width: 110, color: color.dim, fontSize: 21 }}>
+                  {project.chats}
+                </span>
               </div>
             ))}
           </div>
@@ -113,13 +185,25 @@ export const Dashboard: React.FC<SceneProps> = ({ durationInFrames }) => {
           <div style={{ ...panel, flex: 1 }}>
             <div style={heading}>Models</div>
             {MODELS.map((model, i) => (
-              <div key={model.name} style={{ ...row, borderTop: i ? `1px solid ${color.line}` : "none" }}>
+              <div
+                key={model.name}
+                style={{
+                  ...row,
+                  borderTop: i ? `1px solid ${color.line}` : "none",
+                }}
+              >
                 <span style={{ width: 110 }}>{model.name}</span>
                 <div style={{ flex: 1 }}>
-                  <Bar value={model.share * appear(frame, 42 + i * 6, 34)} color={color.sky} height={8} />
+                  <Bar
+                    value={model.share * appear(frame, 42 + i * 6, 34)}
+                    color={color.sky}
+                    height={8}
+                  />
                 </div>
                 <b style={{ width: 80, textAlign: "right" }}>{model.tokens}</b>
-                <span style={{ width: 56, color: color.dim, fontSize: 21 }}>{model.part}</span>
+                <span style={{ width: 56, color: color.dim, fontSize: 21 }}>
+                  {model.part}
+                </span>
               </div>
             ))}
           </div>
@@ -129,25 +213,68 @@ export const Dashboard: React.FC<SceneProps> = ({ durationInFrames }) => {
       <div style={{ display: "flex", gap: 18 }}>
         <Appear at={62} style={{ flex: 1, display: "flex" }}>
           <div style={{ ...panel, flex: 1 }}>
-            <div style={{ ...heading, display: "flex", alignItems: "center", gap: 20 }}>
+            <div
+              style={{
+                ...heading,
+                display: "flex",
+                alignItems: "center",
+                gap: 20,
+              }}
+            >
               <span style={{ flex: 1 }}>Tokens per day</span>
               <Legend tint={color.sky}>Main chat</Legend>
               <Legend tint={color.violet}>Subagents</Legend>
             </div>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 22, height: CHART_HEIGHT, borderBottom: `1px solid ${color.line}` }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                gap: 22,
+                height: CHART_HEIGHT,
+                borderBottom: `1px solid ${color.line}`,
+              }}
+            >
               {DAYS.map((day, i) => {
                 const grow = appear(frame, 70 + i * 4, 30);
                 return (
-                  <div key={day.day} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
-                    <div style={{ height: (day.sub / 110) * CHART_HEIGHT * grow, background: color.violet, borderRadius: "4px 4px 0 0" }} />
-                    <div style={{ height: (day.main / 110) * CHART_HEIGHT * grow, background: color.sky }} />
+                  <div
+                    key={day.day}
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "flex-end",
+                      height: "100%",
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: (day.sub / 110) * CHART_HEIGHT * grow,
+                        background: color.violet,
+                        borderRadius: "4px 4px 0 0",
+                      }}
+                    />
+                    <div
+                      style={{
+                        height: (day.main / 110) * CHART_HEIGHT * grow,
+                        background: color.sky,
+                      }}
+                    />
                   </div>
                 );
               })}
             </div>
             <div style={{ display: "flex", gap: 22, marginTop: 6 }}>
               {DAYS.map((day) => (
-                <span key={day.day} style={{ flex: 1, textAlign: "center", fontSize: 20, color: color.dim }}>
+                <span
+                  key={day.day}
+                  style={{
+                    flex: 1,
+                    textAlign: "center",
+                    fontSize: 20,
+                    color: color.dim,
+                  }}
+                >
                   {day.day}
                 </span>
               ))}
@@ -159,14 +286,42 @@ export const Dashboard: React.FC<SceneProps> = ({ durationInFrames }) => {
             <div style={heading}>Chats</div>
             {CHATS.map((chat, i) => (
               <React.Fragment key={chat.title}>
-                <div style={{ ...row, borderTop: i ? `1px solid ${color.line}` : "none" }}>
-                  <span style={{ color: color.dim, rotate: i === 0 && opened ? "90deg" : "0deg" }}>›</span>
-                  <span style={{ flex: 1, whiteSpace: "nowrap" }}>{chat.title}</span>
-                  <span style={{ width: 150, color: color.dim, fontSize: 21 }}>{chat.project}</span>
+                <div
+                  style={{
+                    ...row,
+                    borderTop: i ? `1px solid ${color.line}` : "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: color.dim,
+                      rotate: i === 0 && opened ? "90deg" : "0deg",
+                    }}
+                  >
+                    ›
+                  </span>
+                  <span style={{ flex: 1, whiteSpace: "nowrap" }}>
+                    {chat.title}
+                  </span>
+                  <span style={{ width: 150, color: color.dim, fontSize: 21 }}>
+                    {chat.project}
+                  </span>
                   <b style={{ width: 86, textAlign: "right" }}>{chat.tokens}</b>
                   <div style={{ width: 150, display: "flex", height: 8 }}>
-                    <div style={{ width: `${chat.main * appear(frame, 104, 30)}%`, background: color.sky, borderRadius: 4 }} />
-                    <div style={{ width: `${chat.sub * appear(frame, 104, 30)}%`, background: color.violet, borderRadius: 4 }} />
+                    <div
+                      style={{
+                        width: `${chat.main * appear(frame, 104, 30)}%`,
+                        background: color.sky,
+                        borderRadius: 4,
+                      }}
+                    />
+                    <div
+                      style={{
+                        width: `${chat.sub * appear(frame, 104, 30)}%`,
+                        background: color.violet,
+                        borderRadius: 4,
+                      }}
+                    />
                   </div>
                 </div>
                 {i === 0 && opened ? (
@@ -183,7 +338,9 @@ export const Dashboard: React.FC<SceneProps> = ({ durationInFrames }) => {
                       }}
                     >
                       Opus · largest context 212k ·{" "}
-                      <span style={{ color: color.text }}>6 helpers started from this chat</span>
+                      <span style={{ color: color.text }}>
+                        6 helpers started from this chat
+                      </span>
                     </div>
                   </Appear>
                 ) : null}

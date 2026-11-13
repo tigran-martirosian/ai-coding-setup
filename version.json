@@ -1,9 +1,15 @@
 {
-  "version": "1.0.114",
+  "version": "26.1",
   "claudeCodeMin": "2.1.321",
-  "date": "2026-11-12",
-  "summary": "A stop you type holds Claude until you say go, your mid-turn notes are listed back, and long waits run in the background.",
+  "projectPass": 2,
+  "date": "2026-11-13",
+  "summary": "Project maps point Claude at the right files, /backup saves your setup to your own storage, and Nimbalyst updates through the setup.",
   "releases": {
+    "26.1": {
+      "kind": "setup",
+      "important": true,
+      "headline": "Project maps point Claude at the right files, /backup, Nimbalyst updates through the setup"
+    },
     "1.0.114": {
       "kind": "setup",
       "important": true,

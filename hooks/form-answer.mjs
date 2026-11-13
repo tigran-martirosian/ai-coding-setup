@@ -6,7 +6,11 @@
 // every turn of every session. Main session only: a helper gets no forms. FORM_ANSWER=off disables it.
 import { runHook, emit } from "./lib/hook-io.mjs";
 
-const FORMS = ["mcp__nimbalyst__PromptForUserInput", "mcp__nimbalyst__AskUserQuestion", "AskUserQuestion"];
+const FORMS = [
+  "mcp__nimbalyst__PromptForUserInput",
+  "mcp__nimbalyst__AskUserQuestion",
+  "AskUserQuestion",
+];
 const FORM_ANSWER_NOTE =
   "[form-answer] Read the whole answer: what the user typed outweighs what they ticked. A tick that goes against their " +
   "typed text, their last message or an earlier decision is not a decision yet: put the two side by side and ask which " +

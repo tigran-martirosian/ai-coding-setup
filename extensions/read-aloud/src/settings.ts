@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from "react";
 
 export interface ReadAloudSettings {
   enabled: boolean;
@@ -12,20 +12,34 @@ export interface ReadAloudSettings {
 
 export const DEFAULTS: ReadAloudSettings = {
   enabled: true,
-  voice: 'af_sky',
+  voice: "af_sky",
   speed: 1.0,
   skipCodeBlocks: true,
   skipTerminalOutput: true,
-  ttsDirectory: 'C:\\LocalTTS',
+  ttsDirectory: "C:\\LocalTTS",
   autoRead: false,
 };
 
 /** American English voices only; af_sky is the default. */
-export const VOICES = ['af_sky', 'af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_river', 'af_nova', 'af_jessica', 'af_aoede'];
+export const VOICES = [
+  "af_sky",
+  "af_heart",
+  "af_bella",
+  "af_nicole",
+  "af_sarah",
+  "af_river",
+  "af_nova",
+  "af_jessica",
+  "af_aoede",
+];
 
 interface ConfigService {
   get<T>(key: string, defaultValue?: T): T;
-  update(key: string, value: unknown, scope?: 'user' | 'workspace'): Promise<void>;
+  update(
+    key: string,
+    value: unknown,
+    scope?: "user" | "workspace",
+  ): Promise<void>;
 }
 
 let config: ConfigService | undefined;
@@ -36,7 +50,8 @@ function read(): ReadAloudSettings {
   const next = { ...DEFAULTS };
   for (const key of Object.keys(DEFAULTS) as (keyof ReadAloudSettings)[]) {
     const v = config?.get(key, DEFAULTS[key]);
-    if (v !== undefined && typeof v === typeof DEFAULTS[key]) (next as Record<string, unknown>)[key] = v;
+    if (v !== undefined && typeof v === typeof DEFAULTS[key])
+      (next as Record<string, unknown>)[key] = v;
   }
   return next;
 }
@@ -61,10 +76,13 @@ export function getSettings(): ReadAloudSettings {
   return snapshot;
 }
 
-export async function updateSetting<K extends keyof ReadAloudSettings>(key: K, value: ReadAloudSettings[K]) {
+export async function updateSetting<K extends keyof ReadAloudSettings>(
+  key: K,
+  value: ReadAloudSettings[K],
+) {
   snapshot = { ...snapshot, [key]: value };
   listeners.forEach((l) => l());
-  await config?.update(key, value, 'user');
+  await config?.update(key, value, "user");
 }
 
 export function subscribeSettings(fn: () => void) {

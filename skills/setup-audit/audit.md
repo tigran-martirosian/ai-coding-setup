@@ -2,7 +2,7 @@
 
 Analysis first: **change nothing** until the user picks fixes. Use `worker` subagents for gathering, as `~/.claude/CLAUDE.md` says.
 
-1. **Last time:** open the newest `~/.claude/reports/*-setup-audit.md`, if any. Read only its "Decisions" and "Still to measure" sections. Don't re-open decided items unless new numbers change them.
+1. **Last time:** open the newest `~/.claude/reports/*-setup-audit.md`, or from before the files were renamed `setup-audit-<YYYY-MM-DD>.md` (the newest of both by the date in the name), if any. Read only its "Decisions" and "Still to measure" sections. Don't re-open decided items unless new numbers change them.
 2. **Numbers:** `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs --since <date of the last audit>` (else `--days 7`). Measure every "Still to measure" item with `--session`/`--minutes`/`--project`. Never read transcripts yourself.  Then `node ~/.claude/skills/setup-audit/scripts/outcomes.mjs --days <the same window>`: what the checks led to (see `outcomes.md`).
 3. **Health, in as few shell calls as possible:**
    - `~/.claude/settings.json` parses as JSON; every hook command in it points to a file that exists; no hook is registered twice.

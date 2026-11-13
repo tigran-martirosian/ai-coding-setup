@@ -14,14 +14,23 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const setting = process.env.HOOK_ERRORS_LOG || "";
-export const CRASH_LOG = setting && setting !== "off" ? setting : path.join(os.homedir(), ".claude", "hooks", "state", "hook-errors.log");
+export const CRASH_LOG =
+  setting && setting !== "off"
+    ? setting
+    : path.join(os.homedir(), ".claude", "hooks", "state", "hook-errors.log");
 
 export function crashLog(hook, err) {
   try {
     if (setting === "off") return;
-    const message = String(err?.message || err).replace(/\s+/g, " ").trim().slice(0, 300);
+    const message = String(err?.message || err)
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 300);
     fs.mkdirSync(path.dirname(CRASH_LOG), { recursive: true });
-    fs.appendFileSync(CRASH_LOG, `${new Date().toISOString()} ${hook}: ${message}\n`);
+    fs.appendFileSync(
+      CRASH_LOG,
+      `${new Date().toISOString()} ${hook}: ${message}\n`,
+    );
   } catch {
     // nothing more to do
   }
@@ -31,7 +40,13 @@ export function crashLog(hook, err) {
 // own error handling): importing this file from a script in the hooks folder (the folder above lib/) installs them,
 // and runHook (hook-io.mjs) installs them itself for a hook run from anywhere. Installing twice does nothing.
 // Real paths, so a hooks folder reached through a link (macOS /var is /private/var) still counts as the same
-const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+const real = (p) => {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
 const same = (a, b) => real(a).toLowerCase() === real(b).toLowerCase();
 let installed = false;
 export function installCrashHandlers() {
@@ -40,11 +55,16 @@ export function installCrashHandlers() {
   const hook = path.basename(process.argv[1] || "hook").replace(/\.mjs$/, "");
   const die = (err) => {
     crashLog(hook, err);
-    try { process.stderr.write(`${err?.stack || err}\n`); } catch { /* nothing more to do */ }
+    try {
+      process.stderr.write(`${err?.stack || err}\n`);
+    } catch {
+      /* nothing more to do */
+    }
     process.exit(1);
   };
   process.on("uncaughtException", die);
   process.on("unhandledRejection", die);
 }
 const hooksDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-if (process.argv[1] && same(path.dirname(process.argv[1]), hooksDir)) installCrashHandlers();
+if (process.argv[1] && same(path.dirname(process.argv[1]), hooksDir))
+  installCrashHandlers();

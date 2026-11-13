@@ -6,20 +6,82 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-const HOOK = fileURLToPath(new URL("../hooks/repeat-guard.mjs", import.meta.url));
+const HOOK = fileURLToPath(
+  new URL("../hooks/repeat-guard.mjs", import.meta.url),
+);
 const DIR = mkdtempSync(join(tmpdir(), "repeat-guard-"));
-const BASE = { REPEAT_GUARD: "", REPEAT_GUARD_ERRORS: "", REPEAT_GUARD_EDITS: "", REPEAT_GUARD_READS: "" };
+const BASE = {
+  REPEAT_GUARD: "",
+  REPEAT_GUARD_ERRORS: "",
+  REPEAT_GUARD_EDITS: "",
+  REPEAT_GUARD_READS: "",
+  AGENT_RUN_LOG_FILE: join(DIR, "no-runs.jsonl"),
+};
+// An agent-run log holding the given helper launches ({session, type}), as agent-run-log writes them
+let logNo = 0;
+const runLog = (runs) => {
+  const p = join(DIR, `runs${++logNo}.jsonl`);
+  writeFileSync(
+    p,
+    runs
+      .map((r) =>
+        JSON.stringify({
+          ts: "2026-11-12T10:00:00Z",
+          description: "advice",
+          ...r,
+        }),
+      )
+      .join("\n") + "\n",
+  );
+  return { AGENT_RUN_LOG_FILE: p };
+};
+const advisor = (session) => ({ session, type: "stuck-advisor" });
 
 // Transcript builders
 let n = 0;
-const user = (text) => ({ type: "user", message: { role: "user", content: text } });
-const meta = (text) => ({ type: "user", isMeta: true, message: { role: "user", content: text } });
-const use = (name, input = {}) => { const id = `t${++n}`; return [{ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } }, id]; };
-const result = (id, text, isError) => ({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: isError, content: text }] } });
-const failed = (name, text, input = { file_path: F }) => { const [a, id] = use(name, input); return [a, result(id, text, true)]; };
+const user = (text) => ({
+  type: "user",
+  message: { role: "user", content: text },
+});
+const meta = (text) => ({
+  type: "user",
+  isMeta: true,
+  message: { role: "user", content: text },
+});
+const use = (name, input = {}) => {
+  const id = `t${++n}`;
+  return [
+    {
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id, name, input }] },
+    },
+    id,
+  ];
+};
+const result = (id, text, isError) => ({
+  type: "user",
+  message: {
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: id,
+        is_error: isError,
+        content: text,
+      },
+    ],
+  },
+});
+const failed = (name, text, input = { file_path: F }) => {
+  const [a, id] = use(name, input);
+  return [a, result(id, text, true)];
+};
 const F = "/p/a.txt";
-const touched = (name, file) => { const [a, id] = use(name, { file_path: file }); return [a, result(id, "ok", false)]; };
-const many = (k, name, file) => Array.from({ length: k }, () => touched(name, file)).flat();
+const touched = (name, file) => {
+  const [a, id] = use(name, { file_path: file });
+  return [a, result(id, "ok", false)];
+};
+const many = (k, name, file) =>
+  Array.from({ length: k }, () => touched(name, file)).flat();
 
 let fileNo = 0;
 const transcript = (entries) => {
@@ -27,135 +89,1035 @@ const transcript = (entries) => {
   writeFileSync(p, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
   return p;
 };
-const run = (entries, tool, input, env = {}) => {
-  const transcript_path = entries === null ? join(DIR, "missing.jsonl") : transcript(entries);
+const run = (entries, tool, input, env = {}, session_id) => {
+  const transcript_path =
+    entries === null ? join(DIR, "missing.jsonl") : transcript(entries);
   return spawnSync(process.execPath, [HOOK], {
-    input: JSON.stringify({ transcript_path, tool_name: tool, tool_input: input }),
-    env: { ...process.env, ...BASE, ...env }, encoding: "utf8",
+    input: JSON.stringify({
+      transcript_path,
+      session_id,
+      tool_name: tool,
+      tool_input: input,
+    }),
+    env: { ...process.env, ...BASE, ...env },
+    encoding: "utf8",
   }).stdout;
 };
 
-const ERR = "File has been modified since read, either by the user or by a linter.";
+const ERR =
+  "File has been modified since read, either by the user or by a linter.";
 const EDIT = ["Edit", { file_path: F }];
 const BASH = ["Bash", { command: "ls" }];
 const MISSING = "File does not exist.";
-const missing = (i) => failed("Read", MISSING, { file_path: `/p/missing${i}.txt` });
+const missing = (i) =>
+  failed("Read", MISSING, { file_path: `/p/missing${i}.txt` });
 const cases = [
-  ["three reads of different missing files, then Bash: passes", () => run([user("go"), ...missing(1), ...missing(2), ...missing(3)], ...BASH), false],
-  ["three reads of different missing files, then a Read of another file: passes", () => run([user("go"), ...missing(1), ...missing(2), ...missing(3)], "Read", { file_path: "/p/other.txt" }), false],
-  ["three failed edits of one file, then a Read of that file: passes", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], "Read", { file_path: F }), false],
-  ["three failed edits of one file, then an edit of another file: passes", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], "Edit", { file_path: "/p/b.txt" }), false],
-  ["three failed edits of one file, then a Bash command: passes", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...BASH), false],
-  ["three failed edits of one file, then a 4th edit of it: denied", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT), "deny"],
-  ["three times the same failing Bash command, then the same command: denied", () => run([user("go"), ...[1, 2, 3].flatMap(() => failed("Bash", "boom", { command: "ls" }))], ...BASH), "deny"],
-  ["three times the same failing Bash command, then a different command: passes", () => run([user("go"), ...[1, 2, 3].flatMap(() => failed("Bash", "boom", { command: "ls" }))], "Bash", { command: "pwd" }), false],
-  ["three failed edits of different files with the same error, then an edit of the first: passes", () => run([user("go"), ...failed("Edit", ERR, { file_path: "/p/1" }), ...failed("Edit", ERR, { file_path: "/p/2" }), ...failed("Edit", ERR, { file_path: "/p/3" })], "Edit", { file_path: "/p/1" }), false],
-  ["three identical errors from one tool: denied", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT), "permissionDecision\":\"deny"],
-  ["the denial message names the error", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT), "File has been modified"],
-  ["two identical errors: passes", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT), false],
-  ["three errors with different text: passes", () => run([user("go"), ...failed("Edit", "one"), ...failed("Edit", "two"), ...failed("Edit", "three")], ...EDIT), false],
-  ["three identical errors from different tools: passes", () => run([user("go"), ...failed("Edit", ERR), ...failed("Write", ERR), ...failed("Read", ERR)], ...EDIT), false],
-  ["a success among the last three: passes", () => run([user("go"), ...failed("Edit", ERR), ...touched("Edit", F), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT), false],
-  ["errors differing only after 80 characters: denied", () => run([user("go"), ...["a", "b", "c"].flatMap((s) => failed("Edit", "x".repeat(80) + s))], ...EDIT), "deny"],
-  ["three identical errors before the last user message, none after: passes", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR), user("next")], ...EDIT), false],
-  ["a meta user line does not start a new turn: denied", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), meta("note"), ...failed("Edit", ERR)], ...EDIT), "deny"],
-  ["errors are counted with is_error only: three identical non-errors pass", () => run([user("go"), ...Array.from({ length: 3 }, () => { const [a, id] = use("Edit"); return [a, result(id, ERR, false)]; }).flat()], ...EDIT), false],
-  ["5th edit of one file: passes with no output", () => run([user("go"), ...many(4, "Edit", F)], "Edit", { file_path: F }), false],
-  ["6th edit of one file: reminder", () => run([user("go"), ...many(5, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
-  ["6th edit counts Write too: reminder", () => run([user("go"), ...many(3, "Edit", F), ...many(2, "Write", F)], "Write", { file_path: F }), "additionalContext"],
-  ["the reminder does not refuse", () => run([user("go"), ...many(5, "Edit", F)], "Edit", { file_path: F }), (o) => !o.includes("deny")],
-  ["7th edit: no output", () => run([user("go"), ...many(6, "Edit", F)], "Edit", { file_path: F }), false],
-  ["edits spread over different files: no output", () => run([user("go"), ...[1, 2, 3, 4, 5, 6].flatMap((i) => touched("Edit", `/p/f${i}.txt`))], "Edit", { file_path: "/p/f7.txt" }), false],
-  ["edits before the last user message do not count", () => run([user("go"), ...many(5, "Edit", F), user("next")], "Edit", { file_path: F }), false],
-  ["3 reads: no output", () => run([user("go"), ...many(2, "Read", F)], "Read", { file_path: F }), false],
-  ["4th read of one file: reminder", () => run([user("go"), ...many(3, "Read", F)], "Read", { file_path: F }), "already in the conversation"],
-  ["5th read: no output", () => run([user("go"), ...many(4, "Read", F)], "Read", { file_path: F }), false],
-  ["same call 5th time (no file): note", () => run([user("go"), ...Array.from({ length: 4 }, () => { const [c, id] = use("Bash", { command: "npm test" }); return [c, result(id, "ok", false)]; }).flat()], "Bash", { command: "npm test" }), "identical Bash call"],
-  ["same call 4th time: no output", () => run([user("go"), ...Array.from({ length: 3 }, () => { const [c, id] = use("Bash", { command: "npm test" }); return [c, result(id, "ok", false)]; }).flat()], "Bash", { command: "npm test" }), false],
-  ["same call 5th time with other input: no output", () => run([user("go"), ...Array.from({ length: 4 }, () => { const [c, id] = use("Bash", { command: "npm test" }); return [c, result(id, "ok", false)]; }).flat()], "Bash", { command: "npm run build" }), false],
-  ["same calls before the user's message do not count", () => run([...Array.from({ length: 4 }, () => { const [c, id] = use("Bash", { command: "npm test" }); return [c, result(id, "ok", false)]; }).flat(), user("go")], "Bash", { command: "npm test" }), false],
-  ["reads do not count as edits", () => run([user("go"), ...many(5, "Read", F)], "Edit", { file_path: F }), false],
-  ["REPEAT_GUARD=off: no output", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT, { REPEAT_GUARD: "off" }), false],
+  [
+    "three reads of different missing files, then Bash: passes",
+    () =>
+      run([user("go"), ...missing(1), ...missing(2), ...missing(3)], ...BASH),
+    false,
+  ],
+  [
+    "three reads of different missing files, then a Read of another file: passes",
+    () =>
+      run([user("go"), ...missing(1), ...missing(2), ...missing(3)], "Read", {
+        file_path: "/p/other.txt",
+      }),
+    false,
+  ],
+  [
+    "three failed edits of one file, then a Read of that file: passes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        "Read",
+        { file_path: F },
+      ),
+    false,
+  ],
+  [
+    "three failed edits of one file, then an edit of another file: passes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        "Edit",
+        { file_path: "/p/b.txt" },
+      ),
+    false,
+  ],
+  [
+    "three failed edits of one file, then a Bash command: passes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...BASH,
+      ),
+    false,
+  ],
+  [
+    "three failed edits of one file, then a 4th edit of it: denied",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    "deny",
+  ],
+  [
+    "three times the same failing Bash command, then the same command: denied",
+    () =>
+      run(
+        [
+          user("go"),
+          ...[1, 2, 3].flatMap(() => failed("Bash", "boom", { command: "ls" })),
+        ],
+        ...BASH,
+      ),
+    "deny",
+  ],
+  [
+    "three times the same failing Bash command, then a different command: passes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...[1, 2, 3].flatMap(() => failed("Bash", "boom", { command: "ls" })),
+        ],
+        "Bash",
+        { command: "pwd" },
+      ),
+    false,
+  ],
+  [
+    "three failed edits of different files with the same error, then an edit of the first: passes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR, { file_path: "/p/1" }),
+          ...failed("Edit", ERR, { file_path: "/p/2" }),
+          ...failed("Edit", ERR, { file_path: "/p/3" }),
+        ],
+        "Edit",
+        { file_path: "/p/1" },
+      ),
+    false,
+  ],
+  [
+    "three identical errors from one tool: denied",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    'permissionDecision":"deny',
+  ],
+  [
+    "the denial message names the error",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    "File has been modified",
+  ],
+  // Two identical errors used to pass with no output; since the stuck advisor (SA1) the retry passes with a note
+  [
+    "two identical errors: passes, not refused",
+    () =>
+      run(
+        [user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)],
+        ...EDIT,
+      ),
+    (o) => !o.includes("deny"),
+  ],
+  [
+    "second identical error: a note that names the stuck-advisor",
+    () =>
+      run(
+        [user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)],
+        ...EDIT,
+        {},
+        "s1",
+      ),
+    (o) =>
+      o.includes("additionalContext") &&
+      o.includes("came back 2 times") &&
+      o.includes("call the stuck-advisor agent (3 of 3 calls left"),
+  ],
+  [
+    "one identical error: no note",
+    () => run([user("go"), ...failed("Edit", ERR)], ...EDIT),
+    false,
+  ],
+  [
+    "two identical errors, then a call with another target: no note",
+    () =>
+      run(
+        [user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)],
+        "Edit",
+        { file_path: "/p/b.txt" },
+      ),
+    false,
+  ],
+  [
+    "two identical errors and the 6th edit of the file: both notes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...many(3, "Edit", F),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    (o) => o.includes("stuck-advisor") && o.includes("in one edit"),
+  ],
+  [
+    "REPEAT_GUARD_ERRORS=2: no note on the first error",
+    () =>
+      run([user("go"), ...failed("Edit", ERR)], ...EDIT, {
+        REPEAT_GUARD_ERRORS: "2",
+      }),
+    false,
+  ],
+  [
+    "third identical error: the refusal names the stuck-advisor",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+        {},
+        "s1",
+      ),
+    (o) =>
+      o.includes("deny") &&
+      o.includes("call the stuck-advisor agent (3 of 3 calls left") &&
+      o.includes("Else ask the user in a form"),
+  ],
+  [
+    "one stuck-advisor call logged for this session: 2 of 3 left",
+    () =>
+      run(
+        [user("go"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
+        ...EDIT,
+        runLog([advisor("s1"), { session: "s1", type: "worker" }]),
+        "s1",
+      ),
+    "2 of 3 calls left",
+  ],
+  [
+    "stuck-advisor calls of another session don't count",
+    () =>
+      run(
+        [user("go"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
+        ...EDIT,
+        runLog([advisor("s2"), advisor("s2"), advisor("s2")]),
+        "s1",
+      ),
+    "3 of 3 calls left",
+  ],
+  [
+    "three stuck-advisor calls used: the refusal asks the user instead",
+    () =>
+      run(
+        [user("go"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
+        ...EDIT,
+        runLog([advisor("s1"), advisor("s1"), advisor("s1")]),
+        "s1",
+      ),
+    (o) =>
+      o.includes("deny") &&
+      o.includes("ask the user in a form") &&
+      !o.includes("call the stuck-advisor agent"),
+  ],
+  [
+    "three stuck-advisor calls used: the second-error note asks the user instead",
+    () =>
+      run(
+        [user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)],
+        ...EDIT,
+        runLog([advisor("s1"), advisor("s1"), advisor("s1")]),
+        "s1",
+      ),
+    (o) =>
+      o.includes("ask the user in a form") &&
+      !o.includes("call the stuck-advisor agent"),
+  ],
+  [
+    "a result line with no description is not a call",
+    () =>
+      run(
+        [user("go"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
+        ...EDIT,
+        runLog([
+          { session: "s1", type: "stuck-advisor", description: undefined },
+        ]),
+        "s1",
+      ),
+    "3 of 3 calls left",
+  ],
+  [
+    "three errors with different text: passes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", "one"),
+          ...failed("Edit", "two"),
+          ...failed("Edit", "three"),
+        ],
+        ...EDIT,
+      ),
+    false,
+  ],
+  [
+    "three identical errors from different tools: passes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Write", ERR),
+          ...failed("Read", ERR),
+        ],
+        ...EDIT,
+      ),
+    false,
+  ],
+  // Its last two results are the same error, so since SA1 it gets the second-error note; what this case checks is no refusal
+  [
+    "a success among the last three: passes, not refused",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...touched("Edit", F),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    (o) => !o.includes("deny"),
+  ],
+  [
+    "errors differing only after 80 characters: denied",
+    () =>
+      run(
+        [
+          user("go"),
+          ...["a", "b", "c"].flatMap((s) => failed("Edit", "x".repeat(80) + s)),
+        ],
+        ...EDIT,
+      ),
+    "deny",
+  ],
+  [
+    "three identical errors before the last user message, none after: passes",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          user("next"),
+        ],
+        ...EDIT,
+      ),
+    false,
+  ],
+  [
+    "a meta user line does not start a new turn: denied",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          meta("note"),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    "deny",
+  ],
+  [
+    "errors are counted with is_error only: three identical non-errors pass",
+    () =>
+      run(
+        [
+          user("go"),
+          ...Array.from({ length: 3 }, () => {
+            const [a, id] = use("Edit");
+            return [a, result(id, ERR, false)];
+          }).flat(),
+        ],
+        ...EDIT,
+      ),
+    false,
+  ],
+  [
+    "5th edit of one file: passes with no output",
+    () => run([user("go"), ...many(4, "Edit", F)], "Edit", { file_path: F }),
+    false,
+  ],
+  [
+    "6th edit of one file: reminder",
+    () => run([user("go"), ...many(5, "Edit", F)], "Edit", { file_path: F }),
+    "in one edit",
+  ],
+  [
+    "6th edit counts Write too: reminder",
+    () =>
+      run(
+        [user("go"), ...many(3, "Edit", F), ...many(2, "Write", F)],
+        "Write",
+        { file_path: F },
+      ),
+    "additionalContext",
+  ],
+  [
+    "the reminder does not refuse",
+    () => run([user("go"), ...many(5, "Edit", F)], "Edit", { file_path: F }),
+    (o) => !o.includes("deny"),
+  ],
+  [
+    "7th edit: no output",
+    () => run([user("go"), ...many(6, "Edit", F)], "Edit", { file_path: F }),
+    false,
+  ],
+  [
+    "edits spread over different files: no output",
+    () =>
+      run(
+        [
+          user("go"),
+          ...[1, 2, 3, 4, 5, 6].flatMap((i) => touched("Edit", `/p/f${i}.txt`)),
+        ],
+        "Edit",
+        { file_path: "/p/f7.txt" },
+      ),
+    false,
+  ],
+  [
+    "edits before the last user message do not count",
+    () =>
+      run([user("go"), ...many(5, "Edit", F), user("next")], "Edit", {
+        file_path: F,
+      }),
+    false,
+  ],
+  [
+    "3 reads: no output",
+    () => run([user("go"), ...many(2, "Read", F)], "Read", { file_path: F }),
+    false,
+  ],
+  [
+    "4th read of one file: reminder",
+    () => run([user("go"), ...many(3, "Read", F)], "Read", { file_path: F }),
+    "already in the conversation",
+  ],
+  [
+    "5th read: no output",
+    () => run([user("go"), ...many(4, "Read", F)], "Read", { file_path: F }),
+    false,
+  ],
+  [
+    "same call 5th time (no file): note",
+    () =>
+      run(
+        [
+          user("go"),
+          ...Array.from({ length: 4 }, () => {
+            const [c, id] = use("Bash", { command: "npm test" });
+            return [c, result(id, "ok", false)];
+          }).flat(),
+        ],
+        "Bash",
+        { command: "npm test" },
+      ),
+    "identical Bash call",
+  ],
+  [
+    "same call 4th time: no output",
+    () =>
+      run(
+        [
+          user("go"),
+          ...Array.from({ length: 3 }, () => {
+            const [c, id] = use("Bash", { command: "npm test" });
+            return [c, result(id, "ok", false)];
+          }).flat(),
+        ],
+        "Bash",
+        { command: "npm test" },
+      ),
+    false,
+  ],
+  [
+    "same call 5th time with other input: no output",
+    () =>
+      run(
+        [
+          user("go"),
+          ...Array.from({ length: 4 }, () => {
+            const [c, id] = use("Bash", { command: "npm test" });
+            return [c, result(id, "ok", false)];
+          }).flat(),
+        ],
+        "Bash",
+        { command: "npm run build" },
+      ),
+    false,
+  ],
+  [
+    "same calls before the user's message do not count",
+    () =>
+      run(
+        [
+          ...Array.from({ length: 4 }, () => {
+            const [c, id] = use("Bash", { command: "npm test" });
+            return [c, result(id, "ok", false)];
+          }).flat(),
+          user("go"),
+        ],
+        "Bash",
+        { command: "npm test" },
+      ),
+    false,
+  ],
+  [
+    "reads do not count as edits",
+    () => run([user("go"), ...many(5, "Read", F)], "Edit", { file_path: F }),
+    false,
+  ],
+  [
+    "REPEAT_GUARD=off: no output",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+        { REPEAT_GUARD: "off" },
+      ),
+    false,
+  ],
   ["missing transcript: no output", () => run(null, ...EDIT), false],
-  ["bad JSON on stdin: no output", () => spawnSync(process.execPath, [HOOK], { input: "not json", env: { ...process.env, ...BASE }, encoding: "utf8" }).stdout, false],
-  ["unreadable line in the transcript is skipped", () => {
-    const p = join(DIR, "bad.jsonl");
-    writeFileSync(p, [JSON.stringify(user("go")), "{broken", ...[1, 2, 3].flatMap(() => failed("Edit", ERR)).map((e) => JSON.stringify(e))].join("\n"));
-    return spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ transcript_path: p, tool_name: "Edit", tool_input: { file_path: F } }), env: { ...process.env, ...BASE }, encoding: "utf8" }).stdout;
-  }, "deny"],
-  ["REPEAT_GUARD_ERRORS=2: two errors denied", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT, { REPEAT_GUARD_ERRORS: "2" }), "deny"],
-  ["REPEAT_GUARD_EDITS=3: 3rd edit reminded", () => run([user("go"), ...many(2, "Edit", F)], "Edit", { file_path: F }, { REPEAT_GUARD_EDITS: "3" }), "additionalContext"],
-  ["REPEAT_GUARD_READS=2: 2nd read reminded", () => run([user("go"), ...many(1, "Read", F)], "Read", { file_path: F }, { REPEAT_GUARD_READS: "2" }), "additionalContext"],
-  ["only the tail is read: a huge transcript still works", () => {
-    const filler = { type: "assistant", message: { content: [{ type: "text", text: "y".repeat(2000) }] } };
-    return run([user("go"), ...Array.from({ length: 500 }, () => filler), ...many(5, "Edit", F)], "Edit", { file_path: F });
-  }, "additionalContext"],
-  ["a long turn (3 MB of pictures after the user message) still counts its edits from the start", () => {
-    const pic = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "none", content: "p".repeat(1_000_000) }] } };
-    return run([user("go"), ...many(5, "Edit", F), pic, pic, pic], "Edit", { file_path: F });
-  }, "in one edit"],
-  ["a long turn: three identical errors before 3 MB of pictures are no longer the last three: passes", () => {
-    const pic = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "none", content: "p".repeat(1_000_000) }] } };
-    return run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), pic, pic, pic, ...failed("Edit", ERR)], ...EDIT);
-  }, false],
-  ["a 3 MB line before the last user message: the turn still ends there", () => {
-    const pic = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "none", content: "p".repeat(3_000_000) }] } };
-    return run([user("go"), ...many(5, "Edit", F), pic, user("next"), ...many(1, "Edit", F)], "Edit", { file_path: F });
-  }, false],
-  ["a <task-notification> user line does not reset the count: 6th edit reminded", () => run([user("go"), ...many(3, "Edit", F), user("<task-notification>\n<task-id>x</task-id></task-notification>"), ...many(2, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
-  ["a [System: background task user line does not reset the count: 6th edit reminded", () => run([user("go"), ...many(3, "Edit", F), user("[System: background task finished]"), ...many(2, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
-  ["a notification inside three identical errors does not reset them: denied", () => run([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), user("<task-notification>done</task-notification>"), ...failed("Edit", ERR)], ...EDIT), "deny"],
-  ["a notification as a content block of text does not reset the count either", () => run([user("go"), ...many(5, "Edit", F), { type: "user", message: { role: "user", content: [{ type: "text", text: "<task-notification>x</task-notification>" }] } }], "Edit", { file_path: F }), "in one edit"],
+  [
+    "bad JSON on stdin: no output",
+    () =>
+      spawnSync(process.execPath, [HOOK], {
+        input: "not json",
+        env: { ...process.env, ...BASE },
+        encoding: "utf8",
+      }).stdout,
+    false,
+  ],
+  [
+    "unreadable line in the transcript is skipped",
+    () => {
+      const p = join(DIR, "bad.jsonl");
+      writeFileSync(
+        p,
+        [
+          JSON.stringify(user("go")),
+          "{broken",
+          ...[1, 2, 3]
+            .flatMap(() => failed("Edit", ERR))
+            .map((e) => JSON.stringify(e)),
+        ].join("\n"),
+      );
+      return spawnSync(process.execPath, [HOOK], {
+        input: JSON.stringify({
+          transcript_path: p,
+          tool_name: "Edit",
+          tool_input: { file_path: F },
+        }),
+        env: { ...process.env, ...BASE },
+        encoding: "utf8",
+      }).stdout;
+    },
+    "deny",
+  ],
+  [
+    "REPEAT_GUARD_ERRORS=2: two errors denied",
+    () =>
+      run(
+        [user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)],
+        ...EDIT,
+        { REPEAT_GUARD_ERRORS: "2" },
+      ),
+    "deny",
+  ],
+  [
+    "REPEAT_GUARD_EDITS=3: 3rd edit reminded",
+    () =>
+      run(
+        [user("go"), ...many(2, "Edit", F)],
+        "Edit",
+        { file_path: F },
+        { REPEAT_GUARD_EDITS: "3" },
+      ),
+    "additionalContext",
+  ],
+  [
+    "REPEAT_GUARD_READS=2: 2nd read reminded",
+    () =>
+      run(
+        [user("go"), ...many(1, "Read", F)],
+        "Read",
+        { file_path: F },
+        { REPEAT_GUARD_READS: "2" },
+      ),
+    "additionalContext",
+  ],
+  [
+    "only the tail is read: a huge transcript still works",
+    () => {
+      const filler = {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "y".repeat(2000) }] },
+      };
+      return run(
+        [
+          user("go"),
+          ...Array.from({ length: 500 }, () => filler),
+          ...many(5, "Edit", F),
+        ],
+        "Edit",
+        { file_path: F },
+      );
+    },
+    "additionalContext",
+  ],
+  [
+    "a long turn (3 MB of pictures after the user message) still counts its edits from the start",
+    () => {
+      const pic = {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "none",
+              content: "p".repeat(1_000_000),
+            },
+          ],
+        },
+      };
+      return run([user("go"), ...many(5, "Edit", F), pic, pic, pic], "Edit", {
+        file_path: F,
+      });
+    },
+    "in one edit",
+  ],
+  [
+    "a long turn: three identical errors before 3 MB of pictures are no longer the last three: passes",
+    () => {
+      const pic = {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "none",
+              content: "p".repeat(1_000_000),
+            },
+          ],
+        },
+      };
+      return run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          pic,
+          pic,
+          pic,
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      );
+    },
+    false,
+  ],
+  [
+    "a 3 MB line before the last user message: the turn still ends there",
+    () => {
+      const pic = {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "none",
+              content: "p".repeat(3_000_000),
+            },
+          ],
+        },
+      };
+      return run(
+        [
+          user("go"),
+          ...many(5, "Edit", F),
+          pic,
+          user("next"),
+          ...many(1, "Edit", F),
+        ],
+        "Edit",
+        { file_path: F },
+      );
+    },
+    false,
+  ],
+  [
+    "a <task-notification> user line does not reset the count: 6th edit reminded",
+    () =>
+      run(
+        [
+          user("go"),
+          ...many(3, "Edit", F),
+          user("<task-notification>\n<task-id>x</task-id></task-notification>"),
+          ...many(2, "Edit", F),
+        ],
+        "Edit",
+        { file_path: F },
+      ),
+    "in one edit",
+  ],
+  [
+    "a [System: background task user line does not reset the count: 6th edit reminded",
+    () =>
+      run(
+        [
+          user("go"),
+          ...many(3, "Edit", F),
+          user("[System: background task finished]"),
+          ...many(2, "Edit", F),
+        ],
+        "Edit",
+        { file_path: F },
+      ),
+    "in one edit",
+  ],
+  [
+    "a notification inside three identical errors does not reset them: denied",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          user("<task-notification>done</task-notification>"),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    "deny",
+  ],
+  [
+    "a notification as a content block of text does not reset the count either",
+    () =>
+      run(
+        [
+          user("go"),
+          ...many(5, "Edit", F),
+          {
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "<task-notification>x</task-notification>",
+                },
+              ],
+            },
+          },
+        ],
+        "Edit",
+        { file_path: F },
+      ),
+    "in one edit",
+  ],
   // Subagents: the hook gets the main transcript_path plus agent_id; the subagent's lines are in subagents/agent-<id>.jsonl
-  ["subagent: three errors in the main thread do not refuse the subagent's same call", () => helper([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], [user("brief")], ...EDIT), false],
-  ["subagent: its own three identical errors refuse its retry", () => helper([user("go")], [user("brief"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], ...EDIT), "deny"],
-  ["subagent: its own 6th edit of one file is reminded", () => helper([user("go")], [user("brief"), ...many(5, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
-  ["subagent: transcript_path already agent-*.jsonl is read as it is", () => {
-    const p = join(DIR, "agent-direct.jsonl");
-    writeFileSync(p, [user("brief"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)].map((e) => JSON.stringify({ ...e, isSidechain: true })).join("\n") + "\n");
-    return spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ transcript_path: p, agent_id: "direct", tool_name: "Edit", tool_input: { file_path: F } }), env: { ...process.env, ...BASE }, encoding: "utf8" }).stdout;
-  }, "deny"],
-  ["worker at 70 turns: told to finish and report", () => nearCap("worker", 70), "close to your limit"],
+  [
+    "subagent: three errors in the main thread do not refuse the subagent's same call",
+    () =>
+      helper(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        [user("brief")],
+        ...EDIT,
+      ),
+    false,
+  ],
+  [
+    "subagent: its own three identical errors refuse its retry",
+    () =>
+      helper(
+        [user("go")],
+        [
+          user("brief"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    "deny",
+  ],
+  [
+    "subagent: its second identical error says to report BLOCKED, not to call the advisor",
+    () =>
+      helper(
+        [user("go")],
+        [user("brief"), ...failed("Edit", ERR), ...failed("Edit", ERR)],
+        ...EDIT,
+      ),
+    (o) =>
+      o.includes("additionalContext") &&
+      o.includes("BLOCKED") &&
+      !o.includes("call the stuck-advisor agent"),
+  ],
+  [
+    "subagent: its refusal says to report BLOCKED",
+    () =>
+      helper(
+        [user("go")],
+        [user("brief"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
+        ...EDIT,
+      ),
+    (o) =>
+      o.includes("deny") &&
+      o.includes("BLOCKED") &&
+      !o.includes("call the stuck-advisor agent"),
+  ],
+  [
+    "stuck-advisor at 18 turns: told to finish and report",
+    () => nearCap("stuck-advisor", 18),
+    "close to your limit",
+  ],
+  [
+    "stuck-advisor at 17 turns: nothing (cap 20)",
+    () => nearCap("stuck-advisor", 17),
+    false,
+  ],
+  [
+    "subagent: its own 6th edit of one file is reminded",
+    () =>
+      helper([user("go")], [user("brief"), ...many(5, "Edit", F)], "Edit", {
+        file_path: F,
+      }),
+    "in one edit",
+  ],
+  [
+    "subagent: transcript_path already agent-*.jsonl is read as it is",
+    () => {
+      const p = join(DIR, "agent-direct.jsonl");
+      writeFileSync(
+        p,
+        [
+          user("brief"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ]
+          .map((e) => JSON.stringify({ ...e, isSidechain: true }))
+          .join("\n") + "\n",
+      );
+      return spawnSync(process.execPath, [HOOK], {
+        input: JSON.stringify({
+          transcript_path: p,
+          agent_id: "direct",
+          tool_name: "Edit",
+          tool_input: { file_path: F },
+        }),
+        env: { ...process.env, ...BASE },
+        encoding: "utf8",
+      }).stdout;
+    },
+    "deny",
+  ],
+  [
+    "worker at 70 turns: told to finish and report",
+    () => nearCap("worker", 70),
+    "close to your limit",
+  ],
   ["worker at 69 turns: nothing", () => nearCap("worker", 69), false],
-  ["worker-high at 70 turns: told to finish and report", () => nearCap("worker-high", 70), "close to your limit"],
-  ["worker-high at 69 turns: nothing", () => nearCap("worker-high", 69), false],
-  ["worker-code at 70 turns: told to finish and report", () => nearCap("worker-code", 70), "close to your limit"],
-  ["a compaction doesn't restart the count", () => nearCap("worker", 70, 1, 30), "close to your limit"],
-  ["reviewer at 54 turns: told to finish and report", () => nearCap("reviewer", 54), "close to your limit"],
-  ["reviewer at 53 turns: nothing (it reads every changed file whole)", () => nearCap("reviewer", 53), false],
-  ["reviewer, brief of 10 files, at 40 turns: nothing (no file-count budget)", () => nearCap("reviewer", 40, 1, -1, "this work changed 10 code files (a.js)"), false],
-  ["a worker's brief with a file count doesn't change its limit", () => nearCap("worker", 69, 1, -1, "change 30 files"), false],
-  ["planner at 35 turns: nothing (cap 40)", () => nearCap("planner", 35), false],
-  ["planner at 36 turns: told to finish and report", () => nearCap("planner", 36), "close to your limit"],
-  ["plan-reviewer at 35 turns: nothing (cap 40)", () => nearCap("plan-reviewer", 35), false],
-  ["plan-reviewer at 36 turns: told to finish and report", () => nearCap("plan-reviewer", 36), "close to your limit"],
-  ["rec-check at 6 turns: told to finish and report", () => nearCap("rec-check", 6), "close to your limit"],
+  [
+    "worker-refactor at 70 turns: told to finish and report",
+    () => nearCap("worker-refactor", 70),
+    "close to your limit",
+  ],
+  ["worker-refactor at 69 turns: nothing", () => nearCap("worker-refactor", 69), false],
+  [
+    "worker-code at 70 turns: told to finish and report",
+    () => nearCap("worker-code", 70),
+    "close to your limit",
+  ],
+  [
+    "a compaction doesn't restart the count",
+    () => nearCap("worker", 70, 1, 30),
+    "close to your limit",
+  ],
+  [
+    "reviewer at 54 turns: told to finish and report",
+    () => nearCap("reviewer", 54),
+    "close to your limit",
+  ],
+  [
+    "reviewer at 53 turns: nothing (it reads every changed file whole)",
+    () => nearCap("reviewer", 53),
+    false,
+  ],
+  [
+    "reviewer, brief of 10 files, at 40 turns: nothing (no file-count budget)",
+    () =>
+      nearCap("reviewer", 40, 1, -1, "this work changed 10 code files (a.js)"),
+    false,
+  ],
+  [
+    "a worker's brief with a file count doesn't change its limit",
+    () => nearCap("worker", 69, 1, -1, "change 30 files"),
+    false,
+  ],
+  [
+    "planner at 35 turns: nothing (cap 40)",
+    () => nearCap("planner", 35),
+    false,
+  ],
+  [
+    "planner at 36 turns: told to finish and report",
+    () => nearCap("planner", 36),
+    "close to your limit",
+  ],
+  [
+    "plan-reviewer at 35 turns: nothing (cap 40)",
+    () => nearCap("plan-reviewer", 35),
+    false,
+  ],
+  [
+    "plan-reviewer at 36 turns: told to finish and report",
+    () => nearCap("plan-reviewer", 36),
+    "close to your limit",
+  ],
   ["an agent type with no cap: nothing", () => nearCap("other", 75), false],
-  ["several calls in one reply are one turn", () => nearCap("reviewer", 25, 2), false],
-  ["subagent: no subagent file: no output", () => helper([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], null, ...EDIT), false],
+  [
+    "several calls in one reply are one turn",
+    () => nearCap("reviewer", 25, 2),
+    false,
+  ],
+  [
+    "subagent: no subagent file: no output",
+    () =>
+      helper(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        null,
+        ...EDIT,
+      ),
+    false,
+  ],
 ];
 
 // Main transcript at DIR/s<n>.jsonl, the subagent's (every line isSidechain) at DIR/s<n>/subagents/agent-a1.jsonl
 function helper(mainEntries, subEntries, tool, input, agentType) {
   const main = join(DIR, `s${++fileNo}.jsonl`);
-  writeFileSync(main, mainEntries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(
+    main,
+    mainEntries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+  );
   if (subEntries) {
     const dir = join(DIR, `s${fileNo}`, "subagents");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "agent-a1.jsonl"), subEntries.map((e) => JSON.stringify({ ...e, isSidechain: true })).join("\n") + "\n");
-    if (agentType) writeFileSync(join(dir, "agent-a1.meta.json"), JSON.stringify({ agentType }));
+    writeFileSync(
+      join(dir, "agent-a1.jsonl"),
+      subEntries
+        .map((e) => JSON.stringify({ ...e, isSidechain: true }))
+        .join("\n") + "\n",
+    );
+    if (agentType)
+      writeFileSync(
+        join(dir, "agent-a1.meta.json"),
+        JSON.stringify({ agentType }),
+      );
   }
   return spawnSync(process.execPath, [HOOK], {
-    input: JSON.stringify({ transcript_path: main, agent_id: "a1", tool_name: tool, tool_input: input }),
-    env: { ...process.env, ...BASE }, encoding: "utf8",
+    input: JSON.stringify({
+      transcript_path: main,
+      agent_id: "a1",
+      tool_name: tool,
+      tool_input: input,
+    }),
+    env: { ...process.env, ...BASE },
+    encoding: "utf8",
   }).stdout;
 }
 
 // A helper's own transcript with one call per reply (or several) and the meta file Claude Code writes next to it
-function nearCap(type, calls, perReply = 1, compactAt = -1, brief = "the brief") {
+function nearCap(
+  type,
+  calls,
+  perReply = 1,
+  compactAt = -1,
+  brief = "the brief",
+) {
   const entries = [user(brief)];
   for (let i = 0; i < calls; i++) {
-    if (i === compactAt) entries.push({ ...user("the summary"), isCompactSummary: true });
+    if (i === compactAt)
+      entries.push({ ...user("the summary"), isCompactSummary: true });
     const [a, id] = use("Bash", { command: `c${i}` });
     a.message.id = `m${Math.floor(i / perReply)}`;
     entries.push(a, result(id, "ok", false));
@@ -166,9 +1128,16 @@ function nearCap(type, calls, perReply = 1, compactAt = -1, brief = "the brief")
 let failures = 0;
 for (const [name, go, expect] of cases) {
   const out = go();
-  const ok = expect === false ? !out : typeof expect === "function" ? expect(out) : out.includes(expect);
+  const ok =
+    expect === false
+      ? !out
+      : typeof expect === "function"
+        ? expect(out)
+        : out.includes(expect);
   if (!ok) failures++;
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `\n      got: ${out || "(no output)"}`}`);
+  console.log(
+    `${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `\n      got: ${out || "(no output)"}`}`,
+  );
 }
 rmSync(DIR, { recursive: true, force: true });
 console.log(`\n${cases.length - failures}/${cases.length} passed`);

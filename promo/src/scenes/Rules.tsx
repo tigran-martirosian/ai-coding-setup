@@ -9,8 +9,14 @@ import { Columns, Window } from "../ui";
 const RULES = [
   { name: "Lead with the answer.", gist: "The result first, details after." },
   { name: "Do the work yourself, fully.", gist: "Run it, open it, check it." },
-  { name: "Don't assume.", gist: "One question with options when the choice matters." },
-  { name: "Fix at the root.", gist: "A repeated mistake changes the rule that caused it." },
+  {
+    name: "Don't assume.",
+    gist: "One question with options when the choice matters.",
+  },
+  {
+    name: "Fix at the root.",
+    gist: "A repeated mistake changes the rule that caused it.",
+  },
 ] as const;
 
 const FILES = [
@@ -33,12 +39,23 @@ export const Rules: React.FC<SceneProps> = ({ durationInFrames }) => {
       durationInFrames={durationInFrames}
     >
       <Columns>
-        <Window title="~/.claude/CLAUDE.md" chip="EVERY SESSION" style={{ flex: 1 }}>
+        <Window
+          title="~/.claude/CLAUDE.md"
+          chip="EVERY SESSION"
+          style={{ flex: 1 }}
+        >
           {RULES.map((rule, i) => (
             <Appear key={rule.name} at={10 + i * 14}>
-              <div style={{ borderLeft: `4px solid ${color.sky}`, paddingLeft: 18 }}>
+              <div
+                style={{
+                  borderLeft: `4px solid ${color.sky}`,
+                  paddingLeft: 18,
+                }}
+              >
                 <div style={{ fontSize: 29, fontWeight: 700 }}>{rule.name}</div>
-                <div style={{ fontSize: 25, color: color.dim, marginTop: 2 }}>{rule.gist}</div>
+                <div style={{ fontSize: 25, color: color.dim, marginTop: 2 }}>
+                  {rule.gist}
+                </div>
               </div>
             </Appear>
           ))}
@@ -58,14 +75,26 @@ export const Rules: React.FC<SceneProps> = ({ durationInFrames }) => {
                   padding: "12px 18px",
                 }}
               >
-                <span style={{ fontFamily: mono, fontSize: 26, fontWeight: 600, width: 220 }}>{file.name}</span>
-                <span style={{ fontSize: 24, color: color.dim }}>{file.what}</span>
+                <span
+                  style={{
+                    fontFamily: mono,
+                    fontSize: 26,
+                    fontWeight: 600,
+                    width: 220,
+                  }}
+                >
+                  {file.name}
+                </span>
+                <span style={{ fontSize: 24, color: color.dim }}>
+                  {file.what}
+                </span>
               </div>
             </Appear>
           ))}
           <Appear at={CONFIRM_AT}>
             <div style={{ fontSize: 25, color: color.dim }}>
-              You: <span style={{ color: color.text }}>“Yes, keep Postgres.”</span>
+              You:{" "}
+              <span style={{ color: color.text }}>“Yes, keep Postgres.”</span>
             </div>
           </Appear>
           <Appear at={WRITE_AT}>

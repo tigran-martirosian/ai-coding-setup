@@ -22,7 +22,9 @@ const WEEK = 7 * DAY;
 const MAX_TRIES = 3;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAP_JS = path.join(HERE, "..", "skills", "systems-map", "map.mjs");
-const SKILL_MD = path.resolve(HERE, "..", "skills", "systems-map", "SKILL.md").replace(/\\/g, "/");
+const SKILL_MD = path
+  .resolve(HERE, "..", "skills", "systems-map", "SKILL.md")
+  .replace(/\\/g, "/");
 const STATE_FILE = stateFile("map-nudge", "projects");
 
 const worker = (what, dir) =>
@@ -32,15 +34,25 @@ const worker = (what, dir) =>
 const say = (text) => emit.context("UserPromptSubmit", text);
 
 runHook("map-nudge", async (event) => {
-  if (String(event.prompt ?? "").trim().startsWith("/")) return;
+  if (
+    String(event.prompt ?? "")
+      .trim()
+      .startsWith("/")
+  )
+    return;
   const project = process.env.CLAUDE_PROJECT_DIR;
   if (!project) return;
   const dir = path.resolve(project);
   const key = dir.replace(/\\/g, "/");
-  if (fs.statSync(path.join(dir, ".git"), { throwIfNoEntry: false })?.isFile()) return;
+  if (fs.statSync(path.join(dir, ".git"), { throwIfNoEntry: false })?.isFile())
+    return;
 
   let map = null;
-  try { map = loadMap(dir); } catch { return; } // a map file that does not read or parse is for --check, not for a nudge
+  try {
+    map = loadMap(dir);
+  } catch {
+    return;
+  } // a map file that does not read or parse is for --check, not for a nudge
   if (map && !(Array.isArray(map.nodes) && map.nodes.length)) return;
 
   const state = readJson(STATE_FILE) ?? {};
@@ -52,11 +64,20 @@ runHook("map-nudge", async (event) => {
   };
 
   if (!map) {
-    if ((rec.tries ?? 0) >= MAX_TRIES || (rec.nudgedAt && now - rec.nudgedAt < WEEK) || (rec.checkedAt && now - rec.checkedAt < DAY)) return;
+    if (
+      (rec.tries ?? 0) >= MAX_TRIES ||
+      (rec.nudgedAt && now - rec.nudgedAt < WEEK) ||
+      (rec.checkedAt && now - rec.checkedAt < DAY)
+    )
+      return;
     rec.checkedAt = now;
     save();
     let count = 0;
-    try { count = (await import(pathToFileURL(MAP_JS).href)).countCodeFiles(dir); } catch { return; } // not a git repository: no
+    try {
+      count = (await import(pathToFileURL(MAP_JS).href)).countCodeFiles(dir);
+    } catch {
+      return;
+    } // not a git repository: no
     if (count < MIN_CODE_FILES) return;
     rec.nudgedAt = now;
     rec.tries = (rec.tries ?? 0) + 1;

@@ -4,7 +4,7 @@ import { Claim } from "./Checks";
 import { Install } from "./Close";
 import { Usage } from "./Cost";
 import { Fade, Field } from "./kit";
-import { Compare, Title } from "./Open";
+import { Compare, Results, Title } from "./Open";
 import { Shot } from "./script";
 import { Also, Btw, SystemsMap } from "./Tools";
 
@@ -19,6 +19,7 @@ const VIEWS: Record<string, React.FC<{ shot: Shot }>> = {
   btw: Btw,
   compare: Compare,
   also: Also,
+  results: Results,
   install: Install,
 };
 

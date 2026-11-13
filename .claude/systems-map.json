@@ -37,7 +37,7 @@
     {
       "id": "code-review-gate",
       "name": "Automatic code review gate",
-      "what": "Asks for one reviewer agent after enough code files change in a session.",
+      "what": "Asks for a reviewer agent (split by part on a big job, with a blind-reviewer when a person will see the result) after enough code files change in a session.",
       "files": [
         "hooks/code-review-gate.mjs",
         "hooks/lib/review-evidence.mjs",
@@ -86,10 +86,12 @@
     {
       "id": "helper-brief-gates",
       "name": "Helper brief gates",
-      "what": "PreToolUse and PostToolUse checks on subagent calls: budget, quoted decisions, context size, a helper that stopped cut or empty, and the planner's read-only shell.",
+      "what": "PreToolUse and PostToolUse checks on subagent calls: budget, quoted decisions, a plan row's Serves cell pasted into the brief, context size, a helper that stopped cut or empty, and the read-only shell of the planner, plan-reviewer and reviewer.",
       "files": [
         "hooks/budget-gate.mjs",
         "hooks/decided-quote.mjs",
+        "hooks/serves-brief.mjs",
+        "hooks/lib/serves.mjs",
         "hooks/worker-size.mjs",
         "hooks/helper-stopped.mjs",
         "hooks/planner-readonly.mjs"
@@ -97,16 +99,21 @@
       "group": "hooks",
       "words": [
         "budget.gate",
-        "helper-stopped"
+        "helper-stopped",
+        "serves-brief"
       ]
     },
     {
       "id": "command-guards",
       "name": "Shell command guards",
-      "what": "Hooks that read a Bash or PowerShell command or a big file read before it runs: explanation line, destructive SQL, slow pipes, read-only browser CLI, whole-file dumps, keys in a git push.",
+      "what": "Hooks that read a Bash or PowerShell command or a big file read before it runs: explanation line, destructive SQL, bulk deletes, long sleeps, drive-wide searches, big downloads sent to the range downloader, slow pipes, read-only browser CLI, whole-file dumps, keys in a git push.",
       "files": [
         "hooks/command-explain.mjs",
         "hooks/sql-guard.mjs",
+        "hooks/delete-guard.mjs",
+        "hooks/long-sleep-guard.mjs",
+        "hooks/find-guard.mjs",
+        "hooks/download-guard.mjs",
         "hooks/slow-output-gate.mjs",
         "hooks/opencli-readonly.mjs",
         "hooks/big-read-gate.mjs",
@@ -156,14 +163,31 @@
     {
       "id": "housekeeping-nudges",
       "name": "Housekeeping nudges",
-      "what": "One-line prompts to restart Nimbalyst, keep the patch list and point to skills.",
+      "what": "One-line prompts at a message or session start: the chat archive every 3 days, the patch list, new Claude Code experiments and feature flags, and facts past their recheck date.",
       "files": [
         "hooks/pc-tidy-nudge.mjs",
-        "hooks/patch-next.mjs"
+        "hooks/patch-next.mjs",
+        "hooks/experiment-alert.mjs",
+        "hooks/recheck-dates.mjs",
+        "tests/test-recheck-dates.mjs"
       ],
       "group": "hooks",
       "words": [
         "patch list"
+      ]
+    },
+    {
+      "id": "session-cleanup",
+      "name": "Session cleanup",
+      "what": "A session closes what it started (dev servers, watchers, headless browsers, background shells) when it ends and names the worktrees other or earlier sessions left in the project, never removing one; report mode until SESSION_CLEANUP=on.",
+      "files": [
+        "hooks/session-cleanup.mjs",
+        "tests/test-session-cleanup.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "session.cleanup",
+        "what a session opened"
       ]
     },
     {
@@ -175,6 +199,7 @@
         "hooks/map-drift.mjs",
         "hooks/map-generated.mjs",
         "hooks/map-nudge.mjs",
+        "hooks/map-prompt.mjs",
         "hooks/lib/map-file.mjs"
       ],
       "group": "map",
@@ -260,23 +285,9 @@
       ]
     },
     {
-      "id": "shared-usage",
-      "name": "Shared usage skill",
-      "what": "Splits plan usage between computers on one account.",
-      "files": [
-        "skills/shared-usage/SKILL.md",
-        "skills/shared-usage/logon-start.mjs",
-        "skills/setup-audit/scripts/shared-usage.mjs"
-      ],
-      "group": "usage",
-      "words": [
-        "shared usage"
-      ]
-    },
-    {
       "id": "handoff",
       "name": "Session handoff",
-      "what": "Writes a short brief of a session so work continues in a fresh one.",
+      "what": "Writes a short brief of a session so work continues in a fresh one; the session comes from CLAUDE_CODE_SESSION_ID (or --session), and the brief is built from that session's own transcript and summary.",
       "files": [
         "hooks/handoff-brief.mjs",
         "skills/handoff/SKILL.md"
@@ -336,6 +347,22 @@
       ]
     },
     {
+      "id": "update-project",
+      "name": "Project update pass",
+      "what": "/update-project brings one project folder up to the current setup, every change shown first, and stamps the folder as done at the pass level.",
+      "files": [
+        "skills/update-project/SKILL.md",
+        "skills/update-project/checks.md",
+        "skills/update-project/pass.mjs",
+        "tests/test-update-project.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "update-project",
+        "project pass"
+      ]
+    },
+    {
       "id": "installer-core",
       "name": "Installer core",
       "what": "install.mjs and its steps: the file helpers, the repo sources and the setup state it remembers.",
@@ -388,12 +415,10 @@
     {
       "id": "project-templates",
       "name": "Project templates",
-      "what": "Starter projects the installer places in the user's folders.",
+      "what": "Starter projects the installer places in the user's folders (claude-settings, quick-tasks), and the retired folders an update merges into quick-tasks.",
       "files": [
         "scripts/projects.mjs",
         "projects/homes.json",
-        "projects/ask-anything",
-        "projects/quick-tasks",
         "projects/claude-settings",
         "projects/shared"
       ],
@@ -420,19 +445,45 @@
       ]
     },
     {
+      "id": "nimbalyst-patcher",
+      "name": "Nimbalyst patcher",
+      "what": "Puts fixes into Nimbalyst's app.asar and takes them out again: status, apply, skip on a changed anchor, retire, restore. Tests point it at other program folders with NIMBALYST_PATCH_PROGRAM_DIRS. patches/updater-block.mjs turns Nimbalyst's own updater off: requiredFirst (applied before all others; without it no patch is applied), upstream: null (never retires), and a quit listener that reads staged.json from the delivery's data folder, logs to quit-hook.log and answers the quit word --ai-coding-setup-quit. patches/1944.mjs requires 1558; its upstream marker is `function answersPushedMessage(`. patches/ask-line.mjs rewrites the question block of Nimbalyst's built-in system prompt (a card only for a quick yes/no or pick-one; never retires). pin.json pins the Nimbalyst version the setup delivers and its patch list; deliver.mjs (Windows) downloads, checks, installs and patches the pinned version, with --off/--on and NIMBALYST_FOLLOW=off; restart.mjs closes Nimbalyst, installs, patches and reopens it.",
+      "files": [
+        "tools/nimbalyst-patch/patch.mjs",
+        "tools/nimbalyst-patch/patches/updater-block.mjs",
+        "tools/nimbalyst-patch/patches/1558.mjs",
+        "tools/nimbalyst-patch/patches/1792.mjs",
+        "tools/nimbalyst-patch/patches/1836.mjs",
+        "tools/nimbalyst-patch/patches/1944.mjs",
+        "tools/nimbalyst-patch/patches/ask-line.mjs",
+        "tools/nimbalyst-patch/pin.json",
+        "tools/nimbalyst-patch/deliver.mjs",
+        "tools/nimbalyst-patch/restart.mjs",
+        "tests/test-nimbalyst-patch.mjs",
+        "tests/test-nimbalyst-deliver.mjs",
+        "tests/test-nimbalyst-restart.mjs"
+      ],
+      "group": "installer",
+      "words": [
+        "nimbalyst-patch",
+        "app\\.asar"
+      ]
+    },
+    {
       "id": "helper-agents",
       "name": "Worker, reviewer and planner agents",
-      "what": "The agent definitions the main session hands work to, and the version checker worker.",
+      "what": "The agent definitions the main session hands work to, the stuck-advisor a stuck session asks, and the version checker worker.",
       "files": [
         "agents/worker.md",
         "agents/worker-full.md",
         "agents/worker-code.md",
-        "agents/worker-high.md",
+        "agents/worker-refactor.md",
         "agents/reviewer.md",
         "agents/planner.md",
         "agents/plan-reviewer.md",
-        "agents/rec-check.md",
-        "workers/versions.mjs"
+        "agents/stuck-advisor.md",
+        "workers/versions.mjs",
+        "workers/download.mjs"
       ],
       "group": "agents",
       "words": [
@@ -441,29 +492,29 @@
       ]
     },
     {
-      "id": "internet-search",
-      "name": "Internet search project",
-      "what": "A project with tools for reading Reddit, X and pages that refuse fetches.",
+      "id": "quick-tasks",
+      "name": "Quick tasks project",
+      "what": "The side-work folder for questions, finding things online and one-off file jobs: the finder skill and its link gate, and tools/peek.mjs, which reads pages in Nimbalyst's browser or Obscura and with --save keeps each page's whole text in a file.",
       "files": [
-        "projects/internet-search/CLAUDE.md",
-        "projects/internet-search/profile.md",
-        "projects/internet-search/tools"
+        "projects/quick-tasks"
       ],
       "group": "installer",
       "words": [
-        "internet.search"
+        "quick.tasks",
+        "internet.search",
+        "ask.anything",
+        "peek\\.mjs",
+        "finder"
       ]
     },
     {
       "id": "web-skills",
       "name": "Web research skills",
-      "what": "Skills for web research, signed-in sites and watching a page.",
+      "what": "Skills for web research (the page-reading ladder, cheapest step first) and signed-in sites.",
       "files": [
         "skills/web-research/SKILL.md",
         "skills/site-login/SKILL.md",
-        "skills/site-login/login.py",
-        "skills/watch/SKILL.md",
-        "skills/watch/watch.mjs"
+        "skills/site-login/login.py"
       ],
       "group": "skills",
       "words": [
@@ -639,17 +690,81 @@
       ]
     },
     {
-      "id": "blind-screen-review",
-      "name": "Blind screen review",
-      "what": "One reviewer ranks the flaws of a screen from screenshots only, the author fixes the serious ones.",
+      "id": "blind-reviewer",
+      "name": "Blind reviewer agent",
+      "what": "A reviewer that sees only what a person will see (screenshots, text, command output, docs), never the code or the chat, and ranks its flaws; it holds the screen checks of the retired blind-screen-review skill.",
       "files": [
-        "skills/blind-screen-review/SKILL.md",
-        "skills/blind-screen-review/rubric.md"
+        "agents/blind-reviewer.md"
+      ],
+      "group": "agents",
+      "words": [
+        "blind review",
+        "review the screen",
+        "blind-reviewer"
+      ]
+    },
+    {
+      "id": "watch",
+      "name": "Video watching (/watch)",
+      "what": "/watch turns a link or a video file into timed words and sheets of timed stills; with no subtitles, or when YouTube refuses them, it turns the sound into text on the computer (ffmpeg's whisper filter, else faster-whisper), long audio in pieces side by side.",
+      "files": [
+        "skills/watch/SKILL.md",
+        "skills/watch/watch.mjs",
+        "tests/test-watch.mjs"
       ],
       "group": "skills",
       "words": [
-        "blind review",
-        "review the screen"
+        "/watch",
+        "whisper",
+        "speech.to.text",
+        "subtitles"
+      ]
+    },
+    {
+      "id": "obscura",
+      "name": "Obscura headless browser",
+      "what": "The install puts one pinned Obscura release (SHA-256 checked) in ~/.claude/obscura (--obscura no leaves it out); peek.mjs reads with it when Nimbalyst's browser can't be reached or with --engine obscura; --uninstall removes the folder.",
+      "files": [
+        "scripts/obscura.mjs",
+        "tests/test-obscura.mjs"
+      ],
+      "group": "installer",
+      "words": [
+        "obscura",
+        "headless browser"
+      ]
+    },
+    {
+      "id": "install-opt-ins",
+      "name": "Install opt-ins (voice typing, backup)",
+      "what": "The first install's chat asks once about voice typing with Handy and the encrypted backup; install.mjs --handy and --backup only keep the answers in setup-state.json, and an update never asks voice typing again and asks the backup only while no answer is on record.",
+      "files": [
+        "docs/full-install.md"
+      ],
+      "group": "installer",
+      "words": [
+        "--handy",
+        "--backup",
+        "opt.in",
+        "voice typing",
+        "handy"
+      ]
+    },
+    {
+      "id": "backup",
+      "name": "Backup (/backup)",
+      "what": "Encrypted restic backup (pinned 0.19.1) of the Claude folder and picked project folders to the person's own Backblaze B2 storage, set up with a key that can't delete; runs when asked or daily or weekly, with a restore test before the schedule starts and monthly, and restores into a new folder.",
+      "files": [
+        "skills/backup/SKILL.md",
+        "workers/backup.mjs",
+        "tests/test-backup.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "/backup",
+        "restic",
+        "backblaze",
+        "backup\\.mjs"
       ]
     }
   ],
@@ -843,6 +958,22 @@
       ]
     },
     {
+      "from": "helper-brief-gates",
+      "to": "map-hooks",
+      "type": "uses",
+      "says": "serves-brief and map-brief build the same full brief (map lines, then Serves lines), because only one updatedInput per call is used.",
+      "evidence": [
+        {
+          "file": "hooks/serves-brief.mjs",
+          "token": "fullBrief"
+        },
+        {
+          "file": "hooks/map-brief.mjs",
+          "token": "fullBrief"
+        }
+      ]
+    },
+    {
       "from": "systems-map-skill",
       "to": "systems-map-extension",
       "type": "feeds",
@@ -923,18 +1054,6 @@
       ]
     },
     {
-      "from": "setup-audit",
-      "to": "shared-usage",
-      "type": "feeds",
-      "says": "Shared usage is a script of the audit skill.",
-      "evidence": [
-        {
-          "file": "skills/shared-usage/SKILL.md",
-          "token": "shared-usage"
-        }
-      ]
-    },
-    {
       "from": "handoff",
       "to": "hook-texts",
       "type": "uses",
@@ -995,6 +1114,38 @@
         {
           "file": "hooks/update-check.mjs",
           "token": "version.json"
+        }
+      ]
+    },
+    {
+      "from": "update-flow",
+      "to": "nimbalyst-patcher",
+      "type": "uses",
+      "says": "After a setup install the update starts deliver.mjs --stage and says its status in grey lines; /update-setup's restart card runs restart.mjs.",
+      "evidence": [
+        {
+          "file": "hooks/update-check.mjs",
+          "token": "deliver.mjs"
+        },
+        {
+          "file": "skills/update-setup/update.mjs",
+          "token": "deliver.mjs"
+        },
+        {
+          "file": "skills/update-setup/SKILL.md",
+          "token": "restart.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-wiring",
+      "to": "nimbalyst-patcher",
+      "type": "uses",
+      "says": "The uninstall puts Nimbalyst's original app.asar back through patch.mjs's restore, or prints the command when Nimbalyst runs.",
+      "evidence": [
+        {
+          "file": "scripts/uninstall.mjs",
+          "token": "tools/nimbalyst-patch/patch.mjs"
         }
       ]
     },
@@ -1096,18 +1247,22 @@
     },
     {
       "from": "project-templates",
-      "to": "internet-search",
+      "to": "quick-tasks",
       "type": "uses",
-      "says": "The internet-search project is one of the placed templates.",
+      "says": "quick-tasks is one of the placed templates; an update copies the notes of the retired ask-anything and internet-search folders into it and leaves those folders.",
       "evidence": [
         {
           "file": "projects/homes.json",
-          "token": "internet-search"
+          "token": "\"retired\""
+        },
+        {
+          "file": "scripts/projects.mjs",
+          "token": "retiredHomes"
         }
       ]
     },
     {
-      "from": "internet-search",
+      "from": "quick-tasks",
       "to": "command-guards",
       "type": "limits",
       "says": "The read-only browser hook protects the tools this project drives.",
@@ -1122,7 +1277,7 @@
       "from": "web-skills",
       "to": "command-guards",
       "type": "uses",
-      "says": "The site login and watch skills run browser commands the guards check.",
+      "says": "The site login skill runs browser commands the guards check.",
       "evidence": [
         {
           "file": "hooks/opencli-readonly.mjs",
@@ -1151,6 +1306,30 @@
         {
           "file": "hooks/pc-tidy-nudge.mjs",
           "token": "pc-tidy"
+        }
+      ]
+    },
+    {
+      "from": "context-cost-hooks",
+      "to": "workflow-skills",
+      "type": "limits",
+      "says": "job-done holds a session that claimed a plan row (lead reference, \"Claiming a row\": session <id>: <row>) to that one piece until it hands off.",
+      "evidence": [
+        {
+          "file": "skills/lead/reference.md",
+          "token": "This session's id starts with"
+        }
+      ]
+    },
+    {
+      "from": "context-cost-hooks",
+      "to": "handoff",
+      "type": "uses",
+      "says": "job-done's held turn end ends with the handoff skill; its step 3 has the new session claim its row with the id job-done gives.",
+      "evidence": [
+        {
+          "file": "skills/handoff/SKILL.md",
+          "token": "This session's id starts with"
         }
       ]
     },
@@ -1250,14 +1429,14 @@
       ]
     },
     {
-      "from": "blind-screen-review",
-      "to": "code-review-gate",
+      "from": "code-review-gate",
+      "to": "blind-reviewer",
       "type": "uses",
-      "says": "The code review gate counts a blind screen review as the review a change needs.",
+      "says": "When a person will see the result, the block asks for a blind-reviewer beside the reviewer.",
       "evidence": [
         {
-          "file": "hooks/lib/review-decide.mjs",
-          "token": "blind-screen-review"
+          "file": "hooks/code-review-gate.mjs",
+          "token": "blind-reviewer"
         }
       ]
     },
@@ -1294,6 +1473,162 @@
         {
           "file": "skills/update-setup/update.mjs",
           "token": "file-check.mjs"
+        }
+      ]
+    },
+    {
+      "from": "context-cost-hooks",
+      "to": "helper-agents",
+      "type": "uses",
+      "says": "repeat-guard names the stuck-advisor after a second identical error and warns each agent near its turn cap.",
+      "evidence": [
+        {
+          "file": "hooks/repeat-guard.mjs",
+          "token": "stuck-advisor"
+        }
+      ]
+    },
+    {
+      "from": "session-cleanup",
+      "to": "context-cost-hooks",
+      "type": "uses",
+      "says": "Copies background-tasks SERVER pattern of commands that do not end by themselves.",
+      "evidence": [
+        {
+          "file": "hooks/session-cleanup.mjs",
+          "token": "SERVER"
+        }
+      ]
+    },
+    {
+      "from": "update-project",
+      "to": "housekeeping-nudges",
+      "type": "uses",
+      "says": "Check P9 lists the dated facts with recheck-dates --list.",
+      "evidence": [
+        {
+          "file": "skills/update-project/pass.mjs",
+          "token": "recheck-dates.mjs"
+        }
+      ]
+    },
+    {
+      "from": "update-flow",
+      "to": "update-project",
+      "type": "uses",
+      "says": "The version check offers the pass in a folder behind its level, and an update says how many folders are behind.",
+      "evidence": [
+        {
+          "file": "hooks/update-check.mjs",
+          "token": "project-pass.json"
+        }
+      ]
+    },
+    {
+      "from": "disk-tidy",
+      "to": "watch",
+      "type": "uses",
+      "says": "disk-tidy offers the video-cache entries /watch left unused for 30 days; they are rebuilt on use.",
+      "evidence": [
+        {
+          "file": "workers/disk-tidy.mjs",
+          "token": "video-cache"
+        }
+      ]
+    },
+    {
+      "from": "installer-core",
+      "to": "obscura",
+      "type": "uses",
+      "says": "The install puts the pinned Obscura into ~/.claude/obscura and --uninstall takes that folder out.",
+      "evidence": [
+        {
+          "file": "install.mjs",
+          "token": "await obscura(ctx)"
+        },
+        {
+          "file": "scripts/uninstall.mjs",
+          "token": "\"obscura\""
+        }
+      ]
+    },
+    {
+      "from": "quick-tasks",
+      "to": "obscura",
+      "type": "uses",
+      "says": "peek.mjs falls back on the Obscura in ~/.claude/obscura when Nimbalyst's browser can't be reached, and says so.",
+      "evidence": [
+        {
+          "file": "projects/quick-tasks/tools/peek.mjs",
+          "token": "obscuraExe"
+        }
+      ]
+    },
+    {
+      "from": "web-skills",
+      "to": "quick-tasks",
+      "type": "uses",
+      "says": "The reading ladder sends a script-built or signed-in page to quick-tasks' peek.mjs, and a page a decision rests on to peek.mjs --save.",
+      "evidence": [
+        {
+          "file": "skills/web-research/SKILL.md",
+          "token": "peek.mjs --save"
+        }
+      ]
+    },
+    {
+      "from": "install-opt-ins",
+      "to": "installer-core",
+      "type": "feeds",
+      "says": "The answers reach install.mjs as --handy and --backup and are kept in setup-state.json for later runs.",
+      "evidence": [
+        {
+          "file": "install.mjs",
+          "token": "[\"handy\", \"backup\"]"
+        },
+        {
+          "file": "scripts/setup-state.mjs",
+          "token": "\"handy\", \"backup\""
+        }
+      ]
+    },
+    {
+      "from": "install-opt-ins",
+      "to": "backup",
+      "type": "uses",
+      "says": "A yes to the backup runs /backup as the full install's last step.",
+      "evidence": [
+        {
+          "file": "docs/full-install.md",
+          "token": "## 12. Backup, last"
+        }
+      ]
+    },
+    {
+      "from": "update-flow",
+      "to": "install-opt-ins",
+      "type": "uses",
+      "says": "An update never asks voice typing (a Handy found on the computer goes on record as yes) and says one Backup line, asking the backup once while no answer is on record.",
+      "evidence": [
+        {
+          "file": "skills/update-setup/update.mjs",
+          "token": "handyFound"
+        },
+        {
+          "file": "skills/update-setup/update.mjs",
+          "token": "Backup: not asked"
+        }
+      ]
+    },
+    {
+      "from": "backup",
+      "to": "installer-core",
+      "type": "uses",
+      "says": "backup.mjs reads setup-state.json for the Node path its schedule runs and the projects folder it lists.",
+      "evidence": [
+        {
+          "file": "workers/backup.mjs",
+          "token": "setup-state.json"
         }
       ]
     }

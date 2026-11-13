@@ -20,8 +20,21 @@ const SKILL_DST = path.join(HOME, ".claude", "skills", "phone", "SKILL.md");
 const PLATFORM = process.env.PHONE_BOT_PLATFORM || process.platform;
 const DRY = process.env.PHONE_BOT_DRY === "1";
 const APPDATA = process.env.APPDATA || path.join(HOME, "AppData", "Roaming");
-const VBS = path.join(APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "phone-bot.vbs");
-const PLIST = path.join(HOME, "Library", "LaunchAgents", "com.ai-coding-setup.phone-bot.plist");
+const VBS = path.join(
+  APPDATA,
+  "Microsoft",
+  "Windows",
+  "Start Menu",
+  "Programs",
+  "Startup",
+  "phone-bot.vbs",
+);
+const PLIST = path.join(
+  HOME,
+  "Library",
+  "LaunchAgents",
+  "com.ai-coding-setup.phone-bot.plist",
+);
 const SOCK = path.join(CTRL, "bot.sock");
 const PIPE = "\\\\.\\pipe\\phone-inbox-bot";
 
@@ -46,7 +59,10 @@ function run(cmd, args) {
   }
   const r = spawnSync(cmd, args, { encoding: "utf8" });
   if (r.error) fail(`${cmd} failed: ${r.error.message}`);
-  if (r.status !== 0) fail(`${cmd} failed: ${(r.stderr || r.stdout || `exit code ${r.status}`).trim()}`);
+  if (r.status !== 0)
+    fail(
+      `${cmd} failed: ${(r.stderr || r.stdout || `exit code ${r.status}`).trim()}`,
+    );
 }
 
 // Same, but a failure is not an error (used to stop things that may not exist).
@@ -72,7 +88,8 @@ function requireBotFile() {
 }
 
 function installPhoneSkill() {
-  if (!fs.existsSync(SKILL_SRC)) fail(`The phone skill file is missing: ${SKILL_SRC}`);
+  if (!fs.existsSync(SKILL_SRC))
+    fail(`The phone skill file is missing: ${SKILL_SRC}`);
   const src = fs.readFileSync(SKILL_SRC, "utf8");
   if (fs.existsSync(SKILL_DST)) {
     const cur = fs.readFileSync(SKILL_DST, "utf8");
@@ -105,7 +122,10 @@ function startBot() {
   } else if (DRY) {
     console.log(`would run: ${q(process.execPath)} ${q(BOT)} (detached)`);
   } else {
-    const child = spawn(process.execPath, [BOT], { detached: true, stdio: "ignore" });
+    const child = spawn(process.execPath, [BOT], {
+      detached: true,
+      stdio: "ignore",
+    });
     child.unref();
   }
 }
@@ -117,7 +137,18 @@ function enableLogon() {
       VBS,
       `CreateObject("WScript.Shell").Run """${process.execPath}"" ""${BOT}""", 0, False\r\n`,
     );
-    run("schtasks", ["/create", "/tn", "Phone bot", "/sc", "minute", "/mo", "5", "/f", "/tr", `wscript.exe "${VBS}"`]);
+    run("schtasks", [
+      "/create",
+      "/tn",
+      "Phone bot",
+      "/sc",
+      "minute",
+      "/mo",
+      "5",
+      "/f",
+      "/tr",
+      `wscript.exe "${VBS}"`,
+    ]);
   } else if (PLATFORM === "darwin") {
     fs.mkdirSync(path.dirname(PLIST), { recursive: true });
     fs.writeFileSync(
@@ -140,7 +171,9 @@ function enableLogon() {
 `,
     );
   } else {
-    console.log("This system has no start at log-on set up here: after a restart of the computer, run `node setup.mjs --restart` to start the bot again.");
+    console.log(
+      "This system has no start at log-on set up here: after a restart of the computer, run `node setup.mjs --restart` to start the bot again.",
+    );
   }
 }
 
@@ -187,29 +220,38 @@ async function getMe(token) {
   try {
     body = await res.json();
   } catch {
-    fail(`Telegram answered with something that is not JSON (HTTP ${res.status}).`);
+    fail(
+      `Telegram answered with something that is not JSON (HTTP ${res.status}).`,
+    );
   }
   return body;
 }
 
 async function cmdToken(token) {
   if (!token || !/^\d+:[A-Za-z0-9_-]{35,}$/.test(token)) {
-    fail("That does not look like a bot token. It looks like 123456789:ABC... (digits, a colon, then 35 or more letters, digits, _ or -).");
+    fail(
+      "That does not look like a bot token. It looks like 123456789:ABC... (digits, a colon, then 35 or more letters, digits, _ or -).",
+    );
   }
   const me = await getMe(token);
-  if (!me.ok) fail(`Telegram refused the token: ${me.description || "no reason given"}`);
+  if (!me.ok)
+    fail(`Telegram refused the token: ${me.description || "no reason given"}`);
   fs.mkdirSync(CTRL, { recursive: true });
   const old = readSecrets();
   const secrets = { token };
   if (old && old.ownerId !== undefined) secrets.ownerId = old.ownerId;
-  fs.writeFileSync(SECRETS, JSON.stringify(secrets, null, 2) + "\n", { mode: 0o600 });
+  fs.writeFileSync(SECRETS, JSON.stringify(secrets, null, 2) + "\n", {
+    mode: 0o600,
+  });
   fs.mkdirSync(INBOX, { recursive: true });
   installPhoneSkill();
   stopBot();
   enableLogon();
   startBot();
   console.log(`Bot ready: @${me.result.username}`);
-  console.log("Send it any message now: the first person who writes becomes the owner.");
+  console.log(
+    "Send it any message now: the first person who writes becomes the owner.",
+  );
   console.log(`Inbox folder: ${INBOX}`);
   console.log(`Log: ${LOG}`);
 }
@@ -218,11 +260,17 @@ async function cmdStatus() {
   const s = readSecrets();
   const running = await isRunning();
   console.log(`token: ${s && s.token ? "saved" : "not saved"}`);
-  console.log(`owner: ${s && s.ownerId !== undefined ? "locked" : "nobody has written yet"}`);
+  console.log(
+    `owner: ${s && s.ownerId !== undefined ? "locked" : "nobody has written yet"}`,
+  );
   console.log(`running: ${running ? "yes" : "no"}`);
   console.log(`start at log-on: ${logonSetUp() ? "set up" : "not set up"}`);
   if (fs.existsSync(LOG)) {
-    const lines = fs.readFileSync(LOG, "utf8").split(/\r?\n/).filter(Boolean).slice(-5);
+    const lines = fs
+      .readFileSync(LOG, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(-5);
     console.log("last log lines:");
     for (const l of lines) console.log(`  ${l}`);
   } else {
@@ -233,10 +281,13 @@ async function cmdStatus() {
 
 function cmdRestart() {
   const s = readSecrets();
-  if (!s || !s.token) fail("No token is saved. Run: node setup.mjs --token <token>");
+  if (!s || !s.token)
+    fail("No token is saved. Run: node setup.mjs --token <token>");
   // A bot that was started some other way is not this script's to restart.
   if ((PLATFORM === "win32" || PLATFORM === "darwin") && !logonSetUp()) {
-    fail("The bot was not set up with /phone-bot on this computer, so there is nothing to restart. Run: node setup.mjs --token <token>");
+    fail(
+      "The bot was not set up with /phone-bot on this computer, so there is nothing to restart. Run: node setup.mjs --token <token>",
+    );
   }
   stopBot();
   installPhoneSkill();
@@ -250,7 +301,9 @@ function cmdRemove() {
   fs.rmSync(SECRETS, { force: true });
   console.log("Bot stopped, start at log-on removed, saved token deleted.");
   console.log(`${INBOX} stays as it is.`);
-  console.log("Send /revoke to @BotFather in Telegram to make the old token useless.");
+  console.log(
+    "Send /revoke to @BotFather in Telegram to make the old token useless.",
+  );
 }
 
 const args = process.argv.slice(2);

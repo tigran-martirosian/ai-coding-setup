@@ -22,27 +22,38 @@ const panel: React.CSSProperties = {
   boxShadow: "0 30px 80px rgba(0, 0, 0, 0.45)",
 };
 
-const Limit: React.FC<{ title: string; window: string; used: number; tint: string; resets: string; grow: number }> = ({
-  title,
-  window,
-  used,
-  tint,
-  resets,
-  grow,
-}) => (
+const Limit: React.FC<{
+  title: string;
+  window: string;
+  used: number;
+  tint: string;
+  resets: string;
+  grow: number;
+}> = ({ title, window, used, tint, resets, grow }) => (
   <div>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 12 }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-end",
+        marginBottom: 12,
+      }}
+    >
       <div>
         <div style={{ fontSize: 30, fontWeight: 600 }}>{title}</div>
         <div style={{ fontSize: 23, color: color.dim }}>{window}</div>
       </div>
       <div style={{ textAlign: "right", color: tint }}>
-        <div style={{ fontSize: 50, fontWeight: 700, lineHeight: 1 }}>{Math.round(used * grow)}%</div>
+        <div style={{ fontSize: 50, fontWeight: 700, lineHeight: 1 }}>
+          {Math.round(used * grow)}%
+        </div>
         <div style={{ fontSize: 21 }}>used</div>
       </div>
     </div>
     <Bar value={used * grow} color={tint} />
-    <div style={{ fontSize: 23, color: color.dim, marginTop: 10 }}>{resets}</div>
+    <div style={{ fontSize: 23, color: color.dim, marginTop: 10 }}>
+      {resets}
+    </div>
   </div>
 );
 
@@ -58,7 +69,16 @@ export const Usage: React.FC<SceneProps> = ({ durationInFrames }) => {
     >
       <Columns>
         <Appear at={8} from="left" style={{ width: 500 }}>
-          <div style={{ ...panel, display: "flex", flexDirection: "column", gap: 28, height: "100%", boxSizing: "border-box" }}>
+          <div
+            style={{
+              ...panel,
+              display: "flex",
+              flexDirection: "column",
+              gap: 28,
+              height: "100%",
+              boxSizing: "border-box",
+            }}
+          >
             <div style={{ fontSize: 32, fontWeight: 700 }}>Usage Plan</div>
             <Limit
               title="Weekly"
@@ -78,26 +98,64 @@ export const Usage: React.FC<SceneProps> = ({ durationInFrames }) => {
             />
             <Appear at={60}>
               <div
-                style={{ border: `1px solid ${color.line}`, borderRadius: 14, padding: "18px 22px", background: color.raised }}
+                style={{
+                  border: `1px solid ${color.line}`,
+                  borderRadius: 14,
+                  padding: "18px 22px",
+                  background: color.raised,
+                }}
               >
-                <div style={{ fontSize: 30, fontWeight: 700 }}>Runs out Thu 4:10 PM</div>
-                <div style={{ fontSize: 23, color: color.dim, marginTop: 4 }}>1d 6h before the reset</div>
+                <div style={{ fontSize: 30, fontWeight: 700 }}>
+                  Runs out Thu 4:10 PM
+                </div>
+                <div style={{ fontSize: 23, color: color.dim, marginTop: 4 }}>
+                  1d 6h before the reset
+                </div>
               </div>
             </Appear>
           </div>
         </Appear>
 
         <Appear at={70} from="right" style={{ flex: 1 }}>
-          <div style={{ ...panel, display: "flex", flexDirection: "column", gap: 18, height: "100%", boxSizing: "border-box" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <div
+            style={{
+              ...panel,
+              display: "flex",
+              flexDirection: "column",
+              gap: 18,
+              height: "100%",
+              boxSizing: "border-box",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+              }}
+            >
               <span style={{ fontSize: 32, fontWeight: 700 }}>Plan ahead</span>
-              <span style={{ fontSize: 23, color: color.dim }}>as of Tue 6:10 PM</span>
+              <span style={{ fontSize: 23, color: color.dim }}>
+                as of Tue 6:10 PM
+              </span>
             </div>
             <div>
-              <div style={{ display: "flex", gap: 24, fontSize: 22, color: color.dim, paddingBottom: 4 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 24,
+                  fontSize: 22,
+                  color: color.dim,
+                  paddingBottom: 4,
+                }}
+              >
                 <span style={{ flex: 1 }}>By the end of</span>
-                <span style={{ width: 150, textAlign: "right" }}>At this pace</span>
-                <span style={{ width: 130, textAlign: "right" }}>On budget</span>
+                <span style={{ width: 150, textAlign: "right" }}>
+                  At this pace
+                </span>
+                <span style={{ width: 130, textAlign: "right" }}>
+                  On budget
+                </span>
               </div>
               {AHEAD.map((row, i) => (
                 <div
@@ -113,32 +171,68 @@ export const Usage: React.FC<SceneProps> = ({ durationInFrames }) => {
                 >
                   <span style={{ width: 70 }}>{row.day}</span>
                   <div style={{ flex: 1 }}>
-                    <Bar value={row.pace * appear(frame, 84 + i * 10, 36)} color={row.tint} height={8} />
+                    <Bar
+                      value={row.pace * appear(frame, 84 + i * 10, 36)}
+                      color={row.tint}
+                      height={8}
+                    />
                   </div>
-                  <span style={{ width: 150, textAlign: "right", fontWeight: 700, color: row.tint === color.red ? color.red : color.text }}>
+                  <span
+                    style={{
+                      width: 150,
+                      textAlign: "right",
+                      fontWeight: 700,
+                      color: row.tint === color.red ? color.red : color.text,
+                    }}
+                  >
                     {row.paceLabel}
                   </span>
-                  <span style={{ width: 130, textAlign: "right", color: color.dim }}>{row.budget}</span>
+                  <span
+                    style={{ width: 130, textAlign: "right", color: color.dim }}
+                  >
+                    {row.budget}
+                  </span>
                 </div>
               ))}
             </div>
             <Appear at={120}>
               <div style={{ fontSize: 26 }}>
                 <span style={{ color: color.dim }}>Budget </span>
-                <b>12% a day</b> to last; now averaging <b style={{ color: color.red }}>20%</b>.
+                <b>12% a day</b> to last; now averaging{" "}
+                <b style={{ color: color.red }}>20%</b>.
               </div>
             </Appear>
             <Appear at={144}>
-              <div style={{ borderTop: `1px solid ${color.line}`, paddingTop: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 24, marginBottom: 10 }}>
+              <div
+                style={{ borderTop: `1px solid ${color.line}`, paddingTop: 16 }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 24,
+                    marginBottom: 10,
+                  }}
+                >
                   <span>
-                    <span style={{ color: color.dim }}>Who used the plan · </span>This computer <b>{Math.round(split)}%</b>
+                    <span style={{ color: color.dim }}>
+                      Who used the plan ·{" "}
+                    </span>
+                    This computer <b>{Math.round(split)}%</b>
                   </span>
                   <span>
                     Other use <b>{Math.round(100 - split)}%</b>
                   </span>
                 </div>
-                <div style={{ display: "flex", height: 10, borderRadius: 10, overflow: "hidden", background: color.faint }}>
+                <div
+                  style={{
+                    display: "flex",
+                    height: 10,
+                    borderRadius: 10,
+                    overflow: "hidden",
+                    background: color.faint,
+                  }}
+                >
                   <div style={{ width: `${split}%`, background: color.sky }} />
                 </div>
               </div>

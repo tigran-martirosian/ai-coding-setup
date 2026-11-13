@@ -6,13 +6,13 @@ happen here.
 
 - **The installer can be run again at any time.** `node install.mjs`, run in the folder saved as
   `repo` in `~/.claude/setup-state.json`, adds what is missing, keeps a dated copy of every file it replaces
-  (`<name>.before-install-<yyyymmdd>`) and leaves the notes files in these four folders as they are.
+  (in `~/.claude/setup-logs/<YYYY-MM-DD>-install-backup/`, never next to the file) and leaves the notes files in these two folders as they are.
   One of the setup's files that was changed here stays too: the run lists it under `Kept as yours`,
   and `--replace <name>` or `--replace-all` takes the setup's version.
   `node install.mjs --dry-run` prints what it would do and changes nothing.
 - **Adding Codex later.** With a ChatGPT subscription: install the Codex CLI
   (`npm i -g @openai/codex`) and run `codex login`. Then run `node install.mjs` again: it finds
-  Codex (or takes `--codex yes|no`) and adds the picture skill to two of the folders (without
+  Codex (or takes `--codex yes|no`) and adds the picture skill to the `quick-tasks` folder (without
   Codex it takes it out again). Afterwards:
   - check the sign-in (`codex login status`);
   - offer to install FFmpeg (only the picture skill's slower "careful run" needs it).
@@ -21,8 +21,8 @@ happen here.
   and which skills or tools are missing, shows a tick list and sets up only what is ticked, in the
   project it belongs to. Run it after a few weeks of work, or when the same problem keeps coming back.
 - **`/setup-audit full` is the one review that ends in choices.** It runs the usage scanner, a second scanner (the kind of work per request, what another split between models would have cost, where the time of each turn went, failed tool calls, context size) and the chat reading together, writes a report to `audits/`, and asks once which of the measured options to carry out. Run it every week or two.
-- **Save a dated copy first.** Before changing `~/.claude/settings.json` or `~/.claude/CLAUDE.md`
-  by hand, copy it next to itself as `<name>.before-<topic>-<yyyymmdd>`.
+- **Keep the old version first.** Before changing a file such as `~/.claude/settings.json` or `~/.claude/CLAUDE.md`
+  by hand, commit it if its folder is a git repo, else copy it to `~/.claude/setup-logs/<YYYY-MM-DD>-<topic>/` (never next to itself).
 - **Change one thing, test it for real, write it down.** Every change gets one line in `DECISIONS.md`
   here: what changed, why, the date.
 - **New files follow `~/.claude/skills/file-upkeep/standard.md`:** dated notes in `docs/`, `docs/research/`,
@@ -31,9 +31,8 @@ happen here.
   one project that needs it, not globally, unless most sessions need it.
 - **Reports:** `/setup-audit` (is the setup working), `/setup-audit usage` (where the tokens went),
   `/setup-audit scan` (one project's setup).
-- **How to use the setup:** `HOW-TO.md` here, with an example for each feature.
+- **How to use the setup:** `how-to.md` here, with an example for each feature.
 
 ## Not for here
 
-- General questions: `<projects>\ask-anything`. Finding things on the internet:
-  `<projects>\internet-search`. One-off file jobs: `<projects>\quick-tasks`.
+- General questions, finding things on the internet and one-off file jobs: `<projects>\quick-tasks`.

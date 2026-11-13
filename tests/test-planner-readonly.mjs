@@ -3,21 +3,40 @@ process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the h
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const HOOK = fileURLToPath(new URL("../hooks/planner-readonly.mjs", import.meta.url));
-let pass = 0, fail = 0;
+const HOOK = fileURLToPath(
+  new URL("../hooks/planner-readonly.mjs", import.meta.url),
+);
+let pass = 0,
+  fail = 0;
 function run(command, { tool = "Bash", agent = "planner", env = {} } = {}) {
-  const event = { hook_event_name: "PreToolUse", tool_name: tool, tool_input: { command } };
-  if (agent) { event.agent_type = agent; event.agent_id = "a1"; }
-  const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(event), encoding: "utf8", env: { ...process.env, ...env } });
+  const event = {
+    hook_event_name: "PreToolUse",
+    tool_name: tool,
+    tool_input: { command },
+  };
+  if (agent) {
+    event.agent_type = agent;
+    event.agent_id = "a1";
+  }
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify(event),
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
   return r.stdout.includes('"deny"') ? "deny" : "allow";
 }
 function check(name, got, want) {
   const ok = got === want;
-  if (ok) pass++; else fail++;
-  console.log(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : `: got ${got}, want ${want}`}`);
+  if (ok) pass++;
+  else fail++;
+  console.log(
+    `${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : `: got ${got}, want ${want}`}`,
+  );
 }
-const allow = (cmd, opts) => check(`allow: ${cmd.replace(/\n/g, "\\n")}`, run(cmd, opts), "allow");
-const deny = (cmd, opts) => check(`deny: ${cmd.replace(/\n/g, "\\n")}`, run(cmd, opts), "deny");
+const allow = (cmd, opts) =>
+  check(`allow: ${cmd.replace(/\n/g, "\\n")}`, run(cmd, opts), "allow");
+const deny = (cmd, opts) =>
+  check(`deny: ${cmd.replace(/\n/g, "\\n")}`, run(cmd, opts), "deny");
 
 // Reading: allowed
 allow("git status --short");
@@ -89,7 +108,7 @@ deny("node -e \"require('fs').writeFileSync('x','')\" test.mjs", R);
 deny("npm install", R);
 deny("npm run build", R);
 deny("node tests/test-x.mjs > out.txt", R);
-deny("python -c 'open(\"x\",\"w\")'", R);
+deny('python -c \'open("x","w")\'', R);
 deny("git push", R);
 deny("node tests/../install.mjs", R);
 deny("node scripts/publish-latest.mjs", R);
@@ -102,10 +121,54 @@ deny("python -m pytest --junitxml=C:/x.xml", R);
 deny("pytest -o cache_dir=C:/x", R);
 allow("pytest -q -k slow tests/test_a.py", R);
 allow("node app.test.mjs", R);
-deny("node tests/test-planner.mjs");// the planner itself runs no tests
+deny("node tests/test-planner.mjs"); // the planner itself runs no tests
 deny("npm test");
-const rr = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Bash", agent_type: "plan-reviewer", tool_input: { command: "npm install" } }), encoding: "utf8" });
-check("the plan-reviewer's refusal says to list the check as not run", /plan-reviewer reads and runs tests only/.test(rr.stdout) && /not run/.test(rr.stdout) ? "yes" : rr.stdout, "yes");
+const rr = spawnSync(process.execPath, [HOOK], {
+  input: JSON.stringify({
+    tool_name: "Bash",
+    agent_type: "plan-reviewer",
+    tool_input: { command: "npm install" },
+  }),
+  encoding: "utf8",
+});
+check(
+  "the plan-reviewer's refusal says to list the check as not run",
+  /plan-reviewer reads and runs tests only/.test(rr.stdout) &&
+    /not run/.test(rr.stdout)
+    ? "yes"
+    : rr.stdout,
+  "yes",
+);
+// The reviewer reads and runs tests like the plan-reviewer (user, 2026-11-12, D7 item 1)
+deny("npm install", { agent: "reviewer" });
+allow("node tests/test-x.mjs", { agent: "reviewer" });
+check(
+  "a worker running npm install: not touched",
+  run("npm install", { agent: "worker" }),
+  "allow",
+);
+const rv = spawnSync(process.execPath, [HOOK], {
+  input: JSON.stringify({
+    tool_name: "Bash",
+    agent_type: "reviewer",
+    tool_input: { command: "npm install" },
+  }),
+  encoding: "utf8",
+});
+check(
+  "the reviewer's refusal names the reviewer",
+  /The reviewer reads and runs tests only/.test(rv.stdout) ? "yes" : rv.stdout,
+  "yes",
+);
+const wk = spawnSync(process.execPath, [HOOK], {
+  input: JSON.stringify({
+    tool_name: "Bash",
+    agent_type: "worker",
+    tool_input: { command: "npm install" },
+  }),
+  encoding: "utf8",
+});
+check("a worker: no output at all", wk.stdout, "");
 deny("git grep --open-files-in-pager=vi x");
 deny("sort --compress-program=sh f");
 deny("git diff --ext-diff");
@@ -164,13 +227,33 @@ allow("rg -n --hidden x");
 // Scope: only the planner
 check("main session: not touched", run("rm x", { agent: null }), "allow");
 check("a worker: not touched", run("rm x", { agent: "worker" }), "allow");
-check("a plugin-named planner is guarded", run("rm x", { agent: "setup:planner" }), "deny");
+check(
+  "a plugin-named planner is guarded",
+  run("rm x", { agent: "setup:planner" }),
+  "deny",
+);
 check("other tool: not touched", run("rm x", { tool: "Read" }), "allow");
 check("off switch", run("rm x", { env: { PLANNER_READONLY: "off" } }), "allow");
-check("bad input fails open (no agent known)", spawnSync(process.execPath, [HOOK], { input: "not json", encoding: "utf8" }).stdout, "");
+check(
+  "bad input fails open (no agent known)",
+  spawnSync(process.execPath, [HOOK], { input: "not json", encoding: "utf8" })
+    .stdout,
+  "",
+);
 
-const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Bash", agent_type: "planner", tool_input: { command: "touch x" } }), encoding: "utf8" });
-check("the refusal names the plan-reviewer", /plan-reviewer runs it/.test(r.stdout) ? "yes" : r.stdout, "yes");
+const r = spawnSync(process.execPath, [HOOK], {
+  input: JSON.stringify({
+    tool_name: "Bash",
+    agent_type: "planner",
+    tool_input: { command: "touch x" },
+  }),
+  encoding: "utf8",
+});
+check(
+  "the refusal names the plan-reviewer",
+  /plan-reviewer runs it/.test(r.stdout) ? "yes" : r.stdout,
+  "yes",
+);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

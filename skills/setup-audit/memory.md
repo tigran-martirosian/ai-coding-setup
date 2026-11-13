@@ -20,6 +20,8 @@ project's path with `:`, `\` and `/` turned into `-` (`C:\Projects\app` is `C--P
 - `MEMORY.md` (the index) and every note in the folder, `archive/` left out.
 - The project's `docs/facts.md`, `CLAUDE.md` and `.claude/rules/*.md`, where they exist.
 - The newest 30 entries of the project's `DECISIONS.md`, if there is one.
+- The dated lines: `node ~/.claude/hooks/recheck-dates.mjs --list "<project folder>"` prints each line of
+  the notes and files above that ends with `(recheck YYYY-MM-DD)`, as `past` or `ok`.
 
 ## 3. Judge each note
 
@@ -33,6 +35,13 @@ A note is a **finding** when it is one of these, and every note is either a find
 | restates | Another note, `facts.md`, `DECISIONS.md`, `CLAUDE.md` or a rule says the same. Name the one to keep |
 | orphan | It is in the folder but not in `MEMORY.md`, or `MEMORY.md` links a note that is not there |
 | leftover | It sends work to a dropped store (`graphify-out`, `~/.claude-mem`, a removed plugin's cache) or to child sessions. Also name such folders found on disk |
+| expired | Its `(recheck YYYY-MM-DD)` date has passed (`past` in the `--list` output): check the fact now (a file, a command or the web). Action: update the fact and the date, or delete the note |
+
+A fact-kind note with no date is given one: `(recheck YYYY-MM-DD)` at the end of the fact's line in the note's
+body (not its frontmatter), 90 days out for versions, model names, prices, plan limits and how an app, CLI or
+website behaves; 180 days for facts about this computer (paths, installed tools, accounts); none for a measurement
+tied to a date, a decision or a rule. A recheck that confirms the fact sets a new date; one that disproves it fixes
+the line and sets a new date.
 
 A note that is right but old is passed. A note you are unsure of is passed with one line on why.
 

@@ -6,16 +6,35 @@ import fs from "node:fs";
 import path from "node:path";
 import { crashLog } from "./crash-log.mjs";
 
-export function setting(name, startDir = process.env.CLAUDE_PROJECT_DIR || process.cwd()) {
+export function setting(
+  name,
+  startDir = process.env.CLAUDE_PROJECT_DIR || process.cwd(),
+) {
   if (process.env[name]) return process.env[name];
   for (let d = path.resolve(startDir); ; d = path.dirname(d)) {
     for (const f of ["settings.local.json", "settings.json"]) {
       let text;
-      try { text = fs.readFileSync(path.join(d, ".claude", f), "utf8"); } catch (e) { if (e.code === "ENOENT" || e.code === "ENOTDIR") continue; throw e; }
+      try {
+        text = fs.readFileSync(path.join(d, ".claude", f), "utf8");
+      } catch (e) {
+        if (e.code === "ENOENT" || e.code === "ENOTDIR") continue;
+        throw e;
+      }
       let json;
-      try { json = JSON.parse(text); } catch (e) { crashLog("settings-env", new Error(`${path.join(d, ".claude", f)} is not valid JSON, skipped: ${e.message}`)); continue; }
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        crashLog(
+          "settings-env",
+          new Error(
+            `${path.join(d, ".claude", f)} is not valid JSON, skipped: ${e.message}`,
+          ),
+        );
+        continue;
+      }
       const value = json?.env?.[name];
-      if (value !== undefined && value !== null && value !== "") return String(value);
+      if (value !== undefined && value !== null && value !== "")
+        return String(value);
     }
     if (path.dirname(d) === d) return "";
   }

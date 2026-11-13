@@ -17,24 +17,40 @@ import { setting } from "./settings-env.mjs";
 
 export const offName = (name) => name.toUpperCase().replace(/-/g, "_");
 
-export function runHook(name, fn, { exitOnBadInput = false, failClosed = false, off, projectSettings = false } = {}) {
+export function runHook(
+  name,
+  fn,
+  {
+    exitOnBadInput = false,
+    failClosed = false,
+    off,
+    projectSettings = false,
+  } = {},
+) {
   installCrashHandlers();
   const variable = off || offName(name);
-  const value = projectSettings ? setting(variable) : process.env[variable] || "";
+  const value = projectSettings
+    ? setting(variable)
+    : process.env[variable] || "";
   if (value.toLowerCase() === "off") return Promise.resolve();
   const fail = (err) => {
     crashLog(name, err);
-    process.stderr.write(`[${name}] The check itself failed (${err.message}). Set ${variable}=off to bypass.\n`);
+    process.stderr.write(
+      `[${name}] The check itself failed (${err.message}). Set ${variable}=off to bypass.\n`,
+    );
     process.exitCode = 1;
   };
   return (async () => {
     let event;
     try {
       event = JSON.parse(fs.readFileSync(0, "utf8"));
-      if (!event || typeof event !== "object" || Array.isArray(event)) throw new Error("hook input is not a JSON object");
+      if (!event || typeof event !== "object" || Array.isArray(event))
+        throw new Error("hook input is not a JSON object");
     } catch (err) {
       if (exitOnBadInput) {
-        process.stderr.write(`[${name}] Could not read the hook input as JSON (${err.message}). Set ${variable}=off to bypass.\n`);
+        process.stderr.write(
+          `[${name}] Could not read the hook input as JSON (${err.message}). Set ${variable}=off to bypass.\n`,
+        );
         process.exitCode = 2;
       } else if (failClosed) {
         fail(err);
@@ -57,17 +73,42 @@ export function runHook(name, fn, { exitOnBadInput = false, failClosed = false, 
 
 // Is this file the script being run? By real path, so a link or a letter-case difference still counts, and a
 // file whose name only ends the same (x-foo.mjs for foo.mjs) does not.
-const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+const real = (p) => {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
 export function isMain(importMetaUrl) {
-  return Boolean(process.argv[1]) && real(process.argv[1]).toLowerCase() === real(fileURLToPath(importMetaUrl)).toLowerCase();
+  return (
+    Boolean(process.argv[1]) &&
+    real(process.argv[1]).toLowerCase() ===
+      real(fileURLToPath(importMetaUrl)).toLowerCase()
+  );
 }
 
 // No variable names Nimbalyst for a hook; the entry point is "sdk-..." in an app, "cli" in the terminal
-export const inNimbalyst = () => /^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "");
+export const inNimbalyst = () =>
+  /^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "");
 
-const out = (obj) => fs.writeSync(1, JSON.stringify(obj));
+// Returns nothing: runHook turns a returned number into the exit code, and writeSync returns a byte count,
+// so `return emit.deny(...)` once exited non-zero (2026-11-12).
+const out = (obj) => {
+  fs.writeSync(1, JSON.stringify(obj));
+};
 export const emit = {
-  deny: (reason) => out({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }),
+  deny: (reason) =>
+    out({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: reason,
+      },
+    }),
   block: (reason) => out({ decision: "block", reason }),
-  context: (eventName, text) => out({ hookSpecificOutput: { hookEventName: eventName, additionalContext: text } }),
+  context: (eventName, text) =>
+    out({
+      hookSpecificOutput: { hookEventName: eventName, additionalContext: text },
+    }),
 };

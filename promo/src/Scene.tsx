@@ -16,10 +16,15 @@ export const Scene: React.FC<{
   children: React.ReactNode;
 }> = ({ tag, caption, durationInFrames, stageStyle, children }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [0, FADE, durationInFrames - FADE, durationInFrames - 1], [0, 1, 1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+  const opacity = interpolate(
+    frame,
+    [0, FADE, durationInFrames - FADE, durationInFrames - 1],
+    [0, 1, 1, 0],
+    {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    },
+  );
   return (
     <AbsoluteFill
       style={{

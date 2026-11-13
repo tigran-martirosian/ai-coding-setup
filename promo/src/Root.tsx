@@ -13,11 +13,29 @@ const filmSize = { ...size, fps: FILM_FPS };
 
 export const RemotionRoot: React.FC = () => (
   <>
-    <Composition id="Promo" component={Film} durationInFrames={FILM_FRAMES} {...filmSize} />
-    <Composition id="clip-checks" component={Film} defaultProps={{ shots: CHECKS_CLIP }} durationInFrames={clipFrames(CHECKS_CLIP)} {...filmSize} />
+    <Composition
+      id="Promo"
+      component={Film}
+      durationInFrames={FILM_FRAMES}
+      {...filmSize}
+    />
+    <Composition
+      id="clip-checks"
+      component={Film}
+      defaultProps={{ shots: CHECKS_CLIP }}
+      durationInFrames={clipFrames(CHECKS_CLIP)}
+      {...filmSize}
+    />
     <Folder name="Shots">
       {SCRIPT.map((shot) => (
-        <Composition key={shot.id} id={shot.id} component={ShotView} defaultProps={{ shot }} durationInFrames={frames(shot)} {...filmSize} />
+        <Composition
+          key={shot.id}
+          id={shot.id}
+          component={ShotView}
+          defaultProps={{ shot }}
+          durationInFrames={frames(shot)}
+          {...filmSize}
+        />
       ))}
     </Folder>
     <Folder name="Clips">

@@ -3,7 +3,19 @@
 import os from "node:os";
 import path from "node:path";
 
-export const appDataDir = () => (process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "");
-export const nimbalystHome = (appData = appDataDir()) => path.join(appData, "@nimbalyst", "electron");
+export const appDataDir = () =>
+  process.platform === "darwin"
+    ? path.join(os.homedir(), "Library", "Application Support")
+    : process.env.APPDATA || "";
+export const nimbalystHome = (appData = appDataDir()) =>
+  path.join(appData, "@nimbalyst", "electron");
 // The folder each extension (named as in the repo) has in Nimbalyst's extensions folder
-export const EXT_FOLDER = { "ink-themes": "inktheme", "agents-panel": "agentspanel", "board-tidy": "boardtidy", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud", "systems-map": "systemsmap" };
+export const EXT_FOLDER = {
+  "ink-themes": "inktheme",
+  "agents-panel": "agentspanel",
+  "board-tidy": "boardtidy",
+  "usage-plan": "usageplan",
+  commands: "commandbuttons",
+  "read-aloud": "readaloud",
+  "systems-map": "systemsmap",
+};

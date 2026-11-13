@@ -2,7 +2,7 @@
 // (~/.claude/state/agent-runs.jsonl, one JSON line per helper). Pure parts first, then the reader.
 // build.mjs inlines this file into dist/index.js, so it must not import anything.
 
-const EXTENSION_ID = 'com.local.agentspanel';
+const EXTENSION_ID = "com.local.agentspanel";
 const LOG_LINES = 200;
 // node finds the home folder on every system and prints the last lines; a missing file is a non-zero exit.
 // The script has no double quotes, so it sits inside the double-quoted command as is.
@@ -13,7 +13,7 @@ let warned = false;
 /** The log's lines as objects, oldest first; a line that is not a JSON object with a description is skipped. */
 function parseRuns(text) {
   const runs = [];
-  for (const line of text.split('\n')) {
+  for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     let run;
     try {
@@ -21,7 +21,8 @@ function parseRuns(text) {
     } catch {
       continue;
     }
-    if (run && typeof run === 'object' && typeof run.description === 'string') runs.push(run);
+    if (run && typeof run === "object" && typeof run.description === "string")
+      runs.push(run);
   }
   return runs;
 }
@@ -44,13 +45,23 @@ function matchRun(rows, runs) {
 /** The log's last lines parsed, or null when it cannot be read (said once in the console, never to the user). */
 async function readRuns() {
   try {
-    const r = await window.electronAPI.invoke('extension:exec', { extensionId: EXTENSION_ID, command: READ_COMMAND, timeout: 10000 });
-    if (!r.success) throw new Error((r.stderr || '').trim().split('\n').pop() || `exit code ${r.exitCode}`);
+    const r = await window.electronAPI.invoke("extension:exec", {
+      extensionId: EXTENSION_ID,
+      command: READ_COMMAND,
+      timeout: 10000,
+    });
+    if (!r.success)
+      throw new Error(
+        (r.stderr || "").trim().split("\n").pop() || `exit code ${r.exitCode}`,
+      );
     return parseRuns(r.stdout);
   } catch (e) {
     if (!warned) {
       warned = true;
-      console.warn('[agents-panel] could not read the helper run log, rows show no model:', e);
+      console.warn(
+        "[agents-panel] could not read the helper run log, rows show no model:",
+        e,
+      );
     }
     return null;
   }

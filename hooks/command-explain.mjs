@@ -17,7 +17,12 @@
 // A helper gets the stand-in without that line: its own rules already ask for the note.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
 import { runHook, emit } from "./lib/hook-io.mjs";
-import { COMMAND_EXPLAIN, NOTE_LINE_RE, NO_NOTE, WHAT_THIS_DOES } from "./lib/texts.mjs";
+import {
+  COMMAND_EXPLAIN,
+  NOTE_LINE_RE,
+  NO_NOTE,
+  WHAT_THIS_DOES,
+} from "./lib/texts.mjs";
 
 runHook("command-explain", (event) => {
   if (!["Bash", "PowerShell"].includes(event.tool_name)) return;
@@ -33,15 +38,26 @@ runHook("command-explain", (event) => {
     const start = command.replace(/\s+/g, " ").trim().slice(0, 60);
     const output = {
       hookEventName: "PreToolUse",
-      updatedInput: { ...event.tool_input, command: `${command.trimEnd()}\n\n${WHAT_THIS_DOES} ${NO_NOTE} ${start}` },
+      updatedInput: {
+        ...event.tool_input,
+        command: `${command.trimEnd()}\n\n${WHAT_THIS_DOES} ${NO_NOTE} ${start}`,
+      },
     };
-    if (!event.agent_id) output.additionalContext = `${COMMAND_EXPLAIN} that command had no "${WHAT_THIS_DOES}" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`;
+    if (!event.agent_id)
+      output.additionalContext = `${COMMAND_EXPLAIN} that command had no "${WHAT_THIS_DOES}" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`;
     process.stdout.write(JSON.stringify({ hookSpecificOutput: output }));
     return;
   }
   // Soft check: the note is a row title in Nimbalyst's agents panel, so it should start
   // with a capital and stay under 70 characters. Never refuses; the stand-in note is exempt.
-  if (!event.agent_id && !note.startsWith(NO_NOTE) && (/^\p{Ll}/u.test(note) || note.length >= 70)) {
-    emit.context("PreToolUse", `${COMMAND_EXPLAIN} the "${WHAT_THIS_DOES}" text is a row title in the agents panel, so next time start it with a capital letter and keep it under 70 characters.`);
+  if (
+    !event.agent_id &&
+    !note.startsWith(NO_NOTE) &&
+    (/^\p{Ll}/u.test(note) || note.length >= 70)
+  ) {
+    emit.context(
+      "PreToolUse",
+      `${COMMAND_EXPLAIN} the "${WHAT_THIS_DOES}" text is a row title in the agents panel, so next time start it with a capital letter and keep it under 70 characters.`,
+    );
   }
 });

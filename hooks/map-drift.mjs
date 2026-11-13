@@ -16,7 +16,10 @@ const STATE_FILE = stateFile("map-drift", "said");
 runHook("map-drift", (event) => {
   try {
     const input = event?.tool_input;
-    const edited = input && typeof input === "object" ? input.file_path ?? input.notebook_path : null;
+    const edited =
+      input && typeof input === "object"
+        ? (input.file_path ?? input.notebook_path)
+        : null;
     if (typeof edited !== "string" || !edited) return;
     const project = process.env.CLAUDE_PROJECT_DIR;
     if (!project) return;
@@ -29,29 +32,46 @@ runHook("map-drift", (event) => {
 
     const map = loadMap(dir);
     if (!Array.isArray(map?.links)) return;
-    const name = new Map((Array.isArray(map.nodes) ? map.nodes : []).filter((n) => n && typeof n.id === "string").map((n) => [n.id, n.name || n.id]));
+    const name = new Map(
+      (Array.isArray(map.nodes) ? map.nodes : [])
+        .filter((n) => n && typeof n.id === "string")
+        .map((n) => [n.id, n.name || n.id]),
+    );
 
     // The tokened evidence of this file, one per link
     const found = new Map();
     for (const l of map.links) {
       if (!l || !Array.isArray(l.evidence)) continue;
       for (const e of l.evidence) {
-        if (!e || typeof e !== "object" || typeof e.file !== "string" || typeof e.token !== "string" || !e.token) continue;
+        if (
+          !e ||
+          typeof e !== "object" ||
+          typeof e.file !== "string" ||
+          typeof e.token !== "string" ||
+          !e.token
+        )
+          continue;
         if (normRel(e.file) !== rel) continue;
         const key = `${l.from} -> ${l.to}`;
-        if (!found.has(key)) found.set(key, { link: l, token: e.token, file: e.file });
+        if (!found.has(key))
+          found.set(key, { link: l, token: e.token, file: e.file });
       }
     }
     if (!found.size) return;
 
     let text;
-    try { text = fs.readFileSync(file, "utf8"); } catch { return; } // a deleted file is for --check
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch {
+      return;
+    } // a deleted file is for --check
     const lost = [...found].filter(([, f]) => !text.includes(f.token));
     if (!lost.length) return;
 
     const state = readJson(STATE_FILE) ?? {};
     const now = Date.now();
-    for (const k of Object.keys(state)) if (!(now - state[k] < HOUR)) delete state[k];
+    for (const k of Object.keys(state))
+      if (!(now - state[k] < HOUR)) delete state[k];
     const lines = [];
     for (const [arrow, f] of lost) {
       const k = `${dir.replace(/\\/g, "/")}|${rel}|${arrow}`;

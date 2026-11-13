@@ -9,14 +9,26 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const ANSWER_HOOK = fileURLToPath(new URL("../hooks/web-answer-gate.mjs", import.meta.url));
+const ANSWER_HOOK = fileURLToPath(
+  new URL("../hooks/web-answer-gate.mjs", import.meta.url),
+);
 const {
-  hedgeProblem, countProblem, wantedCount, listedCount, checkedASource, visibleProse, harnessPrompt,
+  hedgeProblem,
+  countProblem,
+  wantedCount,
+  listedCount,
+  checkedASource,
+  visibleProse,
+  harnessPrompt,
 } = await import(pathToFileURL(ANSWER_HOOK).href);
 
-let pass = 0, fail = 0;
+let pass = 0,
+  fail = 0;
 const ok = (name, cond, extra = "") => {
-  if (cond) { pass++; return; }
+  if (cond) {
+    pass++;
+    return;
+  }
   fail++;
   console.log(`FAIL  ${name}${extra ? `\n      ${extra}` : ""}`);
 };
@@ -24,7 +36,9 @@ const ok = (name, cond, extra = "") => {
 // The real hook process, end to end
 const runHook = (hook, input, env = {}) => {
   const r = spawnSync(process.execPath, [hook], {
-    input: JSON.stringify(input), encoding: "utf8", env: { ...process.env, ...env },
+    input: JSON.stringify(input),
+    encoding: "utf8",
+    env: { ...process.env, ...env },
   });
   return { out: r.stdout.trim(), status: r.status };
 };
@@ -32,10 +46,29 @@ const runHook = (hook, input, env = {}) => {
 // ---------------- web-answer-gate: the hedge check ----------------
 
 const NO_TOOLS = [];
-const CHECKED = [{ name: "WebFetch", input: { url: "https://www.postgresql.org/" } }];
-const CHECKED_CURL = [{ name: "Bash", input: { command: "curl -s https://endoflife.date/api/v1/products/postgresql/" } }];
-const CHECKED_VERSIONS = [{ name: "Bash", input: { command: "node ~/.claude/workers/versions.mjs postgresql --has 18" } }];
-const UNRELATED = [{ name: "Read", input: { file_path: "C:/x/y.md" } }, { name: "Bash", input: { command: "git status" } }];
+const CHECKED = [
+  { name: "WebFetch", input: { url: "https://www.postgresql.org/" } },
+];
+const CHECKED_CURL = [
+  {
+    name: "Bash",
+    input: {
+      command: "curl -s https://endoflife.date/api/v1/products/postgresql/",
+    },
+  },
+];
+const CHECKED_VERSIONS = [
+  {
+    name: "Bash",
+    input: {
+      command: "node ~/.claude/workers/versions.mjs postgresql --has 18",
+    },
+  },
+];
+const UNRELATED = [
+  { name: "Read", input: { file_path: "C:/x/y.md" } },
+  { name: "Bash", input: { command: "git status" } },
+];
 
 const HEDGING = [
   "PostgreSQL 18 may not be available for your setup yet.",
@@ -47,19 +80,39 @@ const HEDGING = [
   "The mod might not have a 1.20.1 build.",
 ];
 for (const text of HEDGING) {
-  ok(`hedge caught: ${text.slice(0, 40)}`, hedgeProblem(text, NO_TOOLS) !== null);
-  ok(`hedge allowed once checked: ${text.slice(0, 28)}`, hedgeProblem(text, CHECKED) === null);
+  ok(
+    `hedge caught: ${text.slice(0, 40)}`,
+    hedgeProblem(text, NO_TOOLS) !== null,
+  );
+  ok(
+    `hedge allowed once checked: ${text.slice(0, 28)}`,
+    hedgeProblem(text, CHECKED) === null,
+  );
 }
-ok("a curl to a fact source counts as checking", hedgeProblem(HEDGING[0], CHECKED_CURL) === null);
-ok("versions.mjs counts as checking", hedgeProblem(HEDGING[0], CHECKED_VERSIONS) === null);
-ok("an unrelated tool does not count as checking", hedgeProblem(HEDGING[0], UNRELATED) !== null);
-ok("a cited source URL is allowed to say absent",
-  hedgeProblem("18.6 is current; 19 may not be available as stable yet - https://endoflife.date/postgresql", NO_TOOLS) === null);
+ok(
+  "a curl to a fact source counts as checking",
+  hedgeProblem(HEDGING[0], CHECKED_CURL) === null,
+);
+ok(
+  "versions.mjs counts as checking",
+  hedgeProblem(HEDGING[0], CHECKED_VERSIONS) === null,
+);
+ok(
+  "an unrelated tool does not count as checking",
+  hedgeProblem(HEDGING[0], UNRELATED) !== null,
+);
+ok(
+  "a cited source URL is allowed to say absent",
+  hedgeProblem(
+    "18.6 is current; 19 may not be available as stable yet - https://endoflife.date/postgresql",
+    NO_TOOLS,
+  ) === null,
+);
 
 const FINE = [
   "PostgreSQL 18.6 is current, released 2026-08-11.",
   "I installed it and the tests pass.",
-  "The file may not be there, so the script checks first.",   // not about availability of a release
+  "The file may not be there, so the script checks first.", // not about availability of a release
   "This might not be the fastest approach, but it works.",
   "Done - the hook now blocks that command.",
   // Ordinary coding prose: these were all blocked before the sentence check went in
@@ -72,73 +125,175 @@ const FINE = [
   "This branch might not have the commit yet.",
   "The endpoint may not be reachable from the sandbox.",
 ];
-for (const text of FINE) ok(`no false hedge: ${text.slice(0, 44)}`, hedgeProblem(text, NO_TOOLS) === null,
-  `blocked on "${hedgeProblem(text, NO_TOOLS)}"`);
+for (const text of FINE)
+  ok(
+    `no false hedge: ${text.slice(0, 44)}`,
+    hedgeProblem(text, NO_TOOLS) === null,
+    `blocked on "${hedgeProblem(text, NO_TOOLS)}"`,
+  );
 
 // A release hedge still blocks even when the reply also talks about files and tests
-ok("a release hedge in a long reply still blocks",
-  hedgeProblem("I updated the hook and the tests pass.\nPostgreSQL 19 may not be available yet.", NO_TOOLS) !== null);
-ok("a code hedge next to release talk does not block",
-  hedgeProblem("I bumped the package version to 2.1.0. The output directory may not exist, so it is created.", NO_TOOLS) === null,
-  `blocked on "${hedgeProblem("I bumped the package version to 2.1.0. The output directory may not exist, so it is created.", NO_TOOLS)}"`);
+ok(
+  "a release hedge in a long reply still blocks",
+  hedgeProblem(
+    "I updated the hook and the tests pass.\nPostgreSQL 19 may not be available yet.",
+    NO_TOOLS,
+  ) !== null,
+);
+ok(
+  "a code hedge next to release talk does not block",
+  hedgeProblem(
+    "I bumped the package version to 2.1.0. The output directory may not exist, so it is created.",
+    NO_TOOLS,
+  ) === null,
+  `blocked on "${hedgeProblem("I bumped the package version to 2.1.0. The output directory may not exist, so it is created.", NO_TOOLS)}"`,
+);
 
-ok("a hedge inside a code block is not this reply's claim",
-  hedgeProblem("Here is the log:\n```\nwarning: may not be available\n```\nAll good.", NO_TOOLS) === null);
-ok("visibleProse drops fenced blocks", !visibleProse("a\n```\nsecret\n```\nb").includes("secret"));
-ok("checkedASource sees WebSearch", checkedASource([{ name: "WebSearch", input: { query: "x" } }]));
+ok(
+  "a hedge inside a code block is not this reply's claim",
+  hedgeProblem(
+    "Here is the log:\n```\nwarning: may not be available\n```\nAll good.",
+    NO_TOOLS,
+  ) === null,
+);
+ok(
+  "visibleProse drops fenced blocks",
+  !visibleProse("a\n```\nsecret\n```\nb").includes("secret"),
+);
+ok(
+  "checkedASource sees WebSearch",
+  checkedASource([{ name: "WebSearch", input: { query: "x" } }]),
+);
 
 // ---------------- web-answer-gate: the count check ----------------
 
-ok("wantedCount: give me 10 examples", wantedCount("give me 10 examples of SQL linters") === 10);
-ok("wantedCount: find 12 mods", wantedCount("Find 12 Minecraft mods for Forge 1.20.1") === 12);
-ok("wantedCount: a range takes the lower end", wantedCount("Find 8-12 resource packs for the dragon") === 8);
-ok("wantedCount: 10 examples with no verb", wantedCount("I want 10 options for this") === 10);
-ok("wantedCount: list 5 alternatives", wantedCount("list 5 alternatives to sqlfluff") === 5);
+ok(
+  "wantedCount: give me 10 examples",
+  wantedCount("give me 10 examples of SQL linters") === 10,
+);
+ok(
+  "wantedCount: find 12 mods",
+  wantedCount("Find 12 Minecraft mods for Forge 1.20.1") === 12,
+);
+ok(
+  "wantedCount: a range takes the lower end",
+  wantedCount("Find 8-12 resource packs for the dragon") === 8,
+);
+ok(
+  "wantedCount: 10 examples with no verb",
+  wantedCount("I want 10 options for this") === 10,
+);
+ok(
+  "wantedCount: list 5 alternatives",
+  wantedCount("list 5 alternatives to sqlfluff") === 5,
+);
 
 // This hook is about web research: a number in any other kind of ask must not arm the count check
-ok("wantedCount ignores: show me 5 rows", wantedCount("show me 5 rows from that table") === 0);
-ok("wantedCount ignores: 10 reasons this is slow", wantedCount("give me 10 reasons this is slow") === 0);
-ok("wantedCount ignores: list 4 columns", wantedCount("list 4 columns I should add") === 0);
-ok("wantedCount ignores: 3 ways to refactor this function", wantedCount("give me 3 ways to refactor this function") === 0);
-ok("wantedCount ignores: write 5 tests", wantedCount("write 5 tests for the hook") === 0);
-ok("wantedCount still fires on research with a noun that could be either",
-  wantedCount("find me 6 libraries that do this") === 6);
+ok(
+  "wantedCount ignores: show me 5 rows",
+  wantedCount("show me 5 rows from that table") === 0,
+);
+ok(
+  "wantedCount ignores: 10 reasons this is slow",
+  wantedCount("give me 10 reasons this is slow") === 0,
+);
+ok(
+  "wantedCount ignores: list 4 columns",
+  wantedCount("list 4 columns I should add") === 0,
+);
+ok(
+  "wantedCount ignores: 3 ways to refactor this function",
+  wantedCount("give me 3 ways to refactor this function") === 0,
+);
+ok(
+  "wantedCount ignores: write 5 tests",
+  wantedCount("write 5 tests for the hook") === 0,
+);
+ok(
+  "wantedCount still fires on research with a noun that could be either",
+  wantedCount("find me 6 libraries that do this") === 6,
+);
 
-ok("wantedCount ignores: fix the 3 tests", wantedCount("fix the 3 failing tests") === 0);
-ok("wantedCount ignores: 2 bugs", wantedCount("there are 2 bugs in this file, find them") === 0);
-ok("wantedCount ignores: took 5 minutes", wantedCount("the search took 5 minutes and found nothing") === 0);
-ok("wantedCount ignores a plain question", wantedCount("what is the latest postgres version?") === 0);
+ok(
+  "wantedCount ignores: fix the 3 tests",
+  wantedCount("fix the 3 failing tests") === 0,
+);
+ok(
+  "wantedCount ignores: 2 bugs",
+  wantedCount("there are 2 bugs in this file, find them") === 0,
+);
+ok(
+  "wantedCount ignores: took 5 minutes",
+  wantedCount("the search took 5 minutes and found nothing") === 0,
+);
+ok(
+  "wantedCount ignores a plain question",
+  wantedCount("what is the latest postgres version?") === 0,
+);
 ok("wantedCount ignores a huge number", wantedCount("find 500 examples") === 0);
 ok("wantedCount ignores one or two", wantedCount("give me 1 example") === 0);
 
 ok("listedCount counts bullets", listedCount("- a\n- b\n- c") === 3);
-ok("listedCount counts a numbered list", listedCount("1. a\n2. b\n3. c\n4. d") === 4);
-ok("listedCount counts table rows, not the header",
-  listedCount("| Name | Use |\n|---|---|\n| a | x |\n| b | y |") === 2);
-ok("listedCount takes the larger of list and table, not the sum",
-  listedCount("| N |\n|---|\n| a |\n| b |\n| c |\n\n- caveat one\n- caveat two") === 3);
-ok("listedCount ignores a fenced block", listedCount("```\n- not an item\n- nor this\n```\n- real one") === 1);
+ok(
+  "listedCount counts a numbered list",
+  listedCount("1. a\n2. b\n3. c\n4. d") === 4,
+);
+ok(
+  "listedCount counts table rows, not the header",
+  listedCount("| Name | Use |\n|---|---|\n| a | x |\n| b | y |") === 2,
+);
+ok(
+  "listedCount takes the larger of list and table, not the sum",
+  listedCount(
+    "| N |\n|---|\n| a |\n| b |\n| c |\n\n- caveat one\n- caveat two",
+  ) === 3,
+);
+ok(
+  "listedCount ignores a fenced block",
+  listedCount("```\n- not an item\n- nor this\n```\n- real one") === 1,
+);
 
 {
   const prompt = "give me 10 examples of open source SQL linters";
   const short = "Here are a few:\n- SQLFluff\n- sqruff\n- sql-formatter";
   const p = countProblem(prompt, short, NO_TOOLS);
-  ok("count caught: 3 of 10", p && p.want === 10 && p.got === 3, JSON.stringify(p));
+  ok(
+    "count caught: 3 of 10",
+    p && p.want === 10 && p.got === 3,
+    JSON.stringify(p),
+  );
 
-  const full = Array.from({ length: 10 }, (_, i) => `- tool ${i + 1}`).join("\n");
+  const full = Array.from({ length: 10 }, (_, i) => `- tool ${i + 1}`).join(
+    "\n",
+  );
   ok("count fine: 10 of 10", countProblem(prompt, full, NO_TOOLS) === null);
 
-  const owned = "I found only 6 that are still maintained. I searched the npm registry, GitHub topics and PyPI.\n" +
+  const owned =
+    "I found only 6 that are still maintained. I searched the npm registry, GitHub topics and PyPI.\n" +
     Array.from({ length: 6 }, (_, i) => `- tool ${i + 1}`).join("\n");
-  ok("count fine when the shortfall is owned and sourced", countProblem(prompt, owned, NO_TOOLS) === null);
+  ok(
+    "count fine when the shortfall is owned and sourced",
+    countProblem(prompt, owned, NO_TOOLS) === null,
+  );
 
-  const halfOwned = "I found only 6.\n" + Array.from({ length: 6 }, (_, i) => `- tool ${i + 1}`).join("\n");
-  ok("count still blocks when it says how many but not where it looked",
-    countProblem(prompt, halfOwned, NO_TOOLS) !== null);
+  const halfOwned =
+    "I found only 6.\n" +
+    Array.from({ length: 6 }, (_, i) => `- tool ${i + 1}`).join("\n");
+  ok(
+    "count still blocks when it says how many but not where it looked",
+    countProblem(prompt, halfOwned, NO_TOOLS) !== null,
+  );
 
-  ok("count skipped when the turn asked the user a question",
-    countProblem(prompt, short, [{ name: "mcp__nimbalyst__PromptForUserInput", input: {} }]) === null);
-  ok("count skipped when nothing was asked for", countProblem("fix the bug", short, NO_TOOLS) === null);
+  ok(
+    "count skipped when the turn asked the user a question",
+    countProblem(prompt, short, [
+      { name: "mcp__nimbalyst__PromptForUserInput", input: {} },
+    ]) === null,
+  );
+  ok(
+    "count skipped when nothing was asked for",
+    countProblem("fix the bug", short, NO_TOOLS) === null,
+  );
 }
 
 // The real Stop hook over a transcript
@@ -146,27 +301,65 @@ ok("listedCount ignores a fenced block", listedCount("```\n- not an item\n- nor 
   const dir = mkdtempSync(join(tmpdir(), "web-gate-"));
   const t = join(dir, "t.jsonl");
   const lines = [
-    { type: "user", message: { content: "give me 10 examples of SQL linters" } },
-    { type: "assistant", message: { content: [{ type: "text", text: "Here are a few:\n- SQLFluff\n- sqruff" }] } },
-  ].map((o) => JSON.stringify(o)).join("\n");
+    {
+      type: "user",
+      message: { content: "give me 10 examples of SQL linters" },
+    },
+    {
+      type: "assistant",
+      message: {
+        content: [
+          { type: "text", text: "Here are a few:\n- SQLFluff\n- sqruff" },
+        ],
+      },
+    },
+  ]
+    .map((o) => JSON.stringify(o))
+    .join("\n");
   writeFileSync(t, lines);
 
   const { out } = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir });
   const parsed = out ? JSON.parse(out) : null;
-  ok("Stop hook blocks a 2-of-10 reply", parsed?.decision === "block", out.slice(0, 160));
-  ok("the block says the numbers", /asked for 10; this reply lists 2/.test(parsed?.reason || ""), (parsed?.reason || "").slice(0, 160));
+  ok(
+    "Stop hook blocks a 2-of-10 reply",
+    parsed?.decision === "block",
+    out.slice(0, 160),
+  );
+  ok(
+    "the block says the numbers",
+    /asked for 10; this reply lists 2/.test(parsed?.reason || ""),
+    (parsed?.reason || "").slice(0, 160),
+  );
 
-  const quiet = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir, stop_hook_active: true });
+  const quiet = runHook(ANSWER_HOOK, {
+    transcript_path: t,
+    cwd: dir,
+    stop_hook_active: true,
+  });
   ok("silent when stop_hook_active", quiet.out === "");
 
-  const offRun = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir }, { WEB_ANSWER_GATE: "off" });
+  const offRun = runHook(
+    ANSWER_HOOK,
+    { transcript_path: t, cwd: dir },
+    { WEB_ANSWER_GATE: "off" },
+  );
   ok("WEB_ANSWER_GATE=off works", offRun.out === "");
 
-  const countOff = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir }, { COUNT_CHECK: "off" });
+  const countOff = runHook(
+    ANSWER_HOOK,
+    { transcript_path: t, cwd: dir },
+    { COUNT_CHECK: "off" },
+  );
   ok("COUNT_CHECK=off works", countOff.out === "");
 
-  const missing = runHook(ANSWER_HOOK, { transcript_path: join(dir, "nope.jsonl"), cwd: dir });
-  ok("fails open on a missing transcript", missing.out === "" && missing.status === 0);
+  const missing = runHook(ANSWER_HOOK, {
+    transcript_path: join(dir, "nope.jsonl"),
+    cwd: dir,
+  });
+  ok(
+    "fails open on a missing transcript",
+    missing.out === "" && missing.status === 0,
+  );
 }
 
 // An injected entry is not the user's prompt: a Stop hook's own feedback sits in the transcript as a
@@ -174,27 +367,72 @@ ok("listedCount ignores a fenced block", listedCount("```\n- not an item\n- nor 
 {
   const dir = mkdtempSync(join(tmpdir(), "web-gate-meta-"));
   const t = join(dir, "t.jsonl");
-  writeFileSync(t, [
-    { type: "user", message: { content: "give me 10 examples of SQL linters" } },
-    { type: "assistant", message: { content: [{ type: "text", text: "- SQLFluff\n- sqruff" }] } },
-    { type: "user", isMeta: true, message: { content: "Stop hook feedback: code-review-gate: run the review" } },
-  ].map((o) => JSON.stringify(o)).join("\n"));
+  writeFileSync(
+    t,
+    [
+      {
+        type: "user",
+        message: { content: "give me 10 examples of SQL linters" },
+      },
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "- SQLFluff\n- sqruff" }] },
+      },
+      {
+        type: "user",
+        isMeta: true,
+        message: {
+          content: "Stop hook feedback: code-review-gate: run the review",
+        },
+      },
+    ]
+      .map((o) => JSON.stringify(o))
+      .join("\n"),
+  );
   const { out } = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir });
   const parsed = out ? JSON.parse(out) : null;
-  ok("the real prompt is found past an injected entry", parsed?.decision === "block", out.slice(0, 140));
-  ok("and the count is judged against it", /asked for 10/.test(parsed?.reason || ""));
+  ok(
+    "the real prompt is found past an injected entry",
+    parsed?.decision === "block",
+    out.slice(0, 140),
+  );
+  ok(
+    "and the count is judged against it",
+    /asked for 10/.test(parsed?.reason || ""),
+  );
 }
 {
   // The injected text itself must not arm the count check
   const dir = mkdtempSync(join(tmpdir(), "web-gate-meta2-"));
   const t = join(dir, "t.jsonl");
-  writeFileSync(t, [
-    { type: "user", message: { content: "tidy up the hook" } },
-    { type: "user", isMeta: true, message: { content: "Stop hook feedback: this turn changed 8 code files, find 10 examples" } },
-    { type: "assistant", message: { content: [{ type: "text", text: "Done, the hook is tidier." }] } },
-  ].map((o) => JSON.stringify(o)).join("\n"));
+  writeFileSync(
+    t,
+    [
+      { type: "user", message: { content: "tidy up the hook" } },
+      {
+        type: "user",
+        isMeta: true,
+        message: {
+          content:
+            "Stop hook feedback: this turn changed 8 code files, find 10 examples",
+        },
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [{ type: "text", text: "Done, the hook is tidier." }],
+        },
+      },
+    ]
+      .map((o) => JSON.stringify(o))
+      .join("\n"),
+  );
   const { out } = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir });
-  ok("an injected ask does not arm the count check", out === "", out.slice(0, 140));
+  ok(
+    "an injected ask does not arm the count check",
+    out === "",
+    out.slice(0, 140),
+  );
 }
 
 // Count check: only text a person typed counts as the ask. A turn that a background task's notification or an
@@ -206,70 +444,229 @@ ok("listedCount ignores a fenced block", listedCount("```\n- not an item\n- nor 
     writeFileSync(t, entries.map((o) => JSON.stringify(o)).join("\n"));
     return runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir }).out;
   };
-  const NOTE = "<task-notification>\n<task-id>adb0c9294dfffce7c</task-id>\n<tool-use-id>toolu_01RK1vvBLXX6nH6NAwSuH3aD</tool-use-id>\n<output-file>/tmp/tasks/adb0c9294dfffce7c.output</output-file>\n<status>completed</status>\n<result>Find 20 examples of error messages and list them.</result>\n</task-notification>";
-  const JUDGE = "You are judging two assistant replies to the same message from a user, blind. The message was: \"find 12 plugins for this editor\". Score A and B.";
-  const said = { type: "assistant", message: { content: [{ type: "text", text: "The first report is back; the other four are still running." }] } };
+  const NOTE =
+    "<task-notification>\n<task-id>adb0c9294dfffce7c</task-id>\n<tool-use-id>toolu_01RK1vvBLXX6nH6NAwSuH3aD</tool-use-id>\n<output-file>/tmp/tasks/adb0c9294dfffce7c.output</output-file>\n<status>completed</status>\n<result>Find 20 examples of error messages and list them.</result>\n</task-notification>";
+  const JUDGE =
+    'You are judging two assistant replies to the same message from a user, blind. The message was: "find 12 plugins for this editor". Score A and B.';
+  const said = {
+    type: "assistant",
+    message: {
+      content: [
+        {
+          type: "text",
+          text: "The first report is back; the other four are still running.",
+        },
+      ],
+    },
+  };
 
-  ok("harnessPrompt: a task notification", harnessPrompt({ promptSource: "system", origin: { kind: "task-notification" } }, NOTE));
+  ok(
+    "harnessPrompt: a task notification",
+    harnessPrompt(
+      { promptSource: "system", origin: { kind: "task-notification" } },
+      NOTE,
+    ),
+  );
   ok("harnessPrompt: the notification text alone", harnessPrompt({}, NOTE));
-  ok("harnessPrompt: a judge prompt", harnessPrompt({ promptSource: "sdk" }, JUDGE));
-  ok("harnessPrompt: a typed prompt is not", !harnessPrompt({ promptSource: "sdk" }, "find 12 plugins for this editor"));
+  ok(
+    "harnessPrompt: a judge prompt",
+    harnessPrompt({ promptSource: "sdk" }, JUDGE),
+  );
+  ok(
+    "harnessPrompt: a typed prompt is not",
+    !harnessPrompt({ promptSource: "sdk" }, "find 12 plugins for this editor"),
+  );
 
-  ok("a task notification does not arm the count check",
-    hook("n1.jsonl", [{ type: "user", message: { content: NOTE } }, said]) === "");
+  ok(
+    "a task notification does not arm the count check",
+    hook("n1.jsonl", [{ type: "user", message: { content: NOTE } }, said]) ===
+      "",
+  );
   // The notification turn is read against the last typed prompt (the ask is still open), but a status line
   // that lists nothing is not an answer; a reply that lists some items is.
-  const notif = { type: "user", promptSource: "system", origin: { kind: "task-notification" }, message: { content: NOTE } };
+  const notif = {
+    type: "user",
+    promptSource: "system",
+    origin: { kind: "task-notification" },
+    message: { content: NOTE },
+  };
   const ask10 = { type: "user", message: { content: "find 10 SQL linters" } };
-  const helpers = { type: "assistant", message: { content: [{ type: "tool_use", name: "Agent", input: {} }, { type: "text", text: "Four readers are working on it." }] } };
-  const reply = (text) => ({ type: "assistant", message: { content: [{ type: "text", text }] } });
-  ok("a notification turn that lists 0 items is a status line: silent",
-    hook("n2.jsonl", [ask10, helpers, notif, said]) === "");
-  const three = hook("n4.jsonl", [ask10, helpers, notif, reply("- SQLFluff\n- sqruff\n- sqlfmt")]);
-  ok("a notification turn that answers with 3 of 10 items is checked", /asked for 10; this reply lists 3/.test(three), three.slice(0, 120));
-  ok("a notification turn that lists all 10 items is silent",
-    hook("n5.jsonl", [ask10, helpers, notif, reply(Array.from({ length: 10 }, (_, i) => `- linter ${i + 1}`).join("\n"))]) === "");
-  ok("a notification mid-turn does not drop the tools recorded before it",
-    hook("n6.jsonl", [{ type: "user", message: { content: "is postgres 19 out?" } },
-      { type: "assistant", message: { content: [{ type: "tool_use", name: "WebFetch", input: { url: "https://www.postgresql.org/" } }] } },
-      notif, reply("19 may not be available as a stable release yet.")]) === "");
-  ok("the same hedge with no tool before the notification is still blocked",
-    /may not be available/.test(hook("n7.jsonl", [{ type: "user", message: { content: "is postgres 19 out?" } }, notif, reply("19 may not be available as a stable release yet.")])));
-  ok("an automated judge prompt does not arm the count check",
-    hook("j1.jsonl", [{ type: "user", promptSource: "sdk", message: { content: JUDGE } }, { type: "assistant", message: { content: [{ type: "text", text: "{\"A\": 2, \"B\": 3}" }] } }]) === "");
+  const helpers = {
+    type: "assistant",
+    message: {
+      content: [
+        { type: "tool_use", name: "Agent", input: {} },
+        { type: "text", text: "Four readers are working on it." },
+      ],
+    },
+  };
+  const reply = (text) => ({
+    type: "assistant",
+    message: { content: [{ type: "text", text }] },
+  });
+  ok(
+    "a notification turn that lists 0 items is a status line: silent",
+    hook("n2.jsonl", [ask10, helpers, notif, said]) === "",
+  );
+  const three = hook("n4.jsonl", [
+    ask10,
+    helpers,
+    notif,
+    reply("- SQLFluff\n- sqruff\n- sqlfmt"),
+  ]);
+  ok(
+    "a notification turn that answers with 3 of 10 items is checked",
+    /asked for 10; this reply lists 3/.test(three),
+    three.slice(0, 120),
+  );
+  ok(
+    "a notification turn that lists all 10 items is silent",
+    hook("n5.jsonl", [
+      ask10,
+      helpers,
+      notif,
+      reply(
+        Array.from({ length: 10 }, (_, i) => `- linter ${i + 1}`).join("\n"),
+      ),
+    ]) === "",
+  );
+  ok(
+    "a notification mid-turn does not drop the tools recorded before it",
+    hook("n6.jsonl", [
+      { type: "user", message: { content: "is postgres 19 out?" } },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              name: "WebFetch",
+              input: { url: "https://www.postgresql.org/" },
+            },
+          ],
+        },
+      },
+      notif,
+      reply("19 may not be available as a stable release yet."),
+    ]) === "",
+  );
+  ok(
+    "the same hedge with no tool before the notification is still blocked",
+    /may not be available/.test(
+      hook("n7.jsonl", [
+        { type: "user", message: { content: "is postgres 19 out?" } },
+        notif,
+        reply("19 may not be available as a stable release yet."),
+      ]),
+    ),
+  );
+  ok(
+    "an automated judge prompt does not arm the count check",
+    hook("j1.jsonl", [
+      { type: "user", promptSource: "sdk", message: { content: JUDGE } },
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: '{"A": 2, "B": 3}' }] },
+      },
+    ]) === "",
+  );
   // The rule still fires for a person's ask that comes after a notification
-  const after = hook("n3.jsonl", [{ type: "user", message: { content: NOTE } }, said,
-    { type: "user", message: { content: "give me 10 examples of open source SQL linters" } },
-    { type: "assistant", message: { content: [{ type: "text", text: "- SQLFluff\n- sqruff" }] } }]);
-  ok("a person's ask after a notification is still checked", /asked for 10/.test(after), after.slice(0, 120));
+  const after = hook("n3.jsonl", [
+    { type: "user", message: { content: NOTE } },
+    said,
+    {
+      type: "user",
+      message: { content: "give me 10 examples of open source SQL linters" },
+    },
+    {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "- SQLFluff\n- sqruff" }] },
+    },
+  ]);
+  ok(
+    "a person's ask after a notification is still checked",
+    /asked for 10/.test(after),
+    after.slice(0, 120),
+  );
 }
-
 
 // A hedging reply with a tool call recorded in the transcript must pass
 {
   const dir = mkdtempSync(join(tmpdir(), "web-gate2-"));
   const t = join(dir, "t.jsonl");
-  writeFileSync(t, [
-    { type: "user", message: { content: "is postgres 19 out?" } },
-    { type: "assistant", message: { content: [{ type: "tool_use", name: "WebFetch", input: { url: "https://www.postgresql.org/" } }] } },
-    { type: "assistant", message: { content: [{ type: "text", text: "19 may not be available as a stable release yet." }] } },
-  ].map((o) => JSON.stringify(o)).join("\n"));
+  writeFileSync(
+    t,
+    [
+      { type: "user", message: { content: "is postgres 19 out?" } },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              name: "WebFetch",
+              input: { url: "https://www.postgresql.org/" },
+            },
+          ],
+        },
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "text",
+              text: "19 may not be available as a stable release yet.",
+            },
+          ],
+        },
+      },
+    ]
+      .map((o) => JSON.stringify(o))
+      .join("\n"),
+  );
   const { out } = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir });
-  ok("a hedge passes when the turn really checked", out === "", out.slice(0, 160));
+  ok(
+    "a hedge passes when the turn really checked",
+    out === "",
+    out.slice(0, 160),
+  );
 }
 
 // The same hedge with no check must block
 {
   const dir = mkdtempSync(join(tmpdir(), "web-gate3-"));
   const t = join(dir, "t.jsonl");
-  writeFileSync(t, [
-    { type: "user", message: { content: "is postgres 19 out?" } },
-    { type: "assistant", message: { content: [{ type: "text", text: "19 may not be available as a stable release yet." }] } },
-  ].map((o) => JSON.stringify(o)).join("\n"));
+  writeFileSync(
+    t,
+    [
+      { type: "user", message: { content: "is postgres 19 out?" } },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "text",
+              text: "19 may not be available as a stable release yet.",
+            },
+          ],
+        },
+      },
+    ]
+      .map((o) => JSON.stringify(o))
+      .join("\n"),
+  );
   const { out } = runHook(ANSWER_HOOK, { transcript_path: t, cwd: dir });
   const parsed = out ? JSON.parse(out) : null;
-  ok("the same hedge blocks with no check", parsed?.decision === "block", out.slice(0, 160));
-  ok("the block names versions.mjs", /versions\.mjs/.test(parsed?.reason || ""));
+  ok(
+    "the same hedge blocks with no check",
+    parsed?.decision === "block",
+    out.slice(0, 160),
+  );
+  ok(
+    "the block names versions.mjs",
+    /versions\.mjs/.test(parsed?.reason || ""),
+  );
 }
 
 // ---------------- web-answer-gate: Russian (`--language russian`) ----------------
@@ -283,8 +680,14 @@ const RU_HEDGING = [
   "Релиз пока недоступен для Windows.",
 ];
 for (const text of RU_HEDGING) {
-  ok(`ru hedge caught: ${text.slice(0, 40)}`, hedgeProblem(text, NO_TOOLS) !== null);
-  ok(`ru hedge allowed once checked: ${text.slice(0, 28)}`, hedgeProblem(text, CHECKED) === null);
+  ok(
+    `ru hedge caught: ${text.slice(0, 40)}`,
+    hedgeProblem(text, NO_TOOLS) !== null,
+  );
+  ok(
+    `ru hedge allowed once checked: ${text.slice(0, 28)}`,
+    hedgeProblem(text, CHECKED) === null,
+  );
 }
 const RU_FINE = [
   "Версия 22 вышла, я проверил это на сайте проекта.",
@@ -292,22 +695,64 @@ const RU_FINE = [
   "Я не смог подтвердить, выполнился ли хук, лог пуст.",
   "Сборка прошла, все тесты зелёные.",
 ];
-for (const text of RU_FINE) ok(`ru no false hedge: ${text.slice(0, 44)}`, hedgeProblem(text, NO_TOOLS) === null, `blocked on "${hedgeProblem(text, NO_TOOLS)}"`);
-ok("ru hedge inside a code block is not this reply's claim",
-  hedgeProblem("Вот лог:\n```\nпакет может быть недоступен\n```\nВсё в порядке.", NO_TOOLS) === null);
-ok("ru hedge with a source link is not a guess",
-  hedgeProblem("Версия 19 может быть недоступна, см. https://endoflife.date/postgresql", NO_TOOLS) === null);
+for (const text of RU_FINE)
+  ok(
+    `ru no false hedge: ${text.slice(0, 44)}`,
+    hedgeProblem(text, NO_TOOLS) === null,
+    `blocked on "${hedgeProblem(text, NO_TOOLS)}"`,
+  );
+ok(
+  "ru hedge inside a code block is not this reply's claim",
+  hedgeProblem(
+    "Вот лог:\n```\nпакет может быть недоступен\n```\nВсё в порядке.",
+    NO_TOOLS,
+  ) === null,
+);
+ok(
+  "ru hedge with a source link is not a guess",
+  hedgeProblem(
+    "Версия 19 может быть недоступна, см. https://endoflife.date/postgresql",
+    NO_TOOLS,
+  ) === null,
+);
 
-ok("ru wantedCount: найди 10 примеров", wantedCount("Найди 10 примеров линтеров для SQL") === 10);
-ok("ru wantedCount: a range takes the lower end", wantedCount("Подбери 8-12 модов для Forge 1.20.1") === 8);
-ok("ru wantedCount: 'до' range", wantedCount("Нужно от 5 до 7 альтернатив sqlfluff") === 5);
-ok("ru wantedCount ignores: 5 строк таблицы", wantedCount("Покажи 5 строк из этой таблицы") === 0);
-ok("ru wantedCount ignores: 10 причин", wantedCount("Дай 10 причин, почему это тормозит") === 0);
-ok("ru wantedCount ignores: поправь 3 теста", wantedCount("Поправь 3 упавших теста") === 0);
+ok(
+  "ru wantedCount: найди 10 примеров",
+  wantedCount("Найди 10 примеров линтеров для SQL") === 10,
+);
+ok(
+  "ru wantedCount: a range takes the lower end",
+  wantedCount("Подбери 8-12 модов для Forge 1.20.1") === 8,
+);
+ok(
+  "ru wantedCount: 'до' range",
+  wantedCount("Нужно от 5 до 7 альтернатив sqlfluff") === 5,
+);
+ok(
+  "ru wantedCount ignores: 5 строк таблицы",
+  wantedCount("Покажи 5 строк из этой таблицы") === 0,
+);
+ok(
+  "ru wantedCount ignores: 10 причин",
+  wantedCount("Дай 10 причин, почему это тормозит") === 0,
+);
+ok(
+  "ru wantedCount ignores: поправь 3 теста",
+  wantedCount("Поправь 3 упавших теста") === 0,
+);
 const RU_ASK = "Найди 10 примеров линтеров для SQL";
-ok("ru count problem: 3 listed of 10", countProblem(RU_ASK, "Вот три:\n- a\n- b\n- c", NO_TOOLS)?.want === 10);
-ok("ru count problem silent: said how many and where it looked",
-  countProblem(RU_ASK, "Нашёл только 3, искал в npm и на GitHub.\n- a\n- b\n- c", NO_TOOLS) === null);
+ok(
+  "ru count problem: 3 listed of 10",
+  countProblem(RU_ASK, "Вот три:\n- a\n- b\n- c", NO_TOOLS)?.want === 10,
+);
+ok(
+  "ru count problem silent: said how many and where it looked",
+  countProblem(
+    RU_ASK,
+    "Нашёл только 3, искал в npm и на GitHub.\n- a\n- b\n- c",
+    NO_TOOLS,
+  ) === null,
+);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

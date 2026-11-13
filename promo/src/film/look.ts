@@ -4,12 +4,17 @@ import type { Part } from "./script";
 // The look of the tour film: one near-black background from the first frame to the last, light type, all of it in
 // JetBrains Mono, and each chapter's colour only as a small mark (a dot, a label, a thin line, a highlight). Red and
 // green say wrong and right. Never a coloured field, no gradients, no glow.
-export const mono = loadMono("normal", { weights: ["400", "600", "700"], subsets: ["latin"] }).fontFamily;
+export const mono = loadMono("normal", {
+  weights: ["400", "600", "700"],
+  subsets: ["latin"],
+}).fontFamily;
 
 export const color = {
   /** The one background of the whole film. */
   bg: "#111114",
   text: "#e8e8ec",
+  /** Window headers: one step lighter than `dim`, so they read at 900 px wide. */
+  soft: "#b0b0b8",
   dim: "#8c8c94",
   faint: "#4a4a52",
   line: "#2a2a30",

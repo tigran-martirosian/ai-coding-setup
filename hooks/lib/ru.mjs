@@ -5,5 +5,13 @@
 // ruHyphen() is the same except that » also refuses a hyphen after the word (no-response-gate: "ли" must not
 // match inside "ли-бо").
 const OPEN = String.raw`(?<!\p{L})`;
-export const ru = (src, flags = "iu") => new RegExp(src.replace(/«/g, OPEN).replace(/»/g, String.raw`(?!\p{L})`), flags);
-export const ruHyphen = (src, flags = "iu") => new RegExp(src.replace(/«/g, OPEN).replace(/»/g, String.raw`(?![\p{L}-])`), flags);
+export const ru = (src, flags = "iu") =>
+  new RegExp(
+    src.replace(/«/g, OPEN).replace(/»/g, String.raw`(?!\p{L})`),
+    flags,
+  );
+export const ruHyphen = (src, flags = "iu") =>
+  new RegExp(
+    src.replace(/«/g, OPEN).replace(/»/g, String.raw`(?![\p{L}-])`),
+    flags,
+  );

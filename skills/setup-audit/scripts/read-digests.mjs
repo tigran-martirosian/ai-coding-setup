@@ -21,59 +21,134 @@ const MIN_REQUESTS = 5;
 
 const earlierAt = ARGS.indexOf("--earlier");
 const earlierArg = opt("earlier", "");
-if (earlierAt >= 0 && !earlierArg) { console.log("--earlier needs a findings file"); process.exit(1); }
+if (earlierAt >= 0 && !earlierArg) {
+  console.log("--earlier needs a findings file");
+  process.exit(1);
+}
 const [digestDir] = positional(["earlier"]);
 const dir = digestDir ? path.resolve(digestDir) : "";
-if (!dir || !fs.existsSync(dir)) { console.log("Usage: node read-digests.mjs <digest folder made by chat-scan.mjs> [--earlier <findings file>]"); process.exit(1); }
+if (!dir || !fs.existsSync(dir)) {
+  console.log(
+    "Usage: node read-digests.mjs <digest folder made by chat-scan.mjs> [--earlier <findings file>]",
+  );
+  process.exit(1);
+}
 const task = fs.readFileSync(path.join(HERE, "reader-task.txt"), "utf8");
 
 // The ticked rows of the last review's "Decided" table: [{ project (normalised), text }]
 const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-let earlierDate = "", earlierRows = [], noColon = [];
+let earlierDate = "",
+  earlierRows = [],
+  noColon = [];
 if (earlierArg) {
   const ef = path.resolve(earlierArg);
-  if (!fs.existsSync(ef)) { console.log(`The earlier findings file is not there: ${ef}`); process.exit(1); }
-  earlierDate = path.basename(ef).match(/^findings-(\d{4}-\d{2}-\d{2})\.md$/)?.[1];
-  if (!earlierDate) { console.log(`No date in the file name (expected findings-YYYY-MM-DD.md): ${path.basename(ef)}`); process.exit(1); }
+  if (!fs.existsSync(ef)) {
+    console.log(`The earlier findings file is not there: ${ef}`);
+    process.exit(1);
+  }
+  earlierDate = path
+    .basename(ef)
+    .match(/^findings-(\d{4}-\d{2}-\d{2})\.md$/)?.[1];
+  if (!earlierDate) {
+    console.log(
+      `No date in the file name (expected findings-YYYY-MM-DD.md): ${path.basename(ef)}`,
+    );
+    process.exit(1);
+  }
   const lines = fs.readFileSync(ef, "utf8").split(/\r?\n/);
   const at = lines.findIndex((l) => /^##\s+Decided\b/i.test(l));
   const table = [];
-  for (let i = at + 1; at >= 0 && i < lines.length && !/^##\s/.test(lines[i]); i++) if (lines[i].trim().startsWith("|")) table.push(lines[i].trim());
-  if (!table.length) { console.log(`No "## Decided" table in ${ef}`); process.exit(1); }
-  for (const row of table.slice(1)) {
-    const cells = row.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
-    if (cells.every((c) => /^:?-+:?$/.test(c)) || !/^ticked/i.test(cells[1] || "")) continue;
-    const colon = cells[0].indexOf(":");
-    if (colon < 0) { noColon.push(cells[0]); continue; }
-    earlierRows.push({ project: norm(cells[0].slice(0, colon)), text: cells[0] });
+  for (
+    let i = at + 1;
+    at >= 0 && i < lines.length && !/^##\s/.test(lines[i]);
+    i++
+  )
+    if (lines[i].trim().startsWith("|")) table.push(lines[i].trim());
+  if (!table.length) {
+    console.log(`No "## Decided" table in ${ef}`);
+    process.exit(1);
   }
-  if (!earlierRows.length) console.log(`No ticked fixes in ${path.basename(ef)}; writing the tasks without the earlier-fixes question.`);
+  for (const row of table.slice(1)) {
+    const cells = row
+      .replace(/^\||\|$/g, "")
+      .split("|")
+      .map((c) => c.trim());
+    if (
+      cells.every((c) => /^:?-+:?$/.test(c)) ||
+      !/^ticked/i.test(cells[1] || "")
+    )
+      continue;
+    const colon = cells[0].indexOf(":");
+    if (colon < 0) {
+      noColon.push(cells[0]);
+      continue;
+    }
+    earlierRows.push({
+      project: norm(cells[0].slice(0, colon)),
+      text: cells[0],
+    });
+  }
+  if (!earlierRows.length)
+    console.log(
+      `No ticked fixes in ${path.basename(ef)}; writing the tasks without the earlier-fixes question.`,
+    );
 }
 
 function earlierText(file) {
-  const mine = earlierRows.filter((r) => r.project === "everywhere" || r.project === norm(file.replace(/\.md$/, "")));
+  const mine = earlierRows.filter(
+    (r) =>
+      r.project === "everywhere" ||
+      r.project === norm(file.replace(/\.md$/, "")),
+  );
   if (!mine.length) return "";
-  return `\n\nOne more heading after H, outside the 80 lines:\n\n` +
-    `I. EARLIER FIXES: on ${earlierDate} the fixes listed below were set up for this project. Look only at\n` +
+  return (
+    `\n\nOne more heading after I, outside the 80 lines:\n\n` +
+    `J. EARLIER FIXES: on ${earlierDate} the fixes listed below were set up for this project. Look only at\n` +
     `   chats dated after ${earlierDate} (each chat's heading carries its date). One line per fix, starting\n` +
     `   with its number and one of: HELD (the situation came up and went right), CAME BACK (it came up\n` +
     `   and went wrong the same way), DID NOT COME UP. Give the chat label for HELD and CAME BACK.\n` +
-    mine.map((r, i) => `   ${i + 1}. ${r.text}`).join("\n");
+    mine.map((r, i) => `   ${i + 1}. ${r.text}`).join("\n")
+  );
 }
 
-const digests = fs.readdirSync(dir).filter((f) => f.endsWith(".md") && !f.endsWith(".findings.md") && !f.endsWith(".task.md"));
-if (!digests.length) { console.log(`No digests in ${dir}. Run chat-scan.mjs first.`); process.exit(1); }
+const digests = fs
+  .readdirSync(dir)
+  .filter(
+    (f) =>
+      f.endsWith(".md") &&
+      !f.endsWith(".findings.md") &&
+      !f.endsWith(".task.md"),
+  );
+if (!digests.length) {
+  console.log(`No digests in ${dir}. Run chat-scan.mjs first.`);
+  process.exit(1);
+}
 const digestKeys = digests.map((f) => norm(f.replace(/\.md$/, "")));
-for (const r of earlierRows) if (r.project !== "everywhere" && !digestKeys.includes(r.project)) console.log(`Earlier fix not scored (no digest for it this time): ${r.text}`);
-for (const t of noColon) console.log(`Earlier fix not scored (no project before a colon): ${t}`);
-for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".task.md"))) fs.rmSync(path.join(dir, f));
+for (const r of earlierRows)
+  if (r.project !== "everywhere" && !digestKeys.includes(r.project))
+    console.log(
+      `Earlier fix not scored (no digest for it this time): ${r.text}`,
+    );
+for (const t of noColon)
+  console.log(`Earlier fix not scored (no project before a colon): ${t}`);
+for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".task.md")))
+  fs.rmSync(path.join(dir, f));
 for (const f of digests) {
   const file = path.join(dir, f);
-  const requests = Number(fs.readFileSync(file, "utf8").match(CHAT_COUNTS_RE)?.[1] || 0);
-  if (requests < MIN_REQUESTS) { console.log(`${f}: skipped, only ${requests} requests`); continue; }
+  const requests = Number(
+    fs.readFileSync(file, "utf8").match(CHAT_COUNTS_RE)?.[1] || 0,
+  );
+  if (requests < MIN_REQUESTS) {
+    console.log(`${f}: skipped, only ${requests} requests`);
+    continue;
+  }
   const outFile = path.join(dir, f.replace(/\.md$/, ".findings.md"));
   const taskFile = path.join(dir, f.replace(/\.md$/, ".task.md"));
   fs.rmSync(outFile, { force: true });
-  writeReport(dir, path.basename(taskFile), `Read the file ${file}.\n\n${earlierText(f) ? task.trimEnd() + earlierText(f) : task.trimEnd()}\n\nWrite your answer to the file ${outFile}: it is the one file you write ("do not write files" above does not apply to it). Then reply with one line.\n`);
+  writeReport(
+    dir,
+    path.basename(taskFile),
+    `Read the file ${file}.\n\n${earlierText(f) ? task.trimEnd() + earlierText(f) : task.trimEnd()}\n\nWrite your answer to the file ${outFile}: it is the one file you write ("do not write files" above does not apply to it). Then reply with one line.\n`,
+  );
   console.log(`${f}: task written -> ${path.basename(taskFile)}`);
 }

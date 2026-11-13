@@ -1,5 +1,5 @@
 // The test harness the extensions' test.mjs files share: a pass/fail counter and the build step.
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from "node:child_process";
 
 /** `check(name, ok)` counts and prints FAIL lines; `finish()` prints the totals and sets the exit code. */
 export function createChecks() {
@@ -22,6 +22,10 @@ export function createChecks() {
 
 /** Runs the extension's build.mjs (in `here`) for one language; throws with its stderr when it fails. */
 export function buildFor(here, lang) {
-  const r = spawnSync(process.execPath, ['build.mjs'], { cwd: here, encoding: 'utf8', env: { ...process.env, SETUP_LANGUAGE: lang } });
+  const r = spawnSync(process.execPath, ["build.mjs"], {
+    cwd: here,
+    encoding: "utf8",
+    env: { ...process.env, SETUP_LANGUAGE: lang },
+  });
   if (r.status !== 0) throw new Error(`build (${lang}) failed: ${r.stderr}`);
 }

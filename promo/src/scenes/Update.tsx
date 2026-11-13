@@ -6,7 +6,8 @@ import { color, mono } from "../theme";
 import { Bubble, Step, Window } from "../ui";
 
 // The line of hooks/update-check.mjs and the steps of skills/update-setup/update.mjs.
-const NOTICE = "Setup update ready: version 1.0.1. Type /update-setup to install it.";
+const NOTICE =
+  "Setup update ready: version 1.0.1. Type /update-setup to install it.";
 const COMMAND = "/update-setup";
 const STEPS = [
   "Newer version: 1.0.1 (installed: 1.0.0)",
@@ -30,7 +31,12 @@ export const Update: React.FC<SceneProps> = ({ durationInFrames }) => {
       caption="Twice a day the setup checks for a newer version and says so in one line. One command installs it and keeps what you added."
       durationInFrames={durationInFrames}
     >
-      <Window title="Chat" chip="version 1.0.0" chipColor={color.dim} style={{ width: 1320 }}>
+      <Window
+        title="Chat"
+        chip="version 1.0.0"
+        chipColor={color.dim}
+        style={{ width: 1320 }}
+      >
         <Appear at={NOTICE_AT}>
           <div
             style={{
@@ -45,16 +51,23 @@ export const Update: React.FC<SceneProps> = ({ durationInFrames }) => {
             {NOTICE}
           </div>
         </Appear>
-        <Appear at={COMMAND_AT} style={{ display: "flex", flexDirection: "column" }}>
+        <Appear
+          at={COMMAND_AT}
+          style={{ display: "flex", flexDirection: "column" }}
+        >
           <Bubble who="you">
-            <span style={{ fontFamily: mono, whiteSpace: "nowrap" }}>{typed(COMMAND, frame, COMMAND_AT + 6, 0.8) || " "}</span>
+            <span style={{ fontFamily: mono, whiteSpace: "nowrap" }}>
+              {typed(COMMAND, frame, COMMAND_AT + 6, 0.8) || " "}
+            </span>
           </Bubble>
         </Appear>
         {STEPS.map((step, i) => {
           const at = FIRST_STEP_AT + i * PER_STEP;
           return (
             <Appear key={step} at={at}>
-              <Step status={frame >= at + PER_STEP ? "ok" : "running"}>{step}</Step>
+              <Step status={frame >= at + PER_STEP ? "ok" : "running"}>
+                {step}
+              </Step>
             </Appear>
           );
         })}

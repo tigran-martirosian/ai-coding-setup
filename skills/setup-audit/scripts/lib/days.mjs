@@ -11,4 +11,7 @@ export function daysWindow(argv) {
 }
 
 export const pad = (n) => String(n).padStart(2, "0");
-export const day = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+export const day = (t) => {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};

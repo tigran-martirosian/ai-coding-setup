@@ -5,9 +5,9 @@ description: Systems map, the dictionary of a project's parts and what connects 
 
 # Systems map
 
-A **thing** is a part a person would name out loud: a feature, service, screen, data store or background job; a folder or a class is not one. A **link** is a pair of things where, if a session changed one, it would have to look at the other. The map is a dictionary: a session reads only the lines of the things its work touches. The `map-brief` hook appends those lines to the brief of every helper (worker, worker-full, worker-code, worker-high, reviewer, planner) by itself.
+A **thing** is a part a person would name out loud: a feature, service, screen, data store or background job; a folder or a class is not one. A **link** is a pair of things where, if a session changed one, it would have to look at the other. The map is a dictionary: a session reads only the lines of the things its work touches. The `map-brief` hook appends those lines to the brief of every helper (worker, worker-full, worker-code, worker-refactor, reviewer, planner) by itself.
 
-One file, `<project>/.claude/systems-map.json`. Paths are from the project root, with forward slashes, and exist:
+One file, `<project>/.claude/systems-map.json`. Paths are from the project root, or `~/` for a file of the setup, with forward slashes, and exist:
 
 ```json
 {
@@ -26,6 +26,15 @@ One file, `<project>/.claude/systems-map.json`. Paths are from the project root,
 - `words` (on a thing) is a list of regular expressions (case ignored). A brief that matches one pulls the thing in, ranked below every thing the brief names by file, name or folder; `--near` lists the lines of `DECISIONS.md` they match under `Decided:`.
 - `type` (on a link) is one of `uses` (the default), `feeds`, `spends`, `opens`, `boosts`, `limits`; the brief shows it in the arrow (`feeds -> Pricing`, `<- limits from Cart`).
 - An `evidence` entry is a path, or `{ "file": path, "token": text }`. A token is the name of the function, key or string that does the link, so the map notices when it changes.
+
+## Topics and how-to things
+
+Besides the parts, a map holds two more kinds of thing, so a helper told "rebalance the damage" or "research this on the web" follows links instead of searching blind.
+
+- **A topic** is a subject the user talks about that spans parts: "damage balance", "pricing", "onboarding". Its links go to every part it pulls together (damage balance: gear, monster damage, monster health, buffs), each link with the code that does it. Its id starts with `topic-` and its group is `topic`.
+- **A how-to thing** is a job a session in this project gets told to do: research, a web search, browser work, a video, tests, a release, a hand-off, a big job. Its id starts with `do-`; its `files` are the 1 to 3 files to read first: the setup's skill as `~/.claude/skills/<name>/SKILL.md` (always `~/`, never a full home path, so the map works for anyone) and the project's own rule, script or notes; never a `CLAUDE.md` (every session has it loaded). Its `words` match how people ask (`"\\bresearch"`, `"\\bweb\\b"`, `"\\breddit\\b"`), never a word every brief holds ("work", "file", "check"). Its group is `how-to`. The `map-prompt` hook adds the names and first files of the how-to things and topics a person's message asks about to that message, so their `words` decide what the main chat is pointed at.
+- **How-to things form chains.** Each links to the step it hands on to and the things it uses: research -> the project's notes and `DECISIONS.md` -> web research -> the reader for Reddit and X, or the version checker. The evidence of such a link is the file that names the next step, and its token is the command, script or file name that does it (`social.mjs`, `versions.mjs`), never a generic word ("full", "chat", the skill's own name).
+- **Which how-to things:** the jobs this project's `CLAUDE.md`, `.claude/skills/`, scripts and `docs/` show it does, plus research and web research (every project does those). Read each setup skill before writing its thing; its `what` says when to reach for it in this project.
 
 **Generated files.** A file a script writes (text, data, a docs page) is listed at the top level, so there is one source and nobody edits the copy:
 
@@ -50,7 +59,7 @@ Budget: about 50 tool calls. Each step ends on its check.
 
 1. Run `--scan`. Done when you can name the project's areas and its entry points.
 2. Read the entry points and the main file of each area, a part of each rather than everything. Done when every area has been opened through its main file.
-3. Write the things: 15 to 60. `id` is short, lowercase and hyphenated. `name` is specific: "Order checkout", not "Orders" (a one-word name that is ordinary English only matches through a file). `files` are the 1 to 6 files to start in. Done when every area of step 1 has a thing and no thing is a folder or a class.
+3. Write the things: 15 to 60. `id` is short, lowercase and hyphenated. `name` is specific: "Order checkout", not "Orders" (a one-word name that is ordinary English only matches through a file). `files` are the 1 to 6 files to start in. Done when every area of step 1 has a thing and no thing is a folder or a class. Then the topics the project's docs and `DECISIONS.md` talk about, and its how-to things (section above, at least research and web research); done when each how-to thing's files were opened.
 4. Write the links, each with the test "if a session changed A, would it have to look at B?". Every link names the code that does it in `evidence`; a link with no code to name is left out. Give each evidence a `token` where one exists (the function, key or string that does the link). Done when each thing has at least one link, and the busiest has no more than about 12.
 5. Write the file, then run `--check`. Done when it exits 0.
 6. Report the numbers of things and links, in one line.
@@ -58,7 +67,7 @@ Budget: about 50 tool calls. Each step ends on its check.
 ## Refresh a stale map
 
 1. Run `--check`. Each `GONE` path moved or was deleted: find the new path with `git log --diff-filter=R --name-status` or a search for the file name, and correct every place that lists it.
-2. Drop a thing or link whose code is gone; add a thing for each area in `--scan` that no thing covers.
+2. Drop a thing or link whose code is gone; add a thing for each area in `--scan` that no thing covers, and the topics and how-to things the map lacks (section Topics and how-to things).
 3. Run `--check`. Done when it exits 0.
 
 ## Drift

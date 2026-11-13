@@ -23,11 +23,21 @@ const HANDOFF_AT = 84;
 const CLEANUP_AT = 136;
 
 type Stop = { at: number; column: number; slot: number };
-type Card = { title: string; tags: string; stops: Stop[]; bornAt?: number; running?: boolean };
+type Card = {
+  title: string;
+  tags: string;
+  stops: Stop[];
+  bornAt?: number;
+  running?: boolean;
+};
 
 // Each card's path over the board: where it starts and the moves it makes.
 const CARDS: Card[] = [
-  { title: "Pricing page copy", tags: "docs", stops: [{ at: 0, column: 0, slot: 0 }] },
+  {
+    title: "Pricing page copy",
+    tags: "docs",
+    stops: [{ at: 0, column: 0, slot: 0 }],
+  },
   {
     title: "Import orders",
     tags: "feature",
@@ -37,7 +47,7 @@ const CARDS: Card[] = [
     ],
   },
   {
-    title: "Import orders (cont.)",
+    title: "Import orders: tests",
     tags: "feature",
     bornAt: HANDOFF_AT,
     running: true,
@@ -72,16 +82,24 @@ const CARDS: Card[] = [
   },
 ];
 
-const left = (column: number): number => column * (COLUMN_WIDTH + COLUMN_GAP) + 10;
-const top = (slot: number): number => HEADER + 12 + slot * (CARD_HEIGHT + CARD_GAP);
+const left = (column: number): number =>
+  column * (COLUMN_WIDTH + COLUMN_GAP) + 10;
+const top = (slot: number): number =>
+  HEADER + 12 + slot * (CARD_HEIGHT + CARD_GAP);
 
 const position = (card: Card, frame: number): { x: number; y: number } =>
   card.stops
     .slice(1)
-    .reduce((at, stop) => ({ x: move(frame, stop.at, at.x, left(stop.column)), y: move(frame, stop.at, at.y, top(stop.slot)) }), {
-      x: left(card.stops[0].column),
-      y: top(card.stops[0].slot),
-    });
+    .reduce(
+      (at, stop) => ({
+        x: move(frame, stop.at, at.x, left(stop.column)),
+        y: move(frame, stop.at, at.y, top(stop.slot)),
+      }),
+      {
+        x: left(card.stops[0].column),
+        y: top(card.stops[0].slot),
+      },
+    );
 
 const briefLine: React.CSSProperties = { fontSize: 24, lineHeight: 1.4 };
 
@@ -93,8 +111,11 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
       tag="automatic handoff · /board-cleanup"
       caption={
         <span>
-          Automatic handoff: a brief is rewritten after every reply, and a long session compacts itself while its cache is warm, or moves to a fresh one after an hour idle.{" "}
-          <span style={{ whiteSpace: "nowrap" }}>/board-cleanup</span> tidies the board.
+          Automatic handoff: a brief is rewritten after every reply, and a long
+          session compacts itself while its cache is warm, or moves to a fresh
+          one after an hour idle.{" "}
+          <span style={{ whiteSpace: "nowrap" }}>/board-cleanup</span> tidies
+          the board.
         </span>
       }
       durationInFrames={durationInFrames}
@@ -102,16 +123,42 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
       <Columns gap={32} height={540}>
         <Window title="Import orders" style={{ width: 540 }}>
           <div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 24, marginBottom: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 24,
+                marginBottom: 8,
+              }}
+            >
               <span style={{ color: color.dim }}>Context</span>
-              <span style={{ color: color.amber, fontWeight: 600 }}>{Math.round(262 * appear(frame, 6, 30))}k tokens</span>
+              <span style={{ color: color.amber, fontWeight: 600 }}>
+                {Math.round(262 * appear(frame, 6, 30))}k tokens
+              </span>
             </div>
             <Bar value={92 * appear(frame, 6, 30)} color={color.amber} />
           </div>
           <Appear at={10}>
-            <div style={{ border: `1px solid ${color.line}`, borderRadius: 12, padding: "14px 18px", background: color.raised }}>
-              <div style={{ fontSize: 22, fontWeight: 700, color: color.sky, marginBottom: 6 }}>
-                BRIEF <span style={{ color: color.dim, fontWeight: 500 }}>· rewritten after every reply</span>
+            <div
+              style={{
+                border: `1px solid ${color.line}`,
+                borderRadius: 12,
+                padding: "14px 18px",
+                background: color.raised,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: color.sky,
+                  marginBottom: 6,
+                }}
+              >
+                BRIEF{" "}
+                <span style={{ color: color.dim, fontWeight: 500 }}>
+                  · rewritten after every reply
+                </span>
               </div>
               <div style={briefLine}>
                 <b>Goal:</b> import orders from CSV
@@ -125,13 +172,32 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
             </div>
           </Appear>
           <Appear at={40}>
-            <div style={{ border: `1.5px solid ${color.amber}88`, borderRadius: 12, padding: "14px 18px", background: `${color.amber}14` }}>
+            <div
+              style={{
+                border: `1.5px solid ${color.amber}88`,
+                borderRadius: 12,
+                padding: "14px 18px",
+                background: `${color.amber}14`,
+              }}
+            >
               <div style={{ fontSize: 24, lineHeight: 1.35 }}>
-                <span style={{ fontFamily: mono, color: color.amber }}>context-guard</span> This session is long and has been idle. Moving the work
-                to a fresh one.
+                <span style={{ fontFamily: mono, color: color.amber }}>
+                  context-guard
+                </span>{" "}
+                This session is long and has been idle. Moving the work to a
+                fresh one.
               </div>
               <Appear at={YES_AT}>
-                <div style={{ fontSize: 23, marginTop: 12, color: color.sky, fontWeight: 600 }}>No question asked. Your next message goes there.</div>
+                <div
+                  style={{
+                    fontSize: 23,
+                    marginTop: 12,
+                    color: color.sky,
+                    fontWeight: 600,
+                  }}
+                >
+                  No question asked. Your next message goes there.
+                </div>
               </Appear>
             </div>
           </Appear>
@@ -173,7 +239,14 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
                   borderBottom: `1px solid ${color.line}`,
                 }}
               >
-                <span style={{ width: 12, height: 12, borderRadius: 6, background: column.dot }} />
+                <span
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 6,
+                    background: column.dot,
+                  }}
+                />
                 {column.name.toUpperCase()}
               </div>
             </div>
@@ -181,7 +254,8 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
 
           {CARDS.map((card) => {
             const { x, y } = position(card, frame);
-            const born = card.bornAt === undefined ? 1 : appear(frame, card.bornAt, 16);
+            const born =
+              card.bornAt === undefined ? 1 : appear(frame, card.bornAt, 16);
             return (
               <div
                 key={card.title}
@@ -197,23 +271,45 @@ export const Handoff: React.FC<SceneProps> = ({ durationInFrames }) => {
                   borderRadius: 10,
                   padding: "12px 14px",
                   // A card on the move passes over the ones that stay.
-                zIndex: card.stops.slice(1).some((stop) => frame >= stop.at && frame < stop.at + 20) ? 2 : 1,
-                opacity: born,
+                  zIndex: card.stops
+                    .slice(1)
+                    .some((stop) => frame >= stop.at && frame < stop.at + 20)
+                    ? 2
+                    : 1,
+                  opacity: born,
                   scale: String(0.9 + 0.1 * born),
                 }}
               >
-                <div style={{ fontSize: 23, fontWeight: 600, whiteSpace: "nowrap" }}>{card.title}</div>
+                <div
+                  style={{
+                    fontSize: 23,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {card.title}
+                </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  <Chip color={color.dim} style={{ fontSize: 18, padding: "2px 10px" }}>
+                  <Chip
+                    color={color.dim}
+                    style={{ fontSize: 18, padding: "2px 10px" }}
+                  >
                     {card.tags}
                   </Chip>
-                  {card.running ? <Chip style={{ fontSize: 18, padding: "2px 10px" }}>running</Chip> : null}
+                  {card.running ? (
+                    <Chip style={{ fontSize: 18, padding: "2px 10px" }}>
+                      running
+                    </Chip>
+                  ) : null}
                 </div>
               </div>
             );
           })}
 
-          <Appear at={CLEANUP_AT} style={{ position: "absolute", left: left(0), bottom: 20 }}>
+          <Appear
+            at={CLEANUP_AT}
+            style={{ position: "absolute", left: left(0), bottom: 20 }}
+          >
             <span
               style={{
                 fontFamily: mono,

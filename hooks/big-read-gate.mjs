@@ -24,17 +24,38 @@ const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
 // files of 80 lines with wide tables; 80000 stays under the Read tool's own 25k-token cap.
 const MAX_BYTES = Number(process.env.BIG_READ_MAX_BYTES) || 80000;
 const READ_CAP = 2000; // lines the Read tool returns when no limit is given
-const BINARY = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".pdf", ".ipynb"]);
+const BINARY = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".ico",
+  ".pdf",
+  ".ipynb",
+]);
 // Word, PowerPoint and Excel files: a Read of one is refused with the markitdown command when uvx is on the PATH (with
 // no uvx it passes untouched). PDFs are not among them: Read handles a PDF itself, a few pages at a time.
 const OFFICE = new Set([".docx", ".pptx", ".xlsx"]);
-const EXE = process.platform === "win32" ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";").filter(Boolean) : [""];
-const onPath = (name) => (process.env.PATH || "").split(delimiter).filter(Boolean)
-  .some((dir) => EXE.some((ext) => isFile(join(dir, name + ext))));
+const EXE =
+  process.platform === "win32"
+    ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";").filter(Boolean)
+    : [""];
+const onPath = (name) =>
+  (process.env.PATH || "")
+    .split(delimiter)
+    .filter(Boolean)
+    .some((dir) => EXE.some((ext) => isFile(join(dir, name + ext))));
 
 function measure(path) {
   let st;
-  try { st = statSync(path); } catch (e) { if (e.code === "ENOENT") return null; throw e; } // no such file: the Read tool says so itself
+  try {
+    st = statSync(path);
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    throw e;
+  } // no such file: the Read tool says so itself
   if (!st.isFile() || BINARY.has(extname(path).toLowerCase())) return null;
   if (st.size > 20e6) return { lines: Math.ceil(st.size / 40), bytes: st.size }; // too big to count quickly
   const buf = readFileSync(path);
@@ -52,37 +73,65 @@ function returned(m, from = 0, count = READ_CAP) {
 const tooBig = (r) => r.lines > MAX_LINES || r.bytes > MAX_BYTES;
 
 // Allowances are kept per session in ALLOW_FILE: { "<session id>": ["<absolute path>", ...] }
-const ALLOW_FILE = process.env.BIG_READ_ALLOW_FILE || stateFile("big-read-gate", "allow");
+const ALLOW_FILE =
+  process.env.BIG_READ_ALLOW_FILE || stateFile("big-read-gate", "allow");
 // Windows: C:\ or C:/ and Git Bash /c/; elsewhere also a plain /Users/... (a slash that starts a word)
-const PATH_START = process.platform === "win32" ? /(?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)/g : /(?:[A-Za-z]:[\\/]|(?<![\w.~/:-])\/(?=[^\s/]))/g;
+const PATH_START =
+  process.platform === "win32"
+    ? /(?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)/g
+    : /(?:[A-Za-z]:[\\/]|(?<![\w.~/:-])\/(?=[^\s/]))/g;
 let SESSION = "";
 let IN_HELPER = false; // a helper has no Agent tool, so it is not told to start one
-const samePath = (a, b) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
+const samePath = (a, b) =>
+  process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 
 // A corrupt file counts as no allowances, so the gate still blocks; the next save rewrites it
 function readAllowances() {
   const all = readJson(ALLOW_FILE, { missing: {} });
   if (all && typeof all === "object" && !Array.isArray(all)) return all;
-  crashLog("big-read-gate", new Error(`${ALLOW_FILE} is not a JSON object; treating it as empty`));
+  crashLog(
+    "big-read-gate",
+    new Error(`${ALLOW_FILE} is not a JSON object; treating it as empty`),
+  );
   return {};
 }
 
 function saveAllowances(all) {
-  for (const s of Object.keys(all)) if (!all[s] || all[s].length === 0) delete all[s];
+  for (const s of Object.keys(all))
+    if (!all[s] || all[s].length === 0) delete all[s];
   writeJson(ALLOW_FILE, all);
 }
 
-const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };
+const isFile = (p) => {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+};
 
 // The absolute paths written in a prompt that exist as files. A path may hold spaces, so each
 // start is tried with the longest run of words that is a file, and "chunk1.txt and tell me" gives chunk1.txt
 function pathsIn(prompt) {
   const found = new Set();
   for (const m of prompt.matchAll(PATH_START)) {
-    const words = prompt.slice(m.index).split(/["'`<>|*?\r\n]/)[0].split(" ");
+    const words = prompt
+      .slice(m.index)
+      .split(/["'`<>|*?\r\n]/)[0]
+      .split(" ");
     for (let n = Math.min(words.length, 30); n >= 1; n--) {
-      const candidate = resolve(native(words.slice(0, n).join(" ").replace(/[.,;:)\]]+$/, "")));
-      if (isFile(candidate)) { found.add(candidate); break; }
+      const candidate = resolve(
+        native(
+          words
+            .slice(0, n)
+            .join(" ")
+            .replace(/[.,;:)\]]+$/, ""),
+        ),
+      );
+      if (isFile(candidate)) {
+        found.add(candidate);
+        break;
+      }
     }
   }
   return [...found];
@@ -114,14 +163,22 @@ const MAX_HEADINGS = 40;
 function headings(path) {
   const found = [];
   let fence = null; // the marker that opened the current fence
-  readFileSync(path, "utf8").split("\n").forEach((line, i) => {
-    const mark = line.match(/^\s*(```|~~~)/)?.[1];
-    if (mark && (fence === null || fence === mark)) fence = fence === null ? mark : null;
-    else if (fence === null && /^#{1,6}\s/.test(line)) found.push(`${i + 1}: ${line.trimEnd()}`);
-  });
+  readFileSync(path, "utf8")
+    .split("\n")
+    .forEach((line, i) => {
+      const mark = line.match(/^\s*(```|~~~)/)?.[1];
+      if (mark && (fence === null || fence === mark))
+        fence = fence === null ? mark : null;
+      else if (fence === null && /^#{1,6}\s/.test(line))
+        found.push(`${i + 1}: ${line.trimEnd()}`);
+    });
   if (found.length === 0) return [];
   const more = found.length - MAX_HEADINGS;
-  return ["Headings:", ...found.slice(0, MAX_HEADINGS), ...(more > 0 ? [`(${more} more)`] : [])];
+  return [
+    "Headings:",
+    ...found.slice(0, MAX_HEADINGS),
+    ...(more > 0 ? [`(${more} more)`] : []),
+  ];
 }
 
 function deny(path, m) {
@@ -155,7 +212,10 @@ function tokenize(s, ps) {
   const esc = ps ? "`" : "\\";
   const heredocs = [];
   let w = null; // the word being built; null between words
-  const push = () => { if (w !== null) out.push({ w }); w = null; };
+  const push = () => {
+    if (w !== null) out.push({ w });
+    w = null;
+  };
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (c === "'") {
@@ -165,7 +225,12 @@ function tokenize(s, ps) {
     } else if (c === '"') {
       w ??= "";
       for (i++; i < s.length && s[i] !== '"'; i++) {
-        if (s[i] === esc && i + 1 < s.length && (ps || '"\\$`'.includes(s[i + 1]))) i++;
+        if (
+          s[i] === esc &&
+          i + 1 < s.length &&
+          (ps || '"\\$`'.includes(s[i + 1]))
+        )
+          i++;
         w += s[i];
       }
     } else if (c === esc && i + 1 < s.length) {
@@ -176,7 +241,8 @@ function tokenize(s, ps) {
     } else if (c === "\n" || c === ";") {
       push();
       out.push({ op: ";" });
-      while (c === "\n" && heredocs.length) { // skip the heredoc bodies that start on the next line
+      while (c === "\n" && heredocs.length) {
+        // skip the heredoc bodies that start on the next line
         const mark = heredocs.shift();
         for (;;) {
           const end = s.indexOf("\n", i + 1);
@@ -189,8 +255,13 @@ function tokenize(s, ps) {
       push();
     } else if (c === "|") {
       push();
-      if (s[i + 1] === "|") { i++; out.push({ op: ";" }); }
-      else { if (s[i + 1] === "&") i++; out.push({ op: "|" }); }
+      if (s[i + 1] === "|") {
+        i++;
+        out.push({ op: ";" });
+      } else {
+        if (s[i + 1] === "&") i++;
+        out.push({ op: "|" });
+      }
     } else if (c === "&" && s[i + 1] === ">") {
       push();
       i += s[i + 2] === ">" ? 2 : 1;
@@ -201,15 +272,30 @@ function tokenize(s, ps) {
       out.push({ op: ";" });
     } else if (c === "<" || c === ">") {
       let fd = "";
-      if (w !== null && /^\d+$/.test(w) && s.slice(i - w.length, i) === w) { fd = w; w = null; } // 2> and the like
+      if (w !== null && /^\d+$/.test(w) && s.slice(i - w.length, i) === w) {
+        fd = w;
+        w = null;
+      } // 2> and the like
       push();
       if (c === "<" && s[i + 1] === "<" && s[i + 2] !== "<") {
         const m = /^-?[ \t]*(['"]?)([^\s'"<>|;&]+)\1/.exec(s.slice(i + 2));
-        if (m) { heredocs.push(m[2]); i += 1 + m[0].length; continue; }
+        if (m) {
+          heredocs.push(m[2]);
+          i += 1 + m[0].length;
+          continue;
+        }
       }
-      if (c === "<") { while (s[i + 1] === "<") i++; out.push({ redir: "<" }); continue; }
+      if (c === "<") {
+        while (s[i + 1] === "<") i++;
+        out.push({ redir: "<" });
+        continue;
+      }
       if (s[i + 1] === ">") i++;
-      if (s[i + 1] === "&") { i++; while (/[\d-]/.test(s[i + 1] ?? "")) i++; continue; } // 2>&1: no file involved
+      if (s[i + 1] === "&") {
+        i++;
+        while (/[\d-]/.test(s[i + 1] ?? "")) i++;
+        continue;
+      } // 2>&1: no file involved
       if (s[i + 1] === "|") i++;
       out.push({ redir: ">", fd });
     } else {
@@ -222,27 +308,77 @@ function tokenize(s, ps) {
 
 // One stage of a pipeline: its command name, arguments, "< file" inputs and whether its output goes to a file
 function parseStage(tokens) {
-  const args = [], inputs = [];
+  const args = [],
+    inputs = [];
   let toFile = false;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
-    if (!t.redir) { args.push(t.w); continue; }
+    if (!t.redir) {
+      args.push(t.w);
+      continue;
+    }
     const target = tokens[i + 1]?.w;
     if (target !== undefined) i++;
-    if (t.redir === "<") { if (target) inputs.push(target); }
-    else if (t.fd === "" || t.fd === "1") toFile = true;
+    if (t.redir === "<") {
+      if (target) inputs.push(target);
+    } else if (t.fd === "" || t.fd === "1") toFile = true;
   }
   // Words that can stand before the command: VAR=value, "do", "then", "sudo" and the like
-  while (args.length > 1 && /^([A-Za-z_]\w*=.*|then|do|else|time|sudo|command|[({!])$/.test(args[0])) args.shift();
-  const name = (args.shift() || "").toLowerCase().replace(/^[({]+/, "").replace(/^.*[\\/]/, "").replace(/\.exe$/, "");
+  while (
+    args.length > 1 &&
+    /^([A-Za-z_]\w*=.*|then|do|else|time|sudo|command|[({!])$/.test(args[0])
+  )
+    args.shift();
+  const name = (args.shift() || "")
+    .toLowerCase()
+    .replace(/^[({]+/, "")
+    .replace(/^.*[\\/]/, "")
+    .replace(/\.exe$/, "");
   return { name, args, inputs, toFile };
 }
 
-const READERS = new Set(["cat", "less", "more", "type", "gc", "get-content", "head", "tail"]);
+const READERS = new Set([
+  "cat",
+  "less",
+  "more",
+  "type",
+  "gc",
+  "get-content",
+  "head",
+  "tail",
+]);
 // Commands that hand everything they get on to the screen, so a pipe into them is still a whole-file dump
-const PASS_THROUGH = new Set(["tee", "cat", "less", "more", "nl", "sort", "tac", "tee-object", "out-host", "out-string", "out-default", "write-output", "write-host"]);
-const COUNT_FLAGS = new Set(["-totalcount", "-head", "-tail", "-first", "-last", "--lines"]);
-const VALUE_FLAGS = new Set(["-encoding", "-readcount", "-delimiter", "-stream", "-c", "--bytes"]);
+const PASS_THROUGH = new Set([
+  "tee",
+  "cat",
+  "less",
+  "more",
+  "nl",
+  "sort",
+  "tac",
+  "tee-object",
+  "out-host",
+  "out-string",
+  "out-default",
+  "write-output",
+  "write-host",
+]);
+const COUNT_FLAGS = new Set([
+  "-totalcount",
+  "-head",
+  "-tail",
+  "-first",
+  "-last",
+  "--lines",
+]);
+const VALUE_FLAGS = new Set([
+  "-encoding",
+  "-readcount",
+  "-delimiter",
+  "-stream",
+  "-c",
+  "--bytes",
+]);
 
 // The files a stage reads and how many lines it prints (null = all of them). A count stays
 // unlimited for "tail -n +5" (from line 5 to the end) and "head -n -5" (all but the last 5).
@@ -251,22 +387,34 @@ function readPlan(stage) {
   const headTail = name === "head" || name === "tail";
   const limiter = headTail || name === "select" || name === "select-object";
   if (!READERS.has(name) && !limiter) return null;
-  const toCount = (v = "") => (/^[+-]/.test(v) ? (v[0] === (name === "tail" ? "+" : "-") ? null : parseInt(v.slice(1), 10) || 0) : parseInt(v, 10) || 0);
+  const toCount = (v = "") =>
+    /^[+-]/.test(v)
+      ? v[0] === (name === "tail" ? "+" : "-")
+        ? null
+        : parseInt(v.slice(1), 10) || 0
+      : parseInt(v, 10) || 0;
   let count = headTail ? 10 : null;
   const files = [...stage.inputs];
   for (let i = 0; i < stage.args.length; i++) {
-    let a = stage.args[i], value;
+    let a = stage.args[i],
+      value;
     const colon = /^(--?[A-Za-z]+)[:=](.+)$/.exec(a); // -TotalCount:40, --lines=40
     if (colon) [, a, value] = colon;
     const lower = a.toLowerCase();
     const next = () => value ?? stage.args[++i];
-    if (COUNT_FLAGS.has(lower) || (headTail && lower === "-n")) count = toCount(next());
-    else if (headTail && /^-n?\d+$/.test(a)) count = parseInt(a.replace(/\D/g, ""), 10);
+    if (COUNT_FLAGS.has(lower) || (headTail && lower === "-n"))
+      count = toCount(next());
+    else if (headTail && /^-n?\d+$/.test(a))
+      count = parseInt(a.replace(/\D/g, ""), 10);
     else if (lower === "-path" || lower === "-literalpath") files.push(next());
     else if (VALUE_FLAGS.has(lower)) next();
     else if (!a.startsWith("-") && !a.startsWith("+")) files.push(a);
   }
-  return { count, files: READERS.has(name) ? files.filter(Boolean) : [], limits: limiter };
+  return {
+    count,
+    files: READERS.has(name) ? files.filter(Boolean) : [],
+    limits: limiter,
+  };
 }
 
 function checkPipeline(stages, cwd, depth) {
@@ -278,22 +426,43 @@ function checkPipeline(stages, cwd, depth) {
     let targeted = stages.slice(i).some((s) => s.toFile);
     for (const later of stages.slice(i + 1)) {
       const cut = readPlan(later);
-      if (cut?.limits) count = cut.count === null ? count : count === null ? cut.count : Math.min(count, cut.count);
+      if (cut?.limits)
+        count =
+          cut.count === null
+            ? count
+            : count === null
+              ? cut.count
+              : Math.min(count, cut.count);
       else if (!PASS_THROUGH.has(later.name)) targeted = true;
     }
     if (targeted) continue;
     // powershell -Command '...' and bash -c '...' carry a command of their own
     const isPs = stage.name === "powershell" || stage.name === "pwsh";
-    if ((isPs || stage.name === "bash" || stage.name === "sh") && count === null && depth < 2) {
-      const at = stage.args.findIndex((a) => (isPs ? /^-(c|command)$/i : /^-[a-z]*c$/).test(a));
-      if (at >= 0) checkShell(isPs ? stage.args.slice(at + 1).join(" ") : stage.args[at + 1] || "", cwd, isPs, depth + 1);
+    if (
+      (isPs || stage.name === "bash" || stage.name === "sh") &&
+      count === null &&
+      depth < 2
+    ) {
+      const at = stage.args.findIndex((a) =>
+        (isPs ? /^-(c|command)$/i : /^-[a-z]*c$/).test(a),
+      );
+      if (at >= 0)
+        checkShell(
+          isPs ? stage.args.slice(at + 1).join(" ") : stage.args[at + 1] || "",
+          cwd,
+          isPs,
+          depth + 1,
+        );
       continue;
     }
     for (const f of plan ? plan.files : []) {
       const path = resolve(native(cwd), native(f));
       let m = null;
-      try { m = measure(path); } catch {} // no such file: nothing to dump
-      if (m && tooBig(count === null ? m : returned(m, 0, count))) deny(path, m);
+      try {
+        m = measure(path);
+      } catch {} // no such file: nothing to dump
+      if (m && tooBig(count === null ? m : returned(m, 0, count)))
+        deny(path, m);
     }
   }
 }
@@ -315,7 +484,12 @@ function checkShell(command, cwd, ps, depth = 0) {
 // A project opts out with "env": { "BIG_READ_GATE": "off" } in its .claude/settings(.local).json (the process env
 // was checked by runHook). A settings file that cannot be read is logged and does not opt out.
 function projectOptedOut(dir) {
-  try { return setting("BIG_READ_GATE", dir).toLowerCase() === "off"; } catch (err) { crashLog("big-read-gate", err); return false; }
+  try {
+    return setting("BIG_READ_GATE", dir).toLowerCase() === "off";
+  } catch (err) {
+    crashLog("big-read-gate", err);
+    return false;
+  }
 }
 
 runHook("big-read-gate", (event) => {
@@ -331,15 +505,22 @@ runHook("big-read-gate", (event) => {
   if (event.tool_name === "Read" && input.file_path) {
     const path = resolve(native(cwd), native(input.file_path));
     // Claude Code's own saved copy of a long tool result: it tells the session to read that file
-    if (/[\\/]\.claude[\\/]projects[\\/].*[\\/]tool-results[\\/]/i.test(path)) return;
+    if (/[\\/]\.claude[\\/]projects[\\/].*[\\/]tool-results[\\/]/i.test(path))
+      return;
     if (OFFICE.has(extname(path).toLowerCase())) {
-      if (onPath("uvx")) emit.deny(`${BIG_READ_GATE} Convert this document once with uvx --from "markitdown[all]" markitdown "${path}" -o "${path}.md", then read or grep the .md.`);
+      if (onPath("uvx"))
+        emit.deny(
+          `${BIG_READ_GATE} Convert this document once with uvx --from "markitdown[all]" markitdown "${path}" -o "${path}.md", then read or grep the .md.`,
+        );
       return;
     }
     const m = measure(path);
     const from = input.offset ? Math.max(0, input.offset - 1) : 0;
     if (m && tooBig(returned(m, from, input.limit || READ_CAP))) deny(path, m);
-  } else if (["Bash", "PowerShell"].includes(event.tool_name) && input.command) {
+  } else if (
+    ["Bash", "PowerShell"].includes(event.tool_name) &&
+    input.command
+  ) {
     checkShell(input.command, cwd, event.tool_name === "PowerShell");
   }
 });

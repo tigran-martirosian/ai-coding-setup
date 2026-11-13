@@ -18,7 +18,13 @@ export function loadMap(dir) {
 }
 
 /** A path as the map writes it, for comparing: forward slashes, no leading "./", lower case. "" for a non-string. */
-export const normRel = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").toLowerCase() : "");
+export const normRel = (p) =>
+  typeof p === "string"
+    ? p
+        .replace(/\\/g, "/")
+        .replace(/^(?:\.\/)+/, "")
+        .toLowerCase()
+    : "";
 
 /**
  * The folder whose map covers an edited file: the project, or, for a file outside it (a git worktree of it, such as a
@@ -29,10 +35,14 @@ export function mapFolderFor(project, edited) {
   let dir = path.resolve(project);
   const file = path.resolve(dir, edited);
   const rel = (d) => path.relative(d, file).replace(/\\/g, "/");
-  const outside = (d) => { const r = rel(d); return !r || r.startsWith("../") || r === ".." || path.isAbsolute(r); };
+  const outside = (d) => {
+    const r = rel(d);
+    return !r || r.startsWith("../") || r === ".." || path.isAbsolute(r);
+  };
   if (outside(dir)) {
     let up = path.dirname(file);
-    while (!fs.existsSync(path.join(up, MAP_REL)) && path.dirname(up) !== up) up = path.dirname(up);
+    while (!fs.existsSync(path.join(up, MAP_REL)) && path.dirname(up) !== up)
+      up = path.dirname(up);
     if (!fs.existsSync(path.join(up, MAP_REL))) return null;
     dir = up;
     if (outside(dir)) return null;

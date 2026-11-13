@@ -18,7 +18,8 @@ export interface LayoutOptions {
 }
 
 /** A node's radius in the layout's own units: grows with the square root of its link count. */
-export const radius = (links: number): number => Math.min(16, 5 + 2.2 * Math.sqrt(links));
+export const radius = (links: number): number =>
+  Math.min(16, 5 + 2.2 * Math.sqrt(links));
 
 /** A small seeded random generator: the same seed gives the same list. */
 export function random(seed: number): () => number {
@@ -39,7 +40,11 @@ const SEPARATE_PASSES = 40;
 const OUTLIER_REACH = 1.15;
 
 /** Place for each id; every place lies inside the box minus `pad`. Links to unknown ids are ignored. */
-export function layout(ids: string[], links: Array<[string, string]>, o: LayoutOptions): Map<string, Place> {
+export function layout(
+  ids: string[],
+  links: Array<[string, string]>,
+  o: LayoutOptions,
+): Map<string, Place> {
   const n = ids.length;
   const out = new Map<string, Place>();
   if (n === 0) return out;
@@ -143,15 +148,19 @@ export function layout(ids: string[], links: Array<[string, string]>, o: LayoutO
   // A part with few links drifts far out and would shrink everything else to fit it in: bring each part
   // no further from the middle than a little past the 90th percentile of the others.
   if (n >= 10) {
-    let mx = 0, my = 0;
+    let mx = 0,
+      my = 0;
     for (let i = 0; i < n; i++) {
       mx += x[i];
       my += y[i];
     }
     mx /= n;
     my /= n;
-    const dist = Array.from({ length: n }, (_, i) => Math.hypot(x[i] - mx, y[i] - my));
-    const limit = [...dist].sort((a, b) => a - b)[Math.floor(n * 0.9)] * OUTLIER_REACH;
+    const dist = Array.from({ length: n }, (_, i) =>
+      Math.hypot(x[i] - mx, y[i] - my),
+    );
+    const limit =
+      [...dist].sort((a, b) => a - b)[Math.floor(n * 0.9)] * OUTLIER_REACH;
     for (let i = 0; i < n; i++) {
       if (dist[i] <= limit) continue;
       x[i] = mx + ((x[i] - mx) / dist[i]) * limit;
@@ -160,7 +169,10 @@ export function layout(ids: string[], links: Array<[string, string]>, o: LayoutO
   }
 
   // Scale and centre the result to fill the box, whatever size the forces settled at.
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
   for (let i = 0; i < n; i++) {
     minX = Math.min(minX, x[i]);
     maxX = Math.max(maxX, x[i]);

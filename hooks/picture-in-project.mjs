@@ -11,7 +11,14 @@
 import { runHook, emit } from "./lib/hook-io.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  basename,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 
 const inside = (root, file) => {
   const rel = relative(resolve(root), resolve(file));
@@ -57,6 +64,9 @@ runHook("picture-in-project", (event) => {
       `Call display_to_user again with the path after the arrow.`,
     );
   }
-  if (missing.length) lines.push(`picture-in-project: could not read, so not copied: ${missing.join(", ")}. Check that the file exists.`);
+  if (missing.length)
+    lines.push(
+      `picture-in-project: could not read, so not copied: ${missing.join(", ")}. Check that the file exists.`,
+    );
   if (lines.length) emit.deny(lines.join("\n"));
 });

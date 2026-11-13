@@ -11,7 +11,7 @@ passed. A picture with a known error is never shown, linked or described, with o
 `picture.mjs gen` refuses to generate until steps 1 and 2 are on disk, and the `picture-gate` hook
 refuses to show a Codex picture without steps 1, 2 and 5.
 
-Work in the job's own folder (quick-tasks: `<yyyy-mm-dd>-<name>/`; ask-anything: `answers/sources/<topic>/`).
+Work in the job's own folder (in quick-tasks: `<yyyy-mm-dd>-<name>/` for a file job, `answers/sources/<topic>/` for a question).
 The script is `~/.claude/shared-skills/picture/picture.mjs`, called `$P` below.
 
 1. **Facts first, in 2 minutes.** Two things, at the same time:

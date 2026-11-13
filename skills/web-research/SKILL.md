@@ -27,15 +27,27 @@ web-answer-gate hook blocks a reply that hedges without having checked one (`HED
   Several differently-worded searches in one message beat one search repeated.
 - **WebSearch takes `mode`: use `"extended"` for any research**, and `"standard"` only for a single
   reference fact.
-- **A page that blocks a plain fetch**: `https://r.jina.ai/<full URL>` returns it as plain text.
+- **Reading a page: the cheapest step that gives the words you need.**
+  1. A quick question about a page: WebFetch. A small model writes its answer, so it cuts quotes and
+     long pages; never use it (or the `web-fetch` helper) for a page a decision rests on.
+  2. The exact words (a quote, a SKILL.md to compare, docs, a changelog), when `npx` is available:
+     `npx -y defuddle@0.19.6 parse <url> --md > <file>.md` in the temp folder, then Grep/Read the file and
+     delete it after reading; a page the user asked to keep goes to `docs/research/`.
+  3. A GitHub repo: `gh repo view <o>/<r>`, `gh api repos/<o>/<r>/readme`, `gh release view -R <o>/<r>`.
+  4. A page built by script, a signed-in page, or one that refuses the steps above:
+     `node <projects folder>/quick-tasks/tools/peek.mjs <url>...` (Nimbalyst's browser, its sign-ins
+     shared; `--find "words"`; `--save <file>` writes the whole text and prints its length).
+     `--engine obscura` reads with a headless browser fallback (Obscura), signed out; peek.mjs also
+     switches to it by itself when Nimbalyst's browser can't be reached, and says so. Last:
+     `https://r.jina.ai/<full URL>`.
+- **A page a decision rests on** (a choice, a recommendation, a fact the reply depends on) is saved whole
+  (defuddle, or `peek.mjs --save`) and read in full from that file by a `worker` given the file and the
+  question. **10-100 pages:** defuddle each to its own file side by side, or one `peek.mjs --save` command
+  with every URL; workers read the files.
+- **Obscura** is put in `~/.claude/obscura` by the setup's install (one pinned release, its SHA-256
+  checked); a missing one comes back by running the setup's `install.mjs` again.
 - **Community opinion** ("what do people recommend", "is it any good") means real forum threads, and a
-  site like Reddit needs your own signed-in browser: a plain fetch of its search JSON returns HTML and
-  the text proxies get a 403. Drive your own browser for it rather than passing off a search summary.
-- A page's own text beats anyone's summary of it. WebFetch answers a question about a page, but a
-  small model writes that answer, so it cuts quotes and long pages. When the exact words matter (a
-  quote, a SKILL.md to compare, a changelog) and `npx` is available, save the page as Markdown with
-  `npx -y defuddle parse <url> --md > <file>.md` in the temp folder, Grep/Read that file, and delete it
-  after reading; a page the user asked to keep goes to `docs/research/` instead. `r.jina.ai` stays for sites
-  that block it. The `web-fetch` helper that stands in when you have no WebFetch runs on Haiku too: a
-  page a decision rests on (a choice, a recommendation, a fact the reply depends on) is read by a `worker`
-  given the URL and the question, or saved with defuddle as above, not by `web-fetch`.
+  site like Reddit needs a signed-in browser: a plain fetch of its search JSON returns HTML and the text
+  proxies get a 403. Read it with `peek.mjs` on the thread (signed in through Nimbalyst; the `site-login`
+  skill signs the user in once; with `--engine obscura` signed out, about a third of the comments), not
+  from a search summary.

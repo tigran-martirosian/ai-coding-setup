@@ -6,7 +6,7 @@
 // Every Nimbalyst window runs this bridge, and each one would deliver every entry (a /compact queued
 // twice). So only the window holding outbox-lock.json delivers; it
 // refreshes the lock on each poll, and another window takes over once the lock is LOCK_MS old.
-import type { Invoke } from '../../shared/host.ts';
+import type { Invoke } from "../../shared/host.ts";
 
 export interface OutboxEntry {
   id: string;
@@ -40,16 +40,26 @@ export const newState = (): BridgeState => ({
   wait: (ms) => new Promise((r) => setTimeout(r, ms)),
 });
 
-const missing = (e: unknown) => /ENOENT|no such file/i.test(String((e as Error)?.message ?? e));
+const missing = (e: unknown) =>
+  /ENOENT|no such file/i.test(String((e as Error)?.message ?? e));
 const reason = (e: unknown) => String((e as Error)?.message ?? e);
 
 export function parseOutbox(text: string): OutboxEntry[] {
   const out: OutboxEntry[] = [];
-  for (const line of text.split('\n')) {
+  for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line);
-      if (typeof e?.id === 'string' && e.id && typeof e.ts === 'number' && typeof e.session === 'string' && e.session && typeof e.prompt === 'string' && e.prompt) out.push(e);
+      if (
+        typeof e?.id === "string" &&
+        e.id &&
+        typeof e.ts === "number" &&
+        typeof e.session === "string" &&
+        e.session &&
+        typeof e.prompt === "string" &&
+        e.prompt
+      )
+        out.push(e);
     } catch {
       /* a half-written line: the next poll sees it whole */
     }
@@ -58,9 +68,12 @@ export function parseOutbox(text: string): OutboxEntry[] {
 }
 
 /** The file's text, or null when it does not exist. Any other failure throws. */
-export async function readOrNull(invoke: Invoke, file: string): Promise<string | null> {
+export async function readOrNull(
+  invoke: Invoke,
+  file: string,
+): Promise<string | null> {
   try {
-    return String(await invoke('extensions:read-file', file));
+    return String(await invoke("extensions:read-file", file));
   } catch (e) {
     if (missing(e)) return null;
     throw e;
@@ -71,14 +84,24 @@ function lockOwner(text: string | null, now: number): string | null {
   if (!text) return null;
   try {
     const l = JSON.parse(text);
-    return typeof l?.owner === 'string' && typeof l.at === 'number' && now - l.at < LOCK_MS ? l.owner : null;
+    return typeof l?.owner === "string" &&
+      typeof l.at === "number" &&
+      now - l.at < LOCK_MS
+      ? l.owner
+      : null;
   } catch {
     return null; // a half-written lock counts as none: the read-back below settles who holds it
   }
 }
 
 /** One poll. Returns how many prompts were delivered. */
-export async function pollOutbox(invoke: Invoke, home: string, state: BridgeState, now = Date.now(), log: (...a: unknown[]) => void = console.error): Promise<number> {
+export async function pollOutbox(
+  invoke: Invoke,
+  home: string,
+  state: BridgeState,
+  now = Date.now(),
+  log: (...a: unknown[]) => void = console.error,
+): Promise<number> {
   if (state.busy) return 0;
   state.busy = true;
   const dir = `${home}/.claude/steer`;
@@ -86,18 +109,28 @@ export async function pollOutbox(invoke: Invoke, home: string, state: BridgeStat
   try {
     const holder = lockOwner(await readOrNull(invoke, lockFile), now);
     if (holder && holder !== state.owner) return 0;
-    await invoke('extensions:write-file', lockFile, JSON.stringify({ owner: state.owner, at: now }));
+    await invoke(
+      "extensions:write-file",
+      lockFile,
+      JSON.stringify({ owner: state.owner, at: now }),
+    );
     if (holder !== state.owner) {
       await state.wait(TAKEOVER_MS);
-      if (lockOwner(await readOrNull(invoke, lockFile), now) !== state.owner) return 0;
+      if (lockOwner(await readOrNull(invoke, lockFile), now) !== state.owner)
+        return 0;
     }
     // Read on every poll, not once: another window may have delivered while it held the lock
     const saved = await readOrNull(invoke, `${dir}/outbox-done.json`);
     if (saved) {
       try {
-        for (const id of JSON.parse(saved)) if (typeof id === 'string' && !state.done.has(id)) state.done.set(id, now);
+        for (const id of JSON.parse(saved))
+          if (typeof id === "string" && !state.done.has(id))
+            state.done.set(id, now);
       } catch (e) {
-        if (!state.loaded) log(`[commandbuttons] outbox-done.json is not readable, starting empty: ${reason(e)}`);
+        if (!state.loaded)
+          log(
+            `[commandbuttons] outbox-done.json is not readable, starting empty: ${reason(e)}`,
+          );
       }
     }
     state.loaded = true;
@@ -109,19 +142,28 @@ export async function pollOutbox(invoke: Invoke, home: string, state: BridgeStat
       const tried = state.tries.get(entry.id) ?? 0;
       if (tried >= MAX_TRIES) continue;
       try {
-        await invoke('ai:createQueuedPrompt', entry.session, entry.prompt);
+        await invoke("ai:createQueuedPrompt", entry.session, entry.prompt);
       } catch (e) {
         state.tries.set(entry.id, tried + 1);
-        log(`[commandbuttons] outbox delivery failed, id ${entry.id} (try ${tried + 1} of ${MAX_TRIES}): ${reason(e)}`);
+        log(
+          `[commandbuttons] outbox delivery failed, id ${entry.id} (try ${tried + 1} of ${MAX_TRIES}): ${reason(e)}`,
+        );
         continue;
       }
       state.done.set(entry.id, now);
       delivered++;
       try {
-        for (const [id, t] of state.done) if (now - t > KEEP) state.done.delete(id);
-        await invoke('extensions:write-file', `${dir}/outbox-done.json`, JSON.stringify([...state.done.keys()]));
+        for (const [id, t] of state.done)
+          if (now - t > KEEP) state.done.delete(id);
+        await invoke(
+          "extensions:write-file",
+          `${dir}/outbox-done.json`,
+          JSON.stringify([...state.done.keys()]),
+        );
       } catch (e) {
-        log(`[commandbuttons] could not save outbox-done.json, id ${entry.id} may be delivered again after a restart: ${reason(e)}`);
+        log(
+          `[commandbuttons] could not save outbox-done.json, id ${entry.id} may be delivered again after a restart: ${reason(e)}`,
+        );
       }
     }
     return delivered;

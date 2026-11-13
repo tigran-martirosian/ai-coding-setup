@@ -4,7 +4,8 @@ import path from "node:path";
 import os from "node:os";
 import { day } from "./days.mjs";
 
-export const reportDir = (kind, ...sub) => path.join(os.homedir(), ".claude", "reports", kind, day(Date.now()), ...sub);
+export const reportDir = (kind, ...sub) =>
+  path.join(os.homedir(), ".claude", "reports", kind, day(Date.now()), ...sub);
 
 export function writeReport(dir, name, text) {
   fs.mkdirSync(dir, { recursive: true });

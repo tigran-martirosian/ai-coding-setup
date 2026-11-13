@@ -64,7 +64,8 @@ export function findLinks(text) {
       target = text.slice(start + 1, gt);
       end = close + 1;
     } else {
-      let depth = 1, i = start;
+      let depth = 1,
+        i = start;
       for (; i < text.length && text[i] !== "\n"; i++) {
         if (text[i] === "(") depth++;
         else if (text[i] === ")" && --depth === 0) break;
@@ -76,7 +77,10 @@ export function findLinks(text) {
     const title = /\s+"([^"]*)"$/.exec(target);
     if (title) target = target.slice(0, title.index);
     // Nimbalyst's embed syntax ([Label](rel/file.ext "width=1000 height=650")) takes a relative path
-    if (title && /\b(width|height)=/.test(title[1])) { open.lastIndex = end; continue; }
+    if (title && /\b(width|height)=/.test(title[1])) {
+      open.lastIndex = end;
+      continue;
+    }
     links.push({ raw: text.slice(m.index, end), target: target.trim() });
     open.lastIndex = end;
   }
@@ -99,13 +103,18 @@ export function brokenForm(link) {
 
 // The working form: /C:/... with forward slashes and %20 for spaces, line suffix kept as :N
 export function fixedTarget(target, cwd) {
-  let t = target, suffix = "";
+  let t = target,
+    suffix = "";
   const s = LINE_SUFFIX.exec(t);
   if (s) {
     t = t.slice(0, s.index);
     suffix = s[0].startsWith("#L") ? `:${/\d+/.exec(s[0])[0]}` : s[0];
   }
-  try { t = decodeURIComponent(t); } catch { t = t.replace(/%20/gi, " "); }
+  try {
+    t = decodeURIComponent(t);
+  } catch {
+    t = t.replace(/%20/gi, " ");
+  }
   t = t.replace(/^file:\/\/(localhost)?/i, "").replace(/\\/g, "/");
   if (/^\/[A-Za-z]:\//.test(t)) t = t.slice(1);
   t = gitBashToNative(t);
@@ -114,7 +123,9 @@ export function fixedTarget(target, cwd) {
     if (!cwd) return null;
     const base = gitBashToNative(cwd.replace(/\\/g, "/"));
     // A Mac or Linux cwd starts with "/"; a drive or a \\server share is Windows
-    t = (base.startsWith("/") && !base.startsWith("//") ? path.posix : path.win32).resolve(base, t);
+    t = (
+      base.startsWith("/") && !base.startsWith("//") ? path.posix : path.win32
+    ).resolve(base, t);
   }
   t = t.replace(/\\/g, "/");
   if (t.startsWith("/")) return `${t.replace(/ /g, "%20")}${suffix}`; // a Mac or Linux path
@@ -129,18 +140,25 @@ export const projectRoot = (cwd) => (cwd ? rootOf({ cwd }) : cwd);
 export function outsideCode(link, cwd) {
   if (!cwd || !link) return null;
   let t = link.replace(LINE_SUFFIX, "");
-  if (!/^\/?[A-Za-z]:\//.test(t) && !(t.startsWith("/") && !t.startsWith("//"))) return null;
-  try { t = decodeURIComponent(t); } catch { t = t.replace(/%20/gi, " "); }
+  if (!/^\/?[A-Za-z]:\//.test(t) && !(t.startsWith("/") && !t.startsWith("//")))
+    return null;
+  try {
+    t = decodeURIComponent(t);
+  } catch {
+    t = t.replace(/%20/gi, " ");
+  }
   t = t.replace(/^\/([A-Za-z]:\/)/, "$1");
   const base = gitBashToNative(cwd.replace(/\\/g, "/"));
   if (t.startsWith("/") && /^[A-Za-z]:\//.test(base)) return null; // a Mac path under a Windows cwd: unplaceable
   const norm = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  const a = norm(t), r = norm(projectRoot(base));
+  const a = norm(t),
+    r = norm(projectRoot(base));
   return a === r || a.startsWith(r + "/") ? null : t;
 }
 
 export function badLinks(text, cwd) {
-  const out = [], seen = new Set();
+  const out = [],
+    seen = new Set();
   for (const l of findLinks(visibleProse(text || ""))) {
     if (seen.has(l.raw)) continue;
     const form = brokenForm(l.target);
@@ -148,14 +166,24 @@ export function badLinks(text, cwd) {
       const code = outsideCode(l.target, cwd);
       if (!code) continue;
       seen.add(l.raw);
-      out.push({ raw: l.raw, target: l.target, form: "outside the project", fixed: null, code });
+      out.push({
+        raw: l.raw,
+        target: l.target,
+        form: "outside the project",
+        fixed: null,
+        code,
+      });
       continue;
     }
     seen.add(l.raw);
     const fixed = fixedTarget(l.target, cwd);
     // A broken-form link to a file outside the project: the fix is its path in code, not a /C:/ link
     const code = fixed ? outsideCode(fixed, cwd) : null;
-    out.push(code ? { raw: l.raw, target: l.target, form, fixed: null, code } : { raw: l.raw, target: l.target, form, fixed });
+    out.push(
+      code
+        ? { raw: l.raw, target: l.target, form, fixed: null, code }
+        : { raw: l.raw, target: l.target, form, fixed },
+    );
   }
   return out;
 }
@@ -170,23 +198,37 @@ export function turnText(transcriptPath) {
     // Any user entry with text ends the turn, Stop hook feedback included (not typedByUser): the reply
     // before a block was judged already
     if (e.type === "user") {
-      if (typeof c === "string" || (Array.isArray(c) && c.some((b) => b.type === "text"))) break;
+      if (
+        typeof c === "string" ||
+        (Array.isArray(c) && c.some((b) => b.type === "text"))
+      )
+        break;
       continue;
     }
     if (e.type !== "assistant" || !Array.isArray(c)) continue;
-    const t = c.filter((b) => b.type === "text" && typeof b.text === "string").map((b) => b.text).join("\n");
+    const t = c
+      .filter((b) => b.type === "text" && typeof b.text === "string")
+      .map((b) => b.text)
+      .join("\n");
     if (t) parts.unshift(t);
   }
   return parts.join("\n");
 }
 
 export function reason(bad) {
-  const lines = [`[file-link-gate] ${bad.length} file link(s) in this reply will not open in Nimbalyst's chat panel (relative, backslash and file:/// targets don't open; an absolute path with forward slashes, /C:/... or /Users/..., does):`];
+  const lines = [
+    `[file-link-gate] ${bad.length} file link(s) in this reply will not open in Nimbalyst's chat panel (relative, backslash and file:/// targets don't open; an absolute path with forward slashes, /C:/... or /Users/..., does):`,
+  ];
   for (const b of bad.slice(0, MAX_LISTED)) {
-    lines.push(`- ${b.raw} (${b.form}) -> ${b.code ? `a link opens only for a file inside the open project; write its path in code: \`${b.code}\`` : b.fixed ? `(${b.fixed})` : "use the file's absolute path with forward slashes (/C:/... or /Users/...)"}`);
+    lines.push(
+      `- ${b.raw} (${b.form}) -> ${b.code ? `a link opens only for a file inside the open project; write its path in code: \`${b.code}\`` : b.fixed ? `(${b.fixed})` : "use the file's absolute path with forward slashes (/C:/... or /Users/...)"}`,
+    );
   }
-  if (bad.length > MAX_LISTED) lines.push(`- and ${bad.length - MAX_LISTED} more`);
-  lines.push("Send a short follow-up that gives these files again as working links (the whole reply again only if it is short). Write file links this way from now on: [name](/C:/path/to/file.md), %20 for spaces, :line at the end, for a file inside the open project; a file outside it is named as its path in inline code.");
+  if (bad.length > MAX_LISTED)
+    lines.push(`- and ${bad.length - MAX_LISTED} more`);
+  lines.push(
+    "Send a short follow-up that gives these files again as working links (the whole reply again only if it is short). Write file links this way from now on: [name](/C:/path/to/file.md), %20 for spaces, :line at the end, for a file inside the open project; a file outside it is named as its path in inline code.",
+  );
   return lines.join("\n");
 }
 
@@ -197,9 +239,14 @@ if (isMain(import.meta.url)) {
     if (input.stop_hook_active) return;
     let text = "";
     if (input.transcript_path) {
-      try { text = turnText(input.transcript_path); } catch {}
+      try {
+        text = turnText(input.transcript_path);
+      } catch {}
     }
-    const last = typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
+    const last =
+      typeof input.last_assistant_message === "string"
+        ? input.last_assistant_message
+        : "";
     if (last && !text.includes(last)) text = text ? `${text}\n${last}` : last;
     const bad = badLinks(text, input.cwd);
     if (bad.length) emit.block(reason(bad));

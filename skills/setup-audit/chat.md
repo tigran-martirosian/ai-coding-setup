@@ -27,7 +27,7 @@ prints one line per project. A project with fewer than 5 requests is skipped.
 
 Then start one `worker` subagent per task file, all in one message (`run_in_background: false`, so they run side by side), each
 told: "Read the task file `<full path of <project>.task.md>` and do what it says. It names the digest
-to read and the `<project>.findings.md` to write, in the task's format." Each `.findings.md` ends with "I. EARLIER FIXES" when the task had
+to read and the `<project>.findings.md` to write, in the task's format." Each `.findings.md` has "I. LEARNED THE HARD WAY" (facts found out after a failure, and traps a session fell into) and ends with "J. EARLIER FIXES" when the task had
 earlier fixes: for every fix ticked last time, whether it held, came back or did not come up.
 
 Read only the `.findings.md` files. A project whose subagent wrote none: run it again once.
@@ -38,7 +38,7 @@ The workers' lines are leads. Before a finding becomes a proposal, check it in t
 label, then Read those lines.
 
 **What counts:** something seen in two or more chats; or once, when the user said "always" or
-"never" about it; or a question whose options missed (once is enough: the fix is cheap). A one-off
+"never" about it; or a question whose options missed, or a fact or trap under heading I that cost a redo or a wrong result (once is enough: the fix is cheap). A one-off
 slip that no rule would have prevented is listed under "seen, nothing to change", not turned into a rule.
 
 **Incident categories.** Give each incident (a place where the user corrected, repeated, interrupted
@@ -72,7 +72,8 @@ cause is one of rule, hook, skill or note, as the table gives:
 | A kind of work nothing in the setup covers (a file format, a service, a kind of analysis) | A skill, plugin or tool that already exists: see step 4. A new one is written only if none fits |
 | "Never do X", said and meant | A hook in the project (a small script and its test) |
 | A tool that kept failing or a program that was missing | The fix, or the program named with what it is for |
-| A fix from the last review came back (heading I) | Not added a second time. Check it in the digest, then reword the line that is there, or make it a hook when it is a "never" |
+| A fact found out the hard way, or a trap a session fell into (heading I) | One line in that project's `docs/facts.md`; a trap in the trap shape `Trap: <what it seems to do>. Really: <what it does>. Cost: <what it cost>. Check: <how to check it>.` A fact or trap about a tool used in two or more projects goes to the setup project's `docs/facts.md` |
+| A fix from the last review came back (heading J) | Not added a second time. Check it in the digest, then reword the line that is there, or make it a hook when it is a "never" |
 
 ## 4. Look up what already exists (only for the remedies that need it)
 
@@ -100,7 +101,7 @@ If nothing counted, say so plainly and ask nothing. Don't pad the list.
 
 ## 6. Set up only what was ticked
 
-- **In the project it belongs to:** its `CLAUDE.md`, its `.claude/skills/` and `.claude/settings.json`
+- **In the project it belongs to:** its `CLAUDE.md`, its `docs/facts.md`, its `.claude/skills/` and `.claude/settings.json`
   (`enabledPlugins`), `claude mcp add -s local`. Only these setup files; never the project's own work.
 - **Global** only for a rule that showed up in two or more projects. Copy
   `~/.claude/CLAUDE.md` first to `~/.claude/setup-logs/<yyyy-mm-dd>-chat-review/CLAUDE.md`, not beside it.
@@ -116,7 +117,8 @@ Write `~/.claude/reports/chat-review/findings-<yyyy-mm-dd>.md`: for each project
 the work is, then a **Categories** table ranking the eight incident categories by incident count
 (category | count | chats), with two or three of the user's own words quoted (chat label on each) for
 each of the top three, then the findings in your own words, each with its cause and its fix (rule,
-hook, skill or note), then a **Decided** table
+hook, skill or note), then a **Facts and traps** list (each line in the trap shape of step 3, with the
+file it went to, or `declined`), then a **Decided** table
 (proposal | ticked or declined | where it went), then a section "Earlier fixes" (fix | held, came
 back or did not come up | chat label), then "seen, nothing to change".
 

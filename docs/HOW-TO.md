@@ -13,7 +13,9 @@ unless you chose another one). The copy of this page the installer puts into
 You need Node.js 18 or newer and Claude Code. Codex (for the picture skill), Nimbalyst and Handy (voice typing)
 are optional, and the installer does not install them. It does install the `claude-hud` plugin and
 the `find-skills` skill, unless you add `--plugins no`, and it
-adds the Claude Code settings. To have the programs put in place too, on Windows or a Mac, use
+adds the Claude Code settings. It also downloads Obscura, a headless browser that reads web pages
+when Nimbalyst's browser can't (about 70 MB, one fixed version whose checksum it checks), into
+`~/.claude/obscura`, unless you add `--obscura no`. To have the optional programs put in place too, on Windows or a Mac, use
 [full-install.md](full-install.md) instead (its Mac steps have not been run on a real Mac).
 
 Download the repository as a zip from its GitHub page (the green **Code** button, then **Download
@@ -24,7 +26,7 @@ node install.mjs --dry-run
 ```
 
 You should see one line for every file it would copy, every hook it would add, the rules file, the
-four project folders and their settings, and `Nothing was changed.` as the last line.
+two project folders and their settings, and `Nothing was changed.` as the last line.
 
 ```
 node install.mjs
@@ -36,25 +38,26 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 
 | Flag | What it does |
 |---|---|
-| `--projects <folder>` | Where the four project folders go. The default is `Projects` in your home folder; a folder given once is remembered. |
+| `--projects <folder>` | Where the two project folders go. The default is `Projects` in your home folder; a folder given once is remembered. |
 | `--codex yes` or `no` | Whether the picture skill is added (it needs Codex). Without the flag the installer looks for `codex` on the PATH. |
 | `--leave-out "<lead>"` | Leave one of the setup's rules out of `~/.claude/CLAUDE.md`, on this run and later ones (the lead is the rule's bold opening). `--put-back "<lead>"` brings it back. |
 | `--replace <name>` | Take the setup's version of one file the run listed under `Kept as yours`, for example `--replace hooks/sql-guard.mjs`. Can be given several times. |
 | `--replace-all` | Take the setup's version of every file listed there. For a computer whose old setup you don't want to keep. |
 | `--extensions no` | Leave the Nimbalyst extensions out. Without it they are built and put into Nimbalyst when Nimbalyst is installed. |
+| `--obscura no` | Leave Obscura out. A no is remembered; `--obscura yes` adds it later. |
 | `--dry-run` | Print what it would do and change nothing. |
 
-- **Nothing of yours is lost.** A file the installer replaces is kept next to the new one as
-  `<name>.before-install-<date>`. `~/.claude/CLAUDE.md` is written whole with the setup's rules;
+- **Nothing of yours is lost.** A file the installer replaces is kept, as it was, in
+  `~/.claude/setup-logs/<YYYY-MM-DD>-install-backup/`, never next to the new one. `~/.claude/CLAUDE.md` is written whole with the setup's rules;
   rules you wrote there yourself move to `~/.claude/rules/my-rules.md`, which every chat loads too. The notes files you fill in (each folder's `CLAUDE.md`,
-  `profile.md`, `finds/INDEX.md`, `HOW-TO.md`) are written only when they are missing.
+  `profile.md`, `finds/INDEX.md`, `how-to.md`) are written only when they are missing.
 - **A file you changed stays yours.** If you had a hook or a skill with the same name as one of the
   setup's, or you changed one of the setup's after installing, the installer leaves it alone. It
   ends with the list `Kept as yours` and the two flags above. A run that changed something also
   saves what it printed in `~/.claude/setup-logs`, and names any hook in your settings whose script
   is not there.
 - **Got Codex later?** Install it, sign in and run `node install.mjs` again. It
-  adds the picture skill to two folders.
+  adds the picture skill to the `quick-tasks` folder.
   The installer saves the folder you ran it from as `repo` in `~/.claude/setup-state.json`, so a
   chat can find it again.
 - **Updates.** Every 12 hours the setup checks whether a newer version is released. A small one (only
@@ -62,7 +65,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   line; `AUTO_UPDATE=off` stops that. For a bigger one it reminds you; type `/update-setup` to install it: your own skills, hooks, settings and notes stay, your own
   rules stay in `~/.claude/rules/my-rules.md`, and one of the setup's files you changed yourself is replaced only after you say yes.
   It also clears the setup's own leftovers and says how much it freed, and offers your own leftovers and a reorganize
-  of your project files on one card (yes or not now; later, any time: `/disk-tidy` or `/file-upkeep`). `UPDATE_CHECK=off` in the
+  of your project files on one card (yes or not now; later, any time: `/disk-tidy` or `/file-upkeep`). The same card
+  asks once whether you want the encrypted backup, with no answer marked as the one to pick (later, any time: `/backup`). On Windows,
+  `/update-setup` now also updates Nimbalyst, with the setup's fixes; `NIMBALYST_FOLLOW=off` stops that. `UPDATE_CHECK=off` in the
   environment turns the check off; `/update-setup` still works.
 - **Optional extras the rules mention.** The installer does not install these; where one is missing
   the rule that names it simply doesn't apply.
@@ -89,17 +94,15 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 ## While you work
 
 - **Just describe the task.** You rarely have to name a skill: Claude picks the matching one by
-  itself. Three run only when you type them: `/btw`, `/phone-bot` and `/shared-usage`.
+  itself. Two run only when you type them: `/btw` and `/phone-bot`.
 - **Permission popups.** Every command Claude wants to run ends with a line that starts with
   `# WHAT THIS DOES:` and says in plain words what it does and what it changes. Read that line, then
   click Allow. If it describes something you did not ask for, click Deny and tell Claude why.
 - **Questions from Claude.** They come as a small form. A question with options to pick from has
   an "Other" box (a plain yes or no does not): type your own answer when no option fits.
-- **"(recommended)" answers.** Under a recommended option Claude says whether it checked something
-  (`Checked:`) or it is a judgment (`Judgment:`), and when another answer would be better
-  (`Other wins if:`). `Checked:` means it really looked something up in that chat: a hook rejects
-  the word otherwise. Take a `Judgment:` answer as an opinion, and read the last part before you
-  click. A question with no recommendation depends on something only you know.
+- **"(recommended)" answers.** A recommended option comes with one plain reason, from something Claude
+  checked in that chat or looked up online, never from taste. Claude asks only what is yours to decide
+  (what you want, look and feel, scope, timing, money); what the files answer it decides and lists.
 - **"Needs you" at the end of a reply.** That is your to-do list. Anything to type or paste comes in
   a copy box, with where it goes and what you should see afterwards.
 - **The Commands button** (a lightning bolt in Nimbalyst's left gutter, from the `commands`
@@ -144,16 +147,23 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   model and Claude doesn't ask to switch. In the terminal that is `"model"` in
   `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
 - Helpers keep their own model, whichever model you chat on: workers run Opus at medium effort (a `worker-code` helper
-  writes code on Opus at high effort; a worker that reads charts or does science or maths runs Fable at medium), a `worker-high` helper takes only long refactors, on Fable at
+  writes code on Opus at high effort; a worker that reads charts or does science or maths runs Fable at medium), a `worker-refactor` helper takes only long refactors, on Fable at
   high effort, and the planner and the reviewers run Fable at high effort. A Fable advisor for the session is off unless you turn it on (`/advisor fable`; `/advisor off` turns it off).
   Only mechanical bulk work (renames, bulk edits, scans) goes to a Sonnet helper.
-- Three folders start on Opus by themselves: `ask-anything`, `internet-search`, `claude-settings`.
+- Both side-work folders start on Opus by themselves: `quick-tasks` and `claude-settings`. An older install had
+  `quick-tasks` on Sonnet; an update moves it to Opus once and says so. To keep Sonnet there:
+  `/update-setup --keep-home-model` (your global model is not touched).
 
 ## Your projects
 
-- **`/new-project`: once in every project folder you work in.** It asks what the project is and
-  what "done" means, then writes the project's notes files. An existing `CLAUDE.md` is kept: Claude
-  shows the missing lines and adds them after your yes.
+- **`/new-project`: a new project folder.** The first message of the day in a folder that is not
+  a project yet offers it on a card (Yes, Not now, Never here, Never in any folder); you can also
+  type it. It asks what the project is and what "done" means, then writes the project's notes
+  files. A folder that already has a `CLAUDE.md` goes to `/update-project` instead.
+- **`/update-project`: a folder you set up earlier, before the setup moved on.** It checks the
+  folder's notes files, rules and settings against the current setup, shows every proposed change
+  first and makes only the ones you tick. After an update, the first message in a folder that is
+  behind offers it once.
 - **`/board-cleanup`: the Sessions board is full.** It moves finished chats to Complete. To hide
   them, select the cards in the Complete column and choose Archive selected; Claude cannot archive
   for you.
@@ -166,17 +176,18 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **`/file-upkeep`: a project's files are named and placed every which way.** It checks them
   against the file standard, shows the list of renames and moves, and after your yes moves them,
   fixes the references and keeps a ledger to undo it.
+- **`/backup`: an encrypted copy of your setup.** It sets the backup up once (about 10 minutes, in its
+  own window: you make a Backblaze B2 account and keep one password). Then `/backup now` backs up,
+  `/backup schedule` picks every day or every week, `/backup restore <path>` brings a file or folder
+  back into a new folder, and `/backup off` stops the schedule and deletes nothing.
 - **`/setup-audit scan`:** checks one project's Claude setup and saves a report.
 - **`/next-move`:** names the one most useful thing to do next. It reads your goals from
   `~/.claude/goals.md`, so write a few lines there first (what you want to reach this year).
-- **`/watch`: you have a video.** Give Claude a YouTube link or a video file and a question. A script fetches the subtitles and makes sheets of timed stills (an overview of the whole video, or about 5 stills a second for one stretch); a cheap model reads them, so a video costs a few thousand tokens to look through. Needs ffmpeg.
+- **`/watch`: you have a video.** Give Claude a YouTube link or a video file and a question. A script fetches the subtitles (a video without them is listened to: its sound is turned into text) and makes sheets of timed stills (an overview of the whole video, or about 5 stills a second for one stretch); a cheap model reads them, so a video costs a few thousand tokens to look through. Needs ffmpeg.
 - **`/untangle-codebase`: a codebase has grown tangled.** Run it every few weeks: it untangles the whole project in one pass so later changes read less and break less. A command only, never loaded on its own (from [caldoai/skills](https://github.com/caldoai/skills), MIT).
-- **`/shared-usage`: more than one person works on the subscription.** It sets up
-  [ccpool](https://github.com/hexxt-git/ccpool), someone else's open-source tool, and shows how much of
-  the limits each person used. It asks for your name and two passwords. Each person types the command on
-  their own computer with the same group password. The token counts go to the tool author's server;
-  chat text and file names stay on your computer. Its background program starts with the computer on
-  Windows; the macOS start-up has not been tried on a real Mac. An add-on: `node install.mjs --with shared-usage` adds it.
+- **`/design-system`: a project with a look.** It shows, writes or refreshes the project's
+  `DESIGN.md` (its colours, type, spacing, components and look rules) and uses it for the design
+  work at hand. A command only, never loaded on its own.
 
 ## From your phone
 
@@ -209,37 +220,35 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   `PLAN_USAGE_LOGGER=off` in the environment. On a Mac the login is in the Keychain, not in that file, so the forecast stays empty.
 - **`/setup-audit usage`:** the detailed numbers, saved as a file.
 
-## The four folders for side work
+## The two folders for side work
 
 Open the folder in Nimbalyst, or start Claude Code in it, and start a chat there. If you ask
 something unrelated inside another project, Claude names the right folder and opens it for you.
 
-### `<projects>\ask-anything`: anything you want to know
+### `<projects>\quick-tasks`: questions, finding things, one-off file jobs
 
-- Ask in plain words. Sources are named with their links.
+- **Ask anything** in plain words. Sources are named with their links. A long answer is also saved
+  in the folder's `answers`.
 - **A video or a page that will not open.** Paste a YouTube link and ask what the video says, or
   give the address of a page: Claude reads the subtitles or the page's text. Videos and feeds need
   the program uv.
 - **"Show me how this will look"** (with Codex installed). A generated picture, about 5 minutes. You
   see it only after it passed a written checklist. Say "careful run" for a slower and stricter one.
-
-### `<projects>\internet-search`: finding products, prices, places
-
-- Say "find me ...". The first time it asks where you live and looks up the marketplaces,
+- **Finding products, prices, places.** Say "find me ...". The first time it asks where you live and looks up the marketplaces,
   classifieds sites and social networks people use there. Later searches start with those.
 - One thing to look up takes 5 to 7 minutes and asks nothing. Marketplaces, second-hand listings or
   a request with several parts is a hunt: it asks once for your budget, your limits and how long it
   may take (10 minutes unless you pick more), and posts what it has at half time.
-- Every link in the answer is a page Claude opened: a hook in this folder blocks a reply with a link
-  that was not opened. What it found is saved in the folder's `finds`.
-- The pages are read through Nimbalyst's built-in browser. Without Nimbalyst Claude reads them with
-  its own web tools, which more shops block.
-
-### `<projects>\quick-tasks`: one-off file jobs
-
-- "Convert this file", "rename these files", "split this document", a quick script. Each job gets
+- In a search, every link in the answer is a page Claude opened: a hook in this folder blocks a reply
+  with a link that was not opened. What it found is saved in the folder's `finds`.
+- The pages are read through Nimbalyst's built-in browser, with your sign-ins. When Nimbalyst's
+  browser can't be reached, they are read with Obscura, a headless browser the installer adds:
+  signed out, so a page that needs your sign-in doesn't open there.
+- **One-off file jobs.** "Convert this file", "rename these files", "split this document", a quick script. Each job gets
   its own dated folder and works on copies, so your originals stay as they are.
-- Pictures work here too, with Codex installed ("show me how this will look").
+- **Older installs** had two more folders, `ask-anything` and `internet-search`. An update copies
+  your profile, finds and saved answers from them into `quick-tasks` (where it has none yet) and
+  leaves the old folders with all their files and chats. Delete them when you no longer need them.
 
 ### `<projects>\claude-settings`: changing the setup itself
 

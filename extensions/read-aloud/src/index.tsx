@@ -5,20 +5,33 @@
  * everything here talks to it only through callBackend().
  */
 
-import { useEffect } from 'react';
-import { clearTranscriptMarkdownContributions, setTranscriptMarkdownContributions } from '@nimbalyst/runtime';
-import { startAutoRead } from './autoRead';
-import { initBridge } from './bridge';
-import { player } from './player';
-import { initSettings } from './settings';
-import { ReadAloudSettingsPanel } from './SettingsPanel';
-import { CONTROL_TAG, ReadAloudControl, rehypeReadAloud, TRANSCRIPT_CSS } from './transcript';
+import { useEffect } from "react";
+import {
+  clearTranscriptMarkdownContributions,
+  setTranscriptMarkdownContributions,
+} from "@nimbalyst/runtime";
+import { startAutoRead } from "./autoRead";
+import { initBridge } from "./bridge";
+import { player } from "./player";
+import { initSettings } from "./settings";
+import { ReadAloudSettingsPanel } from "./SettingsPanel";
+import {
+  CONTROL_TAG,
+  ReadAloudControl,
+  rehypeReadAloud,
+  TRANSCRIPT_CSS,
+} from "./transcript";
 
-const SOURCE = 'com.local.readaloud';
+const SOURCE = "com.local.readaloud";
 
 interface ActivateContext {
   services: {
-    ai?: { callBackendTool?: (toolName: string, args?: Record<string, unknown>) => Promise<unknown> };
+    ai?: {
+      callBackendTool?: (
+        toolName: string,
+        args?: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
     configuration?: Parameters<typeof initSettings>[0];
   };
 }
@@ -38,7 +51,7 @@ function ReadAloudHost(): null {
     setTranscriptMarkdownContributions(SOURCE, {
       rehypePlugins: [rehypeReadAloud],
       components: { [CONTROL_TAG]: ReadAloudControl },
-      styles: [{ id: 'readaloud', type: 'css-text', cssText: TRANSCRIPT_CSS }],
+      styles: [{ id: "readaloud", type: "css-text", cssText: TRANSCRIPT_CSS }],
     });
     const stopAutoRead = startAutoRead();
     return () => {

@@ -3,14 +3,19 @@
 // manifest.json and dist/ into Nimbalyst's extensions folder. Restart Nimbalyst to load it.
 //   node build.mjs            build dist/
 //   node build.mjs --install  build, then install
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { extensionTarget, lenientLanguage, readTokens, swapStrings } from '../shared/build-lib.mjs';
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  extensionTarget,
+  lenientLanguage,
+  readTokens,
+  swapStrings,
+} from "../shared/build-lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const src = path.join(here, 'src');
-const dist = path.join(here, 'dist');
+const src = path.join(here, "src");
+const dist = path.join(here, "dist");
 
 // The whole STRINGS object of src/index.js, in Russian (same keys). Tool names inside the
 // "now" phrases stay as the app gives them.
@@ -46,25 +51,44 @@ const RUSSIAN_STRINGS = `const STRINGS = {
 const lang = lenientLanguage();
 
 fs.mkdirSync(dist, { recursive: true });
-let js = fs.readFileSync(path.join(src, 'index.js'), 'utf8');
+let js = fs.readFileSync(path.join(src, "index.js"), "utf8");
 // The extension loads one file, so src/runs.js (no imports of its own) goes in place of its import line
-const RUNS_IMPORT = "import { parseRuns, matchRun, readRuns } from './runs.js';";
-if (!js.includes(RUNS_IMPORT)) throw new Error('runs.js import not found in src/index.js');
-const inline = (file) => fs.readFileSync(path.join(src, file), 'utf8').replace(/\nexport \{[^}]*\};\s*$/, '\n').trimEnd();
-js = js.replace(RUNS_IMPORT, () => inline('runs.js'));
+// Found by shape, so a formatter's quotes and line wraps don't break the match
+const importOf = (file) =>
+  new RegExp(
+    `^import \\{[^}]*\\} from ["']\\./${file.replace(/\./g, "\\.")}["'];?[ \\t]*\\r?$`,
+    "m",
+  );
+const RUNS_IMPORT = importOf("runs.js");
+if (!RUNS_IMPORT.test(js))
+  throw new Error("runs.js import not found in src/index.js");
+const inline = (file) =>
+  fs
+    .readFileSync(path.join(src, file), "utf8")
+    .replace(/\nexport \{[^}]*\};\s*$/, "\n")
+    .trimEnd();
+js = js.replace(RUNS_IMPORT, () => inline("runs.js"));
 // src/scroll-hold.js the same way
-const HOLD_IMPORT = "import { createHold, holdInnerScrolls, holdEditable, startScrollHold, stopScrollHold } from './scroll-hold.js';";
-if (!js.includes(HOLD_IMPORT)) throw new Error('scroll-hold.js import not found in src/index.js');
-js = js.replace(HOLD_IMPORT, () => inline('scroll-hold.js'));
-if (lang === 'russian') js = swapStrings(js, RUSSIAN_STRINGS);
-fs.writeFileSync(path.join(dist, 'index.js'), js);
-fs.writeFileSync(path.join(dist, 'style.css'), readTokens() + '\n' + fs.readFileSync(path.join(src, 'style.css'), 'utf8'));
-console.log(`built dist/ (${lang === 'russian' ? 'russian' : 'english'})`);
+const HOLD_IMPORT = importOf("scroll-hold.js");
+if (!HOLD_IMPORT.test(js))
+  throw new Error("scroll-hold.js import not found in src/index.js");
+js = js.replace(HOLD_IMPORT, () => inline("scroll-hold.js"));
+if (lang === "russian") js = swapStrings(js, RUSSIAN_STRINGS);
+fs.writeFileSync(path.join(dist, "index.js"), js);
+fs.writeFileSync(
+  path.join(dist, "style.css"),
+  readTokens() + "\n" + fs.readFileSync(path.join(src, "style.css"), "utf8"),
+);
+console.log(`built dist/ (${lang === "russian" ? "russian" : "english"})`);
 
-if (process.argv.includes('--install')) {
-  const target = extensionTarget('agentspanel');
-  fs.mkdirSync(path.join(target, 'dist'), { recursive: true });
-  fs.copyFileSync(path.join(here, 'manifest.json'), path.join(target, 'manifest.json'));
-  for (const f of ['index.js', 'style.css']) fs.copyFileSync(path.join(dist, f), path.join(target, 'dist', f));
+if (process.argv.includes("--install")) {
+  const target = extensionTarget("agentspanel");
+  fs.mkdirSync(path.join(target, "dist"), { recursive: true });
+  fs.copyFileSync(
+    path.join(here, "manifest.json"),
+    path.join(target, "manifest.json"),
+  );
+  for (const f of ["index.js", "style.css"])
+    fs.copyFileSync(path.join(dist, f), path.join(target, "dist", f));
   console.log(`installed to ${target}; restart Nimbalyst to load it`);
 }

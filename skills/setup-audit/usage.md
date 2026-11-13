@@ -11,8 +11,8 @@ Numbers come from a script, not from reading transcripts. **Never open transcrip
    - Default: the last 14 days, all projects. Map the user's words to options: `--days N`, `--project <part of the folder name>`, `--session <id prefix>` plus `--minutes N` for only the first N minutes of it, `--since`/`--until` for exact times, `--top N` for more sessions.
    - "Tokens" = input + cache + output, counted once per API message. Most of it is cache reads, so compare runs with each other, not with plan limits.
    - Use `--json` only when you need a field the markdown doesn't show (for example every session, or per-model totals).
-2. **Compare:** if `~/.claude/reports/` has an older `*-usage.md`, read only its first 10 lines and compare the totals in one line.
-3. **Save** `~/.claude/reports/<YYYY-MM-DD>-usage.md` (a second run that day replaces it): the script output, then **What stands out**, 3–5 bullets:
+2. **Compare:** if `~/.claude/reports/` has an older report of the same scope, read only its first 10 lines and compare the totals in one line. All projects: the newest `*-usage.md`, or from before the files were renamed `usage-<YYYY-MM-DD>.md` (`usage-*.md` without a project name; the newest by the date in the name). With `--project <name>`: the newest `*-usage-<name>.md`; an older all-projects report is not compared with it.
+3. **Save** `~/.claude/reports/<YYYY-MM-DD>-usage.md`, or `<YYYY-MM-DD>-usage-<name>.md` with `--project <name>` (a second run of the same scope that day replaces it): the script output, then **What stands out**, 3–5 bullets:
    - the biggest costs and what they were (from the session titles);
    - any subagent over ~1M tokens, and whether a `worker` subagent could have done its gathering;
    - failed worker calls, and hook blocks followed by "retried" or "nothing";

@@ -7,18 +7,23 @@ import { crashLog } from "./crash-log.mjs";
 
 export const STATE_DIR = path.join(os.homedir(), ".claude", "hooks", "state");
 
-export const stateFile = (hook, key) => path.join(STATE_DIR, hook, `${key}.json`);
+export const stateFile = (hook, key) =>
+  path.join(STATE_DIR, hook, `${key}.json`);
 
 // The JSON in a file; `missing` when there is no such file. Any other failure (unreadable, not JSON) is crash-logged
 // and gives `missing` too, so the hook goes on with no memory instead of failing.
 export function readJson(file, { missing = null } = {}) {
   let text;
-  try { text = fs.readFileSync(file, "utf8"); } catch (err) {
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (err) {
     if (err.code === "ENOENT") return missing;
     crashLog("state", err);
     return missing;
   }
-  try { return JSON.parse(text); } catch (err) {
+  try {
+    return JSON.parse(text);
+  } catch (err) {
     crashLog("state", new Error(`${file} is not valid JSON: ${err.message}`));
     return missing;
   }
@@ -30,15 +35,22 @@ export function readJson(file, { missing = null } = {}) {
 // on the last failure the .part is removed and the error thrown.
 const RENAME_TRIES = 5;
 const RENAME_WAIT_MS = 30;
-const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const sleep = (ms) =>
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 export function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const part = `${file}.${process.pid}.part`;
   fs.writeFileSync(part, JSON.stringify(value));
   for (let i = 1; ; i++) {
-    try { fs.renameSync(part, file); return; } catch (err) {
-      if (i < RENAME_TRIES && ["EPERM", "EBUSY", "EACCES"].includes(err.code)) { sleep(RENAME_WAIT_MS); continue; }
+    try {
+      fs.renameSync(part, file);
+      return;
+    } catch (err) {
+      if (i < RENAME_TRIES && ["EPERM", "EBUSY", "EACCES"].includes(err.code)) {
+        sleep(RENAME_WAIT_MS);
+        continue;
+      }
       fs.rmSync(part, { force: true });
       throw err;
     }
@@ -49,7 +61,9 @@ export function writeJson(file, value) {
 export function sweep(hook, days) {
   const dir = path.join(STATE_DIR, hook);
   let names;
-  try { names = fs.readdirSync(dir); } catch (err) {
+  try {
+    names = fs.readdirSync(dir);
+  } catch (err) {
     if (err.code === "ENOENT") return;
     throw err;
   }
@@ -57,7 +71,9 @@ export function sweep(hook, days) {
   for (const n of names) {
     const f = path.join(dir, n);
     let st;
-    try { st = fs.statSync(f); } catch (err) {
+    try {
+      st = fs.statSync(f);
+    } catch (err) {
       if (err.code === "ENOENT") continue; // another process renamed or removed it (a .part) since the listing
       throw err;
     }

@@ -20,18 +20,22 @@ const DEFAULT_SECONDS = 120;
 const UNITS = { s: 1, m: 60, h: 3600, d: 86400 };
 
 // `timeout 420 cmd`, `timeout 7m cmd`, `timeout -k 10 300 cmd`, `timeout --signal=KILL 600 cmd`.
-const TIMEOUT = /(?:^|[\s;&|(])timeout\s+((?:-\S+(?:\s+\S+)?\s+)*)(\d+)([smhd])?(?=\s|$)/i;
+const TIMEOUT =
+  /(?:^|[\s;&|(])timeout\s+((?:-\S+(?:\s+\S+)?\s+)*)(\d+)([smhd])?(?=\s|$)/i;
 
 // Filters that keep only part of what they are given: rerunning the slow command is the only way back.
 // `tail -n +N` and `tail +N` start at line N and keep the rest, so they throw nothing away.
-const TRUNCATING = /(?:^|\s)head\b|(?:^|\s)tail\b(?!\s+(?:-n\s*)?\+\d)|(?:^|\s)(?:Select-Object|Select)\s+(?:-\w+\s+)*-(?:First|Last)\b/i;
+const TRUNCATING =
+  /(?:^|\s)head\b|(?:^|\s)tail\b(?!\s+(?:-n\s*)?\+\d)|(?:^|\s)(?:Select-Object|Select)\s+(?:-\w+\s+)*-(?:First|Last)\b/i;
 
 // A redirect or tee that keeps the whole output somewhere readable. `/dev/null` and `$null` keep nothing.
-const SAVES = /(?:&>>?|\d?>>?)\s*(?!\/dev\/null|NUL\b|\$null)[^\s|&;]+|(?:^|\s)tee\s+(?:-a\s+)?(?!\/dev\/null)[^\s|&;]+|(?:^|\s)Tee-Object\b/i;
+const SAVES =
+  /(?:&>>?|\d?>>?)\s*(?!\/dev\/null|NUL\b|\$null)[^\s|&;]+|(?:^|\s)tee\s+(?:-a\s+)?(?!\/dev\/null)[^\s|&;]+|(?:^|\s)Tee-Object\b/i;
 
 // A group, subshell or loop whose own output is redirected to a file keeps everything its statements
 // print, however each one is filtered inside: `{ for f in *; do slow | tail -3; done; } > all.txt`.
-const GROUP_SAVES = /(?:\}|\)|done|fi)\s*(?:&>>?|\d?>>?)\s*(?!\/dev\/null|\$null|NUL\b)[^\s|&;]+/i;
+const GROUP_SAVES =
+  /(?:\}|\)|done|fi)\s*(?:&>>?|\d?>>?)\s*(?!\/dev\/null|\$null|NUL\b)[^\s|&;]+/i;
 
 export const limit = () => {
   const n = Number(process.env.SLOW_OUTPUT_GATE_SECONDS);
@@ -65,22 +69,24 @@ export function offending(command, seconds = limit()) {
   return "";
 }
 
-export const reason = (stmt, seconds = limit()) => [
-  `[slow-output-gate] This command gives itself ${seconds}s or more and then pipes its output into a`,
-  `filter that keeps only part of it. If the kept part turns out to be the wrong part, the only way`,
-  `back is to run the whole thing again.`,
-  `  blocked: ${stmt}`,
-  ``,
-  `Save it once, then read it as often as you like:`,
-  `  <the slow command> > out.txt 2>&1; echo "exit $?"; grep -nE "<what you want>" out.txt | head -40`,
-  `(PowerShell: ... | Tee-Object out.txt | Select-Object -First 40)`,
-  ``,
-  `Before rerunning it at all: is this the cheapest call that answers the question? A status or read`,
-  `question usually has a one-call answer, and a project with a slow script names its fast read in its`,
-  `own CLAUDE.md. A full diff or deploy dry run is not a status check.`,
-  ``,
-  `Off switch: SLOW_OUTPUT_GATE=off (threshold: SLOW_OUTPUT_GATE_SECONDS)`,
-].join("\n");
+export const reason = (stmt, seconds = limit()) =>
+  [
+    `[slow-output-gate] This command gives itself ${seconds}s or more and then pipes its output into a`,
+    `filter that keeps only part of it. If the kept part turns out to be the wrong part, the only way`,
+    `back is to run the whole thing again.`,
+    `  blocked: ${stmt}`,
+    ``,
+    `Save it once, then read it as often as you like:`,
+    `  <the slow command> > out.txt 2>&1; echo "exit $?"; grep -nE "<what you want>" out.txt | head -40`,
+    `(PowerShell: ... | Tee-Object out.txt | Select-Object -First 40)`,
+    ``,
+    `Before rerunning it at all: is this the cheapest call that answers the question? A status or read`,
+    `question usually has a one-call answer, and a project with a slow script names its fast read in its`,
+    `own CLAUDE.md. A full diff or deploy dry run is not a status check.`,
+    ``,
+    `Tell the user in your reply: SLOW_OUTPUT_GATE=off turns this check off (the time limit: SLOW_OUTPUT_GATE_SECONDS).`,
+    `Don't switch it off yourself.`,
+  ].join("\n");
 
 if (isMain(import.meta.url)) {
   runHook("slow-output-gate", (input) => {
