@@ -69,6 +69,14 @@ const cli = spawnSync("node", [MAPJS, "--project", dir, "--check"], { encoding: 
 check("--check prints HAND and fails", cli.status === 1 && /^HAND out\/road\.json/m.test(cli.stdout) && /1 hand-edited/.test(cli.stdout), cli.stdout + cli.stderr);
 const nearOut = spawnSync("node", [MAPJS, "--project", dir, "--near", "road"], { encoding: "utf8" }).stdout;
 check("--near names a thing's generated file", !/Generated:/.test(nearOut)); // tools/road.py is the script, not an output
+// a lane reruns the script, main changes the script later, then the lane is merged: the lane's rerun is in last..HEAD but is a run
+const fresh = { ...MAP, generated: [{ ...MAP.generated[0], files: ["docs/steps.md"] }] };
+put("docs/steps.md", "fresh"); git("commit", "-qam", "steps rerun on main");
+git("checkout", "-qb", "lane");
+put("tools/road.py", "print(3)"); put("docs/steps.md", "lane run"); git("commit", "-qam", "lane: script and rerun");
+git("checkout", "-q", "-"); put("tools/road.py", "print(4)"); git("commit", "-qam", "main: script change");
+git("merge", "-q", "--no-edit", "-X", "theirs", "lane");
+check("a merged lane's script-and-rerun commit is not a hand edit", handEdits(fresh, dir).length === 0, JSON.stringify(handEdits(fresh, dir)));
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
