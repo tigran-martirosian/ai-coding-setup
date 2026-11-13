@@ -1,5 +1,7 @@
 # Changelog
 
+- 1.0.105 (Nov 7, 2026): The planner now sizes each step by what it has to decide instead of by tool calls: a design gets its own step before anything is built, pieces that belong together stay with one helper, and you see the whole plan (how many helpers, on which model, what each designs or builds) and can cut or split steps before any helper starts. A design you will look at waits for your OK, the 64k cap on one reply from 1.0.104 is taken out again, and the board cleanup reminder is gone.
+- 1.0.104 (Nov 7, 2026): Helpers put their file on disk early and in parts, the planner splits a big design into parts, a helper near its context limit can still save its work, and one reply was cut at 64k output tokens (taken out again in 1.0.105).
 - 1.0.103 (Nov 6, 2026): /watch works on Instagram links, the usage report shows how much of the input came from the prompt cache and what made it start over, and helpers now run Opus by default, with Sonnet only for mechanical bulk work.
 - 1.0.102 (Nov 6, 2026): A question form that names a file without its folder no longer gets a link to a file that is not there, and the usage dashboard ships with its design file (DESIGN.md) for anyone restyling it.
 - 1.0.101 (Nov 6, 2026): On macOS the check that an edited script was run reads Windows-style file paths correctly, and the tests pass there again.

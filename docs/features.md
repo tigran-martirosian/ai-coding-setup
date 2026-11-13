@@ -69,7 +69,7 @@ Four hooks run it. `map-nudge` notices a big project without a map and has the a
 
 ![A reply that links a page it never opened is sent back, then three more checks](img/clip-checks.gif)
 
-Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 41 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
+Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 40 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
 
 ### Checks that can send a step back
 
@@ -111,7 +111,6 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `map-drift` | After an edit to a file that backs a link of the systems map, says when the token the link rests on is gone, so the agent checks that link and fixes or drops it before it is done |
 | `map-generated` | Before an edit of a file a script writes (listed under `generated` in the systems map), refuses it and names the script and the command that reruns it |
 | `nimbalyst-notes` | At the start of a session inside Nimbalyst, tells the agent two quirks of Nimbalyst's tools, so they don't sit in the rules of every session. Silent in the terminal |
-| `board-nudge` | Offers a board cleanup when many sessions have piled up |
 | `pc-tidy-nudge` | On Windows, says to restart Nimbalyst after 12 hours open and points to `/pc-tidy` |
 | `update-check` | Says, at most every 12 hours, when a newer version of the setup is released |
 | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard (inside Nimbalyst it refreshes the data and says where to click) |

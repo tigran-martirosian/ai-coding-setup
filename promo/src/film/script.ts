@@ -176,7 +176,7 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "tiles",
       tiles: [
-        { name: "41 hooks", note: "Small checks on each step" },
+        { name: "40 hooks", note: "Small checks on each step" },
         { name: "19 skills", note: "Commands like /lead" },
         { name: "7 extensions", note: "Panels for the editor" },
         { name: "5 agents", note: "Planner, helpers, reviewer" },
@@ -196,7 +196,7 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "install",
       code: "node install.mjs",
-      output: ["Copied 41 hooks", "Copied 19 skills", "Copied 5 agents", "Added 7 editor extensions", "Kept your own settings", "Done. Start Claude Code."],
+      output: ["Copied 40 hooks", "Copied 19 skills", "Copied 5 agents", "Added 7 editor extensions", "Kept your own settings", "Done. Start Claude Code."],
       update: "Updates itself: /update-setup",
       link: LINK,
     },
