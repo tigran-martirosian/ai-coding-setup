@@ -185,7 +185,11 @@ check("a gone worktree folder is named, not touched", /folder already gone/.test
 
 const L = json();
 const find = (pred) => L.items.find(pred);
-const byPath = (p) => find((i) => normPath(i.path) === normPath(p));
+// git names a worktree by its real path; T's path may hold a Windows 8.3 short name (RUNNER~1 on the CI runner)
+const real = (p) => (fs.existsSync(p) ? fs.realpathSync.native(p) : p);
+const samePath = (a, b) => normPath(real(a)) === normPath(real(b));
+const byPath = (p) => find((i) => samePath(i.path, p));
+check("the replay worktree is listed once, as a replay worktree", L.items.filter((i) => samePath(i.path, WT.replay)).map((i) => i.category).join() === "replay-worktree", JSON.stringify(L.items.filter((i) => samePath(i.path, WT.replay))));
 check("test-run chats of a day ago and of a running session are not listed", !L.items.some((i) => /\/(fresh|named)$/.test(i.path)));
 check("test-run chats with a memory/ folder are only offered", byPath(path.join(PROJ, "mem"))?.class === "P");
 check("chats of a folder that still exists are not archived as gone", !byPath(path.join(PROJ, "proj")));
@@ -229,7 +233,7 @@ check("a second --auto with nothing new to clean prints only offers", !/^disk: f
 // ---- --apply: only what was asked, re-checked first
 const L2 = json();
 const LEDGER = L2.ledgerFile;
-const id = (p) => L2.items.find((i) => normPath(i.path) === normPath(p))?.id;
+const id = (p) => L2.items.find((i) => samePath(i.path, p))?.id;
 put(path.join(CL, "scratch", "old20", "b.txt"), "touched after the report", 16); // newest file moves: the item changed
 const ap = tidy("--apply", LEDGER, "--only", [id(WT.dirty), id(WT.ahead), id(WT.merged), id(path.join(CL, "scratch", "old20")), id(WT.data)].join(","));
 check("the worktree holding ignored data stays even when its id is passed", ex(path.join(WT.data, "runs.db")) && /ignored file/.test(ap.out), ap.out);

@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:
@@ -22,4 +25,7 @@ jobs:
       # On a Mac the plain ffmpeg has no drawtext filter; skills/watch/watch.mjs finds ffmpeg-full by itself.
       - if: runner.os == 'macOS'
         run: brew install ffmpeg ffmpeg-full
+      # tests/test-versions.mjs asks the GitHub API; without a token the shared runner addresses hit its rate limit
       - run: node tests/run-all.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

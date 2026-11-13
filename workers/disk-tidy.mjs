@@ -562,9 +562,11 @@ async function scan(C, scanner) {
   }
   for (const t of temps.sort((a, b) => b.bytes - a.bytes).slice(0, 10)) add("T", { ...t, category: "big-temp", class: "P", action: "delete", reason: `unused since ${t.mtime.slice(0, 10)}, maker unknown`, undo: "none" });
   // 6, 7, 8: worktrees of the repos under the roots
+  // git prints a worktree's real path; the temp folder's path may hold a Windows 8.3 short name (RUNNER~1 on the CI runner)
+  const replayReal = fs.existsSync(C.REPLAY) ? fs.realpathSync.native(C.REPLAY) : C.REPLAY;
   for (const repo of reposUnder(C)) {
     for (const w of worktreeList(C, repo)) {
-      if (C.under(w.worktree, C.REPLAY)) continue;
+      if (C.under(w.worktree, C.REPLAY) || C.under(w.worktree, replayReal)) continue;
       if (w.prunable || !fs.existsSync(w.worktree)) { skipped.push({ path: fwd(w.worktree), reason: `folder already gone; git -C "${fwd(repo)}" worktree prune clears its record` }); continue; }
       const branch = w.branch ? String(w.branch).replace(/^refs\/heads\//, "") : null;
       const nim = /_worktrees$/.test(path.basename(path.dirname(w.worktree)));

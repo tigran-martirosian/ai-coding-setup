@@ -22,7 +22,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 let stopNote = ""; // set while an apply runs: where its journal is and how to undo it
@@ -72,9 +72,11 @@ const gitOk = (root, ...a) => {
   if (r.status !== 0) stop(`git ${a.join(" ")} failed in ${fwd(root)}: ${(r.stderr || r.stdout).trim()}`);
   return r.stdout;
 };
+// git prints the long real path; the folder may be given with a Windows 8.3 short name in it (RUNNER~1 on the CI
+// runner), through a link, or as /var for /private/var on macOS, so both sides are compared in their real form
 const isGitRoot = (root) => {
   const r = git(root, "rev-parse", "--show-toplevel");
-  return r.status === 0 && path.resolve(r.stdout.trim()).toLowerCase() === path.resolve(root).toLowerCase();
+  return r.status === 0 && fs.realpathSync.native(r.stdout.trim()).toLowerCase() === fs.realpathSync.native(root).toLowerCase();
 };
 const zlist = (out) => out.split("\0").filter(Boolean);
 
@@ -792,7 +794,10 @@ function undo() {
 
 export { dateIn, fixName, refSpans, breaks };
 const MODES = { "--report": report, "--status": status, "--skip": skip, "--check": check, "--apply": apply, "--undo": undo };
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+// started as the script, not imported: by real path, as hooks/lib/hook-io.mjs isMain, because Node gives import.meta.url
+// the real path while argv keeps a link's (macOS /var is /private/var; a linked ~/.claude)
+const realOr = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+if (process.argv[1] && realOr(process.argv[1]).toLowerCase() === realOr(fileURLToPath(import.meta.url)).toLowerCase()) {
   const mode = Object.keys(MODES).filter((m) => args.includes(m));
   if (mode.length !== 1) stop(`give exactly one of ${Object.keys(MODES).join(", ")}.`);
   try { MODES[mode[0]](); } catch (e) { stop(e.message); } // a throw midway in --apply still names its journal

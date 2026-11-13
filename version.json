@@ -1,5 +1,5 @@
 {
-  "version": "1.0.112",
+  "version": "1.0.113",
   "claudeCodeMin": "2.1.321",
   "date": "2026-11-10",
   "summary": "New /disk-tidy and /file-upkeep skills, and new files land tidy from the start.",
@@ -23,6 +23,11 @@
       "kind": "setup",
       "important": true,
       "headline": "Fable writes the code, your own rules survive updates, small fixes install themselves"
+    },
+    "1.0.113": {
+      "kind": "files",
+      "important": false,
+      "headline": "Disk tidy, file checks and version checks work on every system and temp folder"
     }
   }
 }

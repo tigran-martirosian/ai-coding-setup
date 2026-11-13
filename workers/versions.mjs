@@ -34,12 +34,19 @@ import { argv, exit } from "node:process";
 const UA = { "User-Agent": "claude-versions-check", Accept: "application/json" };
 const TIMEOUT_MS = 20000;
 let SHOW_ALL = false; // set by main(); the end-of-life source reads it when it builds its rows
+// GitHub allows 60 API calls an hour per address without a token (shared CI runners use them up); with one, 5000
+const GH_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
 
 async function getJson(url) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
+  const github = new URL(url).hostname === "api.github.com";
   try {
-    const r = await fetch(url, { headers: UA, signal: ac.signal });
+    const r = await fetch(url, { headers: github && GH_TOKEN ? { ...UA, Authorization: `Bearer ${GH_TOKEN}` } : UA, signal: ac.signal });
+    if ((r.status === 403 || r.status === 429) && github && r.headers.get("x-ratelimit-remaining") === "0") {
+      const reset = new Date(Number(r.headers.get("x-ratelimit-reset")) * 1000).toISOString().slice(11, 16);
+      throw new Error(`HTTP ${r.status} from ${url}: GitHub API rate limit reached ${GH_TOKEN ? "for this token" : "(no GITHUB_TOKEN or GH_TOKEN set)"}; it resets at ${reset} UTC`);
+    }
     if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
     return await r.json();
   } finally {
