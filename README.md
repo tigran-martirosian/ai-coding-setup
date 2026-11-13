@@ -4,9 +4,9 @@ The rules, checks and skills I run AI coding agents with for all my development.
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/021c39fb-b122-4c44-be2c-f61521acbf60
+<a href="docs/img/promo.mp4"><img src="docs/img/promo.gif" width="800" alt="A tour of the setup, one part at a time, each with a short caption. Click for the sharper video."></a>
 
-Every change, one line per version: [CHANGELOG.md](CHANGELOG.md).
+Changes in versions: [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
@@ -102,4 +102,4 @@ Each hook runs as a separate process on made-up session logs, the installer runs
 
 ## License
 
-All rights reserved. You may download it, use it and change your own installed copy, but not publish, distribute or sell it, and not present a changed version as mine. See [LICENSE](LICENSE).
+See [LICENSE](LICENSE).
