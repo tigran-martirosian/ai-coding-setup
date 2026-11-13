@@ -1,0 +1,153 @@
+// Tests for skills/usage-report/usage-scan.mjs on a made-up transcripts folder.
+// Run: node test-usage-scan.mjs
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import os from "node:os";
+import { execFileSync } from "node:child_process";
+
+const SCRIPT = fileURLToPath(new URL("../skills/usage-report/usage-scan.mjs", import.meta.url));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "usage-scan-test-"));
+const proj = path.join(root, "C--Projects-demo");
+fs.mkdirSync(path.join(proj, "s1", "subagents"), { recursive: true });
+
+const T0 = Date.parse("2026-09-30T05:00:00Z");
+const at = (min) => new Date(T0 + min * 60000).toISOString();
+const usage = (inp, cr, out) => ({ input_tokens: inp, cache_creation_input_tokens: 0, cache_read_input_tokens: cr, output_tokens: out });
+const asst = (min, id, u, content = [], model = "claude-opus-5-5") =>
+  ({ type: "assistant", timestamp: at(min), message: { id, model, usage: u, content } });
+const bash = (id, command, extra = {}) => ({ type: "tool_use", id, name: "Bash", input: { command, description: id, ...extra } });
+const result = (min, id, text, is_error = false) =>
+  ({ type: "user", timestamp: at(min), message: { content: [{ type: "tool_result", tool_use_id: id, content: text, is_error }] } });
+const write = (file, lines) => fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+
+const wrapper = `run() { codex --search exec --skip-git-repo-check "$1" < /dev/null > "$2.txt"; }\nrun "a" x & run "b" y & run "c" z & wait`;
+write(path.join(proj, "s1.jsonl"), [
+  { type: "ai-title", aiTitle: "Demo session" },
+  // same message id on two lines (two content blocks): counted once
+  asst(0, "m1", usage(10, 1000, 90), [{ type: "text", text: "hi" }]),
+  asst(0, "m1", usage(10, 1000, 90), [bash("b1", "cd x; codex exec --skip-git-repo-check 'q' < /dev/null")]),
+  result(1, "b1", "answer\ntokens used\n1,234\nanswer"),
+  asst(2, "m2", usage(0, 2000, 0), [bash("b2", wrapper)]),
+  result(3, "b2", "done"),
+  // mentions codex exec only as text inside sed: not a worker run
+  asst(4, "m3", usage(0, 3000, 0), [bash("b3", "sed -i 's/codex exec -s/codex exec --skip -s/' f.md")]),
+  result(4, "b3", ""),
+  asst(5, "m4", usage(0, 4000, 0), [{ type: "tool_use", id: "a1", name: "Agent", input: { subagent_type: "Explore", prompt: "find" } }]),
+  result(5, "a1", "PreToolUse:Agent hook error: [worker-nudge] Search/research subagents cost...", true),
+  asst(6, "m5", usage(0, 5000, 0), [bash("b4", "agy -p 'read big.ts' --mode plan"),
+    bash("b5", "~/.claude/workers/ask-codex.sh --web /tmp/task.txt"),
+    // the worker command: counted under the worker that answered; --status is not a worker run
+    bash("b6", '~/.claude/workers/ask.mjs --web "who won"'),
+    bash("b7", '~/.claude/workers/ask.mjs "read big.ts"'),
+    bash("b8", "~/.claude/workers/ask.mjs --status"),
+    bash("b9", "~/.claude/workers/ask.mjs --web /tmp/task.txt")]),
+  result(7, "b4", "ok"),
+  result(7, "b5", "ok"),
+  result(7, "b6", "[ask] answered by Codex (ChatGPT login)\nSpain."),
+  result(7, "b7", "[ask] answered by Antigravity (gemini-3.8-flash-medium)\nIt has 3 functions."),
+  result(7, "b8", "Web research (--web), in this order:"),
+  result(7, "b9", "[ask] no free worker could answer. Do it with Claude instead"),
+  // after minute 30: outside a --minutes 30 window
+  asst(45, "m6", usage(0, 100000, 0), [
+    { type: "tool_use", id: "k1", name: "Skill", input: { skill: "handoff" } },
+    { type: "tool_use", id: "x1", name: "mcp__demo__lookup", input: {} },
+    { type: "tool_use", id: "x2", name: "mcp__demo__fetch", input: {} },
+  ]),
+]);
+write(path.join(proj, "s1", "subagents", "agent-x.jsonl"), [
+  asst(10, "s-m1", usage(5, 500, 5), [], "claude-sonnet-5-5"),
+  asst(50, "s-m2", usage(0, 700, 0), [], "claude-sonnet-5-5"),
+]);
+fs.writeFileSync(path.join(proj, "s1", "subagents", "agent-x.meta.json"), JSON.stringify({ agentType: "copy-humanizer" }));
+
+const run = (...a) => JSON.parse(execFileSync("node", [SCRIPT, "--root", root, "--json", ...a], { encoding: "utf8" }));
+let pass = 0, fail = 0;
+const check = (name, got, want) => {
+  if (JSON.stringify(got) === JSON.stringify(want)) { pass++; console.log(`ok   ${name}`); }
+  else { fail++; console.log(`FAIL ${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); }
+};
+
+const full = run("--session", "s1");
+const s = full.sessions[0];
+check("main tokens deduped by message id", s.main, 1100 + 2000 + 3000 + 4000 + 5000 + 100000);
+check("main calls", s.calls, 6);
+check("title", s.title, "Demo session");
+check("max context", s.maxContext, 100000);
+check("subagent type from meta", s.subagents[0].type, "copy-humanizer");
+check("subagent tokens", s.subagents[0].tokens, 510 + 700);
+check("total = main + subagents", full.totals.tokens, s.main + 1210);
+check("codex processes (1 direct + 3 via shell function + 1 ask-codex.sh + 1 answered through ask.mjs, sed ignored)", full.workers.codexProcesses, 6);
+check("agy processes (1 direct + 1 answered through ask.mjs)", full.workers.agyProcesses, 2);
+check("worker shell calls (ask.mjs --status is not one)", full.workers.calls, 7);
+check("an ask.mjs call no worker answered is counted as failed", full.workers.list.filter((w) => w.worker === "none" && !w.ok).length, 1);
+check("web flag on the shell function call, ask-codex.sh --web and both ask.mjs --web calls", full.workers.list.filter((w) => w.web).length, 4);
+check("hook block counted", full.hooks["worker-nudge"]?.blocks, 1);
+check("next step after block", full.hooks["worker-nudge"]?.next, { worker: 1 });
+// fields the dashboard reads
+const dayTotal = (days) => Object.values(days).flatMap(Object.values).reduce((a, b) => a + b, 0);
+check("per-day tokens add up to main", dayTotal(s.days), s.main);
+check("per-day tokens add up for a subagent", dayTotal(s.subagents[0].days), 1210);
+check("per-day tokens are split by model", [...new Set(Object.values(s.subagents[0].days).flatMap(Object.keys))], ["claude-sonnet-5-5"]);
+// API-price equivalent: Opus 5.5 is $4 in, $20 out, $0.20 cache read per million; Sonnet 5.5 $2, $10, $0.20
+const usdTotal = (usd) => Math.round(Object.values(usd).reduce((a, b) => a + b, 0) * 1e4) / 1e4;
+check("dollars at API prices, main chat", usdTotal(s.usd), Math.round((10 * 4 + 90 * 20 + 115000 * 0.2) / 1e6 * 1e4) / 1e4);
+check("dollars at API prices, subagent on another model", usdTotal(s.subagents[0].usd), Math.round((5 * 2 + 5 * 10 + 1200 * 0.2) / 1e6 * 1e4) / 1e4);
+check("total dollars is a number", typeof full.totals.usd, "number");
+check("session lists its worker calls with a start time", s.workers.map((w) => typeof w.at), Array(7).fill("string"));
+check("short project name", s.name, "demo");
+check("Codex token count read from the result, null when missing", s.workers.map((w) => w.tokens), [1234, null, null, null, null, null, null]);
+// what gets used (the unused-inventory part of the audit)
+check("tool calls, MCP tools grouped per server", full.use.tools, { Bash: 9, "demo (MCP)": 2, Agent: 1, Skill: 1 });
+check("skill uses", full.use.skills, { handoff: 1 });
+check("subagent starts by type", full.use.agents, { Explore: 1 });
+check("tokens by model", full.use.models, { "claude-opus-5-5": 115100, "claude-sonnet-5-5": 1210 });
+check("first-call size and big-session counts", [full.use.firstCall, full.use.over200k], [{ median: 1010, max: 1010 }, 0]);
+
+const win = run("--session", "s1", "--minutes", "30");
+check("--minutes cuts main", win.sessions[0].main, 15100);
+check("--minutes cuts subagent", win.sessions[0].subagents[0].tokens, 510);
+
+const days = run("--since", "2026-09-30T00:00:00Z", "--until", "2026-09-30T05:20:00Z", "--project", "demo");
+check("--since/--until window", days.totals.mainTokens, 15100);
+check("--project filter excludes others", run("--project", "nomatch", "--days", "10000").totals.sessions, 0);
+
+fs.rmSync(root, { recursive: true, force: true });
+console.log(`\n${pass}/${pass + fail} passed`);
+process.exit(fail ? 1 : 0);
+
+// Wasted requests: own project so the cases above stay as they are
+const tool = (id, name, input = {}) => ({ type: "tool_use", id, name, input });
+const user = (min, text) => ({ type: "user", timestamp: at(min), message: { content: text } });
+const blocked = (why) => `PreToolUse:Bash hook error: [node hook]: command-explain: ${why}`;
+fs.mkdirSync(path.join(root, "C--Projects-waste"));
+write(path.join(root, "C--Projects-waste", "w1.jsonl"), [
+  user(0, "fix the thing please"),
+  asst(1, "w-m1", usage(0, 1000, 1), [tool("w1", "Bash")]), result(1, "w1", blocked("Command is too long"), true),
+  asst(2, "w-m2", usage(0, 2000, 1), [tool("w2", "Bash")]), result(2, "w2", "boom", true),
+  asst(3, "w-m3", usage(0, 3000, 1), [tool("w3", "Bash")]), result(3, "w3", blocked("no explanation line"), true),
+  asst(4, "w-m4", usage(0, 4000, 1), [tool("w4", "mcp__nimbalyst__update_session_meta", { phase: "complete" })]), result(4, "w4", "ok"),
+  asst(5, "w-m5", usage(0, 5000, 1), [tool("w5", "mcp__nimbalyst__update_session_meta", { add: ["x"] })]), result(5, "w5", "ok"),
+  asst(6, "w-m6", usage(0, 6000, 1), [tool("w6", "ToolSearch")]), result(6, "w6", "ok"),
+  // not an error, only quotes a block message (a file read): not a block
+  asst(7, "w-m7", usage(0, 7000, 1), [tool("w7", "Read")]), result(7, "w7", blocked("Command is too long")),
+  // one message id on two lines: one request, usage of the last line
+  asst(7, "w-m9", usage(0, 50, 1), [{ type: "text", text: "a" }]),
+  asst(7, "w-m9", usage(0, 70, 3), [{ type: "text", text: "b" }]),
+  user(8, "second message"),
+  asst(9, "w-m8", usage(0, 100, 1), [{ type: "text", text: "ok" }]),
+]);
+const X = run("--project", "waste", "--days", "10000").wasted;
+check("wasted: requests per message", [X.turnCount, X.requestsPerMessage], [2, { median: 8, max: 8 }]);
+check("wasted: per project", X.perProject, { waste: { messages: 2, median: 8, max: 8 } });
+check("wasted: longest turn", X.longestTurns.map((t) => [t.requests, t.tokens, t.text]), [[8, 28070, "fix the thing please"], [1, 100, "second message"]]);
+check("wasted: one failure streak of 3", [X.streakCount, X.longestStreak, X.worstStreaks.map((k) => [k.n, k.tool])], [1, 3, [[3, "Bash"]]]);
+check("wasted: hook blocks with the blocked request's tokens", X.hooks["command-explain"], { blocks: 2, tokens: 4000 });
+check("wasted: command-explain by reason", X.commandExplain, { "too long": { blocks: 1, tokens: 1000 }, "no note (or no empty line before it)": { blocks: 1, tokens: 3000 } });
+check("wasted: board-only requests split", X.boardOnly, { complete: { n: 1, tokens: 4000 }, other: { n: 1, tokens: 5000 } });
+check("wasted: ToolSearch-only requests", X.toolSearchOnly, { n: 1, tokens: 6000 });
+check("wasted: token split", X.tokens, { input: 0, cacheWrite: 0, cacheRead: 28170, output: 11 });
+
+fs.rmSync(root, { recursive: true, force: true });
+console.log(`\n${pass}/${pass + fail} passed`);
+process.exit(fail ? 1 : 0);

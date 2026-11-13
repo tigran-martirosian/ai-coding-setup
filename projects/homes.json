@@ -1,0 +1,35 @@
+{
+  "picture": {
+    "homes": ["ask-anything", "quick-tasks"],
+    "hooks": {
+      "PreToolUse": [
+        {
+          "matcher": "mcp__nimbalyst__display_to_user",
+          "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/picture-gate.mjs", "timeout": 10 }]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/picture-gate.mjs", "timeout": 10 }]
+        }
+      ]
+    }
+  },
+  "notes": {
+    "ask-anything": [
+      { "without": ["codex"], "line": "- Codex is not set up. Where this file or a skill says Codex, look things up with WebSearch and WebFetch (several searches in one turn). The court's GPT seat stays empty: leave it out without comment." },
+      { "without": ["agy"], "line": "- Antigravity (Gemini) is not set up. The court's Gemini seat stays empty: leave it out without comment." },
+      { "without": ["codex", "agy"], "line": "- `/court` is always held as the full court, with its three Claude seats; don't offer the quick court, which needs an outside seat." },
+      { "without": ["codex"], "line": "- No generated pictures here (the picture skill needs Codex): say so in one line and offer a description or a diagram." }
+    ],
+    "internet-search": [
+      { "without": ["codex"], "line": "- Codex is not set up. Do each sweep the finder skill gives to Codex with WebSearch (several searches in one turn), and open the pages with `tools/peek.mjs` as usual." }
+    ],
+    "quick-tasks": [
+      { "without": ["codex"], "line": "- No generated pictures here (the picture skill needs Codex): say so in one line and offer a description or a diagram." }
+    ],
+    "claude-settings": [
+      { "without": ["codex"], "line": "- Codex is not set up. `/chat-review` gives its reading to Codex: do that reading with a `worker` subagent instead." }
+    ]
+  }
+}

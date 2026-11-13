@@ -1,0 +1,59 @@
+# Changelog
+
+One line per version, newest first: what you get.
+
+- 1.0.53 (Oct 15, 2026): The two switched-off checks, `turn-cap` and `build-nudge`, are removed; the README and the changelog are shorter; Antigravity now does web research and no longer stops on files outside its folder.
+- 1.0.52 (Oct 12, 2026): Shorter global rules.
+- 1.0.51 (Oct 12, 2026): `turn-cap` and `build-nudge` are switched off, and `command-explain` has no length limit.
+- 1.0.50 (Oct 11, 2026): A tick no longer counts as a decision against your own words.
+- 1.0.49 (Oct 11, 2026): The phone bot copes with Nimbalyst's connection file going missing.
+- 1.0.48 (Oct 11, 2026): `/full-review` counts rework by helpers.
+- 1.0.47 (Oct 11, 2026): `chat-review` checks its earlier fixes.
+- 1.0.46 (Oct 11, 2026): Two tests updated for the helper rule of 1.0.45.
+- 1.0.45 (Oct 11, 2026): `turn-cap`: a helper session must name its model and keep effort low.
+- 1.0.44 (Oct 11, 2026): `turn-cap`: one helper at a time.
+- 1.0.43 (Oct 11, 2026): `turn-cap`: helpers stay on the cheaper model.
+- 1.0.42 (Oct 11, 2026): A big session is cut instead of reminded, and `cold-cache` warns when the prompt cache has expired.
+- 1.0.41 (Oct 10, 2026): `/watch` on a Mac.
+- 1.0.40 (Oct 10, 2026): The tests pass on GitHub again and the tour video caught up.
+- 1.0.39 (Oct 10, 2026): `build-nudge` counts a session's requests.
+- 1.0.38 (Oct 10, 2026): The session you talk in leads; it does not build.
+- 1.0.37 (Oct 10, 2026): The global rules are half as long.
+- 1.0.36 (Oct 10, 2026): The phone bot's assistant finds Claude Code by itself on Windows.
+- 1.0.35 (Oct 10, 2026): `/watch` starts by itself more often.
+- 1.0.34 (Oct 10, 2026): `/watch`: give Claude a YouTube link or a video file and a question.
+- 1.0.33 (Oct 10, 2026): On a Mac the `/shared-usage` background program starts again after a restart.
+- 1.0.32 (Oct 10, 2026): The phone bot shows buttons for every question with options.
+- 1.0.31 (Oct 10, 2026): `/phone-bot`: your own Telegram bot that saves what you send from the phone and talks to your sessions.
+- 1.0.30 (Oct 10, 2026): The usage pop-up shows who used how much.
+- 1.0.29 (Oct 10, 2026): `/shared-usage`: who used how much of a shared subscription.
+- 1.0.28 (Oct 10, 2026): A language choice, English or Russian.
+- 1.0.27 (Oct 10, 2026): Tests and automation run out of your sight.
+- 1.0.26 (Oct 10, 2026): The free Gemini worker answers when asked to read files.
+- 1.0.25 (Oct 10, 2026): An update is quiet.
+- 1.0.24 (Oct 10, 2026): Commands you always type no longer take up room in every session.
+- 1.0.23 (Oct 10, 2026): The reviewer in `/lead` reports under two headings.
+- 1.0.22 (Oct 8, 2026): A real reference before design work.
+- 1.0.21 (Oct 8, 2026): `/btw` no longer needs a second try when several sessions are open.
+- 1.0.20 (Oct 8, 2026): `/full-review`: one review that ends in choices.
+- 1.0.19 (Oct 8, 2026): The strong model plans, a cheaper one builds.
+- 1.0.18 (Oct 8, 2026): A retry that cannot work is refused, and `/plan-first` handles a big or vague request.
+- 1.0.17 (Oct 7, 2026): A planner on the strongest model.
+- 1.0.16 (Oct 5, 2026): A picture in the chat opens when you click it.
+- 1.0.15 (Oct 5, 2026): Six more colour themes.
+- 1.0.14 (Oct 5, 2026): A handoff brief always has its summary.
+- 1.0.13 (Oct 5, 2026): The plugins and the settings come with the install and with an update.
+- 1.0.12 (Oct 5, 2026): The extensions install themselves.
+- 1.0.11 (Oct 5, 2026): A hook wired by an older copy is moved to the new one.
+- 1.0.10 (Oct 5, 2026): The update check runs every 12 hours.
+- 1.0.9 (Oct 5, 2026): A file you changed stays yours.
+- 1.0.8 (Oct 5, 2026): The tour video shows the new handoff.
+- 1.0.7 (Oct 5, 2026): A long session moves to a fresh one by itself.
+- 1.0.6 (Oct 5, 2026): The tour video is up to date.
+- 1.0.5 (Oct 5, 2026): Five colour themes for Nimbalyst.
+- 1.0.4 (Oct 4, 2026): `/setup-audit` finds what you load but don't use.
+- 1.0.3 (Oct 4, 2026): The reader court.
+- 1.0.2 (Oct 4, 2026): You stay on the model you picked.
+- 1.0.1 (Oct 4, 2026): The update check no longer ends with a Node error on Windows.
+- 1.0.0 (Oct 4, 2026): The setup updates itself, with a version number, a tag for each release and a lighter install.
+- Before 1.0.0 (Oct 2-4, 2026): the first public setup: rules, checks, skills, workers, starter projects, voice typing and a full install for Windows and Mac.

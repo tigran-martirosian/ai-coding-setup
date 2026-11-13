@@ -1,0 +1,4 @@
+node_modules/
+out/
+# The privacy check reads the hashes in a lock file as words; the versions in package.json are exact.
+package-lock.json
