@@ -7,6 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// No network and no real Claude Code update from any installer this test starts (scripts/claude-code-version.mjs)
+process.env.SETUP_CC_CHECK = "off";
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const INSTALL = path.join(REPO, "install.mjs");
 let fails = 0;
@@ -434,7 +436,7 @@ ok("an unknown --with name fails with a clear error naming the valid ones",
 ok("the first install names the steps left for a chat", /Left for a chat, once.*steps 8 and 9/.test(plug.out));
 ok("a later run no longer names them, with nothing put on record", [install(plugHome).out.includes("Left for a chat"), "done" in json(path.join(plugHome, ".claude", "setup-state.json"))], [false, false]);
 const marked = install(plugHome, "--done", "chat-steps");
-ok("--done from an older version's text still only puts them on record", [marked.out.trim(), json(path.join(plugHome, ".claude", "setup-state.json")).done], ["on record as done: chat-steps", ["chat-steps"]]);
+ok("--done from an older version's text still only puts them on record", [marked.out.split("\n").filter((l) => !l.startsWith("Claude Code: version check skipped")).join("\n").trim(), json(path.join(plugHome, ".claude", "setup-state.json")).done], ["on record as done: chat-steps", ["chat-steps"]]);
 
 // ---- broken settings are left alone
 const broken = path.join(tmp, "broken");

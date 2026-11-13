@@ -63,18 +63,11 @@ const dayKey = (t) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-// How heavily one API message counts against the plan, in rough relative units. Anthropic
-// doesn't publish the formula, so this follows the price ratios: cache reads 0.1x input,
-// cache writes 1.25x (2x for the 1-hour cache), output 5x, and Opus : Sonnet : Haiku = 5 : 3 : 1.
-// The dashboard fits the scale (percent of the plan per unit) from the recorded plan percentages.
-const FAMILY = [[/opus/, 5], [/sonnet/, 3], [/haiku/, 1]];
-const planWeight = (u, model) => {
-  const w = FAMILY.find(([re]) => re.test(model))?.[1] ?? 3;
-  const write = u.cache_creation_input_tokens ?? 0;
-  const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-  return w * ((u.input_tokens ?? 0) + 1.25 * (write - write1h) + 2 * write1h +
-    0.1 * (u.cache_read_input_tokens ?? 0) + 5 * (u.output_tokens ?? 0)) / 1e6;
-};
+// How heavily one API message counts against the plan, in relative units. Anthropic doesn't
+// publish the formula, so this is the message's list price (apiCost, below) in dollars: every
+// model, output and cache ratio comes from the one PRICE table. plan-use fits the scale
+// (percent of the plan per unit) from the recorded plan percentages, so only the ratios matter.
+const planWeight = (u, model) => apiCost(u, model);
 // What one API message would cost at Anthropic's list prices (dollars per million tokens:
 // input, output, cache read; cache writes cost 1.25x input, 2x for the 1-hour cache). A plan
 // is not billed this way: the figure only says what the same tokens cost on the pay-as-you-go API.
@@ -99,14 +92,58 @@ const textOf = (content) =>
 
 // Requests the setup itself causes: per file, every API request (last usage of its message id), the user
 // messages (turns) with the requests under each, runs of failed tool calls, and hook blocks.
-const emptyWaste = () => ({ reqs: new Map(), turns: [], streaks: [], blocks: [], unmatched: 0 });
+const emptyWaste = () => ({ reqs: new Map(), turns: [], streaks: [], blocks: [], unmatched: 0, launches: [] });
 const WASTE_HOOK_RE = /hook (?:error|blocking error)[^:]*:\s*(?:\[[^\]]*\]:?\s*)?([a-z][a-z-]+):/i;
 const BOARD_RE = /update_session_meta|update_session_board/;
+// A settled prompt, and the text the hook background-tasks.mjs adds to one whose results already came as notifications
+const SETTLED_RE = /^\s*\[System: background task\(s\) you launched have settled/;
+const WORKER_SIZE_NOTE = "[worker-size] This helper's context is"; // worker-size.mjs note, an attachment line (hook_additional_context) in the helper's transcript
+const SETTLED_NOTE = "[background-tasks] This settled notice repeats";
+const SETTLED_ITEM_RE = /^- "(.*)" [a-z][a-z ()0-9-]{0,30}$/gm;
+const REPEAT_MS = 15 * 60000;
+// User prompts that are not typed by the user: the harness's own text
+const NOT_TYPED_RE = /^\s*(?:This session is being continued|\[Resuming after|\[Request interrupted|<system-reminder>|<local-command|<command-name>\/clear)/;
+// Launch kinds: explicit run_in_background:true on Agent/Task or Bash; an Agent/Task launch the harness ran async
+// by default (result "Async agent launched ..."); a Bash call the harness moved to the background after its timeout
+const ASYNC_AGENT_RE = /Async agent launched/;
+const MOVED_BASH_RE = /^Command did not complete within[^\n]*moved to the background/;
 const WAKE_RE = /^\s*(?:\[System: background task|<task-notification>)/;
 // A commit, tag or public-repo push, or a release skill: after it the work of the session is done
 const COMMIT_RE = new RegExp(AT_CMD + String.raw`(?:git\s+(?:-C\s+(?:"[^"]*"|'[^']*'|\S+)\s+)?(?:commit|tag)\b|(?:bash\s+)?\S*repo-push\.sh\b)`, "m");
 const isCommit = (x) => (x.name === "Bash" && COMMIT_RE.test(String(x.input.command ?? "")))
   || (x.name === "Skill" && /^(?:[\w-]+:)?(?:release-setup|deploy)$/.test(String(x.input.skill ?? "")));
+// What woke a wake-up turn: the launching tool call (tool-use-id in the message, or the agent's description), else the summary line
+const firstWords = (t, n) => String(t ?? "").replace(/\s+/g, " ").trim().split(" ").slice(0, n).join(" ");
+const wakeSource = (text, uses, agentByDesc) => {
+  if (/^\s*\[System: background task/.test(text)) return "system message (background tasks settled)";
+  const summary = text.match(/<summary>([\s\S]*?)<\/summary>/)?.[1] ?? "";
+  const use = uses.get(text.match(/<tool-use-id>([^<]+)</)?.[1]);
+  const fromUse = (u) => {
+    if (u.name === "Monitor") return "Monitor";
+    if (u.name === "Agent" || u.name === "Task") return "agent " + (u.input.subagent_type ?? "general-purpose");
+    if (u.name !== "Bash" && u.name !== "PowerShell") return u.name;
+    const cmd = String(u.input.command ?? "").replace(/^\s*cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/, "");
+    const note = cmd.match(/#\s*WHAT THIS DOES:\s*(.*)/)?.[1];
+    return "bash " + (note ? firstWords(note, 4) : firstWords(cmd, 1));
+  };
+  if (use) return fromUse(use);
+  const ag = summary.match(/^Agent "(.*)"/)?.[1];
+  if (ag !== undefined) return "agent " + (agentByDesc.get(ag) ?? "(unlinked)");
+  if (/^Monitor/i.test(summary)) return "Monitor";
+  const bg = summary.match(/^Background command "(.*)"/)?.[1];
+  if (bg !== undefined) return "bash (unlinked) " + firstWords(bg, 4);
+  return "other";
+};
+// Quality counters. Done-claim = the closing text of a main-chat turn says the work is done/fixed/working.
+// Redo = a typed message within 30 min after it says it is not. Check = a shell call that ran a test, build or check.
+const DONE_RE = /\b(?:done|fixed|it works|now works|works now|working now|verified|all (?:tests? )?pass(?:ed|es|ing)?|(?:is|are) (?:now )?(?:fixed|working|complete|in place)|have been (?:fixed|applied|updated)|resolved)\b/i;
+const REDO_RE = /\b(?:still (?:broken|fail\w*|not|wrong|the same|happens|see|get|doesn'?t|isn'?t)|(?:doesn'?t|does not|didn'?t|did not|isn'?t|is not|not) (?:work|working|fixed|fix|change|changed)|not fixed|same (?:error|problem|issue)|you didn'?t|you did not|(?:is|are|in|the|still) (?:wrong|broken)|(?:fails?|failed|broke|happens|happened|errors?) again)\b/i;
+const CHECK_RE = /\bnode\s+(?:--check\b|\S*test[-\w.]*)|\bnpm\s+(?:test|t|run\s+\S+)\b|\bgradlew?(?:\.bat)?\b|\bpytest\b|--check\b|\b(?:tsc|vitest|jest|mocha)\b|\bcargo\s+(?:test|build|check)\b|\bgo\s+(?:test|build|vet)\b/i;
+const CHECK_DESC_RE = /\b(?:check|test|verif|validat)/i;
+const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const isCheck = (e) => (e.name === "Bash" || e.name === "PowerShell") && (CHECK_RE.test(String(e.input.command ?? "")) || CHECK_DESC_RE.test(String(e.input.description ?? "")));
+const QUALITY_MIN = 10; // fewer done-claims than this in a project: no percentage
+const REDO_MS = 30 * 60000;
 const ctxOf = (u = {}) => (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
 
 // Scan one transcript file. `window` limits by time; returns null if nothing in it. `sub`: a subagent file.
@@ -136,19 +173,36 @@ function scan(file, window, sub = false) {
   let first = Infinity, last = 0;
   const waste = emptyWaste();
   const wasteTool = new Map(); // tool_use id -> { id: request id, name }
+  const wasteUses = new Map(); // tool_use id -> { name, input }, for wake-up sources
+  const agentByDesc = new Map(); // Agent description -> subagent type
   let turn = null, run = null;
   const endRun = () => { if (run && run.n >= 3) waste.streaks.push(run); run = null; };
+  const helper = { toolIds: new Set(), bashIds: new Set(), noteAt: null, compacts: 0 }; // subagent files: size-note position, compactions
+  const agentBg = {}; // main files: helper agent id -> launched in the background?
   const wasteLine = (l) => {
+    if (sub && l.type === "system" && l.subtype === "compact_boundary") helper.compacts++;
+    if (sub && l.type === "attachment" && l.attachment?.type === "hook_additional_context" && helper.noteAt === null
+      && [].concat(l.attachment.content).join("\n").includes(WORKER_SIZE_NOTE)) helper.noteAt = helper.toolIds.size;
     if (!sub && l.isSidechain) return;
+    if (l.type === "attachment") {
+      if (!sub && turn?.settled && l.attachment?.type === "hook_additional_context" && [].concat(l.attachment.content).join("\n").includes(SETTLED_NOTE)) turn.note = true;
+      return;
+    }
     if (l.type === "assistant" && l.message?.id) {
       const id = l.message.id;
       let r = waste.reqs.get(id);
       if (!r) { r = { usage: null, tools: [] }; waste.reqs.set(id, r); turn?.ids.push(id); }
       r.usage = l.message.usage ?? r.usage;
       for (const c of l.message.content ?? []) {
+        if (c.type === "text" && c.text?.trim()) turn?.ev.push({ k: "text", text: c.text, t: Date.parse(l.timestamp) });
         if (c.type !== "tool_use") continue;
+        turn?.ev.push({ k: "tool", name: c.name, input: c.input ?? {} });
         r.tools.push({ name: c.name, input: c.input ?? {} });
+        if (sub) { helper.toolIds.add(c.id); if (c.name === "Bash") helper.bashIds.add(c.id); }
+        if (!sub && !wasteTool.has(c.id) && c.input?.run_in_background === true && ["Bash", "Agent", "Task"].includes(c.name)) waste.launches.push(c.name === "Bash" ? "bash" : "agent");
         wasteTool.set(c.id, { id, name: c.name });
+        wasteUses.set(c.id, { name: c.name, input: c.input ?? {} });
+        if ((c.name === "Agent" || c.name === "Task") && c.input?.description) agentByDesc.set(c.input.description, c.input.subagent_type ?? "general-purpose");
       }
     } else if (l.type === "user") {
       const c = l.message?.content;
@@ -156,7 +210,9 @@ function scan(file, window, sub = false) {
       if (text !== undefined && !l.isMeta && !sub) {
         endRun();
         // wake-up: the harness started this turn itself (a background task or agent finished), not the user
-        turn = { ids: [], text, wake: l.origin?.kind === "task-notification" || WAKE_RE.test(text) };
+        const wake = l.origin?.kind === "task-notification" || WAKE_RE.test(text);
+        turn = { ids: [], ev: [], text, wake, at: waste.reqs.size, source: wake ? wakeSource(text, wasteUses, agentByDesc) : null,
+          t: Date.parse(l.timestamp), settled: SETTLED_RE.test(text), typed: !wake && !NOT_TYPED_RE.test(text), note: false };
         waste.turns.push(turn);
       }
       if (!Array.isArray(c)) return;
@@ -172,6 +228,13 @@ function scan(file, window, sub = false) {
           waste.blocks.push({ hook, reason, id: use?.id ?? null });
         }
         if (sub) continue;
+        const input = wasteUses.get(x.tool_use_id)?.input;
+        if (use && (use.name === "Agent" || use.name === "Task")) {
+          const agentId = body.match(/agentId: (\w+)/)?.[1];
+          if (agentId) agentBg[agentId] = input.run_in_background === true || (input.run_in_background !== false && ASYNC_AGENT_RE.test(body));
+        }
+        if (use && (use.name === "Agent" || use.name === "Task") && input.run_in_background !== true && input.run_in_background !== false && ASYNC_AGENT_RE.test(body)) waste.launches.push("agent");
+        if (use?.name === "Bash" && MOVED_BASH_RE.test(body.slice(0, 400))) waste.launches.push("moved");
         if (x.is_error) { run ??= { n: 0, tool: use?.name ?? "?" }; run.n++; } else endRun();
       }
     }
@@ -269,6 +332,8 @@ function scan(file, window, sub = false) {
   const ordered = [...toolUses.entries()];
   for (const h of hooks) {
     const i = ordered.findIndex(([id]) => id === h.toolUseId);
+    // the blocked call was not scanned (before the --days window, or on a line without usage)
+    if (i < 0) { h.next = "call not seen"; continue; }
     const next = ordered[i + 1]?.[1];
     if (!next) { h.next = "nothing"; continue; }
     const cmd = String(next.input.command ?? "");
@@ -279,7 +344,8 @@ function scan(file, window, sub = false) {
   if (!msgs.size && !hooks.length) return null;
   const vals = [...msgs.values()];
   return {
-    waste,
+    waste, agentBg,
+    helper: { toolCalls: helper.toolIds.size, bashCalls: helper.bashIds.size, noteAt: helper.noteAt, compacts: helper.compacts },
     tokens: vals.reduce((a, v) => a + v.tok, 0),
     calls: vals.length,
     maxContext: vals.reduce((a, v) => Math.max(a, v.ctx), 0),
@@ -380,7 +446,11 @@ const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length 
 const wasted = { tokens: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 }, requests: 0, turns: [], perProject: {}, streaks: [],
   hooks: {}, commandExplain: {}, unmatched: 0, boardOnly: { complete: { n: 0, tokens: 0 }, other: { n: 0, tokens: 0 } }, toolSearchOnly: { n: 0, tokens: 0 },
   wake: { n: 0, tokens: 0, perProject: {} }, background: { n: 0, perProject: {} },
-  afterCommit: { sessions: 0, withCommit: 0, requests: 0, tokens: 0 }, bigSubagents: { n: 0, tokens: 0, share: 0 } };
+  wakeSources: {}, wakeTextOnly: 0,
+  afterCommit: { sessions: 0, withCommit: 0, requests: 0, tokens: 0, perSession: [] }, bigSubagents: { n: 0, tokens: 0, share: 0 },
+  settled: { turns: [], perProject: {}, total: { n: 0, requests: 0, tools: 0, withNote: 0, repeats: 0, tokens: 0 } },
+  quality: { minClaims: QUALITY_MIN, perProject: {}, total: {} },
+  launches: { perProject: {}, total: { agent: 0, bash: 0, moved: 0 } }, typed: { perProject: {}, total: { typed: 0, tokens: 0, median: 0, mean: 0 } } };
 for (const s of all) {
   const W = s.waste;
   const main = sessions.includes(s);
@@ -414,6 +484,49 @@ for (const s of all) {
     }
   }
   if (!main) continue;
+  const pname = shortName(s.project);
+  const lp = (wasted.launches.perProject[pname] ??= { agent: 0, bash: 0, moved: 0 });
+  for (const k of W.launches) { lp[k]++; wasted.launches.total[k]++; }
+  // Settled turns: requests and tool calls until the next user message or wake-up; repeats = an item named in a settled prompt within 15 min before
+  const seenItems = new Map();
+  for (const t of W.turns) {
+    if (!t.settled) continue;
+    const items = [...t.text.matchAll(SETTLED_ITEM_RE)].map((m) => m[1]);
+    const repeat = items.some((i) => seenItems.has(i) && t.t - seenItems.get(i) <= REPEAT_MS);
+    for (const i of items) seenItems.set(i, t.t);
+    const row = { project: pname, session: s.id.slice(0, 8), requests: t.ids.length, tools: sum(t.ids, (id) => W.reqs.get(id).tools.length), note: t.note, repeat, tokens: sum(t.ids, reqCtx) };
+    wasted.settled.turns.push(row);
+    const sp = (wasted.settled.perProject[pname] ??= { n: 0, requests: 0, tools: 0, withNote: 0, repeats: 0, tokens: 0 });
+    for (const o of [sp, wasted.settled.total]) { o.n++; o.requests += row.requests; o.tools += row.tools; o.withNote += row.note ? 1 : 0; o.repeats += row.repeat ? 1 : 0; o.tokens += row.tokens; }
+  }
+  // Tokens per typed user message: the typed turn plus the wake-up turns after it, up to the next typed message
+  const reqTok = (id) => { const u = W.reqs.get(id).usage ?? {}; return ctxOf(u) + (u.output_tokens ?? 0); };
+  const tp = (wasted.typed.perProject[pname] ??= { typed: 0, tokens: 0, groups: [] });
+  let group = null;
+  for (const t of W.turns) {
+    if (t.typed) { group = { tokens: 0 }; tp.groups.push(group); tp.typed++; }
+    const tok = sum(t.ids, reqTok);
+    tp.tokens += tok;
+    if (group) group.tokens += tok;
+  }
+  // Quality: done-claims (closing text of a turn), redo (typed REDO_RE message within 30 min after), unchecked (edit in the turn, no check after the last one)
+  const qp = (wasted.quality.perProject[pname] ??= { claims: 0, redos: 0, edited: 0, unchecked: 0, redoExamples: [], uncheckedExamples: [] });
+  W.turns.forEach((t, i) => {
+    const last = t.ev.at(-1);
+    if (last?.k !== "text" || !DONE_RE.test(last.text)) return;
+    const ex = { session: s.id.slice(0, 8), at: new Date(last.t).toISOString() };
+    qp.claims++;
+    const nextTyped = W.turns.slice(i + 1).find((x) => x.typed);
+    if (nextTyped && nextTyped.t - last.t <= REDO_MS && REDO_RE.test(nextTyped.text)) {
+      qp.redos++; if (qp.redoExamples.length < 3) qp.redoExamples.push({ ...ex, reply: firstWords(last.text, 12), answer: firstWords(nextTyped.text, 12) });
+    }
+    const lastEdit = t.ev.findLastIndex((e) => e.k === "tool" && EDIT_TOOLS.has(e.name));
+    if (lastEdit < 0) return;
+    qp.edited++;
+    if (!t.ev.slice(lastEdit + 1).some((e) => e.k === "tool" && isCheck(e))) {
+      qp.unchecked++; if (qp.uncheckedExamples.length < 3) qp.uncheckedExamples.push({ ...ex, reply: firstWords(last.text, 12) });
+    }
+  });
   for (const t of W.turns) {
     if (!t.ids.length) continue;
     const row = { project: shortName(s.project), session: s.id.slice(0, 8), requests: t.ids.length, tokens: sum(t.ids, reqCtx), text: t.text.replace(/\s+/g, " ").trim().slice(0, 60) };
@@ -423,6 +536,9 @@ for (const s of all) {
     if (t.wake) {
       const wp = (wasted.wake.perProject[row.project] ??= { n: 0, tokens: 0 });
       wp.n++; wp.tokens += row.tokens; wasted.wake.n++; wasted.wake.tokens += row.tokens;
+      const ws = (wasted.wakeSources[t.source] ??= { n: 0, tokens: 0 });
+      ws.n++; ws.tokens += row.tokens;
+      if (!W.reqs.get(t.ids.at(-1)).tools.length) wasted.wakeTextOnly++;
     }
   }
   if (s.maxContext > 100e3) {
@@ -432,7 +548,11 @@ for (const s of all) {
     if (last >= 0) {
       wasted.afterCommit.withCommit++;
       wasted.afterCommit.requests += ids.length - 1 - last;
-      wasted.afterCommit.tokens += sum(ids.slice(last + 1), reqCtx);
+      const tail = sum(ids.slice(last + 1), reqCtx);
+      wasted.afterCommit.tokens += tail;
+      const after = W.turns.filter((t) => t.at > last);
+      wasted.afterCommit.perSession.push({ project: shortName(s.project), session: s.id.slice(0, 8), requests: ids.length - 1 - last, tokens: tail,
+        userMessages: after.filter((t) => !t.wake).length, wakeTurns: after.filter((t) => t.wake).length });
     }
   }
   for (const k of W.streaks) wasted.streaks.push({ project: shortName(s.project), session: s.id.slice(0, 8), n: k.n, tool: k.tool });
@@ -446,7 +566,56 @@ wasted.longestStreak = Math.max(0, ...wasted.streaks.map((k) => k.n));
 wasted.worstStreaks = [...wasted.streaks].sort((a, b) => b.n - a.n).slice(0, 5);
 const subRuns = sessions.flatMap((s) => s.subagents), bigSubs = subRuns.filter((a) => a.maxContext > 150e3);
 wasted.bigSubagents = { n: bigSubs.length, tokens: sum(bigSubs, (a) => a.tokens), share: sum(bigSubs, (a) => a.tokens) / (sum(subRuns, (a) => a.tokens) || 1) };
+wasted.settled.worst = [...wasted.settled.turns].sort((a, b) => b.requests - a.requests).slice(0, 5);
+delete wasted.settled.turns;
+const allGroups = [];
+for (const [k, v] of Object.entries(wasted.typed.perProject)) {
+  allGroups.push(...v.groups);
+  wasted.typed.perProject[k] = { typed: v.typed, tokens: v.tokens, median: median(v.groups.map((g) => g.tokens)), mean: v.typed ? Math.round(v.tokens / v.typed) : 0 };
+  wasted.typed.total.typed += v.typed; wasted.typed.total.tokens += v.tokens;
+}
+{
+  const Q = wasted.quality, rate = (n, d) => d < QUALITY_MIN ? null : Math.round(1000 * n / d) / 1000;
+  const tot = { claims: 0, redos: 0, edited: 0, unchecked: 0 };
+  for (const q of Object.values(Q.perProject)) for (const k of Object.keys(tot)) tot[k] += q[k];
+  for (const q of [...Object.values(Q.perProject), tot]) { q.tooFew = q.claims < QUALITY_MIN; q.redoRate = rate(q.redos, q.claims); q.uncheckedRate = rate(q.unchecked, q.claims); }
+  Q.total = tot;
+}
+wasted.typed.total.median = median(allGroups.map((g) => g.tokens));
+wasted.typed.total.mean = wasted.typed.total.typed ? Math.round(wasted.typed.total.tokens / wasted.typed.total.typed) : 0;
 delete wasted.turns; delete wasted.streaks;
+// Helper runs past 150k context: what they did before and after the worker-size note
+const topModel = (m) => Object.entries(m).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "?";
+const bigHelpers = { runs: [] };
+for (const s of sessions) for (const a of s.subagents) {
+  if (a.maxContext <= 150e3) continue;
+  const bg = s.agentBg?.[a.id.replace(/^agent-/, "")];
+  const h = a.helper, noted = h.noteAt !== null;
+  bigHelpers.runs.push({
+    project: shortName(s.project), session: s.id.slice(0, 8), id: a.id, type: a.type, model: topModel(a.models),
+    background: bg === undefined ? null : bg, tokens: a.tokens, calls: a.calls, maxContext: a.maxContext, toolCalls: h.toolCalls,
+    noted, before: noted ? h.noteAt : h.toolCalls, after: noted ? h.toolCalls - h.noteAt : 0, compacts: h.compacts,
+    bashShare: h.toolCalls ? Math.round(1000 * h.bashCalls / h.toolCalls) / 1000 : 0,
+  });
+}
+bigHelpers.runs.sort((a, b) => b.tokens - a.tokens);
+{
+  const R = bigHelpers.runs, n = R.length, cnt = (f) => R.filter(f).length, top1 = (f) => { const c = {}; for (const r of R) c[f(r)] = (c[f(r)] ?? 0) + 1; return Object.entries(c).sort((x, y) => y[1] - x[1])[0]; };
+  const noted = R.filter((r) => r.noted), tools = sum(R, (r) => r.toolCalls);
+  bigHelpers.pattern = !n ? "No helper run passed 150k." : {
+    runs: n, background: cnt((r) => r.background === true), foreground: cnt((r) => r.background === false), unknownLaunch: cnt((r) => r.background === null),
+    withNote: noted.length, medianAfterNote: median(noted.map((r) => r.after)), compacted: cnt((r) => r.compacts > 0),
+    bashShare: tools ? Math.round(1000 * sum(R, (r) => r.toolCalls * r.bashShare) / tools) / 1000 : 0,
+    commonType: top1((r) => r.type)?.join(" "), commonModel: top1((r) => r.model)?.join(" "),
+  };
+}
+// Context of the first API call (what is loaded before any work), median per project
+const firstBy = { main: {}, helper: {} };
+for (const s of sessions) {
+  if (s.firstContext) (firstBy.main[shortName(s.project)] ??= []).push(s.firstContext);
+  for (const a of s.subagents) if (a.firstContext) (firstBy.helper[shortName(s.project)] ??= []).push(a.firstContext);
+}
+const firstCallByProject = Object.fromEntries(Object.entries(firstBy).map(([k, o]) => [k, Object.fromEntries(Object.entries(o).map(([p, v]) => [p, { n: v.length, median: median(v) }]))]));
 const report = {
   window: sessionPrefix ? { session: sessionPrefix, minutes: minutes || null }
     : { since: new Date(since).toISOString(), until: new Date(until).toISOString(), minutes: minutes || null },
@@ -468,6 +637,8 @@ const report = {
     return acc;
   }, {}),
   subagentsByType: byType,
+  bigHelpers,
+  firstCallByProject,
   use,
   wasted,
   sessions: sessions.map((s) => ({
@@ -550,7 +721,56 @@ const byProj = (o, f) => {
   return rows.slice(0, 6).map(([k, v]) => `${k} ${f(v)}`).join(", ") + (rows.length > 6 ? `, ${rows.length - 6} more projects ${rest}` : "") || "none";
 };
 out.push(``, `**Wake-up turns** (the harness started the turn: a background task or agent finished; main chats): ${X.wake.n} turns, ${M(X.wake.tokens)}. By project: ${byProj(X.wake.perProject, (v) => `${v.n} (${M(v.tokens)})`)}.`,
+  `  By source (top 8; text-only wake-up turns, no tool call at the end: ${X.wakeTextOnly} of ${X.wake.n}): ${Object.entries(X.wakeSources).sort((a, b) => b[1].tokens - a[1].tokens).slice(0, 8).map(([k, v]) => `${k} ${v.n} (${M(v.tokens)})`).join(", ") || "none"}.`,
   `**Background launches** (Bash, Agent or Task with run_in_background; main chats): ${X.background.n}. By project: ${byProj(X.background.perProject, (v) => v)}.`,
   `**After-commit tail** (main chats that grew past 100k context: ${X.afterCommit.sessions}, ${X.afterCommit.withCommit} with a commit, tag, repo-push.sh or release-setup/deploy skill): ${X.afterCommit.requests} requests after the last one, ${M(X.afterCommit.tokens)}.`,
+  `  Top 5 sessions (user messages after the last commit; 0 = Claude kept going on its own): ${[...X.afterCommit.perSession].sort((a, b) => b.tokens - a.tokens).slice(0, 5).map((v) => `${v.project}/${v.session} ${M(v.tokens)}, ${v.requests} requests, ${v.userMessages} user messages, ${v.wakeTurns} wake-ups`).join("; ") || "none"}.`,
   `**Big subagent runs** (context past 150k): ${X.bigSubagents.n} of ${subRuns.length} runs, ${M(X.bigSubagents.tokens)}, ${pct(X.bigSubagents.tokens, sum(subRuns, (a) => a.tokens))} of all subagent tokens.`);
+const SE = X.settled, LA = X.launches, TY = X.typed;
+out.push(``, `## Settled turns`, ``,
+  `A settled turn starts with a "[System: background task(s) you launched have settled" prompt; its requests run until the next user message or wake-up. "With note": the background-tasks hook added its settled-notice note. "Repeat": it names an item a settled prompt named less than 15 min before (main chats).`, ``,
+  `**Total:** ${SE.total.n} settled turns, ${SE.total.requests} requests, ${SE.total.tools} tool calls, ${M(SE.total.tokens)} tokens; ${SE.total.withNote} with the note, ${SE.total.repeats} repeats.`, ``,
+  `| Project | Settled turns | Requests | Tool calls | With note | Repeats | Tokens |`, `|---|---|---|---|---|---|---|`);
+for (const [k, v] of Object.entries(SE.perProject).sort((a, b) => b[1].n - a[1].n)) out.push(`| ${k} | ${v.n} | ${v.requests} | ${v.tools} | ${v.withNote} | ${v.repeats} | ${M(v.tokens)} |`);
+out.push(``, `Most requests in one settled turn: ${SE.worst.map((r) => `${r.project}/${r.session} ${r.requests} requests, ${r.tools} tools, ${r.note ? "note" : "no note"}${r.repeat ? ", repeat" : ""}`).join("; ") || "none"}.`);
+out.push(``, `## Background launches by kind`, ``,
+  `Agent = Agent/Task launched in the background (run_in_background: true, or without run_in_background: false and the result says "Async agent launched"). Bash = run_in_background: true. Moved = a Bash call whose result says it "was moved to the background" after its timeout (main chats).`, ``,
+  `**Total:** agent ${LA.total.agent}, bash ${LA.total.bash}, moved ${LA.total.moved}.`, ``,
+  `| Project | Agent | Bash | Moved |`, `|---|---|---|---|`);
+for (const [k, v] of Object.entries(LA.perProject).sort((a, b) => (b[1].agent + b[1].bash + b[1].moved) - (a[1].agent + a[1].bash + a[1].moved))) out.push(`| ${k} | ${v.agent} | ${v.bash} | ${v.moved} |`);
+out.push(``, `## Tokens per typed user message`, ``,
+  `Typed = a real user prompt (not a tool result, task notification, settled prompt, or system/hook text). A message counts its own requests plus the wake-up turns after it until the next typed message; tokens = input + cache + output per request (main chats). Mean = all main tokens / typed messages.`, ``,
+  `**Total:** ${TY.total.typed} typed messages, ${M(TY.total.tokens)} tokens, median ${M(TY.total.median)} per message, mean ${M(TY.total.mean)}.`, ``,
+  `| Project | Typed messages | Tokens | Median per message | Mean |`, `|---|---|---|---|---|`);
+for (const [k, v] of Object.entries(TY.perProject).sort((a, b) => b[1].tokens - a[1].tokens)) out.push(`| ${k} | ${v.typed} | ${M(v.tokens)} | ${M(v.median)} | ${M(v.mean)} |`);
+{
+  const QL = X.quality, show = (q, n, r) => q.tooFew ? "too few to judge" : `${n} (${(100 * r).toFixed(1)}%)`;
+  out.push(``, `## Quality: redo rate and unchecked done`, ``,
+    `Done-claim = a main-chat turn whose closing text says done / fixed / works / verified / all pass / resolved (${DONE_RE}). **Redo** = a typed message within 30 min after it that says it is not (${REDO_RE}). **Unchecked** = a done-claim in a turn that edited a file (Edit/Write) with no test, build or check run (a Bash/PowerShell call like node test-, npm test, gradle, pytest, --check, or a description saying check/test/verify) after the last edit. Under ${QL.minClaims} done-claims in a project: no percentage. A cost cut that raises these is a bad cut.`, ``,
+    `| Project | Done-claims | Redo | With an edit | Unchecked |`, `|---|---|---|---|---|`);
+  for (const [k, q] of Object.entries(QL.perProject).sort((a, b) => b[1].claims - a[1].claims)) out.push(`| ${k} | ${q.claims} | ${show(q, q.redos, q.redoRate)} | ${q.edited} | ${show(q, q.unchecked, q.uncheckedRate)} |`);
+  out.push(`| **all** | ${QL.total.claims} | ${show(QL.total, QL.total.redos, QL.total.redoRate)} | ${QL.total.edited} | ${show(QL.total, QL.total.unchecked, QL.total.uncheckedRate)} |`);
+  for (const [label, key] of [["Redo examples", "redoExamples"], ["Unchecked examples", "uncheckedExamples"]]) {
+    out.push(``, `**${label}** (session, time UTC):`);
+    const rows = Object.entries(QL.perProject).flatMap(([k, q]) => q[key].map((e) => `- ${k} ${e.session} ${e.at.slice(0, 16)}: "${e.reply}"${e.answer ? ` -> "${e.answer}"` : ""}`));
+    out.push(...(rows.length ? rows : ["- none"]));
+  }
+}
+const BH = report.bigHelpers, P = BH.pattern;
+out.push(``, `## Big helper runs (past 150k context)`, ``,
+  `Per helper run whose context passed 150k. Background = from the parent's Agent call and result. Before/after = tool calls before and after the first "[worker-size]" note (the hook's attachment line in the helper's transcript); "no note" = never warned. Compacted = "compact_boundary" lines in the helper's transcript. Bash = share of its tool calls.`, ``);
+if (!BH.runs.length) out.push(`None.`);
+else {
+  out.push(`| Project | Session | Helper | Model | Background | Tokens | API calls | Tool calls | Before note | After note | Compacted | Bash |`, `|---|---|---|---|---|---|---|---|---|---|---|---|`);
+  for (const r of BH.runs.slice(0, top)) out.push(`| ${r.project} | ${r.session} | ${r.type} | ${r.model.replace(/^claude-/, "")} | ${r.background === null ? "unknown" : r.background ? "yes" : "no"} | ${M(r.tokens)} | ${r.calls} | ${r.toolCalls} | ${r.before} | ${r.noted ? r.after : "no note"} | ${r.compacts || "no"} | ${Math.round(r.bashShare * 100)}% |`);
+  out.push(``, `**Pattern of the big runs:** ${P.runs} runs; ${P.background} launched in the background, ${P.foreground} in the foreground${P.unknownLaunch ? `, ${P.unknownLaunch} unknown` : ""}; ${P.bashShare * 100 | 0}% of their tool calls were Bash; ${P.withNote} got the size note and ran a median of ${P.medianAfterNote} more tool calls after it; ${P.compacted} compacted; most common helper ${P.commonType}, model ${P.commonModel}.`);
+}
+out.push(``, `## First-call context per project`, ``,
+  `Input + cache tokens of the first API call of a transcript = what is loaded before any work (median per project).`, ``,
+  `| Project | Main sessions | Main median | Helper runs | Helper median |`, `|---|---|---|---|---|`);
+const FC = report.firstCallByProject;
+for (const p of [...new Set([...Object.keys(FC.main), ...Object.keys(FC.helper)])].sort((a, b) => (FC.main[b]?.n ?? 0) + (FC.helper[b]?.n ?? 0) - (FC.main[a]?.n ?? 0) - (FC.helper[a]?.n ?? 0))) {
+  const m = FC.main[p], h = FC.helper[p];
+  out.push(`| ${p} | ${m?.n ?? 0} | ${m ? M(m.median) : "—"} | ${h?.n ?? 0} | ${h ? M(h.median) : "—"} |`);
+}
 console.log(out.join("\n"));

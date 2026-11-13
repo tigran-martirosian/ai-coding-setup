@@ -35,7 +35,7 @@ write("s1.jsonl", [
 write("s2.jsonl", [asst(1, "m1", "claude-opus-5-5", { input_tokens: 1e6, output_tokens: 1e5 })]); // resumed chat: same message again
 const scan = JSON.parse(execFileSync(process.execPath, [path.join(SKILL, "usage-scan.mjs"), "--json", "--cost", "--root", root, "--days", "100000"], { encoding: "utf8" }));
 const m0 = Math.floor(T0 / 60000);
-check("--cost: plan weight and tokens per minute, a repeated message counted once", scan.cost, [[m0 + 1, 7.6, 2100000], [m0 + 9, 4.65, 1000000]]);
+check("--cost: plan weight and tokens per minute, a repeated message counted once", scan.cost, [[m0 + 1, 6.1, 2100000], [m0 + 9, 3.1, 1000000]]);
 check("without --cost the list is left out", "cost" in JSON.parse(execFileSync(process.execPath, [path.join(SKILL, "usage-scan.mjs"), "--json", "--root", root, "--days", "100000"], { encoding: "utf8" })), false);
 
 // ---- plan-use

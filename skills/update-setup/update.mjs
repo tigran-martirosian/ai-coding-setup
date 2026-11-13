@@ -26,6 +26,7 @@ import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const REPO_URL = "https://github.com/tigran-martirosian/ai-coding-setup"; // where this setup is published
 const BASE = process.env.SETUP_UPDATE_BASE;
@@ -87,7 +88,17 @@ if (!newer(latest.version, installed)) {
   console.log(`Already on the newest version (${installed}).`);
   if (passed.length && !args.includes("--check")) {
     if (!state.repo || !fs.existsSync(path.join(state.repo, "install.mjs"))) stop(`the setup's folder (${state.repo}) is gone, so its installer can't run again.`);
-    install(state.repo);
+    install(state.repo); // install.mjs checks Claude Code itself
+  } else {
+    // nothing else runs the installer here, so Claude Code is checked now (once per run; a newer version's install.mjs does it on the other path)
+    const mod = state.repo && path.join(state.repo, "scripts", "claude-code-version.mjs");
+    if (!mod || !fs.existsSync(mod)) console.log("Claude Code: version check skipped (the setup's folder has no scripts/claude-code-version.mjs).");
+    else {
+      const { checkClaudeCode } = await import(pathToFileURL(mod).href);
+      const min = JSON.parse(fs.readFileSync(path.join(state.repo, "version.json"), "utf8")).claudeCodeMin;
+      const { stop: tooOld } = checkClaudeCode({ min, dry: args.includes("--check") });
+      if (tooOld) stop(tooOld);
+    }
   }
   process.exit(0);
 }

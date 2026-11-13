@@ -13,9 +13,12 @@
 //                            only finishes the job in hand, --user one the user wrote (/btw). The
 //                            Note button runs outside a session and is never refused.
 //   --hook                  PreToolUse, PostToolUse and Stop hook: hand this session the notes
-//                            addressed to it at the first chance. Before a tool call the call is
-//                            held (denied once) so the note is read first; after a tool call the
-//                            note rides along with the result; at the end of a reply the session
+//                            addressed to it at the first chance. After a tool call the note
+//                            rides along with the result. Only a call that runs long or starts
+//                            something (a helper, a session, a question to the user, a sleep, a
+//                            foreground command with a timeout over 2 min) is held (denied once)
+//                            so the note is read first: a held call does not run and has to be
+//                            sent again, one more request; at the end of a reply the session
 //                            is kept going. A note counts as delivered only once its [note id]
 //                            marker is in the session's transcript; a hand-over that left no
 //                            marker (the tool call was cancelled) is repeated with the next tool
@@ -134,11 +137,33 @@ const claudeArgs = () => {
     : spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8", timeout: 5000 });
   return (r.stdout || "").trim();
 };
-// A background command or agent leaves its id in the transcript when it starts and again in a
-// <task-id> line when it ends. A job missed here means no watcher, so notes wait as they used to.
+// A background command or agent leaves its id in the transcript when it starts (or is resumed with
+// SendMessage) and again in a <task-id> line when it ends; it runs while its last start comes after its
+// last end. A job missed here means no watcher, so notes wait (2026-11-04: two notes to a session
+// waiting on a resumed helper waited 5 and 6 min). Give it the whole transcript: request copies make
+// it grow fast, and a 2 MB tail missed a job started 30 min before (a note waited 8 min).
 const jobRunning = (text) => {
-  const started = [...text.matchAll(/"backgroundTaskId":"([^"]+)"|"status":"async_launched","agentId":"([^"]+)"/g)].map((m) => m[1] || m[2]);
-  return started.some((id) => !text.includes(`<task-id>${id}</task-id>`));
+  const last = {};
+  for (const m of text.matchAll(/"backgroundTaskId":"([^"]+)"|"status":"async_launched","agentId":"([^"]+)"|"resumedAgentId":"([^"]+)"/g)) last[m[1] || m[2] || m[3]] = m.index;
+  return Object.entries(last).some(([id, i]) => text.lastIndexOf(`<task-id>${id}</task-id>`) < i);
+};
+// Holding a call costs a request and the call itself: it does not run, and is sent again in full (at
+// least 22 of 112 held calls in 7 days came back unchanged; held inputs up to 42k characters). A note
+// that rides with the result comes as soon as the call ends, which for most calls is seconds (3 days:
+// 0.3% of reads and edits and 3% of plain Bash calls took over 20 s). Only these are held: they take
+// long (44% of Bash calls with a timeout over 2 min, 76% of foreground helpers took over 20 s) or start
+// work the note may change.
+const holdsCall = (name = "", input = {}) => /^(Agent|Task)$/.test(name) || /(spawn_session|AskUserQuestion|schedule_wakeup)$/.test(name)
+  || (/^(Bash|PowerShell)$/.test(name) && !input?.run_in_background && Number(input?.timeout) > 120000);
+// The session is waiting for a foreground helper: one of its Agent calls has no result yet (a
+// background one gets its result at once). A subagent's hooks may name the session's transcript or
+// the helper's own, which lies in <session>/subagents/.
+const waitsOnHelper = (tp) => {
+  if (!tp) return false;
+  const m = String(tp).replace(/\\/g, "/").match(/^(.*)\/subagents\/[^/]+$/);
+  const text = tailOf(m ? `${m[1]}.jsonl` : tp);
+  const calls = [...text.matchAll(/"type":"tool_use","id":"([^"]+)","name":"(?:Agent|Task)"/g)].map((x) => x[1]);
+  return calls.some((id) => !text.includes(`"tool_use_id":"${id}"`));
 };
 const stdin = () => new Promise((r) => { let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => r(s)); });
 const chunk = (p, fromEnd, n) => {
@@ -317,9 +342,13 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
   // Nimbalyst's own status beats the transcript's guess. An idle Nimbalyst session is woken by a
   // normal message; a note left here would wait for one.
   const row = t.row || (await nimbalystRow(t.id));
-  const busy = row ? BUSY.has(row.status) : !t.done;
+  // A reply that ended with no background job left is idle, whatever Nimbalyst's status says: no hook
+  // runs there until a new message (2026-11-04: two notes to such sessions waited 6 and 20 min, until a
+  // stray job notice woke them). A session waiting for an answer in its tab is not finished.
+  const ended = t.done && !jobRunning(fs.readFileSync(t.p, "utf8"));
+  const busy = row ? BUSY.has(row.status) && !(row.status === "running" && ended) : !ended;
   if (row && !busy) {
-    console.log(`NOT SENT: ${label(t)} is ${row.status}, not busy. Send the note with send_prompt to session ${row.id} instead: it starts at once.`);
+    console.log(`NOT SENT: ${label(t)} ${BUSY.has(row.status) ? "has finished its reply and runs no background job" : `is ${row.status}`}, not busy. Send the note with send_prompt to session ${row.id} instead: it starts at once.`);
     process.exit(3);
   }
   // A running session never reaches its end of turn while notes keep coming, so nothing else stops
@@ -412,9 +441,11 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     }
     // Inside a subagent the hook carries the parent's session id. The note stays for the parent, but
     // a parent waiting on a long subagent would only read it when that ends, so the subagent gets a
-    // copy after its tool calls (once each) and passes it on in its report.
+    // copy after its tool calls (once each) and passes it on in its report. Only while the parent waits for a
+    // foreground helper: a parent with background helpers reads the note itself at its next step (7 days to
+    // 2026-11-05: 52 of 68 copies went to background helpers, where they only cost and could be acted on twice).
     if (inp.agent_id) {
-      if (ev !== "PostToolUse" || !fs.existsSync(DIR)) process.exit(0);
+      if (ev !== "PostToolUse" || !fs.existsSync(DIR) || !waitsOnHelper(inp.transcript_path)) process.exit(0);
       const relay = [];
       for (const n of fs.readdirSync(DIR)) {
         if (!n.endsWith(".jsonl")) continue;
@@ -470,6 +501,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     // this" (2026-10-30: five lead notes lost while the sender was told "Sent"). So a note stays in the
     // inbox until its marker is in this session's transcript. Without a transcript there is nothing to check.
     let tail = null;
+    const holds = ev === "PreToolUse" && holdsCall(inp.tool_name, inp.tool_input);
     const arrived = (e) => {
       if (!e.id || !inp.transcript_path) return true;
       tail ??= tailOf(inp.transcript_path);
@@ -499,7 +531,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
             if (arrived(e)) receipt(e, "delivered"); else keep.push(e);
             continue;
           }
-          if (e.seen && now - e.seen <= HOLD) { if (ev === "PreToolUse") held.push(e); keep.push(e); continue; }
+          if (e.seen && now - e.seen <= HOLD) { if (holds) held.push(e); keep.push(e); continue; }
           if (e.seen) {
             if (arrived(e)) { receipt(e, "delivered"); continue; }
             if (!landed(e)) { keep.push(e); continue; }
@@ -507,6 +539,8 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
             // Lost once while holding a call: this time it rides with the call's result.
             if (ev === "PreToolUse") { keep.push(e); continue; }
           }
+          // A quick call runs; the note comes with its result.
+          if (ev === "PreToolUse" && !holds) { keep.push(e); continue; }
           fresh.push(e);
           if (ev !== "PreToolUse" && !inp.transcript_path) receipt(e, "delivered");
           else keep.push({ ...e, seen: now, call: inp.tool_use_id, transcript: inp.transcript_path, tries: (e.tries || 0) + 1 });
@@ -530,10 +564,10 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     const out = (o) => process.stdout.write(JSON.stringify(o));
     if (ev === "PreToolUse" && (fresh.length || held.length)) {
       out({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: !fresh.length
-        ? "[btw] Held together with your other tool call: the note is in that call's message. Read it first, then make this call again if it still applies."
+        ? "[btw] Held together with your other tool call: the note is in that call's message. This call did not run. Read the note first, then send this call again in full if it still applies."
         : userNotes.length
-          ? `[btw] The user sent this while you were working, so this tool call was held (not refused) until you have read it. ${RULES}\n${notes}${rep}\nNow decide about the held call: if the note changes it, do the changed thing instead; if it doesn't, make the same call again.`
-          : `This tool call was held (not refused) so you read this first.${rep}\nThen make the same call again, unless the report changes it.` } });
+          ? `[btw] The user sent this while you were working, so this tool call was held (not refused) until you have read it. Nothing in it ran: no command, no file written. ${RULES}\n${notes}${rep}\nNow decide about the held call: if the note changes it, do the changed thing instead; if it doesn't, send the same call again in full.`
+          : `This tool call was held (not refused) so you read this first; nothing in it ran.${rep}\nThen send the same call again in full, unless the report changes it.` } });
     } else if (ev === "Stop" && fresh.length) {
       out({ decision: "block", reason: userNotes.length
         ? `[btw] The user sent this just as you were finishing, so don't stop yet. ${RULES}\n${notes}${rep}\nDeal with it now, then finish. If it changes nothing, say so in one line.`
@@ -553,7 +587,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     // Without a transcript a handed-over note can't be confirmed, and a subagent's Stop is not the session's.
     if (inp.agent_id || !inp.session_id || !tp || !fs.existsSync(DIR)) process.exit(0);
     const start = fs.statSync(tp).size;
-    if (!jobRunning(tailOf(tp))) process.exit(0);
+    if (!jobRunning(fs.readFileSync(tp, "utf8"))) process.exit(0);
     // Claude only runs this hook in the background for a session that takes streaming input; a plain
     // claude -p waits for it (measured 2026-10-31), so there it must end at once. Not sure means ending too.
     const args = claudeArgs(), bare = args.replace(/"(\\"|[^"])*"|'[^']*'/g, " ");
