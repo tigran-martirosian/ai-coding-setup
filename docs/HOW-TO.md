@@ -77,7 +77,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   in the right sidebar with running items on top and finished ones folded behind an "N finished" line.
 - **Voice typing** is Handy, a free program that runs on the computer (no account). On Windows:
   `winget install --id cjpais.Handy -e`; other systems: https://handy.computer. Open it once, allow
-  the microphone and download the **Parakeet V3** model. In its settings choose push to talk on
+  the microphone and download the **Whisper Large v3 Turbo** model. In its settings choose push to talk on
   Right Alt, pasting with Ctrl+V, and keeping the model loaded. Then click into a chat box, hold Right
   Alt, speak and release. You should see your words appear there. Right Alt is AltGr on many
   non-US keyboards and typing breaks while it is bound: pick another key to hold, such as Right Ctrl.

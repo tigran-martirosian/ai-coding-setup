@@ -24,7 +24,7 @@ export const Voice: React.FC<SceneProps> = ({ durationInFrames }) => {
     >
       <Columns>
         <Appear at={8} style={{ width: 600 }}>
-          <Window title="Handy" chip="PARAKEET V3 · ON THIS COMPUTER" chipColor={color.violet} bodyStyle={{ alignItems: "center", gap: 26, padding: 30 }}>
+          <Window title="Handy" chip="WHISPER TURBO · ON THIS COMPUTER" chipColor={color.violet} bodyStyle={{ alignItems: "center", gap: 26, padding: 30 }}>
             <div
               style={{
                 fontFamily: mono,
