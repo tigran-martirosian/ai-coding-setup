@@ -1,6 +1,6 @@
 // Tests for scripts/claude-code-version.mjs with every command stubbed: no network, no real update.
 // Run: node tests/test-claude-code-version.mjs
-import { checkClaudeCode, compareVersions, parseVersion, nimbalystCandidates, updateCommand } from "../scripts/claude-code-version.mjs";
+import { checkClaudeCode, compareVersions, parseVersion, nimbalystCandidates, updateCommand, childEnv } from "../scripts/claude-code-version.mjs";
 
 let fails = 0;
 const ok = (name, got, want = true) => {
@@ -91,6 +91,11 @@ ok("stop text tells to close Claude and update in a plain terminal", (r.stop || 
   const out = [];
   checkClaudeCode({ min: "2.1.296", run, exists: () => false, platform: "darwin", arch: "arm64", env: { HOME: "/h" }, log: (s) => out.push(s) });
   ok("failed update command: plain message with the reason", out.some((l) => l.includes("could not update itself while it is running") && l.includes("EBUSY")));
+}
+
+{
+  const e = childEnv({ DISABLE_UPDATES: "1", DISABLE_AUTOUPDATER: "1", PATH: "/bin" });
+  ok("update runs without Nimbalyst's update blocks, other settings kept", !("DISABLE_UPDATES" in e) && !("DISABLE_AUTOUPDATER" in e) && e.PATH === "/bin");
 }
 
 process.exit(fails ? 1 : 0);

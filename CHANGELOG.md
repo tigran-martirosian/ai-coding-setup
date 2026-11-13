@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.88 (Nov 5, 2026): Updating Claude Code from inside a Nimbalyst session works: Nimbalyst's own no-update setting no longer blocks the setup's update step.
 - 1.0.87 (Nov 5, 2026): Fewer wasted tokens: helpers run in the foreground unless they really run beside other work, a helper near its context limit finishes and reports instead of compacting, the installer and /update-setup keep Claude Code itself up to date, notes from the Note button or /btw interrupt a busy session only where it matters, and the usage report shows where wake-ups and big helpers spend.
 - 1.0.86 (Nov 5, 2026): Replies arrive in one piece: while background jobs still run, a finished job no longer gets its own small status update, and you get one complete answer when everything is done.
 - 1.0.85 (Nov 4, 2026): The update reminder now says how many releases you are behind and what they bring, so an update you skipped for weeks shows what you are missing. A short reply for you to type back is no longer taken for a shell command, and a starting planner says how long a plan takes.
