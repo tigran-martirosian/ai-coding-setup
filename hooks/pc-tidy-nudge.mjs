@@ -5,6 +5,7 @@
 // reminds: stopping things by itself could kill a build another session is running. The process check
 // starts PowerShell, so it runs at most once an hour. Windows only, only inside Nimbalyst. Silent for
 // /commands. Fails open. PC_TIDY_NUDGE=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -18,7 +19,8 @@ const OLDEST = "(Get-Process Nimbalyst -ErrorAction Stop | Sort-Object StartTime
 
 function hoursOpen() {
   if (process.env.PC_TIDY_NUDGE_TEST_OPEN) return Number(process.env.PC_TIDY_NUDGE_TEST_OPEN);
-  const started = execFileSync("powershell", ["-NoProfile", "-Command", OLDEST], { encoding: "utf8", timeout: 4000, windowsHide: true }).trim();
+  let started;
+  try { started = execFileSync("powershell", ["-NoProfile", "-Command", OLDEST], { encoding: "utf8", timeout: 4000, windowsHide: true }).trim(); } catch { return NaN; } // Nimbalyst closed or PowerShell slow: no answer, not a crash
   return (Date.now() - Date.parse(started)) / HOUR;
 }
 
@@ -57,7 +59,8 @@ process.stdin.on("end", () => {
         ].join("\n"),
       },
     }));
-  } catch {
+  } catch (err) {
+    crashLog("pc-tidy-nudge", err);
     // fail open
   }
 });

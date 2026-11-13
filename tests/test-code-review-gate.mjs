@@ -1,5 +1,6 @@
 // Tests for hooks/code-review-gate.mjs. Run: node tests/test-code-review-gate.mjs
 // Each case writes a small transcript and runs the hook on it as a Stop event.
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, utimesSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -362,7 +363,7 @@ report(blocks(real("r7")), "real git: a file dirty at the start and changed agai
 
 // A crash leaves a line
 const crashHome = join(dir, "crash-home");
-spawnSync(process.execPath, [HOOK], { input: "not json", env: { ...process.env, CODE_REVIEW_GATE: "", USERPROFILE: crashHome, HOME: crashHome, CLAUDE_PROJECT_DIR: dir }, encoding: "utf8" });
+spawnSync(process.execPath, [HOOK], { input: "not json", env: { ...process.env, CODE_REVIEW_GATE: "", HOOK_ERRORS_LOG: "", USERPROFILE: crashHome, HOME: crashHome, CLAUDE_PROJECT_DIR: dir }, encoding: "utf8" });
 report(existsSync(join(crashHome, ".claude", "hooks", "state", "hook-errors.log")), "a crash fails open and leaves a line in the log");
 
 rmSync(dir, { recursive: true, force: true });

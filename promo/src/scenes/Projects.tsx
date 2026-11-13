@@ -7,7 +7,7 @@ import { Bubble, Chip } from "../ui";
 
 const HOMES = [
   { name: "claude-settings", what: "Where the setup itself is changed and checked", has: ["/setup-audit", "/setup-audit usage", "/setup-audit chat"] },
-  { name: "ask-anything", what: "General questions", has: ["/court", "picture skill", "reads web pages and videos"] },
+  { name: "ask-anything", what: "General questions", has: ["picture skill", "reads web pages and videos"] },
   { name: "internet-search", what: "Finding things online", has: ["finder skill", "its own link gate", "page tools"] },
   { name: "quick-tasks", what: "One-off file jobs", has: ["a dated folder per job", "works on copies", "picture skill"] },
 ] as const;

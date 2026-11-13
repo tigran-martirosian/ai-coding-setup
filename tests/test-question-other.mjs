@@ -1,4 +1,5 @@
 // Tests for hooks/question-other.mjs. Run: node tests/test-question-other.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

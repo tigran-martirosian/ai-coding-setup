@@ -1,4 +1,5 @@
 // Tests for hooks/transcript-check.mjs. Run: node test-transcript-check.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +22,7 @@ const run = (lines, env = {}) => {
   writeFileSync(older, lines.join("\n") + "\n");
   writeFileSync(current, "");
   utimesSync(older, new Date(Date.now() - 60000), new Date(Date.now() - 60000));
-  return spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ hook_event_name: "SessionStart", transcript_path: current }), env: { ...process.env, TRANSCRIPT_CHECK: "", TRANSCRIPT_CHECK_STATE: STATE, ...env }, encoding: "utf8" }).stdout;
+  return spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ hook_event_name: "SessionStart", transcript_path: current }), env: { ...process.env, TRANSCRIPT_CHECK: "", TRANSCRIPT_CHECK_STATE: STATE, HOOK_CRASH_ALARM: "off", ...env }, encoding: "utf8" }).stdout;
 };
 let fail = 0, total = 0;
 const report = (ok, name) => { total++; if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); };

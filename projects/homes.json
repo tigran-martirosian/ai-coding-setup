@@ -17,9 +17,7 @@
   },
   "notes": {
     "ask-anything": [
-      { "without": ["codex"], "line": "- Codex is not set up. Where this file or a skill says Codex, look things up with WebSearch and WebFetch (several searches in one turn). The court's GPT seat stays empty: leave it out without comment." },
-      { "without": ["agy"], "line": "- Antigravity (Gemini) is not set up. The court's Gemini seat stays empty: leave it out without comment." },
-      { "without": ["codex", "agy"], "line": "- `/court` is always held as the full court, with its three Claude seats; don't offer the quick court, which needs an outside seat." },
+      { "without": ["codex"], "line": "- Codex is not set up. Where this file or a skill says Codex, look things up with WebSearch and WebFetch (several searches in one turn)." },
       { "without": ["codex"], "line": "- No generated pictures here (the picture skill needs Codex): say so in one line and offer a description or a diagram." }
     ],
     "internet-search": [

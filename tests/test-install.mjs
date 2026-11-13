@@ -134,8 +134,7 @@ ok("only the worker section of the user's rules changes",
 ok("the installer says once that this version's rules differ from the user's", withCodex.out.includes("rules: new in this version, yours were kept"));
 const inWorkers = (name) => fs.existsSync(path.join(claude, "workers", name));
 ok("a worker that is not used is switched off for the worker command", [inWorkers("ask.mjs"), inWorkers("codex.off"), inWorkers("agy.off")], [true, false, true]);
-ok("the user's own line stays and the note about Codex goes", [text("ask-anything", "CLAUDE.md").includes("My own line."), text("ask-anything", "CLAUDE.md").includes("Codex is not set up"),
-  text("ask-anything", "CLAUDE.md").includes("Antigravity (Gemini) is not set up")], [true, false, true]);
+ok("the user's own line stays and the note about Codex goes", [text("ask-anything", "CLAUDE.md").includes("My own line."), text("ask-anything", "CLAUDE.md").includes("Codex is not set up")], [true, false]);
 ok("the changed files are kept as dated copies", [copiesIn(claude).includes("CLAUDE.md"), copiesIn(projects).includes("CLAUDE.md"), copiesIn(projects).includes("profile.md")], [true, true, false]);
 const shared = path.join(claude, "shared-skills", "picture");
 ok("with Codex the picture skill and its gate are installed", [fs.existsSync(path.join(shared, "picture.mjs")), fs.existsSync(path.join(claude, "hooks", "picture-gate.mjs"))], [true, true]);
@@ -502,17 +501,18 @@ const retiredProject = path.join(retiredHome, "Projects", "claude-settings", ".c
 for (const [file, text] of [
   [path.join(retiredSkills, "usage-report", "SKILL.md"), "an older usage report"], [path.join(retiredSkills, "usage-report", "scripts", "scan.mjs"), "an older script"],
   [path.join(retiredSkills, "project-scan", "SKILL.md"), "an older scan"],
+  [path.join(retiredSkills, "court", "SKILL.md"), "an older court"], [path.join(retiredSkills, "court", "roles.md"), "older seats"],
   [path.join(retiredProject, "chat-review", "SKILL.md"), "an older chat review"], [path.join(retiredProject, "full-review", "SKILL.md"), "an older full review"],
 ]) recordAs(retiredHome, file, text);
 fs.appendFileSync(path.join(retiredSkills, "project-scan", "SKILL.md"), "\nmy own line\n");
 const retiredRun = install(retiredHome);
 const removedLines = retiredRun.out.split("\n").filter((l) => l.startsWith("removed the retired skill"));
-ok("the four retired skills are gone from the friend's skills and from the claude-settings project, except the one file the user changed",
-  [["usage-report", "chat-review", "full-review"].map((n) => fs.existsSync(path.join(n === "usage-report" ? retiredSkills : retiredProject, n))), fs.readFileSync(path.join(retiredSkills, "project-scan", "SKILL.md"), "utf8").endsWith("my own line\n")],
-  [[false, false, false], true]);
+ok("the five retired skills are gone from the friend's skills and from the claude-settings project, except the one file the user changed",
+  [["usage-report", "court", "chat-review", "full-review"].map((n) => fs.existsSync(path.join(n === "chat-review" || n === "full-review" ? retiredProject : retiredSkills, n))), fs.readFileSync(path.join(retiredSkills, "project-scan", "SKILL.md"), "utf8").endsWith("my own line\n")],
+  [[false, false, false, false], true]);
 ok("each removal is one line that names the skill and where it went",
-  [removedLines.length, removedLines.some((l) => l.includes("skills/usage-report (2 files; it is now /setup-audit usage)")), removedLines.some((l) => l.includes("chat-review") && l.includes("/setup-audit chat")), removedLines.some((l) => l.includes("full-review") && l.includes("/setup-audit full"))],
-  [3, true, true, true]);
+  [removedLines.length, removedLines.some((l) => l.includes("skills/usage-report (2 files; it is now /setup-audit usage)")), removedLines.some((l) => l.includes("chat-review") && l.includes("/setup-audit chat")), removedLines.some((l) => l.includes("full-review") && l.includes("/setup-audit full")), removedLines.some((l) => l.includes("skills/court (2 files; the setup no longer has it)"))],
+  [4, true, true, true, true]);
 ok("the one the user changed is kept and listed, and the setup's own skills stay", [retiredRun.out.includes(`kept yours ${fwd(path.join(retiredSkills, "project-scan", "SKILL.md"))} (a retired skill`), fs.existsSync(path.join(retiredSkills, "setup-audit", "SKILL.md"))], [true, true]);
 ok("the run after it removes no skill", install(retiredHome).out.includes("removed the retired skill"), false);
 

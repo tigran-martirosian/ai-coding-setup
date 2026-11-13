@@ -1,4 +1,5 @@
 // Tests for hooks/link-gate.mjs. Run: node tests/test-link-gate.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

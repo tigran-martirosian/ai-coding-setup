@@ -3,6 +3,7 @@
 // ... DROP/DETACH (partitions, columns). It only looks at commands that call a database client
 // (clickhouse, psql, mysql, sqlite3, duckdb, sqlcmd, ...) plus any .sql file the command passes in.
 // SQL run from inside a Python or other script is not seen. Fails open. SQL_GUARD=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { readFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
@@ -63,7 +64,8 @@ try {
       },
     }),
   );
-} catch {
+} catch (err) {
+  crashLog("sql-guard", err);
   // Fail open
 }
 process.exit(0);

@@ -94,51 +94,6 @@ export const Lead: React.FC<{ shot: Shot }> = ({ shot }) => {
   );
 };
 
-const ANSWERS = [
-  ["Use a queue here.", "It handles the spikes.", "Retries stay simple.", "Cost: one more service."],
-  ["Keep it in the database.", "Fewer moving parts.", "Fine under this load.", "Revisit at ten times."],
-  ["A queue, but a small one.", "Start with one worker.", "Watch the wait time.", "Move later if needed."],
-];
-
-/** Three answers written side by side, each one out of sight of the others, then pulled into one verdict. */
-export const Court: React.FC<{ shot: Shot }> = ({ shot }) => {
-  const t = useTick();
-  const { flow } = need(shot.body, "flow");
-  const [, models, [verdict]] = flow;
-  const closeAt = 62;
-  const close = snap(t, closeAt);
-  const w = 576;
-  return (
-    <Field bg={violet.bg}>
-      <Camera jolts={[{ at: closeAt + 7, size: 14 }]}>
-        <Head title={shot.title} sub={shot.sub} size={84} style={{ top: 34 }} subStyle={{ fontSize: 40 }} />
-        {models.map((name, i) => {
-          const x = MARGIN + i * (w + 24);
-          const toCentre = (1920 - w) / 2 - x;
-          return (
-            <div key={name} style={{ position: "absolute", left: x, top: 214, width: w, height: 770, transform: `translate(${close * toCentre}px, ${(1 - pop(t, 2 + i * 2)) * 900}px) scaleY(${1 - close * 0.4})`, transformOrigin: "50% 100%", opacity: 1 - clamp((t - closeAt - 3) / 4) }}>
-              <Window label={name} style={{ height: "100%" }} bodyStyle={{ fontSize: 58, fontWeight: 700, lineHeight: 1.1, letterSpacing: "-0.02em" }}>
-                {ANSWERS[i].map((line, l) =>
-                  t > 6 + l * 12 + i * 2 ? (
-                    <div key={line} style={{ marginBottom: 14 }}>
-                      <Typed text={line} at={6 + l * 12 + i * 2} speed={2.6} />
-                    </div>
-                  ) : null,
-                )}
-              </Window>
-            </div>
-          );
-        })}
-        {t >= closeAt + 5 ? (
-          <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", paddingTop: 170 }}>
-            <div style={{ background: color.lime, color: color.ink, borderRadius: 20, padding: "40px 90px", fontSize: 170, fontWeight: 700, letterSpacing: TIGHT, lineHeight: 1, whiteSpace: "nowrap", transform: `scale(${1 + (1 - pop(t, closeAt + 5)) * 0.8})` }}>{verdict}</div>
-          </AbsoluteFill>
-        ) : null}
-      </Camera>
-    </Field>
-  );
-};
-
 const FLAWS: { x: number; y: number; round: number; text: string }[] = [
   { x: 40, y: 54, round: 1, text: "Wrong total" },
   { x: 420, y: 150, round: 1, text: "Missing test" },

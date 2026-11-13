@@ -14,6 +14,7 @@
 //
 // The worker keeps local file reading (`ask.mjs` with no --web), where it works and costs nothing.
 // Off switch: WEB_WORKER_GATE=off.
+import { crashLog } from "./crash-log.mjs";
 const CMD = /(?:^|[\s;&|`(])(?:node\s+)?(?:[^\s;&|]*[\\/])?ask\.mjs(?:\s|$)/;
 const WEB = /(?:^|\s)--web(?:\s|$)/;
 // Text tools only ever mention the command, they never run it: `grep "ask.mjs --web" docs/`
@@ -81,7 +82,8 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
           permissionDecisionReason: reason(cmd),
         },
       }));
-    } catch {
+    } catch (err) {
+      crashLog("web-worker-gate", err);
       // fail open
     }
   });

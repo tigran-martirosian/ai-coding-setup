@@ -33,6 +33,7 @@
 // through. That call is no lookup, so it can't back a "Checked:". A singleSelect needs at least 2 options.
 // REC_CHECK=off turns the agent check off; it is skipped too when ~/.claude/agents/rec-check.md isn't there (an install without that agent).
 // It fails open, so any error or odd input lets the call through. QUESTION_OTHER=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, posix, resolve, win32 } from "node:path";
@@ -300,7 +301,8 @@ if (process.argv[1] && resolve(fileURLToPath(import.meta.url)).toLowerCase() ===
         },
       }));
     }
-  } catch {
+  } catch (err) {
+    crashLog("question-other", err);
     process.exit(0);
   }
 }

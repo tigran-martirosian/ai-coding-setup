@@ -7,6 +7,7 @@
 // A browser call counts as the same only on the same page (2026-10-02).
 // Silent otherwise. Added 2026-10-01.
 // It fails open, so any error or odd input lets the call through. LOOP_WARN=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -61,7 +62,8 @@ try {
         `use one longer wait instead of repeating this call.`,
     },
   }));
-} catch {
+} catch (err) {
+  crashLog("loop-warn", err);
   // Fail open
 }
 process.exit(0);

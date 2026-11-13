@@ -1,5 +1,6 @@
 // Tests for ~/.claude/skills/steer/steer.mjs (the /btw script and the Note button): when a note reaches the
 // busy session, and who it is sent to. Runs against a throwaway home folder; touches nothing real.
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import fs from "fs";
 import os from "os";
 import path from "path";

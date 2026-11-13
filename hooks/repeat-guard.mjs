@@ -20,6 +20,7 @@
 // <session file without .jsonl>/subagents/agent-<agent_id>.jsonl). Every line there is
 // isSidechain, so sidechain lines count in that file; the turn starts at the subagent's brief.
 // Fails open: any problem lets the call through silently. REPEAT_GUARD=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -159,6 +160,7 @@ try {
   const near = event.agent_id ? nearCap(transcript, entries) : "";
   if (near) reminder = reminder ? `${reminder} ${near}` : near;
   if (reminder) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: reminder } }));
-} catch {
+} catch (err) {
+  crashLog("repeat-guard", err);
   process.exit(0);
 }

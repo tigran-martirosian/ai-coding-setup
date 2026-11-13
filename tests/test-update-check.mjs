@@ -1,5 +1,6 @@
 // Tests for hooks/update-check.mjs against a small local server that stands in for GitHub.
 // Run: node tests/test-update-check.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -72,6 +73,12 @@ check("the failure and its reason are kept, no check is recorded", !!kept(down)?
 const missing = home("missing", "1.0.0");
 const notFound = await run(missing, { SETUP_UPDATE_BASE: `${BASE}/nowhere` });
 check("an address that answers 404: silent, and the reason (HTTP 404) is kept", notFound.out === "" && notFound.code === 0 && kept(missing)?.error === "HTTP 404");
+// Offline, a refused connection and an HTTP error are the hourly retry's business, not crashes: they leave no line in the crash log
+const crashLogFile = path.join(os.tmpdir(), `update-check-crash-${process.pid}.log`);
+fs.rmSync(crashLogFile, { force: true });
+await run(home("quiet404", "1.0.0"), { SETUP_UPDATE_BASE: `${BASE}/nowhere`, HOOK_ERRORS_LOG: crashLogFile });
+await run(home("quietdown", "1.0.0"), { SETUP_UPDATE_BASE: "http://127.0.0.1:9", HOOK_ERRORS_LOG: crashLogFile });
+check("a 404 and a refused connection leave no line in the crash log", !fs.existsSync(crashLogFile));
 
 // An address that never answers (a dropped connection, as with no network): a prompt must not wait long
 let hung = 0;

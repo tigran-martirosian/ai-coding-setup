@@ -8,6 +8,7 @@
 // {"handledBy": "..."}: the project keeps its own map) means silence. Project = $CLAUDE_PROJECT_DIR. Each project is looked at once a day
 // at most, so a prompt costs one small file read. Silent for /commands. Fails open. MAP_NUDGE=off disables it.
 // State: ~/.claude/hooks/state/map-nudge.json (MAP_NUDGE_DIR moves it).
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -99,7 +100,8 @@ process.stdin.on("end", async () => {
         "- Say this once; don't repeat it on later turns.",
       ].join("\n"),
     );
-  } catch {
+  } catch (err) {
+    crashLog("map-nudge", err);
     // fail open
   }
 });

@@ -1,5 +1,6 @@
 // Tests for the Systems map reader: skills/systems-map/map.mjs (--brief, --near, --check, --scan) and the hook
 // hooks/map-brief.mjs. Run: node tests/test-map-brief.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

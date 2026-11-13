@@ -6,6 +6,7 @@
 // A prompt that already holds the marker "SYSTEMS MAP:" is left alone. A project with no map file, or one with no nodes, gets no output at
 // all; "nothing matched" is said only when a real map exists. Fails open: any error is one line on stderr, exit 0, no output.
 // MAP_BRIEF=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -46,6 +47,7 @@ process.stdin.on("end", async () => {
     const updated = { ...input, prompt: prompt + (lines ? head + lines + tail : none) };
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: updated } }));
   } catch (e) {
+    crashLog("map-brief", e);
     process.stderr.write(`map-brief hook skipped: ${e?.name}: ${e?.message}\n`);
   }
 });

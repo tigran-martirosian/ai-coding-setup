@@ -1,4 +1,5 @@
 // Tests for hooks/map-nudge.mjs. Run: node tests/test-map-nudge.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

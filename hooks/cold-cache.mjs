@@ -7,6 +7,7 @@
 // COLD_CACHE_K (100) thousand tokens. From 190k to 300k it stays silent: Claude Code compacts such a session
 // before it answers (autoCompactWindow, see context-guard), so the size would be out of date by then.
 // Subagent events are skipped. Fails open. COLD_CACHE=off disables it.
+import { crashLog } from "./crash-log.mjs";
 import fs from "node:fs";
 
 const MINUTES = Number(process.env.COLD_CACHE_MINUTES) || 55;
@@ -68,7 +69,8 @@ try {
 			hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: text },
 		}));
 	}
-} catch {
+} catch (err) {
+	crashLog("cold-cache", err);
 	// Fail open
 }
 process.exit(0);

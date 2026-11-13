@@ -25,8 +25,8 @@ One form, four questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in 
 
 | Question | What a yes adds |
 |---|---|
-| Do you have a paid **ChatGPT** subscription? | The **Codex** worker: long reading and folder sweeps; a GPT seat in the court; generated pictures. |
-| Do you have a **Google AI** subscription (Gemini)? | The **Antigravity** worker (`agy`): very large files and second opinions; a Gemini seat in the court. |
+| Do you have a paid **ChatGPT** subscription? | The **Codex** worker: long reading and folder sweeps; generated pictures. |
+| Do you have a **Google AI** subscription (Gemini)? | The **Antigravity** worker (`agy`): very large files and second opinions. |
 | Where should the projects folder go? | Four small project folders are made in it. The default is `Projects` in the home folder; any folder works. |
 | Which **language**: English or Русский? | With Русский, Claude answers in Russian in every chat and the setup's Nimbalyst extensions show Russian text. |
 
@@ -164,10 +164,9 @@ Run each check once; fix an obvious failure, report any other with its output. B
 4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: the output contains `"deny"` with or without a worker; with none, its reason points to the `worker` subagent instead of a worker script.
 5. `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
 6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
-7. `node ~/.claude/skills/court/court.mjs` with no arguments prints a line starting with `Usage: node court.mjs`.
-8. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.
-9. `node ~/.claude/skills/update-setup/update.mjs --check` prints `Already on the newest version`.
-10. On a Mac: `zsh -lic 'command -v node uvx'` prints two paths, and every hook command in `~/.claude/settings.json` starts with a Node that exists.
+7. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.
+8. `node ~/.claude/skills/update-setup/update.mjs --check` prints `Already on the newest version`.
+9. On a Mac: `zsh -lic 'command -v node uvx'` prints two paths, and every hook command in `~/.claude/settings.json` starts with a Node that exists.
 
 Then reply in the user's language, in short lines:
 

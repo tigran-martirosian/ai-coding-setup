@@ -44,7 +44,6 @@ flowchart TD
   main --> worker
 ```
 
-- **The court.** For a hard question or a claim I want tested, I ask all three with [skills/court](../skills/court/SKILL.md). Claude, GPT and Gemini each answer on their own, GPT and Gemini review the answers without knowing who wrote which, and a Claude chair writes the verdict. There is a quick court and a full one, and I pick at the start of each run. I read the verdict and decide. For a piece of writing there is the reader court (`/court readers <file>`): a few readers with different jobs, say a recruiter, an engineer and an outsider, each read it alone and say how it lands with them, and the chair sums up where they agree and what to change.
 - **The lead.** For a big task, [skills/lead](../skills/lead/SKILL.md) runs a big task from the main session: the `planner` agent writes the plan, and the session turns it into a numbered job list, hands each step to a `worker` agent that knows the goal of the whole job, answers a worker that gets stuck, has one `reviewer` agent check the result and reports what it checked. Everything runs in that main session and its subagents; parallel steps in one folder are subagents in their own git worktree.
 - **The blind review.** After a big piece of work, [skills/blind-review](../skills/blind-review/SKILL.md) (also `/blind-review`) hands it to one reviewer who sees only the original request and the finished result, or only screenshots for a page or screen, never the author's reasoning. Code, a plan, a design, a text, a data result or a screen all work. The reviewer ranks the flaws, the author fixes the serious ones, and the same reviewer looks again, up to two rounds, until nothing serious is left.
 
@@ -172,7 +171,7 @@ The installer creates four project folders ([projects](../projects)). A request 
 | Project | For | Its own tools |
 |---|---|---|
 | `claude-settings` | Changing and checking the setup itself | `/setup-audit` with `usage`, `chat`, `full`, `scan`, `outcomes` |
-| `ask-anything` | General questions | The court, the picture skill, reading web pages and videos |
+| `ask-anything` | General questions | The picture skill, reading web pages and videos |
 | `internet-search` | Finding things online | A finder skill with a fixed order, and its own link gate that accepts only pages that were opened |
 | `quick-tasks` | One-off file jobs | A dated folder per job, work on copies, the picture skill |
 

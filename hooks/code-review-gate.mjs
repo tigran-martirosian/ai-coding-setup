@@ -38,6 +38,7 @@
 // branch counts, a `git pull` of other people's commits doesn't). After a review only files written after it count (the baseline moves to
 // the review). A turn that changed nothing asks about git files only when some are new since the last stop. No git, or a git call that
 // fails or takes over 3 seconds: the transcript count alone. CODE_REVIEW_GATE=led counts no git files.
+import { crashLog } from "./crash-log.mjs";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -382,17 +383,11 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
     if (mode === "off") process.exit(0);
     const input = JSON.parse(fs.readFileSync(0, "utf8"));
     if (process.argv.includes("--start")) { if (input.session_id) startBaseline(input); }
-    else if (!input.transcript_path || !input.session_id) process.exit(0);
+    else if (!input.transcript_path || !input.session_id || !fs.existsSync(input.transcript_path)) process.exit(0);
     else if (process.argv.includes("--pre")) pushCheck(input, mode);
     else if (!input.agent_id) stopArm(input, mode);
   } catch (err) {
     // fail open, with a trace: a dead gate must not look like a quiet one
-    try {
-      const log = path.join(os.homedir(), ".claude", "hooks", "state", "hook-errors.log");
-      fs.mkdirSync(path.dirname(log), { recursive: true });
-      fs.appendFileSync(log, `${new Date().toISOString()} code-review-gate: ${err?.message || err}\n`);
-    } catch {
-      // nothing more to do
-    }
+    crashLog("code-review-gate", err);
   }
 }

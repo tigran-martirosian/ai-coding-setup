@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill } from "remotion";
-import { BlindReview, Board, Court, Handoff, Lead } from "./BigJobs";
+import { BlindReview, Board, Handoff, Lead } from "./BigJobs";
 import { Catch, Habits, SentBack } from "./Checks";
 import { End, Install, Proof } from "./Close";
 import { Compact, Reads, Usage } from "./Cost";
@@ -21,7 +21,6 @@ const VIEWS: Record<string, React.FC<{ shot: Shot }>> = {
   reads: Reads,
   usage: Usage,
   lead: Lead,
-  court: Court,
   review: BlindReview,
   handoff: Handoff,
   board: Board,

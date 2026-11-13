@@ -2,6 +2,7 @@
 // Tests for slow-output-gate (PreToolUse: refuses a multi-minute command whose output is piped into a
 // truncating filter with nothing saving it first).
 // Run: node test-slow-output-gate.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 

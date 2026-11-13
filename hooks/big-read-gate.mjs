@@ -8,6 +8,7 @@
 // It fails open, so any error or odd input lets the call through. BIG_READ_GATE=off disables it.
 // A file path the user writes in a prompt passes the gate once (UserPromptSubmit records it;
 // BIG_READ_ALLOW_FILE moves the record, for the tests).
+import { crashLog } from "./crash-log.mjs";
 import { readFileSync, statSync, writeSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { resolve, extname, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -332,7 +333,8 @@ try {
   } else if (["Bash", "PowerShell"].includes(event.tool_name) && input.command) {
     checkShell(input.command, cwd, event.tool_name === "PowerShell");
   }
-} catch {
+} catch (err) {
+  crashLog("big-read-gate", err);
   // Fail open
 }
 process.exit(0);

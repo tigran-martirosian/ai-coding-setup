@@ -1,4 +1,5 @@
 // Test for hooks/cold-cache.mjs: made-up small transcripts, hook run as a child process.
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import os from "node:os";
