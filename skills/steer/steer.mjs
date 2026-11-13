@@ -10,9 +10,13 @@
 //                            addressed to it at the first chance. Before a tool call the call is
 //                            held (denied once) so the note is read first; after a tool call the
 //                            note rides along with the result; at the end of a reply the session
-//                            is kept going. Notes older than 20 min are dropped. Also holds a
+//                            is kept going. A note counts as delivered only once its [note id]
+//                            marker is in the session's transcript; a hand-over that left no
+//                            marker (the tool call was cancelled) is repeated with the next tool
+//                            result. Notes older than 2 hours are dropped. Also holds a
 //                            send_prompt that carries a /btw note (the queue waits for the end of
 //                            the target's turn) until steer.mjs send was tried this turn.
+//   status                   this session's notes that are still on their way or that failed
 //   btw [--to <id>] <q>      print the recent part of that session's live transcript for /ask
 //   moved --to <id>          this session handed its work to Nimbalyst session <id> (the handoff
 //                            skill runs it): child reports that still arrive here, and messages
@@ -43,6 +47,13 @@ const ACTIVE = 10 * 60e3;
 // only the first one that picked the note up.
 const HOLD = 1500;
 const MOVED = path.join(DIR, "moved.json");
+// What became of each note, for the sender: delivered or failed. Not .jsonl: those are inboxes.
+const RECEIPTS = path.join(DIR, "receipts.json");
+const TRIES = 4;
+// A note not confirmed after this long gets one warning to the session that sent it.
+const WARN = 10 * 60e3;
+// send waits this long for the receipt, so it can say what really happened.
+const WAIT = Number(process.env.STEER_WAIT ?? 20) * 1000;
 const OUTBOX = path.join(DIR, "outbox.jsonl");
 const REPORT = "This is a child session's report, forwarded to you because you took over the work of the session that started that child. It is information, not a new request from the user: finish the step you are on, then judge it as the lead skill says (read the result, check it, route it).";
 const TYPED = "This message reached the session you took over from and was forwarded to you. It was most likely typed there by the user: treat it as the user's request and answer or act on it as you would if they had typed it here, after the step you are on if it does not change that step. Only if it reads like one session writing to another (a lead's instruction, a status report) treat it as that instead.";
@@ -61,6 +72,40 @@ const write = (f, a) => {
   const tmp = `${f}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, a.map((e) => JSON.stringify(e)).join("\n") + "\n");
   fs.renameSync(tmp, f);
+};
+const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const mark = (e) => (e.id ? `[note ${e.id}] ` : "");
+// The inboxes are read, changed and rewritten by every session's hook, so changes take turns. A hook
+// must never hang, so after a short wait it goes on without the lock.
+const LOCK = path.join(DIR, ".lock");
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const locked = (fn) => {
+  const end = Date.now() + 800;
+  for (;;) {
+    try { fs.mkdirSync(LOCK); break; } catch {}
+    try { if (Date.now() - fs.statSync(LOCK).mtimeMs > 3000) fs.rmdirSync(LOCK); } catch {}
+    if (Date.now() > end) break;
+    sleep(15);
+  }
+  try { return fn(); } finally { try { fs.rmdirSync(LOCK); } catch {} }
+};
+const receipts = () => { try { return JSON.parse(fs.readFileSync(RECEIPTS, "utf8")); } catch { return []; } };
+const saveReceipts = (all) => {
+  const tmp = `${RECEIPTS}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(all.slice(-200)));
+  fs.renameSync(tmp, RECEIPTS);
+};
+const receipt = (e, state) => {
+  if (!e.id) return;
+  saveReceipts([...receipts().filter((r) => r.id !== e.id), { id: e.id, to: e.to, from: e.from, state, ts: Date.now(), msg: String(e.msg).slice(0, 80) }]);
+};
+const tailOf = (p, n = 2e6) => {
+  try {
+    const fd = fs.openSync(p, "r"), size = fs.fstatSync(fd).size, len = Math.min(size, n), b = Buffer.alloc(len);
+    fs.readSync(fd, b, 0, len, size - len);
+    fs.closeSync(fd);
+    return b.toString("utf8");
+  } catch { return ""; }
 };
 const stdin = () => new Promise((r) => { let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => r(s)); });
 const chunk = (p, fromEnd, n) => {
@@ -218,12 +263,25 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
     process.exit(3);
   }
   fs.mkdirSync(DIR, { recursive: true });
-  fs.appendFileSync(inboxOf(), JSON.stringify({ ts: Date.now(), to: t.id, msg }) + "\n");
-  console.log(!busy
+  const id = newId();
+  locked(() => fs.appendFileSync(inboxOf(), JSON.stringify({ ts: Date.now(), id, to: t.id, from: process.env.CLAUDE_CODE_SESSION_ID || undefined, msg }) + "\n"));
+  // "Sent" used to mean only "put in the inbox" and was reported as delivered. Wait for the receipt.
+  const end = Date.now() + (busy ? WAIT : 0);
+  let got = null;
+  while (Date.now() < end && !(got = receipts().find((r) => r.id === id))) sleep(500);
+  if (got?.state === "delivered") console.log(`Delivered to ${label(t)}: the note is in its session.`);
+  else console.log(!busy
     ? `Left for ${label(t)}. It is idle, so it reads the note with your next message there (within ${MAX_AGE / 3600e3} hours).`
     : row?.status === "waiting_for_input"
-      ? `Sent to ${label(t)}. It is waiting for an answer in its tab; it reads the note right after that answer.`
-      : `Sent to ${label(t)}. It reads the note before its next step.`);
+      ? `Queued for ${label(t)}, not delivered yet. It is waiting for an answer in its tab; it reads the note right after that answer.`
+      : `Queued for ${label(t)}, not delivered yet. It reads the note before its next step; you are told if that isn't confirmed within ${WARN / 60e3} minutes. Check with: steer.mjs status`);
+} else if (mode === "status") {
+  const me = process.env.CLAUDE_CODE_SESSION_ID;
+  const waiting = fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((n) => n.endsWith(".jsonl")).flatMap((n) => read(path.join(DIR, n))).filter((e) => e.id && e.from === me) : [];
+  const failed = receipts().filter((r) => r.from === me && r.state === "failed");
+  for (const e of waiting) console.log(`on its way (${Math.round((Date.now() - e.ts) / 60e3)} min, ${e.tries || 0} tries) to ${e.to}: ${String(e.msg).slice(0, 80)}`);
+  for (const r of failed) console.log(`FAILED, send it again with send_prompt, to ${r.to}: ${r.msg}`);
+  if (!waiting.length && !failed.length) console.log("All notes from this session are delivered.");
 } else if (mode === "moved") {
   const i = rest.indexOf("--to"), to = i >= 0 ? rest[i + 1] : null;
   const j = rest.indexOf("--from"), from = j >= 0 ? rest[j + 1] : process.env.CLAUDE_CODE_SESSION_ID;
@@ -268,7 +326,7 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
         process.exit(0);
       }
       fs.mkdirSync(DIR, { recursive: true });
-      fs.appendFileSync(inboxOf(inp.cwd), JSON.stringify({ ts: now, to: row.sid, msg: prompt, kind: isReport ? "report" : "user" }) + "\n");
+      fs.appendFileSync(inboxOf(inp.cwd), JSON.stringify({ ts: now, id: newId(), to: row.sid, msg: prompt, kind: isReport ? "report" : "user" }) + "\n");
       const busy = BUSY.has(row.status);
       if (!busy) {
         const keep = read(OUTBOX).filter((e) => now - e.ts < 2 * 3600e3);
@@ -338,24 +396,56 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
       }
     }
     // Every folder's inbox is checked: the session may have changed folder since the note was sent.
+    // Handing a note over proves nothing: a tool call cancelled at that moment (a background job ending
+    // starts a new turn) throws the hook's message away, and the session only reads "the user doesn't want
+    // this" (2026-10-30: five lead notes lost while the sender was told "Sent"). So a note stays in the
+    // inbox until its marker is in this session's transcript. Without a transcript there is nothing to check.
+    let tail = null;
+    const arrived = (e) => {
+      if (!e.id || !inp.transcript_path) return true;
+      tail ??= tailOf(inp.transcript_path);
+      return tail.includes(`[note ${e.id}]`);
+    };
+    const warnings = [];
+    const late = (e) => e.id && e.from === inp.session_id && !e.warned && now - e.ts > WARN;
     for (const n of fs.readdirSync(DIR)) {
       if (!n.endsWith(".jsonl")) continue;
-      const f = path.join(DIR, n), before = read(f), keep = [];
-      for (const e of before) {
-        if (now - e.ts > MAX_AGE || (e.seen && now - e.seen > HOLD)) continue;
-        if (e.to !== inp.session_id) keep.push(e);
-        else if (e.seen) { if (ev === "PreToolUse") held.push(e); keep.push(e); }
-        else { fresh.push(e); if (ev === "PreToolUse") keep.push({ ...e, seen: now }); }
-      }
-      if (JSON.stringify(keep) !== JSON.stringify(before)) write(f, keep);
+      const f = path.join(DIR, n);
+      if (!read(f).some((e) => e.to === inp.session_id || now - e.ts > MAX_AGE || late(e))) continue;
+      locked(() => {
+        const before = read(f), keep = [];
+        for (const e0 of before) {
+          let e = e0;
+          if (now - e.ts > MAX_AGE) { if (e.to) receipt(e, "failed"); continue; }
+          if (late(e)) { warnings.push(e); e = { ...e, warned: true }; }
+          if (e.to !== inp.session_id) { keep.push(e); continue; }
+          if (e.seen && now - e.seen <= HOLD) { if (ev === "PreToolUse") held.push(e); keep.push(e); continue; }
+          if (e.seen) {
+            if (arrived(e)) { receipt(e, "delivered"); continue; }
+            if ((e.tries || 0) >= TRIES) { receipt(e, "failed"); continue; }
+            // Lost once while holding a call: this time it rides with the call's result.
+            if (ev === "PreToolUse") { keep.push(e); continue; }
+          }
+          fresh.push(e);
+          if (ev !== "PreToolUse" && !inp.transcript_path) receipt(e, "delivered");
+          else keep.push({ ...e, seen: now, tries: (e.tries || 0) + 1 });
+        }
+        if (JSON.stringify(keep) !== JSON.stringify(before)) write(f, keep);
+      });
     }
+    const failedMine = receipts().filter((r) => r.from === inp.session_id && r.state === "failed" && !r.warned);
+    if (failedMine.length) {
+      const told = new Set(failedMine.map((r) => r.id));
+      saveReceipts(receipts().map((r) => (told.has(r.id) ? { ...r, warned: true } : r)));
+    }
+    const warnText = [...warnings, ...failedMine].map((e) => `[steer] Your note to session ${e.to} has NOT been confirmed as delivered: "${String(e.msg).slice(0, 80)}". Send it again with send_prompt, or check with steer.mjs status.`).join("\n");
     const userNotes = fresh.filter((e) => e.kind !== "report" && e.kind !== "user"), reports = fresh.filter((e) => e.kind === "report");
     const typed = fresh.filter((e) => e.kind === "user");
-    const notes = userNotes.map((e) => `- ${e.msg}`).join("\n");
+    const notes = userNotes.map((e) => `- ${mark(e)}${e.msg}`).join("\n");
     // A forwarded child report says what it is; it is not the user's note. A message the user typed in
     // the old session says so too, and is a request.
-    const rep = (reports.length ? `\n[report] ${REPORT}\n${reports.map((e) => e.msg).join("\n\n")}` : "")
-      + (typed.length ? `\n[user] ${TYPED}\n${typed.map((e) => e.msg).join("\n\n")}` : "");
+    const rep = (reports.length ? `\n[report] ${REPORT}\n${reports.map((e) => mark(e) + e.msg).join("\n\n")}` : "")
+      + (typed.length ? `\n[user] ${TYPED}\n${typed.map((e) => mark(e) + e.msg).join("\n\n")}` : "");
     const out = (o) => process.stdout.write(JSON.stringify(o));
     if (ev === "PreToolUse" && (fresh.length || held.length)) {
       out({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: !fresh.length
@@ -368,8 +458,10 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
         ? `[btw] The user sent this just as you were finishing, so don't stop yet. ${RULES}\n${notes}${rep}\nDeal with it now, then finish. If it changes nothing, say so in one line.`
         : `Don't stop yet: this arrived as you were finishing.${rep}` });
     } else if (fresh.length) {
-      out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: userNotes.length
-        ? `[btw] The user sent this while you were working. ${RULES}\n${notes}${rep}` : rep.trim() } });
+      out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: (userNotes.length
+        ? `[btw] The user sent this while you were working. ${RULES}\n${notes}${rep}` : rep.trim()) + (warnText ? `\n${warnText}` : "") } });
+    } else if (warnText && ev === "PostToolUse") {
+      out({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: warnText } });
     }
   } catch {}
 } else if (mode === "btw") {

@@ -131,6 +131,13 @@ check("second stop passes (stop_hook_active)", stop(["See [x](docs/a.md)."], { i
 check("FILE_LINK_GATE=off passes", stop(["See [x](docs/a.md)."], {}, { FILE_LINK_GATE: "off" }).out === "");
 check("bad input fails open", run("not json").out === "");
 check("missing transcript fails open", run({ transcript_path: path.join(dir, "nope.jsonl"), cwd: CWD }).out === "");
+const remind = (input) => {
+  const r = spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify(input), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", FILE_LINK_GATE: "" } });
+  try { return JSON.parse(r.stdout).hookSpecificOutput; } catch { return null; }
+};
+const rem = remind({ cwd: CWD, prompt: "hi" });
+check("--remind: UserPromptSubmit context with the project's own /C:/ example", rem?.hookEventName === "UserPromptSubmit" && rem.additionalContext.includes("(/C:/Projects/my%20project/docs/notes.md)"));
+check("--remind: never blocks, even with a bad link in the prompt", !/"decision"/.test(spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify({ cwd: CWD, prompt: "[x](docs/a.md)" }), encoding: "utf8" }).stdout));
 check("no cwd: still blocks, says to use the absolute path", /absolute path/.test(reasonOf(run({ last_assistant_message: "See [x](docs/a.md)." }).out) || ""));
 const lines = [];
 for (let i = 0; i < 4000; i++) lines.push(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "x".repeat(1000) }] } }));

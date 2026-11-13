@@ -68,7 +68,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `command-explain` | The PowerShell tool inside Nimbalyst; a shell command with no plain-words line saying what it does gets a stand-in line and a reminder |
 | `file-link-gate` | A reply with a file link Nimbalyst's chat can't open (a relative path, backslashes, `file:///`) |
 | `code-review-gate` | A turn that changed three or more code files and is about to end without a `/code-review` |
-| `picture-in-project` | A picture shown in the chat from outside the open project, which Nimbalyst can't open enlarged |
+| `picture-in-project` | A picture shown in the chat from a path that can be cleaned up later or that Nimbalyst can't open enlarged; it copies the picture to the project's `shown` folder and gives the path to use |
 | `run-yourself` | A reply that ends with "now open a terminal and run this"; the agent runs it itself |
 | `opencli-readonly` | Posting, liking or following from my logged-in accounts through OpenCLI |
 

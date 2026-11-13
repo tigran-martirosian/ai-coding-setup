@@ -12,7 +12,7 @@ Run this once, with the user's note exactly as written:
 `<note>`
 `EOF`
 
-- If it prints `Sent to …` or `Left for …`, reply with exactly that line and nothing else. The
+- If it prints `Delivered to …`, `Queued for …` or `Left for …`, reply with that line. Only `Delivered` means the session has the note. The
   name in it is the name on that session's tab: it tells the user where the note went.
   With several sessions active the script picks one itself (a busy one, else the most recently
   active): never ask the user which.

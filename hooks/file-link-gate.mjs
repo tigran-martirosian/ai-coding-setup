@@ -15,6 +15,7 @@
 // file's path in inline code instead. A link already in a broken form keeps its /C:/ fix as before; paths
 // inside the project, web links, nimbalyst:// and embeds are left alone. Without a cwd, or for a root-relative
 // "/x" target under a Windows cwd (it cannot be placed), nothing is flagged.
+// With --remind it runs on UserPromptSubmit instead and only prints a one-line reminder of the working form.
 // Silent when stop_hook_active is set (no loops). Fails open. FILE_LINK_GATE=off disables it.
 import fs from "node:fs";
 import os from "node:os";
@@ -212,6 +213,14 @@ export function reason(bad) {
   return lines.join("\n");
 }
 
+// --remind (UserPromptSubmit): one line before every reply, so the working form is fresh when links are
+// written, instead of only caught after the user has already seen dead ones
+export function remindText(cwd) {
+  const root = cwd ? fixedTarget(".", projectRoot(gitBashPath(cwd.replace(/\\/g, "/")))) : null;
+  const ex = root ? `${root}/docs/notes.md` : "/C:/Projects/x/docs/notes.md";
+  return `[file-link-gate] File links in this reply: full path, forward slashes, leading slash, e.g. [notes.md](${ex}) or [notes.md:12](${ex}:12). Never a relative target like (docs/notes.md): it does not open.`;
+}
+
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
   let raw = "";
   process.stdin.on("data", (d) => (raw += d));
@@ -219,6 +228,10 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
     try {
       if ((process.env.FILE_LINK_GATE || "").toLowerCase() === "off") return;
       const input = JSON.parse(raw);
+      if (process.argv.includes("--remind")) {
+        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: remindText(input.cwd) } }));
+        return;
+      }
       if (input.stop_hook_active) return;
       let text = "";
       if (input.transcript_path) {
