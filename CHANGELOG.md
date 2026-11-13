@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.86 (Nov 5, 2026): Replies arrive in one piece: while background jobs still run, a finished job no longer gets its own small status update, and you get one complete answer when everything is done.
 - 1.0.85 (Nov 4, 2026): The update reminder now says how many releases you are behind and what they bring, so an update you skipped for weeks shows what you are missing. A short reply for you to type back is no longer taken for a shell command, and a starting planner says how long a plan takes.
 - 1.0.84 (Nov 3, 2026): The "background task settled" prompt for work already reported now gets a short plain status reply instead of being refused, so Nimbalyst no longer shows a raw warning where the reply should be.
 - 1.0.83 (Nov 3, 2026): Fewer wasted turns after background jobs: the "background task settled" prompt is refused when the work was already reported, and helpers now run in the foreground unless a step really runs beside another. A session that just finished a job is told to start the next one fresh, a helper that has grown large is told to finish and report, and the usage report counts these.

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.85",
-  "date": "2026-11-04",
-  "summary": "The update reminder now says how many releases you are behind and what they bring, so an update you skipped for weeks shows what you are missing. A short reply for you to type back is no longer taken for a shell command, and a starting planner says how long a plan takes."
+  "version": "1.0.86",
+  "date": "2026-11-05",
+  "summary": "Replies arrive in one piece: while background jobs still run, a finished job no longer gets its own small status update, and you get one complete answer when everything is done."
 }
