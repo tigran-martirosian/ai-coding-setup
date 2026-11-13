@@ -96,7 +96,7 @@ check("code-review skill: 1 run, edit after the next message", line("| code-revi
 check("verify gate: 3 blocks, 2 followed by a build, 1 passing", line("| verify-gate"), "| verify-gate | 3, too few to judge | 2 of 3 | 1 of 3 |");
 check("plan-reviewer is a map helper type", out.includes("planner, plan-reviewer that have a record"), true);
 check("map: one helper (a plan-reviewer), its edit outside the brief is the file only the map names", line("| with map"), "| with map | 1, too few to judge | 1 of 1 | 1 of 1 | 0 of 1 |");
-check("worker-high is a map helper type", out.includes("worker, worker-full, worker-high, reviewer"), true);
+check("worker-code and worker-high are map helper types", out.includes("worker, worker-full, worker-code, worker-high, reviewer"), true);
 check("no map: two helpers (one a worker-high), one edit outside the brief, one stopped", line("| without map"), "| without map | 2, too few to judge | 2 of 2 | 1 of 2 | 1 of 2 |");
 const missing = (() => { try { execFileSync(process.execPath, [SCRIPT, "--root", path.join(root, "none")], { encoding: "utf8", stdio: "pipe" }); return 0; } catch (e) { return e.status; } })();
 check("a transcripts folder that is not there is an error, exit 2", missing, 2);

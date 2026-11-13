@@ -11,8 +11,8 @@ You own the outcome. The `planner` agent writes the plan and the job-list rows, 
 
 ## 1. What goes where
 
-- **A step goes to a `worker` subagent, by default.** It knows the job's goal, does one numbered step (cap 80 turns, Opus at medium, or Fable at medium when the row says `model: fable`, 1-hour cache, so a long build inside a step costs no reread) and stops with a `BLOCKED` line when what it finds contradicts the plan.
-- **The brief is the worker's whole context.** A `worker` loads no CLAUDE.md and has file, shell and web tools only, so the brief names the project commands its step needs. A step that needs a skill or an MCP tool goes to `worker-full`, which costs far more to start. A long refactor row goes to `worker-high`, the same start on Fable at high.
+- **A step goes to a `worker` subagent, by default.** It knows the job's goal, does one numbered step (cap 80 turns, Opus at medium, or Fable at medium when the row says `model: fable`; a code row goes to `worker-code`, Opus at high; 1-hour cache, so a long build inside a step costs no reread) and stops with a `BLOCKED` line when what it finds contradicts the plan.
+- **The brief is the worker's whole context.** A `worker` loads no CLAUDE.md and has file, shell and web tools only, so the brief names the project commands its step needs. A step that needs a skill or an MCP tool goes to `worker-full`, which costs far more to start. A code row goes to `worker-code`, the same start on Opus at high; a long refactor row goes to `worker-high`, the same start on Fable at high.
 - **Spawn less, reuse more.** A follow-up to a worker that just finished is far cheaper than a new worker. So a step is a real piece of work, small pieces are grouped into one step, and the next step on the same files goes to the same worker with SendMessage. Parallel steps save time, not tokens.
 - **A 2-3 call change** you can already see: do it here. Beyond that this session doesn't build: workers do the steps, whole, on the helper their row names.
 - **A step runs in the foreground**: one request, and its report comes back in it. Pass `run_in_background: false` on the Agent call: a launch without it counts as background and is refused. Steps that run side by side go as several Agent calls in one message, each with `run_in_background: false`: they run in parallel and the turn waits for all of them (a background helper dies when the turn ends and the app stops the idle session). A worker can't ask the user, so its question comes back to you as a `BLOCKED` line and you ask.
@@ -94,7 +94,7 @@ Plan read: <folders> at <commits>. Review: <plan yes/no, build yes/no, why>. Sta
 
 The step number is the worker's number: each step has one owner, so two workers never do the same thing. The Runs column says when a step starts: `beside` steps start together, as foreground Agent calls in one message, `after` waits for that step's report, `after S<n>, user OK` also waits for the user's OK on that step's design, `same worker as` goes by SendMessage to that step's worker.
 
-**A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`), `isolation: "worktree"` when Runs says so. A `worker`, model `fable` row passes `model: "fable"`; a `worker-high` row passes `subagent_type: "worker-high"` and no model; a Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
+**A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`), `isolation: "worktree"` when Runs says so. A `worker`, model `fable` row passes `model: "fable"`; a `worker-code` or `worker-high` row passes that `subagent_type` and no model; a Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
 
 ```
 JOB GOAL: the whole job, one sentence

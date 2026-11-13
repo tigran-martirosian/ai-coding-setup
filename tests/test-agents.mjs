@@ -15,6 +15,7 @@ const tools = (head) => (head.match(/^tools:\s*(.*)$/m)?.[1] || "").split(/,\s*/
 
 const worker = parts(read("worker")), full = parts(read("worker-full")), rec = parts(read("rec-check"));
 const planRev = parts(read("plan-reviewer")), rev = parts(read("reviewer")), high = parts(read("worker-high"));
+const code = parts(read("worker-code"));
 const desc = (head) => head.match(/^description:\s*(.*)$/m)?.[1] || "";
 const rest = (head) => head.split("\n").filter((l) => !/^(name|description|model|effort):/.test(l)).join("\n");
 const WRITE_TOOLS = ["Edit", "Write", "NotebookEdit", "Agent", "PowerShell"];
@@ -34,6 +35,10 @@ const checks = [
   ["worker-high has the worker's body and the rest of its settings", high.body === worker.body && rest(high.head) === rest(worker.head)],
   ["worker-high has its own description, which says a rename is never a reason", desc(high.head) !== "" && desc(high.head) !== desc(worker.head)
     && /rename[^.]*never a reason/i.test(desc(high.head))],
+  ["worker-code is named worker-code, on opus at high effort", has(code.head, "name", "worker-code") && has(code.head, "model", "opus") && has(code.head, "effort", "high")],
+  ["worker-code has the worker's body and the rest of its settings", code.body === worker.body && rest(code.head) === rest(worker.head)],
+  ["worker-code has its own description, for code changes, sending a long refactor to worker-high", desc(code.head) !== desc(worker.head)
+    && /code changes/i.test(desc(code.head)) && /refactor[^.]*worker-high/i.test(desc(code.head))],
   ["rec-check starts small and cannot change files", has(rec.head, "omitClaudeMd", "true") && !tools(rec.head).some((t) => ["Edit", "Write"].includes(t))],
   ["rec-check starts its answer with keep or change", /`keep`/.test(rec.body) && /`change:/.test(rec.body)],
   ["rec-check's first item is Enough facts", firstItem?.[2] === "Enough facts." && firstItem[1] === "0"],

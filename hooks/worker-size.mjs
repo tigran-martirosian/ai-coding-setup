@@ -1,4 +1,4 @@
-// worker-size: a PostToolUse hook for subagents. worker, worker-full and worker-high set autoCompactWindow 200000;
+// worker-size: a PostToolUse hook for subagents. worker, worker-full, worker-code and worker-high set autoCompactWindow 200000;
 // nothing warns a helper before its compact line, and every call re-sends the whole context, so runs past 150k context cost most.
 // Only events with agent_id are looked at (a main-session event exits at once, no file read). The hook gets the
 // PARENT's transcript_path (see repeat-guard), so the helper's own transcript is
@@ -7,7 +7,7 @@
 // From WORKER_SIZE_K (150) thousand tokens it tells the helper to finish the step in hand and report; again only
 // after a further 100k (state in ~/.claude/hooks/state/worker-size/<agent_id>.json, files untouched for 2 days are
 // swept). WORKER_SIZE_DEBUG=1 prints the size found on stderr. Fails open. WORKER_SIZE=off disables it.
-// Hard stop: on PreToolUse (same script, registered there too), only for agent_type worker, worker-full and worker-high (the three
+// Hard stop: on PreToolUse (same script, registered there too), only for agent_type worker, worker-full, worker-code and worker-high (the four
 // with autoCompactWindow 200000; planner, reviewer and the rest pass untouched). A helper whose context is at
 // WORKER_STOP_K (180) thousand or more gets WORKER_STOP_GRACE (3) more calls, each with a note to finish or undo
 // the edit it is in and report within the calls left; from the next call on every call is refused, so it reports
@@ -26,7 +26,7 @@ import fs from "node:fs";
 const LIMIT_K = Number(process.env.WORKER_SIZE_K) || 150;
 const STOP_K = Number(process.env.WORKER_STOP_K) || 180;
 const GRACE = process.env.WORKER_STOP_GRACE?.trim() && Number.isFinite(Number(process.env.WORKER_STOP_GRACE)) ? Number(process.env.WORKER_STOP_GRACE) : 3;
-const STOP_TYPES = new Set(["worker", "worker-full", "worker-high"]);
+const STOP_TYPES = new Set(["worker", "worker-full", "worker-code", "worker-high"]);
 const STEP_K = 100;
 // Past the stop line, Write/Edit stay allowed while the context plus the pending call's input is under SAVE_K (10k under the
 // 200k compact, for the call's own result and the next think), so work in the helper's head reaches disk

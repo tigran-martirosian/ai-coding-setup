@@ -5,7 +5,7 @@ description: Systems map, the dictionary of a project's parts and what connects 
 
 # Systems map
 
-A **thing** is a part a person would name out loud: a feature, service, screen, data store or background job; a folder or a class is not one. A **link** is a pair of things where, if a session changed one, it would have to look at the other. The map is a dictionary: a session reads only the lines of the things its work touches. The `map-brief` hook appends those lines to the brief of every helper (worker, worker-full, worker-high, reviewer, planner) by itself.
+A **thing** is a part a person would name out loud: a feature, service, screen, data store or background job; a folder or a class is not one. A **link** is a pair of things where, if a session changed one, it would have to look at the other. The map is a dictionary: a session reads only the lines of the things its work touches. The `map-brief` hook appends those lines to the brief of every helper (worker, worker-full, worker-code, worker-high, reviewer, planner) by itself.
 
 One file, `<project>/.claude/systems-map.json`. Paths are from the project root, with forward slashes, and exist:
 

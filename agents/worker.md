@@ -1,6 +1,6 @@
 ---
 name: worker
-description: Step worker. Does one numbered step of a job the planner runs, knowing the job's goal, or one clear one-off job - code changes, repetitive edits, renames, formatting, drafting docs or tests, web gathering. Starts without CLAUDE.md and with file, shell and web tools only, so the brief must name the project commands it needs. Use instead of general-purpose. For a job that needs a skill or an MCP tool use worker-full; for a long refactor with dependents across files, worker-high.
+description: Step worker. Does one numbered step of a job the planner runs, knowing the job's goal, or one clear one-off job - repetitive edits, renames, formatting, drafting docs or tests, web gathering. Starts without CLAUDE.md and with file, shell and web tools only, so the brief must name the project commands it needs. Use instead of general-purpose. For a job that needs a skill or an MCP tool use worker-full; for code changes, worker-code; for a long refactor with dependents across files, worker-high.
 model: opus
 effort: medium
 maxTurns: 80

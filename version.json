@@ -1,9 +1,14 @@
 {
-  "version": "1.0.110",
+  "version": "1.0.111",
   "claudeCodeMin": "2.1.321",
   "date": "2026-11-10",
-  "summary": "The Ink themes fit Nimbalyst 0.83 again, long refactors get a stronger helper, and /pc-tidy clears more leftovers.",
+  "summary": "Helpers that write code run Opus at high effort, which public tests show is as good as Fable for less.",
   "releases": {
+    "1.0.111": {
+      "kind": "setup",
+      "important": true,
+      "headline": "Code helpers on Opus at high effort: as good as Fable on public tests, for less usage"
+    },
     "1.0.110": {
       "kind": "setup",
       "important": true,

@@ -32,7 +32,7 @@ const READS = Number(process.env.REPEAT_GUARD_READS) || 4;
 const SAME = Number(process.env.REPEAT_GUARD_SAME) || 5;
 const SAME_WINDOW = 20; // the last calls of the turn that same-call counting looks at
 const EDIT_TOOLS = ["Edit", "Write"];
-const NEAR_CAP = { worker: 70, "worker-full": 70, "worker-high": 70, reviewer: 54, "plan-reviewer": 36, planner: 36, "rec-check": 6 }; // caps 80, 80, 80, 60, 40, 40, 8 in agents/
+const NEAR_CAP = { worker: 70, "worker-full": 70, "worker-code": 70, "worker-high": 70, reviewer: 54, "plan-reviewer": 36, planner: 36, "rec-check": 6 }; // caps 80, 80, 80, 80, 60, 40, 40, 8 in agents/
 
 const parts = (c) => (Array.isArray(c) ? c : []);
 const textOf = (c) => (typeof c === "string" ? c : parts(c).map((p) => p.text ?? "").join(" "));

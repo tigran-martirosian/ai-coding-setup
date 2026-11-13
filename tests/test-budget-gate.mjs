@@ -21,6 +21,7 @@ const cases = [
   ["worker-full 51: deny", ev("worker-full", "Budget: 51"), true],
   ["worker-high 51: deny", ev("worker-high", "Budget: 51"), true],
   ["worker-high 50: allow", ev("worker-high", "Budget: 50"), false],
+  ["worker-code 51: deny", ev("worker-code", "Budget: 51"), true],
   ["Task tool, worker 60: deny", ev("worker", "Budget: 60", "Task"), true],
   ["worker 50: allow", ev("worker", "Budget: 50 tool calls"), false],
   ["worker with no budget line: allow", ev("worker", "a one-off with no budget line"), false],

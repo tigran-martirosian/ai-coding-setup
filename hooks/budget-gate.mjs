@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// budget-gate: a PreToolUse hook on Agent/Task. A worker, worker-full or worker-high brief whose stated budget is over 50 tool calls
+// budget-gate: a PreToolUse hook on Agent/Task. A worker, worker-full, worker-code or worker-high brief whose stated budget is over 50 tool calls
 // is refused: a worker stops at 80 turns, and steps run over their estimate when they read code nobody summarised
 // (a step briefed at 70 calls used 115, built nothing on the first run, and refused the next step it was handed).
 // Over 50 = split the step in two. A brief with no number passes.
@@ -10,7 +10,7 @@ import { runHook, isMain, emit } from "./lib/hook-io.mjs";
 import { writeSync } from "node:fs";
 
 export const MAX = 50;
-const WORKER_TYPES = new Set(["worker", "worker-full", "worker-high"]);
+const WORKER_TYPES = new Set(["worker", "worker-full", "worker-code", "worker-high"]);
 
 // "Budget: 55", "**Budget (tool calls):** about 70", "budget of 40-60" (the higher end counts); not "150k" (context)
 const BUDGET = /budget(?:\s*\([^)]{0,20}\))?\W{0,4}(?:about\s+|around\s+|of\s+|~\s*|up to\s+)?(\d{1,4})(?:\s*(?:-|–|to)\s*(\d{1,4}))?(?![\dk])/gi;

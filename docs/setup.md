@@ -22,13 +22,14 @@ flowchart TD
 
 ## What I hand to each tool
 
-The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Opus at medium effort (Fable at medium for code, deep web research, charts, science or maths) and has a budget of tool calls. A quick web lookup stays with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
+The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Opus at medium effort (`worker-code` on Opus at high for code; Fable at medium for deep web research, charts, science or maths) and has a budget of tool calls. A quick web lookup stays with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
 
 | Tool | What I use it for | Limits I set |
 |---|---|---|
 | Claude Code in the Nimbalyst editor (the main session) | Planning a change with me, writing and editing the code, running the checks | It does what I asked and nothing else: no unrelated refactoring, no extra features |
 | `worker` subagent ([agents/worker.md](../agents/worker.md)) | Reading long files and logs, sweeping a project folder, a second opinion on a plan or a diff (about 15 tool calls, the answer is a lead that gets checked), one step of a bigger job, or routine edits that follow a clear plan | Medium effort, no `CLAUDE.md` loaded, and it stops after 80 turns. Its brief has to name the goal of the job, the files and the project commands it needs |
 | `worker-full` subagent ([agents/worker-full.md](../agents/worker-full.md)) | The same, for a step that needs a skill or an MCP tool | It loads every tool and the `CLAUDE.md` files, so it costs much more to start |
+| `worker-code` subagent ([agents/worker-code.md](../agents/worker-code.md)) | The same as `worker`, for a step that writes or changes code; a long refactor goes to `worker-high` | Opus at high effort; otherwise the same limits as `worker` |
 | `worker-high` subagent ([agents/worker-high.md](../agents/worker-high.md)) | The same as `worker`, for a long refactor that changes something code in other files depends on, or a long refactor step that failed its check on `worker`; a rename alone never counts | Fable at high effort, so each step costs far more; otherwise the same limits as `worker` |
 | `reviewer` subagent ([agents/reviewer.md](../agents/reviewer.md)) | One independent check of a finished bigger change, against the request and for quality | It reads files and changes nothing, stops after 60 turns, and one is enough |
 | `rec-check` subagent ([agents/rec-check.md](../agents/rec-check.md)) | A second look at a recommended option before a question reaches me | It reads files and changes nothing, stops after 8 turns, and answers keep or change |

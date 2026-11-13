@@ -37,7 +37,9 @@ check("body treats a steering brief as an opinion", /one opinion/.test(body));
 check("body: reads only the folder the brief names", /Read code only in those folders/.test(body));
 check("body: looks up map parts the brief missed", /map\.mjs --near/.test(body));
 check("body: lists the helpers with model and effort", ["`worker`", "`worker-full`", "`reviewer`", "Sonnet", "Opus"].every((s) => body.includes(s)));
-check("body: a Fable-medium worker row for code, deep web research, charts, science or maths", /\| `worker`, model `fable` \| Fable, medium \|[^\n]*code changes[^\n]*deep web research[^\n]*charts[^\n]*science or maths/.test(body));
+check("body: a Fable-medium worker row for deep web research, charts, science or maths, without code", /\| `worker`, model `fable` \| Fable, medium \|[^\n]*deep web research[^\n]*charts[^\n]*science or maths/.test(body)
+  && !/\| `worker`, model `fable` \|[^\n]*code/.test(body));
+check("body: a worker-code row on Opus at high for code changes", /\| `worker-code` \| Opus, high \|[^\n]*code changes/.test(body));
 check("body: a worker-high row on Fable at high for refactors", /\| `worker-high` \| Fable, high \|[^\n]*refactor/.test(body));
 check("body: security work stays off Fable", /Security work[^\n]*stays on Opus/.test(body));
 check("body: rows carry helper, runs and budget", /\| Helper \| Runs \| Budget \|/.test(body));

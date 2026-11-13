@@ -119,6 +119,7 @@ const cases = [
   ["worker at 69 turns: nothing", () => nearCap("worker", 69), false],
   ["worker-high at 70 turns: told to finish and report", () => nearCap("worker-high", 70), "close to your limit"],
   ["worker-high at 69 turns: nothing", () => nearCap("worker-high", 69), false],
+  ["worker-code at 70 turns: told to finish and report", () => nearCap("worker-code", 70), "close to your limit"],
   ["a compaction doesn't restart the count", () => nearCap("worker", 70, 1, 30), "close to your limit"],
   ["reviewer at 54 turns: told to finish and report", () => nearCap("reviewer", 54), "close to your limit"],
   ["reviewer at 53 turns: nothing (it reads every changed file whole)", () => nearCap("reviewer", 53), false],

@@ -73,6 +73,9 @@ check("plan-reviewer is a covered type", u && u.prompt.includes("## Dashboard sc
 u = updated(hook(dir, agent("Change Dashboard.tsx", "worker-high")));
 check("worker-high is a covered type", u && u.prompt.includes("## Dashboard screen [dashboard]"));
 
+u = updated(hook(dir, agent("Change Dashboard.tsx", "worker-code")));
+check("worker-code is a covered type", u && u.prompt.includes("## Dashboard screen [dashboard]"));
+
 u = updated(hook(dir, agent("Fix the rounding in src/billing/tax.js")));
 check("folder fallback: a file no thing lists, in a thing's folder, finds that thing", u && u.prompt.includes("## Invoice billing [billing]") && !u.prompt.includes("## User login"));
 u = updated(hook(dir, agent("Add a line to README.md about the install.")));
