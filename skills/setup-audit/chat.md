@@ -1,8 +1,3 @@
----
-name: chat-review
-description: Review the user's recent chats on this computer to see what they work on, where Claude got in the way (questions whose options missed, answers the user corrected or interrupted, requests they had to repeat, tools that failed) and which skills or tools are missing for that work, then show a tick list and set up only what the user ticks. Use when the user says "review my chats", "what am I missing", "fit the setup to my work", "find skills for my projects", or runs /chat-review (optional - a number of days, or a project name).
----
-
 # Chat review
 
 Fits the setup to what the user really does. A script and a free worker do the reading; you
@@ -12,7 +7,7 @@ goes into a rule, a skill or a web search, and no report is sent to anyone. The 
 reader besides you is the free worker that also reads long files (Codex from OpenAI, or Gemini from
 Google, whichever is set up): it reads the chat digests, so tell the user that before the scan.
 
-`$S` below is `.claude/skills/chat-review` in this folder.
+`$S` below is `~/.claude/skills/setup-audit/scripts`. Work from your `claude-settings` project folder: `DECISIONS.md` and `audits/` live there.
 
 ## 1. Scan
 
@@ -126,7 +121,7 @@ back or did not come up | chat label), then "seen, nothing to change".
 
 Reply short: what was set up and where, what was declined, and which of it needs a new chat (a rule
 in a `CLAUDE.md` is read when a chat starts; skills and hooks are picked up by running chats). Add
-one line to this folder's `DECISIONS.md` per change. Reply in the language the user writes in.
+one line to the setup project's `DECISIONS.md` per change. Reply in the language the user writes in.
 
 Budget: about 30 tool calls. The scan and the worker do the reading; you read only findings and the
 digest lines you check.

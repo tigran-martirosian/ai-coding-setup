@@ -1,9 +1,9 @@
-// Tests for skills/usage-report/shared-usage.mjs: the reading of `ccpool status`.
+// Tests for skills/setup-audit/scripts/shared-usage.mjs: the reading of `ccpool status`.
 // Run: node tests/test-shared-usage.mjs
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const SKILL = fileURLToPath(new URL("../skills/usage-report", import.meta.url));
+const SKILL = fileURLToPath(new URL("../skills/setup-audit/scripts", import.meta.url));
 const { parseStatus } = await import(pathToFileURL(path.join(SKILL, "shared-usage.mjs")).href);
 
 let pass = 0, fail = 0;

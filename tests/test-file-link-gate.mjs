@@ -11,7 +11,7 @@ const CWD = "C:\\Projects\\my project";
 const HOME = os.homedir().replace(/\\/g, "/").replace(/ /g, "%20");
 const run = (input, env = {}) => {
   const t0 = Date.now();
-  const r = spawnSync("node", [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", FILE_LINK_GATE: "", ...env } });
+  const r = spawnSync("node", [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", FILE_LINK_GATE: "", CLAUDE_CODE_ENTRYPOINT: "sdk-ts", ...env } });
   return { out: r.stdout, ms: Date.now() - t0 };
 };
 const reasonOf = (out) => { try { const j = JSON.parse(out); return j.decision === "block" ? j.reason : null; } catch { return null; } };
@@ -131,13 +131,19 @@ check("second stop passes (stop_hook_active)", stop(["See [x](docs/a.md)."], { i
 check("FILE_LINK_GATE=off passes", stop(["See [x](docs/a.md)."], {}, { FILE_LINK_GATE: "off" }).out === "");
 check("bad input fails open", run("not json").out === "");
 check("missing transcript fails open", run({ transcript_path: path.join(dir, "nope.jsonl"), cwd: CWD }).out === "");
-const remind = (input) => {
-  const r = spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify(input), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", FILE_LINK_GATE: "" } });
+// Outside an app (terminal: "cli", or no entrypoint at all) nothing is refused or reminded
+const BAD = { last_assistant_message: "See [x](docs/a.md).", cwd: CWD };
+check("terminal (entrypoint cli): a bad link is not refused", run(BAD, { CLAUDE_CODE_ENTRYPOINT: "cli" }).out === "");
+check("no entrypoint set: a bad link is not refused", run(BAD, { CLAUDE_CODE_ENTRYPOINT: "" }).out === "");
+check("an app entrypoint (sdk-cli) still refuses", !!reasonOf(run(BAD, { CLAUDE_CODE_ENTRYPOINT: "sdk-cli" }).out));
+const remind = (input, env = {}) => {
+  const r = spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify(input), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", FILE_LINK_GATE: "", CLAUDE_CODE_ENTRYPOINT: "sdk-ts", ...env } });
   try { return JSON.parse(r.stdout).hookSpecificOutput; } catch { return null; }
 };
 const rem = remind({ cwd: CWD, prompt: "hi" });
 check("--remind: UserPromptSubmit context with the project's own /C:/ example", rem?.hookEventName === "UserPromptSubmit" && rem.additionalContext.includes("(/C:/Projects/my%20project/docs/notes.md)"));
-check("--remind: never blocks, even with a bad link in the prompt", !/"decision"/.test(spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify({ cwd: CWD, prompt: "[x](docs/a.md)" }), encoding: "utf8" }).stdout));
+check("--remind: never blocks, even with a bad link in the prompt", !/"decision"/.test(spawnSync("node", [HOOK, "--remind"], { input: JSON.stringify({ cwd: CWD, prompt: "[x](docs/a.md)" }), encoding: "utf8", env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "sdk-ts" } }).stdout));
+check("--remind: silent in the terminal (entrypoint cli)", remind({ cwd: CWD, prompt: "hi" }, { CLAUDE_CODE_ENTRYPOINT: "cli" }) === null);
 check("no cwd: still blocks, says to use the absolute path", /absolute path/.test(reasonOf(run({ last_assistant_message: "See [x](docs/a.md)." }).out) || ""));
 const lines = [];
 for (let i = 0; i < 4000; i++) lines.push(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "x".repeat(1000) }] } }));

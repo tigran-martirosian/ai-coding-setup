@@ -13,6 +13,7 @@
 //      file, goes through with a short reminder as additional context. Exactly at that count only.
 //   3. Near the turn limit (never refuses): a helper isn't told its turn count, and one cut at its cap stops mid-work
 //      with no report. From the count in NEAR_CAP on, every call carries a note to finish and report.
+//      A reviewer's count grows with the job, read from its brief ("N files"): 20 + 2 per file past 10, at most 40.
 // Thresholds: REPEAT_GUARD_ERRORS (3), REPEAT_GUARD_EDITS (6), REPEAT_GUARD_READS (4).
 // In a subagent (agent_id set) the hook still gets the main session's transcript_path; it reads the
 // subagent's own transcript instead (transcript_path when that is already agent-*.jsonl, else
@@ -27,7 +28,7 @@ const EDITS = Number(process.env.REPEAT_GUARD_EDITS) || 6;
 const READS = Number(process.env.REPEAT_GUARD_READS) || 4;
 const CHUNK_BYTES = 2 * 1024 * 1024;
 const EDIT_TOOLS = ["Edit", "Write"];
-const NEAR_CAP = { worker: 70, "worker-full": 70, reviewer: 25, planner: 12, "rec-check": 6 }; // caps 80, 80, 30, 15, 8 in agents/
+const NEAR_CAP = { worker: 70, "worker-full": 70, reviewer: 25, planner: 12, "rec-check": 6 }; // caps 80, 80, 45, 15, 8 in agents/; a reviewer's number is only for a brief with no file count
 
 const parts = (c) => (Array.isArray(c) ? c : []);
 const textOf = (c) => (typeof c === "string" ? c : parts(c).map((p) => p.text ?? "").join(" "));
@@ -75,12 +76,30 @@ function readTurn(file, counts) {
   } finally { fs.closeSync(fd); }
 }
 
+// The first line of a helper's transcript is its brief. A reviewer's brief says how many files the job changed
+// ("this work changed 14 code files"): the biggest such number in it, or 0 when it names none.
+function briefFiles(transcript) {
+  const fd = fs.openSync(transcript, "r");
+  try {
+    const buf = Buffer.alloc(256 * 1024);
+    const first = buf.toString("utf8", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0];
+    const brief = JSON.parse(first);
+    const counts = [...textOf(brief.message?.content).matchAll(/\b(\d{1,3})\s+(?:\w+\s+)?files\b/gi)].map((m) => Number(m[1]));
+    return Math.max(0, ...counts);
+  } catch { return 0; } finally { fs.closeSync(fd); }
+}
+
+// A reviewer's budget grows with the job: 20 turns plus 2 for each file past 10, at most 40 (its cap in agents/ is 45).
+// A brief that names no file count keeps the flat NEAR_CAP number.
+const reviewerBudget = (files) => files ? Math.min(40, 20 + 2 * Math.max(0, files - 10)) : NEAR_CAP.reviewer;
+
 // Turns since the brief: one reply can make several calls, so each reply counts once
 function nearCap(transcript, entries) {
   const turns = new Set(entries.filter((j) => j.type === "assistant" && parts(j.message?.content).some((p) => p.type === "tool_use")).map((j) => j.message?.id)).size;
   if (turns < Math.min(...Object.values(NEAR_CAP))) return "";
   const type = JSON.parse(fs.readFileSync(transcript.replace(/\.jsonl$/, ".meta.json"), "utf8")).agentType;
-  if (!NEAR_CAP[type] || turns < NEAR_CAP[type]) return "";
+  const limit = type === "reviewer" ? reviewerBudget(briefFiles(transcript)) : NEAR_CAP[type];
+  if (!limit || turns < limit) return "";
   return `[repeat-guard] You have used ${turns} turns and are close to your limit. Finish the edit in hand, then stop and write your report: what is done, what is left and why. A helper cut at its limit returns nothing.`;
 }
 

@@ -123,6 +123,16 @@ const POINTS = new RegExp([
   String.raw`\bwhat I(?:'ve| have)? (?:built|made|wrote|drew|changed|put together)\b`,
   String.raw`\b(?:the|this|my) (?:new |updated |first )?mockups?\b`, // not "draft" or "preview": often inside the form or not made yet
 ].join("|"), "i"); // not "looks right?" or "take a look": often about a plan written in the chat itself
+// Russian twins of POINTS and NOT_TO_LOOK (`--language russian`). \b does not see Cyrillic: u flag and lookarounds.
+const RU_NOUN = String.raw`(?:страниц\p{L}*|файл\p{L}*|документ\p{L}*|черновик\p{L}*|макет\p{L}*|превью|картинк\p{L}*|фото\p{L}*|изображени\p{L}*|скриншот\p{L}*|отч[её]т\p{L}*|видео|верси\p{L}*|сайт\p{L}*|html)`;
+const RU_LOOK = String.raw`(?:посмотрите|посмотри|взгляните|взгляни|откройте|открой|проверьте|проверь|прочитайте|прочти|просмотрите|просмотри|пролистайте|пролистай|ознакомьтесь с|протестируйте|протестируй|попробуйте|попробуй)`;
+const RU_POINTS = new RegExp([
+  String.raw`(?<!\p{L})(?:посмотрите|посмотри|взгляните|взгляни)\s+(?:на\s+)?(?:него|неё|нее|это|них|эти)(?!\p{L})`,
+  String.raw`(?<!\p{L})${RU_LOOK}\s+(?:на\s+)?(?:эту|этот|это|эти|мою|мой|моё|мое|мои|ваш\p{L}*|его|её|ее|их)(?:\s+[\p{L}-]+){0,2}?\s+${RU_NOUN}(?!\p{L})`,
+  String.raw`(?<!\p{L})то, что я (?:сделал|сделала|собрал|собрала|написал|написала|нарисовал|нарисовала|изменил|изменила)(?!\p{L})`,
+  String.raw`(?<!\p{L})(?:этот|мой|новый|обновл[её]нный)\s+макет(?!\p{L})`,
+].join("|"), "iu");
+const RU_NOT_TO_LOOK = /(?<!\p{L})(?:из|как|(?:добавлено|записано|сохранено|скопировано|перенесено|попадут|попадёт|попадет|идут|пойдут) в)\s*[(`"'\[]?\s*$/iu;
 const PATH = /(?:^|[\s(:"'`\[])((?:[A-Za-z]:|~)?[\\/]?(?:[\w.\-]+[\\/])*[\w\-]+\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|mp4|docx?|xlsx?|pptx?|csv))\b/gi;
 const NOTES = /(?:^|[\\/])(?:decisions|claude|handoff|memory)(?:\.md$|[\\/])/i; // where answers get written, not something to look at
 // "goes into x.md", "added to x.md", "save it as `x.png`", "counts are from x.xlsx"
@@ -146,10 +156,11 @@ const formText = (input, fields, withDrafts = false) => {
 // What in the form sends the user to look at something: { text, file } (file: a local path), or null
 export function pointer(input, fields) {
   const text = formText(input, fields);
-  const phrase = text.match(POINTS);
+  const phrase = text.match(POINTS) || text.match(RU_POINTS);
   if (phrase) return { text: phrase[0], file: false };
   const path = [...text.matchAll(PATH)].find((m) =>
-    !NOTES.test(m[1]) && !NOT_TO_LOOK.test(text.slice(Math.max(0, m.index - 30), m.index + m[0].length - m[1].length)));
+    !NOTES.test(m[1]) && !NOT_TO_LOOK.test(text.slice(Math.max(0, m.index - 30), m.index + m[0].length - m[1].length)) &&
+    !RU_NOT_TO_LOOK.test(text.slice(Math.max(0, m.index - 30), m.index + m[0].length - m[1].length)));
   return path ? { text: path[1], file: true } : null;
 }
 

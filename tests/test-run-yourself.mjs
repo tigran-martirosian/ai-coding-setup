@@ -142,6 +142,23 @@ check("vague fires: a timing clause is not a value only they hold (notes)", vagu
 check("vague fires: 'If you want it live, send the message'", vague(msg("### Needs you\n- If you want it live, send the message to the other chat.")));
 check("vague silent: their own message sent again", msg("### Needs you\n- Send the Dashboard message to the bot again. You should get a \"Text to send\" preview.") === "");
 
+// Russian (`--language russian`): the same checks on Russian text
+check("ru fires: 'Откройте терминал и выполните' + block", blocks(msg("Вход в NotebookLM устарел.\n\nОткройте терминал и выполните:\n\n```\nuvx --from notebooklm-py notebooklm login --browser chrome\n```\n\nПотом скажите мне, когда готово.")));
+check("ru fires: 'вам нужно запустить' + inline code", blocks(msg("Чтобы закончить, вам нужно запустить `python ask.py --preflight`.")));
+check("ru fires: 'скопируйте и вставьте' + inline code", blocks(msg("Скопируйте и вставьте в консоль: `npm run dev -- --port 3001`")));
+check("ru silent: slash command", msg("Чтобы переключить модель, введите `/model opus`.") === "");
+check("ru silent: terminal named, no command", msg("Откройте вкладку терминала в Studio, если хотите смотреть логи.") === "");
+check("ru silent: attempt already failed", msg("Я пробовал, и это не сработало. Откройте терминал и выполните:\n```\nnotebooklm login\n```") === "");
+check("ru silent: needs a password", msg("Откройте терминал и выполните, потребуется пароль:\n```\nnotebooklm login --browser chrome\n```") === "");
+check("ru silent: a command for the user's friend", msg("Скажите вашему другу: откройте терминал и выполните `npm install -g tool`.") === "");
+check("ru silent: a secret typed into the user's own machine", msg("Откройте терминал и выполните, подставив вместо плейсхолдера ваш ключ: `setx KEY <ваш ключ>`") === "");
+check("ru handover: a prompt to paste into another project's session is stopped once", handover(msg("Хэндофф записан.\n\n### Нужно от вас\n\n- Вставьте это в новую сессию в окне проекта other-project:\n\n```\n" + PROMPT + "\n```\n\n  Сначала должен открыться файл хэндоффа.")));
+check("ru handover silent: the user asked for a handoff", msg("Вставьте это в новую сессию в окне проекта other-project:\n```\n" + PROMPT + "\n```", { transcript_path: (() => { const f = path.join(dir, "ru-handoff.jsonl"); fs.writeFileSync(f, JSON.stringify({ type: "user", message: { role: "user", content: "сделай хэндофф" } }) + "\n"); return f; })() }) === "");
+check("ru vague fires: 'Отправьте промпт' names a prompt", vague(msg("### Нужно от вас\n- Отправьте промпт в новую сессию.")));
+check("ru vague fires: 'Скажите новой сессии' with no text", vague(msg("### Нужно от вас\n- Когда будет минута, скажите новой сессии прочитать заметки.")));
+check("ru vague silent: the exact text is in a code block", msg("### Нужно от вас\n- Отправьте промпт в новую сессию:\n```\nПрочитай notes.md и продолжай работу\n```") === "");
+check("ru vague silent: a value only the user knows", msg("### Нужно от вас\n- Пароль от почты, когда захотите включить рассылку.") === "");
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

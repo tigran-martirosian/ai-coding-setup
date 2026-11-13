@@ -18,6 +18,64 @@
 // Fails open. RUN_YOURSELF=off disables it.
 import fs from "node:fs";
 
+// Russian twins of the English patterns below (for `--language russian`). \b does not see Cyrillic letters,
+// so these use the u flag, and « » stand for "no letter on this side". Each RU_ regex sits next to the
+// English one it mirrors and is OR-ed in where the English one is used; the English patterns are untouched.
+const ru = (src, flags = "iu") => new RegExp(src.replace(/«/g, "(?<!\\p{L})").replace(/»/g, "(?!\\p{L})"), flags);
+const RU_RUN = "(?:запусти|запустите|вставь|вставьте|введи|введите|выполни|выполните|набери|наберите)";
+const RU_TERM = String.raw`(?:терминал\p{L}*|powershell|командн\p{L}+\s+строк\p{L}*|cmd|консол\p{L}*|шелл\p{L}*|оболочк\p{L}*)`;
+const RU_TRIGGERS = [
+  ru(String.raw`«(?:открой|откройте|запусти|запустите|используй|используйте)\s+(?:(?:новый|свой|ваш|любой)\s+)?${RU_TERM}»`),
+  ru(String.raw`«${RU_RUN}»[^.\n]{0,60}«(?:в|во|на|из)\s+(?:(?:новом|новой|своём|своем|вашем|любом|отдельном)\s+)?${RU_TERM}»`),
+  ru(String.raw`«(?:вам|тебе|вы|ты)\s+(?:(?:нужно|надо|необходимо|следует|стоит|придётся|придется|можно)(?:\s+будет)?|можете|можешь|должны|должен|сможете|сможешь)\s+(?:(?:самим|самому|сами|сам)\s+)?(?:запустить|выполнить|вставить|ввести|набрать)»`),
+  ru(String.raw`«(?:пожалуйста|просто|теперь|затем|потом|сначала|тогда)»[\s,]+«${RU_RUN}»`),
+  ru(String.raw`«${RU_RUN}\s+(?:это|эту|эти|следующ\p{L}+|вот\s+это|вот\s+эту|вот\s+эти)»`),
+  ru(String.raw`«${RU_RUN}\s+(?:его|её|ее|их)\s+сам\p{L}*»`),
+  ru(String.raw`«скопиру\p{L}*\s+и\s+вставь\p{L}*»`),
+];
+const RU_EXEMPT = ru(String.raw`«я\s+(?:уже\s+)?(?:пробовал|пробовала|попробовал|попробовала|запускал|запускала|пытался|пыталась)»|«мо(?:я|ей|ю)\s+(?:собственн\p{L}+\s+)?попытк\p{L}*»|«(?:это|эта|этот|оно|она|он)\s+(?:не\s+сработал\p{L}*|не\s+удал\p{L}*|завершил\p{L}*\s+(?:с\s+)?ошибк\p{L}*|упал\p{L}*|провалил\p{L}*)»|«(?:заблокирован|отклонён|отклонен|запрещён|запрещен)\p{L}*»|«парол\p{L}*»|«от\s+имени\s+администратора»|«права\s+администратора»|«повышенн\p{L}+\s+(?:прав\p{L}*|привилег\p{L}*)»|«отказано\s+в\s+доступе»|«(?:разреши|разрешите|одобри|одобрите|подтверди|подтвердите)\s+(?:его|это|её|ее|эту|этот|запрос|вызов)[^.\n]{0,40}«(?:повтор\p{L}*|ещё\s+раз|еще\s+раз|снова|заново)»`);
+const RU_SECRET_NOUN = String.raw`(?:api[ -]?ключ\p{L}*|ключ\p{L}*|секрет\p{L}*|парол\p{L}*|кодов\p{L}+\s+фраз\p{L}*|токен\p{L}*|код\s+подтверждения|одноразов\p{L}+\s+код|2FA(?:\s+код)?|пин-код\p{L}*|учётн\p{L}+\s+данн\p{L}*|учетн\p{L}+\s+данн\p{L}*)`;
+const RU_SECRET_VERB = "(?:введи|введите|ввести|вставь|вставьте|вставить|впиши|впишите|вписать|подставь|подставьте|подставить|замени|замените|заменить|укажи|укажите|указать|набери|наберите|предоставь|предоставьте)";
+const RU_SECRET_IN_CODE = ru(String.raw`<[^<>\n]*«(?:api[ -]?ключ\p{L}*|ключ\p{L}*|токен\p{L}*|секрет\p{L}*|парол\p{L}*|код|пин)»[^<>\n]*>|«ваш\p{L}*\s+(?:api[-_ ]?)?(?:ключ|токен|секрет|пароль)»`);
+const RU_SECRET_BESIDE = ru(String.raw`«${RU_SECRET_VERB}»[^.\n]{0,40}«${RU_SECRET_NOUN}»|«${RU_SECRET_NOUN}»[^.\n]{0,40}«(?:вместо|плейсхолдер\p{L}*|подставьте|подставь|где\s+написано)»`);
+const RU_PERSON_NOUN = "(?:друг|друга|другу|другом|друге|друзья|друзей|друзьям|подруга|подруги|подруге|коллега|коллеги|коллеге|коллегам|клиент|клиента|клиенту|заказчик|заказчика|человек|человека|человеку|кто-то|кто-нибудь|напарник|напарника)";
+const RU_PLACE = "(?:компьютер|ноутбук|машин|терминал|проект|сесси|окн|чат)";
+const RU_OTHER_PERSON = ru([
+  String.raw`«(?:он|она)»\s+(?:открыва|запуска|вставля|вводи|набира|использу)\p{L}*»`,
+  String.raw`«${RU_PERSON_NOUN}»[\s\S]{0,200}?«они»\s+(?:открыва|запуска|вставля|вводя|набира|использу|смогут|должны|могут|будут)\p{L}*»`,
+  String.raw`«(?:отправь|отправьте|попроси|попросите|передай|передайте|перешли|перешлите)»\s+(?:ему|ей)»`,
+  String.raw`«(?:друга|подруги|коллеги|клиента|заказчика)»\s+(?:(?:на|в)\s+)?(?:собственн\p{L}+\s+)?${RU_PLACE}\p{L}*»`,
+  String.raw`«${RU_PLACE}\p{L}*\s+(?:друга|подруги|коллеги|клиента|заказчика|другого\s+человека)»`,
+  String.raw`«(?:ваш\p{L}{0,3}|твой|твоего|твоему|твоим|твоей|твоя)\s+(?:друг|друга|другу|другом|друзья|друзей|друзьям|подруг\p{L}{0,2}|коллег\p{L}{0,2})»`,
+].join("|"));
+const RU_FOR_THIS_CHAT = ru(String.raw`«(?:в|во|на)\s+(?:этот|этом|этого|этому|эту|текущий|текущем|текущую)\s+(?:чат\p{L}*|сесси\p{L}*|разговор\p{L}*|диалог\p{L}*)[^.\x60]{0,30}$`);
+const RU_SHOWN_OUTPUT = ru(String.raw`«(?:увидите|увидишь|видите|покажет|показывает|выведет|выводит|напечатает|печатает|вернёт|вернет|возвращает|выдаст|выдаёт|выдает|вывод|результат|ответ)»\s*:?\s*$`);
+const RU_REFUSE = "(?:отклон\\p{L}*|отказ\\p{L}*|заблокир\\p{L}*|запрет\\p{L}*|запрещ\\p{L}*)";
+const RU_GATE = "(?:разрешени\\p{L}*|хук(?:и|ов|а|у|ом|е)?|песочниц\\p{L}*|классификатор\\p{L}*|вызов\\p{L}*\\s+инструмент\\p{L}*|автоматическ\\p{L}+\\s+режим\\p{L}*)";
+const RU_PERM_REFUSED = ru(`«${RU_GATE}»[^.\\n]{0,80}«${RU_REFUSE}»|«${RU_REFUSE}»[^.\\n]{0,60}«${RU_GATE}»`);
+const ruOnlyTheUser = (c, near, before) =>
+  RU_SECRET_IN_CODE.test(c.code) || RU_SECRET_BESIDE.test(near) || RU_OTHER_PERSON.test(near) ||
+  RU_FOR_THIS_CHAT.test(before) || RU_SHOWN_OUTPUT.test(before) || RU_PERM_REFUSED.test(near);
+const RU_SESSION_WORD = String.raw`(?:сесси\p{L}*|чат\p{L}*)`;
+const ruForOtherProject = (around) =>
+  ru(RU_SESSION_WORD).test(around) && ru(String.raw`«(?:окн\p{L}*|проект\p{L}*|рабоч\p{L}+\s+(?:област\p{L}*|пространств\p{L}*))»`).test(around) &&
+  !ru(`«${RU_TERM}»`).test(around);
+// "Needs you" items (the section heading in Russian) and what makes one vague
+const RU_NEEDS_YOU = ru(String.raw`(?:^|\n)[ \t>]*(?:#{1,6}[ \t]*|[-*][ \t]+)?(?:\*\*|__)?(?:(?:что\s+)?(?:нужно|надо|требуется)\s+от\s+(?:вас|тебя)|от\s+(?:вас|тебя)\s+(?:нужно|требуется|надо))»`);
+const RU_VAGUE = [
+  { re: ru(String.raw`«(?:скажи|скажите|попроси|попросите|прикажи|укажи|укажите)\s+(?:ей|ему|им|(?:(?:новой|другой|свежей)\s+)?(?:сессии|чату|агенту|модели)|Claude)»`) },
+  { re: ru(String.raw`«(?:отправь|отправьте|вставь|вставьте|дай|дайте|передай|передайте|перешли|перешлите)\s+(?:(?:ему|ей)\s+)?(?:(?:этот|эту|это|свой|ваш\p{L}*|следующ\p{L}*)\s+)?(?:\p{L}+\s+)?(?:handoff|хэндофф\p{L}*|хендофф\p{L}*|бриф\p{L}*|промпт\p{L}*|prompt|сообщени\p{L}*|инструкци\p{L}*|текст\p{L}*|команд\p{L}*|заметк\p{L}*)»`) },
+  { re: ru(String.raw`«(?:запусти|выполни|введи|набери|используй)(?:те)?\s+(?:(?:эту|эти|ту|вашу|ваш|свою|ее|её|его)\s+)?(?:[\p{L}-]+\s+){0,2}(?:команд|скрипт|запрос|однострочник)\p{L}*»`) },
+  { re: ru(String.raw`«(?:введи|вставь|задай|впиши|укажи)(?:те)?\s+(?:(?:это|эту|этот|нужн\p{L}+|своё|свое|свой|следующ\p{L}+)\s+)?(?:[\p{L}-]+\s+){0,2}(?:значени\p{L}*|настройк\p{L}*|поисков\p{L}+\s+(?:запрос|текст|фраз\p{L}*)|запрос\p{L}*|текст\p{L}*|url|адрес\p{L}*|путь|пут[ьи]\p{L}*|имя|имен\p{L}*)»`), anyCode: true },
+];
+const RU_SECRET = ru(String.raw`«(?:парол\p{L}*|секрет\p{L}*|токен\p{L}*|api[\s-]?ключ\p{L}*|ключ\s+api|код\s+подтверждения|одноразов\p{L}+\s+код|2FA|пин-код\p{L}*)»`);
+const RU_RESEND = ru(String.raw`«(?:отправь|отправьте|пришли|пришлите|повтори|повторите|напиши|напишите)»[^.\n]{0,40}«(сообщени\p{L}*|запрос\p{L}*)»[^.\n]{0,30}«(?:ещё\s+раз|еще\s+раз|снова|заново|повторно)»`);
+const RU_THEIRS = ru(String.raw`^[\s>*_#\-+\d.)]*[^.\n:;,]{1,60},\s*«(?:когда|если)\s+(?:вы\s+|ты\s+)?(?:захотите|захочешь|хотите|хочешь|решите|решишь|знаете|знаешь|выберете|выберешь)»|«(?:вы|ты)\s+(?:предпочтёте|предпочтете|предпочтешь|предпочитаете|предпочитаешь)»|«только\s+(?:вы|ты)\s+(?:знаете|знаешь|имеете|имеешь)»|«только\s+у\s+(?:вас|тебя)\s+есть»`);
+const RU_CLAUDE_WRITES = ru(String.raw`«(?:handoff|хэндофф\p{L}*|хендофф\p{L}*|бриф\p{L}*|промпт\p{L}*|команд\p{L}*|скрипт\p{L}*|запрос\p{L}*|инструкци\p{L}*|сообщени\p{L}*|текст\p{L}*|заметк\p{L}*)»`);
+const RU_NEEDS_SESSION = ru(String.raw`«(?:нужн\p{L}*|требу\p{L}*|необходим\p{L}*|работает\s+только|загружается\s+только|запускается\s+только)»[^.\n]{0,100}«(?:сесси\p{L}*|навык\p{L}*|скилл\p{L}*|хук(?:и|ов|а)?|mcp|плагин\p{L}*)»`);
+const RU_HAND_VERB = ru(String.raw`«(?:вставь\p{L}*|вставля\p{L}*|введи\p{L}*|набери\p{L}*|отправь\p{L}*|отправля\p{L}*|дай\p{L}*|передай\p{L}*|скопируй\p{L}*)»`);
+const RU_ASKED_FOR_HANDOFF = ru(String.raw`«(?:хэндофф|хендофф|хэнд-офф|хенд-офф)\p{L}*»|«(?:что|какой|какую|какие|как)»[^.?!\n]{0,80}«(?:сказать|написать|вставить|отправить|ввести|промпт\p{L}*|передать)»[^.?!\n]{0,60}«(?:нов\p{L}+|друг\p{L}+|отдельн\p{L}+|свеж\p{L}+)\s+(?:сесси\p{L}*|чат\p{L}*|окн\p{L}*|разговор\p{L}*)»`);
+
 const REASON =
   "You told the user to run a command. Run it yourself now; hand it over only if your own attempt failed, or it needs a password only they can type.";
 const REASON_VAGUE =
@@ -68,7 +126,7 @@ const onlyTheUser = (text, c) => {
   const before = text.slice(Math.max(0, c.at - 120), c.at);
   return SECRET_IN_CODE.test(c.code) || SECRET_BESIDE.test(near) || PIN_BESIDE.test(near) || OTHER_PERSON.test(near) ||
     FOR_THIS_CHAT.test(before) || /\b(?:see|shows?|prints?|says?|reads?|returns?|displays?|output)\s*:?\s*$/i.test(before) || // output shown, not a command
-    PERM_REFUSED.test(near) || SKILL_PROMPT.test(c.code);
+    PERM_REFUSED.test(near) || SKILL_PROMPT.test(c.code) || ruOnlyTheUser(c, near, before);
 };
 
 const codeCandidates = (text) => {
@@ -85,8 +143,8 @@ const shellLike = (c) =>
 // The text around the code says it goes into a session or chat in another project's window, not a terminal
 const forOtherProject = (text, c) => {
   const around = text.slice(Math.max(0, c.at - 300), c.at) + " " + text.slice(c.at + c.code.length, c.at + c.code.length + 200);
-  return /\b(session|chat)\b/i.test(around) && /\b(window|project|workspace)\b/i.test(around) &&
-    !/\b(terminal|powershell|command prompt|cmd|shell|console)\b/i.test(around);
+  return (/\b(session|chat)\b/i.test(around) && /\b(window|project|workspace)\b/i.test(around) &&
+    !/\b(terminal|powershell|command prompt|cmd|shell|console)\b/i.test(around)) || ruForOtherProject(around);
 };
 
 // "Needs you" items that hand over typing or pasting without the text. anyCode: a one-word code span is enough (a value)
@@ -109,7 +167,13 @@ const CLAUDE_WRITES = /\b(?:handoff|brief|prompt|command|script|query|instructio
 // Their own earlier message sent again: judged on the sentence it sits in, without the noun it names
 const resendIsTheirs = (item) => {
   const m = RESEND.exec(item);
-  if (!m) return false;
+  if (!m) {
+    const r = RU_RESEND.exec(item);
+    if (!r) return false;
+    const beforeRu = item.slice(0, r.index).split(/[.!?\n]/).pop();
+    const afterRu = item.slice(r.index + r[0].length).split(/[.!?\n]/)[0];
+    return !RU_CLAUDE_WRITES.test(beforeRu + " " + r[0].replace(r[1], " ") + " " + afterRu);
+  }
   const before = item.slice(0, m.index).split(/[.!?\n]/).pop();
   const after = item.slice(m.index + m[0].length).split(/[.!?\n]/)[0];
   return !CLAUDE_WRITES.test(before + " " + m[0].replace(new RegExp(`\\b${m[1]}\\b`, "i"), " ") + " " + after);
@@ -117,7 +181,7 @@ const resendIsTheirs = (item) => {
 
 // The "Needs you" section split into its top-level items (text before the first bullet is an item too)
 const needsYouItems = (text) => {
-  const m = /(?:^|\n)[ \t>]*(?:#{1,6}[ \t]*|[-*][ \t]+)?(?:\*\*|__)?needs you\b/i.exec(text);
+  const m = /(?:^|\n)[ \t>]*(?:#{1,6}[ \t]*|[-*][ \t]+)?(?:\*\*|__)?needs you\b/i.exec(text) || RU_NEEDS_YOU.exec(text);
   if (!m) return [];
   let section = text.slice(m.index + m[0].length);
   const end = section.search(/\n#{1,6}[ \t]/);
@@ -135,20 +199,20 @@ const needsYouItems = (text) => {
 export const vagueNeedsYou = (text) => {
   if (!text) return false;
   return needsYouItems(text).some((item) => {
-    if (SECRET.test(item)) return false;
-    if (resendIsTheirs(item) || (THEIRS.test(item) && !CLAUDE_WRITES.test(item))) return false;
+    if (SECRET.test(item) || RU_SECRET.test(item)) return false;
+    if (resendIsTheirs(item) || ((THEIRS.test(item) || RU_THEIRS.test(item)) && !(CLAUDE_WRITES.test(item) || RU_CLAUDE_WRITES.test(item)))) return false;
     const prose = item.replace(/```[\s\S]*?(```|$)/g, " ").replace(/`[^`\n]+`/g, " ");
     const codes = codeCandidates(item).map((c) => c.code).filter(Boolean);
     const exact = codes.some((c) => /\s/.test(c) || c.startsWith("/"));
-    return VAGUE.some((v) => v.re.test(prose) && !(v.anyCode ? codes.length : exact));
+    return [...VAGUE, ...RU_VAGUE].some((v) => v.re.test(prose) && !(v.anyCode ? codes.length : exact));
   });
 };
 
 export const asksUserToRun = (text) => {
-  if (!text || EXEMPT.test(text)) return false;
+  if (!text || EXEMPT.test(text) || RU_EXEMPT.test(text)) return false;
   const codes = codeCandidates(text).filter((c) => shellLike(c.code) && !forOtherProject(text, c) && !onlyTheUser(text, c));
   if (!codes.length) return false;
-  for (const re of TRIGGERS) {
+  for (const re of [...TRIGGERS, ...RU_TRIGGERS]) {
     const m = re.exec(text);
     if (!m) continue;
     const from = m.index - 100, to = m.index + m[0].length + 300;
@@ -167,10 +231,11 @@ const NEEDS_SESSION =
 const SKILL_PROMPT = /\bcontinue the work from\s+["“”']?Where we are\b/i;
 
 export const handsOverPrompt = (text) => {
-  if (!text || NEEDS_SESSION.test(text) || OTHER_PERSON.test(text)) return false;
+  if (!text || NEEDS_SESSION.test(text) || RU_NEEDS_SESSION.test(text) || OTHER_PERSON.test(text) || RU_OTHER_PERSON.test(text)) return false;
   return codeCandidates(text).some((c) => {
     if (!shellLike(c.code) || !forOtherProject(text, c) || SKILL_PROMPT.test(c.code)) return false;
-    return /\b(paste|type|send|give)\b/i.test(text.slice(Math.max(0, c.at - 300), c.at));
+    const lead = text.slice(Math.max(0, c.at - 300), c.at);
+    return /\b(paste|type|send|give)\b/i.test(lead) || RU_HAND_VERB.test(lead);
   });
 };
 
@@ -189,7 +254,7 @@ const lastUserText = (transcriptPath) => {
 };
 // The user asked for the handoff, or asked what exactly to tell or paste into the new session
 const ASKED_FOR_TEXT = /\b(?:what|which|how)\b[^.?!\n]{0,80}\b(?:tells?|say|says|paste|send|type|prompt|write)\b[^.?!\n]{0,60}\b(?:new|another|other|fresh|separate)\s+(?:session|chat|window|conversation)\b/i;
-export const askedForHandoff = (t) => /\bhand[\s-]?off\b/i.test(t) || ASKED_FOR_TEXT.test(t);
+export const askedForHandoff = (t) => /\bhand[\s-]?off\b/i.test(t) || ASKED_FOR_TEXT.test(t) || RU_ASKED_FOR_HANDOFF.test(t);
 const userAskedForHandoff = (input) => {
   try { return askedForHandoff(lastUserText(input.transcript_path)); } catch { return false; }
 };

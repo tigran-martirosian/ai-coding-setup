@@ -128,6 +128,45 @@ check("--replace-rules takes the new rules and keeps the user's as a dated copy"
   taken.code === 0 && fs.readFileSync(myRules, "utf8").includes("A rule from the newer version.") && !fs.readFileSync(myRules, "utf8").includes("- My own rule.")
   && copies.some((f) => fs.readFileSync(path.join(mine, ".claude", f), "utf8").includes("- My own rule.")));
 
+// ---- the closing list: what stays behind this version, with the line that takes it
+check("an update ends with the list of what stays on old versions, each with its --replace line",
+  /Yours, on old versions/.test(keptMine.out) && keptMine.out.includes("hooks/sql-guard.mjs: node ") && /--replace "?hooks\/sql-guard\.mjs"?/.test(keptMine.out)
+  && /the rules \(CLAUDE\.md\): node [^\n]*--replace-rules/.test(keptMine.out));
+check("a run with nothing left behind prints no such list", !/Yours, on old versions/.test(taken.out));
+// the printed line is run as it stands, on a home of its own
+const listHome = path.join(tmp, "list-home");
+spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", listHome, "--codex", "no", "--agy", "no"], { encoding: "utf8" });
+const listHook = path.join(listHome, ".claude", "hooks", "sql-guard.mjs");
+fs.appendFileSync(listHook, "\n// my own change\n");
+const listed = (await update(listHome)).out.split("\n").find((l) => l.includes("hooks/sql-guard.mjs: node "));
+const listedRun = spawnSync(listed.slice(listed.indexOf(": node ") + 2), { shell: true, encoding: "utf8", env: { ...process.env, PATH: path.dirname(process.execPath) + path.delimiter + (process.env.PATH || "") } });
+check("the printed --replace line works as it stands: it takes this version's hook",
+  fs.readFileSync(listHook, "utf8").includes("// my own change") === false && listedRun.status === 0);
+
+// ---- a friend from before 1.0.74 on sonnet moves to Opus medium, loudly; --keep-model undoes it
+const oldHome = (name, model) => {
+  const h = path.join(tmp, name);
+  spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", h, "--codex", "no", "--agy", "no"], { encoding: "utf8" });
+  const stateFileOld = path.join(h, ".claude", "setup-state.json");
+  fs.writeFileSync(stateFileOld, JSON.stringify({ ...json(stateFileOld), version: "1.0.70" }));
+  const sf = path.join(h, ".claude", "settings.json");
+  const s = json(sf);
+  delete s.modelSettings;
+  s.model = model;
+  fs.writeFileSync(sf, JSON.stringify(s));
+  return { h, settings: () => json(sf), state: () => json(stateFileOld) };
+};
+const sonnetHome = oldHome("sonnet-old", "sonnet");
+const moved = await update(sonnetHome.h);
+check("an update from 1.0.70 moves sonnet to Opus medium and says so with the undo",
+  moved.code === 0 && sonnetHome.settings().model === "opus" && Object.values(sonnetHome.settings().modelSettings || {}).some((m) => m.effortLevel === "medium")
+  && /MODEL CHANGED/.test(moved.out) && /--keep-model/.test(moved.out) && sonnetHome.state().model === "moved");
+const keptSonnet = oldHome("sonnet-keep", "sonnet");
+const keptRun = await update(keptSonnet.h, "--keep-model");
+check("--keep-model through the updater keeps sonnet and records it", keptRun.code === 0 && keptSonnet.settings().model === "sonnet" && !/MODEL CHANGED/.test(keptRun.out) && keptSonnet.state().model === "kept");
+const otherHome = oldHome("other-model", "opus");
+check("a friend on another model is not moved", (await update(otherHome.h)).code === 0 && otherHome.settings().model === "opus" && !otherHome.state().model);
+
 // ---- what stops an update leaves the setup as it was
 released = { version: "9.9.10" };
 const noArchive = await update(home);

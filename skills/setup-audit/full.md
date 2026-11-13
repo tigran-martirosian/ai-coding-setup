@@ -1,12 +1,7 @@
----
-name: full-review
-description: One review of how the work with Claude went over the last days - where the usage went, how the work was split between models and agents, where the reasoning and the chats went wrong, what took too long or was answered too fast, what keeps failing - ending in a list of measured options (another split between models, more work for helpers, a plugin or skill to add, a setup change, a fix) from which the user ticks what to do. Use when the user says "full review", "review everything", "review how we work", "what should we change", "why is this so inefficient", or runs /full-review (optional - a number of days, or a project name).
----
-
 # Full review
 
-The one review that ends in choices. `/usage-report` gives numbers only, `/setup-audit` checks that the
-setup is healthy, `/chat-review` fits skills to the work; this runs their scanners together, adds what
+The one review that ends in choices. `/setup-audit usage` gives numbers only, `/setup-audit` checks that the
+setup is healthy, `/setup-audit chat` fits skills to the work; this runs their scanners together, adds what
 they don't measure, and turns the result into options with a number behind each.
 
 Scripts and a free worker do the reading; you judge and ask. **Change nothing until the user has
@@ -14,7 +9,7 @@ ticked it.** Never open chat records yourself. The free worker (Gemini or Codex,
 reads the chat digests: say so before step 3. No sentence from a chat goes into a rule, a skill, a web
 search or the report.
 
-`$S` is `.claude/skills/full-review`, `$C` is `.claude/skills/chat-review`, both in this folder. Days
+`$S` is `~/.claude/skills/setup-audit/scripts`. Work from your `claude-settings` project folder: `audits/`, `DECISIONS.md` and `HANDOFF.md` live there. Days
 default to 7; pass the user's `--days N` or `--project <name>` to all three scanners.
 
 ## 1. Last time
@@ -30,7 +25,7 @@ first day a measurement makes sense.
 
 ## 2. Numbers (one shell call)
 
-`bash $S/numbers.sh --days N` runs `~/.claude/skills/usage-report/usage-scan.mjs` and
+`bash $S/numbers.sh --days N` runs `~/.claude/skills/setup-audit/scripts/usage-scan.mjs` and
 `$S/review-scan.mjs` and writes both reports to `audits/review-<date>-numbers.md` (`-2-numbers` when the
 day already has one; it prints the name). Read that file
 (about 250 lines) in two parts.
@@ -51,14 +46,14 @@ run the scanner again with other options (`--project`, `--top`, usage-scan's `--
 
 ## 3. Chats (start it, then go on with step 4)
 
-`node $C/chat-scan.mjs --days N`, then `node $C/read-digests.mjs <digest folder>` in the background
+`node $S/chat-scan.mjs --days N`, then `node $S/read-digests.mjs <digest folder>` in the background
 (timeout 600000). It writes `<project>.findings.md` next to each digest. Headings B (went wrong),
 C (questions that missed), G (reasoning) and H (pace: LONG or SHORT) are the ones this review uses.
-A project reported as FAILED: give one `worker` subagent that digest and `$C/reader-task.txt`.
+A project reported as FAILED: give one `worker` subagent that digest and `$S/reader-task.txt`.
 
 ## 4. Health
 
-Step 3 of `~/.claude/skills/setup-audit/SKILL.md`, in as few shell calls as possible: every test suite
+Step 3 of `audit.md` (next to SKILL.md), in as few shell calls as possible: every test suite
 (`bash audits/run-all-suites.sh`; `HANDOFF.md` says which failures are expected), the hook files that
 `~/.claude/settings.json` names exist, `~/.claude/workers/ask.mjs --status`.
 
@@ -103,7 +98,7 @@ offered as a rule. A rule is for what no script can check.
 | **Another split between models** (who leads, who does the work) | always, as one question | the what-if table, as it is; say that it assumes the same requests |
 | **More work for helpers** (free worker for looking, Sonnet helpers or `/lead` for building) | looking stretches over 5% of the weight, or building stretches over 25% | "Could have gone to a helper", the low and the high end |
 | **A cheaper model for a subagent type** | a type that ran on the leading model with routine work | usage-scan, "Subagents by type" |
-| **A plugin, skill or tool to add** | a kind of work nothing in the setup covers, seen in two or more chats (reader heading E, or a tool that keeps failing) | look it up as in step 4 of `$C/SKILL.md` (`claude plugin list`, `npx skills find`, one web lookup); read its own page before offering it |
+| **A plugin, skill or tool to add** | a kind of work nothing in the setup covers, seen in two or more chats (reader heading E, or a tool that keeps failing) | look it up as in step 4 of `chat.md` (`claude plugin list`, `npx skills find`, one web lookup); read its own page before offering it |
 | **A setup change** (a rule, a hook, what is loaded) | a hook whose blocks cost more than the mistakes it stops; a rule that causes requests; a correction made twice | "Wasted requests", reader headings B and F |
 | **A fix** | a failing suite, a tool failing in over 20% of its calls, an error seen 10 times or more | "Tool calls that failed", step 4 |
 | **Something only the user can change** (how a job is asked for, attachments, when to start a new chat) | the cost comes from the request itself | the longest turns, sessions past 200k |

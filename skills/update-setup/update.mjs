@@ -8,6 +8,8 @@
 //   node update.mjs --replace <file> take this version's copy of one of the setup's files the user
 //                                    changed (hooks/sql-guard.mjs; a dated copy is kept), and
 //   --replace-all                    of every such file and the rules. Both work like --replace-rules.
+//   --keep-model                     keep (or put back) "model": "sonnet" when the update would move an
+//                                    install from before 1.0.74 to opus at medium effort
 //   --home <folder>                  work on <folder>/.claude instead of the home folder's (tests)
 // How: the newest version is the one in version.json on the repository's main branch. Its files are
 // the tag v<version>, downloaded as one archive and unpacked to ~/.claude/setup-source/v<version>.
@@ -15,7 +17,7 @@
 // and Node from ~/.claude/setup-state.json, so nothing is asked again, and it only writes the setup's
 // own files: anything else in ~/.claude (other skills, hooks, settings) stays as it is, and so does
 // one of the setup's files that the user changed (the installer lists those at the end).
-// A step that fails stops the update with the reason; the installed setup is then unchanged.
+// A failed download changes nothing. An install that fails part way says so; running the update again finishes it.
 // SETUP_UPDATE_BASE points it at another address that serves version.json and v<version>.tar.gz (tests).
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -65,7 +67,7 @@ const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
 const installed = state.version || "0";
 
 // Runs a version's installer with the flags that are passed on
-const passed = args.flatMap((a, i) => (["--replace-rules", "--replace-all"].includes(a) ? [a] : ["--replace", "--language"].includes(a) && args[i + 1] ? [a, args[i + 1]] : []));
+const passed = args.flatMap((a, i) => (["--replace-rules", "--replace-all", "--keep-model"].includes(a) ? [a] :["--replace", "--language"].includes(a) && args[i + 1] ? [a, args[i + 1]] : []));
 function install(folder) {
   const flags = [...passed];
   if (homeAt !== -1) flags.push("--home", home);

@@ -5,7 +5,10 @@
 // skills/update-setup/update.mjs, started by the user. The installed version is the one install.mjs
 // wrote to ~/.claude/setup-state.json; a setup with no version on record counts as older.
 // The answer is kept in ~/.claude/update-check.json, so every other prompt costs one file read.
-// Offline, or GitHub not answering within 4 seconds: silent, and the next prompt tries again.
+// Offline, or GitHub not answering within 0.7 seconds (2.5 on the try after a timeout, so a slow line still hears of an
+// update): silent to the user, so a prompt never waits long. The failure
+// is written into update-check.json (failedAt and error, cleared by the next good answer) and the check is not tried
+// again for an hour, so an offline prompt costs one file read, not a wait for every prompt.
 // Fails open. UPDATE_CHECK=off disables it. SETUP_UPDATE_BASE points it at another address (tests).
 import fs from "node:fs";
 import http from "node:http";
@@ -17,6 +20,10 @@ const CLAUDE = path.join(process.env.SETUP_UPDATE_HOME || os.homedir(), ".claude
 const BASE = process.env.SETUP_UPDATE_BASE;
 const VERSION_URL = BASE ? `${BASE}/version.json` : "https://raw.githubusercontent.com/tigran-martirosian/ai-coding-setup/main/version.json";
 const EVERY = 12 * 60 * 60 * 1000;
+const RETRY = 60 * 60 * 1000; // after a failed check
+const WAIT = 700; // ms a prompt may wait for GitHub
+const WAIT_SLOW = 2500; // the same, when the last try ran out of time
+const TIMED_OUT = "no answer in time";
 const json = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return {}; } };
 // 1.10.0 is newer than 1.9.2: compared number by number
 const newer = (a, b) => {
@@ -38,7 +45,7 @@ const get = (url, ms, hops = 5) => new Promise((resolve, reject) => {
     res.on("end", () => resolve(Buffer.concat(parts)));
     res.on("error", reject);
   });
-  req.on("timeout", () => req.destroy(new Error("no answer in time")));
+  req.on("timeout", () => req.destroy(new Error(TIMED_OUT)));
   req.on("error", reject);
 });
 
@@ -46,8 +53,16 @@ if (process.env.UPDATE_CHECK !== "off") {
   try {
     const stateFile = path.join(CLAUDE, "update-check.json");
     const last = json(stateFile);
-    if (!(Date.now() - new Date(last.checkedAt || 0).getTime() < EVERY)) {
-      const latest = JSON.parse(await get(VERSION_URL, 4000));
+    const within = (at, ms) => Date.now() - new Date(at || 0).getTime() < ms;
+    if (!within(last.checkedAt, EVERY) && !within(last.failedAt, RETRY)) {
+      let latest;
+      try {
+        latest = JSON.parse(await get(VERSION_URL, last.error === TIMED_OUT ? WAIT_SLOW : WAIT));
+      } catch (e) {
+        // Remember the failure (and why) instead of trying again on every prompt
+        fs.writeFileSync(stateFile, JSON.stringify({ ...last, failedAt: new Date().toISOString(), error: String(e.message || e) }) + "\n");
+        throw e;
+      }
       if (latest.version) {
         const installed = json(path.join(CLAUDE, "setup-state.json")).version || "0";
         fs.writeFileSync(stateFile, JSON.stringify({ checkedAt: new Date().toISOString(), latest: latest.version }) + "\n");

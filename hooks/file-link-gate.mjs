@@ -16,6 +16,8 @@
 // inside the project, web links, nimbalyst:// and embeds are left alone. Without a cwd, or for a root-relative
 // "/x" target under a Windows cwd (it cannot be placed), nothing is flagged.
 // With --remind it runs on UserPromptSubmit instead and only prints a one-line reminder of the working form.
+// Silent outside an app: links only matter in Nimbalyst, which runs Claude with CLAUDE_CODE_ENTRYPOINT
+// "sdk-..."; the terminal sets "cli", so a terminal user is never refused or reminded (same test as command-explain).
 // Silent when stop_hook_active is set (no loops). Fails open. FILE_LINK_GATE=off disables it.
 import fs from "node:fs";
 import os from "node:os";
@@ -227,6 +229,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
   process.stdin.on("end", () => {
     try {
       if ((process.env.FILE_LINK_GATE || "").toLowerCase() === "off") return;
+      if (!/^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "")) return;
       const input = JSON.parse(raw);
       if (process.argv.includes("--remind")) {
         process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: remindText(input.cwd) } }));

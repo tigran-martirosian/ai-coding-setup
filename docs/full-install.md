@@ -55,6 +55,8 @@ A program installed just now is not on the PATH of your running shell. Don't res
 
 ### On a Mac
 
+The steps for a Mac have not been run on a real Mac: the repository's tests run on macOS, and nothing more has been tried. Tell the user so before you start, and read each result instead of assuming it worked.
+
 Start every command from here on that names `brew`, `node`, `npm`, `npx`, `git`, `uvx`, `codex`, `agy` or `ffmpeg` with `PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"`.
 
 **Homebrew first.** If `brew --version` fails, open a Terminal window that runs its installer: `osascript -e 'tell application "Terminal" to do script "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""' -e 'tell application "Terminal" to activate'`. Tell the user: "A Terminal window opened. Type your Mac password there when it asks (nothing shows while you type), press Return, and Return once more to continue. When it prints 'Installation successful', come back and say done." Then add Homebrew to the shell files, once: for `~/.zprofile` and `~/.zshrc`, if the file has no `brew shellenv`, append `eval "$(<the brew path> shellenv)"`; if `~/.zshrc` has no `.local/bin`, append `export PATH="$HOME/.local/bin:$PATH"`.
@@ -145,7 +147,7 @@ Only if this session runs inside Nimbalyst (ToolSearch finds tools named `mcp__n
 
 Otherwise: Handy writes its settings file on first start, so tell the user: "Open Handy, follow its first-start setup (allow the microphone, pick the model Parakeet V3), then quit it from its tray or menu bar icon and say done." On a Mac it also needs System Settings > Privacy & Security > Accessibility.
 
-- **Windows:** after their "done", run `node scripts/app-settings.mjs --handy`. It sets push to talk on Right Alt, text typed directly with a space after it, the clipboard left alone, filler words removed, the model kept loaded, and a hidden start with Windows. A dated copy of the old file is kept.
+- **Windows:** after their "done", run `node scripts/app-settings.mjs --handy`. It sets push to talk on Right Alt, text typed directly with a space after it, the clipboard left alone, filler words removed, the model kept loaded, and a hidden start with Windows. A dated copy of the old file is kept. Right Alt is AltGr on many non-US keyboards, so typing letters and symbols breaks while it is bound: if the user's keyboard is one, tell them to pick another key to hold in Handy's own window (Right Ctrl, for one).
 - **Mac:** tell the user to set these in Handy's own window: push to talk (the key to hold is theirs to pick), text typed directly, the clipboard left alone, the model kept loaded.
 
 If the user doesn't want to do it now, note it for step 10.
@@ -160,7 +162,7 @@ Run each check once; fix an obvious failure, report any other with its output. B
 2. Pipe `{"tool_name":"Bash","tool_input":{"command":"ls -la"}}` into `node ~/.claude/hooks/command-explain.mjs`: the output contains `(no note given)`.
 3. Write a temp text file of 400 lines and pipe `{"tool_name":"Read","tool_input":{"file_path":"<that file>"}}` into `node ~/.claude/hooks/big-read-gate.mjs`: the output contains `"deny"`. Delete the file.
 4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: the output contains `"deny"` with or without a worker; with none, its reason points to the `worker` subagent instead of a worker script.
-5. `node ~/.claude/skills/usage-report/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
+5. `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
 6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
 7. `node ~/.claude/skills/court/court.mjs` with no arguments prints a line starting with `Usage: node court.mjs`.
 8. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.

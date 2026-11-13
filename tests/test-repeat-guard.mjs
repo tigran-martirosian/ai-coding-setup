@@ -114,6 +114,17 @@ const cases = [
   ["worker at 69 turns: nothing", () => nearCap("worker", 69), false],
   ["a compaction doesn't restart the count", () => nearCap("worker", 70, 1, 30), "close to your limit"],
   ["reviewer at 25 turns: told to finish and report", () => nearCap("reviewer", 25), "close to your limit"],
+  ["reviewer, brief with no file count, at 24 turns: nothing", () => nearCap("reviewer", 24), false],
+  ["reviewer, brief of 10 files, at 19 turns: nothing", () => nearCap("reviewer", 19, 1, -1, "this work changed 10 code files (a.js)"), false],
+  ["reviewer, brief of 10 files, at 20 turns: told to finish", () => nearCap("reviewer", 20, 1, -1, "this work changed 10 code files (a.js)"), "close to your limit"],
+  ["reviewer, brief of 14 files, at 27 turns: nothing", () => nearCap("reviewer", 27, 1, -1, "Review 14 files changed since the request"), false],
+  ["reviewer, brief of 14 files, at 28 turns: told to finish", () => nearCap("reviewer", 28, 1, -1, "Review 14 files changed since the request"), "close to your limit"],
+  ["reviewer, brief of 25 files, at 39 turns: nothing (capped at 40)", () => nearCap("reviewer", 39, 1, -1, "the job changed 25 files"), false],
+  ["reviewer, brief of 25 files, at 40 turns: told to finish", () => nearCap("reviewer", 40, 1, -1, "the job changed 25 files"), "close to your limit"],
+  ["reviewer, brief of 50 files, at 40 turns: told to finish (capped at 40)", () => nearCap("reviewer", 40, 1, -1, "the job changed 50 files"), "close to your limit"],
+  ["reviewer: the biggest count in the brief is used", () => nearCap("reviewer", 28, 1, -1, "2 files in src, 14 code files in all"), "close to your limit"],
+  ["reviewer: a count of another thing (14 steps) is not a file count", () => nearCap("reviewer", 25, 1, -1, "a job of 14 steps"), "close to your limit"],
+  ["a worker's brief with a file count doesn't change its limit", () => nearCap("worker", 69, 1, -1, "change 30 files"), false],
   ["planner at 12 turns: told to finish and report", () => nearCap("planner", 12), "close to your limit"],
   ["an agent type with no cap: nothing", () => nearCap("other", 75), false],
   ["several calls in one reply are one turn", () => nearCap("reviewer", 25, 2), false],
@@ -137,8 +148,8 @@ function helper(mainEntries, subEntries, tool, input, agentType) {
 }
 
 // A helper's own transcript with one call per reply (or several) and the meta file Claude Code writes next to it
-function nearCap(type, calls, perReply = 1, compactAt = -1) {
-  const entries = [user("the brief")];
+function nearCap(type, calls, perReply = 1, compactAt = -1, brief = "the brief") {
+  const entries = [user(brief)];
   for (let i = 0; i < calls; i++) {
     if (i === compactAt) entries.push({ ...user("the summary"), isCompactSummary: true });
     const [a, id] = use("Bash", { command: `c${i}` });

@@ -1,32 +1,28 @@
 ---
 name: lead
-description: Act as the planner of a big request — break it into numbered steps on a job list, run step workers (subagents) that know the job's goal, answer what they get stuck on, get one independent review, and report the validated result. Use when a request is big enough to split (several parts, needs research + build + review, or would flood this session's context), when the user says "lead this", "orchestrate", or runs /lead. Skip for small tasks.
+description: Act as the lead of a big request — have the planner agent break it into numbered steps on a job list, run step workers (subagents) that know the job's goal, answer what they get stuck on, get one independent review, and report the validated result. Use when a request is big enough to split (several parts, needs research + build + review, or would flood this session's context), when the user says "lead this", "orchestrate", or runs /lead. Skip for small tasks.
 ---
 
 # Lead
 
-You own the outcome. You are the planner: you hold the request, the plan and the judgment, and workers do the steps. That keeps this session's context on the plan, so when something goes wrong you already know what should be there.
+You own the outcome. The `planner` agent makes the plan, workers do the steps, and you hold the request and the judgment. That keeps this session's context on the plan, so when something goes wrong you already know what should be there. The reasons behind the defaults below are in [reference.md](reference.md).
 
 ## 1. What goes where
 
 - **A step goes to a `worker` subagent, by default.** It knows the job's goal, does one numbered step (cap 80 turns, Sonnet, 1-hour cache, so a long build inside a step costs no reread) and stops with a `BLOCKED` line when what it finds contradicts the plan.
-- **The brief is the worker's whole context.** A `worker` starts small because it loads no CLAUDE.md and has file, shell and web tools only. So the brief names the project commands its step needs. A step that needs a skill or an MCP tool goes to `worker-full`, which loads every tool and the CLAUDE.md files and costs much more to start.
-- **Spawn less, reuse more.** A follow-up to a worker that just finished costs far less than starting a new one. So a step is a real piece of work, small pieces are grouped into one step, and the next step on the same files goes to the same worker with SendMessage. Parallel steps save time, not tokens.
-- **A 2-3 call change** you can already see: do it here. Beyond that this session doesn't build: workers do the steps.
-- **This session and its subagents do all of it.** A long step runs in the background. A worker can't ask the user, so its question comes back to you as a `BLOCKED` line and you ask.
+- **The brief is the worker's whole context.** A `worker` loads no CLAUDE.md and has file, shell and web tools only, so the brief names the project commands its step needs. A step that needs a skill or an MCP tool goes to `worker-full`, which costs far more to start.
+- **Spawn less, reuse more.** A follow-up to a worker that just finished is far cheaper than a new worker. So a step is a real piece of work, small pieces are grouped into one step, and the next step on the same files goes to the same worker with SendMessage. Parallel steps save time, not tokens.
+- **A 2-3 call change** you can already see: do it here. Beyond that this session doesn't build: workers do the steps, whole and on Sonnet (a split into small Opus jobs cost more tokens per commit).
+- **A long step runs in the background.** A worker can't ask the user, so its question comes back to you as a `BLOCKED` line and you ask.
 - **One-shot lookups** go where CLAUDE.md sends them.
 - **A worker that stopped is not done.** A notice "stopped at its N-turn limit" or an empty report: SendMessage it once, "report what is done and what is left", then compare the files yourself. A cut or empty reviewer is NOT RUN. Reuse a worker only under about 150k context.
 
-Why no child sessions: a child session loads the whole setup before it starts and posts its report as a new turn here; a worker's report comes back short, inside this turn; and helpers edit files the brief never named more often in child sessions than in worker jobs.
-
-**This session doesn't build in a led job.** The same rule was tried once before and taken back, because it cost more tokens per commit, with helpers one small job each, often on Opus. So steps stay whole and on Sonnet.
-
-## 2. Set up the planner
+## 2. Set up the plan
 
 1. Inspect just enough of the project to plan (CLAUDE.md, HANDOFF, DECISIONS, the files in scope).
 2. Create **one tracker item** for the whole request (`tracker_create`, type `plan` or `task`) and link this session (`tracker_link_session`). That item is the Kanban-level unit: what, why, status. Decisions made along the way go on it as comments or as `decision` items.
 3. Set this session's phase with `update_session_meta` (`planning` → `implementing` → `validating`). For a plain research job or a build→review→test loop, consider `workflowPreset` `research` or `implement-review-test`.
-4. Write the plan as a job list (section 3): numbered steps in the order they run, each with what it needs from the ones before it.
+4. Get the plan from the `planner` (below), then write it as a job list (section 3): numbered steps in the order they run, each with what it needs from the ones before it.
 
 ### The plan comes from the `planner`
 
@@ -77,13 +73,13 @@ Add the project's commands and its rule for checks when the step needs them: the
 
 **Decisions in a brief are evidence, not conclusions.** A decided item holds the user's exact words in quotes (for a form: the field label, the full text of the ticked option and anything typed with it) and where they came from. What the user said against a proposal comes first. An item with no quote, and anything you worked out from a decision, goes under "Proposed by Claude, not confirmed". A worker told to write DECISIONS.md or a rule file writes only the quoted items and reports the rest back.
 
-**Parallel steps in one folder:** when the project's CLAUDE.md allows local git, each gets its own git worktree (Agent `isolation: "worktree"`), heavy builds go through a queue (at most 2 at once), and you merge each one.
+**Parallel steps in one folder:** each gets its own git worktree (Agent `isolation: "worktree"`) when the project's CLAUDE.md allows local git, and you merge each one.
 
 ## 4. Coordinate
 
 Workers talk only to you. Nobody talks sideways: what another step needs goes under Findings, and agent teams stay off (experimental, more tokens, no nesting, and they change how ordinary helpers start).
 
-- **Answer a `BLOCKED` line from the plan you hold.** Send the one thing it asked for with SendMessage to its agent id, so it goes on with what it learned, cheaply while its cache is warm. A follow-up long after it stopped, to a worker with a big context, goes to a fresh worker with a written brief instead: once the cache has expired, the whole context is paid for again. If the block shows the plan itself is wrong, fix the plan and the job list first.
+- **Answer a `BLOCKED` line from the plan you hold.** Send the one thing it asked for with SendMessage to its agent id, so it goes on with what it learned. A follow-up long after it stopped, to a worker with a big context, goes to a fresh worker with a written brief instead (see reference.md). If the block shows the plan itself is wrong, fix the plan and the job list first.
 - **Compare every report with its brief.** Check the files it changed against FILES (`git status --short`) and read its `Outside the brief` line. A change you wouldn't have asked for is undone; one you would is added to the job list.
 - Read a worker's report and the diff yourself; don't forward it unchecked. Update State on the job list.
 

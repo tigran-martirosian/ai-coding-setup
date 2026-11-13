@@ -8,6 +8,16 @@
             "type": "command",
             "command": "node ~/.claude/hooks/transcript-check.mjs",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/code-review-gate.mjs --start",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/nimbalyst-notes.mjs",
+            "timeout": 5
           }
         ]
       }
@@ -88,6 +98,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/code-review-gate.mjs --pre",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
             "command": "node ~/.claude/hooks/command-explain.mjs",
             "timeout": 5
           },
@@ -98,11 +118,25 @@
           },
           {
             "type": "command",
+            "if": "Bash(*opencli*)",
             "command": "node ~/.claude/hooks/opencli-readonly.mjs",
             "timeout": 15
           },
           {
             "type": "command",
+            "if": "PowerShell(*opencli*)",
+            "command": "node ~/.claude/hooks/opencli-readonly.mjs",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "if": "Bash(*ask.mjs*)",
+            "command": "node ~/.claude/hooks/web-worker-gate.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(*ask.mjs*)",
             "command": "node ~/.claude/hooks/web-worker-gate.mjs",
             "timeout": 5
           },
@@ -242,6 +276,11 @@
           {
             "type": "command",
             "command": "node ~/.claude/hooks/code-review-gate.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/verify-gate.mjs",
             "timeout": 10
           },
           {

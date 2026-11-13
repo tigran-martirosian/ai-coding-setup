@@ -47,6 +47,9 @@
 //                               русский; kept for later runs, so an update keeps it; with russian,
 //                               "language": "russian" goes into settings.json, and the extensions are built
 //                               with SETUP_LANGUAGE=russian)
+//   --keep-model                an older install (before 1.0.74) has "model": "sonnet" from the old installer; an
+//                               update moves it to opus at medium effort. This keeps sonnet (and, after a
+//                               move, puts sonnet back); the choice is kept for later runs
 //   --home <folder>             install into <folder>/.claude instead of the home folder's
 //   --node <file>               start the hooks with this Node by its full path instead of plain `node`
 //                               (for a Mac, where an app opened from the Dock may not have Node on its
@@ -73,9 +76,16 @@ const say = (s) => { said.push(s); console.log((DRY ? "[dry run] " : "") + s); }
 const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const read = (file) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
 
-if (Number(process.versions.node.split(".")[0]) < 18) {
-  console.log(`Node.js 18 or newer is needed; this is ${process.version}.`);
+// SETUP_NODE_VERSION: the tests pretend another Node
+const NODE_VERSION = process.env.SETUP_NODE_VERSION || process.versions.node;
+const [nodeMajor, nodeMinor] = NODE_VERSION.split(".").map(Number);
+if (nodeMajor < 18) {
+  console.log(`Node.js 18 or newer is needed; this is v${NODE_VERSION}.`);
   process.exit(1);
+}
+// node:sqlite (Node 22.5) is used only to read Nimbalyst's database; the hooks themselves run on 18
+if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 5)) {
+  say(`Node.js v${NODE_VERSION} is older than 22.5. Three things read Nimbalyst's database and need 22.5 or newer, so they stay off: notes between Nimbalyst sessions (skills/steer), compact-self and the Nimbalyst figures in the usage dashboard. Nothing else does. Install Node.js 22.5 or newer to turn them on.`);
 }
 
 // Every file under a repo folder, as paths from that folder
@@ -91,7 +101,7 @@ const files = ["hooks", "agents", "skills", "workers"].flatMap((d) => filesIn(pa
 function readSettings(file) {
   if (!fs.existsSync(file)) return {};
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch {
-    console.log(`${fwd(file)} is not valid JSON; nothing was changed. Fix it and run this again.`);
+    console.log(`${fwd(file)} is not valid JSON, so the install stopped here. Fix it and run this again.`);
     process.exit(1);
   }
 }
@@ -101,6 +111,16 @@ const settings = readSettings(settingsFile);
 // The projects folder: the one given, else the one an earlier run kept, else Projects in the home folder
 const stateFile = path.join(CLAUDE, "setup-state.json");
 const state = readSettings(stateFile);
+// The record (version, files, answers) is written last, so a run that stops part way leaves the old one
+// and the next run does the whole job again. Anything thrown ends here with that said.
+let stateSaved = false;
+process.on("uncaughtException", (e) => {
+  console.log(`\nThe install stopped part way: ${e.code ? `${e.code} ` : ""}${e.message}`);
+  console.log(stateSaved
+    ? `The install itself finished and is on record in ${fwd(stateFile)}; only the last step failed. Running it again is safe.`
+    : `Nothing new was put on record: ${fwd(stateFile)} still says ${state.version ? `version ${state.version}` : "that no version was installed"}. Files copied before the stop are in place and fine. Fix what the line above names, then run the same command again: running it again is safe and finishes the job.`);
+  process.exit(1);
+});
 // --done <name>: a step a chat carried out goes on record, so later runs stop naming it
 if (opt("done")) {
   if (!fs.existsSync(stateFile)) { console.log(`${fwd(stateFile)} is missing: run the install first.`); process.exit(1); }
@@ -129,6 +149,19 @@ const onPath = (name) => (process.env.PATH || "").split(path.delimiter)
 // A yes or no given once is remembered, so a later run (an update) doesn't turn a worker back on
 const answer = (name) => (opt(name) === "yes" ? true : opt(name) === "no" ? false : typeof state[name] === "boolean" ? state[name] : null);
 const worker = (name) => answer(name) ?? onPath(name);
+// Claude Code on Windows starts the hooks through Git Bash: without it every guard of this setup fails.
+// Looked for as Claude Code does: the path set in CLAUDE_CODE_GIT_BASH_PATH (environment or the "env" of
+// settings.json), then the usual Git for Windows folders, then a git.exe on the PATH.
+const gitBashFound = () => {
+  const env = process.env;
+  const roots = [env.ProgramFiles, env["ProgramFiles(x86)"], env.ProgramW6432, env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, "Programs")];
+  const gits = (env.PATH || "").split(path.delimiter).filter((d) => d && fs.existsSync(path.join(d, "git.exe")));
+  return [env.CLAUDE_CODE_GIT_BASH_PATH, settings.env?.CLAUDE_CODE_GIT_BASH_PATH,
+    ...roots.filter(Boolean).map((r) => path.join(r, "Git", "bin", "bash.exe")),
+    ...gits.flatMap((d) => [path.join(d, "..", "bin", "bash.exe"), path.join(d, "..", "..", "bin", "bash.exe")])]
+    .filter(Boolean).some((p) => fs.existsSync(p));
+};
+const GIT_BASH_MISSING = `Git Bash was not found on this computer. Claude Code on Windows starts the hooks through it, so without it every guard of this setup fails. Install Git for Windows (https://git-scm.com/download/win), or, when it is installed in an unusual place, set CLAUDE_CODE_GIT_BASH_PATH to the full path of its bash.exe in the "env" part of ${fwd(settingsFile)}. The install goes on; run it again after that.`;
 const WORKERS = path.join(CLAUDE, "workers");
 const have = { codex: worker("codex"), agy: worker("agy") };
 const which = have.codex && have.agy ? "Codex and Antigravity" : have.codex ? "Codex only" : have.agy ? "Antigravity only" : "Claude alone";
@@ -161,6 +194,8 @@ const asked = (to) => replaceAll || replaceThese.some((r) => fwd(to) === r || fw
 // A file as the lists at the end name it: from ~/.claude where it is inside, else by its full path
 const short = (to) => (fwd(to).startsWith(fwd(CLAUDE) + "/") ? fwd(to).slice(fwd(CLAUDE).length + 1) : fwd(to));
 const tally = { added: 0, same: 0, replaced: [], yours: [] };
+// A command that runs this installer again with some flags, on the same home folder
+const selfRun = (flags) => `node "${fwd(path.join(REPO, "install.mjs"))}" ${flags}${opt("home") !== null ? ` --home "${fwd(home)}"` : ""}`;
 // Writes a file and says what happened. keep: a file that is already there is the user's and stays.
 // own: one of the setup's files, which stays only when the user changed it.
 function put(to, data, { keep = false, own = false } = {}) {
@@ -191,7 +226,9 @@ function putJson(file, data, was) {
   const backup = fs.existsSync(file) ? keepCopy(file) : null;
   if (!DRY) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+    // written whole under another name, then moved: a stop in the middle can't leave half a file
+    fs.writeFileSync(`${file}.part`, JSON.stringify(data, null, 2) + "\n");
+    fs.renameSync(`${file}.part`, file);
   }
   say(`wrote ${fwd(file)}${backup ? ` (old copy: ${backup})` : ""}`);
 }
@@ -223,6 +260,12 @@ const AGY_RULES = [`read_file(${fwd(PROJECTS)})`, ...["hooks", "skills", "agents
 // Earlier versions added these. An update takes them out: what it reads can carry a planted line, ~/.claude holds the
 // Claude login, and read_url could send it anywhere
 const AGY_RETIRED = ["read_url(*)", `read_file(${fwd(CLAUDE)})`];
+// Antigravity's settings can't refuse web search or a file by pattern, so its hooks file gets a PreToolUse hook
+// (workers/agy-gate.mjs): in the worker command's runs it refuses web search and subagents, and .env files unless
+// the task names .env. The command has no quotes: Antigravity passes them on to node, which then can't find the file.
+const AGY_HOOK = "ask-worker-gate";
+const agyHooksFile = path.join(home, ".gemini", "config", "hooks.json");
+const agyGateFile = `${fwd(CLAUDE)}/workers/agy-gate.mjs`;
 let agyAdded = [...(state.agyAdded || [])];
 
 // ---- --uninstall: takes the setup out again and ends the run
@@ -343,6 +386,16 @@ if (args.includes("--uninstall")) {
       kept.push(`${fwd(agyFile)}: allow rules (${[...AGY_RULES, ...AGY_RETIRED].filter((r) => allow.includes(r)).join(", ")}) that the setup may have added; remove them by hand if they are not yours`);
     }
   }
+  // 5. Antigravity's hook for the worker command
+  if (fs.existsSync(agyHooksFile)) {
+    const hooks = readSettings(agyHooksFile);
+    if (AGY_HOOK in hooks) {
+      delete hooks[AGY_HOOK];
+      if (DRY) say(`would remove the hook ${AGY_HOOK} from ${fwd(agyHooksFile)}`);
+      else if (Object.keys(hooks).length) putJson(agyHooksFile, hooks, null);
+      else { fs.rmSync(agyHooksFile); say(`removed ${fwd(agyHooksFile)} (it held only the setup's hook)`); }
+    }
+  }
   if (!DRY) fs.rmSync(stateFile);
   say(`removed ${fwd(stateFile)} (the record of this install)`);
   // 5. what stays, and how to take it out
@@ -363,6 +416,8 @@ if (args.includes("--uninstall")) {
 }
 
 // ---- 1. the files for ~/.claude
+const noGitBash = WIN && !gitBashFound();
+if (noGitBash) say(GIT_BASH_MISSING);
 for (const rel of files) {
   if (addonSkip(rel)) continue;
   let data = fs.readFileSync(path.join(REPO, rel));
@@ -392,10 +447,48 @@ if (have.agy) {
   agyAdded = [...new Set([...agyAdded.filter((r) => !AGY_RETIRED.includes(r)), ...want])]; // on record, so --uninstall takes out only these
   agySettings.permissions = { ...agySettings.permissions, allow: [...allow, ...want] };
   putJson(agyFile, agySettings, want.length || allow.length !== had.length ? null : was);
+  if (/\s/.test(agyGateFile)) say(`NOT registered: ${agyGateFile} has a space in it, which Antigravity's hooks can't run. The worker command will not start Antigravity until the setup is in a folder without spaces.`);
+  else {
+    const hooks = readSettings(agyHooksFile);
+    const wasHooks = JSON.stringify(hooks);
+    hooks[AGY_HOOK] = { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: `node ${agyGateFile}`, timeout: 10 }] }] };
+    putJson(agyHooksFile, hooks, wasHooks);
+  }
 }
 // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
 const shared = path.join(REPO, "projects", "shared");
 if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), fit(rel, fs.readFileSync(path.join(shared, rel))), { own: true });
+// Skills the setup retired (each is now /setup-audit <part>): the files an earlier run wrote there go, one
+// line for each skill. A file the user changed stays and is named, as below. These run before the loop
+// below, which would otherwise say it once for every file.
+const RETIRED_SKILLS = [
+  [path.join(CLAUDE, "skills", "usage-report"), "/setup-audit usage"],
+  [path.join(CLAUDE, "skills", "project-scan"), "/setup-audit scan"],
+  [path.join(PROJECTS, "claude-settings", ".claude", "skills", "chat-review"), "/setup-audit chat"],
+  [path.join(PROJECTS, "claude-settings", ".claude", "skills", "full-review"), "/setup-audit full"],
+];
+for (const [dir, now] of RETIRED_SKILLS) {
+  if (!fs.existsSync(dir)) continue;
+  let gone = 0;
+  const unknown = [];
+  for (const f of filesIn(dir).map((rel) => path.join(dir, rel))) {
+    const hash = filesWritten[fwd(f)];
+    if (hash === undefined) { unknown.push(f); continue; }
+    delete filesWritten[fwd(f)];
+    if (sha(fs.readFileSync(f)) !== hash) { say(`kept yours ${fwd(f)} (a retired skill, and changed since it was installed; delete it by hand when not needed)`); continue; }
+    if (!DRY) fs.rmSync(f);
+    gone++;
+  }
+  if (gone) say(`removed the retired skill ${short(dir)} (${gone} file${gone === 1 ? "" : "s"}; it is now ${now})`);
+  if (unknown.length) say(`kept yours ${fwd(dir)} (a retired skill, now ${now}; there is no record that the setup wrote ${unknown.length === 1 ? "its file" : "these files"}, so ${unknown.length === 1 ? "it stays" : "they stay"}; delete the folder by hand when not needed)`);
+  if (!DRY) { // folders left empty go, deepest first
+    const prune = (d) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.isDirectory()) prune(path.join(d, e.name));
+      if (!fs.readdirSync(d).length) fs.rmdirSync(d);
+    };
+    prune(dir);
+  }
+}
 // A file an earlier version put here and this one no longer ships goes, unless it was changed since
 const shipped = new Set([...files, ...filesIn(shared)].map((rel) => fwd(path.join(CLAUDE, rel))));
 const ownFolders = ["hooks", "agents", "skills", "workers"].map((d) => `${fwd(path.join(CLAUDE, d))}/`);
@@ -443,6 +536,16 @@ function retire(target) {
   }
   return removed;
 }
+// A command's arguments after the script (null when it does not start that script): "--start" in
+// `node "<claude>/hooks/code-review-gate.mjs" --start`
+const nameIn = (base) => base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const argsOf = (command, base) => String(command || "").match(new RegExp(`(?:^|[\\\\/"' ])${nameIn(base)}["']?(?=\\s|$)(.*)$`))?.[1].replace(/\s*\d?>>?\s*\S+/g, "").trim().replace(/\s+/g, " ") ?? null; // a redirect is no argument
+// Where a command starts the script from, as a path with / ('~' written out), or null
+const scriptOf = (command, base) => {
+  const m = String(command || "").match(new RegExp(`"([^"]*[\\\\/]${nameIn(base)})"|(\\S*[\\\\/]${nameIn(base)})`));
+  return m && fwd(m[1] || m[2]).replace(/^~(?=\/)/, fwd(home));
+};
+const insideClaude = (p) => !!p && p.toLowerCase().startsWith(fwd(CLAUDE).toLowerCase() + "/");
 function wire(target, hooks, folder, where = "") {
   let added = 0;
   for (const [event, groups] of Object.entries(hooks || {})) {
@@ -454,16 +557,29 @@ function wire(target, hooks, folder, where = "") {
         const base = path.basename(script);
         const at = fwd(path.join(global ? CLAUDE : folder, script));
         const command = `${NODE} "${at}"${extra}`;
-        // One script can be wired twice with different arguments (steer.mjs --hook and --watch).
-        const same = (h) => String(h.command || "").includes(base) && String(h.command).includes(extra);
+        const wanted = extra.trim().replace(/\s+/g, " ");
+        // One script can be wired several times with different arguments (code-review-gate.mjs plain,
+        // --start, --pre) and, with an `if`, once for each tool: an entry counts as this one only when
+        // the arguments are the same, and the `if` too where the example has one.
+        const same = (h) => argsOf(h.command, base) === wanted && (!hook.if || h.if === hook.if);
+        // An older wiring of this hook ran for every command; the `if` handlers replace it, not join it.
+        // Only the one started from ~/.claude is the setup's; a script from elsewhere is the user's own.
+        if (hook.if && global) {
+          for (const g of [...list]) {
+            const before = (g.hooks || []).length;
+            g.hooks = (g.hooks || []).filter((h) => !(!h.if && argsOf(h.command, base) === wanted && insideClaude(scriptOf(h.command, base))));
+            if (g.hooks.length === before) continue;
+            if (!g.hooks.length) list.splice(list.indexOf(g), 1);
+            say(`hook replaced: ${event} ${base}${where} (it ran for every command; now only where the command needs it)`);
+            added++;
+          }
+        }
         if (list.some((g) => (g.hooks || []).some(same))) {
           // An older copy of this setup may have wired the same script from another place in ~/.claude:
           // that wiring is pointed at the installed copy. A script outside ~/.claude is the user's own.
-          const name = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           for (const old of global ? list.flatMap((g) => g.hooks || []).filter(same) : []) {
-            const m = String(old.command || "").match(new RegExp(`"([^"]*[\\\\/]${name})"|(\\S*[\\\\/]${name})`));
-            const was = m && fwd(m[1] || m[2]).replace(/^~(?=\/)/, fwd(home));
-            if (!was || was.toLowerCase() === at.toLowerCase() || !was.toLowerCase().startsWith(fwd(CLAUDE).toLowerCase() + "/")) continue;
+            const was = scriptOf(old.command, base);
+            if (!was || was.toLowerCase() === at.toLowerCase() || !insideClaude(was)) continue;
             old.command = command;
             say(`hook repointed: ${event} ${base}${where} (it started ${was})`);
             added++;
@@ -492,9 +608,45 @@ const settingsWas = JSON.stringify(settings);
 const retiredHooks = retire(settings);
 const wired = wire(settings, example.hooks, CLAUDE) + retiredHooks;
 if (!wired) say(`hooks already wired in ${fwd(settingsFile)}`);
+// Before 1.0.74 the installer set "model": "sonnet", and an update keeps the settings a person has, so
+// that stayed for good. Such a setup (sonnet, no model settings, a version on record that is older) moves to
+// opus at medium effort, said loudly. state.model records the choice for later runs: "moved", or "kept"
+// (--keep-model). --keep-model after a move puts sonnet back; it is the undo.
+const olderThan = (a, b) => {
+  const [x, y] = [a, b].map((v) => String(v).split(".").map(Number));
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0);
+  return false;
+};
+const KEEP_MODEL = args.includes("--keep-model");
+let modelMark = state.model;
+let modelChanged = false;
+if (KEEP_MODEL && state.model === "moved") {
+  if (settings.model === "opus") {
+    settings.model = "sonnet";
+    for (const name of ["claude-opus-5", "claude-opus-5-5"]) {
+      const s = settings.modelSettings?.[name];
+      if (s && JSON.stringify(s) === JSON.stringify({ effortLevel: "medium" })) delete settings.modelSettings[name];
+    }
+    if (settings.modelSettings && !Object.keys(settings.modelSettings).length) delete settings.modelSettings;
+    modelChanged = true;
+    say(`model: sonnet is back in ${fwd(settingsFile)}, and stays on later runs (--keep-model)`);
+  } else say(`model: --keep-model has nothing to undo, "model" in ${fwd(settingsFile)} is ${JSON.stringify(settings.model)} and stays as it is`);
+  modelMark = "kept";
+} else if (KEEP_MODEL) {
+  modelMark = "kept";
+  if (settings.model === "sonnet") say(`model: sonnet stays in ${fwd(settingsFile)} (--keep-model); later runs keep it too`);
+  else say(`model: --keep-model found no move on record, so "model" in ${fwd(settingsFile)} stays ${JSON.stringify(settings.model)}. Set it there to change it.`);
+} else if (!state.model && state.version && olderThan(state.version, "1.0.75") && settings.model === "sonnet" && !settings.modelSettings) {
+  delete settings.model; // addClaudeCodeSettings below sets opus at medium effort
+  modelMark = "moved";
+  modelChanged = true;
+  say(`MODEL CHANGED: ${fwd(settingsFile)} had "model": "sonnet", which the installer before 1.0.74 set for you, so it is now opus at medium effort.`);
+  say(`  To undo: ${selfRun("--keep-model")}`);
+  say(`  (in a chat: /update-setup --keep-model). That puts sonnet back and keeps it on every later run.`);
+}
 // Claude Code's own settings go into the same file: what is set there already stays
 const own = addClaudeCodeSettings(settings, WIN);
-if (own.model) say(`model: set to opus at medium effort in ${fwd(settingsFile)} (none was set)`);
+if (own.model && !modelChanged) say(`model: set to opus at medium effort in ${fwd(settingsFile)} (none was set)`);
 if (own.compact) say(`compact: long chats compact themselves at about 200k, set in ${fwd(settingsFile)}`);
 if (own.cache) say(`cache: helpers keep their prompt cache for an hour, set in ${fwd(settingsFile)}`);
 if (own.logs) say(`logs: transcripts are kept 120 days, set in ${fwd(settingsFile)}`);
@@ -504,7 +656,7 @@ if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins 
 let langChanged = false;
 if (LANG === "russian" && settings.language !== "russian") { settings.language = "russian"; langChanged = true; say(`language: russian set in ${fwd(settingsFile)}`); }
 else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
-if (wired || own.model || own.compact || own.cache || own.logs || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
+if (wired || own.model || modelChanged || own.compact || own.cache || own.logs || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
 
 // ---- 2. the global rules, with the worker section that fits
 // Every heading the worker section has ever carried: an older rules file on disk still has an old one.
@@ -526,7 +678,7 @@ const built = section ? withWorkers(full, section) : full;
 // A renamed heading in rules/CLAUDE.md used to end here as "writeFileSync received null": say so instead.
 if (built === null) throw new Error(`rules/CLAUDE.md has no worker section heading matching ${HEAD} - add the new heading to HEAD in install.mjs`);
 const rulesFile = path.join(CLAUDE, "CLAUDE.md");
-const mine = fs.existsSync(rulesFile) ? fs.readFileSync(rulesFile, "utf8").replace(/\r\n/g, "\n") : null;
+const mine =fs.existsSync(rulesFile) ? fs.readFileSync(rulesFile, "utf8").replace(/\r\n/g, "\n") : null;
 // Only the worker section of an existing rules file is the installer's to change
 const ownSection = section || full.split("\n").slice(full.split("\n").findIndex((l) => HEAD.test(l))).join("\n").split(/\n(?=# )/)[0];
 const swapped = mine === null ? null : withWorkers(mine, ownSection);
@@ -555,6 +707,7 @@ else if (args.includes("--replace-rules") || replaceAll || state.rules === sha(m
   marks.kept = true;
 }
 if (!marks.kept) marks.rules = sha(built);
+const rulesKept = !!marks.kept; // the user's own rules were not replaced: named again in the closing list
 delete marks.kept;
 
 // ---- 3. the project folders
@@ -644,13 +797,15 @@ for (const name of HOMES) {
 // its version, the answers about the workers and Node, and what the rules and notes files were written as
 const version = JSON.parse(fs.readFileSync(path.join(REPO, "version.json"), "utf8")).version;
 const nextState = { ...state, projects: PROJECTS, repo: REPO, version, ...marks, written, files: filesWritten };
+if (modelMark) nextState.model = modelMark;
 if (userCopies.size) nextState.userCopies = [...userCopies].sort();
 if (agyAdded.length) nextState.agyAdded = agyAdded;
 for (const name of ["codex", "agy"]) if (answer(name) !== null) nextState[name] = answer(name);
 if (nodeFile) nextState.node = nodeFile;
 if (LANG) nextState.language = LANG;
 for (const key of Object.keys(nextState)) if (nextState[key] === undefined) delete nextState[key];
-if (JSON.stringify(nextState) !== JSON.stringify(state)) putJson(stateFile, nextState, JSON.stringify(state));
+// (nextState is written once, after the extensions and plugins below: a run that stops before then
+// leaves the old record, version included)
 
 for (const [tool, what] of [["codex", "Codex CLI (GPT)"], ["agy", "Antigravity CLI (Gemini)"]]) {
   const why = opt(tool) ? "" : answer(tool) !== null ? " (as answered before)" : onPath(tool) ? " (found on the PATH)" : " (not found on the PATH)";
@@ -696,10 +851,7 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
     builtExt[name] = printOf(dir);
     say(`extension installed: ${name}${name === "read-aloud" ? ` (it needs its own speech program; see ${fwd(path.join(dir, "README.md"))})` : ""} (quit Nimbalyst and open it again to load it)`);
   }
-  if (!DRY && JSON.stringify(builtExt) !== JSON.stringify(state.extensions || {})) {
-    nextState.extensions = builtExt;
-    fs.writeFileSync(stateFile, JSON.stringify(nextState, null, 2) + "\n");
-  }
+  if (!DRY && JSON.stringify(builtExt) !== JSON.stringify(state.extensions || {})) nextState.extensions = builtExt;
 } else if (extensions.length) {
   say(`Nimbalyst extensions are not installed by this script: ${extensions.join(", ")}. For each one, in ${fwd(path.join(REPO, "extensions"))}/<name>: npm install, npm run build, npm run install-ext, then restart Nimbalyst.`);
 }
@@ -749,10 +901,10 @@ if (wantPlugins && !DRY && opt("home") === null && !plugged.includes(finder)) {
     else say(`skill failed: ${finder} (${tail(got.out)}). Everything else was installed; run this again to retry.`);
   }
 }
-if (!DRY && JSON.stringify(plugged) !== JSON.stringify(state.plugins || [])) {
-  nextState.plugins = plugged;
-  fs.writeFileSync(stateFile, JSON.stringify(nextState, null, 2) + "\n");
-}
+if (!DRY && JSON.stringify(plugged) !== JSON.stringify(state.plugins || [])) nextState.plugins = plugged;
+// The record is written now: everything that can stop a run has run
+if (JSON.stringify(nextState) !== JSON.stringify(state)) putJson(stateFile, nextState, JSON.stringify(state));
+stateSaved = true;
 
 // What a script can't do is named by the first install only: the settings inside Nimbalyst are
 // reached with tools only a chat there has, and voice typing is a program the person sets up.
@@ -776,7 +928,7 @@ if (!DRY) for (const [event, groups] of Object.entries(settings.hooks || {})) {
     }
   }
 }
-const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|hook matcher updated|linked|removed|extension installed|plugin installed|skill installed|model: set|permissions: )/.test(l));
+const did = said.some((l) => /^(rules: )?(copied|replaced|wrote|hook added|hook repointed|hook replaced|hook matcher updated|linked|removed|extension installed|plugin installed|skill installed|model: set|MODEL CHANGED|model: sonnet is back|permissions: )/.test(l));
 if (did || tally.yours.length) {
   const parts = [[tally.added, "new"], [tally.replaced.length, "replaced"], [tally.yours.length, "kept as yours"], [tally.same, "unchanged"]];
   say(`Files: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(", ")}.`);
@@ -799,7 +951,18 @@ const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace
 const logFile = path.join(CLAUDE, "setup-logs", `install-${stamp}.txt`);
 if (did && !DRY) say(`This run is saved in ${fwd(logFile)}`);
 say(`Language: ${LANG || "not chosen"}`);
+if (noGitBash) say(GIT_BASH_MISSING);
 say(DRY ? "Nothing was changed." : `Done. Restart Claude Code so it loads the hooks. How to use the setup: ${fwd(path.join(REPO, "docs", "HOW-TO.md"))}`);
+// The closing list of an update: what is still on an older version because it is the user's, each with
+// the line that takes the setup's version. --replace <file> works on the names as the lists above give
+// them, --replace-rules on the rules; --home is repeated so the line acts on the same folder.
+if (tally.yours.length || rulesKept) {
+  const quote = (name) => (/\s/.test(name) ? `"${name}"` : name);
+  say(`Yours, on old versions (they stay as they are, so they are behind this version); each line takes the setup's version, and yours stays as a dated copy:`);
+  for (const f of tally.yours) say(`  ${f}: ${selfRun(`--replace ${quote(f)}`)}`);
+  if (rulesKept) say(`  the rules (CLAUDE.md): ${selfRun("--replace-rules")}`);
+  if (tally.yours.length > 1 || (tally.yours.length && rulesKept)) say(`  all of them and the rules at once: ${selfRun("--replace-all")}`);
+}
 if (did && !DRY) {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   fs.writeFileSync(logFile, said.join("\n") + "\n");

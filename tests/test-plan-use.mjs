@@ -1,4 +1,4 @@
-// Tests for the "other use" estimate: skills/usage-report/plan-use.mjs, usage-scan --cost and the
+// Tests for the "other use" estimate: skills/setup-audit/scripts/plan-use.mjs, usage-scan --cost and the
 // dashboard build, on made-up data in a temp folder. Nothing here touches a real login or log.
 // Run: node tests/test-plan-use.mjs
 import fs from "node:fs";
@@ -7,7 +7,7 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const SKILL = fileURLToPath(new URL("../skills/usage-report", import.meta.url));
+const SKILL = fileURLToPath(new URL("../skills/setup-audit/scripts", import.meta.url));
 const { planUse } = await import(pathToFileURL(path.join(SKILL, "plan-use.mjs")).href);
 
 let pass = 0, fail = 0;

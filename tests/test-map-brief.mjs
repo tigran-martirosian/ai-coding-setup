@@ -116,6 +116,20 @@ check("cap: links cut with a 'more links' line naming --near", /\(\d+ more links
 const hb = updated(hook(bigDir, agent(five)));
 check("cap: the hook adds at most 7,000 characters of map lines", hb && hb.prompt.length - five.length < 7000 + 700);
 
+// ---- trim order: over the cap, start files are cut to 3 before any link is cut
+const WORDS = 22; // link text length: full output is a little over 7,000 characters, and fits once the start files are cut to 3
+const fat = { nodes: [], links: [] };
+const fatFiles = (k) => [0, 1, 2, 3, 4, 5].map((j) => `src/area${k}/module-with-a-long-name-${j}.js`);
+for (let k = 0; k < 3; k++) fat.nodes.push({ id: `area${k}`, name: `Area number ${k}`, what: `Thing ${k} does its job.`, files: fatFiles(k) });
+for (let k = 0; k < 3; k++) for (let j = 0; j < 6; j++) fat.links.push({ from: `area${k}`, to: `area${(k + 1 + (j % 2)) % 3}`, says: `Link ${j} of area ${k}: ` + "words ".repeat(WORDS), evidence: [fatFiles(k)[0]] });
+const fatDir = project("fat", Object.fromEntries(fat.nodes.flatMap((n) => n.files).map((f) => [f, "x"])), fat);
+const threeNames = "Work on Area number 0, Area number 1 and Area number 2.";
+const noCap = cli(["--brief"], { cwd: fatDir, input: threeNames });
+const startCounts = (s) => (s.match(/^Start in: .*$/gm) ?? []).map((l) => l.slice(10).split(", ").length);
+check("trim order: just over the cap, every thing keeps only 3 start files", startCounts(noCap.stdout).length === 3 && startCounts(noCap.stdout).every((c) => c === 3), `counts ${startCounts(noCap.stdout)}, length ${noCap.stdout.length}`);
+check("trim order: with the files cut, no link is cut (36 link lines, no 'more links')", !/more links/.test(noCap.stdout) && (noCap.stdout.match(/^- (to|from) /gm) ?? []).length === 36, noCap.stdout.slice(-200));
+check("under the cap nothing is cut: a thing with 6 files lists all 6", startCounts(cli(["--brief"], { cwd: fatDir, input: "Work on Area number 0." }).stdout)[0] === 6);
+
 // ---- more matches than fit: one-liners cut at the cap, with the count left out
 const wide = { nodes: [], links: [] };
 for (let k = 0; k < 120; k++) wide.nodes.push({ id: `part${k}`, name: `Part number ${k}`, what: `Part ${k} does its job.`, files: [`lib/part${k}/a-fairly-long-file-name-${k}.js`, `lib/part${k}/another-long-file-name-${k}.js`] });
@@ -127,14 +141,15 @@ check("cap: the cut ends with the count of matches left out", (() => { const m =
 
 // ---- ordinary words and written folders
 const topics = { nodes: [
-  { id: "recall", name: "Recall Beacon", what: "Brings a player home.", files: ["src/recall/beacon.js"] },
+  { id: "release", name: "Release Beacon", what: "Announces a release.", files: ["src/release/beacon.js"] },
   { id: "quest", name: "Quest board", what: "Lists quests.", files: ["src/quest/board.js"] },
   ...[0, 1, 2, 3, 4, 5, 6, 7, 8].map((k) => ({ id: `wide${k}`, name: `Wide thing ${k}`, what: "Does it.", files: [`src/wide/w${k}.js`] })),
 ], links: [] };
 const topicDir = project("topics", Object.fromEntries(topics.nodes.flatMap((n) => n.files).map((f) => [f, "x"])), topics);
 const hookOn = (text) => updated(hook(topicDir, agent(text)));
-check('"recall" alone matches nothing', hookOn("Reviewing this change for recall and precision.").prompt.includes("SYSTEMS MAP: nothing in this brief matched."));
-check('"Recall Beacon" still matches', hookOn("Look at the Recall Beacon.").prompt.includes("## Recall Beacon [recall]"));
+check('"release" alone matches nothing', hookOn("Reviewing this change before the release and precision.").prompt.includes("SYSTEMS MAP: nothing in this brief matched."));
+check('"Release Beacon" still matches', hookOn("Look at the Release Beacon.").prompt.includes("## Release Beacon [release]"));
+check('"recall" is an ordinary word no more: it matches a thing whose id it is', updated(hook(project("recall", { "src/recall/beacon.js": "x" }, { nodes: [{ id: "recall", name: "Recall Beacon", what: "Brings a player home.", files: ["src/recall/beacon.js"] }], links: [] }), agent("Reviewing this change for recall and precision."))).prompt.includes("## Recall Beacon [recall]"));
 u = hookOn("Review target: src/quest");
 check("a named narrow folder matches the things with files in it", u.prompt.includes("## Quest board [quest]"));
 u = hookOn("Review target: src/wide and src/wide/");

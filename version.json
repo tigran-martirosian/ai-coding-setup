@@ -1,5 +1,5 @@
 {
-  "version": "1.0.74",
+  "version": "1.0.75",
   "date": "2026-11-02",
-  "summary": "A build or design request now goes to a planner first in every project, however loosely it's worded, a helper cut off at its limit no longer counts as finished, the review gate closes its gaps and keeps work due across a question, the free worker can't reach your login or the web, new installs start on Opus at medium effort and keep logs 120 days, and the phone bot, shared usage and read-aloud are now add-ons."
+  "summary": "Code edited with no build or test after it now stops the session once, a big change is reviewed before a push, one /setup-audit replaces the five audit skills and can show how your questions and reviews really went, the rules are shorter, hooks that watch your wording now hear Russian too, an update moves a Sonnet install to Opus medium with a one-line undo, the installer checks Git Bash and Node, and the free worker reads a .env file only when you ask for it."
 }

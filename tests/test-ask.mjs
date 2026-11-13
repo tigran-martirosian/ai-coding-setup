@@ -44,6 +44,7 @@ else if (mode === "denyonce" || mode === "denyalways") {
   if (mode === "denyalways" || !fs.existsSync("denied")) { fs.writeFileSync("denied", ""); process.stderr.write('jetski: no output produced — a tool required the "run_command" permission that headless mode cannot prompt for, so it was auto-denied.\n'); process.exit(1); }
   answer("agy answer: " + args.join(" "));
 }
+else if (mode === "envflag") answer("env door: " + process.env.ASK_AGY_ENV_OK);
 else if (mode === "limit") { process.stderr.write("ERROR: You've hit your usage limit. Try again later.\n"); process.exit(1); }
 else if (mode === "away") { process.stderr.write("FAILED_PRECONDITION (code 400): User location is not supported for the API use\n"); process.exit(1); }
 else { process.stderr.write("agy broke\n"); process.exit(1); }
@@ -51,13 +52,15 @@ else { process.stderr.write("agy broke\n"); process.exit(1); }
 
 let n = 0;
 // have: which fake programs exist; files: extra files in the workers folder; env: extra environment
-function ask(args, { have = [], files = {}, env = {} } = {}) {
+function ask(args, { have = [], files = {}, env = {}, gate = true } = {}) {
   const dir = join(root, `case${++n}`), bin = join(dir, "bin"), home = join(dir, "workers");
   mkdirSync(bin, { recursive: true }); mkdirSync(home);
   for (const name of have) writeFileSync(join(bin, name), name === "agy" ? fakeAgy : fake(name), { mode: 0o755 });
   for (const [name, text] of Object.entries(files)) writeFileSync(join(home, name), text);
+  const userHome = join(root, `home${n}`);
+  if (gate) { mkdirSync(join(userHome, ".gemini", "config"), { recursive: true }); writeFileSync(join(userHome, ".gemini", "config", "hooks.json"), JSON.stringify({ "ask-worker-gate": { command: `node ${fileURLToPath(new URL("../workers/agy-gate.mjs", import.meta.url)).replace(/\\/g, "/")}` } })); }
   const r = spawnSync(process.execPath, [script, ...args], { encoding: "utf8", cwd: dir,
-    env: { ...process.env, ...env, ASK_HOME: home, PATH: [bin, ...cleanPath].join(delimiter) } });
+    env: { ...process.env, ...env, ASK_HOME: home, HOME: userHome, USERPROFILE: userHome, PATH: [bin, ...cleanPath].join(delimiter) } });
   return { code: r.status, out: r.stdout, err: r.stderr, home };
 }
 
@@ -93,6 +96,12 @@ check("local: Codex fails, Antigravity takes over and both are named", r.code ==
   && r.err.includes("codex failed: codex broke") && r.err.includes("answered by Antigravity") && !existsSync(join(r.home, "cooldown.json")), show(r));
 r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "fail" } });
 check("local: no worker answers: exit 3 and Claude is pointed to", r.code === 3 && r.out === "" && r.err.includes("Grep and Read"), show(r));
+r = ask(["do not open .env, read big.txt"], { have: ["agy"], env: { FAKE_AGY: "envflag" } });
+check("a task that only mentions .env does not open it, and the note names the flag", r.out.includes("env door: 0") && r.err.includes("--allow-env"), show(r));
+r = ask(["--allow-env", "read the .env file here"], { have: ["agy"], env: { FAKE_AGY: "envflag" } });
+check("--allow-env opens it for that run", r.out.includes("env door: 1") && !r.err.includes("--allow-env"), show(r));
+r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "ok" }, gate: false });
+check("without the gate hook agy is not started, and the reason is named", r.code === 3 && r.err.includes("hooks.json is missing"), show(r));
 r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "ok" }, files: { "agy.off": "off" } });
 check("local: agy.off skips Antigravity", r.code === 3 && r.err.includes("agy skipped: switched off"), show(r));
 r = ask(["read big.txt"], { have: ["agy"], env: { FAKE_AGY: "away" } });

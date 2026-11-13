@@ -1,4 +1,4 @@
-// Tests for chat-review's read-digests.mjs (projects/claude-settings/.claude/skills/chat-review/read-digests.mjs), mainly --earlier.
+// Tests for chat-review's read-digests.mjs (skills/setup-audit/scripts/read-digests.mjs), mainly --earlier.
 // Run: node test-read-digests.mjs
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SKILL = path.join(HERE, "..", "projects", "claude-settings", ".claude", "skills", "chat-review");
+const SKILL = path.join(HERE, "..", "skills", "setup-audit", "scripts");
 const READ = path.join(SKILL, "read-digests.mjs");
 const TASK = fs.readFileSync(path.join(SKILL, "reader-task.txt"), "utf8");
 let fails = 0;

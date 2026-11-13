@@ -14,6 +14,39 @@
 // WEB_ANSWER_GATE=off turns off the file, HEDGE_CHECK=off and COUNT_CHECK=off turn off one check.
 import fs from "node:fs";
 
+// Russian twins of the English patterns below (for `--language russian`). \b does not see Cyrillic letters,
+// so these use the u flag, and « » stand for "no letter on this side". They are OR-ed in next to the
+// English ones, which are untouched.
+const ru = (src, flags = "iu") => new RegExp(src.replace(/«/g, "(?<!\\p{L})").replace(/»/g, "(?!\\p{L})"), flags);
+const RU_AVAILABLE = String.raw`(?:доступ(?:ен|н\p{L}*)|выпущен\p{L}*|вышел|вышла|вышло|вышли|опубликован\p{L}*|существу\p{L}*|поддерживается|поддерживаются|поддерживать|совместим\p{L}*)`;
+const RU_HEDGES = [
+  // may / might / probably (not) available, released, published, existing
+  ru(String.raw`«(?:может|могут|возможно|вероятно|скорее\s+всего|наверное)»[\s,]+(?:быть[\s,]+)?(?:[\p{L}\d.]+[\s,]+){0,2}?(?:(?:ещё|еще|пока)\s+)?не\s+(?:(?:быть|является|являются)\s+)?${RU_AVAILABLE}»`),
+  ru(String.raw`«(?:может|могут|возможно|вероятно|скорее\s+всего|наверное)»[\s,]+(?:быть[\s,]+)?(?:(?:ещё|еще|пока)\s+)?(?:[\p{L}\d.]+[\s,]+){0,2}?недоступ(?:ен|н\p{L}*)»`),
+  // may not have a build / release / version / port; there may not be a ...
+  ru(String.raw`«(?:может|могут|возможно)»[\s,]+не\s+быть\s+\p{L}+`),
+  // does not seem to be available / to exist
+  ru(String.raw`«(?:не\s+похоже|не\s+кажется|кажется|похоже)»[\s,]+(?:что\s+)?(?:\p{L}+\s+){0,3}?не\s+(?:является\s+)?${RU_AVAILABLE}»|«не\s+(?:похоже|кажется)»[\s,]+(?:что\s+)?[^.\n]{0,40}?«${RU_AVAILABLE}»`),
+  // is not available for / on / in / yet
+  ru(String.raw`«(?:недоступ(?:ен|н\p{L}*)|не\s+доступ(?:ен|н\p{L}*))\s+(?:для|на|в|пока|ещё|еще)»|«(?:пока|ещё|еще)\s+(?:недоступ(?:ен|н\p{L}*)|не\s+доступ(?:ен|н\p{L}*))»`),
+  // I could not confirm / verify whether ...
+  ru(String.raw`«(?:(?:я\s+)?не\s+(?:смог|смогла|сумел|сумела|могу)|мне\s+не\s+(?:удалось|получилось)|не\s+удалось|не\s+получилось)\s+(?:точно\s+)?(?:подтвердить|проверить|установить|выяснить)»[\s,]+(?:ли|что|\p{L}{3,})`),
+  // not sure whether it is available / exists
+  ru(String.raw`«не\s+уверен(?:а|ы)?»(?:[\s,]+(?:что|есть\s+ли|ли))?[^.\n]{0,40}?«(?:доступ|существу|выпущен|вышел|вышл|верси)\p{L}*»`),
+];
+const RU_RELEASE_SUBJECT = ru(String.raw`«(?:верси\p{L}*|релиз\p{L}*|сборк\p{L}*|выпуск\p{L}*|пакет\p{L}*|мод(?:ы|ов|а|у|ом|ах|е)?|плагин\p{L}*|расширени\p{L}*|библиотек\p{L}*|дистрибутив\p{L}*|бета\p{L}*|пререлиз\p{L}*|стабильн\p{L}+|LTS)»`);
+const RU_CODE_SUBJECT = ru(String.raw`«(?:директори\p{L}*|папк\p{L}*|файл\p{L}*|путь|пут(?:и|ём|ем|ей)|таблиц\p{L}*|колонк\p{L}*|столбц\p{L}*|строк\p{L}*|строчк\p{L}*|ячеек|ячейк\p{L}*|пол(?:е|я|ей|ю|ем|ях)|ключ\p{L}*|значени\p{L}*|свойств\p{L}*|метод\p{L}*|функци\p{L}*|переменн\p{L}*|параметр\p{L}*|аргумент\p{L}*|тест\p{L}*|хук(?:и|ов|а|у|ом|е)?|ветк\p{L}*|ветв\p{L}*|коммит\p{L}*|эндпоинт\p{L}*|запис(?:ь|и|ей|ью)|лог(?:и|ов|а|е|ах|ом)?|кеш\p{L}*|кэш\p{L}*|сесси\p{L}*|транскрипт\p{L}*|переменн\p{L}+\s+окружени\p{L}*)»`);
+const RU_FIND_VERB = ru(String.raw`«(?:найд\p{L}*|найти|подбер\p{L}*|подобрать|перечисл\p{L}*|дай|дайте|дать|покаж\p{L}*|показать|нужн\p{L}*|хочу|порекомендуй\p{L}*|посоветуй\p{L}*|предлож\p{L}*|назов\p{L}*|назвать|собер\p{L}*|собрать|составь\p{L}*)»`);
+const RU_FIND_NOUN = ru(String.raw`«(?:пример\p{L}*|вариант\p{L}*|альтернатив\p{L}*|иде(?:я|и|й|ю|ями)|кандидат\p{L}*|выбор\p{L}*|рекомендаци\p{L}*|ссыл(?:ка|ки|ку|ок|кам|ками)|источник\p{L}*|результат\p{L}*|названи\p{L}*|имен|имена)»`);
+const RU_NOT_RESEARCH = ru(String.raw`«(?:тест\p{L}*|баг\p{L}*|ошиб\p{L}*|сбо(?:й|я|ев)|предупрежден\p{L}*|коммит\p{L}*|правк\p{L}*|строк\p{L}*|строчк\p{L}*|файл\p{L}*|опечат\p{L}*|хук(?:и|ов|а)?|шаг\p{L}*|раз|раза|разов|минут\p{L}*|час\p{L}*|дн(?:я|ей|ь|ем)|токен\p{L}*|доллар\p{L}*|ряд\p{L}*|колон\p{L}*|столбц\p{L}*|ячеек|причин\p{L}*|пункт\p{L}*|абзац\p{L}*|предложени\p{L}*|слов(?:о|а|ам|ами)?|вопрос\p{L}*|пол(?:е|я|ей)|значени\p{L}*|ключ\p{L}*)»`);
+const RU_RESEARCH_SIGNAL = ru(String.raw`«(?:найд\p{L}*|найти|поиск\p{L}*|ищи\p{L}*|ищу|искать|онлайн|интернет\p{L}*|гугл\p{L}*|мод(?:ы|ов|а|ам)?|пак(?:и|ов)?|плагин\p{L}*|расширени\p{L}*|инструмент\p{L}*|библиотек\p{L}*|пакет\p{L}*|приложени\p{L}*|сайт\p{L}*|сервис\p{L}*|продукт\p{L}*|бренд\p{L}*|модел\p{L}*|пример\p{L}*|вариант\p{L}*|альтернатив\p{L}*|кандидат\p{L}*|рекомендаци\p{L}*|ссыл\p{L}*|источник\p{L}*|стать(?:я|и|ей|ю)|видео|репозитор\p{L}*|репо)»`);
+const RU_COUNT_PATTERNS = [
+  ru(String.raw`«(?:найд\p{L}*|найти|подбер\p{L}*|подобрать|перечисл\p{L}*|дай|дайте|дать|покаж\p{L}*|показать|нужн\p{L}*|хочу|собер\p{L}*|собрать|составь\p{L}*|порекомендуй\p{L}*|посоветуй\p{L}*|предлож\p{L}*)»[^.?!\n]{0,30}?\b(\d{1,2})\s*(?:-|–|до|или)?\s*(\d{1,2})?\s+(\p{L}[\p{L}'’ -]{2,28})`),
+  ru(String.raw`\b(\d{1,2})\s*(?:-|–|до|или)?\s*(\d{1,2})?\s+(пример\p{L}*|вариант\p{L}*|альтернатив\p{L}*|иде(?:й|и|я|ю)|кандидат\p{L}*|предложени\p{L}*|рекомендаци\p{L}*|ссыл\p{L}*|источник\p{L}*|результат\p{L}*|названи\p{L}*|имен)»`),
+];
+const RU_SAID_HOW_MANY = ru(String.raw`«(?:нашёл|нашел|нашла|нашли|получилось|набралось|всего|есть|было|были|вышло)\s+(?:только\s+|всего\s+|лишь\s+)?\d{1,2}(?!\d)|«(?:только|лишь|всего)\s+\d{1,2}(?!\d)|\d{1,2}\s+из\s+\d{1,2}(?!\d)`);
+const RU_SAID_WHERE = ru(String.raw`«(?:искал\p{L}*|проверил\p{L}*|просмотрел\p{L}*|посмотрел\p{L}*|изучил\p{L}*|перебрал\p{L}*)»|«я\s+прошёл\s+по»|«я\s+прошел\s+по»|«(?:источники|запросы)»\s*:|«что\s+я\s+искал»`);
+
 const TAIL_BYTES = 8 * 1024 * 1024;
 
 // Text outside fenced blocks and inline code spans (a hedge inside a quoted log is not this reply's claim)
@@ -132,10 +165,10 @@ export function hedgeProblem(prose, tools) {
   // A reply that cites where it looked is showing its work, not guessing
   if (/https?:\/\/\S+/.test(text)) return null;
   for (const s of sentences(text)) {
-    const hit = HEDGES.map((re) => re.exec(s)).find(Boolean);
+    const hit = [...HEDGES, ...RU_HEDGES].map((re) => re.exec(s)).find(Boolean);
     if (!hit) continue;
-    if (CODE_SUBJECT.test(s)) continue;
-    if (!RELEASE_SUBJECT.test(s) && !NUMBERISH.test(s)) continue;
+    if (CODE_SUBJECT.test(s) || RU_CODE_SUBJECT.test(s)) continue;
+    if (!RELEASE_SUBJECT.test(s) && !RU_RELEASE_SUBJECT.test(s) && !NUMBERISH.test(s)) continue;
     return hit[0].trim();
   }
   return null;
@@ -154,17 +187,17 @@ const RESEARCH_SIGNAL = /\b(?:find|search|searching|look\s+up|looking\s+for|onli
 // How many things the prompt asks for, or 0
 export function wantedCount(prompt) {
   const p = String(prompt || "");
-  if (!FIND_VERB.test(p) && !FIND_NOUN.test(p)) return 0;
-  if (!RESEARCH_SIGNAL.test(p)) return 0;
+  if (!FIND_VERB.test(p) && !FIND_NOUN.test(p) && !RU_FIND_VERB.test(p) && !RU_FIND_NOUN.test(p)) return 0;
+  if (!RESEARCH_SIGNAL.test(p) && !RU_RESEARCH_SIGNAL.test(p)) return 0;
   const patterns = [
     /\b(?:find|list|give(?:\s+me)?|show(?:\s+me)?|get(?:\s+me)?|need|want|gather|collect)\b[^.?!\n]{0,30}?\b(\d{1,2})\s*(?:-|to|–|or)?\s*(\d{1,2})?\s+([a-z][a-z'’ -]{2,28})/i,
     /\b(\d{1,2})\s*(?:-|to|–|or)?\s*(\d{1,2})?\s+(examples?|options?|alternatives?|ideas?|candidates?|choices?|suggestions?|recommendations?|links?|sources?|results?|names?)\b/i,
   ];
-  for (const re of patterns) {
+  for (const re of [...patterns, ...RU_COUNT_PATTERNS]) {
     const m = re.exec(p);
     if (!m) continue;
     const noun = (m[3] || "").trim();
-    if (NOT_RESEARCH.test(noun)) continue;
+    if (NOT_RESEARCH.test(noun) || RU_NOT_RESEARCH.test(noun)) continue;
     // A range ("8-12 mods") is met at its lower end
     const n = Math.min(...[m[1], m[2]].filter(Boolean).map(Number));
     if (n >= 3 && n <= 40) return n;
@@ -202,7 +235,7 @@ export function countProblem(prompt, prose, tools, harness = false) {
   // A turn a notification started that lists nothing is a status line, not an answer
   if (harness && got < 1) return null;
   const text = visibleProse(prose);
-  if (SAID_HOW_MANY.test(text) && SAID_WHERE.test(text)) return null;
+  if ((SAID_HOW_MANY.test(text) || RU_SAID_HOW_MANY.test(text)) && (SAID_WHERE.test(text) || RU_SAID_WHERE.test(text))) return null;
   return { want, got };
 }
 

@@ -36,6 +36,7 @@ const BRIEF_LINES_ROOM = 1500; // characters kept free for those lines when the 
 export const BRIEF_FOLDER = 8; // a written folder holding files of more things than this names none of them
 export const BRIEF_LINKS = 12; // links per thing
 export const BRIEF_FILES = 6; // "Start in" files per thing
+export const BRIEF_FILES_CUT = 3; // when the output is over the cap, start files are cut to this many before any link is cut
 const SCAN_MAX = 8000;
 
 // Single words that are ordinary English as well as a thing's id or name. A brief that says "the data file" or "the main page" must not pull
@@ -44,7 +45,7 @@ export const COMMON = new Set(
   ("item items block map base data core common shared util utils helper helpers misc main app code file files test tests build config setup " +
     "system service services module modules page pages view views state store user users list type types model models event events task tasks " +
     "job jobs tool tools doc docs api high low server client web ui backend " +
-    "frontend cache queue logic engine manager handler handlers controller controllers lib libs src script scripts release plugin plugins recall").split(" "),
+    "frontend cache queue logic engine manager handler handlers controller controllers lib libs src script scripts release plugin plugins").split(" "),
 );
 
 const FILE_EXTS = [...new Set([...CODE_EXT, "md", "json", "toml", "yaml", "yml", "html", "css", "scss", "cfg", "ini", "xml", "txt", "properties"])];
@@ -224,15 +225,16 @@ export function brief(text, map, dir) {
     mine.sort((a, b) => Number(!a.evidence.some((e) => got.has(e))) - Number(!b.evidence.some((e) => got.has(e))));
     const lines = mine.map((l) => `- ${arrow(l, i, by)}: ${l.says}`);
     const files = [...n.files].sort((a, b) => Number(!got.has(a)) - Number(!got.has(b))).slice(0, BRIEF_FILES);
-    const head = [`## ${n.name} [${i}]`, n.what];
-    if (files.length) head.push("Start in: " + files.join(", "));
-    if (n.notes.length) head.push("Read: " + n.notes.join(", "));
-    return { head, lines };
+    return { name: n.name, id: i, what: n.what, files, notes: n.notes, lines };
   });
   const caps = blocks.map(() => BRIEF_LINKS);
+  let fileCap = BRIEF_FILES;
   const render = () =>
     blocks
-      .map(({ head, lines }, k) => {
+      .map(({ name, id, what, files, notes, lines }, k) => {
+        const head = [`## ${name} [${id}]`, what];
+        if (files.length) head.push("Start in: " + files.slice(0, fileCap).join(", "));
+        if (notes.length) head.push("Read: " + notes.join(", "));
         const body = lines.slice(0, caps[k]);
         if (lines.length > caps[k]) body.push(`- (${lines.length - caps[k]} more links: ${CMD} --near ${ids[k]})`);
         return [...head, lines.length ? "Links:" : "Links: none", ...body].join("\n");
@@ -240,7 +242,8 @@ export function brief(text, map, dir) {
       .join("\n\n");
   let out = render();
   const top = BRIEF_MAX - (rest.length ? Math.min(moreLines(rest, by, got, 1e9).length, BRIEF_LINES_ROOM) : 0);
-  while (out.length > top && caps.some((c) => c)) {
+  while (out.length > top && (fileCap > BRIEF_FILES_CUT || caps.some((c) => c))) {
+    if (fileCap > BRIEF_FILES_CUT) { fileCap = BRIEF_FILES_CUT; out = render(); continue; } // start files first, links after
     let k = 0;
     caps.forEach((c, j) => { if (c >= caps[k]) k = j; }); // the largest cap, the last of equals
     caps[k]--;

@@ -48,7 +48,7 @@ export const Audits: React.FC<{ shot: Shot }> = ({ shot }) => {
       <Camera drift={2}>
         <Head title={shot.title} size={72} style={{ top: 44 }} />
         <div style={{ position: "absolute", left: MARGIN, right: MARGIN, top: 300 }}>
-          <div style={{ fontFamily: mono, fontSize: 190, fontWeight: 600, letterSpacing: "-0.06em", lineHeight: 1, whiteSpace: "nowrap", color: light ? color.ink : color.yellow, transform: `scale(${1.14 - pop(t, at) * 0.14})`, transformOrigin: "0 50%" }}>{row.text}</div>
+          <div style={{ fontFamily: mono, fontSize: 156, fontWeight: 600, letterSpacing: "-0.06em", lineHeight: 1, whiteSpace: "nowrap", color: light ? color.ink : color.yellow, transform: `scale(${1.14 - pop(t, at) * 0.14})`, transformOrigin: "0 50%" }}>{row.text}</div>
           <div style={{ fontSize: 92, fontWeight: 700, letterSpacing: TIGHT, lineHeight: 1.04, marginTop: 34 }}>
             <Rise key={i} text={row.note ?? ""} at={at} gap={0.5} />
           </div>

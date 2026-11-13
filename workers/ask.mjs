@@ -7,6 +7,7 @@
 //   ask.mjs [--think] <path to a text file holding the task>
 //   ask.mjs --status                      which workers are usable right now, and why not
 //
+// --allow-env  the user asked for a .env file to be read: the gate lets it through for this run only.
 // --web    retired: this command refuses it, web research is Claude's own.
 // (none)   local files and code. Order: Codex, then Antigravity (Gemini login). Name the files in the task.
 //
@@ -14,6 +15,10 @@
 // for files outside the folder it starts in. No read_url and no ~/.claude root: what it reads can carry
 // a planted line, and that folder holds the login. command(...) rules do not
 // take effect headless, so the rules below steer it to its file tools instead of the shell.
+// Its settings file has no way to refuse web search or a file by pattern, so every run goes through the hook
+// agy-gate.mjs (registered in ~/.gemini/config/hooks.json): web search and subagents are always refused, and a
+// .env or .env.* file is refused unless Claude passes --allow-env, because the user asked for that file to be read.
+// A run does not start without the hook.
 // --think  a hard question: Codex runs with its default reasoning effort instead of low.
 //
 // What a person has is detected, not configured:
@@ -67,9 +72,10 @@ const nearLogin = () => {
   const cwd = low(process.cwd()), claude = low(join(homedir(), ".claude"));
   return cwd === claude || cwd.startsWith(`${claude}/`) || claude.startsWith(`${cwd}/`);
 };
-function spawnBash(script, args) {
+function spawnBash(script, args, env) {
   return spawnSync("bash", ["-c", script, "ask", ...args], {
     ...(nearLogin() ? { cwd: tmpdir() } : {}),
+    ...(env ? { env: { ...process.env, ...env } } : {}),
     encoding: "utf8", timeout: 15 * 60 * 1000, maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
   });
 }
@@ -100,11 +106,26 @@ const MAX_INLINE = Number(process.env.ASK_MAX_INLINE) || 6000;
 const AGY_WRAP_UP = "Time is up: stop and do not call any more tools. Write a concise answer now from what you have already found, and say which parts you could not check.";
 const PARTIAL = `[PARTIAL ANSWER: Antigravity ran out of time (${AGY_MINUTES} minutes) before it finished; this was written from what it had found by then and may be incomplete.]\n\n`;
 
+// What the gate hook (agy-gate.mjs) is told. A flag and not the task's words: "do not open .env" names the file too,
+// and the task can quote a file. Nothing a file says can set it.
+const taskNamesEnv = () => /(?<!\w)\.env(?!\w)/i.test(task);
+const agyGateEnv = () => ({ ASK_AGY_GATE: "1", ASK_AGY_ENV_OK: allowEnv ? "1" : "0" });
+
+// Why the gate hook is not in place, or "" when it is. Without it agy could search the web or read .env files.
+function agyGateProblem() {
+  const hook = join(HERE, "agy-gate.mjs").replace(/\\/g, "/");
+  const hooksFile = join(homedir(), ".gemini", "config", "hooks.json");
+  if (!existsSync(hook)) return `the gate hook ${hook} is missing, so agy was not run (it could search the web and read .env files). Run install.mjs again.`;
+  if (!existsSync(hooksFile)) return `${hooksFile} is missing, so agy was not run: it would not refuse web search or .env files. Run install.mjs again.`;
+  if (!readFileSync(hooksFile, "utf8").replace(/\\/g, "/").toLowerCase().includes(hook.toLowerCase())) return `${hooksFile} does not register ${hook}, so agy was not run: it would not refuse web search or .env files. Run install.mjs again.`;
+  return "";
+}
+
 // One Antigravity run with its event output, which names the conversation so it can be resumed
 function agyOnce(prompt, limit, conversation) {
   const resume = conversation ? ` --conversation "$3"` : "";
   const r = spawnBash(`agy -p "$1" --mode plan --model "$2" --print-timeout ${limit} --output-format stream-json${resume} < /dev/null`,
-    [prompt, AGY_MODEL, ...(conversation ? [conversation] : [])]);
+    [prompt, AGY_MODEL, ...(conversation ? [conversation] : [])], agyGateEnv());
   // The event lines hold the task, search words and page text, so a failure is judged on stderr, on the
   // lines that are not events, and on the status and error of a result that did not succeed
   const events = [], notEvents = [];
@@ -174,6 +195,8 @@ const ROUTES = {
   agy: {
     label: `Antigravity (${AGY_MODEL})`,
     run({ task, web }) {
+      const problem = agyGateProblem();
+      if (problem) return { ok: false, reason: problem };
       const rules = web ? AGY_WEB_RULES : AGY_RULES;
       if (task.length <= MAX_INLINE) return runAgy(`${rules}\n\n${task}`);
       // A Windows command line holds about 32,000 characters: a longer task given as -p never started
@@ -196,12 +219,13 @@ const CLAUDE_INSTEAD = {
 };
 
 const args = process.argv.slice(2);
-let web = false, think = false, status = false;
+let web = false, think = false, status = false, allowEnv = false;
 while (args.length && args[0].startsWith("--")) {
   const flag = args.shift();
   if (flag === "--web") web = true;
   else if (flag === "--think") think = true;
   else if (flag === "--status") status = true;
+  else if (flag === "--allow-env") allowEnv = true;
   else { note(`unknown option ${flag}`); process.exit(2); }
 }
 
@@ -241,6 +265,7 @@ if (existsSync(task) && statSync(task).isFile()) {
   if (!task) { note(`the task file ${args[0]} is empty`); process.exit(2); }
 }
 
+if (taskNamesEnv() && !allowEnv) note(`the task names .env, and a .env file stays refused unless the user asked for it to be read: then run this with --allow-env`);
 const kind = web ? "web" : "local";
 let answered = false;
 for (const route of ORDER[kind]) {

@@ -56,12 +56,13 @@ export const CATCH = {
 /** What the film calls each part of the repo, listed inside the contents shot. */
 export const HOOKS = [
   "big-read-gate", "board-nudge", "code-review-gate", "cold-cache", "command-explain", "context-guard", "decided-quote", "file-link-gate",
-  "handoff-brief", "link-gate", "loop-warn", "opencli-readonly", "picture-in-project", "plan-usage-logger", "question-other", "repeat-guard",
-  "run-yourself", "slow-output-gate", "sql-guard", "update-check", "usage-dashboard-hook", "web-answer-gate", "web-worker-gate", "worker-nudge",
+  "handoff-brief", "link-gate", "loop-warn", "map-brief", "map-nudge", "nimbalyst-notes", "opencli-readonly", "pc-tidy-nudge", "picture-in-project",
+  "plan-usage-logger", "question-other", "repeat-guard", "run-yourself", "slow-output-gate", "sql-guard", "transcript-check", "update-check",
+  "usage-dashboard-hook", "verify-gate", "web-answer-gate", "web-worker-gate", "worker-nudge",
 ];
 export const SKILLS = [
-  "/blind-review", "/board-cleanup", "/btw", "/court", "/handoff", "/lead", "/new-project", "/next-move",
-  "/phone-bot", "/project-scan", "/setup-audit", "/shared-usage", "/steer", "/update-setup", "/usage-report", "/watch",
+  "/blind-review", "/board-cleanup", "/btw", "/court", "/handoff", "/lead", "/new-project", "/next-move", "/pc-tidy",
+  "/phone-bot", "/setup-audit", "/shared-usage", "/steer", "/systems-map", "/update-setup", "/watch", "/web-research",
 ];
 export const EXTENSIONS = ["usage-plan", "commands", "agents-panel", "ink-themes", "read-aloud"];
 export const PROJECTS = ["internet-search", "ask-anything", "quick-tasks", "claude-settings"];
@@ -101,8 +102,8 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "tiles",
       tiles: [
-        { name: "28 hooks", note: "Small scripts that check each step" },
-        { name: "18 skills", note: "Commands like /lead and /court" },
+        { name: "30 hooks", note: "Small scripts that check each step" },
+        { name: "17 skills", note: "Commands like /lead and /court" },
         { name: "5 extensions", note: "Panels for the Nimbalyst editor" },
         { name: "4 projects", note: "Ready-made folders" },
         { name: "5 agents", note: "A planner, capped helpers, a reviewer" },
@@ -123,7 +124,7 @@ export const SCRIPT: Shot[] = [
         { topic: "Its claims", alone: "Nothing checks them", setup: "Hooks compare them with its log" },
         { topic: "Commands", alone: "It may ask you to run them", setup: "It runs them itself" },
         { topic: "Long chats", alone: "Compact when nearly full, or by hand", setup: "Compact themselves early" },
-        { topic: "Big jobs", alone: "Subagents you arrange", setup: "/lead: sessions side by side, then a review" },
+        { topic: "Big jobs", alone: "Subagents you arrange", setup: "/lead: helpers run the steps, then one review" },
         { topic: "Spending", alone: "/usage: the last 7 days", setup: "Per project, with a forecast" },
       ],
     },
@@ -145,7 +146,7 @@ export const SCRIPT: Shot[] = [
       kind: "rows",
       rows: [
         { text: "“Now run this yourself”", note: "It runs it" },
-        { text: "Three files changed, no review", note: "Review first" },
+        { text: "Ten files changed, no review", note: "Review first" },
         { text: "“May not be available”", note: "Looks it up" },
         { text: "DELETE without WHERE", note: "Asks you first" },
       ],
@@ -192,7 +193,7 @@ export const SCRIPT: Shot[] = [
       kind: "rows",
       rows: [
         { text: "Reading a whole big file", big: "607", note: "Refused 607 times in 30 days" },
-        { text: "Helpers with no limit", big: "4.3M", note: "One used 4.3M tokens. Now 25 turns" },
+        { text: "Helpers with no limit", big: "4.3M", note: "One used 4.3M tokens. Now every helper has a cap" },
         { text: "Long file reading", big: "GPT", note: "Goes to GPT or Gemini, if you have them" },
       ],
     },
@@ -217,8 +218,8 @@ export const SCRIPT: Shot[] = [
   {
     id: "lead",
     part: "Big jobs",
-    title: "/lead runs a big job across sessions",
-    sub: "In the Nimbalyst editor, you hand it the job. A separate session reviews the result.",
+    title: "/lead runs a big job with helpers",
+    sub: "You hand it the job. Helpers do the steps. One reviewer checks the result.",
     ticks: 118,
     body: { kind: "flow", flow: [["/lead"], ["Search", "Build", "Tests"], ["Separate review"]] },
   },
@@ -235,10 +236,10 @@ export const SCRIPT: Shot[] = [
     id: "review",
     part: "Big jobs",
     title: "/blind-review checks any big work",
-    sub: "Fresh reviewers see only the request and the result. You fix what they rank serious.",
+    sub: "One fresh reviewer sees only the request and the result. You fix what it ranks serious.",
     ticks: 116,
     enter: "up",
-    body: { kind: "review", rounds: ["Round 1", "Round 2", "Round 3"], clean: "Nothing serious left" },
+    body: { kind: "review", rounds: ["Round 1", "Round 2"], clean: "Nothing serious left" },
   },
   {
     id: "handoff",
@@ -296,9 +297,9 @@ export const SCRIPT: Shot[] = [
       kind: "rows",
       rows: [
         { text: "/setup-audit", note: "Token costs, hook blocks, unused parts" },
-        { text: "/chat-review", note: "Where the agent got in your way" },
-        { text: "/full-review", note: "What to change, as a list to tick" },
-        { text: "/usage-report", note: "Where the tokens went, per session" },
+        { text: "/setup-audit chat", note: "Where the agent got in your way" },
+        { text: "/setup-audit full", note: "What to change, as a list to tick" },
+        { text: "/setup-audit usage", note: "Where the tokens went, per session" },
       ],
     },
   },
@@ -327,7 +328,7 @@ export const SCRIPT: Shot[] = [
       kind: "tiles",
       tiles: [
         { name: "Usage ring", note: "The week's use on the side bar" },
-        { name: "Commands", note: "Seven commands behind one button" },
+        { name: "Commands", note: "Your commands behind one button" },
         { name: "Agents list", note: "Running helpers, in plain words" },
         { name: "11 themes", note: "Eight dark, three light" },
       ],
@@ -337,7 +338,7 @@ export const SCRIPT: Shot[] = [
     id: "install",
     part: "Install",
     title: "See what it changes first",
-    sub: "Nimbalyst is optional. It adds /lead and the session board.",
+    sub: "Nimbalyst is optional. It adds the session board.",
     ticks: 96,
     body: {
       kind: "install",
@@ -361,7 +362,7 @@ export const SCRIPT: Shot[] = [
       stats: [
         { value: 11042, unit: "replies checked in 30 days" },
         { value: 360, unit: "sent back" },
-        { value: 53, unit: "test files, run on every push" },
+        { value: 62, unit: "test files, run on every push" },
       ],
       line: "People in finance, data engineering and government IT use it at work too.",
     },

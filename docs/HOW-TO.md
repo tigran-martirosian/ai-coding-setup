@@ -14,7 +14,7 @@ You need Node.js 18 or newer and Claude Code. Codex, Antigravity, Nimbalyst and 
 are optional, and the installer does not install them. It does install the `claude-hud` plugin and
 the `find-skills` skill, unless you add `--plugins no`, and it
 adds the Claude Code settings. To have the programs put in place too, on Windows or a Mac, use
-[full-install.md](full-install.md) instead.
+[full-install.md](full-install.md) instead (its Mac steps have not been run on a real Mac).
 
 Download the repository as a zip from its GitHub page (the green **Code** button, then **Download
 ZIP**) and unzip it, or clone it. Open a terminal in that folder.
@@ -79,7 +79,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   `winget install --id cjpais.Handy -e`; other systems: https://handy.computer. Open it once, allow
   the microphone and download the **Parakeet V3** model. In its settings choose push to talk on
   Right Alt, pasting with Ctrl+V, and keeping the model loaded. Then click into a chat box, hold Right
-  Alt, speak and release. You should see your words appear there.
+  Alt, speak and release. You should see your words appear there. Right Alt is AltGr on many
+  non-US keyboards and typing breaks while it is bound: pick another key to hold, such as Right Ctrl.
 
 ## While you work
 
@@ -106,6 +107,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   and background commands Claude has started. Each row is named after its job, for example
   `Web search: library sign-in steps`; hover a row to see the full command. Click "N finished" to
   open or fold the finished ones, and drag the list's bottom edge to make it taller.
+- **Big files.** `big-read-gate` refuses to read a whole file of more than 350 lines or about 20,000
+  characters, so Claude reads the part it needs. To move the limits, set `BIG_READ_MAX_LINES`
+  (default 350) and `BIG_READ_MAX_BYTES` (default 20000) in the environment. A file you name in your
+  own message is let through once.
 - **A second opinion that uses none of the Claude plan** (with Codex or Antigravity installed).
   Before building from a design or a plan, say "get a second opinion on this". The first free
   worker that is ready gives it.
@@ -142,7 +147,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **`/board-cleanup`: the Sessions board is full.** It moves finished chats to Complete. To hide
   them, select the cards in the Complete column and choose Archive selected; Claude cannot archive
   for you.
-- **`/project-scan`:** checks one project's Claude setup and saves a report.
+- **`/setup-audit scan`:** checks one project's Claude setup and saves a report.
 - **`/next-move`:** names the one most useful thing to do next. It reads your goals from
   `~/.claude/goals.md`, so write a few lines there first (what you want to reach this year).
 - **`/watch`: you have a video.** Give Claude a YouTube link or a video file and a question. A script fetches the subtitles and makes sheets of timed stills (an overview of the whole video, or about 5 stills a second for one stretch); a cheap model reads them, so a video costs a few thousand tokens to look through. Needs ffmpeg.
@@ -151,7 +156,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   the limits each person used. It asks for your name and two passwords. Each person types the command on
   their own computer with the same group password. The token counts go to the tool author's server;
   chat text and file names stay on your computer. Its background program starts with the computer on
-  Windows and macOS. An add-on: `node install.mjs --with shared-usage` adds it.
+  Windows; the macOS start-up has not been tried on a real Mac. An add-on: `node install.mjs --with shared-usage` adds it.
 
 ## From your phone
 
@@ -182,7 +187,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   (`~/.claude/.credentials.json`) and asks api.anthropic.com for the plan percentages every 5
   minutes; the login goes to Anthropic only and is not written to the log. To turn it off, set
   `PLAN_USAGE_LOGGER=off` in the environment. On a Mac the login is in the Keychain, not in that file, so the forecast stays empty.
-- **`/usage-report`:** the detailed numbers, saved as a file.
+- **`/setup-audit usage`:** the detailed numbers, saved as a file.
 
 ## The four folders for side work
 
@@ -227,11 +232,11 @@ something unrelated inside another project, Claude names the right folder and op
 
 ### `<projects>\claude-settings`: changing the setup itself
 
-- **`/chat-review`: fit the setup to your real work.** It reads your recent chats on this computer,
+- **`/setup-audit chat`: fit the setup to your real work.** It reads your recent chats on this computer,
   shows where Claude got in your way and which skills are missing, and sets up only what you tick.
-  The chat digests are read by Codex (OpenAI) when Codex is set up; the findings stay on this
-  computer. Run it again after a few weeks of work.
-- **`/full-review`: one review of how the work went.** Where the usage went, which model did the work, where the reasoning and the chats went wrong, what took too long or was answered too fast, and what keeps failing. It ends in a short list of options, each with the number behind it, and changes only what you tick.
+  The chat digests are read by the first free worker that is set up, Codex (OpenAI) or Gemini
+  (Google), so one of them is needed; the findings stay on this computer. Run it again after a few weeks of work.
+- **`/setup-audit full`: one review of how the work went.** Where the usage went, which model did the work, where the reasoning and the chats went wrong, what took too long or was answered too fast, and what keeps failing. It ends in a short list of options, each with the number behind it, and changes only what you tick.
 - **Adding Codex or Gemini later.** If you get a ChatGPT or a Google subscription, say "add the
   Codex worker" or "add the Antigravity worker" in a chat in this folder.
 - **`/setup-audit`:** checks that the setup itself still works, and names what is loaded in every
