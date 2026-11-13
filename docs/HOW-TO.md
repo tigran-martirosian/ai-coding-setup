@@ -60,7 +60,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **Updates.** Every 12 hours the setup checks whether a newer version is released. A small one (only
   hook, skill, agent or worker files, no restart, no questions) installs itself in the background and says so in one
   line; `AUTO_UPDATE=off` stops that. For a bigger one it reminds you; type `/update-setup` to install it: your own skills, hooks, settings and notes stay, your own
-  rules stay in `~/.claude/rules/my-rules.md`, and one of the setup's files you changed yourself is replaced only after you say yes. `UPDATE_CHECK=off` in the
+  rules stay in `~/.claude/rules/my-rules.md`, and one of the setup's files you changed yourself is replaced only after you say yes.
+  It also clears the setup's own leftovers and says how much it freed, and offers your own leftovers and a reorganize
+  of your project files on one card (yes or not now; later, any time: `/disk-tidy` or `/file-upkeep`). `UPDATE_CHECK=off` in the
   environment turns the check off; `/update-setup` still works.
 - **Optional extras the rules mention.** The installer does not install these; where one is missing
   the rule that names it simply doesn't apply.
@@ -142,7 +144,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   model and Claude doesn't ask to switch. In the terminal that is `"model"` in
   `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
 - Helpers keep their own model, whichever model you chat on: workers run Opus at medium effort (a `worker-code` helper
-  writes code on Opus at high effort; a worker that does deep web research, reads charts or does science or maths runs Fable at medium), a `worker-high` helper takes only long refactors, on Fable at
+  writes code on Opus at high effort; a worker that reads charts or does science or maths runs Fable at medium), a `worker-high` helper takes only long refactors, on Fable at
   high effort, and the planner and the reviewers run Fable at high effort. A Fable advisor for the session is off unless you turn it on (`/advisor fable`; `/advisor off` turns it off).
   Only mechanical bulk work (renames, bulk edits, scans) goes to a Sonnet helper.
 - Three folders start on Opus by themselves: `ask-anything`, `internet-search`, `claude-settings`.
@@ -155,6 +157,15 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **`/board-cleanup`: the Sessions board is full.** It moves finished chats to Complete. To hide
   them, select the cards in the Complete column and choose Archive selected; Claude cannot archive
   for you.
+- **`/disk-tidy`: the disk is full or low.** It lists what takes the space (leftover worktrees, old
+  chat logs, scratch and temp folders, old project copies) and removes only what you tick; work not
+  committed is kept. Say yes to the chat archive and chats older than 60 days move to
+  `~/.claude-archive/chats` every 3 days. To keep one project's chats forever:
+  `node ~/.claude/workers/disk-tidy.mjs --keep-forever "<project folder>"`. To get one back:
+  `--archive-list --project <word>`, then `--restore <id>`, before `/resume`.
+- **`/file-upkeep`: a project's files are named and placed every which way.** It checks them
+  against the file standard, shows the list of renames and moves, and after your yes moves them,
+  fixes the references and keeps a ledger to undo it.
 - **`/setup-audit scan`:** checks one project's Claude setup and saves a report.
 - **`/next-move`:** names the one most useful thing to do next. It reads your goals from
   `~/.claude/goals.md`, so write a few lines there first (what you want to reach this year).
@@ -246,6 +257,6 @@ something unrelated inside another project, Claude names the right folder and op
 ## What the rules take care of
 
 - Runs and checks things itself, and does not ask you to run a command it can run.
-- Sends big reading and searching to a helper (a capped `worker` subagent on Opus, `worker-code` on Opus at high for code, or Fable for deep research), and keeps the thinking
+- Sends big reading and searching to a helper (a capped `worker` subagent on Opus, `worker-code` on Opus at high for code, or Fable for charts, science and maths), and keeps the thinking
   in the chat you are in.
 - Marks finished chats Complete on the board.

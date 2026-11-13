@@ -58,13 +58,13 @@ In a project with 100 or more code files, the setup builds a map of it by itself
 - The agent runs commands itself instead of asking you to paste them, except for passwords and decisions that are yours.
 - Some replies are sent back, and the agent does the missing step first.
 - In Nimbalyst, a choice question always has a box for your own answer.
-- If you have set no model, it sets Opus at medium effort. Fable as an advisor Opus consults at decision points is off until it is measured here; `/advisor fable` turns it on and `/advisor off` turns it off again. The planner and both reviewers run Fable at high effort; helpers that write code run Opus at high effort. A build or design request goes to the `planner` agent first, in every project.
+- If you have set no model, it sets Opus at medium effort. Fable as an advisor Opus consults at decision points is off until it is measured here; `/advisor fable` turns it on and `/advisor off` turns it off again. The planner and both reviewers run Fable at high effort; helpers that write code run Opus at high effort. Each helper runs at the effort its agent file sets: Nimbalyst passes its effort pick to Claude Code as `CLAUDE_CODE_EFFORT_LEVEL`, which would override every helper, so the installer sets that variable to an empty value in `~/.claude/settings.json`. Nimbalyst's effort picker then no longer changes the level; use `/effort` in the chat to change the main session's. A build or design request goes to the `planner` agent first, in every project.
 - If you have set no time for keeping transcripts, it keeps them 120 days.
 - Every 12 hours you may see one line saying a newer version is out. A small fix installs itself in the background (`AUTO_UPDATE=off` stops that); anything bigger waits until you type `/update-setup`.
 
 ## Install and undo
 
-You need Claude Code, installed and signed in, on a Max plan or higher (Ultra is better): the planner, the reviewers, long refactors and deep research run Fable, which uses up a Pro plan's limits fast. On the $20 Pro plan the setup will probably not work as well. The installer updates Claude Code to the newest version and stops below 2.1.321. Nimbalyst's chats are pointed at your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes on the day they ship (a newer line than Nimbalyst's waits for Nimbalyst; `SETUP_NIMBALYST_CLAUDE=off` leaves Nimbalyst on its own). Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions and the session board don't. `/lead` runs its steps as subagents, but keeps its job card in Nimbalyst's tracker. Download the ZIP or clone the repository, then in its folder:
+You need Claude Code, installed and signed in, on a Max plan or higher (Ultra is better): the planner, the reviewers, long refactors, charts, science and maths run Fable, which uses up a Pro plan's limits fast. On the $20 Pro plan the setup will probably not work as well. The installer updates Claude Code to the newest version and stops below 2.1.321. Nimbalyst's chats are pointed at your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes on the day they ship (a newer line than Nimbalyst's waits for Nimbalyst; `SETUP_NIMBALYST_CLAUDE=off` leaves Nimbalyst on its own). Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions and the session board don't. `/lead` runs its steps as subagents, but keeps its job card in Nimbalyst's tracker. Download the ZIP or clone the repository, then in its folder:
 
 ```
 claude "Read docs/full-install.md and carry out every step in it."
@@ -110,7 +110,7 @@ The installer adds rules that stop Claude Code reading saved sign-ins for Claude
 ## Limits
 
 - A check knows a page was opened, not what it said. An agent that opens the page and still gets it wrong passes.
-- A hook that hits an error lets the call through, so a broken check stops nothing; the crash is logged in `~/.claude/hooks/state/hook-errors.log` and the next session says so (`HOOK_CRASH_ALARM=off` silences that).
+- A hook that hits an error lets the call through, so a broken check stops nothing; the guards (the secret scan before a push, the OpenCLI and planner read-only checks) stop the call instead; the crash is logged in `~/.claude/hooks/state/hook-errors.log` and the next session says so (`HOOK_CRASH_ALARM=off` silences that).
 - Only some rules have a check behind them. "Lead with the answer" is text the model reads and can ignore. The rules file adds about 4,600 tokens to every session.
 - Checks are sometimes wrong: a send-back can be a false alarm. I measure that and fix the checks that cause it.
 

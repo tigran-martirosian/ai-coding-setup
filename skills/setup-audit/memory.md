@@ -38,7 +38,7 @@ A note that is right but old is passed. A note you are unsure of is passed with 
 
 ## 4. Propose
 
-One action per finding, the smallest that fixes it: move the note to `memory/archive/`, merge it
+One action per finding, the smallest that fixes it: delete the note, merge it
 into the note that stays, move a fact to `facts.md`, cut a restated part down to a pointer to its
 line, fix the line that is wrong, or add or remove its `MEMORY.md` line. A leftover folder is only
 listed: removing it is the user's own step.
@@ -52,8 +52,9 @@ the same items, then right after it an optional `editText` "Anything else?" (`mi
 
 ## 6. Do only what was ticked
 
-Create `memory/archive/` when a move needs it; move, never delete. Keep `MEMORY.md` in step with each
-move. Add one line to the setup project's `DECISIONS.md` for the run. Reply short: what moved or
-changed, what was declined. Reply in the language the user writes in.
+A ticked note to retire is deleted, with no `archive/` folder (A1 of
+`~/.claude/skills/file-upkeep/standard.md`); the tick is the user's yes, and the tick list keeps its path and
+what was wrong. Keep `MEMORY.md` in step with each change. Add one line to the setup project's `DECISIONS.md`
+for the run. Reply short: what was deleted or changed, what was declined. Reply in the language the user writes in.
 
 Budget: about 25 tool calls per project.

@@ -1,8 +1,10 @@
 // ~/.claude/settings.json: the hook wiring, the move of an old "model": "sonnet" to opus, Claude Code's own
 // settings (scripts/claude-code-settings.mjs) and the reply language, written once when any of them changed.
 // Returns what goes on record as state.model ("moved", "kept" or the earlier answer).
-import { addClaudeCodeSettings, DEFAULT_EFFORT, OPUS_MODELS, removeOldOutputCap } from "./claude-code-settings.mjs";
+import path from "node:path";
+import { addClaudeCodeSettings, DEFAULT_EFFORT, effortLines, OPUS_MODELS, removeOldOutputCap } from "./claude-code-settings.mjs";
 import { fwd } from "./files.mjs";
+import { nimbalystHome } from "./nimbalyst-paths.mjs";
 import { retire, wire } from "./wiring.mjs";
 
 const olderThan = (a, b) => {
@@ -60,6 +62,8 @@ export function claudeSettings(ctx) {
   if (own.cache) say(`cache: helpers keep their prompt cache for an hour, set in ${fwd(settingsFile)}`);
   if (own.logs) say(`logs: transcripts are kept 120 days, set in ${fwd(settingsFile)}`);
   if (own.powershellOff) say(`shell: the PowerShell tool is off (CLAUDE_CODE_USE_POWERSHELL_TOOL=0), so commands go through Git Bash; set in ${fwd(settingsFile)}`);
+  // Nimbalyst's own effort setting is only named, and only for the real home folder (--home is the tests)
+  for (const line of effortLines(own, ctx.opt("home") === null ? path.join(nimbalystHome(), "app-settings.json") : null, fwd(settingsFile))) say(line);
   const uncapped = removeOldOutputCap(settings, state.version);
   if (uncapped) say(`output: the 64k cap on one reply that 1.0.104 set is taken out of ${fwd(settingsFile)}`);
   if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins and SSH keys can't be read, a .env file is asked about)`);
@@ -68,6 +72,6 @@ export function claudeSettings(ctx) {
   let langChanged = false;
   if (LANG === "russian" && settings.language !== "russian") { settings.language = "russian"; langChanged = true; say(`language: russian set in ${fwd(settingsFile)}`); }
   else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
-  if (wired || own.model || modelChanged || own.compact || own.cache || advisorOff || own.logs || own.powershellOff || uncapped || own.added || langChanged) ctx.putJson(settingsFile, settings, settingsWas);
+  if (wired || own.model || modelChanged || own.compact || own.cache || advisorOff || own.logs || own.powershellOff || own.effortEnv || uncapped || own.added || langChanged) ctx.putJson(settingsFile, settings, settingsWas);
   return modelMark;
 }

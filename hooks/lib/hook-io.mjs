@@ -6,6 +6,8 @@
 // names another one, {projectSettings: true} also looks in the project's settings env (settings-env.mjs).
 // A thrown error is crash-logged and the hook ends with exit 0, so the call goes through. Input that is not a JSON
 // object is the same, unless {exitOnBadInput: true} (decided-quote): then a message on stderr and exit 2.
+// {failClosed: true} (guards wired with onFailure "block"): a thrown error or bad input is crash-logged, said on
+// stderr and ends with exit 1, so Claude Code's onFailure decides; with "block" the call is stopped.
 // fn may be async; a number it returns becomes the exit code.
 import fs from "node:fs";
 import path from "node:path";
@@ -15,11 +17,16 @@ import { setting } from "./settings-env.mjs";
 
 export const offName = (name) => name.toUpperCase().replace(/-/g, "_");
 
-export function runHook(name, fn, { exitOnBadInput = false, off, projectSettings = false } = {}) {
+export function runHook(name, fn, { exitOnBadInput = false, failClosed = false, off, projectSettings = false } = {}) {
   installCrashHandlers();
   const variable = off || offName(name);
   const value = projectSettings ? setting(variable) : process.env[variable] || "";
   if (value.toLowerCase() === "off") return Promise.resolve();
+  const fail = (err) => {
+    crashLog(name, err);
+    process.stderr.write(`[${name}] The check itself failed (${err.message}). Set ${variable}=off to bypass.\n`);
+    process.exitCode = 1;
+  };
   return (async () => {
     let event;
     try {
@@ -29,6 +36,8 @@ export function runHook(name, fn, { exitOnBadInput = false, off, projectSettings
       if (exitOnBadInput) {
         process.stderr.write(`[${name}] Could not read the hook input as JSON (${err.message}). Set ${variable}=off to bypass.\n`);
         process.exitCode = 2;
+      } else if (failClosed) {
+        fail(err);
       } else {
         crashLog(name, err);
         process.exitCode = 0;
@@ -39,6 +48,7 @@ export function runHook(name, fn, { exitOnBadInput = false, off, projectSettings
       const code = await fn(event);
       if (typeof code === "number") process.exitCode = code;
     } catch (err) {
+      if (failClosed) return fail(err);
       crashLog(name, err);
       process.exitCode = 0;
     }

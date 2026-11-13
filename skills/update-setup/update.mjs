@@ -118,6 +118,26 @@ auto.from = installed;
 if (FILES_ONLY && (!state.repo || !fs.existsSync(path.join(state.repo, "install.mjs")))) stop(`the setup's folder (${state.repo || "none on record"}) is gone, so a change to the extensions can't be told; /update-setup installs it.`);
 
 // Runs a version's installer with the flags that are passed on
+// A foreground update ends with the setup's own leftovers cleaned (workers/disk-tidy.mjs --auto): its `disk:` and
+// `offer:` lines are passed on as they are. Not with --home (tests): the tool would look at this computer's temp folder.
+function diskTidy() {
+  const worker = path.join(CLAUDE, "workers", "disk-tidy.mjs");
+  if (homeAt !== -1) return;
+  if (!fs.existsSync(worker)) { console.log(`disk: not checked (${fwd(worker)} is missing; the installer puts it there)`); return; }
+  const r = spawnSync(process.execPath, [worker, "--auto"], { encoding: "utf8", windowsHide: true });
+  if (r.stdout.trim()) console.log(r.stdout.trim());
+  if (r.status !== 0) console.log(`disk: the cleanup stopped: ${(r.stderr || "").trim().split("\n")[0] || `exit ${r.status}`}`);
+}
+// Then the file reorganize offer (file-upkeep's file-check.mjs --status --homes): its last `offer:` line is passed on as
+// `files-offer:`, so the skill can tell it from the disk offer; `offer: none` prints nothing. With --home it looks at that home.
+function filesOffer() {
+  const checker = path.join(CLAUDE, "skills", "file-upkeep", "file-check.mjs");
+  if (!fs.existsSync(checker)) { console.log(`files: not checked (${fwd(checker)} is missing; the installer puts it there)`); return; }
+  const r = spawnSync(process.execPath, [checker, "--status", "--homes", ...(homeAt !== -1 ? ["--home", home] : [])], { encoding: "utf8", windowsHide: true });
+  if (r.status !== 0) { console.log(`files: the check stopped: ${(r.stderr || r.stdout || "").trim().split("\n").at(-1) || `exit ${r.status}`}`); return; }
+  const offer = (r.stdout || "").trim().split(/\r?\n/).filter((l) => l.startsWith("offer:")).at(-1);
+  if (offer && !offer.startsWith("offer: none")) console.log(`files-${offer}`);
+}
 const passed = args.flatMap((a, i) => (["--replace-all", "--keep-model", "--theme-done"].includes(a) ? [a] : ["--replace", "--language", "--leave-out", "--put-back"].includes(a) && args[i + 1] ? [a, args[i + 1]] : []));
 function install(folder) {
   const flags = FILES_ONLY ? ["--files-only"] : [...passed];
@@ -194,6 +214,7 @@ if (!newer(latest.version, installed)) {
       }
     }
   }
+  if (!args.includes("--check")) { diskTidy(); filesOffer(); }
   process.exit(0);
 }
 console.log(`Newer version: ${latest.version} (installed: ${installed === "0" ? "an older one, no version on record" : installed}).`);
@@ -256,3 +277,4 @@ for (const name of fs.readdirSync(sources)) {
 for (const name of changed) console.log(`extension changed: ${name} (source in ${fwd(path.join(extDir, name))})`);
 if (FILES_ONLY) recordAuto({ ok: true, kept: keptYours });
 console.log(`Updated to version ${latest.version}. The full list of changes: ${fwd(path.join(target, "CHANGELOG.md"))}`);
+if (!FILES_ONLY) { diskTidy(); filesOffer(); }

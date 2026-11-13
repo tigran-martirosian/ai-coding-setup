@@ -485,6 +485,40 @@
       ]
     },
     {
+      "id": "disk-tidy",
+      "name": "Disk tidy",
+      "what": "Report-first disk cleanup: leftover worktrees, old chat logs, scratch and temp folders, old project copies; the 60-day chat archive and its restore.",
+      "files": [
+        "workers/disk-tidy.mjs",
+        "skills/disk-tidy/SKILL.md",
+        "tests/test-disk-tidy.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "disk space",
+        "chat archive",
+        "keep-forever",
+        "disk.tidy"
+      ]
+    },
+    {
+      "id": "file-upkeep",
+      "name": "File upkeep",
+      "what": "The file standard (names, places, decisions archive) and the checker that lists misnamed and misplaced files, with the reorganize ledger and undo.",
+      "files": [
+        "skills/file-upkeep/SKILL.md",
+        "skills/file-upkeep/file-check.mjs",
+        "skills/file-upkeep/standard.md",
+        "tests/test-file-check.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "file standard",
+        "reorganize",
+        "file.check"
+      ]
+    },
+    {
       "id": "board-tidy",
       "name": "Session board cleanup",
       "what": "Archives finished sessions on the Nimbalyst board.",
@@ -1224,6 +1258,42 @@
         {
           "file": "hooks/lib/review-decide.mjs",
           "token": "blind-screen-review"
+        }
+      ]
+    },
+    {
+      "from": "housekeeping-nudges",
+      "to": "disk-tidy",
+      "type": "uses",
+      "says": "pc-tidy-nudge runs the chat archive every 3 days once the person has turned it on.",
+      "evidence": [
+        {
+          "file": "hooks/pc-tidy-nudge.mjs",
+          "token": "--archive-only"
+        }
+      ]
+    },
+    {
+      "from": "update-flow",
+      "to": "disk-tidy",
+      "type": "uses",
+      "says": "An update cleans the setup's own leftovers and passes on the offer for the person's own.",
+      "evidence": [
+        {
+          "file": "skills/update-setup/update.mjs",
+          "token": "disk-tidy.mjs"
+        }
+      ]
+    },
+    {
+      "from": "update-flow",
+      "to": "file-upkeep",
+      "type": "uses",
+      "says": "An update passes on the file reorganize offer from the checker.",
+      "evidence": [
+        {
+          "file": "skills/update-setup/update.mjs",
+          "token": "file-check.mjs"
         }
       ]
     }

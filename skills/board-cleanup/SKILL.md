@@ -10,6 +10,8 @@ Covers **this project's board only** (the tools can't see other projects). Budge
 
 Ignore `committed` / `uncommitted` tags: they depend on git, which the project may not have. A session is **done** when it gave its final report, was handed off to another session, or only answered a question.
 
+0. **Kept project?** ToolSearch `board_tidy`, then its keep tool with no arguments lists the kept projects. If this project's folder is on it, it keeps every session on purpose (a chat-style project): change nothing and say so in one line, adding that "archive what's older than 6 months here" (archive tool with `project` and `olderThanDays`) or "tidy this project again" (keep tool with `keep: false`) are there when wanted. When the user asks for one of those, do just that.
+
 1. **List.** One `list_recent_sessions` call with `limit: 250`, `includeArchived: false`.
 
 2. **Sort from the list alone.** No other calls for these:
@@ -22,7 +24,7 @@ Ignore `committed` / `uncommitted` tags: they depend on git, which the project m
 
 4. **Apply.** For each checked id, `update_session_board` with `sessionId` and `phase: "complete"`, all in one message. Don't pass `tags` (it replaces the whole list), never pass `phase: null`, and never use `update_session_meta` for another session. Add no labels such as `archived-candidate`.
 
-5. **Archive.** Find the Board Tidy tool with ToolSearch `board_tidy` and call its archive tool once (no arguments). It archives, in every project, sessions Complete and idle for 3 days, with no phase for 14 days, or in planning/validating/implementing for 30 days; pinned, running and worktree sessions stay, nothing is deleted. Sessions just moved to Complete wait their 3 days. If ToolSearch finds no `board_tidy` tool, the Board Tidy extension is off or not installed: say so in the report, change nothing else.
+5. **Archive.** Call the Board Tidy archive tool once (no arguments). It archives, in every project but the kept ones, sessions Complete and idle for 3 days, with no phase for 14 days, or in planning/validating/implementing for 30 days; pinned, running and worktree sessions stay, nothing is deleted. Sessions just moved to Complete wait their 3 days. If ToolSearch finds no `board_tidy` tool, the Board Tidy extension is off or not installed: say so in the report, change nothing else.
 
 6. **Close.** Only if this session was opened just for the cleanup: one `update_session_meta` for this session, name "Board cleanup", phase `complete`. If it ran inside a session doing other work, leave that session's name and phase alone.
 

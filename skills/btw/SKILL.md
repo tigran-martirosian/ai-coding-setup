@@ -1,6 +1,7 @@
 ---
 name: btw
-description: Add to or correct the task of a Claude session busy in this same folder without stopping it, or ask what it is doing. Use when the user types /btw <note or question>.
+description: Add to or correct the task of a Claude session busy in this same folder without stopping it, or ask what it is doing. Use when the user types /btw [note or question].
+argument-hint: "[note or question]"
 disable-model-invocation: true
 ---
 

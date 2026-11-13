@@ -102,8 +102,8 @@ If nothing counted, say so plainly and ask nothing. Don't pad the list.
 
 - **In the project it belongs to:** its `CLAUDE.md`, its `.claude/skills/` and `.claude/settings.json`
   (`enabledPlugins`), `claude mcp add -s local`. Only these setup files; never the project's own work.
-- **Global** only for a rule that showed up in two or more projects. Save a dated copy of
-  `~/.claude/CLAUDE.md` first (`CLAUDE.md.bak.<yyyymmdd>-chat-review`).
+- **Global** only for a rule that showed up in two or more projects. Copy
+  `~/.claude/CLAUDE.md` first to `~/.claude/setup-logs/<yyyy-mm-dd>-chat-review/CLAUDE.md`, not beside it.
 - **A program:** ask before each install, with what it is for.
 - **A new skill:** short, in the project, with a description that says when to use it. Write it with
   the `skill-creator` skill when that is turned on, and give it the two or three requests the finding

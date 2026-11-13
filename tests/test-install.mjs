@@ -79,6 +79,21 @@ ok("no advisor is set (the person's choice, /advisor fable)", "advisorModel" in 
   addClaudeCodeSettings(own, false, false);
   ok("an own advisor stays", own.advisorModel, "opus");
 }
+ok("a fresh install empties CLAUDE_CODE_EFFORT_LEVEL, so helpers run at their own effort", settings.env?.CLAUDE_CODE_EFFORT_LEVEL, "");
+ok("the install says so", first.out.includes("effort: each helper now runs at its own effort: line"), true);
+{ // a level the person set stays and is named; an empty value is left alone
+  const { addClaudeCodeSettings, effortLines } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
+  const own = { env: { CLAUDE_CODE_EFFORT_LEVEL: "high" } }, done = { env: { CLAUDE_CODE_EFFORT_LEVEL: "" } };
+  const ownDid = addClaudeCodeSettings(own, false, false), doneDid = addClaudeCodeSettings(done, false, false);
+  ok("an own effort level stays and is named", [ownDid.effortEnv, ownDid.effortKept, own.env.CLAUDE_CODE_EFFORT_LEVEL, effortLines(ownDid, null, "s").length], [false, "high", "high", 1]);
+  ok("an empty value already there: nothing to say", [doneDid.effortEnv, doneDid.effortKept, effortLines(doneDid, null, "s")], [false, null, []]);
+  const nimb = path.join(tmp, "nimbalyst-app-settings.json");
+  fs.writeFileSync(nimb, JSON.stringify({ defaultEffortLevel: "medium" }));
+  const was = fs.readFileSync(nimb, "utf8");
+  const said = effortLines(doneDid, nimb, "s");
+  ok("Nimbalyst's effort pick is named in one line and its file is not written",
+    [said.length, said[0].includes("set to medium") && said[0].includes("/effort"), fs.readFileSync(nimb, "utf8") === was], [1, true, true]);
+}
 ok("no cap on one reply's output is set", "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in (settings.env ?? {}), false);
 { // the 64k cap 1.0.104 wrote goes on an update from it; a cap the person set stays
   const { removeOldOutputCap } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
@@ -94,8 +109,8 @@ ok("no cap on one reply's output is set", "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in (se
   const { addClaudeCodeSettings, HELPER_DENY } = await import(pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href);
   const gb = {}, noGb = {}, mac = {}, set = { env: { CLAUDE_CODE_USE_POWERSHELL_TOOL: "1" } };
   ok("Windows with Git Bash: PowerShell tool off", [addClaudeCodeSettings(gb, true, true).powershellOff, gb.env?.CLAUDE_CODE_USE_POWERSHELL_TOOL], [true, "0"]);
-  ok("Windows without Git Bash: PowerShell tool stays", [addClaudeCodeSettings(noGb, true, false).powershellOff, "env" in noGb], [false, false]);
-  ok("macOS: no PowerShell setting", [addClaudeCodeSettings(mac, false, false).powershellOff, "env" in mac], [false, false]);
+  ok("Windows without Git Bash: PowerShell tool stays", [addClaudeCodeSettings(noGb, true, false).powershellOff, "CLAUDE_CODE_USE_POWERSHELL_TOOL" in noGb.env], [false, false]);
+  ok("macOS: no PowerShell setting", [addClaudeCodeSettings(mac, false, false).powershellOff, "CLAUDE_CODE_USE_POWERSHELL_TOOL" in mac.env], [false, false]);
   ok("a value the person set stays", [addClaudeCodeSettings(set, true, true).powershellOff, set.env.CLAUDE_CODE_USE_POWERSHELL_TOOL], [false, "1"]);
   ok("the Explore and general-purpose helpers are denied", HELPER_DENY.every((r) => mac.permissions.deny.includes(r)), true);
 }
@@ -145,6 +160,12 @@ for (const [event, groups] of Object.entries(example.hooks)) {
 }
 const watcher = Object.values(settings.hooks).flat().flatMap((g) => g.hooks).find((h) => /steer.mjs" --watch$/.test(h.command));
 ok("the note watcher stays a background hook", [watcher?.asyncRewake, watcher?.timeout], [true, 7200]);
+// The guards block the action when they crash or time out; every other hook lets it go ahead.
+const failClosed = Object.values(settings.hooks).flat().flatMap((g) => g.hooks).filter((h) => h.onFailure)
+  .map((h) => [h.command.match(/([\w-]+\.mjs)"/)[1], h.if || "", h.onFailure]).map((e) => JSON.stringify(e)).sort();
+ok("push-key-scan, opencli-readonly and planner-readonly, and only they, block when they fail", failClosed,
+  [["push-key-scan.mjs", "Bash(*push*)"], ["push-key-scan.mjs", "PowerShell(*push*)"], ["opencli-readonly.mjs", "Bash(*opencli*)"],
+    ["opencli-readonly.mjs", "PowerShell(*opencli*)"], ["planner-readonly.mjs", ""]].map((e) => JSON.stringify([...e, "block"])).sort());
 ok("the handoff hook keeps its --hook argument", commands.some((c) => /handoff-brief\.mjs" --hook$/.test(c)));
 
 // ---- the rules and the project folders, without Codex
@@ -179,6 +200,10 @@ ok("the installer says one line for each thing it did", [first.out.includes(`cop
 
 ok("setup-state.json records the projects folder and this repository folder as `repo`",
   [json(path.join(claude, "setup-state.json")).projects, path.resolve(json(path.join(claude, "setup-state.json")).repo)], [projects, path.resolve(REPO)]);
+
+ok("Board Tidy leaves quick-tasks alone after the install", json(path.join(claude, "board-tidy.json")).keep, [fwd(path.join(projects, "quick-tasks"))]);
+// the person takes it off the list ("tidy quick-tasks again"): later runs must not put it back
+fs.writeFileSync(path.join(claude, "board-tidy.json"), JSON.stringify({ keep: [] }));
 
 // ---- a second run changes nothing
 const before = [...snap(claude), ...snap(projects)];
@@ -562,6 +587,24 @@ ok("a second run changes nothing in the settings and adds or replaces no hook",
   [fs.readFileSync(path.join(friend, ".claude", "settings.json"), "utf8") === wiredBefore, /hook (added|replaced|repointed)/.test(wiredAgain.out)], [true, false]);
 const unwired = install(friend, "--uninstall");
 ok("--uninstall takes all of them out and leaves the user's own", [unwired.code, gateShape(friendSettings())], [0, [JSON.stringify(["PreToolUse", "Bash|PowerShell", "", "opencli-readonly.mjs"])]]);
+
+// ---- guards wired before onFailure: an update makes them block on failure, a value the user set stays
+const guarded = path.join(tmp, "guards-before-onfailure");
+const guardCmd = (script) => `node "${fwd(path.join(guarded, ".claude", "hooks", script))}"`;
+fs.mkdirSync(path.join(guarded, ".claude"), { recursive: true });
+fs.writeFileSync(path.join(guarded, ".claude", "settings.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash|PowerShell", hooks: [
+  { type: "command", if: "Bash(*push*)", command: guardCmd("push-key-scan.mjs"), timeout: 15 },
+  { type: "command", if: "Bash(*opencli*)", command: guardCmd("opencli-readonly.mjs"), timeout: 15, onFailure: "continue" },
+  { type: "command", command: guardCmd("planner-readonly.mjs"), timeout: 5 }] }] } }));
+const guardRun = install(guarded);
+const guardFails = () => json(path.join(guarded, ".claude", "settings.json")).hooks.PreToolUse.flatMap((g) => g.hooks)
+  .filter((h) => /(push-key-scan|opencli-readonly|planner-readonly)\.mjs/.test(h.command)).map((h) => `${h.command.match(/([\w-]+)\.mjs/)[1]} ${h.if || ""} ${h.onFailure}`).sort();
+ok("an update sets onFailure block on the guards wired without it and keeps the user's continue", guardFails(), [
+  "opencli-readonly Bash(*opencli*) continue", "opencli-readonly PowerShell(*opencli*) block", "planner-readonly  block",
+  "push-key-scan Bash(*push*) block", "push-key-scan PowerShell(*push*) block"]);
+ok("the run names the two guards it updated", (guardRun.out.match(/hook updated: PreToolUse [\w-]+\.mjs \(onFailure: block\)/g) || []).sort(),
+  ["hook updated: PreToolUse planner-readonly.mjs (onFailure: block)", "hook updated: PreToolUse push-key-scan.mjs (onFailure: block)"]);
+ok("the run after it updates nothing", install(guarded).out.includes("hook updated"), false);
 
 // ---- skills the setup retired go on an update, one line each; one the user changed stays and is named
 const retiredHome = path.join(tmp, "retired-skills");

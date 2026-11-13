@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { pickSessions, ownReason, toMs } from './pick.mjs';
+import { pickSessions, ownReason, toMs, scopeOf, folderKey } from './pick.mjs';
 import { buildFor, createChecks } from '../shared/check.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -54,6 +54,21 @@ check('no readable time is an error', (() => { try { ownReason(row('a', { last_a
 const counts = pickSessions([row('a'), row('b', { phase: null, last_activity: ago(20) })], NOW).counts;
 check('counts by reason', counts.complete === 1 && counts.none === 1);
 
+// Kept projects (chat-style: every old chat stays findable) and a run the person asked for in one project
+const chat = (id, o = {}) => row(id, { workspace_id: 'C:\\Projects\\quick-tasks', ...o });
+const scoped = (rows, opts) => { const s = scopeOf(opts); return pickSessions(rows, NOW, s.rules, s).picked.map((p) => p.id).sort().join(','); };
+const mixed = [row('build'), chat('q1'), chat('q2', { phase: null, last_activity: ago(400) })];
+check('keep: a kept project is never archived on its own, others still are', scoped(mixed, { keep: ['C:/Projects/quick-tasks'] }) === 'build');
+check('keep: slashes, case and a trailing slash do not matter', scoped(mixed, { keep: ['c:\\projects\\Quick-Tasks\\'] }) === 'build');
+check('keep: without a keep list the old rules hold', scoped(mixed, {}) === 'build,q1,q2');
+check('keep: a parent elsewhere with a kept child stays', scoped([row('p'), chat('c', { parent_session_id: 'p' })], { keep: ['C:/Projects/quick-tasks'] }) === '');
+check('one project: only its sessions older than the days asked, any phase but backlog',
+  scoped([...mixed, chat('q3', { phase: 'planning', last_activity: ago(200) }), chat('q4', { phase: 'backlog', last_activity: ago(400) })],
+    { keep: ['C:/Projects/quick-tasks'], project: 'C:/Projects/quick-tasks', olderThanDays: 180 }) === 'q2,q3');
+check('days without a project is an error', (() => { try { scopeOf({ olderThanDays: 180 }); return false; } catch (e) { return /needs a project/.test(e.message); } })());
+check('one project without days is an error', (() => { try { scopeOf({ project: 'C:/x' }); return false; } catch (e) { return /olderThanDays/.test(e.message); } })());
+check('folder keys: linux keeps case', folderKey('/srv/A/x/', 'linux') === '/srv/A/x' && folderKey('C:\\A\\x', 'win32') === 'c:/a/x');
+
 // Command line against a scratch database
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'board-tidy-'));
 const dbPath = path.join(tmp, 'nimbalyst.sqlite');
@@ -70,7 +85,7 @@ ins.run('bad', 'C:\\p', 'Broken metadata', 'idle', old, old, null, null, 0, 0, '
 ins.run('bare', 'C:\\p', 'No metadata', 'idle', new Date(Date.now() - 20 * 864e5).toISOString(), old, null, null, 0, 0, null);
 db.close();
 const before = fs.readFileSync(dbPath);
-const env = { ...process.env, BOARD_TIDY_DB: dbPath, BOARD_TIDY_STATE: path.join(tmp, 'state') };
+const env = { ...process.env, BOARD_TIDY_DB: dbPath, BOARD_TIDY_STATE: path.join(tmp, 'state'), BOARD_TIDY_CONFIG: path.join(tmp, 'board-tidy.json') };
 const cli = (...args) => {
   const r = spawnSync(process.execPath, [path.join(here, 'pick.mjs'), ...args], { encoding: 'utf8', env });
   if (r.status !== 0) throw new Error(`pick.mjs ${args.join(' ')} failed: ${r.stderr}`);
@@ -108,6 +123,20 @@ const big = cli('--force');
 check('cli: a run of 1500 sessions is logged whole', big.picked.length === 1502 && cli('--last').run.ids.length === 1502);
 const missing = spawnSync(process.execPath, [path.join(here, 'pick.mjs'), '--force'], { encoding: 'utf8', env: { ...env, BOARD_TIDY_DB: path.join(tmp, 'nope.sqlite') } });
 check('cli: missing database is a clear error', missing.status === 1 && /database not found/.test(missing.stderr));
+// keep list on the command line, and the hourly run honouring it
+check('cli: --keep adds once, in forward slashes', cli('--keep', 'C:\\p').keep.join() === 'C:/p' && cli('--keep', 'c:/P/').keep.length === 1);
+check('cli: with C:\\p kept a forced run picks nothing', cli('--force').picked.length === 0);
+check('cli: a run asked for in the kept project works', cli('--force', '--project', 'C:/p', '--older-than', '5').picked.length > 0);
+check('cli: --archived-in lists that project\'s archived sessions', cli('--archived-in', 'C:/p').ids.includes('kid'));
+check('cli: --unkeep removes it', cli('--unkeep', 'C:/p').keep.length === 0 && cli('--keep-list').keep.length === 0);
+fs.writeFileSync(path.join(tmp, 'board-tidy.json'), '{oops');
+const broken = spawnSync(process.execPath, [path.join(here, 'pick.mjs'), '--dry'], { encoding: 'utf8', env });
+check('cli: a broken keep file is a clear error, not "keep nothing"', broken.status === 1 && /not valid JSON/.test(broken.stderr));
+fs.writeFileSync(path.join(tmp, 'board-tidy.json'), 'null');
+const nul = spawnSync(process.execPath, [path.join(here, 'pick.mjs'), '--dry'], { encoding: 'utf8', env });
+check('cli: a keep file holding null is a clear error', nul.status === 1 && /must hold an object/.test(nul.stderr));
+const daysCli = spawnSync(process.execPath, [path.join(here, 'pick.mjs'), '--dry', '--older-than', '180'], { encoding: 'utf8', env: { ...env, BOARD_TIDY_CONFIG: path.join(tmp, 'none.json') } });
+check('cli: --older-than without --project is refused', daysCli.status === 1 && /needs a project/.test(daysCli.stderr));
 fs.rmSync(tmp, { recursive: true, force: true });
 
 // Build
@@ -120,6 +149,11 @@ const en = await import(pathToFileURL(path.join(here, 'dist', 'index.js')).href 
 check('russian: same keys and placeholders', Object.keys(ru.STRINGS).join() === Object.keys(en.STRINGS).join()
   && ru.STRINGS.archived.includes('{n}') && ru.STRINGS.failed.includes('{error}'));
 check('exports activate, deactivate, aiTools', typeof en.activate === 'function' && typeof en.deactivate === 'function' && Array.isArray(en.aiTools));
+check('a trailing backslash cannot escape the closing quote', en.q('C:\\Projects\\quick-tasks\\') === '"C:\\Projects\\quick-tasks"' && en.q('/srv/A/') === '"/srv/A"');
+check('a folder with a quote, backtick or $ is refused', ['C:/a"b', 'C:/a`b', 'C:/$(x)'].every((p) => { try { en.q(p); return false; } catch { return true; } }));
+const archiveTool = en.aiTools.find((t) => t.name.endsWith('archive'));
+const daysOnly = await archiveTool.handler({ olderThanDays: 180 });
+check('archive tool: days without a project is refused, not a run with the default rules', daysOnly.success === false && /needs project/.test(daysOnly.error));
 const manifest = JSON.parse(fs.readFileSync(path.join(here, 'manifest.json'), 'utf8'));
 check('manifest id', manifest.id === 'com.local.boardtidy');
 check('manifest main exists', fs.existsSync(path.join(here, manifest.main)));

@@ -25,6 +25,8 @@ happen here.
   by hand, copy it next to itself as `<name>.before-<topic>-<yyyymmdd>`.
 - **Change one thing, test it for real, write it down.** Every change gets one line in `DECISIONS.md`
   here: what changed, why, the date.
+- **New files follow `~/.claude/skills/file-upkeep/standard.md`:** dated notes in `docs/`, `docs/research/`,
+  `audits/`; scratch and test output in the temp folder, deleted after the run; no copies beside a file.
 - **A new tool:** look up what it does and what it costs in every session first. Turn it on for the
   one project that needs it, not globally, unless most sessions need it.
 - **Reports:** `/setup-audit` (is the setup working), `/setup-audit usage` (where the tokens went),

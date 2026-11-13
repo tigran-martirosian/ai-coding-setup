@@ -22,7 +22,7 @@ flowchart TD
 
 ## What I hand to each tool
 
-The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Opus at medium effort (`worker-code` on Opus at high for code; Fable at medium for deep web research, charts, science or maths) and has a budget of tool calls. A quick web lookup stays with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
+The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Opus at medium effort (`worker-code` on Opus at high for code; Fable at medium for charts, science or maths) and has a budget of tool calls. A quick web lookup stays with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
 
 | Tool | What I use it for | Limits I set |
 |---|---|---|
@@ -30,13 +30,13 @@ The rule: long reading of local files and second opinions go to a `worker` subag
 | `worker` subagent ([agents/worker.md](../agents/worker.md)) | Reading long files and logs, sweeping a project folder, a second opinion on a plan or a diff (about 15 tool calls, the answer is a lead that gets checked), one step of a bigger job, or routine edits that follow a clear plan | Medium effort, no `CLAUDE.md` loaded, and it stops after 80 turns. Its brief has to name the goal of the job, the files and the project commands it needs |
 | `worker-full` subagent ([agents/worker-full.md](../agents/worker-full.md)) | The same, for a step that needs a skill or an MCP tool | It loads every tool and the `CLAUDE.md` files, so it costs much more to start |
 | `worker-code` subagent ([agents/worker-code.md](../agents/worker-code.md)) | The same as `worker`, for a step that writes or changes code; a long refactor goes to `worker-high` | Opus at high effort; otherwise the same limits as `worker` |
-| `worker-high` subagent ([agents/worker-high.md](../agents/worker-high.md)) | The same as `worker`, for a long refactor that changes something code in other files depends on, or a long refactor step that failed its check on `worker`; a rename alone never counts | Fable at high effort, so each step costs far more; otherwise the same limits as `worker` |
+| `worker-high` subagent ([agents/worker-high.md](../agents/worker-high.md)) | The same as `worker`, for a long refactor that changes something code in other files depends on, or a long refactor step that failed its check on `worker-code`; a rename alone never counts | Fable at high effort, so each step costs far more; otherwise the same limits as `worker` |
 | `reviewer` subagent ([agents/reviewer.md](../agents/reviewer.md)) | One independent check of a finished bigger change, against the request and for quality | It reads files and changes nothing, stops after 60 turns, and one is enough |
 | `rec-check` subagent ([agents/rec-check.md](../agents/rec-check.md)) | A second look at a recommended option before a question reaches me | It reads files and changes nothing, stops after 8 turns, and answers keep or change |
 | `planner` subagent ([agents/planner.md](../agents/planner.md)) | The plan for every build or design request, written by the strongest model before the main session starts on it | It reads files and runs only read-only commands (a hook refuses the rest), changes nothing, stops after 40 turns, and gets the situation without the main session's own idea of the answer |
 | `plan-reviewer` subagent ([agents/plan-reviewer.md](../agents/plan-reviewer.md)) | One independent check of a big job's plan before it reaches me | It reads files, runs the plan's checks that only read or test, and changes no files, stops after 40 turns |
 
-Long reading costs the most on the main model, which is why it goes to a `worker` subagent. A quick web lookup stays with Claude, which reads the page or the catalogue that knows the answer; deep research across many pages in a planned job goes to a worker on Fable. For a larger task I use a [skill](../skills/lead/SKILL.md) that runs it from the main session: the `planner` agent writes the plan, and the session turns it into a numbered job list, hands each step to a worker that knows the goal of the whole job, and has one reviewer check the result, so what comes back to me has already been checked once.
+Long reading costs the most on the main model, which is why it goes to a `worker` subagent. A quick web lookup stays with Claude, which reads the page or the catalogue that knows the answer; deep research across many pages in a planned job goes to a `worker` on Opus. For a larger task I use a [skill](../skills/lead/SKILL.md) that runs it from the main session: the `planner` agent writes the plan, and the session turns it into a numbered job list, hands each step to a worker that knows the goal of the whole job, and has one reviewer check the result, so what comes back to me has already been checked once.
 
 ## The rules I wrote
 
@@ -45,7 +45,7 @@ A global instruction file holds the rules for every session. The file is [rules/
 - Ask when a requirement is unclear and the choice matters. For a small, reversible choice, pick a default and say so.
 - Do what was asked: no unrelated refactoring, no features nobody asked for.
 - Nothing is called done without a real check and its output.
-- Long reading of local files goes to a worker, and deep web research to a worker on Fable. Planning goes to the planner, the final check to the reviewer, and the decisions stay in the main session.
+- Long reading of local files goes to a worker, and deep web research to a worker too. Planning goes to the planner, the final check to the reviewer, and the decisions stay in the main session.
 - Every subagent gets the inputs it needs and a budget of tool calls, and reports back when the budget runs out.
 - Large files are read in parts, and big command output is processed outside the conversation.
 
@@ -69,7 +69,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When a reply ends | `context-guard` | Show me one line when a session has passed 300k tokens without compacting; it never stops the session |
 | After a helper returns | `helper-stopped` | A helper cut off at its turn limit or with no report is asked once what is done and left, and the files are checked; a cut-off reviewer counts as not run (`HELPER_STOPPED=off`) |
 | When I send a message | `cold-cache` | Warn when I come back to a session over 100k tokens after the prompt cache has expired (55 minutes), because the next message pays for the whole history again |
-| When I send a message | `pc-tidy-nudge` | On Windows, say to restart Nimbalyst after 12 hours open |
+| When I send a message | `pc-tidy-nudge` | On Windows, say to restart Nimbalyst after 12 hours open; on every system, run the chat archive every 3 days once it was turned on (`/disk-tidy`, `--archive-off` stops it) |
 | When I send a message | `update-check` | Say when a newer version of the setup is released (checked every 12 hours), and let a small release of only hook, skill, agent or worker files install itself in the background (`UPDATE_CHECK=off`; `AUTO_UPDATE=off` stops only the self-install) |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call (inside Nimbalyst it refreshes the data and says where to click) |
 | While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
@@ -102,6 +102,10 @@ Each project keeps three short files that a new session reads first: `CLAUDE.md`
 ## The systems map
 
 A project with 100 or more code files gets a map of itself: a dictionary of its parts and what connects to what, saved in the project as `.claude/systems-map.json`. You don't write it. `map-nudge` has the agent start a background worker that builds it from [skills/systems-map](../skills/systems-map/SKILL.md), and the agent tells you in one line. After that `map-brief` adds to each helper's brief only the lines for the parts the brief touches, so a helper knows what its change connects to without searching for files or loading a whole graph. A project with fewer code files gets neither, and the map file is yours to read, edit or delete. A brief that ends with the line `SYSTEMS MAP: none` is left without map lines. When an edit removes the code a link rests on, `map-drift` names the link, so the map is fixed in the same session. In Nimbalyst the systems-map extension draws the map. A file a script writes is listed under `generated` in the map: `map-generated` refuses a hand edit of it, and the map's `--check` names one edited by hand since its script last ran. `MAP_NUDGE=off`, `MAP_BRIEF=off`, `MAP_DRIFT=off` and `MAP_GENERATED=off` turn the four hooks off.
+
+## Disk and files
+
+The setup cleans up after itself: an update clears its own leftovers (worktrees and chat logs from its test runs, its cache and temp folders) and says how much it freed. What is yours it only offers, on one question card: your own leftovers go through [`/disk-tidy`](../skills/disk-tidy/SKILL.md), which reports first and removes only what you tick, and a reorganize of your project files goes through [`/file-upkeep`](../skills/file-upkeep/SKILL.md), which checks names and places against [a file standard](../skills/file-upkeep/standard.md) and keeps a ledger to undo it. Not now leaves both for any time later. Once you say yes to the chat archive, chats older than 60 days move to `~/.claude-archive/chats` every 3 days; `--keep-forever` keeps a project's chats for good, and `--restore` brings one back.
 
 ## Add-ons
 

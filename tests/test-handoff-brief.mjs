@@ -87,6 +87,32 @@ const manualBrief = fs.existsSync(printed) ? fs.readFileSync(printed, "utf8") : 
 check("the summary is in the brief under Where we are, with no placeholder left",
   /## Where we are\n\n- Goal: move the orders importer[^\n]*\n- Done: the reader, 12 tests pass\.\n\n## First request/.test(manualBrief) && !manualBrief.includes("<!--"), manualBrief.slice(0, 400));
 check("the summary file is gone afterwards", !fs.existsSync(summaryFile));
+check("a summary with nothing owed gets no Ask the user first section", !manualBrief.includes("## Ask the user first"));
+
+// The case behind it: an untangle job trimmed to 12 of 23 fixes asked "all 23 or the trim?" and handed
+// off; the next session read past the question, asked other things and called the job finished.
+fs.writeFileSync(summaryFile, [
+  "- **Goal:** untangle the whole mod per the decision log (F1-F23).",
+  "- **Done and verified:** F2, F4-F10, F21, F23; 865 game tests ran, one known failure.",
+  "- **Proposed by Claude, not confirmed:** the trim to F2, F4-F10, F21, F23 (F11-F20, F22 not started).",
+  "- **User still owes:** (1) all 23 fixes or the trim;",
+  "  (2) approval to delete the old tools/ logs.",
+  "- **Next step:** WF5, then one reviewer.",
+].join("\n") + "\n");
+const owedRun = spawnSync(process.execPath, [SCRIPT, "--summary", summaryFile, "--transcript", tB, "--cwd", projB], { env });
+const owedPath = owedRun.stdout.toString().trim();
+const owedBrief = fs.existsSync(owedPath) ? fs.readFileSync(owedPath, "utf8") : "";
+const askAt = owedBrief.indexOf("## Ask the user first"), whereAt = owedBrief.indexOf("## Where we are");
+check("an unanswered question goes to an Ask the user first section above Where we are", askAt > 0 && askAt < whereAt, owedBrief.slice(0, 600));
+const askPart = owedBrief.slice(askAt, whereAt);
+check("the section holds every owed item, the indented one too, and forbids a finished claim",
+  askPart.includes("all 23 fixes or the trim") && askPart.includes("approval to delete the old tools/ logs") && /don't call the work finished/.test(askPart), askPart);
+fs.writeFileSync(summaryFile, "- Goal: move the orders importer to the new schema.\n- User still owes: nothing.\n");
+const noneRun = spawnSync(process.execPath, [SCRIPT, "--summary", summaryFile, "--transcript", tB, "--cwd", projB], { env });
+const nonePath = noneRun.stdout.toString().trim();
+check("\"User still owes: nothing\" adds no section", fs.existsSync(nonePath) && !fs.readFileSync(nonePath, "utf8").includes("## Ask the user first"));
+const skillText = fs.readFileSync(path.join(path.dirname(SCRIPT), "..", "skills", "handoff", "SKILL.md"), "utf8");
+check("the handoff skill's continue prompt asks the owed items first", /Ask the user everything under "Ask the user first" before any other question, and don't call the work finished while one is open/.test(skillText));
 
 hook(tC, projC);
 const c = read("other-latest.md") ?? "";

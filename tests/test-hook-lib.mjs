@@ -52,6 +52,10 @@ report(notObject.status === 2, "JSON that is not an object counts as bad input")
 const before = lines().length;
 const thrown = run(frame(`async (e) => { throw new Error("boom\\nsecond"); }`), { input: event, env: { HOOK_ERRORS_LOG: LOG } });
 report(thrown.status === 0 && lines().length === before + 1 && /demo-hook: boom second$/.test(lines().at(-1)), "a thrown error: exit 0 and one crash-log line");
+const closedThrow = run(frame(`async (e) => { throw new Error("boom"); }`, `, { failClosed: true }`), { input: event, env: { HOOK_ERRORS_LOG: LOG } });
+report(closedThrow.status === 1 && /DEMO_HOOK=off/.test(closedThrow.stderr) && lines().length === before + 2, "failClosed: a thrown error is logged and exits 1 (onFailure block stops the call)");
+const closedBad = run(frame(`(e) => { console.log("ran"); }`, `, { failClosed: true }`), { input: "not json", env: { HOOK_ERRORS_LOG: LOG } });
+report(closedBad.status === 1 && closedBad.stdout === "", "failClosed: bad input exits 1, hook not run");
 const code = run(frame(`(e) => 2`), { input: event });
 report(code.status === 2, "a number the hook returns is the exit code");
 

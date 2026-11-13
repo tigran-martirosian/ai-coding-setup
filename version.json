@@ -1,9 +1,14 @@
 {
-  "version": "1.0.111",
+  "version": "1.0.112",
   "claudeCodeMin": "2.1.321",
   "date": "2026-11-10",
-  "summary": "Helpers that write code run Opus at high effort, which public tests show is as good as Fable for less.",
+  "summary": "New /disk-tidy and /file-upkeep skills, and new files land tidy from the start.",
   "releases": {
+    "1.0.112": {
+      "kind": "setup",
+      "important": true,
+      "headline": "/disk-tidy frees disk space, /file-upkeep tidies files, helpers run at their own effort"
+    },
     "1.0.111": {
       "kind": "setup",
       "important": true,

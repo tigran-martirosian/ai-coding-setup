@@ -64,4 +64,4 @@ runHook("opencli-readonly", (event) => {
       ? `\`opencli ${site} ${sub}\` is a [write] command. The user's accounts are for searching and reading only: never post, comment, like, follow, save, delete or log in. Use a [read] command (see \`opencli ${site} --help\`), or tell the user what you wanted to do.`
       : `\`opencli ${site} ${sub}\` is not listed as a [read] command in \`opencli ${site} --help\`, so it is not allowed. Only [read] commands may be run on the user's accounts.`);
   }
-});
+}, { failClosed: true });

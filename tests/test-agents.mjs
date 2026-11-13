@@ -25,6 +25,10 @@ const PLAN_ITEMS = ["Agrees with the user's words and the decisions", "One ownin
 const numbered = (body, items) => items.every((s, i) => body.includes(`${i + 1}. **${s}`));
 const firstItem = rec.body.match(/^\s*(\d+)\. \*\*([^*]+)\*\*/m);
 const SLIM = /\n\nYou start without the CLAUDE\.md files[\s\S]*?Commit or push only when the brief says to\./;
+// worker-high alone gets the ownership line and Anthropic's "Finishing work" block (user, 2026-11-10); the rest is the worker's body
+const OWN = /^- This codebase is yours:[^\n]*\n/m;
+const FINISH = /\n+# Finishing work\n[\s\S]*$/;
+const highCore = high.body.replace(/\r\n/g, "\n").replace(OWN, "").replace(FINISH, "");
 const checks = [
   ["worker is named worker and starts without CLAUDE.md", has(worker.head, "name", "worker") && has(worker.head, "omitClaudeMd", "true")],
   ["worker has no Agent tool and keeps Edit, Write, Bash", !tools(worker.head).includes("Agent") && ["Edit", "Write", "Bash"].every((t) => tools(worker.head).includes(t))],
@@ -32,9 +36,15 @@ const checks = [
   ["the two workers differ only by the block for starting without CLAUDE.md", SLIM.test(worker.body) && worker.body.replace(SLIM, "") === full.body],
   ["the worker's own block carries the rules it no longer loads", ["WHAT THIS DOES", "no made-up defaults", "Commit or push only"].every((s) => worker.body.includes(s))],
   ["worker-high is named worker-high, on fable at high effort", has(high.head, "name", "worker-high") && has(high.head, "model", "fable") && has(high.head, "effort", "high")],
-  ["worker-high has the worker's body and the rest of its settings", high.body === worker.body && rest(high.head) === rest(worker.head)],
+  ["worker-high has the worker's body and the rest of its settings", highCore === worker.body.replace(/\r\n/g, "\n") && rest(high.head) === rest(worker.head)],
+  ["worker-high adds the ownership line and Anthropic's Finishing work text", OWN.test(high.body) && FINISH.test(high.body)
+    && high.body.includes("Please avoid stopping while you still owe work the user asked for.")
+    && high.body.includes("This does not override the need for confirmation on risky or destructive actions.")],
+  ["every worker, the planner and both reviewers carry Anthropic's Communicating clearly text", [worker, code, full, high, planRev, rev].every((a) => a.body.includes("# Communicating clearly") && a.body.includes("Write for an intelligent but low-context reader.")) && read("planner").includes("Write for an intelligent but low-context reader.") && [worker, code, full, high].every((a) => a.body.includes("the last `Outside the brief:` line, or the one `BLOCKED` line"))],
+  ["every worker finishes the brief or ends with BLOCKED at a refused command", [worker, code, full, high].every((a) => /Finish everything the brief asks\.[^\n]*BLOCKED/.test(a.body))],
   ["worker-high has its own description, which says a rename is never a reason", desc(high.head) !== "" && desc(high.head) !== desc(worker.head)
     && /rename[^.]*never a reason/i.test(desc(high.head))],
+  ["worker-full is on opus at high effort", has(full.head, "model", "opus") && has(full.head, "effort", "high")],
   ["worker-code is named worker-code, on opus at high effort", has(code.head, "name", "worker-code") && has(code.head, "model", "opus") && has(code.head, "effort", "high")],
   ["worker-code has the worker's body and the rest of its settings", code.body === worker.body && rest(code.head) === rest(worker.head)],
   ["worker-code has its own description, for code changes, sending a long refactor to worker-high", desc(code.head) !== desc(worker.head)

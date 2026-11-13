@@ -22,6 +22,8 @@ The place for anything the user just wants to know: quick facts, everyday questi
   Never start from an earlier picture.
 - **No files unless asked.** A long answer the user wants to keep goes to `answers/<yyyy-mm-dd>-<slug>.md`;
   what was downloaded for it goes to `answers/sources/<topic>/`.
+- **New files follow `~/.claude/skills/file-upkeep/standard.md`:** scratch output in the temp folder,
+  deleted after the run; no copies beside a file.
 
 ## Not for here
 

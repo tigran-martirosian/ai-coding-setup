@@ -21,20 +21,29 @@ each as its own question (not a tick-list):
   the result (a report, a screen, another system), how often it refreshes, and how Claude can run
   queries here (which command or connection, whether it points at test or real data, or that only
   the user can run them).
+- In Nimbalyst only: is it a project you build in, or a chat-style folder where each chat is its own task
+  you may look up again months later? Chat-style: the Board Tidy keep tool (ToolSearch `board_tidy`)
+  with this folder and `keep: true`, so its sessions are never archived on their own.
 
 ## 2. Create the base (skip what already exists, never overwrite)
 
 | File | Content |
 |---|---|
-| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · for any project that keeps data (a database, a log, data files): where each one lives as a full path, and the exact command that reads it with a tool that is installed · `Designs and plans live as markdown files in docs/; reply with a short summary and a link, not the whole design in chat` · which tools to use here (step 3) · a **Checks** section: which check runs when (build, tests, review, release), written once with the user; a check the user asks for once is a one-off until they say it is standing |
+| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · for any project that keeps data (a database, a log, data files): where each one lives as a full path, and the exact command that reads it with a tool that is installed · `Designs and plans live in docs/ as dated markdown files, docs/YYYY-MM-DD-topic-design.md and -plan.md; reply with a short summary and a link, not the whole design in chat` · `New files follow ~/.claude/skills/file-upkeep/standard.md: dated notes in docs/, docs/research/, audits/; scratch and test output in the temp folder, deleted after the run; no copies beside a file` · which tools to use here (step 3) · a **Checks** section: which check runs when (build, tests, review, release), written once with the user; a check the user asks for once is a one-off until they say it is standing |
 | `HANDOFF.md` | Current state only, under about 120 lines: what's next, open questions. Rewritten at the end of every working session so a fresh session can pick up cold. |
-| `DECISIONS.md` | The decisions in force, by topic, each as **decision** — why · *origin, date*. It wins over older docs. A new decision replaces the line it overrides; the old text moves to `docs/archive/`. |
-| `docs/` | Design documents and plans, one markdown file per topic. |
+| `DECISIONS.md` | The decisions in force, by topic, each as **decision** — why · *origin, date*. It wins over older docs. A new decision replaces the line it overrides; the old text moves to `docs/decisions-archive.md`. |
+| `docs/` | Design documents and plans, one dated markdown file per topic: `YYYY-MM-DD-topic-design.md`, `-plan.md`. |
+| `docs/research/` | Dated research notes, `YYYY-MM-DD-topic.md`. |
+| `audits/` | Dated audit and test-run reports, `YYYY-MM-DD-topic.md`; one run's scripts and raw output in `audits/YYYY-MM-DD-topic/`. |
+| `tests/`, `scripts/` | Tests, and scripts that run again; the root holds only the entry point. |
 | `docs/known-failures.md` | Checks that fail for a known reason, each with that reason. A failure that stays after one rerun is added here. CLAUDE.md names the file: a failure listed there is expected. |
 | `docs/speech-glossary.md` | Offered when the user dictates: misheard word → meant word, started with the project's own names. |
 | `.claude/rules/` | One short file per rule area (e.g. `content-sources.md`, `code-style.md`) that is too long for CLAUDE.md |
 | `.claude/skills/`, `.claude/agents/` | Project-only skills from step 3; otherwise empty for now. The project's CLAUDE.md names each skill in one line, with the ask in the user's words (example: "a deploy, hotfix or rollback → `.claude/skills/deploy`"). Add a read-only reviewer agent when output quality needs an independent check. When step 1 shows distinct kinds of sessions (for example building, answering questions, releasing), offer one skill per kind and a "Which skill" table in CLAUDE.md. |
 | `.claude/settings.json` | `permissions.allow` for the project's safe, frequent commands (test, lint, build) so they don't prompt, and `enabledPlugins` from step 3 |
+
+Names and places follow `~/.claude/skills/file-upkeep/standard.md`. In an existing folder, run
+`node ~/.claude/skills/file-upkeep/file-check.mjs --report`; when it finds anything, offer `/file-upkeep`.
 
 Keep everything short. CLAUDE.md is loaded into every session and every line costs tokens.
 An existing `CLAUDE.md` is never rewritten: add only the parts of its row that it lacks, after

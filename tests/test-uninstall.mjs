@@ -62,6 +62,7 @@ const un = run(home, "--uninstall");
 ok("uninstall exits cleanly", un.code, 0);
 const left = json(path.join(claude, "settings.json"));
 ok("the person's setting stays", left.theme, "dark");
+ok("the empty effort variable the setup set is gone", "CLAUDE_CODE_EFFORT_LEVEL" in (left.env ?? {}), false);
 ok("only the person's hook is still wired", commandsIn(left), [ownCommand]);
 ok("the person's own hook file stays", fs.existsSync(path.join(claude, "hooks", "my-own.mjs")));
 ok("the setup's files are gone, except the changed one and the restored one",

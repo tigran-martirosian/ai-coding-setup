@@ -250,6 +250,19 @@ ctx.appData = appDataDir();
 ctx.extHome = nimbalystHome(ctx.appData);
 ctx.wantExt = opt("extensions") === "no" ? false : opt("extensions") === "yes" ? true : opt("home") === null;
 extensions(ctx);
+// Board Tidy leaves quick-tasks alone: each chat there is its own task, and old ones are looked up again.
+// Added once (state.boardTidyKeep), so a person who later says "tidy it again" keeps their choice.
+if (!state.boardTidyKeep && !DRY) {
+  const file = path.join(CLAUDE, "board-tidy.json");
+  const conf = readJson(file);
+  const folder = fwd(path.join(ctx.PROJECTS, "quick-tasks"));
+  const keep = Array.isArray(conf.keep) ? conf.keep : [];
+  if (!keep.some((k) => fwd(k).toLowerCase() === folder.toLowerCase())) {
+    fs.writeFileSync(file, JSON.stringify({ ...conf, keep: [...keep, folder] }, null, 2) + "\n");
+    say(`Board Tidy leaves ${folder} alone (its old chats stay on the board); "tidy quick-tasks again" changes that`);
+  }
+  nextState.boardTidyKeep = true;
+}
 theme(ctx);
 // Nimbalyst's chats run the person's own Claude Code rather than the copy Nimbalyst bundles, so they get its fixes on
 // the day they ship (scripts/claude-code-version.mjs: pointNimbalyst, with its safeguards). Not with --home.

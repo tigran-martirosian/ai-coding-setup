@@ -26,7 +26,7 @@ Done when: the round limit is written in the first line of your plan.
 
 1. The author makes the change and builds it.
    - **Web page with the impeccable plugin installed** (`~/.claude/plugins/cache/impeccable/impeccable/<version>/skills/impeccable/scripts/impeccable`, `impeccable.cmd` from cmd or PowerShell): run its detector on the file, then on the page's `file://` or `http(s)://` URL at phone width, with `"<scripts>/impeccable" detect <file>` and `"<scripts>/impeccable" detect --viewport 390x844 <url>`. Findings print to stderr; read them instead of the exit code (2 means findings, but the `.cmd` can print `exit 0` under Git Bash). Fix every finding before the screenshots, so the reviewer's look goes to what a scanner cannot see. A finding that is the project's deliberate choice goes into its `DESIGN.md` instead. Without the plugin, skip this.
-2. Screenshot at two sizes where the platform has them (large and small viewport, two GUI scale settings), plus a phone or narrow shot for web pages. Name each picture's scale: the viewport in CSS px, points or dp and the pixel ratio (e.g. `phone-390x844-3x.png`), or the GUI scale for a game or desktop UI. Check 33 measures targets with it. Small parts (icons, side bars, toolbars, badges) also get a 2x or 3x zoom shot: at 1x a cramped number or a size step does not show.
+2. Pictures go to one folder in the system temp folder, never into the project. Screenshot at two sizes where the platform has them (large and small viewport, two GUI scale settings), plus a phone or narrow shot for web pages. Name each picture's scale: the viewport in CSS px, points or dp and the pixel ratio (e.g. `phone-390x844-3x.png`), or the GUI scale for a game or desktop UI. Check 33 measures targets with it. Small parts (icons, side bars, toolbars, badges) also get a 2x or 3x zoom shot: at 1x a cramped number or a size step does not show.
 3. Cover every state the change has: hover (in a row or bar of buttons, the one with the longest name), empty, full, locked, error, the longest text, every shipped language, and, when the screen has them, an open dialog, sheet or menu and a filled form at its submit button.
 4. A new or rebuilt screen also gets one extra tightest-case shot and one shot of a comparable existing screen for style comparison.
 
@@ -70,4 +70,4 @@ Done when: every fix has an AFTER picture that you have looked at.
 
 ## 7. Report
 
-Say what changed, the number of rounds, the findings fixed, and the findings left (with severity). Attach the final pictures. Done when: the report matches the last round's list.
+Say what changed, the number of rounds, the findings fixed, and the findings left (with severity). Attach the final pictures, then delete the temp folder of pictures. Done when: the report matches the last round's list.

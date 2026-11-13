@@ -7,7 +7,7 @@ What the checks led to, counted from the chats of this computer. Hook counts say
    - **Reviews:** reviewer helpers and code-review runs followed by a code change.
    - **Verify gate:** blocks followed by a passing build or test.
    - **Map:** helpers briefed with Systems map lines against helpers without: edits outside the brief, stopped helpers.
-2. **Save** `~/.claude/reports/outcomes-<YYYY-MM-DD>.md` (add `-2` if it exists): the script's output as printed.
-3. **Reply** with the numbers as printed, each with its sample size. A figure under 10 is "too few to judge": say so, and name the day to run it again (a section with no cases yet fills as the check is used). State what the numbers show, with no cause the script did not measure. If an older `outcomes-*.md` is there, put the two runs side by side in one line per section.
+2. **Save** `~/.claude/reports/<YYYY-MM-DD>-outcomes.md` (a second run that day replaces it): the script's output as printed.
+3. **Reply** with the numbers as printed, each with its sample size. A figure under 10 is "too few to judge": say so, and name the day to run it again (a section with no cases yet fills as the check is used). State what the numbers show, with no cause the script did not measure. If an older `*-outcomes.md` is there, put the two runs side by side in one line per section.
 
 Budget: about 4 tool calls.

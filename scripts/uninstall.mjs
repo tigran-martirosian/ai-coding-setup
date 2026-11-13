@@ -32,6 +32,12 @@ export function uninstall(ctx) {
     settings.permissions.deny = deny.filter((r) => !HELPER_DENY.includes(r));
     say(`permissions: the rules blocking the Explore and general-purpose helpers are taken out of ${fwd(settingsFile)}`);
   }
+  // The empty CLAUDE_CODE_EFFORT_LEVEL the setup set goes; a value the person set stays
+  if (settings.env?.CLAUDE_CODE_EFFORT_LEVEL === "") {
+    delete settings.env.CLAUDE_CODE_EFFORT_LEVEL;
+    if (!Object.keys(settings.env).length) delete settings.env;
+    say(`effort: the empty CLAUDE_CODE_EFFORT_LEVEL is taken out of ${fwd(settingsFile)}, so Nimbalyst's effort picker sets the level again`);
+  }
   if (JSON.stringify(settings) !== settingsBefore) putJson(settingsFile, settings, settingsBefore);
   // 1b. the project folders keep their files, but their settings lose the entries that start a script in
   // ~/.claude (those scripts go below), and the picture skill's link into ~/.claude goes
@@ -115,7 +121,7 @@ export function uninstall(ctx) {
   // 5. what stays, and how to take it out
   say(`Kept, not touched:`);
   say(`  your files in the project folders (they may hold your work): ${fwd(PROJECTS)}; delete a folder by hand when it is not needed`);
-  say(`  ${fwd(settingsFile)}: everything except the hook wiring and the two helper rules, including the other permission rules, the model and the language the setup set; edit them by hand`);
+  say(`  ${fwd(settingsFile)}: everything except the hook wiring, the two helper rules and the empty effort variable, including the other permission rules, the model and the language the setup set; edit them by hand`);
   for (const k of kept) say(`  ${k}`);
   if (fs.existsSync(path.join(CLAUDE, "setup-logs"))) say(`  ${fwd(path.join(CLAUDE, "setup-logs"))}: what each run printed; delete the folder when it is not needed`);
   const stateCopies = fs.readdirSync(CLAUDE).filter((n) => /^(settings\.json|setup-state\.json)\.before-install-/.test(n));

@@ -14,7 +14,7 @@ default to 7; pass the user's `--days N` or `--project <name>` to all three scan
 
 ## 1. Last time
 
-Open the newest `audits/review-*.md` (not the `-numbers` file) and read only its **Decided** and
+Open the newest `audits/*-review.md` (not the `-numbers` file) and read only its **Decided** and
 **Still open** tables. What was declined is not offered again unless its number moved a lot, and then
 say by how much. What was done is measured this time: did it move the number it was meant to move.
 
@@ -56,7 +56,9 @@ C (questions that missed), G (reasoning) and H (pace: LONG or SHORT) are the one
 
 Step 3 of `audit.md` (next to SKILL.md), in as few shell calls as possible: every test suite
 (`bash audits/run-all-suites.sh`; `HANDOFF.md` says which failures are expected), the hook files that
-`~/.claude/settings.json` names exist, `~/.claude/agents/worker.md` exists.
+`~/.claude/settings.json` names exist, `~/.claude/agents/worker.md` exists. Then
+`claude plugin validate ~/.claude/skills`: name every skill it reports with "frontmatter fields silently
+dropped" (that skill loads with no description, so Claude never matches it) and any other error it shows.
 
 ## 5. Judge (this stays with you)
 
@@ -106,7 +108,7 @@ offered as a rule. A rule is for what no script can check.
 
 ## 7. Save
 
-`audits/review-<date>.md` (add `-2` if it exists): the seven sections, each with its numbers; the
+`audits/YYYY-MM-DD-review.md` (a second review that day replaces it; git keeps the first): the seven sections, each with its numbers; the
 options; a **Decided** table (option | ticked, declined or open | where it went), filled in after
 step 8; **Still open** (what to measure next time). Findings in your own words, no quotes from chats.
 

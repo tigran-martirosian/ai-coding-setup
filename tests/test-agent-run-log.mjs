@@ -11,10 +11,11 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-run-log-test-"));
 let pass = 0, fail = 0;
 const check = (name, ok, extra = "") => { ok ? pass++ : fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : extra ? `\n     ${extra}` : ""}`); };
 
-// Home agents folder with a worker (sonnet/medium) and a planner with only a model.
+// Home agents folder with a worker (sonnet/medium), a planner with only a model and a reviewer at high.
 const agents = path.join(tmp, "agents");
 fs.mkdirSync(agents);
 fs.writeFileSync(path.join(agents, "worker.md"), "---\nname: worker\nmodel: sonnet\neffort: medium\n---\nbody\n");
+fs.writeFileSync(path.join(agents, "reviewer.md"), "---\nmodel: fable\neffort: high\n---\n");
 fs.writeFileSync(path.join(agents, "planner.md"), "﻿---\r\nname: planner\r\nmodel: fable\r\n---\r\nbody\r\n");
 // A project that overrides the worker.
 const project = path.join(tmp, "proj");
@@ -34,7 +35,7 @@ fs.writeFileSync(transcript, [
 const run = (event, env = {}, log = path.join(tmp, "log.jsonl")) => {
   const r = spawnSync(process.execPath, [HOOK], {
     input: typeof event === "string" ? event : JSON.stringify(event), encoding: "utf8",
-    env: { ...process.env, AGENT_RUN_LOG_FILE: log, AGENT_RUN_LOG_AGENTS: agents, CLAUDE_PROJECT_DIR: "", ...env },
+    env: { ...process.env, AGENT_RUN_LOG_FILE: log, AGENT_RUN_LOG_AGENTS: agents, CLAUDE_PROJECT_DIR: "", CLAUDE_CODE_EFFORT_LEVEL: "", ...env },
   });
   return r;
 };
@@ -74,6 +75,21 @@ check("no transcript: model and effort null", l.model === null && l.effort === n
 run(ev({ subagent_type: "fork", description: "Gone transcript" }, { transcript_path: path.join(tmp, "gone.jsonl") }), {});
 l = last();
 check("missing transcript file: line still written, model null", l.description === "Gone transcript" && l.model === null, JSON.stringify(l));
+
+// CLAUDE_CODE_EFFORT_LEVEL in the hook's environment beats the file and the call's own effort; empty falls through
+run(ev({ subagent_type: "reviewer" }), { CLAUDE_CODE_EFFORT_LEVEL: "medium" });
+l = last();
+check("variable medium, file high: logs medium", l.model === "fable" && l.effort === "medium", JSON.stringify(l));
+run(ev({ subagent_type: "reviewer", effort: "low" }), { CLAUDE_CODE_EFFORT_LEVEL: "medium" });
+check("variable medium beats the call's effort", last().effort === "medium", JSON.stringify(last()));
+run(ev({ subagent_type: "reviewer" }));
+check("variable empty, file high: logs high", last().effort === "high", JSON.stringify(last()));
+run(ev({ subagent_type: "reviewer", effort: "low" }));
+check("variable empty: the call's effort beats the file", last().effort === "low", JSON.stringify(last()));
+run(ev({ subagent_type: "reviewer" }), { CLAUDE_CODE_EFFORT_LEVEL: "auto" });
+check("variable auto sends no level: effort null", last().effort === null, JSON.stringify(last()));
+run(ev({ subagent_type: "Explore" }), { CLAUDE_CODE_EFFORT_LEVEL: "unset" });
+check("variable unset: no level from the session either", last().effort === null && last().model === "claude-opus-5-5", JSON.stringify(last()));
 
 const offLog = path.join(tmp, "off.jsonl");
 run(ev({ subagent_type: "worker" }), { AGENT_RUN_LOG: "off" }, offLog);

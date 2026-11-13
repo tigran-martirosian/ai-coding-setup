@@ -37,7 +37,7 @@ check("body treats a steering brief as an opinion", /one opinion/.test(body));
 check("body: reads only the folder the brief names", /Read code only in those folders/.test(body));
 check("body: looks up map parts the brief missed", /map\.mjs --near/.test(body));
 check("body: lists the helpers with model and effort", ["`worker`", "`worker-full`", "`reviewer`", "Sonnet", "Opus"].every((s) => body.includes(s)));
-check("body: a Fable-medium worker row for deep web research, charts, science or maths, without code", /\| `worker`, model `fable` \| Fable, medium \|[^\n]*deep web research[^\n]*charts[^\n]*science or maths/.test(body)
+check("body: a Fable-medium worker row for charts, science or maths, with deep web research kept off Fable (2026-11-10), without code", /\| `worker`, model `fable` \| Fable, medium \|[^\n]*charts[^\n]*science or maths[^\n]*deep web research stays on a plain `worker`/.test(body)
   && !/\| `worker`, model `fable` \|[^\n]*code/.test(body));
 check("body: a worker-code row on Opus at high for code changes", /\| `worker-code` \| Opus, high \|[^\n]*code changes/.test(body));
 check("body: a worker-high row on Fable at high for refactors", /\| `worker-high` \| Fable, high \|[^\n]*refactor/.test(body));
@@ -73,14 +73,16 @@ check("body: not a reviewer of plans", /A review of a plan or a design goes to t
 check("body: Needs the user's OK comes right after For the user", /1\. \*\*For the user\*\*[\s\S]*\n2\. \*\*Needs the user's OK:\*\*/.test(body));
 
 const lead = fs.readFileSync(path.join(ROOT, "skills", "lead", "SKILL.md"), "utf8");
+const leadRef = fs.readFileSync(path.join(ROOT, "skills", "lead", "reference.md"), "utf8"); // holds the planner's brief
 check("lead names the planner", /subagent_type: "planner"/.test(lead));
 check("lead: request in the user's own words", /in the user's own words/.test(lead));
-check("lead: only real decisions", /Only real ones/.test(lead));
-check("lead: own solution stays out", /Keep out of the brief: your own idea of the solution/.test(lead));
-check("lead: no rules or step lists in the brief", /step lists and "do X, not Y" rules/.test(lead));
+check("lead: only real decisions", /Only real ones/.test(leadRef));
+check("lead: own solution stays out", /Keep out of the brief: your own idea of the solution/.test(leadRef));
+check("lead: no rules or step lists in the brief", /step lists and "do X, not Y" rules/.test(leadRef));
 check("lead: differences are told to the user", /tell the user where they differ/.test(lead));
 check("lead: a failed call is said, not hidden", /say so and write the plan yourself/.test(lead));
-check("lead: brief names the folder and commit", /rev-parse --short HEAD/.test(lead));
+check("lead: brief names the folder and commit", /rev-parse --short HEAD/.test(leadRef));
+check("lead: points to the planner's brief", /reference\.md section "The planner's brief"/.test(lead));
 check("lead: rows are pasted unchanged", /Paste its rows unchanged/.test(lead));
 check("lead: a changed row is named to the user", /named to the user with the reason/.test(lead));
 check("lead: a wrong plan goes back to the planner", /goes back to the planner/.test(lead));
@@ -90,7 +92,7 @@ check("lead: the plan form ticks every step and has a box for changes", /`multiS
 check("lead: every column stays wherever the plan is saved", /Every column stays wherever the plan is saved/.test(lead));
 check("lead: a step doesn't grow in its brief", /A step doesn't grow in its brief/.test(lead));
 check("lead: a design the user looks at ends with their OK", /ends with the user's OK/.test(lead));
-check("lead: job list and brief carry Decides", /\| Step \| Job \| Decides \|/.test(lead) && /DECIDES:/.test(lead));
+check("lead: job list and brief carry Decides", /\| Step \| Job \| Decides \|/.test(lead) && /DECIDES:/.test(leadRef));
 check("lead: sections keep their numbers", /## 3\. The job list and the briefs/.test(lead) && /## 6\. Finish/.test(lead));
 
 const rulesFile = ["CLAUDE.md", path.join("rules", "CLAUDE.md")].map((f) => path.join(ROOT, f)).find((f) => fs.existsSync(f));

@@ -6,6 +6,12 @@
 //                                             before anything is archived; without --force, nothing
 //                                             when the last run was under 50 minutes ago; --dry only
 //                                             prints (no log, last-run time left alone)
+//   node pick.mjs ... --project <folder> --older-than <days>
+//                                             a run in that one project only (kept or not), any phase
+//                                             but backlog after that many idle days
+//   node pick.mjs --keep <folder> | --unkeep <folder> | --keep-list
+//                                             projects never archived on their own (~/.claude/board-tidy.json)
+//   node pick.mjs --archived-in <folder>      print the ids of that project's archived sessions
 //   node pick.mjs --last                      print the newest logged run that was not undone
 //   node pick.mjs --undone <base64 JSON>      mark the run with that `at` as undone
 // Env: BOARD_TIDY_DB (database file), BOARD_TIDY_STATE (folder for the log and last-run file).
@@ -29,13 +35,39 @@ export function toMs(value) {
   return Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(' ', 'T') + 'Z');
 }
 
+/** One folder's form for comparing: forward slashes, no trailing slash, case folded on Windows and macOS. */
+export function folderKey(p, platform = process.platform) {
+  const s = String(p).replace(/\\/g, '/').replace(/\/+$/, '');
+  return platform === 'linux' ? s : s.toLowerCase();
+}
+
+/**
+ * Which sessions a run may look at. `keep`: project folders Board Tidy never archives on its own
+ * (chat-style projects where every old chat stays findable). `project` + `olderThanDays`: a run the
+ * person asked for in one project, kept or not: every phase but backlog after that many idle days.
+ */
+export function scopeOf({ keep = [], project = null, olderThanDays = null } = {}) {
+  if (project != null) {
+    if (!(Number(olderThanDays) > 0)) throw new Error('a run for one project needs olderThanDays (a number of days above 0)');
+    const days = Number(olderThanDays);
+    return { only: folderKey(project), skip: new Set(), rules: { complete: days, none: days, planning: days, validating: days, implementing: days } };
+  }
+  if (olderThanDays != null) throw new Error('olderThanDays needs a project (the folder to archive in)');
+  return { only: null, skip: new Set(keep.map((k) => folderKey(k))), rules: RULES };
+}
+
 /** Why one session may go on its own (ignoring its children), or null when it must stay. */
-export function ownReason(row, now, rules = RULES) {
+export function ownReason(row, now, rules = RULES, scope = null) {
   if (row.is_archived) return null;
   if (row.is_pinned) return null;
   if (BUSY.has(row.status)) return null;
   if (row.worktree_id) return null; // the app archives these with their worktree (git clean-up)
   if (row.bad_meta) return null; // metadata the app may not read either: leave it alone
+  if (scope) {
+    const ws = folderKey(row.workspace_id || '');
+    if (scope.only != null && ws !== scope.only) return null;
+    if (scope.skip.has(ws)) return null;
+  }
   const phase = row.phase || 'none';
   const days = rules[phase];
   if (days == null) return null;
@@ -50,7 +82,7 @@ export function ownReason(row, now, rules = RULES) {
  * session is picked only when it and every unarchived session under it may go. A picked session whose
  * parent is also picked is left out (the parent's archive covers it).
  */
-export function pickSessions(rows, now, rules = RULES) {
+export function pickSessions(rows, now, rules = RULES, scope = null) {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const children = new Map();
   for (const r of rows) {
@@ -63,7 +95,7 @@ export function pickSessions(rows, now, rules = RULES) {
     if (memo.has(r.id)) return memo.get(r.id);
     if (seen.has(r.id)) throw new Error(`session parent loop at ${r.id}`);
     seen.add(r.id);
-    let ok = ownReason(r, now, rules) !== null;
+    let ok = ownReason(r, now, rules, scope) !== null;
     for (const c of children.get(r.id) || []) {
       if (c.is_archived) continue;
       if (!whole(c, seen)) ok = false;
@@ -85,7 +117,7 @@ export function pickSessions(rows, now, rules = RULES) {
     if (r.is_archived || !whole(r)) continue;
     const parent = byId.get(r.parent_session_id);
     if (parent && !parent.is_archived && whole(parent)) continue;
-    const reason = ownReason(r, now, rules);
+    const reason = ownReason(r, now, rules, scope);
     picked.push({ id: r.id, workspace: r.workspace_id, title: r.title, reason });
     counts[reason] = (counts[reason] || 0) + 1;
     collect(r);
@@ -109,6 +141,30 @@ const logFile = () => path.join(stateDir(), 'board-tidy.jsonl');
 const lastFile = () => path.join(stateDir(), 'board-tidy-last.json');
 const lockFile = () => path.join(stateDir(), 'board-tidy.lock');
 const LOCK_STALE_MS = 2 * 60 * 1000;
+// projects never archived on their own: {"keep": ["C:/Projects/quick-tasks"]}; no file means none
+const configFile = () => process.env.BOARD_TIDY_CONFIG || path.join(os.homedir(), '.claude', 'board-tidy.json');
+
+export function readKeep() {
+  const f = configFile();
+  if (!fs.existsSync(f)) return [];
+  let j;
+  try {
+    j = JSON.parse(fs.readFileSync(f, 'utf8'));
+  } catch (e) {
+    throw new Error(`${f} is not valid JSON (${e.message}); fix or delete it`);
+  }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error(`${f} must hold an object like {"keep": ["<folder>"]}`);
+  if (j.keep != null && !Array.isArray(j.keep)) throw new Error(`${f}: "keep" must be a list of project folders`);
+  return j.keep || [];
+}
+
+function writeKeep(list) {
+  const f = configFile();
+  const j = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
+  j.keep = list;
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
+}
 
 /** Only one process at a time checks and sets the last-run time (two windows start together). */
 function withLock(fn) {
@@ -163,19 +219,34 @@ async function main(argv) {
     fs.appendFileSync(logFile(), JSON.stringify({ undoes: at, undoneAt: new Date().toISOString() }) + '\n');
     return { undone: at };
   }
+  const val = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : null; };
+  if (flag === '--keep-list') return { keep: readKeep() };
+  if (flag === '--keep' || flag === '--unkeep') {
+    const folder = argv[1];
+    if (!folder) throw new Error(`${flag} needs a project folder`);
+    const rest = readKeep().filter((k) => folderKey(k) !== folderKey(folder));
+    writeKeep(flag === '--keep' ? [...rest, folder.replace(/\\/g, '/')] : rest);
+    return { keep: readKeep() };
+  }
   const force = argv.includes('--force');
   const dry = argv.includes('--dry');
-  const dbAt = argv.indexOf('--db');
   const reasonAt = argv.indexOf('--reason');
-  const db = dbAt >= 0 ? argv[dbAt + 1] : defaultDb();
-  if (dry) return pickSessions(await readRows(db), Date.now());
+  const db = val('--db') || defaultDb();
+  if (flag === '--archived-in') {
+    if (!argv[1]) throw new Error('--archived-in needs a project folder');
+    const key = folderKey(argv[1]);
+    const rows = (await readRows(db)).filter((r) => r.is_archived && folderKey(r.workspace_id || '') === key);
+    return { ids: rows.map((r) => r.id), titles: rows.map((r) => r.title) };
+  }
+  const scope = scopeOf({ keep: readKeep(), project: val('--project'), olderThanDays: val('--older-than') });
+  if (dry) return pickSessions(await readRows(db), Date.now(), scope.rules, scope);
   return withLock(async () => {
     const now = Date.now();
     if (!force && fs.existsSync(lastFile())) {
       const last = JSON.parse(fs.readFileSync(lastFile(), 'utf8'));
       if (now - toMs(last.at) < MIN_GAP_MS) return { picked: [], counts: {}, skipped: 'ran under 50 minutes ago' };
     }
-    const out = pickSessions(await readRows(db), now);
+    const out = pickSessions(await readRows(db), now, scope.rules, scope);
     const at = new Date(now).toISOString();
     fs.writeFileSync(lastFile(), JSON.stringify({ at }));
     // Logged before the extension archives anything, so a run cut off half-way can still be undone

@@ -9,6 +9,8 @@ trade-off, table, save. This file holds the tools and the standing limits.
 
 - Earlier hunts: `finds/INDEX.md` (one line each). The user's standing facts, and the sites and
   social media to search where they live: `profile.md`.
+- **New files follow `~/.claude/skills/file-upkeep/standard.md`:** scratch and test output in the temp
+  folder, deleted after the run; no copies beside a file.
 - **The time is a limit, not a target:** 5 to 7 minutes for one thing to look up, 10 for marketplaces
   or a request with several parts (asked once there). When it is used up, answer with what there is
   and list what was not checked. Accuracy still comes first inside it: nothing unopened is linked

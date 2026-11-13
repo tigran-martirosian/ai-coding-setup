@@ -50,6 +50,19 @@ function findTranscript() {
 
 const cut = (s, n) => (s.length > n ? s.slice(0, n) + " …" : s);
 
+// The summary's "User still owes" bullet (and its indented lines) goes to the top of the brief:
+// once a new session read past it, asked about other things and called the job finished.
+function owedOf(text) {
+  const lines = text.split("\n");
+  const i = lines.findIndex((l) => /^\s*[-*]\s*\**\s*user still owes/i.test(l));
+  if (i < 0) return "";
+  const owed = [lines[i].replace(/^\s*[-*]\s*\**\s*user still owes\s*:?\s*\**\s*:?\s*/i, "")];
+  for (const l of lines.slice(i + 1)) { if (!/^\s+\S/.test(l)) break; owed.push(l.trim()); }
+  const t = owed.join(" ").trim();
+  return /^(nothing|none|n\/a|-)?\.?$/i.test(t) ? "" : t;
+}
+const owed = hook ? "" : owedOf(summary);
+
 function readSession(file) {
   const prompts = [], edited = [];
   let lastReply = "", context = 0, sessionCwd = "";
@@ -125,6 +138,9 @@ const brief = [
   `From session \`${path.basename(transcript, ".jsonl")}\` (~${Math.round(s.context / 1000)}k tokens of context), written ${new Date().toLocaleString()}.`,
   `Project folder: \`${work}\`. Follow its CLAUDE.md (and HANDOFF.md if there is one) before changing anything.`,
   "",
+  ...(owed ? ["## Ask the user first", "",
+    "Unanswered when the last session handed off. Ask each of these before any other question, and don't call the work finished, done or complete while one is still open.",
+    "", `- ${owed}`, ""] : []),
   "## Where we are",
   "",
   hook ? "(Written automatically after the last reply, with no summary: work out where things stand from the latest requests and the last reply below, then check the files.)"

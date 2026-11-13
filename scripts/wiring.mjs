@@ -92,6 +92,14 @@ export function wire({ home, CLAUDE, NODE, say, OLD_MATCHERS }, target, hooks, f
             g.matcher = group.matcher;
             added++;
           }
+          // A guard that must block when it crashes or times out: an older wiring without the key gets it.
+          // A value the user set themselves stays.
+          for (const old of hook.onFailure ? list.flatMap((g) => g.hooks || []).filter(same) : []) {
+            if (old.onFailure) continue;
+            old.onFailure = hook.onFailure;
+            say(`hook updated: ${event} ${base}${where} (onFailure: ${hook.onFailure})`);
+            added++;
+          }
           continue;
         }
         // Everything else the example sets comes along: without asyncRewake a watcher would hold the session up.

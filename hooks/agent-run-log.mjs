@@ -3,7 +3,10 @@
 // {ts, session, cwd, description, type, model, effort}, so the Agents Panel can show which model and effort a helper runs on (the app's
 // own row carries neither). model = tool_input.model, else the `model:` of <project>/.claude/agents/<type>.md, else of
 // ~/.claude/agents/<type>.md, else the session's own model, read from the last assistant entry of transcript_path (message.model).
-// effort = the agent file's `effort:`, else the session's (the same entry's `effort`). What none of these name stays null.
+// effort = the level the helper really runs at, in Claude Code's order: a CLAUDE_CODE_EFFORT_LEVEL this hook inherits (the
+// session's own environment, after its settings env; Nimbalyst sets it from its effort picker, and it beats everything below),
+// else tool_input.effort, else the agent file's `effort:`, else the session's (the same entry's `effort`). The variable set to
+// auto or unset sends no level, so effort is null then. What none of these name stays null.
 // Writes no stdout, so it never touches the input map-brief rewrites. Keeps the file at its last 500 lines. Fails open: any error is one
 // line on stderr, exit 0. AGENT_RUN_LOG=off disables it; AGENT_RUN_LOG_FILE moves the log (tests); AGENT_RUN_LOG_AGENTS replaces the
 // ~/.claude/agents folder (tests).
@@ -16,6 +19,7 @@ import path from "node:path";
 const KEEP = 500;
 const TAIL_BYTES = 512 * 1024;
 const LOG = process.env.AGENT_RUN_LOG_FILE || path.join(os.homedir(), ".claude", "state", "agent-runs.jsonl");
+const LEVELS = ["low", "medium", "high", "xhigh", "max", "ultra"];
 const HOME_AGENTS = process.env.AGENT_RUN_LOG_AGENTS || path.join(os.homedir(), ".claude", "agents");
 
 function frontmatter(dir, type) {
@@ -56,11 +60,13 @@ runHook("agent-run-log", (event) => {
   const project = process.env.CLAUDE_PROJECT_DIR || event.cwd;
   const file = (project && frontmatter(path.join(project, ".claude", "agents"), type)) || frontmatter(HOME_AGENTS, type) || {};
   let model = (typeof input.model === "string" && input.model) || file.model || null;
-  let effort = file.effort || null;
-  if (!model || !effort) {
+  const forced = (process.env.CLAUDE_CODE_EFFORT_LEVEL || "").trim().toLowerCase();
+  const noLevel = ["auto", "unset"].includes(forced);
+  let effort = LEVELS.includes(forced) ? forced : noLevel ? null : (typeof input.effort === "string" && input.effort) || file.effort || null;
+  if (!model || (!effort && !noLevel)) {
     const session = sessionRun(event.transcript_path);
     model = model || session.model || null;
-    effort = effort || session.effort || null;
+    if (!noLevel) effort = effort || session.effort || null;
   }
 
   const line = JSON.stringify({

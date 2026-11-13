@@ -1,8 +1,8 @@
 {
   "id": "com.local.boardtidy",
   "name": "Board Tidy",
-  "version": "0.1.0",
-  "description": "Keeps the Sessions board to current work: archives sessions that are Complete and idle for 3 days, have no phase and are idle for 14 days, or sit in planning, validating or implementing for 30 days, in every project, once an hour. Pinned, running and worktree sessions stay. Nothing is deleted: Unarchive in the Archived view brings a session back, and Claude can undo the last run.",
+  "version": "0.2.0",
+  "description": "Keeps the Sessions board to current work: archives sessions that are Complete and idle for 3 days, have no phase and are idle for 14 days, or sit in planning, validating or implementing for 30 days, once an hour, in every project except the kept ones (chat-style projects where every old chat stays). Pinned, running and worktree sessions stay. Nothing is deleted: Unarchive in the Archived view brings a session back, and Claude can undo the last run, unarchive a whole project, or archive one project by age on request.",
   "author": "Local",
   "main": "dist/index.js",
   "apiVersion": "1.0.0",
@@ -12,6 +12,11 @@
     "ai": true
   },
   "contributions": {
-    "aiTools": ["board_tidy.archive", "board_tidy.undo"]
+    "aiTools": [
+      "board_tidy.archive",
+      "board_tidy.undo",
+      "board_tidy.unarchive",
+      "board_tidy.keep"
+    ]
   }
 }

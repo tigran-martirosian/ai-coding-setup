@@ -300,6 +300,20 @@ check("the record of the files is kept up to date, with the setup's folder the d
 const plainAfter = await update(filesHome);
 check("a normal update afterwards says it is on the newest version", plainAfter.code === 0 && plainAfter.out.startsWith(`Already on the newest version (${FILESV})`));
 
+// ---- the file reorganize offer: file-check.mjs --status --homes, its offer line passed on as files-offer:
+const shopHome = path.join(tmp, "Users", "someone", "Projects", "shop");
+fs.mkdirSync(shopHome, { recursive: true });
+fs.writeFileSync(path.join(shopHome, "CLAUDE.md"), "# shop\n");
+fs.writeFileSync(path.join(shopHome, "Price_List.md"), "p\n");
+const withShop = json(path.join(fc, "setup-state.json"));
+fs.writeFileSync(path.join(fc, "setup-state.json"), JSON.stringify({ ...withShop, projects: fwd(path.dirname(shopHome)), written: { ...withShop.written, [`${fwd(shopHome)}/CLAUDE.md`]: "x" } }));
+const offered = await update(filesHome);
+check("an update with files to reorganize passes the offer on as one files-offer: line",
+  offered.code === 0 && (offered.out.match(/^files-offer: 1 folder, 1 files to reorganize, about \d+ minutes .*--skip --homes\)$/gm) || []).length === 1, offered.out);
+fs.rmSync(path.join(shopHome, "Price_List.md"));
+const tidy = await update(filesHome);
+check("with nothing to reorganize (offer: none) it prints no files line", tidy.code === 0 && !/^files/m.test(tidy.out), tidy.out);
+
 // ---- what stops an update leaves the setup as it was
 released = { version: "9.9.10" };
 const noArchive = await update(home);

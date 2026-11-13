@@ -34,5 +34,8 @@ web-answer-gate hook blocks a reply that hedges without having checked one (`HED
 - A page's own text beats anyone's summary of it. WebFetch answers a question about a page, but a
   small model writes that answer, so it cuts quotes and long pages. When the exact words matter (a
   quote, a SKILL.md to compare, a changelog) and `npx` is available, save the page as Markdown with
-  `npx -y defuddle parse <url> --md > <file>.md` and Grep/Read that file. `r.jina.ai` stays for sites
-  that block it.
+  `npx -y defuddle parse <url> --md > <file>.md` in the temp folder, Grep/Read that file, and delete it
+  after reading; a page the user asked to keep goes to `docs/research/` instead. `r.jina.ai` stays for sites
+  that block it. The `web-fetch` helper that stands in when you have no WebFetch runs on Haiku too: a
+  page a decision rests on (a choice, a recommendation, a fact the reply depends on) is read by a `worker`
+  given the URL and the question, or saved with defuddle as above, not by `web-fetch`.

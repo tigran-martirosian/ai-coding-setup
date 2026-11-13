@@ -152,5 +152,5 @@ if (isMain(import.meta.url)) {
     fs.writeSync(1, JSON.stringify({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: reason(hits) },
     }));
-  });
+  }, { failClosed: true });
 }

@@ -51,13 +51,24 @@ async function setArchived(ids, isArchived) {
   return { done, errors };
 }
 
-/** One tidy run. `force` skips the 50-minute gap; `dryRun` only lists what would go. */
-async function tidy({ force = false, dryRun = false, reason = 'timer' } = {}) {
+/** Quotes a folder for the pick.mjs command line. A trailing slash or backslash is dropped (a trailing
+ * backslash would escape the closing quote on Windows); a folder holding a quote, backtick or $ is
+ * refused, since a shell would read it. */
+export const q = (s) => {
+  const p = String(s).replace(/[\\/]+$/, '');
+  if (/["`$]/.test(p)) throw new Error(`a project folder may not contain " or a backtick or $: ${s}`);
+  return `"${p}"`;
+};
+
+/** One tidy run. `force` skips the 50-minute gap; `dryRun` only lists what would go; `project` +
+ * `olderThanDays` is a run asked for in one project (kept or not). */
+async function tidy({ force = false, dryRun = false, reason = 'timer', project = null, olderThanDays = null } = {}) {
   if (running) return { skipped: 'a run is already going' };
   running = true;
   try {
+    const scope = project ? ` --project ${q(project)} --older-than ${Number(olderThanDays)}` : '';
     // pick.mjs logs the run before anything is archived, so undo works even if this stops half-way
-    const choice = await exec(dryRun ? '--dry' : `${force ? '--force ' : ''}--reason ${reason}`);
+    const choice = await exec((dryRun ? '--dry' : `${force ? '--force ' : ''}--reason ${reason}`) + scope);
     if (choice.skipped) return { skipped: choice.skipped };
     const ids = choice.picked.map((p) => p.id);
     if (dryRun) return { wouldArchive: ids.length, counts: choice.counts, sample: choice.picked.slice(0, 20) };
@@ -86,16 +97,23 @@ const aiTools = [
   {
     name: 'board_tidy.archive',
     description:
-      'Archive old sessions on the Nimbalyst Sessions board, in every project: Complete with no activity for 3 days, no phase for 14 days, planning/validating/implementing for 30 days. Never pinned, running or worktree sessions, never deletes. Board Tidy also does this hourly by itself. dryRun: true only lists what would go.',
+      'Archive old sessions on the Nimbalyst Sessions board, in every project but the kept ones (board_tidy.keep): Complete with no activity for 3 days, no phase for 14 days, planning/validating/implementing for 30 days. Never pinned, running or worktree sessions, never deletes. Board Tidy also does this hourly by itself. With project and olderThanDays it archives only in that project (kept or not), any phase but backlog idle that long: for "archive what is older than 6 months there". dryRun: true only lists what would go.',
     scope: 'global',
     access: { kind: 'filesystem' },
     inputSchema: {
       type: 'object',
-      properties: { dryRun: { type: 'boolean', description: 'List what would be archived, change nothing' } },
+      properties: {
+        dryRun: { type: 'boolean', description: 'List what would be archived, change nothing' },
+        project: { type: 'string', description: 'Only this project folder (needs olderThanDays)' },
+        olderThanDays: { type: 'number', description: 'With project: archive sessions idle this many days' },
+      },
     },
     handler: async (args) => {
       try {
-        return { success: true, data: await tidy({ force: true, dryRun: !!(args && args.dryRun), reason: 'tool' }) };
+        const a = args || {};
+        if (a.project && !(Number(a.olderThanDays) > 0)) return { success: false, error: 'project needs olderThanDays (days above 0)' };
+        if (!a.project && a.olderThanDays != null) return { success: false, error: 'olderThanDays needs project (the folder to archive in)' };
+        return { success: true, data: await tidy({ force: true, dryRun: !!a.dryRun, reason: 'tool', project: a.project || null, olderThanDays: a.olderThanDays }) };
       } catch (e) {
         return { success: false, error: String(e && e.message ? e.message : e) };
       }
@@ -117,6 +135,39 @@ const aiTools = [
         errors.push(...again.errors);
         if (!errors.length) await exec(`--undone ${b64({ at: run.at })}`);
         return { success: errors.length === 0, data: { unarchived: done.length, archivedAgain: again.done.length, run: run.at, failed: errors } };
+      } catch (e) {
+        return { success: false, error: String(e && e.message ? e.message : e) };
+      }
+    },
+  },
+  {
+    name: 'board_tidy.unarchive',
+    description: 'Unarchive every archived session of one project folder (by Board Tidy or by hand), e.g. to bring back the old chats of a project that should keep them all.',
+    scope: 'global',
+    access: { kind: 'filesystem' },
+    inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'The project folder' } }, required: ['project'] },
+    handler: async (args) => {
+      try {
+        if (!args || !args.project) return { success: false, error: 'project is needed' };
+        const { ids } = await exec(`--archived-in ${q(args.project)}`);
+        const { done, errors } = await setArchived(ids, false);
+        return { success: errors.length === 0, data: { unarchived: done.length, failed: errors } };
+      } catch (e) {
+        return { success: false, error: String(e && e.message ? e.message : e) };
+      }
+    },
+  },
+  {
+    name: 'board_tidy.keep',
+    description: 'Set whether Board Tidy leaves a project alone: keep: true means its sessions are never archived on their own (a chat-style project where every old chat stays findable); keep: false gives it the hourly tidy again. Without project it lists the kept projects.',
+    scope: 'global',
+    access: { kind: 'filesystem' },
+    inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'The project folder' }, keep: { type: 'boolean' } } },
+    handler: async (args) => {
+      try {
+        const a = args || {};
+        if (!a.project) return { success: true, data: await exec('--keep-list') };
+        return { success: true, data: await exec(`${a.keep === false ? '--unkeep' : '--keep'} ${q(a.project)}`) };
       } catch (e) {
         return { success: false, error: String(e && e.message ? e.message : e) };
       }

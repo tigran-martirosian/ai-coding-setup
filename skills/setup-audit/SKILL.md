@@ -15,6 +15,6 @@ The first word of the arguments picks the sub-command; the rest are its options 
 | `full` | one review of how the work went, ending in measured options to tick | `full.md` |
 | `scan` | one project's own Claude setup checked | `scan.md` |
 | `outcomes` | what the checks led to, counted from the chats | `outcomes.md` |
-| `memory` | each project's memory notes checked against its decisions, then a tick list of moves to `memory/archive/` | `memory.md` |
+| `memory` | each project's memory notes checked against its decisions, then a tick list of fixes and deletes | `memory.md` |
 
 Analysis first: change nothing until the user picks fixes. Reply in the language the user writes in.

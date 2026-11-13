@@ -35,6 +35,8 @@ const ALL: Command[] = [
   { id: 'setup-audit', label: t.commands.setupAudit.label, prompt: '/setup-audit', note: t.commands.setupAudit.note, icon: 'fact_check' },
   { id: 'usage-report', label: t.commands.usageReport.label, prompt: '/setup-audit usage', note: t.commands.usageReport.note, icon: 'bar_chart' },
   { id: 'pc-tidy', label: t.commands.pcTidy.label, prompt: '/pc-tidy', note: t.commands.pcTidy.note, icon: 'memory' },
+  { id: 'disk-tidy', label: t.commands.diskTidy.label, prompt: '/disk-tidy', note: t.commands.diskTidy.note, icon: 'hard_drive' },
+  { id: 'file-upkeep', label: t.commands.fileUpkeep.label, prompt: '/file-upkeep', note: t.commands.fileUpkeep.note, icon: 'folder_managed' },
   { id: 'chat-review', label: t.commands.chatReview.label, prompt: '/setup-audit chat', note: t.commands.chatReview.note, icon: 'forum', only: SETUP_FOLDERS },
   { id: 'full-review', label: t.commands.fullReview.label, prompt: '/setup-audit full', note: t.commands.fullReview.note, icon: 'rate_review', only: SETUP_FOLDERS },
   { id: 'untangle', label: t.commands.untangle.label, prompt: '/untangle-codebase', note: t.commands.untangle.note, icon: 'account_tree' },

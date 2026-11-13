@@ -5,7 +5,8 @@
 // is kept next to the new one as <name>.before-install-<date>.
 //   node scripts/app-settings.mjs            Claude Code, ~/.claude/settings.json: "model": "opus" (medium effort) when no
 //                                            model is set, and permission rules (the agent can't read the
-//                                            saved sign-ins or the SSH keys, and asks before a .env file)
+//                                            saved sign-ins or the SSH keys, and asks before a .env file),
+//                                            and an empty CLAUDE_CODE_EFFORT_LEVEL so helpers run at their own effort
 //   node scripts/app-settings.mjs --handy    the same, and Handy's settings for voice typing (Windows;
 //                                            quit Handy first, it writes its file when it closes)
 //   --dry-run                                print what it would do and change nothing
@@ -14,8 +15,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { addClaudeCodeSettings } from "./claude-code-settings.mjs";
+import { addClaudeCodeSettings, effortLines } from "./claude-code-settings.mjs";
 import { backupName, fwd, today } from "./files.mjs";
+import { nimbalystHome } from "./nimbalyst-paths.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] || "" : null);
@@ -55,6 +57,8 @@ const settingsWas = JSON.stringify(settings);
 const did = addClaudeCodeSettings(settings, WIN);
 say(did.model ? `model: set to opus at medium effort (none was set)` : `model: left as it is (${settings.model})`);
 say(`permissions: ${did.added} rule(s) added`);
+// Nimbalyst's own effort setting is only named, and only for the real home folder
+for (const line of effortLines(did, opt("home") === null ? path.join(nimbalystHome(), "app-settings.json") : null, fwd(settingsFile))) say(line);
 write(settingsFile, settings, settingsWas);
 
 // ---- Handy: the settings from the README's "Voice typing" table. Its model, microphone and sounds

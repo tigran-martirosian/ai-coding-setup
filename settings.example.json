@@ -175,30 +175,35 @@
             "type": "command",
             "if": "Bash(*push*)",
             "command": "node ~/.claude/hooks/push-key-scan.mjs",
-            "timeout": 15
+            "timeout": 15,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "if": "PowerShell(*push*)",
             "command": "node ~/.claude/hooks/push-key-scan.mjs",
-            "timeout": 15
+            "timeout": 15,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "if": "Bash(*opencli*)",
             "command": "node ~/.claude/hooks/opencli-readonly.mjs",
-            "timeout": 15
+            "timeout": 15,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "if": "PowerShell(*opencli*)",
             "command": "node ~/.claude/hooks/opencli-readonly.mjs",
-            "timeout": 15
+            "timeout": 15,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "node ~/.claude/hooks/planner-readonly.mjs",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
