@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Tests for web-worker-gate (PreToolUse: refuses ask.mjs --web) and web-answer-gate (Stop: refuses a
-// reply that hedges about availability without checking, or lists fewer things than were asked for).
+// Tests for web-answer-gate (Stop: refuses a reply that hedges about availability without checking,
+// or lists fewer things than were asked for).
 // Run: node test-web-gates.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
@@ -9,9 +9,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const WORKER_HOOK = fileURLToPath(new URL("../hooks/web-worker-gate.mjs", import.meta.url));
 const ANSWER_HOOK = fileURLToPath(new URL("../hooks/web-answer-gate.mjs", import.meta.url));
-const { offending, reason: workerReason } = await import(pathToFileURL(WORKER_HOOK).href);
 const {
   hedgeProblem, countProblem, wantedCount, listedCount, checkedASource, visibleProse, harnessPrompt,
 } = await import(pathToFileURL(ANSWER_HOOK).href);
@@ -23,52 +21,6 @@ const ok = (name, cond, extra = "") => {
   console.log(`FAIL  ${name}${extra ? `\n      ${extra}` : ""}`);
 };
 
-// ---------------- web-worker-gate: which commands are refused ----------------
-
-const REFUSED = [
-  `node ~/.claude/workers/ask.mjs --web "latest postgres version"`,
-  `~/.claude/workers/ask.mjs --web /tmp/task.txt`,
-  `cd /c/Projects/x && node ~/.claude/workers/ask.mjs --web "find 12 mods" > out.txt`,
-  `timeout 280 node ~/.claude/workers/ask.mjs --web "x"`,
-  `node "./workers/ask.mjs" --think --web "x"`,
-  `node ask.mjs --web "x"`,
-];
-for (const cmd of REFUSED) ok(`refuses: ${cmd.slice(0, 48)}`, offending(cmd) !== "");
-
-const ALLOWED = [
-  `node ~/.claude/workers/ask.mjs "read C:/x/big.md and summarise"`,  // local files still fine
-  `node ~/.claude/workers/ask.mjs --status`,
-  `~/.claude/workers/ask.mjs --status | sed -n 3p`,
-  `node ~/.claude/workers/versions.mjs postgresql --has 18`,
-  `curl -s https://endoflife.date/api/v1/products/postgresql/`,
-  `grep -rn "ask.mjs --web" docs/`,                                   // writing about it is not running it
-  `echo "the rule says not to use ask.mjs --web any more"`,
-];
-for (const cmd of ALLOWED) ok(`allows: ${cmd.slice(0, 48)}`, offending(cmd) === "", `got "${offending(cmd)}"`);
-
-ok("refusal names the version checker", /versions\.mjs/.test(workerReason("x")));
-ok("refusal names the off switch", /WEB_WORKER_GATE=off/.test(workerReason("x")));
-ok("refusal gives the measured reason", /72 such calls|29 gave nothing/.test(workerReason("x")));
-ok("refusal does not repeat the inflated grep count", !/101/.test(workerReason("x")));
-
-// A shell line can hold several commands: exempting the whole line on its first word let the real call through
-const SNEAKY = [
-  `echo start && node ~/.claude/workers/ask.mjs --web "x"`,
-  `cat q.txt; node ~/.claude/workers/ask.mjs --web "x"`,
-  `ls && ~/.claude/workers/ask.mjs --web /tmp/q.txt`,
-  `grep -q foo bar.txt || node ~/.claude/workers/ask.mjs --web "x"`,
-  `head -1 f.txt | node ~/.claude/workers/ask.mjs --web "x"`,
-];
-for (const cmd of SNEAKY) ok(`refuses behind a text tool: ${cmd.slice(0, 40)}`, offending(cmd) !== "", `got ""`);
-
-const STILL_ALLOWED = [
-  `echo "do not use ask.mjs --web" && node run.mjs`,
-  `grep -rn "ask.mjs --web" docs/ && echo done`,
-  `node ~/.claude/workers/ask.mjs --status && echo ok`,
-  `cat notes.md; node ~/.claude/workers/ask.mjs "read ./big.md"`,
-];
-for (const cmd of STILL_ALLOWED) ok(`still allows: ${cmd.slice(0, 44)}`, offending(cmd) === "", `got "${offending(cmd)}"`);
-
 // The real hook process, end to end
 const runHook = (hook, input, env = {}) => {
   const r = spawnSync(process.execPath, [hook], {
@@ -76,25 +28,6 @@ const runHook = (hook, input, env = {}) => {
   });
   return { out: r.stdout.trim(), status: r.status };
 };
-
-{
-  const { out } = runHook(WORKER_HOOK, { tool_name: "Bash", tool_input: { command: `node ~/.claude/workers/ask.mjs --web "x"` } });
-  const parsed = out ? JSON.parse(out) : null;
-  ok("hook denies a --web call", parsed?.hookSpecificOutput?.permissionDecision === "deny", out.slice(0, 120));
-}
-{
-  const { out } = runHook(WORKER_HOOK, { tool_name: "Bash", tool_input: { command: `node ~/.claude/workers/ask.mjs "local file job"` } });
-  ok("hook stays silent for a local-file call", out === "", out.slice(0, 120));
-}
-{
-  const { out } = runHook(WORKER_HOOK,
-    { tool_name: "Bash", tool_input: { command: `node ~/.claude/workers/ask.mjs --web "x"` } }, { WEB_WORKER_GATE: "off" });
-  ok("off switch works", out === "", out.slice(0, 120));
-}
-{
-  const { out, status } = runHook(WORKER_HOOK, { tool_name: "Bash" }); // no command at all
-  ok("fails open on a missing command", out === "" && status === 0);
-}
 
 // ---------------- web-answer-gate: the hedge check ----------------
 

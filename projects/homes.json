@@ -25,9 +25,6 @@
     ],
     "quick-tasks": [
       { "without": ["codex"], "line": "- No generated pictures here (the picture skill needs Codex): say so in one line and offer a description or a diagram." }
-    ],
-    "claude-settings": [
-      { "without": ["codex"], "line": "- Codex is not set up. `/setup-audit chat` gives its reading to Codex: do that reading with a `worker` subagent instead." }
     ]
   }
 }

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "finder-test-"));
-const installed = spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", home, "--codex", "no", "--agy", "no"], { encoding: "utf8" });
+const installed = spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", home, "--codex", "no"], { encoding: "utf8" });
 if (installed.status !== 0) {
   console.log(`FAIL install into a temporary home: exit ${installed.status}\n${installed.stdout}${installed.stderr}`);
   process.exit(1);

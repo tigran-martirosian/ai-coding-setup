@@ -52,7 +52,7 @@ const update = (home, ...flags) => new Promise((resolve) => {
 // ---- this version installed, with no workers, plus things of the user's own
 const home = path.join(tmp, "home");
 const claude = path.join(home, ".claude");
-const first = spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", home, "--codex", "no", "--agy", "no"], { encoding: "utf8" });
+const first = spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", home, "--codex", "no"], { encoding: "utf8" });
 check("this version installs", first.status === 0 && json(path.join(claude, "setup-state.json")).version === json(path.join(REPO, "version.json")).version);
 const ownSkill = path.join(claude, "skills", "build-table", "SKILL.md");
 fs.mkdirSync(path.dirname(ownSkill), { recursive: true });
@@ -68,6 +68,20 @@ settings.hooks.Stop = settings.hooks.Stop.filter((g) => g.hooks.length);
 fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
 const profile = path.join(home, "Projects", "internet-search", "profile.md");
 fs.writeFileSync(profile, "# My profile\n");
+// as an older version that used Antigravity left it: its hook in Antigravity's hooks file and its allow rule
+// on record, each beside one of the user's own
+const agyHooks = path.join(home, ".gemini", "config", "hooks.json");
+const agySettings = path.join(home, ".gemini", "antigravity-cli", "settings.json");
+const setupRule = `read_file(${fwd(path.join(home, "Projects"))})`;
+fs.mkdirSync(path.dirname(agyHooks), { recursive: true });
+fs.mkdirSync(path.dirname(agySettings), { recursive: true });
+fs.writeFileSync(agyHooks, JSON.stringify({
+  "ask-worker-gate": { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: `node ${fwd(claude)}/workers/agy-gate.mjs`, timeout: 10 }] }] },
+  "my-own-gate": { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "node my-gate.mjs" }] }] },
+}));
+fs.writeFileSync(agySettings, JSON.stringify({ theme: "dark", permissions: { allow: [setupRule, "read_file(C:/mine)"] } }));
+const stateAt = path.join(claude, "setup-state.json");
+fs.writeFileSync(stateAt, JSON.stringify({ ...json(stateAt), agy: false, agyAdded: [setupRule] }));
 
 // ---- only looking
 const looked = await update(home, "--check");
@@ -92,7 +106,11 @@ check("an older install gets the new Stop gates and question-other's wider match
   ["code-review-gate.mjs", "file-link-gate.mjs"].every((h) => JSON.stringify(after.hooks.Stop).includes(h))
   && after.hooks.PreToolUse.some((g) => g.matcher === "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion|AskUserQuestion" && JSON.stringify(g).includes("question-other.mjs")));
 check("the user's notes stay", fs.readFileSync(profile, "utf8") === "# My profile\n");
-check("the answers about the workers are remembered", ["codex.off", "agy.off"].every((f) => fs.existsSync(path.join(claude, "workers", f))) && /Codex CLI \(GPT\): not used, optional \(as answered before\)/.test(done.out));
+check("the answer about Codex is remembered", /Codex CLI \(GPT\): not used, optional \(as answered before\)/.test(done.out));
+check("what an older version set up in Antigravity goes, the user's own hook and rule stay",
+  JSON.stringify(Object.keys(json(agyHooks))) === JSON.stringify(["my-own-gate"])
+  && JSON.stringify(json(agySettings)) === JSON.stringify({ theme: "dark", permissions: { allow: ["read_file(C:/mine)"] } })
+  && !("agyAdded" in state) && !("agy" in state));
 check("the changed extension is named, the others are not", done.out.includes("extension changed: commands") && !done.out.includes("extension changed: usage-plan"));
 check("the download leaves no archive and no half-made folder", fs.readdirSync(path.join(claude, "setup-source")).join() === `v${NEW}`);
 
@@ -108,7 +126,7 @@ check("a second run says it is on the newest version and changes nothing", again
 
 // ---- rules the user changed are kept, said once, and taken with --replace-rules
 const mine = path.join(tmp, "mine");
-spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", mine, "--codex", "no", "--agy", "no"], { encoding: "utf8" });
+spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", mine, "--codex", "no"], { encoding: "utf8" });
 const myRules = path.join(mine, ".claude", "CLAUDE.md");
 fs.writeFileSync(myRules, fs.readFileSync(myRules, "utf8").replace("# How to work", "# How to work\n\n- My own rule."));
 const myHook = path.join(mine, ".claude", "hooks", "sql-guard.mjs");
@@ -135,7 +153,7 @@ check("an update ends with the list of what stays on old versions, each with its
 check("a run with nothing left behind prints no such list", !/Yours, on old versions/.test(taken.out));
 // the printed line is run as it stands, on a home of its own
 const listHome = path.join(tmp, "list-home");
-spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", listHome, "--codex", "no", "--agy", "no"], { encoding: "utf8" });
+spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", listHome, "--codex", "no"], { encoding: "utf8" });
 const listHook = path.join(listHome, ".claude", "hooks", "sql-guard.mjs");
 fs.appendFileSync(listHook, "\n// my own change\n");
 const listed = (await update(listHome)).out.split("\n").find((l) => l.includes("hooks/sql-guard.mjs: node "));
@@ -146,7 +164,7 @@ check("the printed --replace line works as it stands: it takes this version's ho
 // ---- a friend from before 1.0.74 on sonnet moves to Opus medium, loudly; --keep-model undoes it
 const oldHome = (name, model) => {
   const h = path.join(tmp, name);
-  spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", h, "--codex", "no", "--agy", "no"], { encoding: "utf8" });
+  spawnSync(process.execPath, [path.join(REPO, "install.mjs"), "--home", h, "--codex", "no"], { encoding: "utf8" });
   const stateFileOld = path.join(h, ".claude", "setup-state.json");
   fs.writeFileSync(stateFileOld, JSON.stringify({ ...json(stateFileOld), version: "1.0.70" }));
   const sf = path.join(h, ".claude", "settings.json");

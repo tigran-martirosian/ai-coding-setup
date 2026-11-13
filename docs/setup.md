@@ -7,11 +7,9 @@ flowchart TD
   me["Me<br>task, rules, review"]
   hooks["Hooks<br>check each tool call"]
   main["Claude Code<br>main session"]
-  ext["GPT (Codex CLI) and Gemini (Antigravity CLI)<br>long local reading, second opinions"]
-  worker["worker subagent<br>routine edits"]
+  worker["worker subagent<br>long reading, routine edits"]
   me --> main
   hooks -.-> main
-  main --> ext
   main --> worker
 ```
 
@@ -24,19 +22,18 @@ flowchart TD
 
 ## What I hand to each tool
 
-The rule: long reading of local files and second opinions go to GPT (through the Codex CLI) and Gemini (through the Antigravity CLI), which run on my other subscriptions. Searching the web, design and code stay with Claude. One command, [workers/ask.mjs](../workers/ask.mjs), picks the worker: the first one that is set up and working. It moves to the next when one is out of usage, says which one answered, and hands the job back to Claude when none can.
+The rule: long reading of local files and second opinions go to a `worker` subagent, which runs Sonnet and has a budget of tool calls. Searching the web, design and code stay with the main session. Long reading used to go to outside command-line workers; they often failed or ran out of time and the job went back to Claude anyway, so it now goes straight to Claude's own capped helpers.
 
 | Tool | What I use it for | Limits I set |
 |---|---|---|
 | Claude Code in the Nimbalyst editor (the main session) | Planning a change with me, writing and editing the code, running the checks | It does what I asked and nothing else: no unrelated refactoring, no extra features |
-| GPT (Codex CLI) and Gemini (Antigravity CLI) | Reading long files and logs, sweeping a project folder, a second opinion on a plan or a diff | They never edit files, and their answers are leads that get checked |
-| `worker` subagent ([agents/worker.md](../agents/worker.md)) | One step of a bigger job, or routine edits that follow a clear plan | A smaller model, no `CLAUDE.md` loaded, and it stops after 80 turns. Its brief has to name the goal of the job, the files and the project commands it needs |
+| `worker` subagent ([agents/worker.md](../agents/worker.md)) | Reading long files and logs, sweeping a project folder, a second opinion on a plan or a diff (about 15 tool calls, the answer is a lead that gets checked), one step of a bigger job, or routine edits that follow a clear plan | A smaller model, no `CLAUDE.md` loaded, and it stops after 80 turns. Its brief has to name the goal of the job, the files and the project commands it needs |
 | `worker-full` subagent ([agents/worker-full.md](../agents/worker-full.md)) | The same, for a step that needs a skill or an MCP tool | It loads every tool and the `CLAUDE.md` files, so it costs much more to start |
 | `reviewer` subagent ([agents/reviewer.md](../agents/reviewer.md)) | One independent check of a finished bigger change, against the request and for quality | It reads files and changes nothing, stops after 40 turns, and one is enough |
 | `rec-check` subagent ([agents/rec-check.md](../agents/rec-check.md)) | A second look at a recommended option before a question reaches me | It reads files and changes nothing, stops after 8 turns, and answers keep or change |
 | `planner` subagent ([agents/planner.md](../agents/planner.md)) | The plan for every build or design request, written by the strongest model before the main session starts on it | It reads files and changes nothing, stops after 15 turns, and gets the situation without the main session's own idea of the answer |
 
-Long reading costs the most on the main model, which is why it goes to the other two. Web research stays with Claude, which reads the page or the catalogue that knows the answer. For a larger task I use a [skill](../skills/lead/SKILL.md) that runs it from the main session: the `planner` agent writes the plan, and the session turns it into a numbered job list, hands each step to a worker that knows the goal of the whole job, and has one reviewer check the result, so what comes back to me has already been checked once. A separate Nimbalyst session is used only when a step needs my input or has to run past the turn.
+Long reading costs the most on the main model, which is why it goes to a `worker` subagent. Web research stays with Claude, which reads the page or the catalogue that knows the answer. For a larger task I use a [skill](../skills/lead/SKILL.md) that runs it from the main session: the `planner` agent writes the plan, and the session turns it into a numbered job list, hands each step to a worker that knows the goal of the whole job, and has one reviewer check the result, so what comes back to me has already been checked once. A separate Nimbalyst session is used only when a step needs my input or has to run past the turn.
 
 ## The rules I wrote
 
@@ -56,7 +53,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When | Hook | Rule it enforces |
 |---|---|---|
 | Before a file read or shell command | `big-read-gate` | Read large files in parts |
-| Before a subagent starts | `worker-nudge` | Long local reading goes to the first free worker that is ready (Codex or Gemini), a build or check goes to the capped `worker` agent (`worker-full` when it needs a skill or an MCP tool), and a review of a finished job goes to the `reviewer` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
+| Before a subagent starts | `worker-nudge` | Long local reading, a build or a check goes to the capped `worker` agent (Sonnet; `worker-full` when it needs a skill or an MCP tool), and a review of a finished job goes to the `reviewer` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
 | Before a shell command | `command-explain` | Explain the command in plain words; a command without that line runs with a stand-in line, and the agent is reminded |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |

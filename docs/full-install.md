@@ -21,16 +21,15 @@ For Claude: the user ran one command and expects the rest to happen by itself. D
 
 ## 1. Ask: the subscriptions and the projects folder
 
-One form, four questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in a terminal AskUserQuestion):
+One form, three questions (in Nimbalyst `mcp__nimbalyst__PromptForUserInput`, in a terminal AskUserQuestion):
 
 | Question | What a yes adds |
 |---|---|
-| Do you have a paid **ChatGPT** subscription? | The **Codex** worker: long reading and folder sweeps; generated pictures. |
-| Do you have a **Google AI** subscription (Gemini)? | The **Antigravity** worker (`agy`): very large files and second opinions. |
+| Do you have a paid **ChatGPT** subscription? | **Codex**, for the generated pictures. |
 | Where should the projects folder go? | Four small project folders are made in it. The default is `Projects` in the home folder; any folder works. |
 | Which **language**: English or Русский? | With Русский, Claude answers in Russian in every chat and the setup's Nimbalyst extensions show Russian text. |
 
-Say that "no" is fine: everything works on Claude alone. In the form's intro, name what step 2 installs if it is missing (Nimbalyst, Node.js, Git, uv, Handy for voice typing, a worker's program for each yes, ffmpeg with the ChatGPT yes; on a Mac also Homebrew, which asks once for the Mac password) and that it takes about ten to twenty minutes. Remember the answers as CODEX, AGY, PROJECTS and LANGUAGE (`english` or `russian`).
+Say that "no" is fine: everything works on Claude alone. In the form's intro, name what step 2 installs if it is missing (Nimbalyst, Node.js, Git, uv, Handy for voice typing, Codex and ffmpeg with the ChatGPT yes; on a Mac also Homebrew, which asks once for the Mac password) and that it takes about ten to twenty minutes. Remember the answers as CODEX, PROJECTS and LANGUAGE (`english` or `russian`).
 
 ## 2. Programs
 
@@ -38,7 +37,7 @@ Check each program first and install only what is missing and applies, one comma
 
 ### On Windows
 
-Checks: `node --version`, `git --version`, `uvx --version`, `winget list --id Nimbalyst.Nimbalyst -e --accept-source-agreements`, `winget list --id cjpais.Handy -e --accept-source-agreements`, and with a yes `codex --version`, `agy --version`, `ffmpeg -version`. Add `--silent --accept-package-agreements --accept-source-agreements` to each `winget install`. If Windows asks to allow an app to make changes, tell the user to click Yes.
+Checks: `node --version`, `git --version`, `uvx --version`, `winget list --id Nimbalyst.Nimbalyst -e --accept-source-agreements`, `winget list --id cjpais.Handy -e --accept-source-agreements`, and with a yes `codex --version`, `ffmpeg -version`. Add `--silent --accept-package-agreements --accept-source-agreements` to each `winget install`. If Windows asks to allow an app to make changes, tell the user to click Yes.
 
 | Program | Applies | Install |
 |---|---|---|
@@ -48,7 +47,6 @@ Checks: `node --version`, `git --version`, `uvx --version`, `winget list --id Ni
 | uv | always | `winget install --id astral-sh.uv -e --source winget` |
 | Handy | always | `winget install --id cjpais.Handy -e --source winget` |
 | Codex CLI | CODEX yes | `npm i -g @openai/codex` |
-| Antigravity CLI | AGY yes | `winget install --id Google.AntigravityCLI -e --source winget`, or if that finds nothing `powershell -NoProfile -Command "irm https://antigravity.google/cli/install.ps1 \| iex"` |
 | ffmpeg | CODEX yes | `winget install --id Gyan.FFmpeg -e --source winget` |
 
 A program installed just now is not on the PATH of your running shell. Don't restart anything: call it by its full path or put its folder in front of the PATH for that command (the usual folders: `C:\Program Files\nodejs`, `%APPDATA%\npm`, `C:\Program Files\Git\cmd`, `%LOCALAPPDATA%\Microsoft\WinGet\Links`, `%USERPROFILE%\.local\bin`). If Nimbalyst was installed just now, start it once so that its settings folder exists: `powershell -NoProfile -Command 'Start-Process "$env:LOCALAPPDATA\Programs\Nimbalyst\Nimbalyst.exe"'`, and wait until `%APPDATA%\@nimbalyst\electron` is there.
@@ -57,11 +55,11 @@ A program installed just now is not on the PATH of your running shell. Don't res
 
 The steps for a Mac have not been run on a real Mac: the repository's tests run on macOS, and nothing more has been tried. Tell the user so before you start, and read each result instead of assuming it worked.
 
-Start every command from here on that names `brew`, `node`, `npm`, `npx`, `git`, `uvx`, `codex`, `agy` or `ffmpeg` with `PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"`.
+Start every command from here on that names `brew`, `node`, `npm`, `npx`, `git`, `uvx`, `codex` or `ffmpeg` with `PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"`.
 
 **Homebrew first.** If `brew --version` fails, open a Terminal window that runs its installer: `osascript -e 'tell application "Terminal" to do script "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""' -e 'tell application "Terminal" to activate'`. Tell the user: "A Terminal window opened. Type your Mac password there when it asks (nothing shows while you type), press Return, and Return once more to continue. When it prints 'Installation successful', come back and say done." Then add Homebrew to the shell files, once: for `~/.zprofile` and `~/.zshrc`, if the file has no `brew shellenv`, append `eval "$(<the brew path> shellenv)"`; if `~/.zshrc` has no `.local/bin`, append `export PATH="$HOME/.local/bin:$PATH"`.
 
-Checks: `xcode-select -p` (Git is there when it prints a folder; don't run `git --version`, it opens a dialog), `node --version`, `uvx --version`, `ls -d /Applications/Nimbalyst.app`, `ls -d /Applications/Handy.app`, and with a yes `codex --version`, `agy --version`, `ffmpeg -version`.
+Checks: `xcode-select -p` (Git is there when it prints a folder; don't run `git --version`, it opens a dialog), `node --version`, `uvx --version`, `ls -d /Applications/Nimbalyst.app`, `ls -d /Applications/Handy.app`, and with a yes `codex --version`, `ffmpeg -version`.
 
 | Program | Applies | Install |
 |---|---|---|
@@ -71,21 +69,20 @@ Checks: `xcode-select -p` (Git is there when it prints a folder; don't run `git 
 | uv | always | `brew install uv` |
 | Handy | always | `brew install --cask handy` |
 | Codex CLI | CODEX yes | `npm i -g @openai/codex` |
-| Antigravity CLI | AGY yes | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
 | ffmpeg | CODEX yes | `brew install ffmpeg ffmpeg-full` (`/watch` needs the full one to write the time on a still) |
 
 If Nimbalyst was installed just now, run `open -a Nimbalyst` and wait until `~/Library/Application Support/@nimbalyst/electron` is there. macOS may ask whether to open a downloaded app: the user clicks Open.
 
 ### On both
 
-If Node can't be installed, stop and tell the user. If a worker's program can't be installed, set its answer to no for the rest of this file. Anything else that fails: note it for step 10 with its install command and go on. Only the Antigravity CLI is needed, not its desktop app.
+If Node can't be installed, stop and tell the user. If Codex can't be installed, set its answer to no for the rest of this file. Anything else that fails: note it for step 10 with its install command and go on.
 
 ## 3. The files: rules, hooks, skills and the four projects
 
 From `<repo>`:
 
 ```
-node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no> --language <english|russian>
+node install.mjs --projects "<projects>" --codex <yes|no> --language <english|russian>
 ```
 
 On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. If it says `rules: left alone` or `rules: new in this version, yours were kept`, the user already has a `~/.claude/CLAUDE.md` of their own: show in a few lines what `rules/CLAUDE.md` adds, ask whether to replace theirs (a dated copy is kept), and on yes run the same command with `--replace-rules`.
@@ -118,12 +115,11 @@ node scripts/app-settings.mjs
 
 It sets `"model": "opus"` at medium effort in `~/.claude/settings.json` if no model is set, keeps transcripts 120 days if no time is set, and adds permission rules: the agent can't read the saved sign-ins of Claude, Codex and Gemini or the SSH keys, and asks before it reads a `.env` file. It ends with `settings done`.
 
-## 6. Sign in to the workers
+## 6. Sign in to Codex
 
-Skip a worker whose answer is no. Long reading of local files then goes through one command, `~/.claude/workers/ask.mjs`, which uses the first worker that is set up and working; `~/.claude/workers/ask.mjs --status` lists them.
+Skip this if the ChatGPT answer is no.
 
 - **Codex:** `codex login status`. If it is not signed in, run `codex login` in the background; a browser page opens and the user finishes there. Check from `<projects>`: `codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort="low" "Reply with the single word: ready" < /dev/null` (on Windows add `-c 'windows.sandbox="unelevated"'` after `read-only`). The output must contain `ready`.
-- **Antigravity:** `agy models`. If it is not signed in, the sign-in runs in the program's own window: the user opens a new terminal, types `agy`, signs in with Google and closes it (on a Mac open it for them: `osascript -e 'tell application "Terminal" to do script "$HOME/.local/bin/agy"' -e 'tell application "Terminal" to activate'`). If `agy models` doesn't list `gemini-3.8-flash-medium`, set `env.BIG_READ_AGY_MODEL` in `~/.claude/settings.json` to the newest `*-flash-medium` model it lists: the worker command reads it from there.
 
 A sign-in that isn't finished now is noted for step 10. Nothing else waits on it.
 
@@ -158,10 +154,10 @@ Steps 8 and 9 belong to this first install only. Nothing has to be put on record
 
 Run each check once; fix an obvious failure, report any other with its output. Build the JSON in a file or a small Node script, a shell can mangle the quotes.
 
-1. `node install.mjs --projects "<projects>" --codex <yes|no> --agy <yes|no> --dry-run` prints no line starting with `[dry run] copied`, `replaced`, `wrote` or `hook added`.
+1. `node install.mjs --projects "<projects>" --codex <yes|no> --dry-run` prints no line starting with `[dry run] copied`, `replaced`, `wrote` or `hook added`.
 2. Pipe `{"tool_name":"Bash","tool_input":{"command":"ls -la"}}` into `node ~/.claude/hooks/command-explain.mjs`: the output contains `(no note given)`.
 3. Write a temp text file of 400 lines and pipe `{"tool_name":"Read","tool_input":{"file_path":"<that file>"}}` into `node ~/.claude/hooks/big-read-gate.mjs`: the output contains `"deny"`. Delete the file.
-4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: the output contains `"deny"` with or without a worker; with none, its reason points to the `worker` subagent instead of a worker script.
+4. Pipe `{"session_id":"install-test","tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find x"}}` into `node ~/.claude/hooks/worker-nudge.mjs`: the output contains `"deny"` and its reason points to the `worker` subagent.
 5. `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
 6. `node "<projects>/internet-search/tools/test-finder.mjs"` ends with `all passed`.
 7. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON.
@@ -170,9 +166,9 @@ Run each check once; fix an obvious failure, report any other with its output. B
 
 Then reply in the user's language, in short lines:
 
-- **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, each outside worker, the four extensions, the four folders with their full path, voice typing.
+- **What is set up now**, one line each, done / already there / failed with the error: the rules, the hooks, the skills, the worker agent, the plugins, Codex, the four extensions, the four folders with their full path, voice typing.
 - **Do this once.** Quit Nimbalyst and open it again: the two new buttons then sit in the side bar and every chat finds the programs installed today. Start a new chat for the next task, because rules and hooks load when a chat starts. In each project folder you work in, type `/new-project` once. Any sign-in still open, with the exact command. If step 8 was skipped: open `<projects>/claude-settings` in Nimbalyst, turn on Developer Mode under Settings > Advanced, and paste in a new chat: `Open these four folders as projects: <the four full paths>. Set the default model for new chats to claude-code:sonnet. Turn on the alpha features worktrees and terminal if they are off. Then show me the settings overview.`
 - **What was already there:** the files kept as theirs and the files replaced (each old one is next to the new one as `<name>.before-install-<date>`), any hook whose script is not there, and the file under `~/.claude/setup-logs` that has the whole run. Leave this out on a computer that had no setup before.
-- **What was left out** and how to add it: a missing worker (run `node install.mjs --codex yes` or `--agy yes` from `<repo>` after installing and signing in), a program that could not be installed with its install command.
+- **What was left out** and how to add it: a missing Codex (run `node install.mjs --codex yes` from `<repo>` after installing and signing in), a program that could not be installed with its install command.
 - **How to use it:** `<projects>/claude-settings/HOW-TO.md` has an example for each feature; typing the single word `usage` shows how much of the plan is used.
 - **Updates:** every 12 hours the setup checks and says when a newer version is out; typing `/update-setup` installs it and keeps their own files.

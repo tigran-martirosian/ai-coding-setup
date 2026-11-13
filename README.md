@@ -35,7 +35,7 @@ These go back to the agent:
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 30 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 29 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 
@@ -99,13 +99,12 @@ Claude Code itself sends your work to Anthropic, as it does without this setup. 
 | A request for the latest version number | GitHub | Every 12 hours; an hour after a failed try | `UPDATE_CHECK=off` |
 | The project's files, read by the systems map's background worker (a Claude helper, about 60 tool calls per build or refresh) | Anthropic, as for any Claude work | In a project with 100 or more code files and no map, at most three tries a week apart, and a refresh at most once a week | `MAP_NUDGE=off` |
 | Project and package names, when the agent looks up a version | endoflife.date, GitHub, npm, PyPI, crates.io, Docker Hub, Maven Central, NuGet | When it checks a version | None |
-| Files the agent gives a free worker | Codex or Gemini | Only if you set them up | Don't set them up |
 | Messages to and from your sessions | Telegram | Only if you add `/phone-bot` and run it | Don't run it |
 | Your name, token counts, model and limit percentages | ccpool.hexxt.dev, someone else's server | Only if you add and set up `/shared-usage` | Don't set it up |
 
 The tools in the starter projects that read web pages open the pages you ask for.
 
-The installer adds rules that stop Claude Code reading saved sign-ins for Claude, Codex and Gemini, or SSH keys, through its own tools, and that ask before a `.env` file. A script that reaches a file without naming it is not stopped. These rules bind Claude Code only: if you set up Gemini, its own rules let it read your projects folder and the setup's hooks, skills and agents. It can't search the web or read web pages, it can't read the rest of `~/.claude`, and it reads a `.env` file only on a run Claude starts with `--allow-env`, which it does when you ask for that file to be read.
+The installer adds rules that stop Claude Code reading saved sign-ins for Claude, Codex and Gemini, or SSH keys, through its own tools, and that ask before a `.env` file. A script that reaches a file without naming it is not stopped. These rules bind Claude Code only.
 
 ## Limits
 

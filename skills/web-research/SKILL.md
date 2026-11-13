@@ -26,8 +26,7 @@ web-answer-gate hook blocks a reply that hedges without having checked one (`HED
   searched, in those words (the count check in web-answer-gate blocks the rest; `COUNT_CHECK=off`).
   Several differently-worded searches in one message beat one search repeated.
 - **WebSearch takes `mode`: use `"extended"` for any research**, and `"standard"` only for a single
-  reference fact. Measured on one question: `standard` gave 3 results from months-old pages,
-  `extended` gave 6 with fresh ones.
+  reference fact.
 - **A page that blocks a plain fetch**: `https://r.jina.ai/<full URL>` returns it as plain text.
 - **Community opinion** ("what do people recommend", "is it any good") means real forum threads, and a
   site like Reddit needs your own signed-in browser: a plain fetch of its search JSON returns HTML and

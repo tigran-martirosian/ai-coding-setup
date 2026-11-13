@@ -10,7 +10,7 @@ unless you chose another one). The copy of this page the installer puts into
 
 ## Installing
 
-You need Node.js 18 or newer and Claude Code. Codex, Antigravity, Nimbalyst and Handy (voice typing)
+You need Node.js 18 or newer and Claude Code. Codex (for the picture skill), Nimbalyst and Handy (voice typing)
 are optional, and the installer does not install them. It does install the `claude-hud` plugin and
 the `find-skills` skill, unless you add `--plugins no`, and it
 adds the Claude Code settings. To have the programs put in place too, on Windows or a Mac, use
@@ -37,7 +37,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 | Flag | What it does |
 |---|---|
 | `--projects <folder>` | Where the four project folders go. The default is `Projects` in your home folder; a folder given once is remembered. |
-| `--codex yes` or `no`, `--agy yes` or `no` | Whether the rules use Codex and Antigravity. Without the flag the installer looks for `codex` and `agy` on the PATH. |
+| `--codex yes` or `no` | Whether the picture skill is added (it needs Codex). Without the flag the installer looks for `codex` on the PATH. |
 | `--replace-rules` | Replace a `~/.claude/CLAUDE.md` you already have. Without it a rules file with other content is left alone. |
 | `--replace <name>` | Take the setup's version of one file the run listed under `Kept as yours`, for example `--replace hooks/sql-guard.mjs`. Can be given several times. |
 | `--replace-all` | Take the setup's version of every file listed there, and the rules. For a computer whose old setup you don't want to keep. |
@@ -52,8 +52,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   ends with the list `Kept as yours` and the two flags above. A run that changed something also
   saves what it printed in `~/.claude/setup-logs`, and names any hook in your settings whose script
   is not there.
-- **Got Codex or Antigravity later?** Install it, sign in and run `node install.mjs` again. It
-  rewrites the worker section of the rules and, with Codex, adds the picture skill to two folders.
+- **Got Codex later?** Install it, sign in and run `node install.mjs` again. It
+  adds the picture skill to two folders.
   The installer saves the folder you ran it from as `repo` in `~/.claude/setup-state.json`, so a
   chat can find it again.
 - **Updates.** Every 12 hours the setup checks whether a newer version is released and says so in one
@@ -111,9 +111,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   characters, so Claude reads the part it needs. To move the limits, set `BIG_READ_MAX_LINES`
   (default 350) and `BIG_READ_MAX_BYTES` (default 20000) in the environment. A file you name in your
   own message is let through once.
-- **A second opinion that uses none of the Claude plan** (with Codex or Antigravity installed).
-  Before building from a design or a plan, say "get a second opinion on this". The first free
-  worker that is ready gives it.
+- **A second opinion from a capped helper.**
+  Before building from a design or a plan, say "get a second opinion on this". A `worker`
+  subagent (Sonnet, about 15 tool calls) reads it and answers, and its answer is checked.
 
 ## When a chat is busy or long
 
@@ -225,11 +225,11 @@ something unrelated inside another project, Claude names the right folder and op
 
 - **`/setup-audit chat`: fit the setup to your real work.** It reads your recent chats on this computer,
   shows where Claude got in your way and which skills are missing, and sets up only what you tick.
-  The chat digests are read by the first free worker that is set up, Codex (OpenAI) or Gemini
-  (Google), so one of them is needed; the findings stay on this computer. Run it again after a few weeks of work.
+  The chat digests are read by `worker` subagents (Sonnet), which use some of your Claude
+  usage; the findings stay on this computer. Run it again after a few weeks of work.
 - **`/setup-audit full`: one review of how the work went.** Where the usage went, which model did the work, where the reasoning and the chats went wrong, what took too long or was answered too fast, and what keeps failing. It ends in a short list of options, each with the number behind it, and changes only what you tick.
-- **Adding Codex or Gemini later.** If you get a ChatGPT or a Google subscription, say "add the
-  Codex worker" or "add the Antigravity worker" in a chat in this folder.
+- **Adding Codex later.** If you get a ChatGPT subscription, say "add Codex" in a chat in this
+  folder; the picture skill is added.
 - **`/setup-audit`:** checks that the setup itself still works, and names what is loaded in every
   chat but hardly used. It asks which fixes to apply once, in one form.
 - "Should we add tool X?" is a question for this folder.
@@ -237,6 +237,6 @@ something unrelated inside another project, Claude names the right folder and op
 ## What the rules take care of
 
 - Runs and checks things itself, and does not ask you to run a command it can run.
-- Sends big reading and searching to a cheaper model or an outside worker, and keeps the thinking
+- Sends big reading and searching to a cheaper model (a capped `worker` subagent), and keeps the thinking
   in the chat you are in.
 - Marks finished chats Complete on the board.
