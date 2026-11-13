@@ -1,5 +1,5 @@
 {
-  "version": "1.0.80",
+  "version": "1.0.81",
   "date": "2026-11-03",
-  "summary": "A procedure done a third time now becomes a skill with one line in the project's CLAUDE.md saying when to call it, and a hook reminds the agent to add that line when a skill is written."
+  "summary": "The review gate no longer asks for a review of files another open session edited, so running several sessions at once stops costing a reviewer for work this one never touched."
 }
