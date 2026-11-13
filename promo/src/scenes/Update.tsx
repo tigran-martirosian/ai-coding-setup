@@ -13,7 +13,7 @@ const STEPS = [
   "Downloaded the release from GitHub",
   "Replaced the setup's files, each old one kept as a dated copy",
   "Rebuilt the editor extensions, installed the missing plugins",
-  "Kept as yours: hooks/sql-guard.mjs, which you changed",
+  "Kept as yours: hooks/link-gate.mjs, which you changed",
 ] as const;
 
 const NOTICE_AT = 10;
@@ -45,7 +45,7 @@ export const Update: React.FC<SceneProps> = ({ durationInFrames }) => {
             {NOTICE}
           </div>
         </Appear>
-        <Appear at={COMMAND_AT} style={{ alignSelf: "flex-end" }}>
+        <Appear at={COMMAND_AT} style={{ display: "flex", flexDirection: "column" }}>
           <Bubble who="you">
             <span style={{ fontFamily: mono, whiteSpace: "nowrap" }}>{typed(COMMAND, frame, COMMAND_AT + 6, 0.8) || " "}</span>
           </Bubble>
