@@ -55,7 +55,8 @@ check("exit 0, nothing on stderr", r.status === 0 && r.stderr === "");
 reset();
 check("relative file_path works", /no longer has "priceOf"/.test(context(run(dir, edit("src/cart.js")))));
 reset();
-check("backslash path works", /no longer has "priceOf"/.test(context(run(dir, edit(path.join(dir, "src", "cart.js").replace(/\//g, "\\"))))));
+// Backslash paths come only from Windows; elsewhere a backslash is a plain character in a file name
+if (process.platform === "win32") check("backslash path works", /no longer has "priceOf"/.test(context(run(dir, edit(path.join(dir, "src", "cart.js").replace(/\//g, "\\"))))));
 reset();
 check("Write works", /no longer has "priceOf"/.test(context(run(dir, edit(path.join(dir, "src/cart.js"), "Write")))));
 reset();

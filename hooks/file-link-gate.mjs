@@ -128,9 +128,11 @@ export function projectRoot(cwd) {
   const envDir = process.env.CLAUDE_PROJECT_DIR;
   try { if (envDir && fs.existsSync(envDir)) return gitBashPath(envDir.replace(/\\/g, "/")); } catch {}
   try {
+    // A C:/ path climbs with Windows rules everywhere: elsewhere dirname walks "C:" to "." (the process's own folder)
+    const P = /^[A-Za-z]:[\\/]/.test(cwd) ? path.win32 : path;
     for (let d = cwd; ; ) {
-      if (fs.existsSync(path.join(d, "CLAUDE.md")) || fs.existsSync(path.join(d, ".git"))) return d;
-      const up = path.dirname(d);
+      if (fs.existsSync(P.join(d, "CLAUDE.md")) || fs.existsSync(P.join(d, ".git"))) return d;
+      const up = P.dirname(d);
       if (up === d) return cwd;
       d = up;
     }

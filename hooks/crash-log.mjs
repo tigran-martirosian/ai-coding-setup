@@ -28,7 +28,9 @@ export function crashLog(hook, err) {
 }
 
 // Only when a hook is the script being run (a test that imports a hook's functions keeps its own error handling)
-const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+// Real paths, so a hooks folder reached through a link (macOS /var is /private/var) still counts as the same
+const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+const same = (a, b) => real(a).toLowerCase() === real(b).toLowerCase();
 const here = path.dirname(fileURLToPath(import.meta.url));
 if (process.argv[1] && same(path.dirname(process.argv[1]), here)) {
   const hook = path.basename(process.argv[1]).replace(/\.mjs$/, "");

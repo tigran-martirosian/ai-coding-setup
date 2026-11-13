@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.95 (Nov 5, 2026): Tests now pass on a fresh machine and on macOS, and on a Mac a big file you name in a message gets its one read, a hook crash is logged, and links and forms know which project a file is in.
 - 1.0.94 (Nov 5, 2026): The systems map's hand-edit check no longer flags a script's own rerun that came in through a merged branch, and it names a listed script that has no commit yet.
 - 1.0.93 (Nov 5, 2026): A file a script writes is listed in the project's systems map: a hand edit of it is refused with the script to change instead, and the map's check names one already edited by hand, so the next run can't bring old text back.
 - 1.0.92 (Nov 5, 2026): Nimbalyst's chats now run your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes the day they ship rather than days later with a Nimbalyst release.

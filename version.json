@@ -1,6 +1,6 @@
 {
-  "version": "1.0.94",
+  "version": "1.0.95",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "The systems map's hand-edit check no longer flags a script's own rerun that came in through a merged branch, and it names a listed script that has no commit yet."
+  "summary": "Tests now pass on a fresh machine and on macOS, and on a Mac a big file you name in a message gets its one read, a hook crash is logged, and links and forms know which project a file is in."
 }

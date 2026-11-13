@@ -2,7 +2,7 @@
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -86,7 +86,8 @@ if (!asksShape) fail++;
 console.log(`${asksShape ? "PASS" : "FAIL"} deny message for a loose reason names the question and the shape`);
 
 // "Checked:" against a session record
-const dir = mkdtempSync(join(tmpdir(), "question-other-"));
+// The full temp path: on GitHub Windows it is a short RUNNER~1 path, and a path with a ~ in it is not read as a file
+const dir = mkdtempSync(join(realpathSync.native(tmpdir()), "question-other-"));
 const user = (text) => ({ type: "user", message: { role: "user", content: text } });
 const call = (name, input) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name, input }] } });
 const result = () => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "ok" }] } });

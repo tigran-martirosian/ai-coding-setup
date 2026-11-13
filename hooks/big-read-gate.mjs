@@ -43,7 +43,8 @@ const tooBig = (r) => r.lines > MAX_LINES || r.bytes > MAX_BYTES;
 
 // Allowances are kept per session in ALLOW_FILE: { "<session id>": ["<absolute path>", ...] }
 const ALLOW_FILE = process.env.BIG_READ_ALLOW_FILE || join(homedir(), ".claude", "hooks", "state", "big-read-allow.json");
-const PATH_START = /(?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)/g;
+// Windows: C:\ or C:/ and Git Bash /c/; elsewhere also a plain /Users/... (a slash that starts a word)
+const PATH_START = process.platform === "win32" ? /(?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)/g : /(?:[A-Za-z]:[\\/]|(?<![\w.~/:-])\/(?=[^\s/]))/g;
 let SESSION = "";
 let IN_HELPER = false; // a helper has no Agent tool, so it is not told to start one
 const samePath = (a, b) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
