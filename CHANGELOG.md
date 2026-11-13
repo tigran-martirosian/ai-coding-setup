@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.97 (Nov 5, 2026): The tests pass on macOS again (one review-gate test assumed Windows file names).
 - 1.0.96 (Nov 5, 2026): An update moves Nimbalyst to the Ink Cobalt theme once if you were on another one, sign-ins open a real browser window you can see, a new /design-system skill keeps a project's look in one DESIGN.md, and the rules ask you for a file or link when you could hand it over faster. Small rule edits no longer need a reviewer, and the plan logger checks every 30 seconds once you pass 70% of your week.
 - 1.0.95 (Nov 5, 2026): Tests now pass on a fresh machine and on macOS, and on a Mac a big file you name in a message gets its one read, a hook crash is logged, and links and forms know which project a file is in.
 - 1.0.94 (Nov 5, 2026): The systems map's hand-edit check no longer flags a script's own rerun that came in through a merged branch, and it names a listed script that has no commit yet.

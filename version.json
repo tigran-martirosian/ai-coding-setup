@@ -1,6 +1,6 @@
 {
-  "version": "1.0.96",
+  "version": "1.0.97",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-05",
-  "summary": "An update moves Nimbalyst to the Ink Cobalt theme once if you were on another one, sign-ins open a real browser window you can see, a new /design-system skill keeps a project's look in one DESIGN.md, and the rules ask you for a file or link when you could hand it over faster."
+  "summary": "The tests pass on macOS again (one review-gate test assumed Windows file names)."
 }
