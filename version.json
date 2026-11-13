@@ -1,5 +1,5 @@
 {
-  "version": "1.0.79",
+  "version": "1.0.80",
   "date": "2026-11-03",
-  "summary": "The rules file is about a quarter shorter, Nimbalyst-only notes now load only in Nimbalyst, and a helper job over 50 tool calls is refused and has to be split."
+  "summary": "A procedure done a third time now becomes a skill with one line in the project's CLAUDE.md saying when to call it, and a hook reminds the agent to add that line when a skill is written."
 }

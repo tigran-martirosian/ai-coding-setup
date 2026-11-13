@@ -4,9 +4,9 @@ I run all my development through Claude Code. These are the rules, checks and to
 
 Professionals in finance, data engineering and government IT installed it and use it at work.
 
-https://github.com/user-attachments/assets/a5926bf3-6b56-4bac-9549-a24f8956cee7
+https://github.com/user-attachments/assets/a66864c8-d8a3-47d1-b152-a536faaa3507
 
-If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/a5926bf3-6b56-4bac-9549-a24f8956cee7).
+If the video doesn't show, for example in the GitHub app, [watch it here](https://github.com/user-attachments/assets/a66864c8-d8a3-47d1-b152-a536faaa3507).
 
 ## How it compares
 
@@ -35,7 +35,7 @@ These go back to the agent:
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 29 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 30 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 

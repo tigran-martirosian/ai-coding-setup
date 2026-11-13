@@ -33,7 +33,7 @@ The user reads replies in a chat panel (Nimbalyst or the terminal).
 
 - **Documents** (PDF, Word, PowerPoint, Excel): when `uvx` is installed, convert once with `uvx --from "markitdown[all]" markitdown "<file>" -o "<file>.md"`, then read or grep the `.md`.
 - **What one project needs lives in that project** (`.claude/skills/`, `enabledPlugins` in its `.claude/settings.json`): `~/.claude` loads into every session. A tool that is off and would help is offered for this project only.
-- **A folder with no CLAUDE.md:** offer the `/new-project` skill.
+- **A folder with no CLAUDE.md:** offer `/new-project`. **A procedure done a third time becomes a skill** (in `~/.claude/skills` when two or more projects use it, else the project's `.claude/skills`), with one line in each using project's CLAUDE.md saying when to call it; a rule that must always hold stays a rule.
 
 # Delegating to cheaper models
 
