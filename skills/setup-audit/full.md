@@ -47,8 +47,8 @@ run the scanner again with other options (`--project`, `--top`, usage-scan's `--
 ## 3. Chats (start it, then go on with step 4)
 
 `node $S/chat-scan.mjs --days N`, then `node $S/read-digests.mjs <digest folder>`. It writes a
-`<project>.task.md` next to each digest. Start one `worker` subagent per task file, in the
-background beside each other, each told to read its task file (full path) and do what it says: it
+`<project>.task.md` next to each digest. Start one `worker` subagent per task file, all in
+one message (`run_in_background: false`, so they run side by side), each told to read its task file (full path) and do what it says: it
 names the digest to read and the `<project>.findings.md` to write. Headings B (went wrong),
 C (questions that missed), G (reasoning) and H (pace: LONG or SHORT) are the ones this review uses.
 

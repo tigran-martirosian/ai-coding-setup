@@ -25,7 +25,7 @@ Run `node $S/read-digests.mjs <digest folder> --earlier <the newest findings fil
 (the fixed questions of `reader-task.txt`, the project's earlier-fix rows and the digest's path) and
 prints one line per project. A project with fewer than 5 requests is skipped.
 
-Then start one `worker` subagent per task file, in the background beside each other, each
+Then start one `worker` subagent per task file, all in one message (`run_in_background: false`, so they run side by side), each
 told: "Read the task file `<full path of <project>.task.md>` and do what it says. It names the digest
 to read and the `<project>.findings.md` to write, in the task's format." Each `.findings.md` ends with "I. EARLIER FIXES" when the task had
 earlier fixes: for every fix ticked last time, whether it held, came back or did not come up.

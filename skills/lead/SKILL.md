@@ -13,7 +13,7 @@ You own the outcome. The `planner` agent writes the plan and the job-list rows, 
 - **The brief is the worker's whole context.** A `worker` loads no CLAUDE.md and has file, shell and web tools only, so the brief names the project commands its step needs. A step that needs a skill or an MCP tool goes to `worker-full`, which costs far more to start.
 - **Spawn less, reuse more.** A follow-up to a worker that just finished is far cheaper than a new worker. So a step is a real piece of work, small pieces are grouped into one step, and the next step on the same files goes to the same worker with SendMessage. Parallel steps save time, not tokens.
 - **A 2-3 call change** you can already see: do it here. Beyond that this session doesn't build: workers do the steps, whole, on the helper their row names.
-- **A step runs in the foreground**: one request, and its report comes back in it. Pass `run_in_background: false` on the Agent call: a launch without it counts as background and is refused. Background only for steps that really run beside another (a notice and a "settled" wake-up each re-send the whole session). A worker can't ask the user, so its question comes back to you as a `BLOCKED` line and you ask.
+- **A step runs in the foreground**: one request, and its report comes back in it. Pass `run_in_background: false` on the Agent call: a launch without it counts as background and is refused. Steps that run side by side go as several Agent calls in one message, each with `run_in_background: false`: they run in parallel and the turn waits for all of them (a background helper dies when the turn ends and the app stops the idle session). A worker can't ask the user, so its question comes back to you as a `BLOCKED` line and you ask.
 - **One-shot lookups** go where CLAUDE.md sends them.
 - **A worker that stopped is not done.** A notice "stopped at its N-turn limit" or an empty report: SendMessage it once, "report what is done and what is left", then compare the files yourself. A cut or empty reviewer is NOT RUN. Reuse a worker only when its tool calls so far (`tool_uses` in its notice) plus the new step's budget stay under 80, and under about 150k context; otherwise start a fresh worker and paste the old one's report into the brief (a 70-call step once used 115, and the next step sent to that worker was refused).
 
@@ -68,7 +68,7 @@ Plan read: <folders> at <commits>. Review: <yes/no, why>
 ## Findings
 ```
 
-The step number is the worker's number: each step has one owner, so two workers never do the same thing. The Runs column says when a step starts: `beside` steps run side by side, `after` waits for that step's report, `after S<n>, user OK` also waits for the user's OK on that step's design, `same worker as` goes by SendMessage to that step's worker.
+The step number is the worker's number: each step has one owner, so two workers never do the same thing. The Runs column says when a step starts: `beside` steps start together, as foreground Agent calls in one message, `after` waits for that step's report, `after S<n>, user OK` also waits for the user's OK on that step's design, `same worker as` goes by SendMessage to that step's worker.
 
 **A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`), `isolation: "worktree"` when Runs says so. A Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
 

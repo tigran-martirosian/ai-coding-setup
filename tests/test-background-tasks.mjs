@@ -45,6 +45,9 @@ function run(name, lines, expect, { event = {}, env = {}, subagents = null } = {
 		else if (expect === "block") {
 			const o = JSON.parse(out);
 			ok = ok && o.decision === "block" && o.reason.startsWith("[background-tasks] Your reply says a helper still runs");
+		} else if (expect === "retry") {
+			const o = JSON.parse(out);
+			ok = ok && o.decision === "block" && o.reason.startsWith("[background-tasks] A tool call in this turn came back");
 		} else if (expect === "silent") {
 			const o = JSON.parse(out);
 			ok = ok && o.decision === "block" && o.reason.startsWith("[background-tasks] This turn began with a finished task's notice");
@@ -54,7 +57,11 @@ function run(name, lines, expect, { event = {}, env = {}, subagents = null } = {
 		} else if (expect === "refuse") {
 			const h = JSON.parse(out).hookSpecificOutput;
 			ok = ok && h.hookEventName === "PreToolUse" && h.permissionDecision === "deny" && h.permissionDecisionReason.startsWith("[background-tasks] Refused") && !("additionalContext" in h);
-		} else ok = ok && out === "";
+		} else {
+			// Every settled prompt carries the note that a denial in its turn is not the user; "" means nothing more
+			const ahead = out && JSON.parse(out).hookSpecificOutput?.additionalContext;
+			ok = ok && (out === "" || (typeof ahead === "string" && ahead.startsWith("[background-tasks] The app started this turn") && !ahead.includes("repeats")));
+		}
 	} catch { ok = false; }
 	if (!ok) failed++;
 	console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  -> status " + r.status + ", out: " + out.slice(0, 200) + r.stderr.slice(0, 200)}`);
@@ -98,8 +105,15 @@ run("nudge-off-switch", null, "", { ...tool("Bash", { command: "sleep 60", run_i
 
 const SERVE = [call("Bash", "toolu_v", { command: "npm run dev", run_in_background: true }), result("toolu_v", "Command running in background with ID: bsv1")];
 run("refuse-agent-no-flag", null, "refuse", tool("Agent", { description: "S2", prompt: "x" }));
-run("allow-agent-beside", null, "", tool("Agent", { description: "S3 beside S1: shop", prompt: "x" }));
-run("allow-agent-other-running", [...agentBg()], "", tool("Agent", { description: "S4", prompt: "x" }));
+// A background helper dies when the main turn ends and the app stops the idle session: refused even `beside`
+run("refuse-agent-beside", null, "refuse", tool("Agent", { description: "S3 beside S1: shop", prompt: "x" }));
+run("refuse-agent-other-running", [...agentBg()], "refuse", tool("Agent", { description: "S4", prompt: "x" }));
+{
+	const r = spawnSync(process.execPath, [HOOK], { input: J({ hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { description: "S2", prompt: "x" } }), encoding: "utf8" });
+	const ok = r.stdout.includes("several Agent calls in one message, each with run_in_background: false");
+	if (!ok) failed++;
+	console.log(`${ok ? "PASS" : "FAIL"}  agent-refusal-says-parallel-foreground`);
+}
 run("refuse-agent-other-finished", [...agentBg(), notified("a1234", "toolu_a")], "refuse", tool("Agent", { description: "S4", prompt: "x" }));
 run("refuse-agent-other-stopped", [...agentBg(), call("TaskStop", "toolu_k", { task_id: "a1234" })], "refuse", tool("Agent", { description: "S4", prompt: "x" }));
 run("allow-bash-other-running", [...agentBg()], "", tool("Bash", { command: "npm test", run_in_background: true }));
@@ -200,6 +214,27 @@ for (const [name, text] of [
 run("stop-hook-active-passes", finished, "", stop(LATE, { stop_hook_active: true }));
 run("stop-subagent-passes", finished, "", stop(LATE, { agent_id: "a99" }));
 run("stop-off-switch", finished, "", { ...stop(LATE), env: { BACKGROUND_TASKS: "off" } });
+
+// Stop: a call the app denied in a turn the user did not start, not sent again
+const DENY = "The user doesn't want to take this action right now. STOP what you are doing and wait for the user to tell you how to proceed.";
+const SETTLED_TURN = typed("[System: background task(s) you launched have settled:\n- \"S3\" completed");
+const FEEDBACK_TURN = J({ type: "user", message: { role: "user", content: "<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>" } });
+const grep = (id) => call("Grep", id, { pattern: "colony" });
+const retry = (lines, expect, name, extra = {}) => run(name, lines, expect, stop("I've stopped since that was declined.", extra));
+retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), result("toolu_g", DENY)], "retry", "denied-in-settled-turn-blocks");
+retry([typed("fix it"), FEEDBACK_TURN, grep("toolu_g"), result("toolu_g", DENY)], "retry", "denied-in-hook-feedback-turn-blocks");
+retry([typed("fix it"), ...agentBg(), notified("a1234", "toolu_a"), grep("toolu_g"), result("toolu_g", DENY)], "retry", "denied-in-task-notice-turn-blocks");
+retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), result("toolu_g", DENY), grep("toolu_h"), result("toolu_h", "a.py")], "", "denied-then-sent-again-passes");
+retry([typed("fix it"), grep("toolu_g"), result("toolu_g", DENY)], "", "denied-in-typed-turn-is-the-user");
+retry([typed("fix it"), SETTLED_TURN, grep("toolu_g"), result("toolu_g", DENY)], "", "denied-hook-active-passes", { stop_hook_active: true });
+retry([typed("fix it"), J({ type: "user", message: { role: "user", content: "Stop hook feedback:\n[code-review-gate] review it" } }), grep("toolu_g"), result("toolu_g", DENY)], "retry", "denied-in-real-stop-feedback-entry-blocks");
+{
+	const r = spawnSync(process.execPath, [HOOK], { input: J({ hook_event_name: "UserPromptSubmit", prompt: settled("S9"), transcript_path: path.join(dir, "denied-in-settled-turn-blocks.jsonl") }), encoding: "utf8" });
+	const ok = r.stdout.includes("The app started this turn") && r.stdout.includes("send the same call again");
+	if (!ok) failed++;
+	console.log(`${ok ? "PASS" : "FAIL"}  settled-prompt-warns-of-denial-ahead`);
+}
+run("allow-agent-systems-map-background", null, "", tool("Agent", { description: "Systems map: build for this project", prompt: "x", run_in_background: true }));
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");

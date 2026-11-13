@@ -10,8 +10,11 @@
 //   A turn that follows a task notification answered "No response requested." (Claude Code marks the wake-up
 //   "NOT USER INPUT") is sent back on Stop to carry on, because the settled prompt carries the job's next steps.
 // PreToolUse (main session only): refuses a background launch, which costs a notification turn plus a settled turn.
-//   Agent/Task are background unless `run_in_background: false`; Bash/PowerShell only with `run_in_background: true`.
-//   A launch passes when
+//   Agent/Task are background unless `run_in_background: false`, and a background helper is always refused: when the
+//   main turn ends while it runs, the app may end the idle process and the helper with it ("Background agent ...
+//   didn't finish before the previous session ended", seen mid-build in Nimbalyst). Helpers that run side by side go
+//   as several foreground Agent calls in one message: they run in parallel and the turn waits for all of them.
+//   Bash/PowerShell count only with `run_in_background: true`. A shell launch passes when
 //   - its description has the word `beside` (the caller says another step runs meanwhile; two launches in one message
 //     arrive as separate PreToolUse calls, and whether the later tool_use blocks are on disk is not known, so the
 //     transcript is not asked),
@@ -21,6 +24,10 @@
 //   - or it is a Bash/PowerShell server or watcher (SERVER below), which is what background is for.
 //   Subagents (agent_id) pass: worker.md lets workers start a long build in the background and wait for it
 //   in a foreground polling loop (a worker that ends its turn to wait is never woken).
+// Stop (main session, blocks once), first: in a turn the user did not start (a settled notice, a task's notice, Stop
+//   hook feedback), a tool call that came back "The user doesn't want to take this action" and was not sent again.
+//   The user refused nothing: the app denies the first call of a turn it starts itself (about 140 in 4 days, nearly
+//   all the turn's first call; the same call sent again runs). Obeying its "STOP" left the session idle for minutes.
 // Stop (main session, blocks once): a reply that says a helper still runs or that it waits for one, while no background
 //   task of the session is live (servers count as live here), is sent back to check ListAgents. Since the last typed
 //   prompt, a scheduled wake-up, a Monitor or cron, or a message to another session lets it pass: this transcript
@@ -47,8 +54,11 @@ const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n  Summary:)/m;
 // A command that doesn't end by itself: dev server, game server, watcher, follow-mode log read, endless loop
 const SERVER = /\b(runServer|runClient|nodemon|http-server|live-server|webpack-dev-server|http\.server|uvicorn|gunicorn)\b|\bflask\s+run\b|\bmanage\.py\s+runserver\b|\bnode\s[^|;&\n]*server|\bnpx\s+(serve|vite)\b|\bserve\s+-s\b|\bdocker[ -]compose\s+up\b(?![^|;&\n]*\s-\w*d)|\b(npm|pnpm|yarn)\s+run\s+preview\b|\bstreamlit\s+run\b|\brails\s+(s|server)\b|--watch\b|\btsc\b[^|;&\n]*\s-w\b|-Wait\b|\btail\b[^|;&\n]*\s-\w*[fF]\b|(^|[\s;&|(])(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b|(^|[\s;&|(])(vite|next|nuxt|astro)(\s+dev)?\s*$|(^|[\s;&|(])watch\s|\bwhile\s+(true|:)/im;
 const BESIDE = /\bbeside\b/i;
-const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read. Use it only when another step runs beside this one; otherwise run it in the foreground (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once. When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer). A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
-const REFUSE_AGENT = "[background-tasks] Refused: this launch runs in the background (the default unless run_in_background is false), and nothing else of this session runs meanwhile, so its finish only wakes the main session again, re-sending the whole conversation twice (notification and settled notice). Re-send the same call with run_in_background: false and use its result when it returns. If another step does run meanwhile (a second launch in this same message, or work you do yourself before reading this one), re-send it with the word `beside` in the description, e.g. \"S3 beside S1: ...\".";
+const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read, and a background helper can die when this turn ends. Run it in the foreground (several helpers side by side: several calls in one message) (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once. When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer). A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
+const REFUSE_AGENT = "[background-tasks] Refused: this helper would run in the background (the default unless run_in_background is false). A background helper dies when this turn ends and the app stops the idle session (\"didn't finish before the previous session ended\"), and its finish re-sends the whole conversation twice. Re-send the same call with run_in_background: false. Helpers that should run side by side go as several Agent calls in one message, each with run_in_background: false: they run in parallel and this turn waits for all of them.";
+const DENIED = "The user doesn't want to take this action";
+const RETRY_DENIED = "[background-tasks] A tool call in this turn came back \"The user doesn't want to take this action\", but the user did not start this turn and refused nothing: the app denies the first call of a turn it starts itself (a settled notice, a task's notice, hook feedback). Send that call again now and carry on with the work it was part of; this new turn's first call may be denied the same way, so when it is, send it once more (the second try runs). Don't tell the user anything was declined.";
+const DENIED_AHEAD = "[background-tasks] The app started this turn, not the user. If this turn's first tool call comes back \"The user doesn't want to take this action\", the user refused nothing: send the same call again (it runs the second time) and carry on.";
 const REFUSE_SHELL = "[background-tasks] Refused: nothing else of this session runs meanwhile, so this background command only wakes the main session again when it ends, re-sending the whole conversation twice (notification and settled notice). Run it in the foreground with `timeout` up to 600000 (10 minutes) and read its output once. If it is a server or watcher that never ends, re-send it with `beside` in its description. Background is also for when another step runs meanwhile: then put the word `beside` in the description. A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
 
 const DUPLICATE = SETTLED_NOTE + " results you already had in their task-notifications, and the user sees it as a raw list. Don't re-read or redo anything: no status snippet (a string of small updates doesn't read like an answer). If work for the user's last message still runs (ListAgents shows it running), reply with one line naming what still runs. When it is all finished, reply with one complete answer to that whole message, readable alone: every ask and its outcome, what was checked, what is left, any decision last. Never answer it with \"No response requested\".";
@@ -81,6 +91,26 @@ function noticeTurn(file) {
 	const { opener } = currentTurn(entries(fs.readFileSync(file, "utf8")));
 	const t = opener ? userText(opener).trimStart() : "";
 	return SETTLED.test(t) ? "settled" : /<task-notification>[\s\S]*<task-id>[^<\s]+<\/task-id>/.test(t) ? "finished" : null;
+}
+
+// Whether this turn was started by something other than the user and holds a denied call that was not sent again
+function unretriedDenial(file) {
+	const { start, opener, entries: turn } = currentTurn(entries(fs.readFileSync(file, "utf8")));
+	if (start || !opener) return false;
+	const calls = new Map(); // tool_use id -> name + input
+	const order = []; // { sig, denied } in turn order
+	for (const e of turn) {
+		const c = e.message?.content;
+		if (!Array.isArray(c)) continue;
+		for (const b of c) {
+			if (e.type === "assistant" && b.type === "tool_use") calls.set(b.id, b.name + JSON.stringify(b.input));
+			if (e.type === "user" && b.type === "tool_result" && calls.has(b.tool_use_id)) {
+				const t = typeof b.content === "string" ? b.content : texts(b.content).join("\n");
+				order.push({ sig: calls.get(b.tool_use_id), denied: t.includes(DENIED) });
+			}
+		}
+	}
+	return order.some((o, i) => o.denied && !order.slice(i + 1).some((p) => p.sig === o.sig && !p.denied));
 }
 
 // Tool calls since the last prompt the user typed (a task notice or a settled notice starts no new wait)
@@ -204,19 +234,31 @@ runHook("background-tasks", (event) => {
 		const shellCall = ["Bash", "PowerShell"].includes(event.tool_name);
 		const background = agentCall ? input.run_in_background !== false : shellCall && input.run_in_background === true;
 		if (!background || event.agent_id) return;
-		if (BESIDE.test(String(input.description ?? ""))) return;
-		if (shellCall && SERVER.test(String(input.command ?? ""))) return;
-		if (event.transcript_path && fs.existsSync(event.transcript_path) && othersRunning(event.transcript_path)) return;
 		// The desktop app and VS Code always run the main conversation's helpers in the background (Claude Code
 		// 2.1.302), so a refusal there could never be met: a note only.
 		const alwaysBackground = agentCall && /^claude-(desktop|vscode)/.test(process.env.CLAUDE_CODE_ENTRYPOINT || "");
-		if (mode === "warn" || alwaysBackground) emit.context("PreToolUse", NUDGE);
-		else emit.deny(agentCall ? REFUSE_AGENT : REFUSE_SHELL);
+		if (agentCall) {
+			// map-nudge's map builder is a side job that must not hold up the user's request; if it dies with the turn,
+			// the next session's nudge starts it again
+			if (/^Systems map:/.test(String(input.description ?? ""))) return;
+			if (mode === "warn" || alwaysBackground) emit.context("PreToolUse", NUDGE);
+			else emit.deny(REFUSE_AGENT);
+			return;
+		}
+		if (BESIDE.test(String(input.description ?? ""))) return;
+		if (shellCall && SERVER.test(String(input.command ?? ""))) return;
+		if (event.transcript_path && fs.existsSync(event.transcript_path) && othersRunning(event.transcript_path)) return;
+		if (mode === "warn") emit.context("PreToolUse", NUDGE);
+		else emit.deny(REFUSE_SHELL);
 		return;
 	}
 	if (event.agent_id) return;
 	if (event.hook_event_name === "Stop") {
 		if (event.stop_hook_active || !event.transcript_path || !fs.existsSync(event.transcript_path)) return;
+		if (unretriedDenial(event.transcript_path)) {
+			emit.block(RETRY_DENIED);
+			return;
+		}
 		if (SILENT.test(String(event.last_assistant_message ?? "").trim())) {
 			const notice = noticeTurn(event.transcript_path);
 			if (notice === "settled" || (notice === "finished" && !othersRunning(event.transcript_path))) {
@@ -234,7 +276,5 @@ runHook("background-tasks", (event) => {
 	const prompt = String(event.prompt ?? "");
 	if (!SETTLED.test(prompt)) return;
 	if (!event.transcript_path || !fs.existsSync(event.transcript_path)) return;
-	if (allNotified(prompt, event.transcript_path, event.session_id)) {
-		emit.context("UserPromptSubmit", DUPLICATE);
-	}
+	emit.context("UserPromptSubmit", allNotified(prompt, event.transcript_path, event.session_id) ? DUPLICATE + "\n" + DENIED_AHEAD : DENIED_AHEAD);
 });
