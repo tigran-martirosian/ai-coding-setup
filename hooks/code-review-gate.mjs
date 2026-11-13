@@ -208,6 +208,8 @@ function otherTranscripts(transcript) {
   }
   return files;
 }
+// A transcript's path and git's can name one file two ways: macOS /var is /private/var, Windows has short 8.3 names
+const realKey = (p) => { try { return fileKey(fs.realpathSync.native(p)); } catch { return fileKey(p); } };
 // Their sizes when this session starts: what they held then is older than the session, so it is never read
 const transcriptSizes = (transcript) => Object.fromEntries(otherTranscripts(transcript).map((f) => { try { return [f, fs.statSync(f).size]; } catch { return [f, 0]; } }));
 
@@ -238,11 +240,11 @@ export function othersEdits(transcript, sinceMs, keys, cacheFile, startSizes = {
     for (const e of entries) for (const b of Array.isArray(e.message?.content) ? e.message.content : []) if (b.type === "tool_result" && b.is_error) refused.add(b.tool_use_id);
     for (const e of entries) for (const b of Array.isArray(e.message?.content) ? e.message.content : []) {
       const p = b.type === "tool_use" && EDIT_TOOLS.test(b.name) && !refused.has(b.id) && (b.input?.file_path || b.input?.notebook_path);
-      if (p) edited.add(fileKey(p));
+      if (p) edited.add(realKey(p));
     }
   }
   if (cacheFile) fs.writeFileSync(cacheFile, JSON.stringify({ ...cache, edited: [...edited] }));
-  return new Set([...keys].filter((k) => edited.has(k)));
+  return new Set([...keys].filter((k) => edited.has(realKey(k))));
 }
 
 // A switch can sit in the project's settings: settings env may not reach a hook process

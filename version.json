@@ -1,5 +1,5 @@
 {
-  "version": "1.0.81",
+  "version": "1.0.82",
   "date": "2026-11-03",
   "summary": "The review gate no longer asks for a review of files another open session edited, so running several sessions at once stops costing a reviewer for work this one never touched."
 }
