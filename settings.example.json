@@ -225,6 +225,14 @@
             "type": "command",
             "command": "node ~/.claude/skills/steer/steer.mjs --hook",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/skills/steer/steer.mjs --watch",
+            "asyncRewake": true,
+            "timeout": 7200,
+            "rewakeMessage": "[btw] The user sent this while you were waiting for a background job.",
+            "rewakeSummary": "Note received"
           }
         ]
       },

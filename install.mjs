@@ -419,11 +419,13 @@ function wire(target, hooks, folder, where = "") {
         const base = path.basename(script);
         const at = fwd(path.join(global ? CLAUDE : folder, script));
         const command = `${NODE} "${at}"${extra}`;
-        if (JSON.stringify(list).includes(base)) {
+        // One script can be wired twice with different arguments (steer.mjs --hook and --watch).
+        const same = (h) => String(h.command || "").includes(base) && String(h.command).includes(extra);
+        if (list.some((g) => (g.hooks || []).some(same))) {
           // An older copy of this setup may have wired the same script from another place in ~/.claude:
           // that wiring is pointed at the installed copy. A script outside ~/.claude is the user's own.
           const name = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          for (const old of global ? list.flatMap((g) => g.hooks || []) : []) {
+          for (const old of global ? list.flatMap((g) => g.hooks || []).filter(same) : []) {
             const m = String(old.command || "").match(new RegExp(`"([^"]*[\\\\/]${name})"|(\\S*[\\\\/]${name})`));
             const was = m && fwd(m[1] || m[2]).replace(/^~(?=\/)/, fwd(home));
             if (!was || was.toLowerCase() === at.toLowerCase() || !was.toLowerCase().startsWith(fwd(CLAUDE).toLowerCase() + "/")) continue;
@@ -440,7 +442,8 @@ function wire(target, hooks, folder, where = "") {
           }
           continue;
         }
-        const entry = { type: "command", command, timeout: hook.timeout };
+        // Everything else the example sets comes along: without asyncRewake a watcher would hold the session up.
+        const entry = { ...hook, command };
         list.push(group.matcher ? { matcher: group.matcher, hooks: [entry] } : { hooks: [entry] });
         say(`hook added: ${event}${group.matcher ? ` (${group.matcher})` : ""} ${path.basename(script)}${where}`);
         added++;
