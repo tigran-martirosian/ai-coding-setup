@@ -32,7 +32,10 @@ const fwd = (p) => p.replace(/\\/g, "/");
 const json = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 const commandsIn = (settings) => Object.values(settings.hooks || {}).flat().flatMap((g) => g.hooks).map((h) => h.command);
 const copiesIn = (dir) => walk(dir).filter((f) => f.includes(".before-install-")).map((f) => path.basename(f).split(".before-install-")[0]).sort();
-const shipped = ["hooks", "agents", "skills", "workers"].flatMap((d) => walk(path.join(REPO, d))).map((f) => path.relative(REPO, f));
+// The add-on skills are left out of a default install, so they are not part of what a plain run ships
+const ADDON_SKILLS = ["phone-bot", "shared-usage"];
+const shipped = ["hooks", "agents", "skills", "workers"].flatMap((d) => walk(path.join(REPO, d))).map((f) => path.relative(REPO, f))
+  .filter((f) => !ADDON_SKILLS.some((n) => f.startsWith(path.join("skills", n) + path.sep)));
 const example = json(path.join(REPO, "settings.example.json"));
 const scripts = Object.values(example.hooks).flat().flatMap((g) => g.hooks).map((h) => h.command.match(/~\/\.claude\/(\S+)/)[1]);
 const HOMES = ["ask-anything", "claude-settings", "internet-search", "quick-tasks"];
@@ -78,7 +81,7 @@ for (const [event, groups] of Object.entries(example.hooks)) {
   }
 }
 const watcher = Object.values(settings.hooks).flat().flatMap((g) => g.hooks).find((h) => /steer.mjs" --watch$/.test(h.command));
-ok("the note watcher stays a background hook", [watcher?.asyncRewake, watcher?.timeout, !!watcher?.rewakeMessage], [true, 7200, true]);
+ok("the note watcher stays a background hook", [watcher?.asyncRewake, watcher?.timeout], [true, 7200]);
 ok("the handoff hook keeps its --hook argument", commands.some((c) => /handoff-brief\.mjs" --hook$/.test(c)));
 
 // ---- the rules and the project folders, with no worker installed
@@ -316,18 +319,17 @@ if (process.platform === "win32") {
 }
 
 // ---- Claude Code's own settings: a model when none is set, the permission rules, and a set model stays
-ok("a blank home gets a model and the permission rules", [settings.model, settings.permissions.deny.includes("Read(~/.ssh/**)"), settings.permissions.ask.includes("Read(//**/.env)")], ["sonnet", true, true]);
+ok("a blank home gets a model and the permission rules", [settings.model, settings.permissions.deny.includes("Read(~/.ssh/**)"), settings.permissions.ask.includes("Read(//**/.env)")], ["opus", true, true]);
 ok("a model that was set stays, next to the rules", [merged.model, merged.permissions.deny.length > 0], ["sonnet", true]);
 
-// ---- the plugins, with a stand-in for the claude command that keeps a list of what it was told
+// ---- the plugin (claude-hud is the only one left), with a stand-in for the claude command that keeps a list of what it was told
 const fake = path.join(tmp, "fake-claude");
 fs.mkdirSync(fake);
 const told = path.join(fake, "told.txt");
 fs.writeFileSync(path.join(fake, "claude.mjs"), `import fs from "node:fs";
 const a = process.argv.slice(2).join(" ");
 fs.appendFileSync(${JSON.stringify(told)}, a + "\\n");
-if (a === "plugin list") console.log("Installed plugins:\\n  > superpowers@claude-plugins-official");
-if (a === "plugin install context7@claude-plugins-official") { console.error("no network"); process.exit(1); }
+if (a === "plugin list") console.log("Installed plugins:\\n  (none)");
 `);
 fs.writeFileSync(path.join(fake, "claude.cmd"), `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`);
 fs.writeFileSync(path.join(fake, "claude"), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/claude.mjs" "$@"\n`, { mode: 0o755 });
@@ -336,16 +338,88 @@ const plugHome = path.join(tmp, "plug-home");
 const shellPath = process.platform === "win32" ? `${fake}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}` : `${fake}${path.delimiter}/bin${path.delimiter}/usr/bin`;
 const plug = installWith(shellPath, plugHome, "--plugins", "yes");
 const toldLines = () => fs.readFileSync(told, "utf8").trim().split("\n");
-ok("a missing plugin is installed, and the three that load everywhere are switched off",
-  [plug.out.includes("plugin installed: claude-hud@claude-hud\n"), plug.out.includes("plugin installed: claude-code-setup@claude-plugins-official (switched off"),
-    toldLines().includes("plugin disable claude-code-setup@claude-plugins-official"), toldLines().includes("plugin disable claude-hud@claude-hud")], [true, true, true, false]);
-ok("one that is there already is left as it is", [plug.out.includes("plugin already there: superpowers@claude-plugins-official"), toldLines().some((l) => l.includes("install superpowers"))], [true, false]);
-ok("one that fails is named and the install goes on", [/plugin failed: context7@claude-plugins-official \(no network\)/.test(plug.out), plug.code], [true, 0]);
-ok("what was handled is on record", json(path.join(plugHome, ".claude", "setup-state.json")).plugins, ["claude-hud@claude-hud", "claude-code-setup@claude-plugins-official", "superpowers@claude-plugins-official"]);
-fs.writeFileSync(told, "");
-installWith(shellPath, plugHome, "--plugins", "yes");
-ok("the next run only retries the one that failed", toldLines().filter((l) => l.startsWith("plugin install")), ["plugin install context7@claude-plugins-official"]);
+ok("a missing plugin is installed and stays switched on",
+  [plug.out.includes("plugin installed: claude-hud@claude-hud\n"), toldLines().some((l) => l.startsWith("plugin disable"))], [true, false]);
+ok("what was handled is on record", json(path.join(plugHome, ".claude", "setup-state.json")).plugins, ["claude-hud@claude-hud"]);
+// a stand-in claude command that reports claude-hud as already on the system
+const hadFake = path.join(tmp, "fake-claude-had");
+fs.mkdirSync(hadFake);
+const hadTold = path.join(hadFake, "told.txt");
+fs.writeFileSync(path.join(hadFake, "claude.mjs"), `import fs from "node:fs";
+const a = process.argv.slice(2).join(" ");
+fs.appendFileSync(${JSON.stringify(hadTold)}, a + "\\n");
+if (a === "plugin list") console.log("Installed plugins:\\n  > claude-hud@claude-hud");
+`);
+fs.writeFileSync(path.join(hadFake, "claude.cmd"), `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`);
+fs.writeFileSync(path.join(hadFake, "claude"), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/claude.mjs" "$@"\n`, { mode: 0o755 });
+fs.writeFileSync(path.join(hadFake, "git"), "");
+const hadShellPath = process.platform === "win32" ? `${hadFake}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}` : `${hadFake}${path.delimiter}/bin${path.delimiter}/usr/bin`;
+const hadTold2 = () => fs.readFileSync(hadTold, "utf8").trim().split("\n");
+const had = installWith(hadShellPath, path.join(tmp, "plug-had-home"), "--plugins", "yes");
+ok("one that is there already is left as it is", [had.out.includes("plugin already there: claude-hud@claude-hud"), hadTold2().some((l) => l.startsWith("plugin install"))], [true, false]);
+// a stand-in claude command whose install always fails, to check the failure is named and retried
+const failFake = path.join(tmp, "fake-claude-fail");
+fs.mkdirSync(failFake);
+const failTold = path.join(failFake, "told.txt");
+fs.writeFileSync(path.join(failFake, "claude.mjs"), `import fs from "node:fs";
+const a = process.argv.slice(2).join(" ");
+fs.appendFileSync(${JSON.stringify(failTold)}, a + "\\n");
+if (a === "plugin list") console.log("Installed plugins:\\n  (none)");
+if (a === "plugin install claude-hud@claude-hud") { console.error("no network"); process.exit(1); }
+`);
+fs.writeFileSync(path.join(failFake, "claude.cmd"), `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`);
+fs.writeFileSync(path.join(failFake, "claude"), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/claude.mjs" "$@"\n`, { mode: 0o755 });
+fs.writeFileSync(path.join(failFake, "git"), "");
+const failShellPath = process.platform === "win32" ? `${failFake}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}` : `${failFake}${path.delimiter}/bin${path.delimiter}/usr/bin`;
+const failHome = path.join(tmp, "plug-fail-home");
+const failed = installWith(failShellPath, failHome, "--plugins", "yes");
+ok("one that fails is named and the install goes on", [/plugin failed: claude-hud@claude-hud \(no network\)/.test(failed.out), failed.code], [true, 0]);
+ok("a failed plugin is not on record", "plugins" in json(path.join(failHome, ".claude", "setup-state.json")), false);
+const failToldLines = () => fs.readFileSync(failTold, "utf8").trim().split("\n");
+fs.writeFileSync(failTold, "");
+installWith(failShellPath, failHome, "--plugins", "yes");
+ok("the next run retries the one that failed", failToldLines().filter((l) => l.startsWith("plugin install")), ["plugin install claude-hud@claude-hud"]);
 ok("without the claude command the run says so", installWith(emptyPath, path.join(tmp, "no-claude"), "--plugins", "yes").out.includes("plugins not installed: the claude command is not on the PATH"));
+
+// ---- add-ons: left out of a default install, --with adds them, an existing copy stays, bad names fail
+const addonDefault = path.join(tmp, "addon-default");
+install(addonDefault);
+ok("a default install leaves out the add-on skills, and says so",
+  [fs.existsSync(path.join(addonDefault, ".claude", "skills", "phone-bot")), fs.existsSync(path.join(addonDefault, ".claude", "skills", "shared-usage")), install(addonDefault).out.includes("add-on left out: phone-bot (add it with --with phone-bot)")], [false, false, true]);
+const addonWith = path.join(tmp, "addon-with");
+install(addonWith, "--with", "phone-bot");
+ok("--with adds only the add-on asked for",
+  [fs.readFileSync(path.join(addonWith, ".claude", "skills", "phone-bot", "SKILL.md")).equals(fs.readFileSync(path.join(REPO, "skills", "phone-bot", "SKILL.md"))),
+    fs.existsSync(path.join(addonWith, ".claude", "skills", "shared-usage"))], [true, false]);
+// an older copy of the add-on, on record as the setup's own, which a plain run has to overwrite
+const recordAs = (home, file, text) => {
+  const statePath = path.join(home, ".claude", "setup-state.json");
+  const s = json(statePath);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+  s.files[fwd(file)] = crypto.createHash("sha256").update(text).digest("hex");
+  fs.writeFileSync(statePath, JSON.stringify(s, null, 2));
+};
+const addonFile = path.join(addonWith, ".claude", "skills", "phone-bot", "SKILL.md");
+recordAs(addonWith, addonFile, "an older version");
+install(addonWith); // a plain run, no --with
+ok("a plain run keeps updating an add-on that is already there",
+  fs.readFileSync(addonFile).equals(fs.readFileSync(path.join(REPO, "skills", "phone-bot", "SKILL.md"))));
+ok("--with and no name fails, naming the add-ons", [install(path.join(tmp, "addon-empty"), "--with").code, install(path.join(tmp, "addon-empty"), "--with").out.includes("phone-bot")], [1, true]);
+// ---- a file the repo stopped shipping goes on an update, unless the user changed it
+const stopped = path.join(tmp, "stopped-shipping");
+install(stopped);
+const oldSkill = path.join(stopped, ".claude", "skills", "old-skill", "SKILL.md");
+const oldHook = path.join(stopped, ".claude", "hooks", "old-hook.mjs");
+recordAs(stopped, oldSkill, "shipped once");
+recordAs(stopped, oldHook, "shipped once");
+fs.writeFileSync(oldHook, "the user changed this");
+const stoppedRun = install(stopped);
+ok("a file no longer shipped is removed with its empty folder, and off the record",
+  [fs.existsSync(path.dirname(oldSkill)), stoppedRun.out.includes("no longer part of the setup"), fwd(oldSkill) in json(path.join(stopped, ".claude", "setup-state.json")).files], [false, true, false]);
+ok("one the user changed stays", fs.readFileSync(oldHook, "utf8"), "the user changed this");
+ok("an unknown --with name fails with a clear error naming the valid ones",
+  [install(path.join(tmp, "addon-bad"), "--with", "bogus").code, install(path.join(tmp, "addon-bad"), "--with", "bogus").out.includes("phone-bot")], [1, true]);
 
 // ---- the steps left for a chat are named by the first install only
 ok("the first install names the steps left for a chat", /Left for a chat, once.*steps 8 and 9/.test(plug.out));

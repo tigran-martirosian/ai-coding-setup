@@ -17,8 +17,8 @@ happen here.
   of `~/.claude/CLAUDE.md` and, with Codex, adds the picture skill to two of the folders (without
   Codex it takes it out again). Afterwards:
   - check the sign-in (`codex login status`, `agy models`);
-  - Antigravity: if `agy models` doesn't list the model named in `~/.claude/CLAUDE.md`, write the
-    newest `*-flash-medium` model it lists into the rules instead;
+  - Antigravity: if `agy models` doesn't list the model `workers/ask.mjs` names (env
+    `BIG_READ_AGY_MODEL`, else its default), set `BIG_READ_AGY_MODEL` to the newest `*-flash-medium` model it lists;
   - Codex: offer to install FFmpeg (only the picture skill's slower "careful run" needs it).
 - **`/chat-review` fits the setup to the real work.** It reads the recent chats of every project on
   this computer (a script and the Codex worker do the reading), finds where Claude got in the way

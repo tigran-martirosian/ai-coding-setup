@@ -324,6 +324,8 @@ try {
   }
   if (event.tool_name === "Read" && input.file_path) {
     const path = resolve(native(cwd), native(input.file_path));
+    // Claude Code's own saved copy of a long tool result: it tells the session to read that file
+    if (/[\\/]\.claude[\\/]projects[\\/].*[\\/]tool-results[\\/]/i.test(path)) process.exit(0);
     const m = measure(path);
     const from = input.offset ? Math.max(0, input.offset - 1) : 0;
     if (m && tooBig(returned(m, from, input.limit || READ_CAP))) deny(path, m);

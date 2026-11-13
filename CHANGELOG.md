@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.74 (Nov 2, 2026): A build or design request now goes to a planner first in every project, however loosely it's worded, a helper cut off at its limit no longer counts as finished, the review gate closes its gaps and keeps work due across a question, the free worker can't reach your login or the web, new installs start on Opus at medium effort and keep logs 120 days, and the phone bot, shared usage and read-aloud are now add-ons.
 - 1.0.73 (Nov 2, 2026): Workers start lean and take the project's rules from their brief, every recommended option gets a second look before you see it, one reviewer runs by itself on bigger changes, a systems map tells helpers what their work connects to, and on Windows /pc-tidy and a new Commands button show what is holding the computer's memory and stop what finished sessions left behind, with a reminder to restart Nimbalyst after 12 hours open.
 - 1.0.72 (Oct 31, 2026): A note sent to a session waiting on a background job now reaches it within seconds, and the job keeps running.
 - 1.0.71 (Oct 31, 2026): Long chats now compact themselves while they work and leave finished chats alone, the Note button shows a press at once and says when the note arrives, and a file you name in a prompt can be read whole once past the size guard.

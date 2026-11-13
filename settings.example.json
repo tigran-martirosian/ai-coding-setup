@@ -1,6 +1,17 @@
 {
   "subagentPromptCacheTtl": "1h",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/transcript-check.mjs",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Read|Bash|PowerShell",
@@ -63,7 +74,7 @@
         ]
       },
       {
-        "matcher": "Edit|MultiEdit|Write|Read|Bash|PowerShell",
+        "matcher": "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch",
         "hooks": [
           {
             "type": "command",
@@ -252,9 +263,7 @@
             "type": "command",
             "command": "node ~/.claude/skills/steer/steer.mjs --watch",
             "asyncRewake": true,
-            "timeout": 7200,
-            "rewakeMessage": "[btw] The user sent this while you were waiting for a background job.",
-            "rewakeSummary": "Note received"
+            "timeout": 7200
           }
         ]
       },

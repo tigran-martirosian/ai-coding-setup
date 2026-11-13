@@ -27,7 +27,7 @@ const file = path.join(blank, ".claude", "settings.json");
 ok("a dry run exits cleanly and writes nothing", [run(blank, "--dry-run").code, fs.existsSync(file)], [0, false]);
 ok("the first run exits cleanly", run(blank).code, 0);
 const first = json(file);
-ok("the model is sonnet", first.model, "sonnet");
+ok("the model is opus", first.model, "opus");
 ok("the sign-in files and SSH keys are denied", ["Read(~/.claude/.credentials.json)", "Read(~/.ssh/**)"].every((r) => first.permissions.deny.includes(r)));
 ok("a .env file is asked about", first.permissions.ask.includes("Read(//**/.env)"));
 ok("PowerShell rules only on Windows", first.permissions.deny.some((r) => r.startsWith("PowerShell(")), process.platform === "win32");

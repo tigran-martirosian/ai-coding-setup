@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // steer: talk to a Claude session that is busy in the same folder, without waiting for its reply
-// to end (Nimbalyst queues messages until then). Used by the /btw and /ask skills.
+// to end (Nimbalyst queues messages until then). Used by the /btw skill and the Note button.
 //   list                     sessions in this folder active in the last 10 min (not this one)
 //   send [--to <id>] <note>  queue a note for one session (the only active one, or --to);
 //                            --nowait does not wait for the receipt and prints "Note id: <id>",
@@ -32,7 +32,7 @@
 //                            alone: an idle session is woken for those through the outbox.
 //                            STEER_WATCH=off turns it off.
 //   status                   this session's notes that are still on their way or that failed
-//   btw [--to <id>] <q>      print the recent part of that session's live transcript for /ask
+//   btw [--to <id>] <q>      print the recent part of that session's live transcript for /btw
 //   moved --to <id>          this session handed its work to Nimbalyst session <id> (the handoff
 //                            skill runs it): child reports that still arrive here, and messages
 //                            the user types here, are forwarded

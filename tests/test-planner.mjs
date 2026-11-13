@@ -26,7 +26,7 @@ check("has a tool list", tools.length > 0);
 for (const t of ["Edit", "Write", "Bash", "PowerShell", "NotebookEdit", "Agent"]) {
   check(`cannot use ${t}`, !tools.includes(t));
 }
-check("description says when to use it", /hard-to-undo/.test(front.description || ""));
+check("description says when to use it", /build or design request/.test(front.description || ""));
 check("description says what stays out of the brief", /Keep out your own solution/.test(front.description || ""));
 check("description asks for the user's own words", /in their own words/.test(front.description || ""));
 check("description has no colon-space (would break the frontmatter)", !/: /.test(front.description || ""));
@@ -46,7 +46,7 @@ check("lead: sections keep their numbers", /## 3\. The job list and the briefs/.
 
 const rulesFile = ["CLAUDE.md", path.join("rules", "CLAUDE.md")].map((f) => path.join(ROOT, f)).find((f) => fs.existsSync(f));
 check("the rules file exists", !!rulesFile);
-check("the rules name the planner exception", !!rulesFile && /`planner` agent \(Fable\)/.test(fs.readFileSync(rulesFile, "utf8")));
+check("the rules name the planner exception", !!rulesFile && /`planner` agent first/.test(fs.readFileSync(rulesFile, "utf8")));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

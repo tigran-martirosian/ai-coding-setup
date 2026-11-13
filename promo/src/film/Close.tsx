@@ -8,7 +8,7 @@ import { need } from "./need";
 const ink = partColor.Install;
 
 /** The real output of a dry run, with the home folder taken off the front. */
-const OUTPUT = [...HOOKS.slice(0, 7).map((hook) => `hooks/${hook}.mjs`), "agents/planner.md", "agents/worker.md", "skills/ask/SKILL.md", "skills/blind-review/SKILL.md", "skills/btw/SKILL.md", "skills/court/SKILL.md"].map((file) => `[dry run] copied ${file}`);
+const OUTPUT = [...HOOKS.slice(0, 7).map((hook) => `hooks/${hook}.mjs`), "agents/planner.md", "agents/worker.md", "skills/blind-review/SKILL.md", "skills/btw/SKILL.md", "skills/court/SKILL.md"].map((file) => `[dry run] copied ${file}`);
 
 /** The command typed in half a second, its output pouring out, the options beside it all at once. */
 export const Install: React.FC<{ shot: Shot }> = ({ shot }) => {

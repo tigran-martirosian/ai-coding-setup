@@ -3,7 +3,7 @@
 // research types) to the free external workers (~/.claude/workers/ask.mjs) instead of Claude. Measured
 // 2026-09-30: such subagents processed 0.6-4.3M tokens per run; one worker call costs Claude a few
 // hundred. WebSearch/WebFetch are left alone: they add ~700 tokens, less than the extra turn a
-// block costs. Every try is denied, retries too: the "worker" type (Sonnet, capped, all tools)
+// block costs. Every try is denied, retries too: the "worker" type (Sonnet, capped, file, shell and web tools)
 // does anything these types do, including editing files. Until 2026-10-21 an identical retry went
 // through; in 3 days of one project that let 14 general-purpose runs on Opus spend 21M tokens.
 // It fails open, so any error or odd input lets the call through. WORKER_NUDGE=off disables it.

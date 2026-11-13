@@ -103,17 +103,44 @@ check("a listed note that exists is kept", updated(hook(dir, agent("Fix src/bill
 u = updated(hook(dir, agent("Fix src/auth/removed.js")));
 check("a brief naming a deleted file: found by its folder, the deleted file is not listed", u && u.prompt.includes("## User login [auth]") && !/Start in:.*removed/.test(u.prompt.split("Fix src/auth/removed.js")[1]));
 
-// ---- the cap: 6,000 characters, 3 things
+// ---- the cap: 7,000 characters, 3 full entries, one line for each further match
 const big = { nodes: [], links: [] };
 for (let k = 0; k < 5; k++) big.nodes.push({ id: `area${k}`, name: `Area number ${k}`, what: `Thing ${k} does its job.`, files: [`src/a${k}.js`] });
 for (let k = 0; k < 5; k++) for (let j = 0; j < 40; j++) big.links.push({ from: `area${k}`, to: `area${(k + 1 + (j % 4)) % 5}`, says: `Link ${j} of area ${k}: ` + "words ".repeat(30), evidence: [`src/a${k}.js`] });
 const bigDir = project("big", Object.fromEntries([0, 1, 2, 3, 4].map((k) => [`src/a${k}.js`, "x"])), big);
-const rb = cli(["--brief"], { cwd: bigDir, input: "Work on Area number 0, Area number 1, Area number 2, Area number 3 and Area number 4." });
-check("cap: at most 6,000 characters", rb.status === 0 && rb.stdout.trimEnd().length <= 6000 && rb.stdout.length > 5000, `length ${rb.stdout.length}`);
-check("cap: at most 3 things", (rb.stdout.match(/^## /gm) ?? []).length === 3);
+const five = "Work on Area number 0, Area number 1, Area number 2, Area number 3 and Area number 4.";
+const rb = cli(["--brief"], { cwd: bigDir, input: five });
+check("cap: at most 7,000 characters", rb.status === 0 && rb.stdout.trimEnd().length <= 7000 && rb.stdout.length > 5000, `length ${rb.stdout.length}`);
+check("cap: 5 matches give 3 full entries and one line each for the other 2", (rb.stdout.match(/^## /gm) ?? []).length === 3 && /Also matched/.test(rb.stdout) && (rb.stdout.match(/^- Area number \d \[area\d\]: src\/a\d\.js$/gm) ?? []).length === 2, rb.stdout.slice(-300));
 check("cap: links cut with a 'more links' line naming --near", /\(\d+ more links: node ".*map\.mjs" --near area\d\)/.test(rb.stdout));
-const hb = updated(hook(bigDir, agent("Work on Area number 0, Area number 1, Area number 2, Area number 3 and Area number 4.")));
-check("cap: the hook adds at most 6,000 characters of map lines", hb && hb.prompt.length - "Work on Area number 0, Area number 1, Area number 2, Area number 3 and Area number 4.".length < 6000 + 700);
+const hb = updated(hook(bigDir, agent(five)));
+check("cap: the hook adds at most 7,000 characters of map lines", hb && hb.prompt.length - five.length < 7000 + 700);
+
+// ---- more matches than fit: one-liners cut at the cap, with the count left out
+const wide = { nodes: [], links: [] };
+for (let k = 0; k < 120; k++) wide.nodes.push({ id: `part${k}`, name: `Part number ${k}`, what: `Part ${k} does its job.`, files: [`lib/part${k}/a-fairly-long-file-name-${k}.js`, `lib/part${k}/another-long-file-name-${k}.js`] });
+const wideDir = project("wide", Object.fromEntries(wide.nodes.flatMap((n) => n.files).map((f) => [f, "x"])), wide);
+const rw = cli(["--brief"], { cwd: wideDir, input: wide.nodes.map((n) => n.name).join(", ") });
+const wl = rw.stdout.trimEnd();
+check("cap: 120 matches stay within 7,000 characters, cut at a whole line", rw.status === 0 && wl.length <= 7000 && wl.length > 6500, `length ${wl.length}`);
+check("cap: the cut ends with the count of matches left out", (() => { const m = /\n- \((\d+) more matches left out\)$/.exec(wl); const shown = (wl.match(/^- Part number \d+ \[part\d+\]: /gm) ?? []).length; return m && Number(m[1]) + shown + 3 === 120; })(), wl.slice(-120));
+
+// ---- ordinary words and written folders
+const topics = { nodes: [
+  { id: "recall", name: "Recall Beacon", what: "Brings a player home.", files: ["src/recall/beacon.js"] },
+  { id: "quest", name: "Quest board", what: "Lists quests.", files: ["src/quest/board.js"] },
+  ...[0, 1, 2, 3, 4, 5, 6, 7, 8].map((k) => ({ id: `wide${k}`, name: `Wide thing ${k}`, what: "Does it.", files: [`src/wide/w${k}.js`] })),
+], links: [] };
+const topicDir = project("topics", Object.fromEntries(topics.nodes.flatMap((n) => n.files).map((f) => [f, "x"])), topics);
+const hookOn = (text) => updated(hook(topicDir, agent(text)));
+check('"recall" alone matches nothing', hookOn("Reviewing this change for recall and precision.").prompt.includes("SYSTEMS MAP: nothing in this brief matched."));
+check('"Recall Beacon" still matches', hookOn("Look at the Recall Beacon.").prompt.includes("## Recall Beacon [recall]"));
+u = hookOn("Review target: src/quest");
+check("a named narrow folder matches the things with files in it", u.prompt.includes("## Quest board [quest]"));
+u = hookOn("Review target: src/wide and src/wide/");
+check("a broad folder (files of more than 8 things) adds nothing", u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."));
+u = hookOn("Fix the bug in src/wide/other.js");
+check("a named file in a broad folder still matches nothing (crowded-folder rule)", u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."));
 
 // ---- --brief on its own
 check("--brief with no match prints nothing, exit 0", (() => { const r = cli(["--brief"], { input: "nothing here" }); return r.status === 0 && r.stdout === ""; })());

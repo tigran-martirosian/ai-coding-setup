@@ -60,8 +60,8 @@ export const HOOKS = [
   "run-yourself", "slow-output-gate", "sql-guard", "update-check", "usage-dashboard-hook", "web-answer-gate", "web-worker-gate", "worker-nudge",
 ];
 export const SKILLS = [
-  "/ask", "/blind-review", "/board-cleanup", "/btw", "/court", "/handoff", "/lead", "/new-project", "/next-move",
-  "/phone-bot", "/plan-first", "/project-scan", "/setup-audit", "/shared-usage", "/steer", "/update-setup", "/usage-report", "/watch",
+  "/blind-review", "/board-cleanup", "/btw", "/court", "/handoff", "/lead", "/new-project", "/next-move",
+  "/phone-bot", "/project-scan", "/setup-audit", "/shared-usage", "/steer", "/update-setup", "/usage-report", "/watch",
 ];
 export const EXTENSIONS = ["usage-plan", "commands", "agents-panel", "ink-themes", "read-aloud"];
 export const PROJECTS = ["internet-search", "ask-anything", "quick-tasks", "claude-settings"];
@@ -101,11 +101,11 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "tiles",
       tiles: [
-        { name: "24 hooks", note: "Small scripts that check each step" },
+        { name: "28 hooks", note: "Small scripts that check each step" },
         { name: "18 skills", note: "Commands like /lead and /court" },
         { name: "5 extensions", note: "Panels for the Nimbalyst editor" },
         { name: "4 projects", note: "Ready-made folders" },
-        { name: "2 agents", note: "A planner and a capped helper" },
+        { name: "5 agents", note: "A planner, capped helpers, a reviewer" },
         { name: "1 rules file", note: "How the agent should work" },
       ],
     },

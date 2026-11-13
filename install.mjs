@@ -38,6 +38,9 @@
 //                               when Nimbalyst is installed; they change nothing until a theme is picked)
 //   --plugins yes|no            install the plugins (default: yes; each is handled once, so one that was
 //                               removed or switched later stays as it is)
+//   --with <names>               add one or more add-ons left out of a default install: phone-bot,
+//                               shared-usage, read-aloud, comma-separated; a copy already in place
+//                               stays and keeps being updated by a plain run
 //   --done chat-steps           only put on record that a chat carried out the steps named at the end
 //                               (no longer needed: only the first install names them)
 //   --language english|russian  the language Claude answers in and the extensions show (also en, ru,
@@ -205,8 +208,21 @@ const repoText = (rel) => fit(rel, fs.readFileSync(path.join(REPO, rel))).toStri
 const RETIRED = ["build-nudge.mjs", "turn-cap.mjs"];
 // The folder each extension (named as in the repo) has in Nimbalyst's extensions folder
 const EXT_FOLDER = { "ink-themes": "inktheme", "agents-panel": "agentspanel", "usage-plan": "usageplan", commands: "commandbuttons", "read-aloud": "readaloud" };
+// Add-ons: left out of a default install. --with name[,name,...] adds any of them; a copy already in
+// the target stays and keeps being updated by a plain run; --uninstall treats them like any other skill or extension.
+const ADDONS = { "phone-bot": "skill", "shared-usage": "skill", "read-aloud": "extension" };
+const withNames = (opt("with") || "").split(",").map((s) => s.trim()).filter(Boolean);
+if (args.includes("--with") && !withNames.length) { console.log(`--with needs a name. The add-ons are: ${Object.keys(ADDONS).join(", ")}.`); process.exit(1); }
+const badWith = withNames.filter((n) => !(n in ADDONS));
+if (badWith.length) { console.log(`--with ${badWith.join(",")}: not an add-on. The add-ons are: ${Object.keys(ADDONS).join(", ")}.`); process.exit(1); }
+// A file under an add-on skill is left out unless it was asked for with --with, or a copy is already there
+const addonSkip = (rel) => Object.entries(ADDONS).some(([name, kind]) => kind === "skill" && fwd(rel).startsWith(fwd(path.join("skills", name)) + "/")
+  && !withNames.includes(name) && !fs.existsSync(path.join(CLAUDE, "skills", name, "SKILL.md")));
 // The allow-rules the setup adds to Antigravity's settings; state.agyAdded records which ones it really added
-const AGY_RULES = ["read_url(*)", `read_file(${fwd(PROJECTS)})`, `read_file(${fwd(CLAUDE)})`];
+const AGY_RULES = [`read_file(${fwd(PROJECTS)})`, ...["hooks", "skills", "agents"].map((d) => `read_file(${fwd(CLAUDE)}/${d})`)];
+// Earlier versions added these. An update takes them out: what it reads can carry a planted line, ~/.claude holds the
+// Claude login, and read_url could send it anywhere
+const AGY_RETIRED = ["read_url(*)", `read_file(${fwd(CLAUDE)})`];
 let agyAdded = [...(state.agyAdded || [])];
 
 // ---- --uninstall: takes the setup out again and ends the run
@@ -323,8 +339,8 @@ if (args.includes("--uninstall")) {
       agy.permissions.allow = allow.filter((r) => !added.includes(r));
       putJson(agyFile, agy, null);
       say(`removed the allow rules the setup added from ${fwd(agyFile)}: ${added.join(", ")}`);
-    } else if (!state.agyAdded && AGY_RULES.some((r) => allow.includes(r))) {
-      kept.push(`${fwd(agyFile)}: allow rules (${AGY_RULES.filter((r) => allow.includes(r)).join(", ")}) that the setup may have added; remove them by hand if they are not yours`);
+    } else if (!state.agyAdded && [...AGY_RULES, ...AGY_RETIRED].some((r) => allow.includes(r))) {
+      kept.push(`${fwd(agyFile)}: allow rules (${[...AGY_RULES, ...AGY_RETIRED].filter((r) => allow.includes(r)).join(", ")}) that the setup may have added; remove them by hand if they are not yours`);
     }
   }
   if (!DRY) fs.rmSync(stateFile);
@@ -348,6 +364,7 @@ if (args.includes("--uninstall")) {
 
 // ---- 1. the files for ~/.claude
 for (const rel of files) {
+  if (addonSkip(rel)) continue;
   let data = fs.readFileSync(path.join(REPO, rel));
   // a shell script needs Unix line ends and has to be runnable; off Windows Codex's Windows-only sandbox flag goes
   const script = rel.endsWith(".sh") || rel === path.join("workers", "ask.mjs"); // started by its own name
@@ -362,21 +379,39 @@ for (const name of ["codex", "agy"]) {
   else if (fs.existsSync(off)) { if (!DRY) fs.rmSync(off); say(`removed ${fwd(off)}`); }
 }
 // Antigravity run headless can't ask for a permission, so a tool that needs one ends the run with no
-// answer: read_url for the web, read_file for a file outside the folder it starts in. These allow-rules
-// let it read web pages and the projects and ~/.claude folders; its own rules stay as they are.
+// answer: read_file for a file outside the folder it starts in. These allow-rules let it read the projects
+// folder and the setup's own hooks, skills and agents; its own rules stay as they are.
 if (have.agy) {
   const agyFile = path.join(home, ".gemini", "antigravity-cli", "settings.json");
   const agySettings = readSettings(agyFile);
   const was = JSON.stringify(agySettings);
-  const allow = agySettings.permissions?.allow || [];
+  const had = agySettings.permissions?.allow || [];
+  const allow = had.filter((r) => !AGY_RETIRED.includes(r));
+  if (allow.length !== had.length) say(`removed from ${fwd(agyFile)}: ${had.filter((r) => AGY_RETIRED.includes(r)).join(", ")} (they let a file it reads send your login out)`);
   const want = AGY_RULES.filter((r) => !allow.includes(r));
-  agyAdded = [...new Set([...agyAdded, ...want])]; // on record, so --uninstall takes out only these
+  agyAdded = [...new Set([...agyAdded.filter((r) => !AGY_RETIRED.includes(r)), ...want])]; // on record, so --uninstall takes out only these
   agySettings.permissions = { ...agySettings.permissions, allow: [...allow, ...want] };
-  putJson(agyFile, agySettings, want.length ? null : was);
+  putJson(agyFile, agySettings, want.length || allow.length !== had.length ? null : was);
 }
 // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
 const shared = path.join(REPO, "projects", "shared");
 if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), fit(rel, fs.readFileSync(path.join(shared, rel))), { own: true });
+// A file an earlier version put here and this one no longer ships goes, unless it was changed since
+const shipped = new Set([...files, ...filesIn(shared)].map((rel) => fwd(path.join(CLAUDE, rel))));
+const ownFolders = ["hooks", "agents", "skills", "workers"].map((d) => `${fwd(path.join(CLAUDE, d))}/`);
+for (const [to, hash] of Object.entries(filesWritten)) {
+  if (shipped.has(to) || !ownFolders.some((d) => to.startsWith(d))) continue;
+  const now = fs.existsSync(to) ? fs.readFileSync(to) : null;
+  delete filesWritten[to];
+  if (now && sha(now) !== hash) { say(`kept yours ${to} (no longer part of the setup, and changed since it was installed)`); continue; }
+  if (now && !DRY) {
+    fs.rmSync(to);
+    if (!fs.readdirSync(path.dirname(to)).length) fs.rmdirSync(path.dirname(to));
+  }
+  if (now) say(`removed ${to} (no longer part of the setup)`);
+}
+// The add-ons left out of this run are named, so the commands the docs list can be found
+for (const name of Object.keys(ADDONS).filter((n) => ADDONS[n] === "skill" && addonSkip(path.join("skills", n, "SKILL.md")))) say(`add-on left out: ${name} (add it with --with ${name})`);
 
 // The hook wiring: each hook from an example is added unless that event already runs the same script.
 // The command points at the installed copy by its full path, so it works from any folder and shell.
@@ -459,16 +494,17 @@ const wired = wire(settings, example.hooks, CLAUDE) + retiredHooks;
 if (!wired) say(`hooks already wired in ${fwd(settingsFile)}`);
 // Claude Code's own settings go into the same file: what is set there already stays
 const own = addClaudeCodeSettings(settings, WIN);
-if (own.model) say(`model: set to sonnet in ${fwd(settingsFile)} (none was set)`);
+if (own.model) say(`model: set to opus at medium effort in ${fwd(settingsFile)} (none was set)`);
 if (own.compact) say(`compact: long chats compact themselves at about 200k, set in ${fwd(settingsFile)}`);
 if (own.cache) say(`cache: helpers keep their prompt cache for an hour, set in ${fwd(settingsFile)}`);
+if (own.logs) say(`logs: transcripts are kept 120 days, set in ${fwd(settingsFile)}`);
 if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins and SSH keys can't be read, a .env file is asked about)`);
 // Claude Code's own reply-language setting follows the language. english removes only the "russian"
 // this setup wrote: a language the person set to something else stays.
 let langChanged = false;
 if (LANG === "russian" && settings.language !== "russian") { settings.language = "russian"; langChanged = true; say(`language: russian set in ${fwd(settingsFile)}`); }
 else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
-if (wired || own.model || own.compact || own.cache || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
+if (wired || own.model || own.compact || own.cache || own.logs || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
 
 // ---- 2. the global rules, with the worker section that fits
 // Every heading the worker section has ever carried: an older rules file on disk still has an old one.
@@ -622,7 +658,7 @@ for (const [tool, what] of [["codex", "Codex CLI (GPT)"], ["agy", "Antigravity C
 }
 // The editor extensions are built from source and installed into Nimbalyst's own extensions folder,
 // when Nimbalyst is there. One whose source is as at the last run is left alone. read-aloud needs a
-// speech program of its own, so it is only rebuilt where it is installed already.
+// speech program of its own, so it is only built with --with read-aloud or where it is installed already.
 const extDir = path.join(REPO, "extensions");
 const extensions = fs.existsSync(extDir) ? fs.readdirSync(extDir).filter((n) => fs.existsSync(path.join(extDir, n, "package.json"))) : [];
 const appData = process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.APPDATA || "";
@@ -641,7 +677,7 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
   for (const name of extensions.filter((n) => !only.length || only.includes(n))) {
     const dir = path.join(extDir, name);
     const target = path.join(extHome, "extensions", EXT_FOLDER[name] || name);
-    if (name === "read-aloud" && !fs.existsSync(target)) { say(`extension left out: read-aloud (it needs its own speech program; see ${fwd(path.join(dir, "README.md"))})`); continue; }
+    if (name === "read-aloud" && !withNames.includes("read-aloud") && !fs.existsSync(target)) { say(`extension left out: read-aloud (it needs its own speech program; see ${fwd(path.join(dir, "README.md"))}; add it with --with read-aloud)`); continue; }
     if (builtExt[name] === printOf(dir) && fs.existsSync(target)) { say(`extension unchanged: ${name}`); continue; }
     const plain = ["ink-themes", "agents-panel"].includes(name); // build with Node alone
     if (!plain && !onPath("npm")) { say(`extension not built: ${name} (npm is not on the PATH; install Node.js with npm and run this again)`); continue; }
@@ -658,7 +694,7 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
     }
     if (failed) { say(`extension failed: ${name} (${failed}). Everything else was installed; run this again to retry.`); continue; }
     builtExt[name] = printOf(dir);
-    say(`extension installed: ${name} (quit Nimbalyst and open it again to load it)`);
+    say(`extension installed: ${name}${name === "read-aloud" ? ` (it needs its own speech program; see ${fwd(path.join(dir, "README.md"))})` : ""} (quit Nimbalyst and open it again to load it)`);
   }
   if (!DRY && JSON.stringify(builtExt) !== JSON.stringify(state.extensions || {})) {
     nextState.extensions = builtExt;
@@ -668,14 +704,10 @@ if (extensions.length && wantExt && appData && fs.existsSync(extHome)) {
   say(`Nimbalyst extensions are not installed by this script: ${extensions.join(", ")}. For each one, in ${fwd(path.join(REPO, "extensions"))}/<name>: npm install, npm run build, npm run install-ext, then restart Nimbalyst.`);
 }
 
-// The plugins. claude-hud stays on; the other three load into every session while they are on, so
-// they are installed switched off and /new-project turns one on in the project that needs it. Each
-// is handled once and put on record: one the user removed or switched later stays as they have it.
+// The plugins. Each is handled once and put on record: one the user removed or switched later stays
+// as they have it.
 const PLUGINS = [
-  ["claude-hud@claude-hud", "jarrodwatts/claude-hud", true],
-  ["claude-code-setup@claude-plugins-official", "anthropics/claude-plugins-official", false],
-  ["superpowers@claude-plugins-official", "anthropics/claude-plugins-official", false],
-  ["context7@claude-plugins-official", "anthropics/claude-plugins-official", false],
+  ["claude-hud@claude-hud", "jarrodwatts/claude-hud"],
 ];
 // --home is another home folder (the tests), and the claude command works on the real one
 const wantPlugins = opt("plugins") === "no" ? false : opt("plugins") === "yes" ? true : opt("home") === null;
@@ -698,14 +730,13 @@ if (!wantPlugins) {
   const list = cli("claude plugin list", 60000);
   const markets = new Set();
   if (!list.ok) say(`plugins not installed: claude plugin list failed (${tail(list.out)})`);
-  else for (const [name, market, on] of toPlug) {
+  else for (const [name, market] of toPlug) {
     if (list.out.includes(name)) { say(`plugin already there: ${name} (left as it is)`); plugged.push(name); continue; }
     if (!markets.has(market)) { cli(`claude plugin marketplace add ${market}`); markets.add(market); }
     const got = cli(`claude plugin install ${name}`);
-    const off = got.ok && !on ? cli(`claude plugin disable ${name}`) : got;
-    if (!off.ok) { say(`plugin failed: ${name} (${tail(off.out)}). Everything else was installed; run this again to retry.`); continue; }
+    if (!got.ok) { say(`plugin failed: ${name} (${tail(got.out)}). Everything else was installed; run this again to retry.`); continue; }
     plugged.push(name);
-    say(`plugin installed: ${name}${on ? "" : " (switched off; /new-project turns it on in the project that needs it)"}`);
+    say(`plugin installed: ${name}`);
   }
 }
 // find-skills is someone else's skill, fetched with npx into the real home folder

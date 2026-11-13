@@ -10,8 +10,9 @@
 // --web    retired: this command refuses it, web research is Claude's own.
 // (none)   local files and code. Order: Codex, then Antigravity (Gemini login). Name the files in the task.
 //
-// Antigravity headless needs allow-rules in ~/.gemini/antigravity-cli/settings.json: read_url(*) for
-// the web, read_file(<folder>) for files outside the folder it starts in. command(...) rules do not
+// Antigravity headless needs allow-rules in ~/.gemini/antigravity-cli/settings.json: read_file(<folder>)
+// for files outside the folder it starts in. No read_url and no ~/.claude root: what it reads can carry
+// a planted line, and that folder holds the login. command(...) rules do not
 // take effect headless, so the rules below steer it to its file tools instead of the shell.
 // --think  a hard question: Codex runs with its default reasoning effort instead of low.
 //
@@ -60,8 +61,15 @@ function unusable(route) {
 }
 
 // Runs a program through bash with the task as a positional argument, so no quoting is needed
+// It reads the folder it starts in without any rule, so it never starts in ~/.claude or in a folder that holds it
+const nearLogin = () => {
+  const low = (p) => p.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+  const cwd = low(process.cwd()), claude = low(join(homedir(), ".claude"));
+  return cwd === claude || cwd.startsWith(`${claude}/`) || claude.startsWith(`${cwd}/`);
+};
 function spawnBash(script, args) {
   return spawnSync("bash", ["-c", script, "ask", ...args], {
+    ...(nearLogin() ? { cwd: tmpdir() } : {}),
     encoding: "utf8", timeout: 15 * 60 * 1000, maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
   });
 }

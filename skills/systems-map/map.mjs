@@ -6,7 +6,7 @@
 // Commands, run in the project folder (or add --project <dir>):
 //   --near                 list every thing
 //   --near <word>...       those things: what they are, where to start, their links with the code behind them, the things one step further
-//   --brief                read a helper's brief on stdin; print the lines of the (at most 3) things it is about, at most 6,000 characters
+//   --brief                read a helper's brief on stdin; print the lines of the things it is about: the top 3 in full, one line for each further match, at most 7,000 characters
 //   --check                list files and evidence paths that no longer exist, and the JSON mistakes; exit 1 when anything is wrong
 //   --scan                 what a builder needs to start a map: code files by folder, biggest files, entry points (at most about 8 KB)
 // The two hooks (map-brief.mjs, map-nudge.mjs) import this file. No dependencies; Node.js only.
@@ -29,8 +29,11 @@ export const VENDORED = new Set(
     ".next .nuxt .svelte-kit .gradle .idea .vscode coverage Pods Carthage site-packages .tox .mypy_cache .cache obj .terraform .yarn .pnpm-store").split(" "),
 );
 
-export const BRIEF_MAX = 6000; // characters of the whole --brief output
-export const BRIEF_THINGS = 3; // things in it
+export const BRIEF_MAX = 7000; // characters of the whole --brief output
+export const BRIEF_FULL = 3; // things in it with links; every further match gets one line
+export const BRIEF_LINE_FILES = 3; // "Start in" files on such a line
+const BRIEF_LINES_ROOM = 1500; // characters kept free for those lines when the full entries would fill the cap
+export const BRIEF_FOLDER = 8; // a written folder holding files of more things than this names none of them
 export const BRIEF_LINKS = 12; // links per thing
 export const BRIEF_FILES = 6; // "Start in" files per thing
 const SCAN_MAX = 8000;
@@ -41,12 +44,14 @@ export const COMMON = new Set(
   ("item items block map base data core common shared util utils helper helpers misc main app code file files test tests build config setup " +
     "system service services module modules page pages view views state store user users list type types model models event events task tasks " +
     "job jobs tool tools doc docs api high low server client web ui backend " +
-    "frontend cache queue logic engine manager handler handlers controller controllers lib libs src script scripts release plugin plugins").split(" "),
+    "frontend cache queue logic engine manager handler handlers controller controllers lib libs src script scripts release plugin plugins recall").split(" "),
 );
 
 const FILE_EXTS = [...new Set([...CODE_EXT, "md", "json", "toml", "yaml", "yml", "html", "css", "scss", "cfg", "ini", "xml", "txt", "properties"])];
 const FILE_TEXT = new RegExp(String.raw`[\w./\\:-]*[\w-]\.(?:${FILE_EXTS.join("|")})(?![\w])`, "g");
 const CAMEL = /\b[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+\b/g;
+const FOLDER_TEXT = /(?<![\w.-])[\w.-]+(?:\/[\w.-]+)+\/?/g;
+const WHOLE_FILE = new RegExp("^(?:" + FILE_TEXT.source + ")$");
 // Files named like their class: a brief that says "UserCard" points at UserCard.tsx
 const CLASS_FILE = /\.(?:java|kt|cs|ts|tsx|jsx|vue|svelte|swift|scala|dart|php)$/;
 const CLASS_EXTS = ["java", "kt", "cs", "ts", "tsx", "jsx", "vue", "svelte", "swift", "scala", "dart", "php"];
@@ -123,8 +128,18 @@ const addTo = (m, k, v) => {
   m.get(k).add(v);
 };
 
-/** [ranked ids, files named in the text that the map knows]: a named file first, then a name or id, and only when neither found
- *  anything, a named file that lies in the folder of a thing's file. */
+/** Folders a brief writes (src/billing, docs/api/): a path with a slash that is not a file. */
+function writtenFolders(text) {
+  const out = new Set();
+  for (const m of text.replace(/\\/g, "/").match(FOLDER_TEXT) ?? []) {
+    const p = m.replace(/^\/+|\/+$/g, "").replace(/\.+$/, "").replace(/^(?:\.\/)+/, "").toLowerCase();
+    if (p.includes("/") && !WHOLE_FILE.test(p)) out.add(p);
+  }
+  return out;
+}
+
+/** [all matching ids, ranked; files named in the text that the map knows]: a named file first, then a name or id, then a written folder,
+ *  and only when none of those found anything, a named file that lies in the folder of a thing's file. */
 export function briefFind(text, nodes, links, dir) {
   const own = new Map(), touch = new Map();
   for (const n of nodes) for (const f of n.files) { addTo(own, f, n.id); addTo(touch, f, n.id); }
@@ -139,7 +154,7 @@ export function briefFind(text, nodes, links, dir) {
   }
   const score = new Map();
   const sc = (i) => {
-    if (!score.has(i)) score.set(i, [0, 0]);
+    if (!score.has(i)) score.set(i, [0, 0, 0]);
     return score.get(i);
   };
   for (const f of got) for (const i of touch.get(f)) sc(i)[0] += (own.get(f)?.has(i) ? 2 : 1) / touch.get(f).size;
@@ -149,9 +164,26 @@ export function briefFind(text, nodes, links, dir) {
     for (const a of aliases(n)) if (new RegExp("(?<![a-z0-9])" + escapeRe(a) + "(?![a-z0-9])").test(flat)) w += a.includes(" ") ? 2 : 1;
     if (w) sc(n.id)[1] = w;
   }
-  if (!score.size && (named.size || camel.size)) {
+  const bare = !score.size;
+  // A written folder names the things that have a file in it (the folder itself, else the folders below it), unless more things sit
+  // there than a brief can sensibly carry: a broad path names none of them.
+  const here = new Map();
+  for (const [f, ids] of touch) {
+    const d = path.posix.dirname(f).toLowerCase();
+    if (!here.has(d)) here.set(d, new Set());
+    for (const i of ids) here.get(d).add(i);
+  }
+  for (const p of writtenFolders(text)) {
+    const exact = [...here.keys()].filter((d) => d === p || d.endsWith("/" + p) || p.endsWith("/" + d));
+    const dirs = exact.length ? exact : [...here.keys()].filter((d) => ("/" + d + "/").includes("/" + p + "/"));
+    const ids = new Set(dirs.flatMap((d) => [...here.get(d)]));
+    if (ids.size > 0 && ids.size <= BRIEF_FOLDER) for (const i of ids) sc(i)[2] += 1 / ids.size;
+  }
+  const order = new Map(nodes.map((n, k) => [n.id, k]));
+  if (bare && (named.size || camel.size)) {
     // A file no thing lists: it counts by a written path, or a class name, that points at a folder holding a file of a thing, unless
     // more things sit there than a brief can carry. A bare name (index.ts) says nothing, and the project root is no folder to go by.
+    // At most BRIEF_FULL things come of it.
     const dirs = new Set([...touch.keys()].map((f) => path.posix.dirname(f)).filter((d) => d !== "."));
     const folders = new Set();
     for (const d of dirs) {
@@ -161,17 +193,20 @@ export function briefFind(text, nodes, links, dir) {
         const parent = p.slice(0, p.lastIndexOf("/"));
         if (d.toLowerCase() === parent || d.toLowerCase().endsWith("/" + parent)) folders.add(d.toLowerCase());
       }
-      const here = new Set([...touch.keys()].filter((f) => path.posix.dirname(f) === d).flatMap((f) => [...touch.get(f)]));
-      if (here.size > BRIEF_THINGS) folders.delete(d.toLowerCase());
+      const inDir = new Set([...touch.keys()].filter((f) => path.posix.dirname(f) === d).flatMap((f) => [...touch.get(f)]));
+      if (inDir.size > BRIEF_FULL) folders.delete(d.toLowerCase());
     }
+    const near = new Map();
     for (const f of touch.keys()) {
       if (!folders.has(path.posix.dirname(f).toLowerCase())) continue;
-      for (const i of touch.get(f)) sc(i)[0] += ((own.get(f)?.has(i) ? 2 : 1) / touch.get(f).size) * 0.1;
+      for (const i of touch.get(f)) near.set(i, (near.get(i) ?? 0) + ((own.get(f)?.has(i) ? 2 : 1) / touch.get(f).size) * 0.1);
     }
+    for (const i of [...near.keys()].sort((a, b) => near.get(b) - near.get(a) || order.get(a) - order.get(b)).slice(0, BRIEF_FULL)) sc(i)[0] += near.get(i);
   }
-  const order = new Map(nodes.map((n, k) => [n.id, k]));
-  const ranked = [...score.keys()].sort((a, b) => score.get(b)[0] - score.get(a)[0] || score.get(b)[1] - score.get(a)[1] || order.get(a) - order.get(b));
-  return [ranked.slice(0, BRIEF_THINGS), got];
+  const ranked = [...score.keys()].sort(
+    (a, b) => score.get(b)[0] - score.get(a)[0] || score.get(b)[1] - score.get(a)[1] || score.get(b)[2] - score.get(a)[2] || order.get(a) - order.get(b),
+  );
+  return [ranked, got];
 }
 
 const arrow = (l, id, by) => (l.from === id ? `to ${by.get(l.to).name}` : `from ${by.get(l.from).name}`);
@@ -179,8 +214,9 @@ const arrow = (l, id, by) => (l.from === id ? `to ${by.get(l.to).name}` : `from 
 /** The map lines for the things a helper's brief is about, and only those. Empty string when none. */
 export function brief(text, map, dir) {
   const { nodes, links } = prep(map, dir, true);
-  const [ids, got] = briefFind(text, nodes, links, dir);
-  if (!ids.length) return "";
+  const [ranked, got] = briefFind(text, nodes, links, dir);
+  if (!ranked.length) return "";
+  const ids = ranked.slice(0, BRIEF_FULL), rest = ranked.slice(BRIEF_FULL);
   const by = new Map(nodes.map((n) => [n.id, n]));
   const blocks = ids.map((i) => {
     const n = by.get(i);
@@ -203,13 +239,33 @@ export function brief(text, map, dir) {
       })
       .join("\n\n");
   let out = render();
-  while (out.length > BRIEF_MAX && caps.some((c) => c)) {
+  const top = BRIEF_MAX - (rest.length ? Math.min(moreLines(rest, by, got, 1e9).length, BRIEF_LINES_ROOM) : 0);
+  while (out.length > top && caps.some((c) => c)) {
     let k = 0;
     caps.forEach((c, j) => { if (c >= caps[k]) k = j; }); // the largest cap, the last of equals
     caps[k]--;
     out = render();
   }
-  return out.slice(0, BRIEF_MAX).trimEnd();
+  out = out.slice(0, top).trimEnd();
+  return rest.length ? out + moreLines(rest, by, got, BRIEF_MAX - out.length) : out;
+}
+
+/** One line per further match (name and start files), in rank order, cut where the 7,000 characters end, and a count of those left out. */
+function moreLines(rest, by, got, room) {
+  const head = "\n\nAlso matched (name, where to start):";
+  const lines = rest.map((i) => `- ${by.get(i).name} [${i}]: ` + [...by.get(i).files].sort((a, b) => Number(!got.has(a)) - Number(!got.has(b))).slice(0, BRIEF_LINE_FILES).join(", "));
+  const left = (k) => `- (${k} more matches left out)`;
+  room -= head.length;
+  if (lines.reduce((t, l) => t + l.length + 1, 0) <= room) return head + lines.map((l) => "\n" + l).join("");
+  const shown = [];
+  let used = 0;
+  for (const l of lines) {
+    if (used + l.length + 1 + left(lines.length).length + 1 > room) break;
+    shown.push(l);
+    used += l.length + 1;
+  }
+  if (used + left(lines.length).length + 1 > room) return "";
+  return head + shown.map((l) => "\n" + l).join("") + "\n" + left(lines.length - shown.length);
 }
 
 // ---- --near ---------------------------------------------------------------------------------------------------------------------------

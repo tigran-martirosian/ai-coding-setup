@@ -30,12 +30,12 @@ These go back to the agent:
 
 - a reply with a link it never opened
 - "now run this in a terminal", when it can run that itself
-- a bigger code change (five or more code files, or a job of several helpers) that ends with no reviewer agent having looked at it
+- a bigger change (10 or more code files over a session, a job of several helpers, or hooks, settings or CI files) that ends with no reviewer agent having looked at it
 - a recommended answer in a question that no second agent has checked
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 27 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 28 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 
@@ -58,18 +58,19 @@ In a project with 100 or more code files, the setup builds a map of it by itself
 - The agent runs commands itself instead of asking you to paste them, except for passwords and decisions that are yours.
 - Some replies are sent back, and the agent does the missing step first.
 - In Nimbalyst, a choice question always has a box for your own answer.
-- If you have set no model, it sets Sonnet.
+- If you have set no model, it sets Opus at medium effort. A build or design request goes to the `planner` agent first, in every project.
+- If you have set no time for keeping transcripts, it keeps them 120 days.
 - Every 12 hours you may see one line saying a newer version is out. Nothing downloads until you type `/update-setup`.
 
 ## Install and undo
 
-You need Claude Code, installed and signed in. Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions, the session board and `/lead` don't. Download the ZIP or clone the repository, then in its folder:
+You need Claude Code, installed and signed in. Nimbalyst and other subscriptions are optional: without Nimbalyst the rules, hooks and skills still work, and the extensions and the session board don't. `/lead` runs its steps as subagents, but keeps its job card in Nimbalyst's tracker. Download the ZIP or clone the repository, then in its folder:
 
 ```
 claude "Read docs/full-install.md and carry out every step in it."
 ```
 
-It asks which subscriptions you have, then installs what is missing. For only the setup files, with Node.js 18 or newer (22.5 or newer for the automatic compact):
+It asks which subscriptions you have, then installs what is missing. For only the setup files, with Node.js 18 or newer (22.5 or newer for `steer --to` and `compact-self`; Claude Code's own compact needs nothing):
 
 ```
 node install.mjs --dry-run
@@ -96,12 +97,12 @@ Claude Code itself sends your work to Anthropic, as it does without this setup. 
 | A request for the latest version number | GitHub | Every 12 hours | `UPDATE_CHECK=off` |
 | Project and package names, when the agent looks up a version | endoflife.date, GitHub, npm, PyPI, crates.io, Docker Hub, Maven Central, NuGet | When it checks a version | None |
 | Files the agent gives a free worker | Codex or Gemini | Only if you set them up | Don't set them up |
-| Messages to and from your sessions | Telegram | Only if you run `/phone-bot` | Don't run it |
-| Your name, token counts, model and limit percentages | ccpool.hexxt.dev, someone else's server | Only if you set up `/shared-usage` | Don't set it up |
+| Messages to and from your sessions | Telegram | Only if you add `/phone-bot` and run it | Don't run it |
+| Your name, token counts, model and limit percentages | ccpool.hexxt.dev, someone else's server | Only if you add and set up `/shared-usage` | Don't set it up |
 
 The tools in the starter projects that read web pages open the pages you ask for.
 
-The installer adds rules that stop Claude Code reading saved sign-ins for Claude, Codex and Gemini, or SSH keys, through its own tools, and that ask before a `.env` file. A script that reaches a file without naming it is not stopped. These rules bind Claude Code only: if you set up Gemini, its own rules let it read your projects folder and `~/.claude`.
+The installer adds rules that stop Claude Code reading saved sign-ins for Claude, Codex and Gemini, or SSH keys, through its own tools, and that ask before a `.env` file. A script that reaches a file without naming it is not stopped. These rules bind Claude Code only: if you set up Gemini, its own rules let it read your projects folder and the setup's hooks, skills and agents. It can't read web pages or the rest of `~/.claude`.
 
 ## Limits
 

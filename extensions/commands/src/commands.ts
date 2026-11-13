@@ -2,7 +2,7 @@
 //
 // A button starts a new session in the open project with the command as its first message. The app
 // has no call that reaches a session that is already running (read from the app's code, 2026-10-03),
-// so /handoff, /ask and /btw, which belong to a running chat, are not here.
+// so /handoff and /btw, which belong to a running chat, are not here.
 
 import { HIDE, OWN } from './own.ts';
 import { t } from './strings.ts';

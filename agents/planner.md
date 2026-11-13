@@ -1,7 +1,8 @@
 ---
 name: planner
-description: Writes the plan for a big or hard-to-undo piece of work on the strongest model (Fable); reads files, changes nothing. Use only when the plan is the hard part, not for one you can already see. Brief it with context and leave the approach open - the user's request in their own words, the situation and the files that matter, decisions the user really made (with their reasons), what is still open. Keep out your own solution, guesses dressed up as constraints, step lists and "do X, not Y" rules. Afterwards tell the user where its plan differs from your own view.
+description: Writes the plan on the strongest model (Fable); reads files, changes nothing. Use it first for any build or design request (a new feature, system, screen, design, or a job of several steps), however loosely worded; not for a small edit, a fix with a clear cause, a data change or a question. Brief it with context and leave the approach open - the user's request in their own words, the situation and the files that matter, decisions the user really made (with their reasons), what is still open. Keep out your own solution, guesses dressed up as constraints, step lists and "do X, not Y" rules. Afterwards tell the user where its plan differs from your own view.
 model: fable
+effort: high
 tools: Read, Grep, Glob
 maxTurns: 15
 ---

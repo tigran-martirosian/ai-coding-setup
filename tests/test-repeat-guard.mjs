@@ -61,7 +61,7 @@ const cases = [
   ["errors are counted with is_error only: three identical non-errors pass", () => run([user("go"), ...Array.from({ length: 3 }, () => { const [a, id] = use("Edit"); return [a, result(id, ERR, false)]; }).flat()], ...EDIT), false],
   ["5th edit of one file: passes with no output", () => run([user("go"), ...many(4, "Edit", F)], "Edit", { file_path: F }), false],
   ["6th edit of one file: reminder", () => run([user("go"), ...many(5, "Edit", F)], "Edit", { file_path: F }), "in one edit"],
-  ["6th edit counts Write and MultiEdit too: reminder", () => run([user("go"), ...many(2, "Edit", F), ...many(2, "Write", F), ...many(1, "MultiEdit", F)], "Write", { file_path: F }), "additionalContext"],
+  ["6th edit counts Write too: reminder", () => run([user("go"), ...many(3, "Edit", F), ...many(2, "Write", F)], "Write", { file_path: F }), "additionalContext"],
   ["the reminder does not refuse", () => run([user("go"), ...many(5, "Edit", F)], "Edit", { file_path: F }), (o) => !o.includes("deny")],
   ["7th edit: no output", () => run([user("go"), ...many(6, "Edit", F)], "Edit", { file_path: F }), false],
   ["edits spread over different files: no output", () => run([user("go"), ...[1, 2, 3, 4, 5, 6].flatMap((i) => touched("Edit", `/p/f${i}.txt`))], "Edit", { file_path: "/p/f7.txt" }), false],
@@ -110,22 +110,42 @@ const cases = [
     writeFileSync(p, [user("brief"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)].map((e) => JSON.stringify({ ...e, isSidechain: true })).join("\n") + "\n");
     return spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ transcript_path: p, agent_id: "direct", tool_name: "Edit", tool_input: { file_path: F } }), env: { ...process.env, ...BASE }, encoding: "utf8" }).stdout;
   }, "deny"],
+  ["worker at 70 turns: told to finish and report", () => nearCap("worker", 70), "close to your limit"],
+  ["worker at 69 turns: nothing", () => nearCap("worker", 69), false],
+  ["a compaction doesn't restart the count", () => nearCap("worker", 70, 1, 30), "close to your limit"],
+  ["reviewer at 25 turns: told to finish and report", () => nearCap("reviewer", 25), "close to your limit"],
+  ["planner at 12 turns: told to finish and report", () => nearCap("planner", 12), "close to your limit"],
+  ["an agent type with no cap: nothing", () => nearCap("other", 75), false],
+  ["several calls in one reply are one turn", () => nearCap("reviewer", 25, 2), false],
   ["subagent: no subagent file: no output", () => helper([user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR), ...failed("Edit", ERR)], null, ...EDIT), false],
 ];
 
 // Main transcript at DIR/s<n>.jsonl, the subagent's (every line isSidechain) at DIR/s<n>/subagents/agent-a1.jsonl
-function helper(mainEntries, subEntries, tool, input) {
+function helper(mainEntries, subEntries, tool, input, agentType) {
   const main = join(DIR, `s${++fileNo}.jsonl`);
   writeFileSync(main, mainEntries.map((e) => JSON.stringify(e)).join("\n") + "\n");
   if (subEntries) {
     const dir = join(DIR, `s${fileNo}`, "subagents");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "agent-a1.jsonl"), subEntries.map((e) => JSON.stringify({ ...e, isSidechain: true })).join("\n") + "\n");
+    if (agentType) writeFileSync(join(dir, "agent-a1.meta.json"), JSON.stringify({ agentType }));
   }
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({ transcript_path: main, agent_id: "a1", tool_name: tool, tool_input: input }),
     env: { ...process.env, ...BASE }, encoding: "utf8",
   }).stdout;
+}
+
+// A helper's own transcript with one call per reply (or several) and the meta file Claude Code writes next to it
+function nearCap(type, calls, perReply = 1, compactAt = -1) {
+  const entries = [user("the brief")];
+  for (let i = 0; i < calls; i++) {
+    if (i === compactAt) entries.push({ ...user("the summary"), isCompactSummary: true });
+    const [a, id] = use("Bash", { command: `c${i}` });
+    a.message.id = `m${Math.floor(i / perReply)}`;
+    entries.push(a, result(id, "ok", false));
+  }
+  return helper([user("go")], entries, "Bash", { command: "ls" }, type);
 }
 
 let failures = 0;
