@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.93 (Nov 5, 2026): A file a script writes is listed in the project's systems map: a hand edit of it is refused with the script to change instead, and the map's check names one already edited by hand, so the next run can't bring old text back.
 - 1.0.92 (Nov 5, 2026): Nimbalyst's chats now run your own Claude Code instead of the copy Nimbalyst bundles, so they get Claude Code fixes the day they ship rather than days later with a Nimbalyst release.
 - 1.0.91 (Nov 5, 2026): Claude no longer stops after one finished step when you asked for the whole job, catches a reply that says a helper is running when none is, notes each helper's model, explains every shell command in a short capitalised line, and shows a project's next-release notes when a session starts.
 - 1.0.90 (Nov 5, 2026): Every button in the Nimbalyst side bar has a short name under its icon, the extensions' too; the theme menu stays open while you try themes; a question form missing a box to type in gets one added instead of showing up twice.
