@@ -134,6 +134,9 @@ check("silent: typing a key in place of a placeholder", msg("You need to run `se
 check("silent: a PIN typed beside the command (upper case)", msg("You need to run `ssh-add -t 3600 ~/.ssh/id` in a terminal and enter your PIN when it asks.") === "");
 check("fires: 'they should pass now' has no person as subject", blocks(msg("The tests are fixed and they should pass now. You need to run `npm run build` in a terminal.")));
 check("fires: 'in this session' earlier in the reply, not before the code", blocks(msg("Nothing else changed in this session. You need to run `git push origin main` in a terminal.")));
+check("silent: a command for several friends", msg("### Needs you\n- Tell your friends to run this in a Nimbalyst chat, then start a new chat.\n  ```\n  /update-setup\n  ```") === "");
+check("held: 'the user settings' is not another person", msg("I changed the user settings file. Run this in your terminal: `npm run dev -- --port 3001`") !== "");
+check("held: 'give them a try' is not another person", msg("Then give them a try. Run this in your terminal: `npm run dev -- --port 3001`") !== "");
 check("silent: a friend who pastes it (shared person regex)", msg("Send this to your friend: he pastes it into a new session in his project.\n```\nRead the handoff file and continue the work\n```") === "");
 check("silent: 'he runs' in a terminal", msg("Send this to him, he runs it in a terminal:\n```\nnpm run dev -- --port 3001\n```") === "");
 check("fires: 'The push was rejected' is a git error, not the permission system", blocks(msg("The push was rejected. You need to run `git pull --rebase` in a terminal.")));

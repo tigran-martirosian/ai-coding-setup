@@ -1,7 +1,7 @@
 // Tests for hooks/big-read-gate.mjs on made-up files in a temp folder. Run: node test-big-read-gate.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,16 @@ mkdirSync(join(optOut, ".claude"), { recursive: true });
 mkdirSync(join(optOut, "tools"));
 writeFileSync(join(optOut, ".claude", "settings.json"), JSON.stringify({ env: { BIG_READ_GATE: "off" } }));
 writeFileSync(join(optOut, "big.txt"), bigText);
+const F = B.replace(/\\/g, "/"); // the same file, written the way Bash takes it
+// Files with a space in the name: one big, one under 350 lines but over 20000 bytes (100 x 300), one under both limits (100 x 150)
+const SPACED = join(dir, "gate test big.txt").replace(/\\/g, "/");
+const MID = join(dir, "gate test mid.txt").replace(/\\/g, "/");
+const LOW = join(dir, "gate test low.txt").replace(/\\/g, "/");
+writeFileSync(SPACED, "line\n".repeat(900));
+writeFileSync(MID, ("x".repeat(299) + "\n").repeat(100));
+writeFileSync(LOW, ("x".repeat(149) + "\n").repeat(100));
+const bash = (command) => ({ tool_name: "Bash", tool_input: { command } });
+const ps = (command) => ({ tool_name: "PowerShell", tool_input: { command } });
 // Git Bash writes C:\ as /c/
 const gitBashDir = process.platform === "win32" ? dir.replace(/^([A-Za-z]):/, (_, d) => "/" + d.toLowerCase()).replace(/\\/g, "/") : dir;
 
@@ -56,6 +66,36 @@ const cases = [
   ["powershell -Command with a line limit", "pass", { tool_name: "Bash", tool_input: { command: "powershell -NoProfile -Command 'Get-Content big.txt -TotalCount 40'" } }],
   ["PS Get-Content piped into Select-Object -First", "pass", { tool_name: "PowerShell", tool_input: { command: "Get-Content big.txt | Select-Object -First 20" } }],
   ["PS Get-Content piped into Out-Host", "deny", { tool_name: "PowerShell", tool_input: { command: "Get-Content big.txt | Out-Host" } }],
+  // absolute paths: filters, limits, quoting, comments, heredocs, options, nested shells
+  ["pipe into head -2000", "deny", bash(`cat ${F} | head -2000`)],
+  ["pipe into tail -n +2", "deny", bash(`cat ${F} | tail -n +2`)],
+  ["tee, then to /dev/null", "pass", bash(`cat ${F} | tee copy.txt > /dev/null`)],
+  ["2>&1", "deny", bash(`cat ${F} 2>&1`)],
+  ["PS pipe into Select-String", "pass", ps(`Get-Content ${B} | Select-String import`)],
+  ["pipe inside quotes, then cat", "deny", bash(`echo "a | b" && cat ${F}`)],
+  ["quoted name with a space", "deny", bash(`cat "${SPACED}"`)],
+  ["escaped spaces", "deny", bash(`cat ${SPACED.replace(/ /g, "\\ ")}`)],
+  ["PS quoted name with a space", "deny", ps(`Get-Content '${SPACED}'`)],
+  ["note with an apostrophe after a big cat", "deny", bash(`cat ${F}\n\n# WHAT THIS DOES: Shows the file; it's big.`)],
+  ["note that names a big file", "pass", bash(`ls\n\n# WHAT THIS DOES: Doesn't cat ${F}; only lists the folder.`)],
+  ["heredoc body is not a command (absolute)", "pass", bash(`node - <<'EOF'\ncat ${F}\nEOF`)],
+  ["command after a heredoc", "deny", bash(`node - <<'EOF'\nconsole.log(1)\nEOF\ncat ${F}`)],
+  ["VAR=value and a path before cat", "deny", bash(`LC_ALL=C /usr/bin/cat ${F}`)],
+  ["inside a loop", "deny", bash(`for i in 1 2; do cat ${F}; done`)],
+  ["cat -n is not a line count", "deny", bash(`cat -n ${F}`)],
+  ["head -n -5 is nearly the whole file", "deny", bash(`head -n -5 ${F}`)],
+  ["head -n 40", "pass", bash(`head -n 40 ${F}`)],
+  ["head --lines=2000", "deny", bash(`head --lines=2000 ${F}`)],
+  ["head -c 2000", "pass", bash(`head -c 2000 ${F}`)],
+  ["missing file before a big one", "deny", bash(`cat nope.txt ${F}`)],
+  ["PS -TotalCount:40", "pass", ps(`Get-Content ${B} -TotalCount:40`)],
+  ["PS -Tail 2000", "deny", ps(`Get-Content ${B} -Tail 2000`)],
+  ["powershell -Command piped to grep", "pass", bash(`powershell -NoProfile -Command 'Get-Content ${F}' | grep import`)],
+  ["bash -c with an absolute path", "deny", bash(`bash -c "cat ${F}"`)],
+  ["Read 100 lines of 300 bytes (30 KB) whole", "deny", { tool_name: "Read", tool_input: { file_path: MID } }],
+  ["Read 30 KB file, limit 20", "pass", { tool_name: "Read", tool_input: { file_path: MID, limit: 20 } }],
+  ["Read 15 KB file whole", "pass", { tool_name: "Read", tool_input: { file_path: LOW } }],
+  ["cat of the 30 KB file", "deny", bash(`cat "${MID}"`)],
 ];
 let fail = 0;
 for (const [name, want, ev] of cases) {
@@ -64,6 +104,20 @@ for (const [name, want, ev] of cases) {
   if (got !== want) fail++;
   console.log(`${got === want ? "ok  " : "FAIL"} ${name}: ${got}`);
 }
+// The refusal text: a Sonnet worker subagent with a type, no Codex, no free worker, and a line count that fits the byte limit
+const denyText = JSON.parse(spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: MID } }) }).stdout.toString()).hookSpecificOutput.permissionDecisionReason;
+for (const [name, ok] of [
+  ["text: subagent_type worker with model sonnet", /subagent_type: "worker", model: "sonnet"/.test(denyText)],
+  ["text: no ask.mjs or free worker", !/ask.mjs|free worker/.test(denyText)],
+  ["text: no Codex", !/codex/i.test(denyText)],
+  ["text: suggests a read that fits under 20 KB (66 lines)", /at most 6\d lines/.test(denyText)],
+]) { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); }
+// A Read of a file that does not exist passes and logs no crash (the Read tool reports it itself)
+const LOG = join(dir, "crash.log");
+const gone = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: join(dir, "no-such-dir", "none.txt") } }), env: { ...process.env, HOOK_ERRORS_LOG: LOG } });
+const goneOk = !gone.stdout.toString().includes('"deny"') && !existsSync(LOG);
+if (!goneOk) fail++;
+console.log(`${goneOk ? "ok  " : "FAIL"} missing file: pass, no crash logged`);
 rmSync(dir, { recursive: true, force: true });
 console.log(fail ? `${fail} failed` : "all passed");
 process.exit(fail ? 1 : 0);

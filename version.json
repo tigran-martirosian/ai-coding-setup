@@ -1,6 +1,6 @@
 {
-  "version": "1.0.99",
+  "version": "1.0.100",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-06",
-  "summary": "The usage dashboard shows plan use and token use by plan week (this week, last week, the weeks before) with this computer's part of each, opens as a full panel from the Usage icon in Nimbalyst, and builds in seconds instead of half a minute."
+  "summary": "The whole setup is rebuilt from shared parts so it breaks less, a new /untangle-codebase command does the same for your own projects, and a security pass closes holes: the OpenCLI read-only check can no longer be talked around, a claude.exe placed in a project folder is never run or handed to Nimbalyst, Git runs without a shell, and updates never drop to plain http. The chat and usage reports now cover 14 days, project settings in settings.local.json and parent folders count, extension installs stop with a clear message when Nimbalyst is missing, helpers handle background jobs and finished-job notices better, question forms are repaired instead of refused, and the homepage has a new film."
 }

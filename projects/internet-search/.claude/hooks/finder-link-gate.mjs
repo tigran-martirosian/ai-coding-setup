@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// link-gate: Stop hook for the finder project. Backs the rule "a link counts only if it is the
+// finder-link-gate: Stop hook for the finder project. Backs the rule "a link counts only if it is the
 // item's own page, opened in this session". It reads the session's transcript and blocks the reply
 // when a link in it (or in a finds/*.md file written this session):
 //   - was never opened in this session (browser_navigate, browser_open_session, WebFetch, an address

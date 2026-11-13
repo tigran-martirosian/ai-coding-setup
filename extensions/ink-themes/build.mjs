@@ -5,9 +5,9 @@
 //                                    on a running window without saving it
 //   node build.mjs --swatches f      build, then write f: a page that shows every theme's colours side by side
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { extensionTarget, readTokens } from '../shared/build-lib.mjs';
 import { EXTENSION_ID, THEMES, colors } from './themes.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -47,7 +47,7 @@ const own = (t) => `--nim-on-primary: ${t.onPrimary} !important;`;
 const src = fs.readFileSync(path.join(here, 'theme.src.css'), 'utf8');
 if (!src.includes('__S__ {')) throw new Error('theme.src.css has no __S__ scope word');
 // The shared design tokens go inside the scope block, so they exist only while one of the themes is on
-const tokens = fs.readFileSync(path.join(here, '..', 'shared', 'tokens.css'), 'utf8')
+const tokens = readTokens()
   .replace(/:root \{/g, '& {').replace(/html:not\(\.dark-theme\) \{/g, '&:not(.dark-theme) {');
 if (!tokens.includes('--x-surface-1')) throw new Error('../shared/tokens.css has no --x-surface-1');
 const shared = (scope) => faces + src.replace('__S__ {', () => `${scope} {
@@ -67,10 +67,7 @@ fs.writeFileSync(main, shell);
 
 const [flag, file, id] = process.argv.slice(2);
 if (flag === '--install') {
-  // On a Mac Nimbalyst keeps its settings under Application Support
-  const appData = process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support') : process.env.APPDATA;
-  if (!appData) throw new Error('Cannot find the settings folder: APPDATA is not set');
-  const dest = path.join(appData, '@nimbalyst', 'electron', 'extensions', 'inktheme');
+  const dest = extensionTarget('inktheme');
   fs.mkdirSync(path.join(dest, 'dist'), { recursive: true });
   fs.copyFileSync(manifestFile, path.join(dest, 'manifest.json'));
   fs.copyFileSync(out, path.join(dest, 'dist', 'theme.css'));

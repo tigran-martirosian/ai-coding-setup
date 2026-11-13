@@ -10,25 +10,23 @@
 //   passes (nothing is remembered: the next stop is judged again).
 // - VERIFY_PATTERN (a regex, matched case-insensitively against the whole Bash command) replaces the default list of build
 //   and test commands. VERIFY_GATE=off disables the gate: the opt-out for a project whose suite is slow. Both are read from the
-//   environment, then from "env" in the project's .claude/settings.json (settings env may not reach a hook process).
-// Blocks at most once per turn, remembered in a temp file per session: stop_hook_active alone is not enough,
-// since a block by any other Stop hook sets it too. The turn starts at the user's last typed message.
+//   environment, then from "env" in .claude/settings.local.json and settings.json of the project and the folders above it
+//   (settings env may not reach a hook process).
+// Blocks at most once per turn, remembered in ~/.claude/hooks/state/verify-gate/<session>.json: stop_hook_active alone
+// is not enough, since a block by any other Stop hook sets it too. The turn starts at the user's last typed message.
 // Fails open; a crash leaves a line in hooks/state/hook-errors.log.
-import { crashLog } from "./crash-log.mjs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
+import { fileKey, sessionKey } from "./lib/paths.mjs";
+import { setting } from "./lib/settings-env.mjs";
+import { readJson, stateFile, sweep, writeJson } from "./lib/state.mjs";
+import { entries as readEntries, currentTurn } from "./lib/transcript.mjs";
+import { isBuildCode as isCode } from "./lib/code-files.mjs";
+import { VERIFY_GATE } from "./lib/texts.mjs";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
-// code-review-gate's list, without the markup files (html, css, sql): a project that has only those has nothing to build
-const CODE_EXT = new Set([".java", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".gd", ".cs", ".go", ".rs", ".kt", ".kts", ".gradle", ".vue", ".svelte", ".php", ".rb", ".swift", ".c", ".cpp", ".h", ".sh", ".ps1"]);
 const EDIT_TOOLS = /^(Edit|Write|MultiEdit)$/;
 const SHELL_TOOLS = /^(Bash|PowerShell)$/;
-const isCode = (p) => {
-  const f = String(p).replace(/\\/g, "/");
-  if (/\/(temp|tmp|scratch)\//i.test(f)) return false; // a throwaway script is not the project's code
-  const ext = path.extname(f).toLowerCase();
-  return CODE_EXT.has(ext) || (ext === ".json" && /(^|\/)src\//.test(f));
-};
 
 // One command at a time (split on && || ; | and newlines), each anchored at its start, after env assignments and a shell wrapper
 const BUILD = new RegExp(
@@ -47,31 +45,6 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const runsEdited = (command, names) => names.some((n) => new RegExp(
   "(?:^|[\\s;&|(])(?:python3?|py|node|bash|sh|pwsh|powershell)(?:\\.exe)?(?:\\s+-\\S+)*\\s+[\"']?(?:\\S*[\\\\/])?" + esc(n) + "[\"']?(?:\\s|$)", "i").test(command));
 
-const userText = (e) => {
-  const c = e.message?.content;
-  return typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text || "").join("\n") : "";
-};
-// A message the user typed: not a tool result, and not text Claude Code or Nimbalyst adds on its own
-const INJECTED = /^\[(Request interrupted|System:|Child Session Update\])/;
-const typedByUser = (e) => {
-  if (e.type !== "user" || e.isMeta || e.isCompactSummary || e.promptSource === "system" || e.origin?.kind === "task-notification") return false;
-  const t = userText(e).trim();
-  return !!t && !INJECTED.test(t);
-};
-
-// The current turn: the user's last typed message and what came after it, read from the end of the file
-export function currentTurn(lines) {
-  const turn = [];
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (!lines[i].trim()) continue;
-    let e;
-    try { e = JSON.parse(lines[i]); } catch { continue; }
-    if (typedByUser(e)) return { start: e, entries: turn.reverse() };
-    turn.push(e);
-  }
-  return { start: null, entries: turn.reverse() };
-}
-
 // The code files edited in the turn, and whether a build or test ran after the last of those edits
 export function unverified(entries, pattern) {
   const failed = new Set();
@@ -89,7 +62,7 @@ export function unverified(entries, pattern) {
       step++;
       const p = b.input?.file_path;
       if (EDIT_TOOLS.test(b.name) && p && isCode(p)) {
-        const k = path.resolve(String(p)).toLowerCase();
+        const k = fileKey(p);
         files.set(k, { name: path.basename(String(p)), edit: step, run: files.get(k)?.run ?? -1 });
       } else if (SHELL_TOOLS.test(b.name)) {
         const c = String(b.input?.command || "");
@@ -102,45 +75,24 @@ export function unverified(entries, pattern) {
   return { files: all.map((f) => f.name), due: all.some((f) => f.edit > Math.max(lastBuild, f.run)) };
 }
 
-// The switches can sit in the project's settings env
-function setting(name) {
-  if (process.env[name]) return process.env[name];
-  try {
-    const file = path.join(process.env.CLAUDE_PROJECT_DIR || process.cwd(), ".claude", "settings.json");
-    return String(JSON.parse(fs.readFileSync(file, "utf8")).env?.[name] || "");
-  } catch { return ""; }
-}
-
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
-  try {
-    if (setting("VERIFY_GATE").toLowerCase() === "off") process.exit(0);
-    const input = JSON.parse(fs.readFileSync(0, "utf8"));
-    if (input.agent_id || !input.transcript_path || !input.session_id || !fs.existsSync(input.transcript_path)) process.exit(0);
-    const { start, entries } = currentTurn(fs.readFileSync(input.transcript_path, "utf8").split("\n"));
+// VERIFY_GATE and VERIFY_PATTERN can sit in the project's settings env (setting() looks in settings.local.json too,
+// and in the folders above the project)
+if (isMain(import.meta.url)) {
+  runHook("verify-gate", (input) => {
+    if (input.agent_id || !input.transcript_path || !input.session_id || !fs.existsSync(input.transcript_path)) return;
+    // The turn starts at the user's last typed message: a task's notice after it is part of it
+    const { start, entries } = currentTurn(readEntries(fs.readFileSync(input.transcript_path, "utf8")), { typed: true });
     const custom = setting("VERIFY_PATTERN");
     const { files, due } = unverified(entries, custom ? new RegExp(custom, "i") : null); // a bad pattern throws: logged, fails open
-    if (!due) process.exit(0);
-    if (/\?\s*$/.test(String(input.last_assistant_message || ""))) process.exit(0);
-    // Once per turn: the temp file holds the turn this hook last blocked; files older than two days go
-    const tmp = os.tmpdir();
-    const marker = path.join(tmp, `verify-gate-${String(input.session_id).replace(/[^\w-]/g, "_")}.txt`);
+    if (!due) return;
+    if (/\?\s*$/.test(String(input.last_assistant_message || ""))) return;
+    // Once per turn: the state file holds the turn this hook last blocked; files untouched for two days go
+    const marker = stateFile("verify-gate", sessionKey(input.session_id));
     const turnKey = start?.uuid || start?.timestamp || "no-typed-message";
-    if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === turnKey) process.exit(0);
-    fs.writeFileSync(marker, turnKey); // throws when it can't be written, so no block that could repeat
+    if (readJson(marker)?.turn === turnKey) return;
+    writeJson(marker, { turn: turnKey }); // throws when it can't be written, so no block that could repeat
     const names = files.length > 6 ? `${files.slice(0, 6).join(", ")} and ${files.length - 6} more` : files.join(", ");
-    process.stdout.write(JSON.stringify({
-      decision: "block",
-      reason: `verify-gate: code was edited this turn (${names}) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.`,
-    }));
-    try {
-      for (const f of fs.readdirSync(tmp).filter((f) => f.startsWith("verify-gate-") && f !== path.basename(marker))) {
-        if (Date.now() - fs.statSync(path.join(tmp, f)).mtimeMs > 2 * 86400000) fs.unlinkSync(path.join(tmp, f));
-      }
-    } catch {
-      // a leftover file is harmless
-    }
-  } catch (err) {
-    // fail open, with a trace: a dead gate must not look like a quiet one
-    crashLog("verify-gate", err);
-  }
+    emit.block(`${VERIFY_GATE} code was edited this turn (${names}) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.`);
+    sweep("verify-gate", 2);
+  }, { projectSettings: true });
 }

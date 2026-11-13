@@ -9,7 +9,7 @@
 // broken forms, listing each with the fixed `/C:/...` (or `/Users/...`) form (a relative one resolved
 // against the session cwd). Web links, mailto:, nimbalyst://, other schemes, #anchors, images and Nimbalyst embeds
 // (a "width=... height=..." title) are left alone.
-// Since 2026-10-29 one more kind is blocked: a link in a working form to a local file OUTSIDE the session's
+// One more kind is blocked: a link in a working form to a local file OUTSIDE the session's
 // project folder (project root = the nearest ancestor of the input's cwd with a CLAUDE.md or .git, else the
 // cwd), because Nimbalyst opens a link only for a file inside the open project. Its fix line suggests the
 // file's path in inline code instead. A link already in a broken form keeps its /C:/ fix as before; paths
@@ -19,8 +19,9 @@
 // Silent outside an app: links only matter in Nimbalyst, which runs Claude with CLAUDE_CODE_ENTRYPOINT
 // "sdk-..."; the terminal sets "cli", so a terminal user is never refused or reminded (same test as command-explain).
 // Silent when stop_hook_active is set (no loops). Fails open. FILE_LINK_GATE=off disables it.
-import { crashLog } from "./crash-log.mjs";
-import fs from "node:fs";
+import { runHook, isMain, inNimbalyst, emit } from "./lib/hook-io.mjs";
+import { gitBashToNative, projectRoot as rootOf } from "./lib/paths.mjs";
+import { entries, tail } from "./lib/transcript.mjs";
 import os from "node:os";
 import path from "node:path";
 
@@ -105,13 +106,12 @@ export function fixedTarget(target, cwd) {
   }
   try { t = decodeURIComponent(t); } catch { t = t.replace(/%20/gi, " "); }
   t = t.replace(/^file:\/\/(localhost)?/i, "").replace(/\\/g, "/");
-  const gitBash = (p) => p.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:"); // /c/x -> c:/x
   if (/^\/[A-Za-z]:\//.test(t)) t = t.slice(1);
-  t = gitBash(t);
+  t = gitBashToNative(t);
   if (t === "~" || t.startsWith("~/")) t = path.join(os.homedir(), t.slice(1));
   else if (!/^[A-Za-z]:\//.test(t)) {
     if (!cwd) return null;
-    const base = gitBash(cwd.replace(/\\/g, "/"));
+    const base = gitBashToNative(cwd.replace(/\\/g, "/"));
     // A Mac or Linux cwd starts with "/"; a drive or a \\server share is Windows
     t = (base.startsWith("/") && !base.startsWith("//") ? path.posix : path.win32).resolve(base, t);
   }
@@ -120,24 +120,8 @@ export function fixedTarget(target, cwd) {
   return `/${t[0].toUpperCase()}${t.slice(1).replace(/ /g, "%20")}${suffix}`;
 }
 
-const gitBashPath = (p) => p.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:");
-
-// The nearest ancestor of cwd holding a CLAUDE.md or .git, else cwd itself
-export function projectRoot(cwd) {
-  // CLAUDE_PROJECT_DIR is the open project; the hook's cwd follows Bash `cd` and can sit elsewhere
-  const envDir = process.env.CLAUDE_PROJECT_DIR;
-  try { if (envDir && fs.existsSync(envDir)) return gitBashPath(envDir.replace(/\\/g, "/")); } catch {}
-  try {
-    // A C:/ path climbs with Windows rules everywhere: elsewhere dirname walks "C:" to "." (the process's own folder)
-    const P = /^[A-Za-z]:[\\/]/.test(cwd) ? path.win32 : path;
-    for (let d = cwd; ; ) {
-      if (fs.existsSync(P.join(d, "CLAUDE.md")) || fs.existsSync(P.join(d, ".git"))) return d;
-      const up = P.dirname(d);
-      if (up === d) return cwd;
-      d = up;
-    }
-  } catch { return cwd; }
-}
+// The open project folder for a cwd (paths.mjs); no cwd, no root
+export const projectRoot = (cwd) => (cwd ? rootOf({ cwd }) : cwd);
 
 // A working-form target (/C:/..., C:/..., /Users/...) that points outside the project: its path as it
 // would be written in code; null when it is inside, not a local absolute path, or cannot be placed
@@ -147,7 +131,7 @@ export function outsideCode(link, cwd) {
   if (!/^\/?[A-Za-z]:\//.test(t) && !(t.startsWith("/") && !t.startsWith("//"))) return null;
   try { t = decodeURIComponent(t); } catch { t = t.replace(/%20/gi, " "); }
   t = t.replace(/^\/([A-Za-z]:\/)/, "$1");
-  const base = gitBashPath(cwd.replace(/\\/g, "/"));
+  const base = gitBashToNative(cwd.replace(/\\/g, "/"));
   if (t.startsWith("/") && /^[A-Za-z]:\//.test(base)) return null; // a Mac path under a Windows cwd: unplaceable
   const norm = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   const a = norm(t), r = norm(projectRoot(base));
@@ -177,26 +161,13 @@ export function badLinks(text, cwd) {
 
 // The assistant's visible text since the user's last prompt (tool results do not end the turn)
 export function turnText(transcriptPath) {
-  const fd = fs.openSync(transcriptPath, "r");
-  let chunk;
-  try {
-    const size = fs.fstatSync(fd).size;
-    const len = Math.min(size, TAIL_BYTES);
-    const buf = Buffer.alloc(len);
-    fs.readSync(fd, buf, 0, len, size - len);
-    chunk = buf.toString("utf8");
-  } finally {
-    fs.closeSync(fd);
-  }
-  const lines = chunk.split("\n");
+  const list = entries(tail(transcriptPath, TAIL_BYTES));
   const parts = [];
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line.includes('"user"') && !line.includes('"assistant"')) continue;
-    let e;
-    try { e = JSON.parse(line); } catch { continue; }
-    if (e.isSidechain) continue;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const e = list[i];
     const c = e.message?.content;
+    // Any user entry with text ends the turn, Stop hook feedback included (not typedByUser): the reply
+    // before a block was judged already
     if (e.type === "user") {
       if (typeof c === "string" || (Array.isArray(c) && c.some((b) => b.type === "text"))) break;
       continue;
@@ -221,35 +192,26 @@ export function reason(bad) {
 // --remind (UserPromptSubmit): one line before every reply, so the working form is fresh when links are
 // written, instead of only caught after the user has already seen dead ones
 export function remindText(cwd) {
-  const root = cwd ? fixedTarget(".", projectRoot(gitBashPath(cwd.replace(/\\/g, "/")))) : null;
+  const root = cwd ? fixedTarget(".", projectRoot(gitBashToNative(cwd.replace(/\\/g, "/")))) : null;
   const ex = root ? `${root}/docs/notes.md` : "/C:/Projects/x/docs/notes.md";
   return `[file-link-gate] File links in this reply: full path, forward slashes, leading slash, e.g. [notes.md](${ex}) or [notes.md:12](${ex}:12). Never a relative target like (docs/notes.md): it does not open.`;
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
-  let raw = "";
-  process.stdin.on("data", (d) => (raw += d));
-  process.stdin.on("end", () => {
-    try {
-      if ((process.env.FILE_LINK_GATE || "").toLowerCase() === "off") return;
-      if (!/^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "")) return;
-      const input = JSON.parse(raw);
-      if (process.argv.includes("--remind")) {
-        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: remindText(input.cwd) } }));
-        return;
-      }
-      if (input.stop_hook_active) return;
-      let text = "";
-      if (input.transcript_path) {
-        try { text = turnText(input.transcript_path); } catch {}
-      }
-      const last = typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
-      if (last && !text.includes(last)) text = text ? `${text}\n${last}` : last;
-      const bad = badLinks(text, input.cwd);
-      if (bad.length) process.stdout.write(JSON.stringify({ decision: "block", reason: reason(bad) }));
-    } catch (err) {
-      crashLog("file-link-gate", err);
-      // fail open
+if (isMain(import.meta.url)) {
+  runHook("file-link-gate", (input) => {
+    if (!inNimbalyst()) return;
+    if (process.argv.includes("--remind")) {
+      emit.context("UserPromptSubmit", remindText(input.cwd));
+      return;
     }
+    if (input.stop_hook_active) return;
+    let text = "";
+    if (input.transcript_path) {
+      try { text = turnText(input.transcript_path); } catch {}
+    }
+    const last = typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
+    if (last && !text.includes(last)) text = text ? `${text}\n${last}` : last;
+    const bad = badLinks(text, input.cwd);
+    if (bad.length) emit.block(reason(bad));
   });
 }

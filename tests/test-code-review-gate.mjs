@@ -1,15 +1,22 @@
 // Tests for hooks/code-review-gate.mjs. Run: node tests/test-code-review-gate.mjs
-// Each case writes a small transcript and runs the hook on it as a Stop event.
+// Most cases write a small transcript and run the hook on it as a Stop event; the last parts test the push check's
+// command reading, the small-rule-edit rule and the decision (assess, hooks/lib/review-decide.mjs) on made-up evidence.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, utimesSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { delimiter, join } from "node:path";
+import { isPush, offInCommand } from "../hooks/code-review-gate.mjs";
+import { assess, editsSinceReview, smallSetupEdits, HELPER_IDLE, MIN_FILES, NEW_JOB_FILES, NOTE_WINDOW, SMALL_SETUP_LINES } from "../hooks/lib/review-decide.mjs";
+import { fileKey } from "../hooks/lib/paths.mjs";
 delete process.env.REVIEW_PUSH_PATTERN; // a project that sets one must not reach the test through this shell
 
 const HOOK = fileURLToPath(new URL("../hooks/code-review-gate.mjs", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "test-code-review-gate-"));
+// The hook keeps its files in <home>/.claude/hooks/state/code-review-gate: a home of the test's own
+const HOME = join(dir, "home"), HOME_ENV = { HOME, USERPROFILE: HOME };
+const STATE = join(HOME, ".claude", "hooks", "state", "code-review-gate");
 
 let id = 0;
 const typed = (text) => ({ type: "user", uuid: `u${++id}`, message: { role: "user", content: text } });
@@ -27,7 +34,7 @@ const run = (entries, { input = {}, env = {}, session } = {}) => {
   const file = join(dir, `t${++n}.jsonl`);
   writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
   const event = { session_id: session || `s${n}`, transcript_path: file, hook_event_name: "Stop", stop_hook_active: false, ...input };
-  return spawnSync(process.execPath, [HOOK], { input: JSON.stringify(event), env: { ...process.env, CODE_REVIEW_GATE: "", CODE_REVIEW_MIN_FILES: "3", CLAUDE_PROJECT_DIR: dir, TEMP: dir, TMP: dir, TMPDIR: dir, ...env }, encoding: "utf8" }).stdout;
+  return spawnSync(process.execPath, [HOOK], { input: JSON.stringify(event), env: { ...process.env, CODE_REVIEW_GATE: "", CODE_REVIEW_MIN_FILES: "3", CLAUDE_PROJECT_DIR: dir, TEMP: dir, TMP: dir, TMPDIR: dir, ...HOME_ENV, ...env }, encoding: "utf8" }).stdout;
 };
 const blocks = (out) => out.includes('"decision":"block"') && out.includes('subagent_type \\"reviewer\\"');
 
@@ -88,8 +95,8 @@ report(run(blocked, { input: { transcript_path: join(dir, "missing.jsonl") } }) 
 report(spawnSync(process.execPath, [HOOK], { input: "not json", encoding: "utf8" }).stdout === "", "bad JSON fails open");
 const many = [typed("build"), ...["a", "b", "c", "d", "e", "f", "g", "h"].flatMap((f) => edit(`C:/p/${f}.js`))];
 report(/8 code files \(a\.js, b\.js, c\.js, d\.js, e\.js, f\.js and 2 more\)/.test(run(many)), "a long file list is cut after 6 names");
-const old = join(dir, "code-review-gate-old.txt"), fresh = join(dir, "code-review-gate-fresh.txt");
-writeFileSync(old, "x"); writeFileSync(fresh, "x");
+const old = join(STATE, "old.json"), fresh = join(STATE, "fresh.json");
+mkdirSync(STATE, { recursive: true }); writeFileSync(old, "{}"); writeFileSync(fresh, "{}");
 utimesSync(old, new Date(Date.now() - 3 * 86400000), new Date(Date.now() - 3 * 86400000));
 const cleaned = blocks(run(blocked));
 report(cleaned && !existsSync(old) && existsSync(fresh), "a block deletes marker files older than two days and keeps newer ones");
@@ -111,7 +118,7 @@ const withHelpers = (entries, helpers, env = {}, session = `h${++n}`) => {
   const file = join(dir, `${session}.jsonl`);
   writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
   const event = { session_id: session, transcript_path: file, hook_event_name: "Stop", stop_hook_active: false };
-  return spawnSync(process.execPath, [HOOK], { input: JSON.stringify(event), env: { ...process.env, CODE_REVIEW_GATE: "", CODE_REVIEW_MIN_FILES: "", CLAUDE_PROJECT_DIR: dir, TEMP: dir, TMP: dir, TMPDIR: dir, ...env }, encoding: "utf8" }).stdout;
+  return spawnSync(process.execPath, [HOOK], { input: JSON.stringify(event), env: { ...process.env, CODE_REVIEW_GATE: "", CODE_REVIEW_MIN_FILES: "", CLAUDE_PROJECT_DIR: dir, TEMP: dir, TMP: dir, TMPDIR: dir, ...HOME_ENV, ...env }, encoding: "utf8" }).stdout;
 };
 const STARTED = { ...typed("build"), timestamp: new Date(Date.now() - 60000).toISOString() };
 const ONE = (f) => edit(`C:/p/${f}.js`);
@@ -227,7 +234,7 @@ const wake = { type: "user", message: { role: "user", content: "<task-notificati
 report(blocks(withHelpers([STARTED, say("Done.")], [["a", [at(typed("step 1"), 4 * MIN), ...aged(ONE("a"), 3 * MIN), at(typed("step 2"), 2 * MIN), ...aged(ONE("b"), MIN)]]])), "a reused worker's two briefs are two steps");
 report(withHelpers([STARTED, say("Done.")], [["a", [at(typed("step 1"), 4 * MIN), ...aged(ONE("a"), 3 * MIN), at(wake, 2 * MIN), ...aged(ONE("b"), MIN)]]]) === "", "a wake-up from its own build is not a step");
 // The push check: --pre, PreToolUse on Bash. THREE files are due at the test threshold of 3
-const hookEnv = (env = {}) => ({ ...process.env, CODE_REVIEW_GATE: "", CODE_REVIEW_MIN_FILES: "", CLAUDE_PROJECT_DIR: dir, TEMP: dir, TMP: dir, TMPDIR: dir, ...env });
+const hookEnv = (env = {}) => ({ ...process.env, CODE_REVIEW_GATE: "", CODE_REVIEW_MIN_FILES: "", CLAUDE_PROJECT_DIR: dir, TEMP: dir, TMP: dir, TMPDIR: dir, ...HOME_ENV, ...env });
 const pre = (entries, command, { env = {}, session, input = {}, tool_name = "Bash" } = {}) => {
   const sid = session || `p${++n}`, file = join(dir, `${sid}-${++n}.jsonl`);
   writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
@@ -291,7 +298,7 @@ else { writeFileSync(join(stubDir, "git"), `#!/bin/sh\nexec "${process.execPath}
 const stub = (o = {}) => writeFileSync(join(stubDir, "stub.json"), JSON.stringify({ top: stubTop, head: "aaa", status: [], email: "me@x", commits: [], ...o }));
 const STUB = { [PATHKEY]: stubDir + delimiter + process.env[PATHKEY] };
 const startHook = (session, env = {}) => spawnSync(process.execPath, [HOOK, "--start"], { input: JSON.stringify({ session_id: session, hook_event_name: "SessionStart", source: "startup" }), env: hookEnv(env), encoding: "utf8" });
-const baseOf = (session) => join(dir, `code-review-gate-${session}.base.json`);
+const baseOf = (session) => join(STATE, `${session}.base.json`);
 const TWELVE = Array.from({ length: 12 }, (_, i) => `src/f${i}.js`);
 const SED = [typed("rename it everywhere with sed"), { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "sed1", name: "Bash", input: { command: "sed -i s/a/b/ src/*.js" } }] } }, say("Done.")];
 const READING = [typed("what does this file do?"), say("It starts the server.")];
@@ -321,6 +328,11 @@ stub({ head: "bbb", commits: [{ author: "other@x", files: TWELVE }] });
 report(run(SED, { session: "g7", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } }) === "", "a pull of another author's 12 commits' files doesn't count");
 stub({ head: "bbb", commits: [{ author: "other@x", files: TWELVE }, { author: "me@x", files: TWELVE }] });
 report(blocks(run(SED, { session: "g8", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } })), "the user's own commits count, the other's beside them don't");
+stub({ head: "aaa" }); startHook("g8b", STUB);
+const planted = join(dir, "planted.txt");
+stub({ head: "bbb", email: `x" & echo hi > "${planted}" & "`, commits: [{ author: "me@x", files: TWELVE }] });
+run(SED, { session: "g8b", env: { ...STUB, CODE_REVIEW_MIN_FILES: "" } });
+report(!existsSync(planted), "a repo's user.email with shell syntax never reaches a shell");
 stub({ fail: true });
 report(blocks(run([typed("build"), ...THREE], { session: "g9", env: STUB })) && run([typed("fix"), ...edit("C:/p/a.js")], { session: "g10", env: STUB }) === "", "a git that fails: the transcript count, as before");
 report(startHook("g11", STUB).stdout === "" && !existsSync(baseOf("g11")), "a failing git leaves no baseline and no output");
@@ -395,6 +407,106 @@ report(blocks(realIn("r11", SED)), "real git: the other session's edits from bef
 const crashHome = join(dir, "crash-home");
 spawnSync(process.execPath, [HOOK], { input: "not json", env: { ...process.env, CODE_REVIEW_GATE: "", HOOK_ERRORS_LOG: "", USERPROFILE: crashHome, HOME: crashHome, CLAUDE_PROJECT_DIR: dir }, encoding: "utf8" });
 report(existsSync(join(crashHome, ".claude", "hooks", "state", "hook-errors.log")), "a crash fails open and leaves a line in the log");
+
+// The push check honours CODE_REVIEW_GATE=off written in front of the command, as its deny reason tells you to,
+// and not the same words in a comment line or quoted text
+const send = "python tools/deploy.py send --version 9.9.9";
+for (const [command, want] of [
+  [send, false],
+  [`CODE_REVIEW_GATE=off ${send}`, true],
+  [`$env:CODE_REVIEW_GATE="off"; ${send}`, true],
+  [`echo CODE_REVIEW_GATE_offx; ${send}`, false],
+  [`${send}\n\n# WHAT THIS DOES: deploys; CODE_REVIEW_GATE=off is not set`, false],
+  [`echo "note: CODE_REVIEW_GATE=off removed" && ${send}`, false],
+]) report(offInCommand(command) === want, `off prefix: ${want ? "off" : "gate"} for ${command.replace(/\n/g, " ")}`);
+
+// A project's REVIEW_PUSH_PATTERN matches a real deploy command, not the same words inside quoted search text
+process.env.REVIEW_PUSH_PATTERN = "(deploy|push-updater)\\.py\\s+send";
+for (const [command, want] of [
+  ["python tools/deploy.py send --version 9.9.9", true],
+  ["cd /c/x && python tools/push-updater.py send --version 9.9.9 2>&1 | tail -8", true],
+  ["grep -l 'deploy.py send --version 4.2.3\\|push-updater.py send' *.jsonl", false],
+  ['grep -rl "deploy.py send --version 4.2.3" .', false],
+  ["python tools/deploy.py check --version 9.9.9\n\n# WHAT THIS DOES: before deploy.py send", false],
+  ["git push", true],
+]) report(isPush(command) === want, `push pattern: ${want ? "push" : "pass"} for ${command.replace(/\n/g, " ")}`);
+delete process.env.REVIEW_PUSH_PATTERN;
+
+// A few lines of rule text (CLAUDE.md, a skill .md) since the last review need no reviewer; a hook, settings,
+// a bigger edit or a file a helper changed still do
+let blockId = 0;
+const lineEdit = (file_path, oldN, newN) => ({ type: "tool_use", id: `e${++blockId}`, name: "Edit",
+  input: { file_path, old_string: "x\n".repeat(oldN - 1) + "x", new_string: "y\n".repeat(newN - 1) + "y" } });
+const oneTurn = (...blocks) => [{ type: "assistant", timestamp: "2026-11-05T21:00:00Z", message: { content: blocks } }];
+const excused = (entries, helperKeys = []) => [...smallSetupEdits(editsSinceReview(entries).lines, new Set(helperKeys))].map((k) => k.split("/").pop()).sort();
+const P = "C:/Projects/x/";
+for (const [name, got, want] of [
+  ["3-line CLAUDE.md edit", excused(oneTurn(lineEdit(P + "CLAUDE.md", 2, 3))), ["claude.md"]],
+  ["two small rule files, 8 lines in all", excused(oneTurn(lineEdit(P + "CLAUDE.md", 2, 3), lineEdit(P + ".claude/skills/deploy/SKILL.md", 5, 5))), ["claude.md", "skill.md"]],
+  ["12 lines of rules in all", excused(oneTurn(lineEdit(P + "CLAUDE.md", 6, 6), lineEdit(P + ".claude/skills/deploy/SKILL.md", 6, 6))), []],
+  ["2-line hook edit", excused(oneTurn(lineEdit(P + ".claude/hooks/gate.mjs", 2, 2))), []],
+  ["settings edit", excused(oneTurn(lineEdit(P + ".claude/settings.json", 1, 1))), []],
+  ["1-line replace_all in CLAUDE.md", excused(oneTurn({ ...lineEdit(P + "CLAUDE.md", 1, 1), input: { ...lineEdit(P + "CLAUDE.md", 1, 1).input, replace_all: true } })), []],
+  ["1-line agent .md edit", excused(oneTurn(lineEdit(P + ".claude/agents/worker.md", 1, 1))), []],
+  ["1-line skill frontmatter edit", excused(oneTurn({ type: "tool_use", id: "fm", name: "Edit", input: { file_path: P + ".claude/skills/a/SKILL.md", old_string: "allowed-tools: Read", new_string: "allowed-tools: Read, Bash" } })), []],
+  ["rule file a helper also changed", excused(oneTurn(lineEdit(P + "CLAUDE.md", 1, 1)), [fileKey(P + "CLAUDE.md")]), []],
+]) report(JSON.stringify(got.map((s) => s.toLowerCase())) === JSON.stringify(want), `small setup: ${name}: excused ${JSON.stringify(got)}`);
+
+// The decision on made-up evidence (the shape gather() in hooks/lib/review-evidence.mjs returns): each constant at its
+// boundary, the reviewer's report phrase, a running helper, a held question, led mode, the push check and git
+const NOW = Date.parse("2026-11-06T12:00:00Z");
+const ago = (ms) => new Date(NOW - ms).toISOString();
+const step = (b, ms) => ({ type: "assistant", timestamp: ago(ms), message: { content: [{ id: `x${++blockId}`, type: "tool_use", ...b }] } });
+const codeEdits = (count, ms, prefix = "f") => Array.from({ length: count }, (_, i) => step({ name: "Edit", input: { file_path: `C:/p/${prefix}${i}.js`, old_string: "a", new_string: "b" } }, ms));
+const ruleEdit = (lines, ms, file = "C:/p/CLAUDE.md") => step({ name: "Edit", input: { file_path: file, old_string: "x\n".repeat(lines - 1) + "x", new_string: "y" } }, ms);
+const reviewCall = (ms, id = `r${++blockId}`) => ({ type: "assistant", timestamp: ago(ms), message: { content: [{ id, type: "tool_use", name: "Agent", input: { subagent_type: "reviewer", prompt: "look" } }] } });
+// Two helpers, each one brief, together on `count` files, written `ms` ago
+const twoHelpers = (count, ms = MIN) => [codeEdits(Math.ceil(count / 2), ms, "a"), codeEdits(Math.floor(count / 2), ms, "b")].map((entries) => ({ mtimeMs: NOW - ms, briefs: [entries] }));
+// The main session's edits are in this turn and in the session's edit lines unless the case says otherwise
+const evidence = (o = {}) => ({ pre: false, mode: "", minFiles: MIN_FILES, now: NOW, start: null, startMs: NOW - 5 * MIN, typedReview: false,
+  turn: o.session || [], session: [], typedReviews: [], shell: [], launches: [], reviewers: [], helpers: [], asked: 0, typedEnd: 0, held: null, git: null, ...o });
+const EARLIER_REVIEW = [reviewCall(60 * MIN)]; // in the session's edit lines, not in this turn
+const afterReview = (helpers) => evidence({ session: EARLIER_REVIEW, turn: [], helpers });
+const reviewedTurn = (said, type = "assistant") => evidence({ session: [...codeEdits(MIN_FILES, 2 * MIN), reviewCall(MIN, "rv")], reviewers: [{ id: "rv", type, said }] });
+const launch = (o) => [{ id: "bg", noticed: false, ...o }];
+const GIT = (o = {}) => ({ base: { top: "C:/p", head: "a", dirty: {}, at: NOW - 60 * MIN, seen: [] }, changed: Array.from({ length: MIN_FILES }, (_, i) => ({ key: `c:/p/g${i}.js`, name: `g${i}.js`, mtimeMs: NOW - MIN })), ...o });
+const SHELL_TURN = [step({ name: "Bash", input: { command: "sed -i s/a/b/ src/*.js" } }, MIN)];
+const HOLD = { at: NOW - 10 * MIN, files: ["a.js"], setup: [] };
+const assessCases = [
+  [`${MIN_FILES - 1} code files: not due`, evidence({ session: codeEdits(MIN_FILES - 1, MIN) }), (r) => r.due === false],
+  [`${MIN_FILES} code files: due, as a big change`, evidence({ session: codeEdits(MIN_FILES, MIN) }), (r) => r.due && r.big && r.files.length === MIN_FILES],
+  ["minFiles from the setting moves the bar", evidence({ session: codeEdits(3, MIN), minFiles: 3 }), (r) => r.due && r.big],
+  ["1 helper step: not due", evidence({ helpers: [{ mtimeMs: NOW - MIN, briefs: [codeEdits(1, MIN)] }] }), (r) => r.due === false],
+  ["2 helper steps: due, a job of several steps", evidence({ helpers: twoHelpers(2) }), (r) => r.due && r.several && r.steps === 2],
+  [`after a review, 2 helpers on ${NEW_JOB_FILES - 1} files are its fixes: not due`, afterReview(twoHelpers(NEW_JOB_FILES - 1)), (r) => r.due === false],
+  [`after a review, 2 helpers on ${NEW_JOB_FILES} files are a new job: due`, afterReview(twoHelpers(NEW_JOB_FILES)), (r) => r.due && r.files.length === NEW_JOB_FILES],
+  ["helpers just inside NOTE_WINDOW before the user's message count for this turn", evidence({ startMs: NOW, helpers: twoHelpers(2, NOTE_WINDOW - MIN) }), (r) => r.due && r.several],
+  ["helpers from before NOTE_WINDOW are not this turn's", evidence({ startMs: NOW, helpers: twoHelpers(2, NOTE_WINDOW + MIN) }), (r) => r.due === false],
+  [`${SMALL_SETUP_LINES - 1} lines of CLAUDE.md: not due`, evidence({ session: [ruleEdit(SMALL_SETUP_LINES - 1, MIN)] }), (r) => r.due === false && r.setup === false],
+  [`${SMALL_SETUP_LINES} lines of CLAUDE.md: due, a setup change`, evidence({ session: [ruleEdit(SMALL_SETUP_LINES, MIN)] }), (r) => r.due && r.setup && r.setupFiles[0] === "CLAUDE.md"],
+  ["a small rule edit a sed since the review named: due", evidence({ session: [ruleEdit(2, MIN, "C:/p/.claude/rules/style.md")], shell: [{ at: NOW - MIN, command: "sed -i s/a/b/ .claude/rules/style.md" }] }), (r) => r.due && r.setup],
+  ["a reviewer whose report has \"Against the request\" is a review: not due", reviewedTurn("**Against the request:** pass"), (r) => r.due === false],
+  ["a short last message without the phrase is no review: due", reviewedTurn("No diff to review."), (r) => r.due && r.notRun === 1],
+  ["a last message of 300 characters is a report without the phrase too", reviewedTurn("x".repeat(300)), (r) => r.due === false],
+  ["a reviewer that ended on a tool result is no review", reviewedTurn("**Against the request:** pass", "user"), (r) => r.due],
+  ["a background helper at work: not due", evidence({ session: codeEdits(MIN_FILES, MIN), launches: launch({ mtimeMs: NOW - MIN }) }), (r) => r.due === false],
+  ["a helper silent for HELPER_IDLE is a leftover: due", evidence({ session: codeEdits(MIN_FILES, MIN), launches: launch({ mtimeMs: NOW - HELPER_IDLE }) }), (r) => r.due],
+  ["a helper whose notice came: due", evidence({ session: codeEdits(MIN_FILES, MIN), launches: launch({ mtimeMs: NOW - MIN, noticed: true }) }), (r) => r.due],
+  ["the push check: a running helper doesn't open it", evidence({ pre: true, session: codeEdits(MIN_FILES, MIN), launches: launch({ mtimeMs: NOW - MIN }) }), (r) => r.due],
+  ["the push check counts earlier turns' work", evidence({ pre: true, session: codeEdits(MIN_FILES, 60 * MIN), turn: [] }), (r) => r.due],
+  ["a turn started with /code-review", evidence({ typedReview: true, session: codeEdits(MIN_FILES, MIN) }), (r) => r.typed === true],
+  ["held work stays due though the turn changed nothing", evidence({ held: HOLD }), (r) => r.due && r.held && !r.dropHeld],
+  ["a review after the hold ends it", evidence({ session: [reviewCall(MIN)], turn: [], held: HOLD }), (r) => r.dropHeld && r.due === false],
+  ["led mode: the main session's 10 files are not due", evidence({ mode: "led", session: codeEdits(MIN_FILES, MIN) }), (r) => r.due === false],
+  ["led mode: a setup file alone is not due", evidence({ mode: "led", session: [ruleEdit(SMALL_SETUP_LINES, MIN)] }), (r) => r.due === false],
+  ["git: 10 files changed by a shell command count, and the stop stores them as seen", evidence({ turn: SHELL_TURN, git: GIT() }), (r) => r.due && r.big && r.writeBase?.seen.length === MIN_FILES],
+  ["git: the same files in a turn that only read: not due", evidence({ git: GIT() }), (r) => r.due === false],
+  ["git: files seen at an earlier stop don't ask again in a turn that changed nothing", evidence({ turn: SHELL_TURN, git: GIT({ base: { ...GIT().base, seen: GIT().changed.map((f) => f.key) } }) }), (r) => r.due === false && r.writeBase === null],
+  ["git: files written before the last review don't count", evidence({ turn: SHELL_TURN, session: [reviewCall(30000)], git: GIT() }), (r) => r.due === false],
+  ["git: no baseline yet: the stop starts one, the push check doesn't", evidence({ git: { base: null, newBase: { top: "C:/p" } } }),
+    (r) => r.writeBase?.top === "C:/p" && assess(evidence({ pre: true, git: { base: null, newBase: { top: "C:/p" } } })).writeBase === null],
+];
+for (const [name, ev, ok] of assessCases) report(ok(assess(ev)), `assess: ${name}`);
 
 rmSync(dir, { recursive: true, force: true });
 console.log(fail ? `${fail} of ${total} failed` : `all ${total} passed`);

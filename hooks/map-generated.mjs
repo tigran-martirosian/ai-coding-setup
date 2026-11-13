@@ -4,49 +4,30 @@
 // the next run of that script would undo the edit, and the script would go on saying the old thing (the point of the map is that one fact has one home).
 // The refusal names the script and the command that reruns it.
 // Silent for every other file and for a project with no map. Fails open: any error is one line on stderr, exit 0. MAP_GENERATED=off disables it.
-import { crashLog } from "./crash-log.mjs";
-import fs from "node:fs";
-import path from "node:path";
+import { runHook, emit } from "./lib/hook-io.mjs";
+import { loadMap, mapFolderFor, normRel } from "./lib/map-file.mjs";
 
-let raw = "";
-process.stdin.on("data", (d) => (raw += d));
-process.stdin.on("end", () => {
+runHook("map-generated", (event) => {
   try {
-    if (process.env.MAP_GENERATED === "off") return;
-    const event = JSON.parse(raw);
     const input = event?.tool_input;
     const edited = input && typeof input === "object" ? input.file_path ?? input.notebook_path : null;
     if (typeof edited !== "string" || !edited) return;
     const project = process.env.CLAUDE_PROJECT_DIR;
     if (!project) return;
-    let dir = path.resolve(project);
-    const file = path.resolve(dir, edited);
-    const outside = (d) => { const r = path.relative(d, file).replace(/\\/g, "/"); return !r || r.startsWith("../") || r === ".." || path.isAbsolute(r); };
-    if (outside(dir)) {
-      let up = path.dirname(file);
-      while (!fs.existsSync(path.join(up, ".claude", "systems-map.json")) && path.dirname(up) !== up) up = path.dirname(up);
-      if (!fs.existsSync(path.join(up, ".claude", "systems-map.json"))) return;
-      dir = up;
-    }
-    const rel = path.relative(dir, file).replace(/\\/g, "/").toLowerCase();
+    const at = mapFolderFor(project, edited);
+    if (!at) return;
+    const rel = at.rel.toLowerCase();
 
-    let map;
-    try {
-      map = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "systems-map.json"), "utf8").replace(/^﻿/, ""));
-    } catch (e) {
-      if (e.code === "ENOENT") return;
-      throw e;
-    }
-    const norm = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").toLowerCase() : "");
-    const g = (Array.isArray(map?.generated) ? map.generated : []).find((x) => Array.isArray(x?.files) && x.files.some((f) => norm(f) === rel));
+    const map = loadMap(at.dir);
+    if (!map) return;
+    const g = (Array.isArray(map?.generated) ? map.generated : []).find((x) => Array.isArray(x?.files) && x.files.some((f) => normRel(f) === rel));
     if (!g || typeof g.by !== "string") return;
     const inputs = Array.isArray(g.inputs) && g.inputs.length ? ` (or its inputs ${g.inputs.join(", ")})` : "";
-    const reason =
-      `[map-generated] Refused: ${path.relative(dir, file).replace(/\\/g, "/")} is written by ${g.by}, so a hand edit is undone by its next run and the ` +
-      `script keeps the old text. Change ${g.by}${inputs} instead, then run \`${g.run ?? g.by}\` (the "generated" list in .claude/systems-map.json).`;
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }));
+    emit.deny(
+      `[map-generated] Refused: ${at.rel} is written by ${g.by}, so a hand edit is undone by its next run and the ` +
+      `script keeps the old text. Change ${g.by}${inputs} instead, then run \`${g.run ?? g.by}\` (the "generated" list in .claude/systems-map.json).`);
   } catch (e) {
-    crashLog("map-generated", e);
     process.stderr.write(`map-generated hook skipped: ${e?.name}: ${e?.message}\n`);
+    throw e; // runHook logs it and ends with exit 0
   }
 });

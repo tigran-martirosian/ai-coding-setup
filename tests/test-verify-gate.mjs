@@ -5,9 +5,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { makeChecker } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(new URL("../hooks/verify-gate.mjs", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "test-verify-gate-"));
+const BAD_PATTERN_LOG = join(dir, "bad-pattern-errors.log"); // the one case that tests the crash log gives the hook its own log path
 
 let id = 0;
 const typed = (text) => ({ type: "user", uuid: `u${++id}`, message: { role: "user", content: text } });
@@ -70,7 +72,7 @@ const cases = [
   ["VERIFY_PATTERN in env replaces the list: npm test no longer counts", [...EDITED, ...bash("npm test")], true, { env: { VERIFY_PATTERN: "check-all" } }],
   ["VERIFY_PATTERN in env: the project's command counts", [...EDITED, ...bash("sh check-all.sh")], false, { env: { VERIFY_PATTERN: "check-all" } }],
   ["VERIFY_PATTERN in the project's settings env", [...EDITED, ...bash("make lint-all")], false, { project: { VERIFY_PATTERN: "lint-all" } }],
-  ["a VERIFY_PATTERN that is no regex fails open", [...EDITED], false, { env: { VERIFY_PATTERN: "(" } }],
+  ["a VERIFY_PATTERN that is no regex fails open", [...EDITED], false, { env: { VERIFY_PATTERN: "(", HOOK_ERRORS_LOG: BAD_PATTERN_LOG } }],
 ];
 
 // Commands the default list must take, and those it must not
@@ -85,15 +87,10 @@ const NOT_RUNS = ['node "C:/a b/tools/run.mjs"', 'node tools/x.mjs "tests/run-al
 for (const c of RUNS) cases.push([`default list takes: ${c}`, [...EDITED, ...bash(c)], false]);
 for (const c of NOT_RUNS) cases.push([`default list does not take: ${c}`, [...EDITED, ...bash(c)], true]);
 
-let failures = 0, total = 0;
-const check = (name, ok, got) => {
-  total++;
-  if (!ok) failures++;
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `\n      got: ${got || "(no output)"}`}`);
-};
+const { check, summary } = makeChecker();
 for (const [name, entries, expect, opts] of cases) {
   const out = entries === null ? run([typed("x")], { input: { transcript_path: join(dir, "missing.jsonl") } }) : run(entries, opts);
-  check(name, typeof expect === "function" ? expect(out) : expect === true ? blocks(out) : !out, out);
+  check(name, typeof expect === "function" ? expect(out) : expect === true ? blocks(out) : !out, out || "(no output)");
 }
 
 // Once per turn: a second stop in the same session and turn passes, a new turn blocks again
@@ -101,8 +98,7 @@ const first = [typed("fix"), ...edit("C:/p/a.js")];
 check("first stop of a turn: blocked", blocks(run(first, { session: "once" })), "");
 check("second stop in the same turn: passes", !run([...first, say("I'll run it later.")], { session: "once", input: { stop_hook_active: true } }), "blocked again");
 check("a new turn in the same session blocks again", blocks(run([...first, say("ok"), typed("again"), ...edit("C:/p/b.js")], { session: "once" })), "");
-check("a bad VERIFY_PATTERN leaves a line in the error log", existsSync(join(dir, ".claude", "hooks", "state", "hook-errors.log")) && /verify-gate/.test(readFileSync(join(dir, ".claude", "hooks", "state", "hook-errors.log"), "utf8")), "no log line");
+check("a bad VERIFY_PATTERN leaves a line in the error log", existsSync(BAD_PATTERN_LOG) && /verify-gate/.test(readFileSync(BAD_PATTERN_LOG, "utf8")), "no log line");
 
 rmSync(dir, { recursive: true, force: true });
-console.log(`\n${total - failures}/${total} passed`);
-process.exit(failures ? 1 : 0);
+summary();

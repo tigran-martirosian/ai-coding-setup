@@ -48,7 +48,7 @@ const reason = (o) => { try { return JSON.parse(o).reason ?? ""; } catch { retur
 const warn = (o) => { try { return JSON.parse(o).systemMessage ?? ""; } catch { return ""; } };
 const blocked = (o) => { try { return JSON.parse(o).decision === "block"; } catch { return false; } };
 const ctx = (t) => { try { return JSON.parse(run({ prompt: "x", transcript_path: t, session_id: sid })).hookSpecificOutput.additionalContext; } catch { return ""; } };
-const clear = () => fs.rmSync(path.join(os.tmpdir(), "context-guard", `${sid}.json`), { force: true });
+const clear = () => fs.rmSync(path.join(os.homedir(), ".claude", "hooks", "state", "context-guard", `${sid}.json`), { force: true });
 check("stop under the handoff limit: silent", stop(mid) === "" && stop(small) === "");
 check("under the warning limit (140k): silent", run({ prompt: "x", transcript_path: transcript("low.jsonl", [asst(140000)]) }) === "");
 const w210 = stop(over);
@@ -93,7 +93,7 @@ clear();
 stop(big);
 check("second stop: silent", stop(big) === "");
 check("prompt after a warning: still says it compacts first", /compacts itself first/.test(JSON.parse(run({ prompt: "x", transcript_path: at250, session_id: sid })).systemMessage));
-check("prompt back under the limit clears the warning, so the next cycle warns again", (run({ prompt: "x", transcript_path: small, session_id: sid }), !fs.existsSync(path.join(os.tmpdir(), "context-guard", `${sid}.json`))) && /~420k/.test(warn(stop(big))));
+check("prompt back under the limit clears the warning, so the next cycle warns again", (run({ prompt: "x", transcript_path: small, session_id: sid }), !fs.existsSync(path.join(os.homedir(), ".claude", "hooks", "state", "context-guard", `${sid}.json`))) && /~420k/.test(warn(stop(big))));
 clear();
 check("+100k later: warns again", /~530k/.test(warn(stop(bigger))));
 clear();
@@ -112,7 +112,7 @@ clear();
 // Mid-run (PostToolUse): the safety net, over 300k when no automatic compact ran; once, again after +100k
 const post = (t, id, env = {}) => run({ hook_event_name: "PostToolUse", transcript_path: t, session_id: id }, env);
 const runId = `run-test-${process.pid}`;
-const runFile = path.join(os.tmpdir(), "context-guard", `run-${runId}.json`);
+const runFile = path.join(os.homedir(), ".claude", "hooks", "state", "context-guard", `run-${runId}.json`);
 fs.rmSync(runFile, { force: true });
 const below = transcript("below.jsonl", [asst(290000)]);
 const at320 = transcript("at320.jsonl", [asst(320000)]);
@@ -145,7 +145,7 @@ check("text that only names the marker changes nothing", /~332k/.test(sysMsg(run
 const climb = `climb-${runId}`;
 post(at320, climb);
 check("mid-run: a compact clears the warning, so the next climb warns again", post(compacted, climb) === "" && /320k/.test(midCtx(post(at320, climb))));
-fs.rmSync(path.join(os.tmpdir(), "context-guard", `run-${climb}.json`), { force: true });
+fs.rmSync(path.join(os.homedir(), ".claude", "hooks", "state", "context-guard", `run-${climb}.json`), { force: true });
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);

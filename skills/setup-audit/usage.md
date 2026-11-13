@@ -8,7 +8,7 @@ Numbers come from a script, not from reading transcripts. **Never open transcrip
 
 1. **Run the scan** (about 1 second):
    `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs [options]`
-   - Default: the last 7 days, all projects. Map the user's words to options: `--days N`, `--project <part of the folder name>`, `--session <id prefix>` plus `--minutes N` for only the first N minutes of it, `--since`/`--until` for exact times, `--top N` for more sessions.
+   - Default: the last 14 days, all projects. Map the user's words to options: `--days N`, `--project <part of the folder name>`, `--session <id prefix>` plus `--minutes N` for only the first N minutes of it, `--since`/`--until` for exact times, `--top N` for more sessions.
    - "Tokens" = input + cache + output, counted once per API message. Most of it is cache reads, so compare runs with each other, not with plan limits.
    - Use `--json` only when you need a field the markdown doesn't show (for example every session, or per-model totals).
 2. **Compare:** if `~/.claude/reports/` has an older `usage-*.md`, read only its first 10 lines and compare the totals in one line.

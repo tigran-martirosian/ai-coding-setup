@@ -1,127 +1,64 @@
 // worker-size: a PostToolUse hook for subagents. worker and worker-full set autoCompactWindow 200000;
-// nothing warns a helper before its compact line, and every call re-sends the whole context. On real transcripts
-// a large share of all subagent tokens went to runs past 150k context, and single workers kept going far beyond it.
+// nothing warns a helper before its compact line, and every call re-sends the whole context, so runs past 150k context cost most.
 // Only events with agent_id are looked at (a main-session event exits at once, no file read). The hook gets the
 // PARENT's transcript_path (see repeat-guard), so the helper's own transcript is
 // <dir of transcript_path>/<session_id>/subagents/agent-<agent_id>.jsonl; if transcript_path already is an
 // agent-*.jsonl file, that is used. The size is the last assistant usage line (input + cache creation + cache read).
 // From WORKER_SIZE_K (150) thousand tokens it tells the helper to finish the step in hand and report; again only
-// after a further 100k (state in os.tmpdir()/worker-size/<agent_id>.json). WORKER_SIZE_DEBUG=1 prints the size found
-// on stderr. Fails open. WORKER_SIZE=off disables it.
+// after a further 100k (state in ~/.claude/hooks/state/worker-size/<agent_id>.json, files untouched for 2 days are
+// swept). WORKER_SIZE_DEBUG=1 prints the size found on stderr. Fails open. WORKER_SIZE=off disables it.
 // Hard stop: on PreToolUse (same script, registered there too), only for agent_type worker and worker-full (the two
 // with autoCompactWindow 200000; planner, reviewer and the rest pass untouched). A helper whose context is at
 // WORKER_STOP_K (180) thousand or more gets WORKER_STOP_GRACE (3) more calls, each with a note to finish or undo
 // the edit it is in and report within the calls left; from the next call on every call is refused, so it reports
 // instead of reaching the 200k compact (which loses work). The count per agent_id is kept in
-// os.tmpdir()/worker-size/<agent_id>.stop.json and is forgotten when the size falls back below the line (a
+// ~/.claude/hooks/state/worker-size/<agent_id>.stop.json and is forgotten when the size falls back below the line (a
 // compaction). After the grace nothing is exempt: the report is its last message and needs no tool.
-import { crashLog } from "./crash-log.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
+import { WORKER_SIZE_NOTE } from "./lib/texts.mjs";
+import { sessionKey } from "./lib/paths.mjs";
+import { readJson, stateFile, sweep, writeJson } from "./lib/state.mjs";
+import { backEntries, lastUsage, subagentPath } from "./lib/transcript.mjs";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const LIMIT_K = Number(process.env.WORKER_SIZE_K) || 150;
 const STOP_K = Number(process.env.WORKER_STOP_K) || 180;
 const GRACE = process.env.WORKER_STOP_GRACE?.trim() && Number.isFinite(Number(process.env.WORKER_STOP_GRACE)) ? Number(process.env.WORKER_STOP_GRACE) : 3;
 const STOP_TYPES = new Set(["worker", "worker-full"]);
 const STEP_K = 100;
-const TAIL_BYTES = 1024 * 1024;
 
-// Reads the file backwards in 1 MB chunks (single lines with pictures reach MBs) and returns the context size of the
-// last assistant line that has usage, or 0. A partial line at a chunk start is carried as a Buffer.
-function lastContext(file) {
-	const fd = fs.openSync(file, "r");
-	try {
-		let pos = fs.fstatSync(fd).size;
-		let carry = Buffer.alloc(0);
-		while (pos > 0 || carry.length) {
-			const len = Math.min(pos, TAIL_BYTES);
-			pos -= len;
-			const chunk = Buffer.alloc(len);
-			if (len) fs.readSync(fd, chunk, 0, len, pos);
-			let buf = Buffer.concat([chunk, carry]);
-			carry = Buffer.alloc(0);
-			if (pos > 0) {
-				const nl = buf.indexOf(10);
-				if (nl < 0) { carry = buf; continue; }
-				carry = buf.subarray(0, nl);
-				buf = buf.subarray(nl + 1);
-			}
-			const lines = buf.toString("utf8").split("\n");
-			for (let i = lines.length - 1; i >= 0; i--) {
-				if (!lines[i].includes('"usage"')) continue;
-				let j;
-				try { j = JSON.parse(lines[i]); } catch { continue; }
-				const u = j.message?.usage;
-				if (j.type !== "assistant" || !u || j.message.model === "<synthetic>") continue;
-				return (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-			}
-			if (pos === 0) break;
-		}
-		return 0;
-	} finally { fs.closeSync(fd); }
-}
-
-try {
-	if ((process.env.WORKER_SIZE || "").toLowerCase() === "off") process.exit(0);
-	const event = JSON.parse(fs.readFileSync(0, "utf8"));
-	if (!event.agent_id) process.exit(0);
+runHook("worker-size", (event) => {
+	if (!event.agent_id) return;
 	const given = event.transcript_path;
-	if (!given) process.exit(0);
+	if (!given) return;
 	const agentId = String(event.agent_id);
-	let file = given;
-	if (!/^agent-.*\.jsonl$/.test(path.basename(given))) {
-		const session = event.session_id || path.basename(given, ".jsonl");
-		file = path.join(path.dirname(given), session, "subagents", `agent-${agentId}.jsonl`);
-	}
-	if (!fs.existsSync(file)) process.exit(0);
-	if (event.hook_event_name === "PreToolUse" && !STOP_TYPES.has(event.agent_type)) process.exit(0);
-	const context = lastContext(file);
+	const file = subagentPath(given, agentId, event.session_id);
+	if (!fs.existsSync(file)) return;
+	const pre = event.hook_event_name === "PreToolUse";
+	if (pre && !STOP_TYPES.has(event.agent_type)) return;
+	// The last assistant usage line, read backwards in 1 MB chunks (single lines with pictures reach MBs)
+	const context = lastUsage(backEntries(file, { sidechain: true, chunk: 1024 * 1024 }))?.tokens ?? 0;
 	const k = Math.round(context / 1000);
 	if (process.env.WORKER_SIZE_DEBUG) process.stderr.write(`[worker-size] agent ${agentId}: ${k}k tokens (${file})\n`);
-	if (event.hook_event_name === "PreToolUse") {
-		if (!STOP_TYPES.has(event.agent_type)) process.exit(0);
-		const stopState = path.join(os.tmpdir(), "worker-size", `${agentId.replace(/[^\w-]/g, "")}.stop.json`);
-		if (k < STOP_K) { fs.rmSync(stopState, { force: true }); process.exit(0); }
-		let used = 0;
-		try { used = JSON.parse(fs.readFileSync(stopState, "utf8")).used || 0; } catch {}
+	sweep("worker-size", 2);
+	const key = sessionKey(agentId);
+	if (pre) {
+		const stopState = stateFile("worker-size", `${key}.stop`);
+		if (k < STOP_K) { fs.rmSync(stopState, { force: true }); return; }
+		const used = readJson(stopState)?.used || 0;
 		if (used < GRACE) {
-			fs.mkdirSync(path.dirname(stopState), { recursive: true });
-			fs.writeFileSync(stopState, JSON.stringify({ used: used + 1 }));
-			process.stdout.write(JSON.stringify({
-				hookSpecificOutput: {
-					hookEventName: "PreToolUse",
-					additionalContext: `[worker-size] This helper's context is ~${k}k tokens (stop line ${STOP_K}k). Past ${STOP_K}k: finish or undo the edit you are in, in at most ${GRACE - used} more calls, then stop and report: files changed, the check run, what is left, any half-edited file.`,
-				},
-			}));
+			writeJson(stopState, { used: used + 1 });
+			emit.context("PreToolUse", `${WORKER_SIZE_NOTE} ~${k}k tokens (stop line ${STOP_K}k). Past ${STOP_K}k: finish or undo the edit you are in, in at most ${GRACE - used} more calls, then stop and report: files changed, the check run, what is left, any half-edited file.`);
 		} else {
-			process.stdout.write(JSON.stringify({
-				hookSpecificOutput: {
-					hookEventName: "PreToolUse",
-					permissionDecision: "deny",
-					permissionDecisionReason: `[worker-size] This helper's context is ~${k}k tokens (stop line ${STOP_K}k). Tool calls are refused: stop and report now: files changed, the check run, what is left, any half-edited file.`,
-				},
-			}));
+			emit.deny(`${WORKER_SIZE_NOTE} ~${k}k tokens (stop line ${STOP_K}k). Tool calls are refused: stop and report now: files changed, the check run, what is left, any half-edited file.`);
 		}
-		process.exit(0);
+		return;
 	}
-	const dir = path.join(os.tmpdir(), "worker-size");
-	const state = path.join(dir, `${agentId.replace(/[^\w-]/g, "")}.json`);
+	const state = stateFile("worker-size", key);
 	// Back under the line (a worker compacted at its autoCompactWindow): forget the warning, so the next climb warns again
-	if (!k || k < LIMIT_K) { fs.rmSync(state, { force: true }); process.exit(0); }
-	let warnedAt = 0;
-	try { warnedAt = JSON.parse(fs.readFileSync(state, "utf8")).warnedAt || 0; } catch {}
-	if (warnedAt && k < warnedAt + STEP_K) process.exit(0);
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(state, JSON.stringify({ warnedAt: k }));
-	process.stdout.write(JSON.stringify({
-		hookSpecificOutput: {
-			hookEventName: "PostToolUse",
-			additionalContext: `[worker-size] This helper's context is ~${k}k tokens and every call re-sends it. Finish the step in hand and report what is done and what is left; start nothing new.`,
-		},
-	}));
-} catch (err) {
-	crashLog("worker-size", err);
-	// Fail open
-}
-process.exit(0);
+	if (!k || k < LIMIT_K) { fs.rmSync(state, { force: true }); return; }
+	const warnedAt = readJson(state)?.warnedAt || 0;
+	if (warnedAt && k < warnedAt + STEP_K) return;
+	writeJson(state, { warnedAt: k });
+	emit.context("PostToolUse", `${WORKER_SIZE_NOTE} ~${k}k tokens and every call re-sends it. Finish the step in hand and report what is done and what is left; start nothing new.`);
+});

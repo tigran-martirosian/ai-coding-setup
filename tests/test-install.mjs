@@ -56,7 +56,7 @@ ok("dry run lists every hook it would wire", globalHooks(dry.out).length, script
 ok("dry run lists the rules file", dry.out.includes(`rules: wrote ${fwd(path.join(claude, "CLAUDE.md"))}`));
 ok("dry run lists the four project folders", HOMES.map((h) => dry.out.includes(`copied ${fwd(path.join(projects, h, "CLAUDE.md"))}`)), HOMES.map(() => true));
 ok("dry run lists each folder's settings and the link gate's wiring",
-  [...HOMES.map((h) => dry.out.includes(`wrote ${fwd(path.join(projects, h, ".claude", "settings.json"))}`)), dry.out.includes("hook added: Stop link-gate.mjs in internet-search")],
+  [...HOMES.map((h) => dry.out.includes(`wrote ${fwd(path.join(projects, h, ".claude", "settings.json"))}`)), dry.out.includes("hook added: Stop finder-link-gate.mjs in internet-search")],
   [...HOMES.map(() => true), true]);
 ok("dry run says how to build the extensions", /extensions are not installed by this script.*npm run build/.test(dry.out));
 ok("dry run changes nothing", fs.readdirSync(home), []);
@@ -97,7 +97,7 @@ ok("each project folder has its notes and its model",
   HOMES.map((h) => [fs.existsSync(path.join(projects, h, "CLAUDE.md")), text(h, "CLAUDE.md").includes("<projects>"), json(path.join(projects, h, ".claude", "settings.json")).model]),
   [[true, false, "opus"], [true, false, "opus"], [true, false, "opus"], [true, false, "sonnet"]]);
 const expected = ["ask-anything/.claude/skills/read-web/SKILL.md", "claude-settings/HOW-TO.md",
-  "internet-search/.claude/skills/finder/SKILL.md", "internet-search/.claude/hooks/link-gate.mjs", "internet-search/tools/peek.mjs",
+  "internet-search/.claude/skills/finder/SKILL.md", "internet-search/.claude/hooks/finder-link-gate.mjs", "internet-search/tools/peek.mjs",
   "internet-search/profile.md", "internet-search/finds/INDEX.md"];
 ok("the skills, the link gate, the tools and the starter notes are there", expected.filter((f) => !fs.existsSync(path.join(projects, f))), []);
 ok("the one audit skill arrives with its sub-commands and scripts", ["SKILL.md", "chat.md", "full.md", "usage.md", "scan.md", "outcomes.md", "scripts/outcomes.mjs", "scripts/usage-scan.mjs"].filter((f) => !fs.existsSync(path.join(claude, "skills", "setup-audit", f))), []);
@@ -107,7 +107,7 @@ ok("files in folders below a skill, and the newer hooks and workers, are in the 
     .filter((f) => !fs.existsSync(path.join(REPO, f)) || !fs.existsSync(path.join(claude, f))), []);
 ok("the scripts of the audit skill are more than a few", walk(path.join(REPO, "skills", "setup-audit", "scripts")).length > 3);
 const gate = commandsIn(json(path.join(projects, "internet-search", ".claude", "settings.json")));
-ok("the link gate is wired once, to the copy inside its folder", gate, [`node "${fwd(path.join(projects, "internet-search", ".claude", "hooks", "link-gate.mjs"))}"`]);
+ok("the link gate is wired once, to the copy inside its folder", gate, [`node "${fwd(path.join(projects, "internet-search", ".claude", "hooks", "finder-link-gate.mjs"))}"`]);
 ok("without Codex the picture skill and its gate are left out",
   [fs.existsSync(path.join(claude, "hooks", "picture-gate.mjs")), fs.existsSync(path.join(projects, "quick-tasks", ".claude", "skills", "picture")),
     JSON.stringify(json(path.join(projects, "quick-tasks", ".claude", "settings.json"))).includes("picture-gate")], [false, false, false]);

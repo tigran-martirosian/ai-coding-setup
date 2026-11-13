@@ -8,19 +8,20 @@
 // It fails open, so any error or odd input lets the call through. BIG_READ_GATE=off disables it.
 // A file path the user writes in a prompt passes the gate once (UserPromptSubmit records it;
 // BIG_READ_ALLOW_FILE moves the record, for the tests).
-import { crashLog } from "./crash-log.mjs";
-import { readFileSync, statSync, writeSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { resolve, extname, dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { crashLog } from "./lib/crash-log.mjs";
+import { runHook, emit } from "./lib/hook-io.mjs";
+import { gitBashToNative as native } from "./lib/paths.mjs";
+import { setting } from "./lib/settings-env.mjs";
+import { BIG_READ_GATE } from "./lib/texts.mjs";
+import { stateFile, readJson, writeJson } from "./lib/state.mjs";
+import { readFileSync, statSync } from "node:fs";
+import { resolve, extname } from "node:path";
 
 const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
-// 20000 bytes (about 20k characters; 50000 until 2026-10-11): a file under 350 lines can still be too big to read whole
+// 20000 bytes (about 20k characters): a file under 350 lines can still be too big to read whole
 const MAX_BYTES = Number(process.env.BIG_READ_MAX_BYTES) || 20000;
 const READ_CAP = 2000; // lines the Read tool returns when no limit is given
 const BINARY = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".pdf", ".ipynb"]);
-
-// Git Bash on Windows writes C:\ as /c/
-const native = (p) => (process.platform === "win32" ? p.replace(/^\/([a-zA-Z])(\/|$)/, "$1:/") : p);
 
 function measure(path) {
   let st;
@@ -42,7 +43,7 @@ function returned(m, from = 0, count = READ_CAP) {
 const tooBig = (r) => r.lines > MAX_LINES || r.bytes > MAX_BYTES;
 
 // Allowances are kept per session in ALLOW_FILE: { "<session id>": ["<absolute path>", ...] }
-const ALLOW_FILE = process.env.BIG_READ_ALLOW_FILE || join(homedir(), ".claude", "hooks", "state", "big-read-allow.json");
+const ALLOW_FILE = process.env.BIG_READ_ALLOW_FILE || stateFile("big-read-gate", "allow");
 // Windows: C:\ or C:/ and Git Bash /c/; elsewhere also a plain /Users/... (a slash that starts a word)
 const PATH_START = process.platform === "win32" ? /(?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)/g : /(?:[A-Za-z]:[\\/]|(?<![\w.~/:-])\/(?=[^\s/]))/g;
 let SESSION = "";
@@ -51,23 +52,15 @@ const samePath = (a, b) => (process.platform === "win32" ? a.toLowerCase() === b
 
 // A corrupt file counts as no allowances, so the gate still blocks; the next save rewrites it
 function readAllowances() {
-  let text;
-  try { text = readFileSync(ALLOW_FILE, "utf8"); } catch (e) { if (e.code === "ENOENT") return {}; throw e; }
-  try {
-    const all = JSON.parse(text);
-    if (all && typeof all === "object" && !Array.isArray(all)) return all;
-  } catch {}
-  process.stderr.write(`[big-read-gate] ${ALLOW_FILE} is not valid JSON; treating it as empty\n`);
+  const all = readJson(ALLOW_FILE, { missing: {} });
+  if (all && typeof all === "object" && !Array.isArray(all)) return all;
+  crashLog("big-read-gate", new Error(`${ALLOW_FILE} is not a JSON object; treating it as empty`));
   return {};
 }
 
-// Writes a temp file and renames it over the old one, so a reader never sees half a file
 function saveAllowances(all) {
   for (const s of Object.keys(all)) if (!all[s] || all[s].length === 0) delete all[s];
-  mkdirSync(dirname(ALLOW_FILE), { recursive: true });
-  const tmp = `${ALLOW_FILE}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(all));
-  renameSync(tmp, ALLOW_FILE);
+  writeJson(ALLOW_FILE, all);
 }
 
 const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };
@@ -114,7 +107,7 @@ function deny(path, m) {
   const perLine = m.bytes / m.lines;
   const fit = Math.min(MAX_LINES, Math.floor(MAX_BYTES / perLine));
   const reason = [
-    `[big-read-gate] ${path} is ${m.lines} lines (${kb} KB). Reading it whole would put all of it in context. Instead:`,
+    `${BIG_READ_GATE} ${path} is ${m.lines} lines (${kb} KB). Reading it whole would put all of it in context. Instead:`,
     fit >= 1
       ? `1. Locate the part you need (Grep with line numbers), then Read with offset/limit, at most ${fit} lines.`
       : `1. Its lines are very long (about ${Math.round(perLine)} characters each): Grep with a narrow pattern (-o with some context), not a Read.`,
@@ -124,9 +117,7 @@ function deny(path, m) {
     `   Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,
   ].join("\n");
-  writeSync(1, JSON.stringify({
-    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
-  }));
+  emit.deny(reason);
   process.exit(0);
 }
 
@@ -296,44 +287,30 @@ function checkShell(command, cwd, ps, depth = 0) {
   flush();
 }
 
-// A project opts out with "env": { "BIG_READ_GATE": "off" } in its .claude/settings(.local).json.
-// Read the files directly, because settings env may not reach hook processes.
+// A project opts out with "env": { "BIG_READ_GATE": "off" } in its .claude/settings(.local).json (the process env
+// was checked by runHook). A settings file that cannot be read is logged and does not opt out.
 function projectOptedOut(dir) {
-  for (let d = resolve(dir); ; d = dirname(d)) {
-    for (const f of ["settings.local.json", "settings.json"]) {
-      try {
-        const env = JSON.parse(readFileSync(join(d, ".claude", f), "utf8")).env || {};
-        if (String(env.BIG_READ_GATE).toLowerCase() === "off") return true;
-      } catch {}
-    }
-    if (dirname(d) === d) return false;
-  }
+  try { return setting("BIG_READ_GATE", dir).toLowerCase() === "off"; } catch (err) { crashLog("big-read-gate", err); return false; }
 }
 
-try {
-  if ((process.env.BIG_READ_GATE || "").toLowerCase() === "off") process.exit(0);
-  const event = JSON.parse(readFileSync(0, "utf8"));
+runHook("big-read-gate", (event) => {
   const input = event.tool_input || {};
   const cwd = native(event.cwd || process.cwd());
-  if (projectOptedOut(cwd)) process.exit(0);
+  if (projectOptedOut(cwd)) return;
   SESSION = event.session_id || "";
   IN_HELPER = Boolean(event.agent_id);
   if (event.hook_event_name === "UserPromptSubmit") {
     addAllowances(event.prompt || "");
-    process.exit(0);
+    return;
   }
   if (event.tool_name === "Read" && input.file_path) {
     const path = resolve(native(cwd), native(input.file_path));
     // Claude Code's own saved copy of a long tool result: it tells the session to read that file
-    if (/[\\/]\.claude[\\/]projects[\\/].*[\\/]tool-results[\\/]/i.test(path)) process.exit(0);
+    if (/[\\/]\.claude[\\/]projects[\\/].*[\\/]tool-results[\\/]/i.test(path)) return;
     const m = measure(path);
     const from = input.offset ? Math.max(0, input.offset - 1) : 0;
     if (m && tooBig(returned(m, from, input.limit || READ_CAP))) deny(path, m);
   } else if (["Bash", "PowerShell"].includes(event.tool_name) && input.command) {
     checkShell(input.command, cwd, event.tool_name === "PowerShell");
   }
-} catch (err) {
-  crashLog("big-read-gate", err);
-  // Fail open
-}
-process.exit(0);
+});

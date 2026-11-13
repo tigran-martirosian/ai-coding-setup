@@ -12,6 +12,11 @@ const HOOK = fileURLToPath(new URL("../hooks/opencli-readonly.mjs", import.meta.
 const bin = mkdtempSync(join(tmpdir(), "opencli-fake-"));
 const empty = mkdtempSync(join(tmpdir(), "opencli-none-"));
 const HELP = {
+  amazon: `Commands:
+  product <asin> [options]            [read] Read an Amazon product page`,
+  facebook: `Commands:
+  add-friend <user>                   [write] Send a friend request
+  login [options]                     [write] Open Facebook login`,
   reddit: `Commands:
   comment <post-id> <text>            [write] Post a comment on a Reddit post
   login [options]                     [write] Open reddit login
@@ -59,6 +64,10 @@ check("write: reddit upvote", run("opencli reddit upvote 1abcde"), "deny");
 check("write: reddit login", run("opencli reddit login"), "deny");
 check("write: twitter like", run("opencli twitter like https://x.com/a/status/1"), "deny");
 check("write: twitter delete", run("opencli twitter delete https://x.com/a/status/1"), "deny");
+check("read: amazon product", run("opencli amazon product B0TEST -f yaml"), "allow");
+check("write: facebook login", run("opencli facebook login"), "deny");
+check("write: facebook add-friend", run("opencli facebook add-friend someone"), "deny");
+check("own command: list", run("opencli list"), "allow");
 check("a command the help doesn't list", run("opencli reddit nuke-everything"), "deny");
 check("a write hidden after a read", run('opencli reddit search "x" && opencli reddit comment abc "hi"'), "deny");
 check("a write through PowerShell", run("opencli twitter follow someone", { tool: "PowerShell" }), "deny");
@@ -69,6 +78,13 @@ check("other tool", run("opencli reddit comment a b", { tool: "Read" }), "allow"
 check("off switch", run('opencli reddit comment a "b"', { env: { OPENCLI_READONLY: "off" } }), "allow");
 check("OpenCLI not installed: fails open", run('opencli reddit comment a "b"', { dir: empty }), "allow");
 check("bad input fails open", spawnSync(process.execPath, [HOOK], { input: "not json", encoding: "utf8" }).stdout, "");
+check("write with the command in quotes", run('opencli reddit "comment" abc'), "deny");
+check("write with --profile before the site", run("opencli --profile me reddit comment abc"), "deny");
+check("write with a flag between site and command", run("opencli reddit --json comment abc"), "deny");
+check("read with --profile before the site", run('opencli --profile me reddit search "x"'), "allow");
+check("site help that fails: denied, not let through", run("opencli broken comment abc"), "deny");
+check("a comment line naming it", run("ls\n\n# Runs the opencli gate test"), "allow");
+check("odd characters in the command word", run("opencli reddit com$ment abc"), "deny");
 
 rmSync(bin, { recursive: true, force: true });
 rmSync(empty, { recursive: true, force: true });

@@ -67,11 +67,12 @@ fs.mkdirSync(path.dirname(toolOut), { recursive: true });
 fs.copyFileSync(big, toolOut);
 check("a saved tool result is not refused", !denied(read("s9", toolOut)));
 
-// A corrupt allowance file still blocks, says so on stderr, and the next prompt rewrites it
+// A corrupt allowance file still blocks, is logged in the crash log, and the next prompt rewrites it
 fs.writeFileSync(ALLOW_FILE, '{"s1":[]}garbage');
-const corrupt = spawnSync("node", [HOOK], { input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: big }, session_id: "s1", cwd: dir }), encoding: "utf8", env: { ...process.env, BIG_READ_GATE: "", BIG_READ_ALLOW_FILE: ALLOW_FILE } });
+const errLog = path.join(dir, "errors.log");
+const corrupt = spawnSync("node", [HOOK], { input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: big }, session_id: "s1", cwd: dir }), encoding: "utf8", env: { ...process.env, BIG_READ_GATE: "", BIG_READ_ALLOW_FILE: ALLOW_FILE, HOOK_ERRORS_LOG: errLog } });
 check("corrupt allowance file still blocks", denied(corrupt.stdout));
-check("corrupt allowance file is reported on stderr", corrupt.stderr.includes("not valid JSON"));
+check("corrupt allowance file is reported in the crash log", fs.readFileSync(errLog, "utf8").includes("not valid JSON"));
 prompt("s1", `read ${fwd(big)}`);
 check("a prompt rewrites the corrupt file and the named file passes", !denied(read("s1", big)));
 

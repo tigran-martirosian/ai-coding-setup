@@ -25,7 +25,9 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { cleanSamples, planUse, readSamples, rise, sameWindow } from "./plan-use.mjs";
+import { isMain } from "../../../hooks/lib/hook-io.mjs";
+import { ARGS, opt } from "./lib/opt.mjs";
+import { NEED_WEEK, cleanSamples, planUse, readSamples, rise, sameWindow } from "./plan-use.mjs";
 
 const MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR, FIVE = 5 * HOUR, WEEK = 7 * DAY;
 const STEP = 30 * MIN; // the hours of other use are worked out in half hours
@@ -167,7 +169,7 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
     if (perUnit && min * MIN >= S[0].ms && min * MIN < last.ms) hours[new Date(min * MIN).getHours()].mine += perUnit * units;
   }
   // a full 5-hour window, in points of the week
-  res.window = sumW >= 4 && sumF >= 20 ? { points: round(100 * sumW / sumF), left: round(Math.max(0, 100 - used) / (100 * sumW / sumF)) } : null;
+  res.window = sumW >= NEED_WEEK && sumF >= 20 ? { points: round(100 * sumW / sumF), left: round(Math.max(0, 100 - used) / (100 * sumW / sumF)) } : null;
 
   // ---- the usual hours of other use
   const otherUse = config?.otherUse ?? [];
@@ -216,15 +218,9 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
 
 // ---- text version
 const here = path.dirname(fileURLToPath(import.meta.url));
-const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
-if (process.argv[1] && same(process.argv[1], fileURLToPath(import.meta.url))) {
-  const args = process.argv.slice(2);
-  const opt = (name, def) => {
-    const i = args.indexOf(`--${name}`);
-    return i === -1 ? def : args[i + 1];
-  };
+if (isMain(import.meta.url)) {
   const log = path.join(os.homedir(), ".claude", "usage-log");
-  const withCost = args.includes("--cost");
+  const withCost = ARGS.includes("--cost");
   let cost = [];
   if (withCost) {
     const scanArgs = [path.join(here, "usage-scan.mjs"), "--json", "--cost", "--days", String(opt("days", 30))];
@@ -234,7 +230,7 @@ if (process.argv[1] && same(process.argv[1], fileURLToPath(import.meta.url))) {
   const samples = readSamples(opt("plan", path.join(log, "plan-usage.jsonl")));
   const now = opt("now") ? Date.parse(opt("now")) : Date.now();
   const A = planAhead(samples, cost, withCost ? planUse(samples, cost) : null, readConfig(opt("config", path.join(log, "plan-hours.json"))), now);
-  if (args.includes("--json")) console.log(JSON.stringify(A, null, 2));
+  if (ARGS.includes("--json")) console.log(JSON.stringify(A, null, 2));
   else if (A.status === "none") console.log("No plan percentages have been recorded yet. Recording starts with the next Claude Code session on this computer.");
   else {
     const age = now - Date.parse(A.at);

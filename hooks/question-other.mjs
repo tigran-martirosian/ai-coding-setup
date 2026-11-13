@@ -1,43 +1,41 @@
 #!/usr/bin/env node
-// question-other: a PreToolUse hook for Nimbalyst's PromptForUserInput. The user wants to type
-// their own answer on any choice question (design picks, "this or that"), so every singleSelect
-// must set allowOther: true. A plain yes/no (keep it or not) should be a confirm field instead,
-// which stays uncluttered.
-// It also checks recommendations, because the user accepts the recommended option with one click
-// most of the time: an option marked "(recommended)" (or with the badge "recommended") must carry its
-// reason in its description / subtitle, and a singleSelect may recommend only one option.
-// It can check that a reason is there, not that it is a good one.
-// The reason has a fixed shape, so the user sees how much a recommendation rests on and the model
-// has to write down the case against its own pick: "Checked: ..." (something was looked up)
-// or "Judgment: ..." (nothing was), followed by "Other wins if: ...". A "Checked:" claim is compared
-// with the session record (transcript_path), so it cannot be written for something never looked up.
-// It also refuses (about one form in six left the user no way to type, and one asked the user to look
-// through a page with no link anywhere):
-// - Nimbalyst's own AskUserQuestion, which has no box for the user's own answer (the built-in
-//   AskUserQuestion adds "Other" itself and is left alone; it needs mcp__nimbalyst__AskUserQuestion in
-//   the settings matcher). A turn whose prompt came from the phone bot may use it: the phone can
-//   answer nothing else;
+// question-other: PreToolUse hook for Nimbalyst's PromptForUserInput. The user wants to type their own answer on any
+// choice question, so every singleSelect must set allowOther: true; a plain yes/no should be a confirm field.
+// A recommended option (marked "(recommended)" or with the badge "recommended") must carry its reason in its
+// description / subtitle, shaped "Checked: ..." (something was looked up) or "Judgment: ..." (nothing was), then
+// "Other wins if: ...". A "Checked:" claim is compared with the session record (transcript_path). It can check that a
+// reason is there, not that it is a good one. A singleSelect may recommend only one option and needs at least 2 options.
+// QUESTION_OTHER=off disables it; REC_CHECK=off turns the rec-check agent check off. It fails open.
+//
+// It refuses:
+// - Nimbalyst's own AskUserQuestion, which has no box for the user's own answer (the built-in AskUserQuestion adds
+//   "Other" itself and is left alone; it needs mcp__nimbalyst__AskUserQuestion in the settings matcher). A turn whose
+//   prompt came from the phone bot may use it: the phone can answer nothing else;
 // - a form where no field lets the user type (no editText field, no singleSelect with allowOther);
-// - a form that points the user at something to look at (a "look through / check the page" phrase, or
-//   a file path in its title, intro or labels) when neither the form nor Claude's visible text since its
-//   last ordinary tool call has a clickable link (a markdown link to /C:/..., C:/... or /Users/..., or a URL) and no
-//   picture or preview was shown there. Option descriptions are not scanned for it: they hold the
-//   "Checked:" reasons, which name files.
-//   Since 2026-10-29 the link must match where the file is: Nimbalyst opens a markdown link only for a
-//   file inside the open project (the nearest ancestor of the hook input's cwd with a CLAUDE.md or .git,
-//   else the cwd). A file outside it is presented by its path in inline code (`~/.claude/x.md`,
-//   `C:/Users/you/x.md`) in the form or the reply text; a link to it would not open.
-// Since 2026-11-02 (about a third of 739 real recommended questions truly missed, and a pick's "Checked:"
-// did little better than "Judgment:") a form with a recommended option, AskUserQuestion included, also
-// needs its own rec-check agent: one called since the user's last message and since the last form that went
-// through. That call is no lookup, so it can't back a "Checked:". A singleSelect needs at least 2 options.
-// REC_CHECK=off turns the agent check off; it is skipped too when ~/.claude/agents/rec-check.md isn't there (an install without that agent).
-// It fails open, so any error or odd input lets the call through. QUESTION_OTHER=off disables it.
-import { crashLog } from "./crash-log.mjs";
+// - a form that points the user at something to look at (a "look through / check the page" phrase, or a file path in
+//   its title, intro or labels) when neither the form nor Claude's visible text since its last ordinary tool call has a
+//   clickable link (a markdown link to /C:/..., C:/... or /Users/..., or a URL) and no picture or preview was shown
+//   there. Option descriptions are not scanned for it: they hold the "Checked:" reasons, which name files.
+//   The link must match where the file is: Nimbalyst opens a markdown link only for a file inside the open project
+//   (the nearest ancestor of the hook input's cwd with a CLAUDE.md or .git, else the cwd). A file outside it is
+//   presented by its path in inline code (`~/.claude/x.md`, `C:/Users/you/x.md`) in the form or the reply text;
+//   a link to it would not open.
+// - a form with a recommended option, AskUserQuestion included, without its own rec-check agent call: one called since
+//   the user's last message and since the last form that went through. That call is no lookup, so it can't back a
+//   "Checked:". It is skipped when ~/.claude/agents/rec-check.md isn't there (an install without that agent).
+// A PromptForUserInput is never refused: mend() fixes every fault above in place and tells Claude in one line
+// (additionalContext) what it changed. A missing link gets a "File:" pointer in the intro; an unexplained or unshaped
+// recommendation loses its "(recommended)" mark; an unbacked "Checked:" becomes "Judgment:"; a second recommended
+// option in a singleSelect loses its mark; a missing rec-check or a one-option singleSelect goes out as is with a
+// note. review() still lists the reasons; only AskUserQuestion is still refused.
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
+import { gitBashToNative, projectRoot } from "./lib/paths.mjs";
+import { ru } from "./lib/ru.mjs";
+// INJECTED: user text Claude Code, Nimbalyst or a hook adds on its own; it does not start a new turn
+import { INJECTED } from "./lib/transcript.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, posix, resolve, win32 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, posix, win32 } from "node:path";
 
 const MIN_REASON = 20; // characters; shorter than this is a label, not a reason
 const recommended = (o) =>
@@ -56,9 +54,6 @@ const FORM = /PromptForUserInput|AskUserQuestion/;
 const SHOWN = /display_to_user|capture_editor_screenshot|browser_open_local_preview/; // put a picture or page in front of the user
 // Bookkeeping calls change nothing the user sees, so a link written just before them still counts
 const QUIET = /update_session_meta|update_session_board|^Task(Create|Update|List|Get)$|^TodoWrite$|^ToolSearch$/;
-// User text Claude Code or Nimbalyst adds on its own (a background task's notice, an interrupt, a
-// system or child-session prompt): it does not start a new turn
-const INJECTED = /^\s*(<task-notification>|\[(Request interrupted|System:|Child Session Update\]))/;
 // The phone bot's note on every prompt it sends: a phone can answer only Nimbalyst's AskUserQuestion
 const PHONE = /\(Sent from the phone\. /;
 const ALWAYS_LOADED = /^(claude|memory)\.md$/;
@@ -127,14 +122,14 @@ const POINTS = new RegExp([
 // Russian twins of POINTS and NOT_TO_LOOK (`--language russian`). \b does not see Cyrillic: u flag and lookarounds.
 const RU_NOUN = String.raw`(?:страниц\p{L}*|файл\p{L}*|документ\p{L}*|черновик\p{L}*|макет\p{L}*|превью|картинк\p{L}*|фото\p{L}*|изображени\p{L}*|скриншот\p{L}*|отч[её]т\p{L}*|видео|верси\p{L}*|сайт\p{L}*|html)`;
 const RU_LOOK = String.raw`(?:посмотрите|посмотри|взгляните|взгляни|откройте|открой|проверьте|проверь|прочитайте|прочти|просмотрите|просмотри|пролистайте|пролистай|ознакомьтесь с|протестируйте|протестируй|попробуйте|попробуй)`;
-const RU_POINTS = new RegExp([
-  String.raw`(?<!\p{L})(?:посмотрите|посмотри|взгляните|взгляни)\s+(?:на\s+)?(?:него|неё|нее|это|них|эти)(?!\p{L})`,
-  String.raw`(?<!\p{L})${RU_LOOK}\s+(?:на\s+)?(?:эту|этот|это|эти|мою|мой|моё|мое|мои|ваш\p{L}*|его|её|ее|их)(?:\s+[\p{L}-]+){0,2}?\s+${RU_NOUN}(?!\p{L})`,
-  String.raw`(?<!\p{L})то, что я (?:сделал|сделала|собрал|собрала|написал|написала|нарисовал|нарисовала|изменил|изменила)(?!\p{L})`,
-  String.raw`(?<!\p{L})(?:этот|мой|новый|обновл[её]нный)\s+макет(?!\p{L})`,
-].join("|"), "iu");
+const RU_POINTS = ru([
+  String.raw`«(?:посмотрите|посмотри|взгляните|взгляни)\s+(?:на\s+)?(?:него|неё|нее|это|них|эти)»`,
+  String.raw`«${RU_LOOK}\s+(?:на\s+)?(?:эту|этот|это|эти|мою|мой|моё|мое|мои|ваш\p{L}*|его|её|ее|их)(?:\s+[\p{L}-]+){0,2}?\s+${RU_NOUN}»`,
+  String.raw`«то, что я (?:сделал|сделала|собрал|собрала|написал|написала|нарисовал|нарисовала|изменил|изменила)»`,
+  String.raw`«(?:этот|мой|новый|обновл[её]нный)\s+макет»`,
+].join("|"));
 const RU_NOT_TO_LOOK = /(?<!\p{L})(?:из|как|(?:добавлено|записано|сохранено|скопировано|перенесено|попадут|попадёт|попадет|идут|пойдут) в)\s*[(`"'\[]?\s*$/iu;
-const PATH = /(?:^|[\s(:"'`\[])((?:[A-Za-z]:|~)?[\\/]?(?:[\w.\-]+[\\/])*[\w\-]+\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|mp4|docx?|xlsx?|pptx?|csv))\b/gi;
+const PATH = /(?:^|[\s(:"'`\[])((?:\/?[A-Za-z]:|~)?[\\/]?(?:[\w.\-]+[\\/])*[\w\-]+\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|mp4|docx?|xlsx?|pptx?|csv))\b/gi;
 const NOTES = /(?:^|[\\/])(?:decisions|claude|handoff|memory)(?:\.md$|[\\/])/i; // where answers get written, not something to look at
 // "goes into x.md", "added to x.md", "save it as `x.png`", "counts are from x.xlsx"
 const NOT_TO_LOOK = /\b(?:into|(?:added|written|saved|copied|moved|appended) to|as|from)\s*[(`"'\[]?\s*$/i;
@@ -155,8 +150,10 @@ const formText = (input, fields, withDrafts = false) => {
   return out.filter((s) => typeof s === "string").join("\n");
 };
 // What in the form sends the user to look at something: { text, file } (file: a local path), or null
+// A markdown link to a local file is read by its target, not its label: the label is a bare name
+// ("x.md") that would resolve against the cwd.
 export function pointer(input, fields) {
-  const text = formText(input, fields);
+  const text = formText(input, fields).replace(/\[[^\]\n]*\]\(\s*<?((?!https?:)[^)\s>]+)>?\s*\)/gi, " $1 ");
   const phrase = text.match(POINTS) || text.match(RU_POINTS);
   if (phrase) return { text: phrase[0], file: false };
   const path = [...text.matchAll(PATH)].find((m) =>
@@ -167,34 +164,30 @@ export function pointer(input, fields) {
 
 // Inside the open project? The project root is the nearest ancestor of cwd with a CLAUDE.md or .git, else cwd.
 // Without a cwd nothing can be told, so the file counts as inside (the link rule stays as it was).
-const gitBash = (p) => p.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:");
 const slashed = (p) => p.replace(/\\/g, "/");
-export function projectRoot(cwd) {
-  // CLAUDE_PROJECT_DIR is the open project; the hook's cwd follows Bash `cd` and can sit elsewhere
-  const envDir = process.env.CLAUDE_PROJECT_DIR;
-  try { if (envDir && existsSync(envDir)) return gitBash(slashed(envDir)); } catch {}
-  try {
-    // A C:/ path climbs with Windows rules everywhere: elsewhere dirname walks "C:" to "." (the process's own folder)
-    const P = /^[A-Za-z]:[\\/]/.test(cwd) ? win32 : { join, dirname };
-    for (let d = cwd; ; ) {
-      if (existsSync(P.join(d, "CLAUDE.md")) || existsSync(P.join(d, ".git"))) return d;
-      const up = P.dirname(d);
-      if (up === d) return cwd;
-      d = up;
-    }
-  } catch { return cwd; }
-}
-export function outsideProject(file, cwd) {
-  if (!cwd) return false;
-  const base = gitBash(slashed(cwd));
+// The file's full path with forward slashes (C:/..., /Users/...); a relative one stays relative without a cwd
+const absolute = (file, cwd) => {
   let t = slashed(file);
   if (t === "~" || t.startsWith("~/")) t = slashed(homedir()) + t.slice(1);
-  t = gitBash(t).replace(/^\/([A-Za-z]:\/)/, "$1");
-  if (!/^[A-Za-z]:\//.test(t) && !t.startsWith("/")) t = (/^[A-Za-z]:\//.test(base) ? win32 : posix).resolve(base, t);
+  t = gitBashToNative(t).replace(/^\/([A-Za-z]:\/)/, "$1");
+  if (cwd && !/^[A-Za-z]:\//.test(t) && !t.startsWith("/")) {
+    const base = gitBashToNative(slashed(cwd));
+    t = slashed((/^[A-Za-z]:\//.test(base) ? win32 : posix).resolve(base, t));
+  }
+  return t;
+};
+export function outsideProject(file, cwd) {
+  if (!cwd) return false;
   const norm = (p) => slashed(p).replace(/\/+$/, "").toLowerCase();
-  const a = norm(t), r = norm(projectRoot(base));
+  const a = norm(absolute(file, cwd)), r = norm(projectRoot({ cwd: gitBashToNative(slashed(cwd)) }));
   return !(a === r || a.startsWith(r + "/"));
 }
+// What the form gets when nothing presents the file: a link Nimbalyst opens inside the project, the path in code outside it
+const pointerTo = (file, cwd, outside) => {
+  const t = absolute(file, cwd);
+  if (outside || !/^(?:[A-Za-z]:)?\//.test(t)) return `\`${t}\``;
+  return `[${t.split("/").pop()}](${/^[A-Za-z]:/.test(t) ? "/" : ""}${t.replace(/ /g, "%20")})`;
+};
 // A path in inline code that names the file (its name, plus a folder or ~)
 const inCode = (s, file) => {
   const name = file.split(/[\\/]/).pop().toLowerCase();
@@ -227,7 +220,83 @@ export function repair(input) {
   return changed ? { ...input, fields: out } : null;
 }
 
+const REC_NOTE = `the form recommends an option and no rec-check agent looked at it since the user's last message (or since the last form went through); it went out as is. ` +
+  `The user clicks the recommended option on trust and about a third of them missed, so before the next recommended form call the Agent tool once, in the foreground, ` +
+  `with subagent_type "rec-check" (the user's own words, the question, every option with its reason, what you looked at). If its answer would have changed this pick, tell the user in the reply.`;
+const unmark = (o) => {
+  const c = { ...o };
+  for (const k of ["label", "title"]) if (typeof c[k] === "string") c[k] = c[k].replace(/\s*\(recommended\)/gi, "").trim();
+  if (/^recommended$/i.test(String(c.badge || "").trim())) delete c.badge;
+  return c;
+};
+const nameOf = (o) => `"${String(o?.label || o?.title || o?.id || "").replace(/\s*\(recommended\)/gi, "").trim()}"`;
+
+// A PromptForUserInput fixed in place, never refused (a refused form stays on screen beside the resent one):
+// { input: the new tool_input or null when nothing changed, notes: one line each for Claude }.
+export function mend(event, seen) {
+  const original = event.tool_input || {};
+  let fields = original.fields;
+  if (typeof fields === "string") try { fields = JSON.parse(fields); } catch { return { input: null, notes: [] }; }
+  if (!Array.isArray(fields)) return { input: null, notes: [] };
+  const notes = [];
+  const noOther = fields.filter((f) => f?.type === "singleSelect" && f.allowOther !== true).map((f) => `"${f.label || f.id}"`);
+  const fixed = repair({ ...original, fields });
+  let changed = !!fixed;
+  if (noOther.length) notes.push(`added allowOther: true to ${noOther.join(", ")}: the user wants to type their own answer on every choice question.`);
+  if (fixed && fixed.fields.length > fields.length) notes.push(`added an optional "Anything else?" box: no field took typing (next time set allowOther: true on a singleSelect or add an editText).`);
+  let input = fixed || { ...original, fields };
+  let anyPick = false;
+  input = { ...input, fields: input.fields.map((f) => {
+    const key = f?.type === "singleSelect" ? "options" : f?.type === "multiSelect" ? "items" : null;
+    if (!key || !Array.isArray(f[key])) return f;
+    const name = `"${f.label || f.id}"`;
+    let kept = 0;
+    const dropped = [];
+    const opts = f[key].map((o) => {
+      if (!recommended(o)) return o;
+      if (!hasReason(o) || !hasShape(o)) {
+        changed = true;
+        notes.push(`removed the "(recommended)" mark from ${nameOf(o)} in ${name}: its reason ${hasReason(o) ? "was not in the shape" : "was missing; the shape is"} ` +
+          `"Checked: <what you looked at and what it showed>" or "Judgment: <why>", then "Other wins if: <the case for another option>". Next time write it that way, or recommend nothing.`);
+        return unmark(o);
+      }
+      let c = o;
+      if (seen && !backed(o, seen)) {
+        const k = o.description ? "description" : "subtitle";
+        c = { ...o, [k]: String(o[k]).replace(/(^|[^a-z])checked(\s*:)/i, "$1Judgment$2") };
+        changed = true;
+        notes.push(`rewrote "Checked:" to "Judgment:" on ${nameOf(o)} in ${name}: this session's record shows no tool call that touched what it names (or, naming nothing, no lookup since the user's last message). Write "Checked:" only for something really looked up.`);
+      }
+      if (f.type === "singleSelect" && ++kept > 1) { changed = true; dropped.push(nameOf(o)); return unmark(c); }
+      anyPick = true;
+      return c;
+    });
+    if (dropped.length) notes.push(`removed the "(recommended)" mark from ${dropped.join(", ")} in ${name}: a singleSelect recommends one option at most, so only the first kept it.`);
+    if (f.type === "singleSelect" && f[key].length < 2) notes.push(`${name} has fewer than 2 options, so it asks nothing; it went out as is. Next time add the real alternative, use a confirm field for a plain yes/no, or decide it yourself.`);
+    return { ...f, [key]: opts };
+  }) };
+  // A link in the form's own words or in the reply right before it, or a picture shown there, counts as presented
+  const point = seen ? pointer(input, input.fields) : null;
+  if (point) {
+    const cwd = typeof event.cwd === "string" ? event.cwd : "";
+    const outside = point.file && outsideProject(point.text, cwd);
+    const presented = (s) => (outside ? inCode(s, point.text) : (point.file ? LOCAL_LINK : LINK).test(s));
+    if (!presented(formText(input, input.fields, true)) && !presented(seen.replyText) && !seen.shown) {
+      if (point.file) {
+        const where = `File: ${pointerTo(point.text, cwd, outside)}`;
+        input = { ...input, intro: [input.intro, where].filter((s) => typeof s === "string" && s.trim()).join("\n\n") };
+        changed = true;
+        notes.push(`the form points at "${point.text}" and nothing in front of the user presented it, so "${where}" was added to its intro. ` +
+          `Next time put it in the reply before the form: inside the open project a markdown link [name](/C:/path/to/file.md), outside it the path in inline code.`);
+      } else notes.push(`the form sends the user to look at something ("${point.text}") with no link in the form or the reply before it; it went out as is. Next time write the link (a markdown link or a web address) in the reply first.`);
+    }
+  }
+  if (anyPick && seen?.recChecked === false && recCheckOn()) notes.push(REC_NOTE);
+  return { input: changed ? input : null, notes };
+}
+
 // The reasons to refuse one call (empty when it may go through). seen = readRecord(...) or null.
+// For PromptForUserInput they are counted (the replay), not sent: the main block calls mend() instead.
 export function review(event, seen) {
   const tool = String(event.tool_name || "");
   if (/AskUserQuestion$/.test(tool)) {
@@ -307,31 +376,20 @@ export function review(event, seen) {
   return parts;
 }
 
-if (process.argv[1] && resolve(fileURLToPath(import.meta.url)).toLowerCase() === resolve(process.argv[1]).toLowerCase()) {
-  try {
-    if ((process.env.QUESTION_OTHER || "").toLowerCase() === "off") process.exit(0);
-    const event = JSON.parse(readFileSync(0, "utf8"));
+if (isMain(import.meta.url)) {
+  runHook("question-other", (event) => {
     let seen = null; // no session record (or an unreadable one) lets "Checked:" and the link check through
     const needsRecord = /PromptForUserInput$|AskUserQuestion$/.test(String(event.tool_name || ""));
     try { if (needsRecord && event.transcript_path) seen = readRecord(event.transcript_path); } catch {}
-    const fixed = /PromptForUserInput$/.test(String(event.tool_name || "")) ? repair(event.tool_input) : null;
-    const parts = review(fixed ? { ...event, tool_input: fixed } : event, seen);
-    if (fixed && !parts.length) {
-      process.stdout.write(JSON.stringify({
-        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: fixed },
-      }));
-    } else if (parts.length) {
-      const again = /AskUserQuestion$/.test(String(event.tool_name || "")) ? "" : " Then call PromptForUserInput again.";
-      process.stdout.write(JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason: `question-other: ${parts.join(" ")}${again}`,
-        },
-      }));
+    if (/PromptForUserInput$/.test(String(event.tool_name || ""))) {
+      const { input, notes } = mend(event, seen);
+      const out = { hookEventName: "PreToolUse" };
+      if (input) Object.assign(out, { permissionDecision: "allow", updatedInput: input });
+      if (notes.length) out.additionalContext = `question-other: ${notes.join(" ")}`;
+      if (input || notes.length) process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+    } else {
+      const parts = review(event, seen);
+      if (parts.length) emit.deny(`question-other: ${parts.join(" ")}`);
     }
-  } catch (err) {
-    crashLog("question-other", err);
-    process.exit(0);
-  }
+  });
 }

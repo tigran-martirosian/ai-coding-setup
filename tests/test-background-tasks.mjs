@@ -45,6 +45,9 @@ function run(name, lines, expect, { event = {}, env = {}, subagents = null } = {
 		else if (expect === "block") {
 			const o = JSON.parse(out);
 			ok = ok && o.decision === "block" && o.reason.startsWith("[background-tasks] Your reply says a helper still runs");
+		} else if (expect === "silent") {
+			const o = JSON.parse(out);
+			ok = ok && o.decision === "block" && o.reason.startsWith("[background-tasks] This turn began with a finished task's notice");
 		} else if (expect === "nudge") {
 			const h = JSON.parse(out).hookSpecificOutput;
 			ok = ok && h.hookEventName === "PreToolUse" && h.additionalContext.startsWith("[background-tasks] Background costs two extra") && !("permissionDecision" in h);
@@ -174,6 +177,18 @@ run("stop-blocks-with-dev-server-up", [...SERVE, ...finished], "block", stop(LAT
 run("stop-blocks-curly-apostrophe", finished, "block", stop("It’s now adding your two late requests."));
 run("stop-blocks-bare-waiting", finished, "block", stop("Waiting for the reviewer."));
 run("stop-blocks-resumed-will-notify", finished, "block", stop("The agent was resumed and will notify again."));
+// Stop: "No response requested." to a finished task's notice or to the settled notice
+const NRR = "No response requested.";
+const ownNotice = [typed("fix it"), ...agentBg(), notified("a1234", "toolu_a")];
+run("silent-to-finished-notice-blocks", ownNotice, "silent", stop(NRR));
+run("silent-empty-reply-blocks", ownNotice, "silent", stop(""));
+run("silent-to-settled-notice-blocks", [...ownNotice, typed("[System: background task(s) you launched have settled:\n- \"S3\" completed")], "silent", stop(NRR));
+run("silent-to-settled-blocks-while-other-runs", [...ownNotice, ...bashBg(), typed("[System: background task(s) you launched have settled:\n- \"S3\" completed")], "silent", stop(NRR));
+run("silent-to-notice-passes-while-other-runs", [typed("fix it"), ...agentBg(), ...bashBg(), notified("a1234", "toolu_a")], "", stop(NRR));
+run("silent-to-stop-feedback-passes", [typed("fix it"), J({ type: "user", message: { role: "user", content: "<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>" } })], "", stop(NRR));
+run("silent-to-typed-prompt-left-to-no-response-gate", [typed("what is left?")], "", stop(NRR));
+run("silent-reply-with-text-passes", ownNotice, "", stop("Done: both tests pass."));
+run("silent-hook-active-passes", ownNotice, "", stop(NRR, { stop_hook_active: true }));
 run("stop-passes-resumed-by-name", [call("Agent", "toolu_a", { description: "Plan", prompt: "x", name: "planner" }), result("toolu_a", "agentId: a1234"), notified("a1234", "toolu_a"), call("SendMessage", "toolu_m", { to: "planner", message: "two more" })], "", stop(LATE));
 for (const [name, text] of [
 	["description-when-finished", "The hook blocks the stop when the task is finished."],

@@ -11,20 +11,19 @@
 //   --brief                read a helper's brief on stdin; print the lines of the things it is about: the top 3 in full, one line for each further match, at most 7,000 characters
 //   --check                list files and evidence paths that no longer exist, evidence that lost its token (DRIFT), and the JSON mistakes; exit 1 when anything is wrong
 //   --scan                 what a builder needs to start a map: code files by folder, biggest files, entry points (at most about 8 KB)
-// The two hooks (map-brief.mjs, map-nudge.mjs) import this file. No dependencies; Node.js only.
+// The two hooks (map-brief.mjs, map-nudge.mjs) import this file. Node.js only; the map file's reader is hooks/lib/map-file.mjs.
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { MAP_REL, loadMap } from "../../hooks/lib/map-file.mjs";
+import { MAP_CODE_EXT } from "../../hooks/lib/code-files.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 export const CMD = `node "${SELF.replace(/\\/g, "/")}"`;
-export const MAP_REL = ".claude/systems-map.json";
+export { MAP_REL, loadMap };
 
-export const CODE_EXT = new Set(
-  ("js mjs cjs jsx ts tsx py pyi java kt kts scala groovy go rs rb php cs fs vb c h cc cpp cxx hpp hh m mm swift dart lua pl pm r jl " +
-    "ex exs erl hrl hs ml clj cljs sh bash zsh ps1 bat sql vue svelte astro").split(" "),
-);
+export const CODE_EXT = MAP_CODE_EXT;
 // Folders that hold other people's code or build output
 export const VENDORED = new Set(
   ("node_modules vendor vendors third_party third-party thirdparty bower_components dist build out target .git .venv venv __pycache__ " +
@@ -71,18 +70,6 @@ const isFile = (p) => {
 };
 
 // ---- the file -------------------------------------------------------------------------------------------------------------------------
-
-/** The parsed map, or null when the project has none. Throws on invalid JSON. */
-export function loadMap(dir) {
-  let raw;
-  try {
-    raw = fs.readFileSync(path.join(dir, MAP_REL), "utf8");
-  } catch (e) {
-    if (e.code === "ENOENT") return null;
-    throw e;
-  }
-  return JSON.parse(raw.replace(/^﻿/, ""));
-}
 
 /** One evidence entry in its normal shape { file, token? }, or null when it is neither a path string nor an object with a file. */
 export function evidenceOf(e) {

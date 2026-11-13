@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 const HOOK = fileURLToPath(new URL("../hooks/job-done.mjs", import.meta.url));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "job-done-test-"));
 const runId = "t" + process.pid + "-" + Date.now();
-const stateDir = path.join(os.tmpdir(), "job-done");
+const stateDir = path.join(os.homedir(), ".claude", "hooks", "state", "job-done");
 const sessions = [];
 let failed = 0;
 let n = 0;

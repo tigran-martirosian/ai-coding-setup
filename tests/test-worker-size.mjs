@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 
 const HOOK = fileURLToPath(new URL("../hooks/worker-size.mjs", import.meta.url));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "worker-size-test-"));
-const stateDir = path.join(os.tmpdir(), "worker-size");
+const stateDir = path.join(os.homedir(), ".claude", "hooks", "state", "worker-size"); // where the hook keeps its state
 const tag = "t" + process.pid;
 let failed = 0;
 let n = 0;

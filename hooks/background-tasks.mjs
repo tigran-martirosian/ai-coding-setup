@@ -1,52 +1,42 @@
 // background-tasks: UserPromptSubmit, PreToolUse and Stop hook. Every wake-up of the main session re-sends the whole
-// conversation: on real transcripts a long session had dozens of task-notification turns plus Nimbalyst
-// "[System: background task(s) you launched have settled: ...]" prompts, each re-sending the full context.
-//   UserPromptSubmit: when every task in the settled prompt already had its task-notification, lets it through
-//     with a note: one line while work still runs, one complete answer to the user's message when it is done. One unknown or
-//     unnotified task lets it through with no note. It used to block it, but a blocked prompt shows in
-//     Nimbalyst as a warning quoting the whole raw list, and that warning, not a reply, was what the user read.
-//     Settled turns do real work: most of them carried on the job (next
-//     launch, edits, re-boot) because the task-notification turn before each had been answered "No response
-//     requested." (Claude Code's wake-up marks it "NOT USER INPUT"), and Nimbalyst resumed the session for the
-//     settled prompt. Their requests are the job's next steps, moved there, so no wording of the note cuts them.
-//   PreToolUse (main session only; the user, 2026-11-05: refuse unless it runs beside something): refuses a
-//     background launch, which costs a notification turn plus a settled turn. Agent/Task are background unless
-//     `run_in_background: false` (the default is background: 53 no-flag launches in S1's scan came back "Async
-//     agent launched"); Bash/PowerShell only with `run_in_background: true`. A launch passes when
-//     - its description has the word `beside` (the caller says another step runs meanwhile; this is also how two
-//       launches in one message pass: they arrive as separate PreToolUse calls, and whether the message's later
-//       tool_use blocks are on disk when the first one's hook runs is not known, so the transcript is not asked),
-//     - another background task of the session is still running: a launch result with a task id ("agentId: X",
-//       "Command running in background with ID: X", "moved to the background (ID: X)") with no task-notification
-//       or TaskStop after it; a server or watcher doesn't count, it never ends,
-//     - or it is a Bash/PowerShell server or watcher (SERVER below), which is what background is for.
-//     Subagents (agent_id) pass: worker.md tells workers to run long builds in the background, and that
-//     notification wakes the worker, not the main session. BACKGROUND_TASKS=warn gives the old note instead of
-//     each refusal.
-// How a settled item maps to its notification, worked out on real transcripts:
-// an item is `- "<text>" <status>\n  Summary: ...`, where <text> is the Agent `description`, or the Bash
-// `description` when the call has one, else its `command`. The notification carries `<task-id>`
-// and only sometimes `<tool-use-id>` (a resumed agent's notice had none), so the key is the
-// task id: text -> the latest main-chain Bash/Agent call with that text -> the task id in its tool result
-// ("agentId: X", "Command running in background with ID: X", or "moved to the background (ID: X)" for a
-// foreground Bash past its timeout) -> a task-notification with that id after the launch or after a
-// SendMessage that resumed the agent. The notification is a turn of its own (origin task-notification) or,
-// when it lands mid-turn, a queued_command attachment (some prompts depended on one).
-// Background Bash does get its own notification: every main-chain Bash item had one before the
-// settled prompt. Many items are no main-session task at all: Nimbalyst also lists every
-// Bash call a background agent made (foreground ones too). Such an item is found in
-// <session>/subagents/agent-<id>.jsonl and counts as handled once that agent's own notification came.
-// Result on the real prompts, each with the transcript cut just before it: every one blocked, every Agent and
-// Bash item matched to a notification, every agent step matched to its agent's.
-// A "<task-notification>" without a task id (Stop hook feedback) is not a task's.
-// Subagent prompts pass. Fails open. BACKGROUND_TASKS=off disables it, BACKGROUND_TASKS=warn turns refusals into notes.
-//   Stop (main session, blocks once): a reply that says a helper still runs or that it waits for one, while no
-//     background task of the session is live (servers count as live here), is sent back to check ListAgents.
-//     Real case: a planner's notice carried "The agent is being resumed with them and will notify again"; the reply
-//     said "It's now adding your two late requests ... I'll save the plan once it's done" and stopped, and nothing ran
-//     until a later SendMessage. Since the last typed prompt, a scheduled wake-up, a Monitor or cron, or a message
-//     to another session lets it pass: this transcript doesn't track those.
-import { crashLog } from "./crash-log.mjs";
+// conversation, so this cuts wake-ups: it lets a settled-notice prompt through with a note, refuses a background launch
+// that has nothing running beside it, and sends back a reply that ends while a helper still runs.
+// BACKGROUND_TASKS=off disables it, BACKGROUND_TASKS=warn turns refusals into notes. Fails open.
+//
+// UserPromptSubmit: when every task in a Nimbalyst "[System: background task(s) you launched have settled: ...]" prompt
+//   already had its task-notification, it passes with a note (one line while work still runs, else one complete answer
+//   to the user's message). One unknown or unnotified task passes with no note. It is not blocked: a blocked prompt
+//   shows in Nimbalyst as a warning quoting the whole raw list, and that warning, not a reply, is what the user reads.
+//   A turn that follows a task notification answered "No response requested." (Claude Code marks the wake-up
+//   "NOT USER INPUT") is sent back on Stop to carry on, because the settled prompt carries the job's next steps.
+// PreToolUse (main session only): refuses a background launch, which costs a notification turn plus a settled turn.
+//   Agent/Task are background unless `run_in_background: false`; Bash/PowerShell only with `run_in_background: true`.
+//   A launch passes when
+//   - its description has the word `beside` (the caller says another step runs meanwhile; two launches in one message
+//     arrive as separate PreToolUse calls, and whether the later tool_use blocks are on disk is not known, so the
+//     transcript is not asked),
+//   - another background task of the session is still running: a launch result with a task id ("agentId: X",
+//     "Command running in background with ID: X", "moved to the background (ID: X)") with no task-notification
+//     or TaskStop after it; a server or watcher doesn't count, it never ends,
+//   - or it is a Bash/PowerShell server or watcher (SERVER below), which is what background is for.
+//   Subagents (agent_id) pass: worker.md lets workers start a long build in the background and wait for it
+//   in a foreground polling loop (a worker that ends its turn to wait is never woken).
+// Stop (main session, blocks once): a reply that says a helper still runs or that it waits for one, while no background
+//   task of the session is live (servers count as live here), is sent back to check ListAgents. Since the last typed
+//   prompt, a scheduled wake-up, a Monitor or cron, or a message to another session lets it pass: this transcript
+//   doesn't track those.
+// How a settled item maps to its notification: an item is `- "<text>" <status>\n  Summary: ...`, where <text> is the
+// Agent `description`, or the Bash `description` when the call has one, else its `command`. The notification carries
+// `<task-id>` and only sometimes `<tool-use-id>` (a resumed agent's notice has none), so the key is the task id: text ->
+// the latest main-chain Bash/Agent call with that text -> the task id in its tool result -> a task-notification with that
+// id after the launch or after a SendMessage that resumed the agent. The notification is a turn of its own (origin
+// task-notification) or, when it lands mid-turn, a queued_command attachment. Nimbalyst also lists every Bash call a
+// background agent made (foreground ones too); such an item is found in <session>/subagents/agent-<id>.jsonl and counts
+// as handled once that agent's own notification came. A "<task-notification>" without a task id (Stop hook feedback)
+// is not a task's.
+import { runHook, emit } from "./lib/hook-io.mjs";
+import { agentLaunches, currentTurn, entries, userText } from "./lib/transcript.mjs";
+import { SETTLED_NOTE, STAND_IN_RE } from "./lib/texts.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -54,16 +44,14 @@ const SETTLED = /^\[System: background task\(s\)[^\n]*settled/;
 const ITEM_END = /" [a-z][a-z ()0-9-]{0,30}\n  Summary:/g;
 // A whole item header on one line with no Summary line under it: this parser can't check that item
 const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n  Summary:)/m;
-// command-explain.mjs appends this to a command without a note; the transcript keeps the command without it
-const STAND_IN = /\n\n# WHAT THIS DOES: \(no note given\) [\s\S]*$/;
 // A command that doesn't end by itself: dev server, game server, watcher, follow-mode log read, endless loop
 const SERVER = /\b(runServer|runClient|nodemon|http-server|live-server|webpack-dev-server|http\.server|uvicorn|gunicorn)\b|\bflask\s+run\b|\bmanage\.py\s+runserver\b|\bnode\s[^|;&\n]*server|\bnpx\s+(serve|vite)\b|\bserve\s+-s\b|\bdocker[ -]compose\s+up\b(?![^|;&\n]*\s-\w*d)|\b(npm|pnpm|yarn)\s+run\s+preview\b|\bstreamlit\s+run\b|\brails\s+(s|server)\b|--watch\b|\btsc\b[^|;&\n]*\s-w\b|-Wait\b|\btail\b[^|;&\n]*\s-\w*[fF]\b|(^|[\s;&|(])(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b|(^|[\s;&|(])(vite|next|nuxt|astro)(\s+dev)?\s*$|(^|[\s;&|(])watch\s|\bwhile\s+(true|:)/im;
 const BESIDE = /\bbeside\b/i;
-const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read. Use it only when another step runs beside this one; otherwise run it in the foreground (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once. When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer).";
+const NUDGE = "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read. Use it only when another step runs beside this one; otherwise run it in the foreground (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once. When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer). A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
 const REFUSE_AGENT = "[background-tasks] Refused: this launch runs in the background (the default unless run_in_background is false), and nothing else of this session runs meanwhile, so its finish only wakes the main session again, re-sending the whole conversation twice (notification and settled notice). Re-send the same call with run_in_background: false and use its result when it returns. If another step does run meanwhile (a second launch in this same message, or work you do yourself before reading this one), re-send it with the word `beside` in the description, e.g. \"S3 beside S1: ...\".";
-const REFUSE_SHELL = "[background-tasks] Refused: nothing else of this session runs meanwhile, so this background command only wakes the main session again when it ends, re-sending the whole conversation twice (notification and settled notice). Run it in the foreground with `timeout` up to 600000 (10 minutes) and read its output once. If it is a server or watcher that never ends, re-send it with `beside` in its description. Background is also for when another step runs meanwhile: then put the word `beside` in the description.";
+const REFUSE_SHELL = "[background-tasks] Refused: nothing else of this session runs meanwhile, so this background command only wakes the main session again when it ends, re-sending the whole conversation twice (notification and settled notice). Run it in the foreground with `timeout` up to 600000 (10 minutes) and read its output once. If it is a server or watcher that never ends, re-send it with `beside` in its description. Background is also for when another step runs meanwhile: then put the word `beside` in the description. A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
 
-const DUPLICATE = "[background-tasks] This settled notice repeats results you already had in their task-notifications, and the user sees it as a raw list. Don't re-read or redo anything: no status snippet (a string of small updates doesn't read like an answer). If work for the user's last message still runs (ListAgents shows it running), reply with one line naming what still runs. When it is all finished, reply with one complete answer to that whole message, readable alone: every ask and its outcome, what was checked, what is left, any decision last. Never answer it with \"No response requested\".";
+const DUPLICATE = SETTLED_NOTE + " results you already had in their task-notifications, and the user sees it as a raw list. Don't re-read or redo anything: no status snippet (a string of small updates doesn't read like an answer). If work for the user's last message still runs (ListAgents shows it running), reply with one line naming what still runs. When it is all finished, reply with one complete answer to that whole message, readable alone: every ask and its outcome, what was checked, what is left, any decision last. Never answer it with \"No response requested\".";
 
 // A reply that says a helper of this session runs now or will report back. Only claims count: a sentence that
 // starts with the helper doing something now, a first-person wait or promise, a "will notify" line. A
@@ -81,28 +69,31 @@ const WAITING = new RegExp([
 ].join("|"), "i");
 // Tools whose wait this transcript doesn't track
 const OTHER_WAIT = /^(ScheduleWakeup|Monitor|CronCreate|RemoteTrigger|mcp__nimbalyst-host__(schedule_wakeup|spawn_session|send_prompt|create_session))$/;
-const WAITING_ON_NOTHING = "[background-tasks] Your reply says a helper still runs or that you wait for it, but no helper or background command of this session is live: each one has sent its finish notice, and a notice's \"is being resumed\" / \"will notify again\" note starts nothing. Check with ListAgents. When it shows nothing running, do the waited-for work in this turn: SendMessage the finished agent with what it still has to do (that resumes it) and wait for its result, or do the work yourself; or, when nothing is left, reply plainly that nothing runs and what is done. When the wait is for the user, for another session, or for something that does show as running, or the reply only describes how something works, end the turn as it is.";
+const WAITING_ON_NOTHING = "[background-tasks] Your reply says a helper still runs or that you wait for it, but no helper or background command of this session is live: each one has sent its finish notice, and a notice's \"is being resumed\" / \"will notify again\" note starts nothing. A helper whose finish notice says it is still waiting on its own background work (\"still rendering\", \"waiting for the job\") has stopped too: it never resumes by itself. Don't say a helper is still running without a ListAgents call in this turn that shows it running. Check with ListAgents. When it shows nothing running, do the waited-for work in this turn: SendMessage the finished agent with what it still has to do (that resumes it) and wait for its result, or do the work yourself; or, when nothing is left, reply plainly that nothing runs and what is done. When the wait is for the user, for another session, or for something that does show as running, or the reply only describes how something works, end the turn as it is.";
+
+// A reply with nothing in it for the user
+const SILENT = /^(No response requested\.?)?$/i;
+const SILENT_TO_NOTICE = "[background-tasks] This turn began with a finished task's notice (or the settled notice) and nothing else of this session still runs, so \"No response requested.\" leaves the user with only the raw notice and stops the job that waited on it. Carry on with the work that was waiting on that result in this turn; when nothing is left, reply with one complete answer to the user's last message: every ask and its outcome, what was checked, what is left. A helper whose notice says it is still waiting on its own background work has stopped: SendMessage it once to finish.";
+
+// What started the current turn: "settled" (Nimbalyst's settled notice), "finished" (a task's own
+// task-notification, which has a task id), or null (a typed prompt, Stop hook feedback, anything else)
+function noticeTurn(file) {
+	const { opener } = currentTurn(entries(fs.readFileSync(file, "utf8")));
+	const t = opener ? userText(opener).trimStart() : "";
+	return SETTLED.test(t) ? "settled" : /<task-notification>[\s\S]*<task-id>[^<\s]+<\/task-id>/.test(t) ? "finished" : null;
+}
 
 // Tool calls since the last prompt the user typed (a task notice or a settled notice starts no new wait)
 function turnTools(file) {
 	const names = [];
-	for (const raw of fs.readFileSync(file, "utf8").split("\n")) {
-		let e;
-		try { e = JSON.parse(raw); } catch { continue; }
-		if (e.isSidechain) continue;
-		const c = e.message?.content;
-		if (e.type === "user" && e.origin?.kind !== "task-notification" && !(Array.isArray(c) && c.some((b) => b.type === "tool_result"))) {
-			const t = texts(c).join("\n").trimStart();
-			if (t && !/^(\[System:|<task-notification>)/.test(t)) names.length = 0;
-		}
-		if (e.type === "assistant" && Array.isArray(c)) for (const b of c) if (b.type === "tool_use") names.push(b.name);
+	for (const e of currentTurn(entries(fs.readFileSync(file, "utf8")), { typed: true }).entries) {
+		if (e.type === "assistant" && Array.isArray(e.message?.content)) for (const b of e.message.content) if (b.type === "tool_use") names.push(b.name);
 	}
 	return names;
 }
 
 const texts = (c) => typeof c === "string" ? [c] : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text || "") : [];
-const resultText = (c) => typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => b.text || "").join("\n") : "";
-const key = (text) => text.replace(STAND_IN, "").trimEnd();
+const key = (text) => text.replace(STAND_IN_RE, "").trimEnd();
 
 // What the main chain of the transcript says about background tasks
 function readMain(file) {
@@ -114,11 +105,14 @@ function readMain(file) {
 	const named = new Map(); // Agent `name` -> tool_use id, so a SendMessage to the name resumes its task
 	const later = (map, k, line) => map.set(k, Math.max(map.get(k) ?? -1, line));
 	const note = (task, line) => { if (!notified.has(task)) notified.set(task, []); notified.get(task).push(line); };
-	fs.readFileSync(file, "utf8").split("\n").forEach((raw, line) => {
-		if (!raw.trim()) return;
-		let e;
-		try { e = JSON.parse(raw); } catch { return; }
-		if (e.isSidechain) return;
+	// line: an entry's place in the main chain, so a later entry has a higher number
+	const list = entries(fs.readFileSync(file, "utf8"));
+	// launches first, so a SendMessage to an agent's name below finds its task id
+	for (const l of agentLaunches(list)) {
+		taskOf.set(l.toolUseId, l.task);
+		later(startedAt, l.task, l.index);
+	}
+	list.forEach((e, line) => {
 		const c = e.message?.content;
 		if (e.type === "assistant") {
 			for (const b of Array.isArray(c) ? c : []) {
@@ -143,15 +137,6 @@ function readMain(file) {
 			if (!t.trimStart().startsWith("<task-notification>")) continue;
 			const task = t.match(/<task-id>([^<\s]+)<\/task-id>/)?.[1];
 			if (task) note(task, line);
-		}
-		if (e.type !== "user") return;
-		for (const b of Array.isArray(c) ? c : []) {
-			if (b.type !== "tool_result") continue;
-			const m = resultText(b.content).match(/agentId: (\w+)|Command running in background with ID: (\w+)|moved to the background \(ID: (\w+)\)/);
-			if (!m) continue;
-			const task = m[1] || m[2] || m[3];
-			taskOf.set(b.tool_use_id, task);
-			later(startedAt, task, line);
 		}
 	});
 	return { launches, taskOf, servers, startedAt, notified };
@@ -211,46 +196,45 @@ function allNotified(prompt, transcript, sessionId) {
 	return true;
 }
 
-try {
+runHook("background-tasks", (event) => {
 	const mode = (process.env.BACKGROUND_TASKS || "").toLowerCase();
-	if (mode === "off") process.exit(0);
-	const event = JSON.parse(fs.readFileSync(0, "utf8"));
 	if (event.hook_event_name === "PreToolUse") {
 		const input = event.tool_input || {};
 		const agentCall = ["Agent", "Task"].includes(event.tool_name);
 		const shellCall = ["Bash", "PowerShell"].includes(event.tool_name);
 		const background = agentCall ? input.run_in_background !== false : shellCall && input.run_in_background === true;
-		if (!background || event.agent_id) process.exit(0);
-		if (BESIDE.test(String(input.description ?? ""))) process.exit(0);
-		if (shellCall && SERVER.test(String(input.command ?? ""))) process.exit(0);
-		if (event.transcript_path && fs.existsSync(event.transcript_path) && othersRunning(event.transcript_path)) process.exit(0);
+		if (!background || event.agent_id) return;
+		if (BESIDE.test(String(input.description ?? ""))) return;
+		if (shellCall && SERVER.test(String(input.command ?? ""))) return;
+		if (event.transcript_path && fs.existsSync(event.transcript_path) && othersRunning(event.transcript_path)) return;
 		// The desktop app and VS Code always run the main conversation's helpers in the background (Claude Code
 		// 2.1.302), so a refusal there could never be met: a note only.
 		const alwaysBackground = agentCall && /^claude-(desktop|vscode)/.test(process.env.CLAUDE_CODE_ENTRYPOINT || "");
-		const out = mode === "warn" || alwaysBackground
-			? { hookEventName: "PreToolUse", additionalContext: NUDGE }
-			: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: agentCall ? REFUSE_AGENT : REFUSE_SHELL };
-		process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
-		process.exit(0);
+		if (mode === "warn" || alwaysBackground) emit.context("PreToolUse", NUDGE);
+		else emit.deny(agentCall ? REFUSE_AGENT : REFUSE_SHELL);
+		return;
 	}
-	if (event.agent_id) process.exit(0);
+	if (event.agent_id) return;
 	if (event.hook_event_name === "Stop") {
-		if (event.stop_hook_active || !event.transcript_path || !fs.existsSync(event.transcript_path)) process.exit(0);
-		if (!WAITING.test(String(event.last_assistant_message ?? "").replace(/[‘’]/g, "'"))) process.exit(0);
-		if (turnTools(event.transcript_path).some((n) => OTHER_WAIT.test(n))) process.exit(0);
+		if (event.stop_hook_active || !event.transcript_path || !fs.existsSync(event.transcript_path)) return;
+		if (SILENT.test(String(event.last_assistant_message ?? "").trim())) {
+			const notice = noticeTurn(event.transcript_path);
+			if (notice === "settled" || (notice === "finished" && !othersRunning(event.transcript_path))) {
+				emit.block(SILENT_TO_NOTICE);
+			}
+			return;
+		}
+		if (!WAITING.test(String(event.last_assistant_message ?? "").replace(/[‘’]/g, "'"))) return;
+		if (turnTools(event.transcript_path).some((n) => OTHER_WAIT.test(n))) return;
 		// A dev server left up earlier is not the helper the reply waits on
-		if (othersRunning(event.transcript_path)) process.exit(0);
-		process.stdout.write(JSON.stringify({ decision: "block", reason: WAITING_ON_NOTHING }));
-		process.exit(0);
+		if (othersRunning(event.transcript_path)) return;
+		emit.block(WAITING_ON_NOTHING);
+		return;
 	}
 	const prompt = String(event.prompt ?? "");
-	if (!SETTLED.test(prompt)) process.exit(0);
-	if (!event.transcript_path || !fs.existsSync(event.transcript_path)) process.exit(0);
+	if (!SETTLED.test(prompt)) return;
+	if (!event.transcript_path || !fs.existsSync(event.transcript_path)) return;
 	if (allNotified(prompt, event.transcript_path, event.session_id)) {
-		process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: DUPLICATE } }));
+		emit.context("UserPromptSubmit", DUPLICATE);
 	}
-} catch (err) {
-	crashLog("background-tasks", err);
-	// Fail open
-}
-process.exit(0);
+});

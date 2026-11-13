@@ -16,41 +16,24 @@
 //   --root DIR        transcripts folder (default ~/.claude/projects)
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
+import { isBuildCode as isCode } from "../../../hooks/lib/code-files.mjs";
+import { REPORT_FOLLOWS, STOP_HOOK_FEEDBACK, VERIFY_GATE } from "../../../hooks/lib/texts.mjs";
+import { opt } from "./lib/opt.mjs";
+import { daysWindow } from "./lib/days.mjs";
+import { defaultRoot, walkChats, subagentMetas, EDIT, AGENT, SHELL, QUESTION_TOOL as FORM, CAPPED, TOO_FEW, textOf, editedFile } from "./lib/chats.mjs";
 
-const args = process.argv.slice(2);
-const opt = (name, def) => {
-  const i = args.indexOf(`--${name}`);
-  return i === -1 ? def : args[i + 1];
-};
-const root = opt("root", path.join(os.homedir(), ".claude", "projects"));
+const root = opt("root", defaultRoot());
 const project = (opt("project", "") ?? "").toLowerCase();
-const days = Number(opt("days", 14));
-const since = Date.now() - days * 86400000;
-const MIN = 10; // under this many, a figure is "too few to judge"
+const { days, since } = daysWindow();
 
-const CODE_EXT = new Set([".java", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".gd", ".cs", ".go", ".rs", ".kt", ".kts", ".gradle", ".vue", ".svelte", ".php", ".rb", ".swift", ".c", ".cpp", ".h", ".sh", ".ps1"]);
-const isCode = (p) => {
-  const f = String(p ?? "").replace(/\\/g, "/");
-  if (/\/(temp|tmp|scratch)\//i.test(f)) return false;
-  const ext = path.extname(f).toLowerCase();
-  return CODE_EXT.has(ext) || (ext === ".json" && /(^|\/)src\//.test(f));
-};
 const BUILD = /^(?:\S+=\S*\s+)*(?:(?:bash|sh|call|cmd\s+\/c)\s+)?(?:\S*[\\/])?(?:gradlew(?:\.bat)?|mvnw?|qbuild(?:\.\w+)?|run[_-]all\.\w+|run-tests?\.\w+|make|pytest|tox|tsc|vitest|jest|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build)\b|npx\s+(?:tsc|vitest|jest|playwright)\b|cargo\s+(?:build|test|check|clippy)\b|go\s+(?:build|test|vet)\b|dotnet\s+(?:build|test)\b|cmake\s+--build\b|(?:python3?|py)\s+(?:-3\s+)?-m\s+(?:pytest|unittest)\b|node\s+(?:--test\b|(?:\S*[\\/])?(?:test-[\w.-]*|[\w.-]*-tests?|run-tests?[\w.-]*|run-all)\.[cm]?js\b))(?:\s|$)/i;
 const isBuild = (cmd) => String(cmd ?? "").split(/&&|\|\||;|\||\r?\n/).some((s) => BUILD.test(s.trim()));
 
-const FORM = /(AskUserQuestion|PromptForUserInput)$/;
-const AGENT = /^(Agent|Task)$/;
-const EDIT = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
-const SHELL = /^(Bash|PowerShell)$/;
-const CAPPED = /stopped at its \d+-turn limit/;
 const MAP_MARK = "SYSTEMS MAP:";
 const MAP_TYPES = new Set(["worker", "worker-full", "reviewer", "planner"]);
 const INJECTED = /^(<(?!command-)[a-z-]+[ >]|\[(Request interrupted|System:|SYSTEM NOTIFICATION|Child Session))/;
 
 const recommended = (o) => o && (/\(recommended\)/i.test(`${o.label ?? ""} ${o.title ?? ""}`) || /^recommended$/i.test(String(o.badge ?? "").trim()));
-const textOf = (c) => typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => (typeof b === "string" ? b : b?.text ?? "")).join("\n") : "";
-const normFile = (p) => String(p ?? "").replace(/\\/g, "/").toLowerCase();
 const parse = (raw) => { try { return JSON.parse(raw); } catch { return null; } };
 
 // One chat file -> its tool calls, their results, the messages typed by the user and the stop-hook feedback, in file order.
@@ -71,7 +54,7 @@ function readChat(file) {
       const text = textOf(content).trim();
       const note = text.match(/<task-notification>[\s\S]*?<tool-use-id>([\w-]+)<\/tool-use-id>/); // a background helper's report
       if (note) c.notes.set(note[1], text);
-      if (typeof content === "string" && content.startsWith("Stop hook feedback:")) c.stops.push({ text, seq, t });
+      if (typeof content === "string" && content.startsWith(STOP_HOOK_FEEDBACK)) c.stops.push({ text, seq, t });
       else if (!e.isMeta && !e.isCompactSummary && e.promptSource !== "system" && e.origin?.kind !== "task-notification" && text && !INJECTED.test(text)) c.typed.push({ seq, t });
     }
   }
@@ -81,33 +64,22 @@ function readChat(file) {
 // The files: main chats of the last days, and the helper records next to each.
 if (!fs.existsSync(root)) { console.error(`outcomes: no transcripts folder at ${root}`); process.exit(2); }
 const chats = [];
-for (const d of fs.readdirSync(root)) {
-  if (project && !d.toLowerCase().includes(project)) continue;
-  const dir = path.join(root, d);
-  let ents;
-  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-  for (const e of ents) {
-    if (!e.isFile() || !e.name.endsWith(".jsonl")) continue;
-    const f = path.join(dir, e.name);
-    if (fs.statSync(f).mtimeMs < since) continue;
-    chats.push(readChat(f));
-  }
-}
+for (const { file } of walkChats(root, since, (d) => !project || d.toLowerCase().includes(project))) chats.push(readChat(file));
 
-const share = (k, n) => n < MIN ? `${k} of ${n}` : `${k} of ${n} (${Math.round((100 * k) / n)}%)`;
-const sample = (n) => n < MIN ? `${n}, too few to judge` : `${n}`;
+const share = (k, n) => n < TOO_FEW ? `${k} of ${n}` : `${k} of ${n} (${Math.round((100 * k) / n)}%)`;
+const sample = (n) => n < TOO_FEW ? `${n}, too few to judge` : `${n}`;
 const turnEnd = (c, seq) => c.typed.find((m) => m.seq > seq)?.seq ?? Infinity;
 const out = [];
 const p = (s = "") => out.push(s);
 
 p(`# Outcomes, last ${days} days`);
-p(`${chats.length} chats read from ${root}${project ? ` (projects containing "${project}")` : ""}. Counts only. A figure from fewer than ${MIN} cases is marked "too few to judge" and has no percentage.`);
+p(`${chats.length} chats read from ${root}${project ? ` (projects containing "${project}")` : ""}. Counts only. A figure from fewer than ${TOO_FEW} cases is marked "too few to judge" and has no percentage.`);
 
 // ---------- rec-check
 const rcCalls = [];
 for (const c of chats) for (const u of c.uses.values()) if (AGENT.test(u.name) && u.input.subagent_type === "rec-check") {
   const r = c.results.get(u.id);
-  const first = r?.text.split("The report follows:").pop().split("\n").map((l) => l.trim()).find(Boolean) ?? ""; // the app wraps a helper's report in a frame
+  const first = r?.text.split(REPORT_FOLLOWS).pop().split("\n").map((l) => l.trim()).find(Boolean) ?? ""; // the app wraps a helper's report in a frame
   const verdict = !r || r.error ? "no result" : /^change/i.test(first) ? "change" : /^keep/i.test(first) ? "keep" : "unclear";
   rcCalls.push({ c, u, r, verdict });
 }
@@ -199,7 +171,7 @@ for (const kind of ["reviewer helper", "code-review skill"]) {
 // ---------- verify gate
 const gate = [];
 for (const c of chats) for (const s of c.stops) {
-  if (!/^Stop hook feedback:\s*verify-gate:/.test(s.text) || s.t < since) continue;
+  if (!new RegExp("^" + STOP_HOOK_FEEDBACK + "\\s*" + VERIFY_GATE).test(s.text) || s.t < since) continue;
   const end = turnEnd(c, s.seq);
   const runs = [...c.uses.values()].filter((u) => SHELL.test(u.name) && u.seq > s.seq && u.seq < end && isBuild(u.input.command));
   const results = runs.map((u) => c.results.get(u.id)).filter(Boolean);
@@ -216,16 +188,10 @@ p(`| verify-gate | ${sample(gate.length)} | ${share(gate.filter((g) => g.ran).le
 // ---------- map
 const helpers = [];
 for (const c of chats) {
-  const sdir = path.join(path.dirname(c.file), path.basename(c.file, ".jsonl"), "subagents");
-  const metas = new Map();
-  if (fs.existsSync(sdir)) for (const f of fs.readdirSync(sdir)) {
-    if (!f.endsWith(".meta.json")) continue;
-    const m = parse(fs.readFileSync(path.join(sdir, f), "utf8"));
-    if (m?.toolUseId) metas.set(m.toolUseId, f.replace(/\.meta\.json$/, ""));
-  }
+  const { sdir, metas } = subagentMetas(c.file);
   for (const u of c.uses.values()) {
     if (!AGENT.test(u.name) || u.t < since || !MAP_TYPES.has(u.input.subagent_type)) continue;
-    const base = metas.get(u.id), rec = base && path.join(sdir, base + ".jsonl");
+    const base = metas.get(u.id)?.base, rec = base && path.join(sdir, base + ".jsonl");
     if (!rec || !fs.existsSync(rec)) continue;
     let brief = "";
     const files = new Set();
@@ -235,7 +201,7 @@ for (const c of chats) {
       if (!e) continue;
       if (!brief && e.type === "user") brief = textOf(e.message?.content);
       if (e.type === "assistant" && Array.isArray(e.message?.content)) for (const b of e.message.content) {
-        if (b.type === "tool_use" && EDIT.test(b.name)) files.add(normFile(b.input?.file_path ?? b.input?.notebook_path ?? b.input?.path));
+        if (b.type === "tool_use" && EDIT.test(b.name)) files.add(editedFile(b.input));
       }
     }
     brief = brief || String(u.input.prompt ?? "");

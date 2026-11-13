@@ -1,5 +1,5 @@
 // Tests for hooks/loop-warn.mjs. Run: node tests/test-loop-warn.mjs
-// The hook keeps its state under the temp folder; the tests point TEMP at a throwaway folder.
+// The hook keeps its state under ~/.claude/hooks/state; the tests point HOME at a throwaway folder.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(new URL("../hooks/loop-warn.mjs", import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-warn-test-"));
-const baseEnv = { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp, LOOP_WARN: "", LOOP_WARN_COUNT: "" };
+const baseEnv = { ...process.env, HOME: tmp, USERPROFILE: tmp, LOOP_WARN: "", LOOP_WARN_COUNT: "" };
 
 // Runs one call through the hook; returns "warn", "silent", or the raw output when it is something else
 function call(session, tool, input, env = {}, extra = {}) {
@@ -68,7 +68,7 @@ check("a session opened without an id is found by its last page",
   many(5, (i) => call("s15", "mcp__nimbalyst-browser__browser_open_session", { url: `https://example.org/o/${i}` }) + "," + call("s15", EVAL, { sessionId: "agent-browser:1", script: "1" })), many(10, () => "silent"));
 check("bad input is ignored",
   spawnSync(process.execPath, [HOOK], { input: "not json", env: baseEnv }).status, 0);
-fs.writeFileSync(path.join(tmp, "loop-warn", "s11.json"), "{broken");
+fs.writeFileSync(path.join(tmp, ".claude", "hooks", "state", "loop-warn", "s11.json"), "{broken");
 check("a broken state file is ignored", call("s11", "Bash", cmd), "silent");
 
 fs.rmSync(tmp, { recursive: true, force: true });

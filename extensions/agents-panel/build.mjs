@@ -4,9 +4,9 @@
 //   node build.mjs            build dist/
 //   node build.mjs --install  build, then install
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { extensionTarget, lenientLanguage, readTokens, swapStrings } from '../shared/build-lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.join(here, 'src');
@@ -43,9 +43,7 @@ const RUSSIAN_STRINGS = `const STRINGS = {
     Agent: 'ждёт субагента',
   },
 };`;
-const STRINGS_START = 'const STRINGS = {';
-const STRINGS_END = '\n};';
-const lang = (process.env.SETUP_LANGUAGE || 'english').toLowerCase().replace(/^ru$/, 'russian');
+const lang = lenientLanguage();
 
 fs.mkdirSync(dist, { recursive: true });
 let js = fs.readFileSync(path.join(src, 'index.js'), 'utf8');
@@ -54,24 +52,13 @@ const RUNS_IMPORT = "import { parseRuns, matchRun, readRuns } from './runs.js';"
 if (!js.includes(RUNS_IMPORT)) throw new Error('runs.js import not found in src/index.js');
 const runsSource = fs.readFileSync(path.join(src, 'runs.js'), 'utf8').replace(/\nexport \{[^}]*\};\s*$/, '\n').trimEnd();
 js = js.replace(RUNS_IMPORT, () => runsSource);
-if (lang === 'russian') {
-  const from = js.indexOf(STRINGS_START);
-  const to = js.indexOf(STRINGS_END, from);
-  if (from < 0 || to < 0) throw new Error('STRINGS object not found in src/index.js');
-  js = js.slice(0, from) + RUSSIAN_STRINGS + js.slice(to + STRINGS_END.length);
-}
+if (lang === 'russian') js = swapStrings(js, RUSSIAN_STRINGS);
 fs.writeFileSync(path.join(dist, 'index.js'), js);
-const tokensPath = path.join(here, '..', 'shared', 'tokens.css');
-if (!fs.existsSync(tokensPath)) throw new Error(`shared tokens not found: ${tokensPath}`);
-fs.writeFileSync(path.join(dist, 'style.css'), fs.readFileSync(tokensPath, 'utf8') + '\n' + fs.readFileSync(path.join(src, 'style.css'), 'utf8'));
+fs.writeFileSync(path.join(dist, 'style.css'), readTokens() + '\n' + fs.readFileSync(path.join(src, 'style.css'), 'utf8'));
 console.log(`built dist/ (${lang === 'russian' ? 'russian' : 'english'})`);
 
 if (process.argv.includes('--install')) {
-  const appData = process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support') : process.env.APPDATA;
-  if (!appData) throw new Error('APPDATA is not set, so Nimbalyst\'s folder is unknown');
-  const home = path.join(appData, '@nimbalyst', 'electron');
-  if (!fs.existsSync(home)) throw new Error(`Nimbalyst's folder is not there: ${home}`);
-  const target = path.join(home, 'extensions', 'agentspanel');
+  const target = extensionTarget('agentspanel');
   fs.mkdirSync(path.join(target, 'dist'), { recursive: true });
   fs.copyFileSync(path.join(here, 'manifest.json'), path.join(target, 'manifest.json'));
   for (const f of ['index.js', 'style.css']) fs.copyFileSync(path.join(dist, f), path.join(target, 'dist', f));

@@ -1,9 +1,10 @@
 // Reads the map file and the path check. The panel calls `read` when it opens and every REFRESH_MS while it is open.
 
+import { hostError, readHostFile, startSession } from '../../shared/host.ts';
+import type { Invoke } from '../../shared/host.ts';
 import { MAP_REL, classify, parseCheck } from './map.ts';
 import type { Check, Loaded } from './map.ts';
 
-export type Invoke = (channel: string, args: unknown) => Promise<unknown>;
 export interface ExecResult {
   success: boolean;
   stdout: string;
@@ -21,14 +22,9 @@ export interface Snapshot {
 }
 
 export const REFRESH_MS = 60_000;
-/** The model Commands starts its sessions with, whatever was picked last in the app. */
-export const MODEL = 'claude-code:sonnet';
 const CHECK_TIMEOUT_MS = 30_000;
-// A refusal (no project open, provider off) comes back at once; the reply itself takes minutes.
-const REFUSAL_MS = 2000;
 
 const missing = (e: unknown) => /ENOENT|no such file/i.test(String((e as Error)?.message ?? e));
-export const reason = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']*': (Error: )?/, '');
 
 /** `map.mjs --check` for one project. The project folder is an argument of node, so no shell quoting touches it. */
 export const checkCommand = (workspace: string) =>
@@ -39,9 +35,9 @@ export async function read(workspace: string, invoke: Invoke, exec: Exec): Promi
   const file = `${workspace.replace(/\\/g, '/').replace(/\/+$/, '')}/${MAP_REL}`;
   let raw: string | null;
   try {
-    raw = String(await invoke('extensions:read-file', file));
+    raw = await readHostFile(invoke, file);
   } catch (e) {
-    if (!missing(e)) throw new Error(reason(e));
+    if (!missing(e)) throw new Error(hostError(e));
     raw = null;
   }
   const loaded = classify(raw);
@@ -59,13 +55,6 @@ export async function read(workspace: string, invoke: Invoke, exec: Exec): Promi
 }
 
 /** Starts the "Build a map" session. Returns '' once it is running, or the reason the app refused. */
-export function build(invoke: Invoke, sessionName: string, wait = REFUSAL_MS): Promise<string> {
-  const sent = invoke('extensions:ai-send-prompt', { prompt: '/systems-map', sessionName, model: MODEL });
-  return Promise.race([
-    sent.then(
-      () => '',
-      (e) => reason(e)
-    ),
-    new Promise<string>((resolve) => setTimeout(() => resolve(''), wait)),
-  ]);
+export function build(invoke: Invoke, sessionName: string, wait?: number): Promise<string> {
+  return startSession(invoke, '/systems-map', sessionName, wait);
 }

@@ -8,10 +8,9 @@
 // next paragraph when the claim line stands alone as a heading). The first try is refused; the identical
 // retry goes through. Unreadable input is an error (exit 2), never a silent pass.
 // DECIDED_QUOTE=off disables it.
-import { crashLog } from "./crash-log.mjs";
-import { readFileSync, writeFileSync, mkdirSync, writeSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+import { sessionKey } from "./lib/paths.mjs";
+import { stateFile, readJson, writeJson } from "./lib/state.mjs";
 import { createHash } from "node:crypto";
 
 const NEGATED = /\bnot\s+(?:yet\s+|been\s+)?(?:decided|confirmed|approved|chosen)(?:\s+by)?\b/gi;
@@ -80,32 +79,17 @@ function textOf(event) {
   return Object.values(input).filter((v) => typeof v === "string").join("\n");
 }
 
-function main() {
-  if ((process.env.DECIDED_QUOTE || "").toLowerCase() === "off") return 0;
-  let event;
-  try {
-    event = JSON.parse(readFileSync(0, "utf8"));
-  } catch (e) {
-    process.stderr.write(`[decided-quote] Could not read the hook input as JSON (${e.message}). Set DECIDED_QUOTE=off to bypass.\n`);
-    return 2;
-  }
-  if (!event || typeof event !== "object") {
-    process.stderr.write("[decided-quote] Hook input is not an object. Set DECIDED_QUOTE=off to bypass.\n");
-    return 2;
-  }
+function main(event) {
   const text = textOf(event);
-  if (!text) return 0;
+  if (!text) return;
   const bad = unquotedClaims(text);
-  if (!bad.length) return 0;
+  if (!bad.length) return;
 
-  const dir = join(tmpdir(), "decided-quote");
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, `${String(event.session_id || "none").replace(/[^\w-]/g, "")}.json`);
+  const file = stateFile("decided-quote", sessionKey(event.session_id));
   const key = createHash("sha1").update(event.tool_name + text).digest("hex");
-  let seen = [];
-  try { seen = JSON.parse(readFileSync(file, "utf8")); } catch {}
-  if (seen.includes(key)) return 0;
-  writeFileSync(file, JSON.stringify([...seen, key].slice(-200)));
+  const seen = readJson(file, { missing: [] });
+  if (seen.includes(key)) return;
+  writeJson(file, [...seen, key].slice(-200));
 
   const reason = [
     `[decided-quote] This text claims a decision by the user but quotes no words of theirs next to it:`,
@@ -113,19 +97,7 @@ function main() {
     `Quote the user's words (or for a form: the field label, the full text of the ticked option and anything typed with it, and where it came from), or move the item under "Proposed, not confirmed". A tick that goes against what the user typed, said last or decided earlier is not a decision yet.`,
     `If the claim is true and quoted elsewhere, retry the identical call and it will go through.`,
   ].join("\n");
-  writeSync(1, JSON.stringify({
-    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
-  }));
-  return 0;
+  emit.deny(reason);
 }
 
-import { fileURLToPath } from "node:url";
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  try {
-    process.exit(main());
-  } catch (err) {
-    crashLog("decided-quote", err);
-    process.stderr.write(`${err?.stack || err}\n`);
-    process.exit(1);
-  }
-}
+if (isMain(import.meta.url)) runHook("decided-quote", main, { exitOnBadInput: true });

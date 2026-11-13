@@ -5,29 +5,25 @@
 // more it tells the user and has Claude offer /board-cleanup, at most once a day per project.
 // Running /board-cleanup (or /planning:session-cleanup) resets the count. Only inside Nimbalyst.
 // Silent for other /commands. Fails open. BOARD_NUDGE=off disables it.
-import { crashLog } from "./crash-log.mjs";
+import { runHook, inNimbalyst } from "./lib/hook-io.mjs";
+import { sessionKey } from "./lib/paths.mjs";
+import { readJson, writeJson } from "./lib/state.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const LIMIT = Number(process.env.BOARD_NUDGE_N) || 15;
 const DAY = 24 * 60 * 60 * 1000;
-const STATE_DIR = process.env.BOARD_NUDGE_DIR || path.join(os.homedir(), ".claude", "board-nudge");
+const STATE_DIR = process.env.BOARD_NUDGE_DIR || path.join(os.homedir(), ".claude", "hooks", "state", "board-nudge");
 
-let raw = "";
-process.stdin.on("data", (d) => (raw += d));
-process.stdin.on("end", () => {
-  try {
-    if (process.env.BOARD_NUDGE === "off") return;
-    // No variable names Nimbalyst for a hook; the entry point is "sdk-..." in an app, "cli" in the terminal
-    if (!/^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT ?? "")) return;
-    const input = JSON.parse(raw);
+runHook("board-nudge", (input) => {
+  {
+    if (!inNimbalyst()) return;
     if (!input.transcript_path) return;
     const projectDir = path.dirname(input.transcript_path);
-    const stateFile = path.join(STATE_DIR, `${path.basename(projectDir).replace(/[^\w-]/g, "")}.json`);
-    let state = {};
-    try { state = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch {}
-    const save = () => { fs.mkdirSync(STATE_DIR, { recursive: true }); fs.writeFileSync(stateFile, JSON.stringify(state)); };
+    const stateFile = path.join(STATE_DIR, `${sessionKey(path.basename(projectDir))}.json`);
+    let state = readJson(stateFile, { missing: {} });
+    const save = () => writeJson(stateFile, state);
 
     const prompt = String(input.prompt ?? "").trim();
     const now = Date.now();
@@ -57,8 +53,5 @@ process.stdin.on("end", () => {
       systemMessage: `Sessions board: about ${count} new sessions since the last cleanup. /board-cleanup tidies it.`,
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context },
     }));
-  } catch (err) {
-    crashLog("board-nudge", err);
-    // fail open
   }
 });

@@ -6,7 +6,7 @@
 //   node render.mjs clips      only the gifs
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { CATCH, FPS, frames, SCRIPT, TICKS, timeline, toFrames } from "./src/film/script.ts";
+import { CLAIM_AT, FPS, frames, SCRIPT, timeline, toFrames } from "./src/film/script.ts";
 
 const mode = process.argv[2] ?? "all";
 const img = "../docs/img";
@@ -16,11 +16,11 @@ const MASTER = "out/master.mp4";
 const GITHUB_LIMIT_MB = 10;
 
 // Each shot once all its text is on screen, from its own composition (in the film the next shot covers its end),
-// plus the catch before it is corrected.
+// plus the cited page before the agent opens it.
 const shotEnds = () => SCRIPT.map((shot) => ({ id: shot.id, frame: frames(shot) - 2, composition: shot.id }));
-const sentBack = () => ({ id: "catch-sent-back", frame: toFrames(CATCH.at.fixed - 8), composition: "catch" });
-// The contents grid with one cell open is the poster.
-const posterFrame = () => timeline().find((item) => item.id === "contents").from + toFrames(TICKS * 1.1);
+const sentBack = () => ({ id: "link-sent-back", frame: toFrames(CLAIM_AT.fixed - 8), composition: "link" });
+// The reply sent back for a test run it never did is the poster.
+const posterFrame = () => timeline().find((item) => item.id === "verify").from + toFrames(CLAIM_AT.fixed - 8);
 // The clip names are read from the source, so this list can't drift from the scenes.
 const index = fs.readFileSync("src/scenes/index.ts", "utf8");
 const clips = [...index.matchAll(/^  (\w+): \[/gm)].map((m) => m[1]);

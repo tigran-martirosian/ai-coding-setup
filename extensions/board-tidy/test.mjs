@@ -8,14 +8,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { pickSessions, ownReason, toMs } from './pick.mjs';
+import { buildFor, createChecks } from '../shared/check.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-let pass = 0;
-let fail = 0;
-const check = (name, ok) => {
-  if (ok) pass++;
-  else { fail++; console.log(`FAIL ${name}`); }
-};
+const { check, finish } = createChecks();
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 const ago = (days) => new Date(NOW - days * 864e5).toISOString();
@@ -115,10 +111,7 @@ check('cli: missing database is a clear error', missing.status === 1 && /databas
 fs.rmSync(tmp, { recursive: true, force: true });
 
 // Build
-const build = (lang) => {
-  const r = spawnSync(process.execPath, ['build.mjs'], { cwd: here, encoding: 'utf8', env: { ...process.env, SETUP_LANGUAGE: lang } });
-  if (r.status !== 0) throw new Error(`build (${lang}) failed: ${r.stderr}`);
-};
+const build = (lang) => buildFor(here, lang);
 build('russian');
 const ru = await import(pathToFileURL(path.join(here, 'dist', 'index.js')).href + `?ru=${Date.now()}`);
 check('russian: words swapped', /архив/.test(ru.STRINGS.archived) && /архив/.test(ru.STRINGS.failed));
@@ -134,5 +127,4 @@ check('manifest tools match the code', manifest.contributions.aiTools.join() ===
 check('manifest asks for filesystem and ai', manifest.permissions.filesystem === true && manifest.permissions.ai === true);
 check('extension id in the code matches', fs.readFileSync(path.join(here, 'src', 'index.js'), 'utf8').includes(`'${manifest.id}'`));
 
-console.log(`${pass} pass, ${fail} fail`);
-process.exit(fail ? 1 : 0);
+finish();

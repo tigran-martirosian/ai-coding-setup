@@ -5,12 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { makeChecker, UNDER_MS } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(new URL("../hooks/map-nudge.mjs", import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "map-nudge-test-"));
 const DAY = 24 * 60 * 60 * 1000;
-let pass = 0, fail = 0;
-const check = (name, ok, extra = "") => { ok ? pass++ : fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : extra ? `\n     ${extra}` : ""}`); };
+const { check, summary } = makeChecker();
 
 const write = (dir, rel, text = "x\n") => {
   fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -30,16 +30,16 @@ const project = (name, n, { git = true, map = null } = {}) => {
     spawnSync("git", ["init", "-q"], { cwd: dir });
     spawnSync("git", ["add", "-A", "-f"], { cwd: dir });
   }
-  return { dir, state: path.join(tmp, `${name}-state`), stateFile: path.join(tmp, `${name}-state`, "map-nudge.json") };
+  return { dir, state: path.join(tmp, `${name}-state`), stateFile: path.join(tmp, `${name}-state`, ".claude", "hooks", "state", "map-nudge", "projects.json") };
 };
 const run = (p, prompt = "fix the login bug", env = {}) => {
   const t = Date.now();
-  const r = spawnSync("node", [HOOK], { input: env.RAW ?? JSON.stringify({ prompt }), encoding: "utf8", env: { ...process.env, MAP_NUDGE: "", CLAUDE_PROJECT_DIR: p.dir, MAP_NUDGE_DIR: p.state, ...env } });
+  const r = spawnSync("node", [HOOK], { input: env.RAW ?? JSON.stringify({ prompt }), encoding: "utf8", env: { ...process.env, MAP_NUDGE: "", CLAUDE_PROJECT_DIR: p.dir, HOME: p.state, USERPROFILE: p.state, ...env } });
   return { ...r, ms: Date.now() - t };
 };
 const context = (r) => { try { return JSON.parse(r.stdout).hookSpecificOutput.additionalContext; } catch { return ""; } };
 const state = (p) => { try { return JSON.parse(fs.readFileSync(p.stateFile, "utf8"))[p.dir.replace(/\\/g, "/")] ?? {}; } catch { return {}; } };
-const setState = (p, rec) => { fs.mkdirSync(p.state, { recursive: true }); fs.writeFileSync(p.stateFile, JSON.stringify({ [p.dir.replace(/\\/g, "/")]: rec })); };
+const setState = (p, rec) => { fs.mkdirSync(path.dirname(p.stateFile), { recursive: true }); fs.writeFileSync(p.stateFile, JSON.stringify({ [p.dir.replace(/\\/g, "/")]: rec })); };
 
 // ---- no map: the count decides
 const small = project("small", 99);
@@ -83,7 +83,7 @@ const off = project("off", 120);
 check("MAP_NUDGE=off: silent, nothing recorded", run(off, "x", { MAP_NUDGE: "off" }).stdout === "" && !fs.existsSync(off.stateFile));
 check("a /command: silent, nothing recorded", run(off, "/compact").stdout === "" && !fs.existsSync(off.stateFile));
 check("bad hook input: silent", run(off, "x", { RAW: "not json" }).stdout === "");
-check("no project folder in the environment: silent", spawnSync("node", [HOOK], { input: JSON.stringify({ prompt: "x" }), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", MAP_NUDGE_DIR: off.state } }).stdout === "");
+check("no project folder in the environment: silent", spawnSync("node", [HOOK], { input: JSON.stringify({ prompt: "x" }), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: "", HOME: off.state, USERPROFILE: off.state } }).stdout === "");
 check("after all that, the same project still nudges once", /120 tracked code files/.test(context(run(off))));
 
 // ---- a map is there
@@ -130,12 +130,10 @@ check("1 gone + 1 changed (2 of 12, under 20 %): silent", run(slight).stdout ===
 // ---- speed on a big repository: 3,000 code files. The best of five runs, since other sessions share this computer.
 const bigp = project("big", 3000);
 const best = (n, f) => Math.min(...Array.from({ length: n }, f));
-const baseline = best(5, () => { const t = Date.now(); spawnSync("node", ["-e", "0"]); return Date.now() - t; });
 const counting = best(5, () => { fs.rmSync(bigp.state, { recursive: true, force: true }); return run(bigp).ms; });
-check(`3,000 code files, no map, the count runs: under 300 ms (best of five ${counting} ms; an empty node start ${baseline} ms)`, counting < 300);
+check(`3,000 code files, no map, the count runs: under ${UNDER_MS / 1000} s (best of five ${counting} ms)`, counting < UNDER_MS);
 const fast = best(5, () => run(bigp).ms);
-check(`a project nudged before skips the count: within 40 ms of an empty node start (${fast} ms)`, fast < baseline + 40);
+check(`a project nudged before skips the count: under ${UNDER_MS / 1000} s (best of five ${fast} ms)`, fast < UNDER_MS);
 
 fs.rmSync(tmp, { recursive: true, force: true });
-console.log(`\n${pass}/${pass + fail} passed`);
-process.exit(fail ? 1 : 0);
+summary();

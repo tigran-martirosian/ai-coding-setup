@@ -1,4 +1,4 @@
-// Finds the chat composers in the app's page. Read from the app's renderer code (Nimbalyst 2026-10-29):
+// Finds the chat composers in the app's page. Read from the app's renderer code (Nimbalyst):
 // the composer is a flex row holding `div.ai-chat-input-textarea-wrap > textarea.ai-chat-input-field`
 // and then ONE button: `button.ai-chat-send-button` (aria-label "Send message"), or, while the session
 // runs and the composer has a cancel handler, `button.ai-chat-cancel-button`. The session id is the

@@ -14,33 +14,22 @@
 //          --root DIR (default ~/.claude/projects)
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
+import { chatCounts } from "../../../hooks/lib/texts.mjs";
+import { opt } from "./lib/opt.mjs";
+import { daysWindow, day } from "./lib/days.mjs";
+import { defaultRoot, walkChats, MACHINE, INTERRUPTED, REFUSED, HOOK, QUESTION_TOOL, one, textOf } from "./lib/chats.mjs";
+import { reportDir, writeReport } from "./lib/reports.mjs";
 
-const args = process.argv.slice(2);
-const opt = (name, def) => { const i = args.indexOf(`--${name}`); return i === -1 ? def : args[i + 1]; };
-const root = opt("root", path.join(os.homedir(), ".claude", "projects"));
-const days = Number(opt("days", 14));
+const root = opt("root", defaultRoot());
+const { days, since } = daysWindow();
 const only = String(opt("project", "")).toLowerCase();
 const top = Number(opt("top", 4));
 const chars = Number(opt("chars", 400));
 const maxBytes = Number(opt("max-kb", 120)) * 1024;
-const since = Date.now() - days * 86400000;
-const pad = (n) => String(n).padStart(2, "0");
-const day = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-const out = opt("out", path.join(os.homedir(), ".claude", "reports", "chat-review", day(Date.now())));
+const out = opt("out", reportDir("chat-review"));
 
-// Lines that look like a request but were written by a program (a hook, a skill load, a notification)
-const MACHINE = /^(<(?!command-)[a-z-]+[ >]|\[System:|\[Child Session|\[\d+ messages? arrived|Stop hook feedback|The PermissionDeni|Another Claude ses|Base directory for|Condense the tool|Caveat: |\[Image: |Use the Bash tool )/;
-const INTERRUPTED = /^\[Request interrupted by user/;
-const REFUSED = /^The user doesn't want to (take this action|proceed)/;
-const HOOK = /^(?:Pre|Post)ToolUse:\S+ hook (?:blocking )?error:\s*\[?([\w-]+)\]?/;
-const QUESTION_TOOL = /(AskUserQuestion|PromptForUserInput)$/;
-
-const one = (s) => String(s ?? "").replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, " ").replace(/\s+/g, " ").trim();
 const cut = (s, n = chars) => { const t = one(s); return t.length > n ? `${t.slice(0, n)}…` : t; };
 const tail = (s, n = 250) => { const t = one(s); return t.length > n ? `…${t.slice(-n)}` : t; };
-const textOf = (content) => typeof content === "string" ? content
-  : Array.isArray(content) ? content.map((b) => b.text ?? (typeof b.content === "string" ? b.content : "")).join("\n") : "";
 const bump = (map, key, by = 1) => { map[key] = (map[key] || 0) + by; };
 const topOf = (map, n = 10) => Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${k} ${v}`).join(", ") || "none";
 
@@ -136,18 +125,13 @@ function readChat(file) {
 // Collect the chats of the window, grouped by the folder they ran in
 const projects = new Map();
 if (!fs.existsSync(root)) { console.log(`No chats folder: ${root}`); process.exit(1); }
-for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
-  if (!dir.isDirectory()) continue;
-  for (const f of fs.readdirSync(path.join(root, dir.name))) {
-    const file = path.join(root, dir.name, f);
-    if (!f.endsWith(".jsonl") || fs.statSync(file).mtimeMs < since) continue;
-    const chat = readChat(file);
-    if (!chat.turns.length) continue;
-    const where = chat.cwd || dir.name;
-    if (only && !where.toLowerCase().includes(only)) continue;
-    if (!projects.has(where)) projects.set(where, []);
-    projects.get(where).push(chat);
-  }
+for (const { file, dir } of walkChats(root, since)) {
+  const chat = readChat(file);
+  if (!chat.turns.length) continue;
+  const where = chat.cwd || dir;
+  if (only && !where.toLowerCase().includes(only)) continue;
+  if (!projects.has(where)) projects.set(where, []);
+  projects.get(where).push(chat);
 }
 
 const sum = (chats, f) => chats.reduce((a, c) => a + f(c), 0);
@@ -156,7 +140,6 @@ const rows = [...projects.entries()].map(([where, chats]) => ({ where, chats: ch
   .sort((a, b) => b.requests - a.requests).slice(0, top);
 if (!rows.length) { console.log(`No chats with requests in the last ${days} days${only ? ` for "${only}"` : ""}.`); process.exit(0); }
 
-fs.mkdirSync(out, { recursive: true });
 console.log(`Chats of the last ${days} days, busiest projects first. Digests in ${out}\n`);
 for (const p of rows) {
   const label = new Map(p.chats.map((c, i) => [c, `S${i + 1}`]));
@@ -173,7 +156,7 @@ for (const p of rows) {
 
   const head = [
     `# ${path.basename(p.where)}`, "", `Folder: ${p.where}`,
-    `Last ${days} days: ${p.chats.length} chats, ${p.requests} requests, ${asked.length} questions asked (${own.length} answered in the user's own words), ${interrupted} replies interrupted, ${refused.length} tool calls refused.`,
+    `Last ${days} days: ${chatCounts(p.chats.length, p.requests)}, ${asked.length} questions asked (${own.length} answered in the user's own words), ${interrupted} replies interrupted, ${refused.length} tool calls refused.`,
     `Tools: ${topOf(merged(p.chats, "tools"), 12)}`, `Skills: ${topOf(merged(p.chats, "skills"))}`, `Slash commands: ${topOf(merged(p.chats, "commands"))}`,
     `Kinds of file written: ${topOf(merged(p.chats, "kinds"))}`, `Hook blocks: ${topOf(hooks)}`, "", "## Signals", "",
     `### Questions the user answered in their own words (${own.length})`, ...own.map((q) => `- [${q.s}] Asked: "${cut(q.q, 160)}" Options: ${q.options.map((o) => cut(o, 60)).join(" | ") || "none"} Typed: "${cut(q.answer, 300)}"`), "",
@@ -199,6 +182,6 @@ for (const p of rows) {
   // two folders with the same name in different places get different files
   const base = path.basename(p.where).replace(/[^\w.-]+/g, "-") || "project";
   const name = `${base}${rows.filter((r) => path.basename(r.where) === path.basename(p.where)).indexOf(p) || ""}.md`;
-  fs.writeFileSync(path.join(out, name), head.join("\n") + body.join("\n") + "\n");
+  writeReport(out, name, head.join("\n") + body.join("\n") + "\n");
   console.log(`- ${path.basename(p.where)}: ${p.chats.length} chats, ${p.requests} requests, own answers ${own.length} of ${asked.length} questions, interrupted ${interrupted}, refused ${refused.length}, hook blocks ${sum(p.chats, (c) => Object.values(c.hooks).reduce((a, b) => a + b, 0))}, repeats ${repeats.length} -> ${name}`);
 }

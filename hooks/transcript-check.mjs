@@ -5,14 +5,16 @@
 // It says out loud what is missing; it never stops anything. TRANSCRIPT_CHECK=off disables it.
 // It also reads hooks/state/hook-errors.log (see crash-log.mjs): when hooks have crashed since the last session saw the
 // log, it says which ones, once. HOOK_CRASH_ALARM=off disables that part. The first run only notes where the log ends.
-import { crashLog, CRASH_LOG } from "./crash-log.mjs";
+import { crashLog, CRASH_LOG } from "./lib/crash-log.mjs";
+import { isMain } from "./lib/hook-io.mjs";
+import { readJson, stateFile as stateFileOf, writeJson } from "./lib/state.mjs";
+import { agentType, SYNTHETIC, tail, userText } from "./lib/transcript.mjs";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 const TAIL = 512 * 1024;
-const STATE = process.env.TRANSCRIPT_CHECK_STATE || path.join(os.homedir(), ".claude", "hooks", "state", "transcript-check.json");
-const ALARM_STATE = process.env.CRASH_ALARM_STATE || path.join(os.homedir(), ".claude", "hooks", "state", "crash-alarm.json");
+const STATE = process.env.TRANSCRIPT_CHECK_STATE || stateFileOf("transcript-check", "format");
+const ALARM_STATE = process.env.CRASH_ALARM_STATE || stateFileOf("transcript-check", "crash-alarm");
 const ALARM_READ = 256 * 1024;
 
 function newestOther(current) {
@@ -24,21 +26,30 @@ function newestOther(current) {
   return found[0];
 }
 
-function tailEntries({ p, size }) {
-  const len = Math.min(size, TAIL), buf = Buffer.alloc(len), fd = fs.openSync(p, "r");
-  try { fs.readSync(fd, buf, 0, len, size - len); } finally { fs.closeSync(fd); }
-  const lines = buf.toString("utf8").split("\n");
-  if (len < size) lines.shift(); // the first line was cut in half
+function tailEntries({ p }) {
   const out = { entries: [], bad: 0 };
-  for (const l of lines) {
+  for (const l of tail(p, TAIL)) {
     if (!l.trim()) continue;
     try { out.entries.push(JSON.parse(l)); } catch { out.bad++; }
   }
   return out;
 }
 
-// What the hooks rely on. null = this transcript has no tool call, so it can't show anything either way
-export function missing(entries) {
+// The agentType of each helper of this transcript that has a .meta.json (none: an empty list)
+function helperTypes(p) {
+  const dir = path.join(path.dirname(p), path.basename(p, ".jsonl"), "subagents");
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((f) => /^agent-.*\.jsonl$/.test(f) && fs.existsSync(path.join(dir, f.replace(/\.jsonl$/, ".meta.json"))))
+    .map((f) => agentType(path.join(dir, f)));
+}
+
+const resultText = (c) => (typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => b?.text || "").join("\n") : "");
+const COUNTS = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"];
+
+// What the hooks rely on (lib/transcript.mjs reads it). null = this transcript has no tool call, so it can't show
+// anything either way. A field that shows only on some lines (a compact, a task's notice, a background helper) is
+// asked for only when such a line is there. `types`: the agentType of each helper with a .meta.json.
+export function missing(entries, types = []) {
   const blocks = entries.flatMap((e) => (Array.isArray(e.message?.content) ? e.message.content.map((b) => ({ e, b })) : []));
   const uses = blocks.filter(({ e, b }) => e.type === "assistant" && b?.type === "tool_use");
   const results = blocks.filter(({ e, b }) => e.type === "user" && b?.type === "tool_result");
@@ -48,6 +59,19 @@ export function missing(entries) {
   if (!entries.some((e) => e.timestamp && !Number.isNaN(Date.parse(e.timestamp)))) gone.push("timestamp");
   if (!uses.every(({ b }) => b.id && b.name && b.input)) gone.push("id, name and input on tool_use blocks");
   if (results.length && !results.some(({ b }) => b.tool_use_id)) gone.push("tool_use_id on tool_result blocks");
+  const said = entries.filter((e) => e.type === "user" || e.type === "assistant");
+  if (!said.some((e) => typeof e.isSidechain === "boolean")) gone.push("isSidechain");
+  const replies = entries.filter((e) => e.type === "assistant");
+  if (!replies.some((e) => typeof e.message?.model === "string")) gone.push("message.model");
+  const real = replies.filter((e) => e.message?.model !== SYNTHETIC);
+  if (real.length && !real.some((e) => COUNTS.every((k) => typeof e.message?.usage?.[k] === "number"))) gone.push("the token counts in message.usage");
+  const compacts = entries.filter((e) => e.type === "system" && e.subtype === "compact_boundary");
+  if (compacts.length && !compacts.some((e) => typeof e.compactMetadata?.postTokens === "number")) gone.push("compactMetadata.postTokens");
+  const notices = entries.filter((e) => e.type === "user" && /^\s*<task-notification>/.test(userText(e)));
+  if (notices.length && !notices.some((e) => e.origin?.kind === "task-notification")) gone.push("origin.kind on task notifications");
+  const asyncs = results.filter(({ b }) => /^Async agent launched/.test(resultText(b.content)));
+  if (asyncs.length && !asyncs.some(({ e }) => e.toolUseResult?.status === "async_launched" && e.toolUseResult.agentId)) gone.push("toolUseResult.agentId on background helper launches");
+  if (types.length && !types.some(Boolean)) gone.push("agentType in the helpers' .meta.json");
   return gone;
 }
 
@@ -57,7 +81,8 @@ export function crashAlarm(logFile = CRASH_LOG, stateFile = ALARM_STATE) {
   let size = 0;
   try { size = fs.statSync(logFile).size; } catch {} // no log yet: nothing has crashed
   let offset = size; // no record of an earlier look: what is in the log now counts as seen
-  try { const o = JSON.parse(fs.readFileSync(stateFile, "utf8")).offset; if (Number.isInteger(o) && o >= 0) offset = o; } catch {}
+  const o = readJson(stateFile)?.offset;
+  if (Number.isInteger(o) && o >= 0) offset = o;
   if (offset > size) offset = 0; // the log was emptied or replaced
   const from = Math.max(offset, size - ALARM_READ);
   let buf = Buffer.alloc(0);
@@ -77,10 +102,7 @@ export function crashAlarm(logFile = CRASH_LOG, stateFile = ALARM_STATE) {
     if (hook) counts.set(hook, (counts.get(hook) || 0) + 1);
   }
   const next = from + Math.max(begin, end);
-  if (next !== offset || !fs.existsSync(stateFile)) {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify({ offset: next }));
-  }
+  if (next !== offset || !fs.existsSync(stateFile)) writeJson(stateFile, { offset: next });
   if (!counts.size) return "";
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   const names = [...counts].map(([h, n]) => (n > 1 ? `${h} x${n}` : h)).join(", ");
@@ -95,21 +117,20 @@ function transcriptSay(input) {
   const { entries, bad } = tailEntries(newest);
   if (!entries.length && !bad) return ""; // one line longer than the tail, a pasted picture say: nothing to judge
   const version = [...entries].reverse().find((e) => e.version)?.version || "unknown";
-  let state = {};
-  try { state = JSON.parse(fs.readFileSync(STATE, "utf8")); } catch {}
+  const state = readJson(STATE, { missing: {} });
   if (state.ok === version && version !== "unknown") return "";
-  const gone = missing(entries);
+  const gone = missing(entries, helperTypes(newest.p));
   if (gone === null) return "";
   if (!gone.length) {
-    fs.mkdirSync(path.dirname(STATE), { recursive: true });
-    fs.writeFileSync(STATE, JSON.stringify({ ok: version }));
+    writeJson(STATE, { ok: version });
     return "";
   }
   return `transcript-check: Claude Code ${version} changed its transcript: ${gone.join(", ")} not found in ${path.basename(newest.p)}${bad ? ` (${bad} lines did not parse)` : ""}. ` +
     `The hooks that read it (code-review-gate, repeat-guard, question-other and others) may be doing nothing. Tell the user before relying on them.`;
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop())) {
+// Not runHook: the crash alarm must run when the input is bad or TRANSCRIPT_CHECK=off, and the two parts fail apart
+if (isMain(import.meta.url)) {
   try {
     let alarm = "";
     try { alarm = crashAlarm(); } catch (err) { crashLog("transcript-check", err); } // the alarm failing must not hide the format check

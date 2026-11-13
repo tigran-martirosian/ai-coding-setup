@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
+import { makeChecker, UNDER_MS } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(new URL("../hooks/file-link-gate.mjs", import.meta.url));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "file-link-gate-test-"));
@@ -16,8 +17,7 @@ const run = (input, env = {}) => {
   return { out: r.stdout, ms: Date.now() - t0 };
 };
 const reasonOf = (out) => { try { const j = JSON.parse(out); return j.decision === "block" ? j.reason : null; } catch { return null; } };
-let pass = 0, fail = 0;
-const check = (name, ok) => { ok ? pass++ : fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); };
+const { check, summary } = makeChecker();
 
 // A transcript: a user prompt, an assistant text + tool call, a tool result, then the final text
 let n = 0;
@@ -156,8 +156,7 @@ lines.push(JSON.stringify({ type: "user", message: { content: "go" } }), JSON.st
 const big = path.join(dir, "big.jsonl");
 fs.writeFileSync(big, lines.join("\n") + "\n");
 const timed = run({ transcript_path: big, cwd: CWD });
-check(`4 MB transcript blocks in ${timed.ms} ms (node start included, under 500)`, !!reasonOf(timed.out) && timed.ms < 500);
+check(`4 MB transcript blocks in ${timed.ms} ms (node start included, under ${UNDER_MS / 1000} s)`, !!reasonOf(timed.out) && timed.ms < UNDER_MS);
 
 fs.rmSync(dir, { recursive: true, force: true });
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+summary();

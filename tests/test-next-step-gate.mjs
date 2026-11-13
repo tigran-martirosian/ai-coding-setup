@@ -13,7 +13,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "next-step-gate-test-"));
 let pass = 0, fail = 0;
 const check = (name, ok, extra = "") => { ok ? pass++ : fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : extra ? `\n     ${extra}` : ""}`); };
 
-// The incident (2026-11-05): the two replies that ended the turn after A1-A3 with the plan's next steps still open
+// Two replies that ended the turn after A1-A3 with the plan's next steps still open
 const INCIDENT_1 = "A1 to A3 are done: every sub-agent row now shows its model and effort.\n\n### Next\nNext is R1, research on what makes an interface look AI-made, from the last month or two. Then the shell steps S1 to S3.";
 const INCIDENT_2 = "### Left\n- In the dark theme, finished rows look as bright as running ones.\n- **Next:** R1, research on what makes an interface look AI-made. Then the shell steps S1 to S3 of [whole-app-plan.md](/C:/x.md).";
 
@@ -59,7 +59,7 @@ check("last_assistant_message wins over the transcript", !!stopVerdict(turn(said
 const transcript = path.join(tmp, "t.jsonl");
 fs.writeFileSync(transcript, turn(said("", ["Bash"]), said(INCIDENT_1)).map((e) => JSON.stringify(e)).join("\n") + "\n");
 const state = path.join(tmp, "state");
-const run = (extra = {}, env = {}) => spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ hook_event_name: "Stop", session_id: "s1", transcript_path: transcript, ...extra }), encoding: "utf8", env: { ...process.env, NEXT_STEP_GATE_STATE: state, ...env } });
+const run = (extra = {}, env = {}) => spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ hook_event_name: "Stop", session_id: "s1", transcript_path: transcript, ...extra }), encoding: "utf8", env: { ...process.env, HOME: state, USERPROFILE: state, ...env } });
 let r = run();
 let out = r.stdout ? JSON.parse(r.stdout) : {};
 check("hook: blocks with a reason", out.decision === "block" && /next-step-gate/.test(out.reason), r.stdout + r.stderr);

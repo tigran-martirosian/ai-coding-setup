@@ -1,5 +1,6 @@
 // Test for skills/setup-audit/scripts/outcomes.mjs: a made-up chats folder with known answers, and the report it should print.
 // Run: node tests/test-outcomes.mjs
+process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

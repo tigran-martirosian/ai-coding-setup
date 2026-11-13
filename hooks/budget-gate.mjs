@@ -6,8 +6,8 @@
 // A planner call gets a one-line notice for the user instead: a plan takes minutes and nothing shows until it
 // reports, so a long one looked stuck.
 // It fails open on any error. BUDGET_GATE=off disables it.
-import { crashLog } from "./crash-log.mjs";
-import { readFileSync, writeSync } from "node:fs";
+import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+import { writeSync } from "node:fs";
 
 export const MAX = 50;
 
@@ -42,18 +42,11 @@ export function plannerNotice(event) {
   return "Planner started: a plan usually takes 5 to 30 minutes, and nothing shows here until it reports. Still running means still working; a message you send now waits until it is done.";
 }
 
-if (process.argv[1] && /(^|[\\/])budget-gate\.mjs$/.test(process.argv[1])) {
-  try {
-    if ((process.env.BUDGET_GATE || "").toLowerCase() === "off") process.exit(0);
-    const event = JSON.parse(readFileSync(0, "utf8"));
+if (isMain(import.meta.url)) {
+  runHook("budget-gate", (event) => {
     const notice = plannerNotice(event);
     if (notice) writeSync(1, JSON.stringify({ systemMessage: notice }));
     const reason = decide(event);
-    if (reason) {
-      writeSync(1, JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }));
-    }
-  } catch (err) {
-    crashLog("budget-gate", err);
-  }
-  process.exit(0);
+    if (reason) emit.deny(reason);
+  });
 }

@@ -17,11 +17,9 @@ import type { Check, Evidence, Link, MapData, Thing } from './map.ts';
 import { search } from './search.ts';
 import { layout, radius } from './layout.ts';
 import type { Place } from './layout.ts';
-import { REFRESH_MS, build, read, reason } from './store.ts';
+import { REFRESH_MS, build, read } from './store.ts';
 import type { Snapshot } from './store.ts';
-
-const invoke = (channel: string, args: unknown) =>
-  (window as unknown as { electronAPI: { invoke: (c: string, a: unknown) => Promise<unknown> } }).electronAPI.invoke(channel, args);
+import { hostError, hostInvoke as invoke } from '../../shared/host.ts';
 
 const Sym = ({ name }: { name: string }) => (
   <span className="material-symbols-outlined sm-sym" aria-hidden="true">
@@ -55,7 +53,7 @@ function useReading(host: PanelHostProps['host'], rootRef: React.RefObject<HTMLD
       setSnapshot((old) => (old && old.key === next.key ? old : next));
       setError('');
     } catch (e) {
-      setError(reason(e));
+      setError(hostError(e));
     } finally {
       running.current = false;
       setBusy(false);

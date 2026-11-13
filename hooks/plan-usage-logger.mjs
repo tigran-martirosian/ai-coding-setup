@@ -11,7 +11,7 @@
 //
 // For tests: PLAN_USAGE_DIR (log folder), PLAN_USAGE_CREDS (login file), PLAN_USAGE_URL
 // (endpoint; ignored unless PLAN_USAGE_CREDS is set too, so the real login can't go elsewhere).
-import { crashLog } from "./crash-log.mjs";
+import { crashLog } from "./lib/crash-log.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
