@@ -1,8 +1,8 @@
 // Tests for skills/setup-audit/scripts/usage-scan.mjs on a made-up transcripts folder.
 // Run: node test-usage-scan.mjs
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
 
@@ -112,10 +112,6 @@ const days = run("--since", "2026-09-30T00:00:00Z", "--until", "2026-09-30T05:20
 check("--since/--until window", days.totals.mainTokens, 15100);
 check("--project filter excludes others", run("--project", "nomatch", "--days", "10000").totals.sessions, 0);
 
-fs.rmSync(root, { recursive: true, force: true });
-console.log(`\n${pass}/${pass + fail} passed`);
-process.exit(fail ? 1 : 0);
-
 // Wasted requests: own project so the cases above stay as they are
 const tool = (id, name, input = {}) => ({ type: "tool_use", id, name, input });
 const user = (min, text) => ({ type: "user", timestamp: at(min), message: { content: text } });
@@ -147,6 +143,39 @@ check("wasted: command-explain by reason", X.commandExplain, { "too long": { blo
 check("wasted: board-only requests split", X.boardOnly, { complete: { n: 1, tokens: 4000 }, other: { n: 1, tokens: 5000 } });
 check("wasted: ToolSearch-only requests", X.toolSearchOnly, { n: 1, tokens: 6000 });
 check("wasted: token split", X.tokens, { input: 0, cacheWrite: 0, cacheRead: 28170, output: 11 });
+
+// Wake-up turns, background launches, after-commit tail, big subagent runs: own project
+fs.mkdirSync(path.join(root, "C--Projects-wake", "k1", "subagents"), { recursive: true });
+write(path.join(root, "C--Projects-wake", "k1.jsonl"), [
+  user(0, "build it"),
+  asst(1, "k-m1", usage(0, 120000, 1), [tool("k1", "Bash", { command: "sleep 9", run_in_background: true })]), result(1, "k1", "started"),
+  asst(2, "k-m2", usage(0, 121000, 1), [tool("k2", "Bash", { command: "cd x && git commit -m done" })]), result(2, "k2", "ok"),
+  asst(3, "k-m3", usage(0, 122000, 1), [{ type: "text", text: "committed" }]),
+  { ...user(4, "<task-notification>\n<task-id>x</task-id>"), origin: { kind: "task-notification" } },
+  asst(5, "k-m4", usage(0, 123000, 1), [tool("k3", "Agent", { run_in_background: true, prompt: "p" })]), result(5, "k3", "started"),
+  user(6, "[System: background task(s) you launched have settled:\n- sleep"),
+  asst(7, "k-m5", usage(0, 124000, 1), [tool("k4", "Bash", { command: "echo git commit is not run" })]), result(7, "k4", "ok"),
+  user(8, "thanks"),
+  asst(9, "k-m6", usage(0, 125000, 1), [{ type: "text", text: "bye" }]),
+]);
+write(path.join(root, "C--Projects-wake", "k1", "subagents", "big.jsonl"), [asst(1, "k-s1", usage(0, 160000, 0)), asst(2, "k-s2", usage(0, 170000, 0))]);
+write(path.join(root, "C--Projects-wake", "k1", "subagents", "small.jsonl"), [asst(1, "k-s3", usage(0, 10000, 0))]);
+const K = run("--project", "wake", "--days", "10000").wasted;
+check("wasted: wake-up turns by origin and by text", K.wake, { n: 2, tokens: 123000 + 124000, perProject: { wake: { n: 2, tokens: 247000 } } });
+check("wasted: background launches", K.background, { n: 2, perProject: { wake: 2 } });
+check("wasted: after-commit tail (last commit is k-m2; the echo does not count)", K.afterCommit, { sessions: 1, withCommit: 1, requests: 4, tokens: 122000 + 123000 + 124000 + 125000 });
+check("wasted: big subagent runs", [K.bigSubagents.n, K.bigSubagents.tokens, Math.round(K.bigSubagents.share * 1000)], [1, 330000, 971]);
+
+// A refusal that arrives as the hook's bare text, with no "PreToolUse:" prefix; a non-error "[x-y]" result is not one
+fs.mkdirSync(path.join(root, "C--Projects-bare"), { recursive: true });
+write(path.join(root, "C--Projects-bare", "r1.jsonl"), [
+  user(0, "read it"),
+  asst(1, "r-m1", usage(0, 5000, 1), [tool("r1", "Read", { file_path: "big.md" }), tool("r2", "Bash", { command: "cat notes" })]),
+  result(1, "r1", "[big-read-gate] big.md is 500 lines (40 KB).", true),
+  result(1, "r2", "[big-read-gate] is the hook's name"),
+]);
+const R = run("--project", "bare", "--days", "10000");
+check("bare-text hook block counted once, under its tool", [R.hooks["big-read-gate"]?.blocks], [1]);
 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);

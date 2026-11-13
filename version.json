@@ -1,5 +1,5 @@
 {
-  "version": "1.0.82",
+  "version": "1.0.83",
   "date": "2026-11-03",
-  "summary": "The review gate no longer asks for a review of files another open session edited, so running several sessions at once stops costing a reviewer for work this one never touched."
+  "summary": "Fewer wasted turns: a \"background task settled\" prompt for work already reported is refused, helpers run in the foreground, a finished job points the next one to a fresh session, a helper that grew large is told to wrap up, and the usage report counts these."
 }

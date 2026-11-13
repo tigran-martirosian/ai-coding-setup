@@ -24,6 +24,16 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Bash|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/background-tasks.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Read|Bash|PowerShell",
         "hooks": [
           {
@@ -181,6 +191,11 @@
           },
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/worker-size.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "node ~/.claude/skills/steer/steer.mjs --hook",
             "timeout": 5
           },
@@ -239,6 +254,16 @@
             "type": "command",
             "command": "node ~/.claude/hooks/cold-cache.mjs",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/job-done.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/background-tasks.mjs",
+            "timeout": 10
           },
           {
             "type": "command",
