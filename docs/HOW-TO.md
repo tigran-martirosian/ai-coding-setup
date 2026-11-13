@@ -142,8 +142,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   model and Claude doesn't ask to switch. In the terminal that is `"model"` in
   `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
 - Helpers keep their own model, whichever model you chat on: workers run Opus at medium effort (a worker that
-  writes code, does deep web research, reads charts or does science or maths runs Fable at medium), the
-  planner and the reviewers run Fable at high effort. A Fable advisor for the session is off unless you turn it on (`/advisor fable`; `/advisor off` turns it off).
+  writes code, does deep web research, reads charts or does science or maths runs Fable at medium), a `worker-high` helper takes only long refactors, on Fable at
+  high effort, and the planner and the reviewers run Fable at high effort. A Fable advisor for the session is off unless you turn it on (`/advisor fable`; `/advisor off` turns it off).
   Only mechanical bulk work (renames, bulk edits, scans) goes to a Sonnet helper.
 - Three folders start on Opus by themselves: `ask-anything`, `internet-search`, `claude-settings`.
 

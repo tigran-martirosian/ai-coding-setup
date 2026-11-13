@@ -30,7 +30,7 @@ const BUILD = /^(?:\S+=\S*\s+)*(?:(?:bash|sh|call|cmd\s+\/c)\s+)?(?:\S*[\\/])?(?
 const isBuild = (cmd) => String(cmd ?? "").split(/&&|\|\||;|\||\r?\n/).some((s) => BUILD.test(s.trim()));
 
 const MAP_MARK = "SYSTEMS MAP:";
-const MAP_TYPES = new Set(["worker", "worker-full", "reviewer", "planner", "plan-reviewer"]);
+const MAP_TYPES = new Set(["worker", "worker-full", "worker-high", "reviewer", "planner", "plan-reviewer"]);
 const INJECTED = /^(<(?!command-)[a-z-]+[ >]|\[(Request interrupted|System:|SYSTEM NOTIFICATION|Child Session))/;
 
 const recommended = (o) => o && (/\(recommended\)/i.test(`${o.label ?? ""} ${o.title ?? ""}`) || /^recommended$/i.test(String(o.badge ?? "").trim()));

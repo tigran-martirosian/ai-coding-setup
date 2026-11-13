@@ -29,7 +29,7 @@ Every 12 hours the setup asks GitHub whether a newer version is released ([hooks
 
 ## Where the work goes
 
-Long reading of local files and a second opinion go to the capped `worker` agent, which runs Opus at medium effort; a worker that writes code, does deep web research, reads charts or does science or maths runs Fable at medium, and Sonnet takes only mechanical bulk work. Outside command-line workers used to do this; they often failed or ran out of time and the job went back to Claude anyway, so the work now goes straight to Claude's own helpers. A quick web lookup stays with the main session, which reads the source that knows the answer; research across many pages goes to a Fable worker. The settings hold the agent to that: the installer adds `Agent(Explore)` and `Agent(general-purpose)` to `permissions.deny` in `~/.claude/settings.json`, so those uncapped helpers never start and the work goes to the capped `worker` agent (`worker-full` when a job needs a skill or an MCP tool). So the setup needs no subscription besides Claude. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single helper subagents using 0.6 to 4.3 million tokens.
+Long reading of local files and a second opinion go to the capped `worker` agent, which runs Opus at medium effort; a worker that writes code, does deep web research, reads charts or does science or maths runs Fable at medium, a long refactor goes to `worker-high` on Fable at high, and Sonnet takes only mechanical bulk work. Outside command-line workers used to do this; they often failed or ran out of time and the job went back to Claude anyway, so the work now goes straight to Claude's own helpers. A quick web lookup stays with the main session, which reads the source that knows the answer; research across many pages goes to a Fable worker. The settings hold the agent to that: the installer adds `Agent(Explore)` and `Agent(general-purpose)` to `permissions.deny` in `~/.claude/settings.json`, so those uncapped helpers never start and the work goes to the capped `worker` agent (`worker-full` when a job needs a skill or an MCP tool). So the setup needs no subscription besides Claude. I added it after `scripts/usage-scan.mjs`, which reads the session logs, showed single helper subagents using 0.6 to 4.3 million tokens.
 
 ```mermaid
 flowchart TD
@@ -49,7 +49,7 @@ The rules I give the models are described in [docs/setup.md](setup.md).
 
 ## Agents
 
-Six agents in [agents](../agents). The main session starts them with the Agent tool; the uncapped built-in helpers are denied in the settings, so the work comes to these.
+Seven agents in [agents](../agents). The main session starts them with the Agent tool; the uncapped built-in helpers are denied in the settings, so the work comes to these.
 
 | Agent | What it does |
 |---|---|
@@ -57,6 +57,7 @@ Six agents in [agents](../agents). The main session starts them with the Agent t
 | `plan-reviewer` | One independent read-only pass over a big job's plan before I see it, on Fable. It holds every row against my words and the decisions, checks that each file has one owning step and every open item is placed, and runs the plan's read-only checks. It reports only what it could prove as Important, the rest as Unsure |
 | `worker` | Does one numbered step of a job, or one clear one-off job, on Opus at medium effort (Fable at medium for code, deep web research, charts, science or maths), and stops after 80 turns. It knows the goal of the whole job. It starts without the `CLAUDE.md` files and with file, shell and web tools only, so its brief names the project commands it needs. It stays inside the files it was given, reports anything else it notices, and stops with a `BLOCKED` line when what it finds contradicts the plan |
 | `worker-full` | The same worker with every tool and the `CLAUDE.md` files loaded. It costs much more to start, so it is for a step that needs a skill or an MCP tool such as the browser |
+| `worker-high` | The same worker on Fable at high effort, for a long refactor that is not mechanical: a change to an interface, signature, type, data shape or module split that code in other files depends on, with dependents too many or too scattered to list, or a refactor step that already failed its check on `worker`. A rename is never a reason, whatever its size. It costs far more per step, so everything else stays on `worker` |
 | `reviewer` | One independent read-only pass over a finished bigger change, on Fable. It reads the request first and the code after it, and reports under two headings: what is missing or wrong against the request, and the quality of the change, each problem tagged Important (a bug the change brings in, with the realistic input or use that triggers it), Nit (a small thing, or a bug that needs an unlikely chain of events) or Pre-existing (already wrong before the change). One is enough on any change |
 | `rec-check` | A second look at a recommended option before a question reaches me. It tries to break the pick: is it a smaller or safer path than I asked for, is an option missing, does the reason rest on a note instead of the live thing, should it have been decided and not asked. It answers `keep` or `change` in six lines at most |
 
@@ -108,7 +109,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `form-answer` | After you answer a question form, reminds the agent that what you typed outweighs what you ticked, and that a tick against your words is asked about before it counts as decided |
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `decided-quote` | Refuses a helper's brief that calls something decided without quoting your words |
-| `map-brief` | Adds to a helper's brief (worker, worker-full, reviewer, plan-reviewer or planner) the lines of the project's systems map for the parts that brief touches, and only those; a project with no map gets nothing |
+| `map-brief` | Adds to a helper's brief (worker, worker-full, worker-high, reviewer, plan-reviewer or planner) the lines of the project's systems map for the parts that brief touches, and only those; a project with no map gets nothing |
 | `map-nudge` | In a project with 100 or more code files and no systems map, has the agent start a background worker that builds one; it asks at most three times, a week apart, and does the same once a week for a map whose files are mostly gone or changed under a link |
 | `map-drift` | After an edit to a file that backs a link of the systems map, says when the token the link rests on is gone, so the agent checks that link and fixes or drops it before it is done |
 | `map-generated` | Before an edit of a file a script writes (listed under `generated` in the systems map), refuses it and names the script and the command that reruns it |
@@ -121,7 +122,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `agent-run-log` | Writes one line per helper to `~/.claude/state/agent-runs.jsonl` with the model and effort it runs on, so the agents panel can show them. It sends nothing back (`AGENT_RUN_LOG=off` turns it off) |
 | `patch-next` | At the start of a session in a project that has `docs/patches/next.md`, shows that shared release list, so parallel sessions each add their line and the session that ships includes every one. Silent in other projects (`PATCH_NEXT=off` turns it off) |
 | `job-done` | After a commit or merge in the main session, says that with steps of the job left the next one starts in a fresh session Claude opens itself (one piece per session); after a commit, tag or push in a session over 100k tokens, points a new job to a fresh session, once per commit |
-| `worker-size` | Tells a helper whose context passed 150k tokens to finish the step in hand and report; a `worker` or `worker-full` helper past 180k gets 3 more calls of other tools, then those are refused until it reports, so it never reaches the compaction that loses work; Write and Edit still pass until 190k and use none of the 3, so work it has only in its head reaches disk (`WORKER_STOP_K`, `WORKER_STOP_GRACE`, `WORKER_SAVE_K`) |
+| `worker-size` | Tells a helper whose context passed 150k tokens to finish the step in hand and report; a `worker`, `worker-full` or `worker-high` helper past 180k gets 3 more calls of other tools, then those are refused until it reports, so it never reaches the compaction that loses work; Write and Edit still pass until 190k and use none of the 3, so work it has only in its head reaches disk (`WORKER_STOP_K`, `WORKER_STOP_GRACE`, `WORKER_SAVE_K`) |
 
 A hook that hits an error lets the call through. `link-gate` knows that a page was opened, not what it said.
 

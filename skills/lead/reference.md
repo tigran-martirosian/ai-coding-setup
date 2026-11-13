@@ -2,7 +2,7 @@
 
 Reference for `SKILL.md`, read when a default is questioned. Not steps. Sources for the planning and review defaults: the planning-review design and the memory-systems design (§3) of 2026-11-09, approved by the user on the 2026-11-09 form "Wave 1 designs: your review".
 
-- **Worker start cost.** A `worker` starts small because it loads no CLAUDE.md; `worker-full` loads every tool and the CLAUDE.md files and costs much more.
+- **Worker start cost.** A `worker` starts small because it loads no CLAUDE.md; `worker-full` loads every tool and the CLAUDE.md files and costs much more. `worker-high` starts as small as a `worker` but runs Fable at high, so each step costs far more.
 - **Reuse.** A follow-up to a worker that just finished, while its cache is warm, costs a few hundred tokens against several thousand for a new worker.
 - **Late follow-up.** Once the cache has expired, the whole context is paid for again, so a follow-up long after a worker stopped goes to a fresh worker with a written brief.
 - **The stages.** They are the user's own order (DECISIONS 2026-11-09). The plan review is the new one: the rules had none, and the first single plan review found 6 Important faults. Research comes first when facts are missing, because a form built from guesses sends the user options with nothing behind them.

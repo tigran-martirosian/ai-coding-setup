@@ -14,7 +14,9 @@ const has = (head, key, value) => new RegExp(String.raw`^${key}:[ ]*${value}[ ]*
 const tools = (head) => (head.match(/^tools:\s*(.*)$/m)?.[1] || "").split(/,\s*/);
 
 const worker = parts(read("worker")), full = parts(read("worker-full")), rec = parts(read("rec-check"));
-const planRev = parts(read("plan-reviewer")), rev = parts(read("reviewer"));
+const planRev = parts(read("plan-reviewer")), rev = parts(read("reviewer")), high = parts(read("worker-high"));
+const desc = (head) => head.match(/^description:\s*(.*)$/m)?.[1] || "";
+const rest = (head) => head.split("\n").filter((l) => !/^(name|description|model|effort):/.test(l)).join("\n");
 const WRITE_TOOLS = ["Edit", "Write", "NotebookEdit", "Agent", "PowerShell"];
 const PLAN_ITEMS = ["Agrees with the user's words and the decisions", "One owning step per file", "Everything placed", "Sizes from facts",
   "Expect before is true now; Done when can run", "The right copy", "Order holds", "Nothing invented in a build row",
@@ -28,6 +30,10 @@ const checks = [
   ["worker-full loads CLAUDE.md and has every tool", has(full.head, "name", "worker-full") && !/omitClaudeMd/.test(full.head) && !/^tools:/m.test(full.head)],
   ["the two workers differ only by the block for starting without CLAUDE.md", SLIM.test(worker.body) && worker.body.replace(SLIM, "") === full.body],
   ["the worker's own block carries the rules it no longer loads", ["WHAT THIS DOES", "no made-up defaults", "Commit or push only"].every((s) => worker.body.includes(s))],
+  ["worker-high is named worker-high, on fable at high effort", has(high.head, "name", "worker-high") && has(high.head, "model", "fable") && has(high.head, "effort", "high")],
+  ["worker-high has the worker's body and the rest of its settings", high.body === worker.body && rest(high.head) === rest(worker.head)],
+  ["worker-high has its own description, which says a rename is never a reason", desc(high.head) !== "" && desc(high.head) !== desc(worker.head)
+    && /rename[^.]*never a reason/i.test(desc(high.head))],
   ["rec-check starts small and cannot change files", has(rec.head, "omitClaudeMd", "true") && !tools(rec.head).some((t) => ["Edit", "Write"].includes(t))],
   ["rec-check starts its answer with keep or change", /`keep`/.test(rec.body) && /`change:/.test(rec.body)],
   ["rec-check's first item is Enough facts", firstItem?.[2] === "Enough facts." && firstItem[1] === "0"],

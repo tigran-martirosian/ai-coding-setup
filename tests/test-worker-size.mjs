@@ -165,6 +165,8 @@ const expectSeq = (name, got, want) => {
 {
 	const id = newId(); const h = helper(id, [185000]);
 	expectSeq("worker-full-has-grace", [pre2(h, id, "worker-full", { WORKER_STOP_GRACE: "1" }), pre2(h, id, "worker-full", { WORKER_STOP_GRACE: "1" })], ["note1", "deny"]);
+	const id6 = newId(); const h6 = helper(id6, [185000]);
+	expectSeq("worker-high-has-grace", [pre2(h6, id6, "worker-high", { WORKER_STOP_GRACE: "1" }), pre2(h6, id6, "worker-high", { WORKER_STOP_GRACE: "1" })], ["note1", "deny"]);
 	const id2 = newId(); const h2 = helper(id2, [185000]);
 	expectSeq("env-grace-5", Array.from({ length: 7 }, () => pre2(h2, id2, "worker", { WORKER_STOP_GRACE: "5" })), ["note5", "note4", "note3", "note2", "note1", "deny", "deny"]);
 	// past the stop line a Write or Edit still goes through and uses no grace, so unwritten work reaches disk

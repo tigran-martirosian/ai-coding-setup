@@ -59,7 +59,7 @@ __S__ {
   &.ink-shell [data-testid="agent-mode-button"], &.ink-shell [data-testid="files-mode-button"], &.ink-shell [data-testid="tracker-mode-button"] { display: none !important; }
 
   /* Session header */
-  .workstream-header { height: 64px !important; padding-left: var(--x-space-5) !important; padding-right: var(--x-space-5) !important; }
+  .workstream-header { height: 66px !important; padding-left: var(--x-space-5) !important; padding-right: var(--x-space-5) !important; }
   .workstream-header-title { font: var(--x-title) !important; }
 
   /* Group headings: quiet, sentence case */
@@ -91,15 +91,29 @@ __S__ {
   /* Send button: the app's own primary, without a glow */
   .ai-chat-send-button { border-radius: var(--x-radius-control); box-shadow: none !important; }
 
-  /* Side buttons: a short name under every icon, the extensions' too; each fits the 48px gutter at 11px ("Term", "Cmds"), the full name is in the tooltip. */
+  /* Side buttons: a short name under every icon, the extensions' too, at 11px ("Term", "Cmds"); the full name is in the tooltip.
+     Since 0.83.0 two columns stand side by side at the bottom: the project rail (usage rings, Theme, Account) and the
+     project's gutter (extension panels, Git, Rights). Every button in both is the same cell (4px, a 40px icon box, 4px,
+     the 14px name, 4px = 66px) on a 4px gap, so each row lines up with its neighbour: Claude/Usage ... Account/Rights.
+     One icon size in both, matched to the rings: a ring is 40px with a 2px line (the app draws it with room around it, so it shows
+     32px across and its number sits clear of the line); icons (in a light 300 weight, so they are not heavier than a ring line) and the Account circle are 28px. Every button is 46px wide, so the
+     longest name ("Account") stays inside its hover box. */
   .nav-button { border-radius: var(--x-radius-control); }
-  .nav-button, [data-testid$="-usage-indicator"] { height: auto !important; min-height: 36px; flex-direction: column; gap: var(--x-space-1); padding: var(--x-space-1) 0 !important; }
-  .nav-button::after, [data-testid$="-usage-indicator"]::after { font: var(--x-micro); color: var(--x-text-muted); white-space: nowrap; }
+  .nav-button, [data-testid$="-usage-indicator"] { height: 66px !important; min-height: 0; flex-shrink: 0; display: grid !important; grid-template-rows: 40px 14px;
+    align-items: center; justify-items: center; row-gap: var(--x-space-1); padding: var(--x-space-1) 0 !important;
+    width: 46px !important; margin: 0 -5px; }
+  .nav-button::after, [data-testid$="-usage-indicator"]::after { font: var(--x-micro); color: var(--x-text-muted); white-space: nowrap; grid-row: 2; }
+  /* Empty slots take no gap; the gutter's divider takes the same 4px as a gap (3px + the 1px line); both columns end 8px above the window edge */
+  .project-rail-global-items > :empty, .navigation-gutter .nav-settings > :empty { display: none; }
+  .navigation-gutter .nav-extension-panels { padding-bottom: 3px !important; }
+  .navigation-gutter .nav-settings { padding-top: 0 !important; padding-bottom: 0 !important; }
+  .nav-button > .material-symbols-outlined { font-size: 28px !important; width: 28px; height: 28px; font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24 !important; }
+  [data-testid="gutter-user-button"] > span:first-child { width: 28px !important; height: 28px !important; font-size: 13px !important; }
   .nav-button.active::after { color: inherit; }
   [data-testid="files-mode-button"]::after { content: "Files"; }
   [data-testid="agent-mode-button"]::after { content: "Agent"; }
   [data-testid="tracker-mode-button"]::after { content: "Tracker"; }
-  .nav-button[aria-label="Project Graph"]::after { content: "Graph"; }
+  [data-testid="collab-mode-button"]::after { content: "Wiki"; }
   [data-testid="terminal-panel-button"]::after { content: "Term"; }
   .nav-button[data-panel-id*="systemsmap"]::after { content: "Map"; }
   .nav-button[data-panel-id*="usageplan"]::after { content: "Usage"; }
@@ -112,15 +126,15 @@ __S__ {
   [data-testid="gutter-theme-button"]::after { content: "Theme"; }
   [data-testid="gutter-user-button"]::after { content: "Account"; }
 
-  /* The app centres these on the whole button; with a name underneath they belong on the icon (4px padding, 44px ring) */
-  [data-testid$="-usage-indicator"] > span { inset: var(--x-space-1) 0 auto 0 !important; height: 44px; }
-  [data-testid$="-usage-indicator"] { width: 44px !important; margin: 0 -4px; flex-shrink: 0; }
-  [data-testid$="-usage-indicator"] > svg { width: 44px; height: 44px; }
-  [data-testid$="-usage-indicator"] > span { font: 550 11px/1 var(--x-font-ui) !important; letter-spacing: 0 !important; color: var(--x-text) !important; }
+  /* The app centres these on the whole button; with a name underneath they belong on the icon box (4px padding, 40px ring, a thinner line so the number has room) */
+  [data-testid$="-usage-indicator"] > span { inset: var(--x-space-1) 0 auto 0 !important; height: 40px; }
+  [data-testid$="-usage-indicator"] > svg { width: 40px; height: 40px; }
+  [data-testid$="-usage-indicator"] > svg circle { stroke-width: 2px; }
+  [data-testid$="-usage-indicator"] > span { font: 600 11px/1 var(--x-font-ui) !important; letter-spacing: 0 !important; color: var(--x-text) !important; }
   .trust-indicator-dot { bottom: auto !important; top: 19px; right: 5px !important; }
 
   /* Nothing to show */
-  [data-testid="gutter-feedback-button"] { display: none !important; }
+  [data-testid="gutter-feedback-button"], [data-gutter-item="feedback"] { display: none !important; }
 
   /* The account tile at the top of the project rail: one flat accent, no blue-to-violet gradient */
   /* The long hint in an empty chat box stays on one line and ends in an ellipsis instead of a half-cut second line */
@@ -165,3 +179,8 @@ __S__ {
   .ink-fold:focus-visible { outline: 2px solid var(--x-accent); outline-offset: -2px; }
   .ink-fold-arrow { margin-left: auto; font-family: "Material Symbols Outlined"; font-size: 16px; line-height: 16px; font-variation-settings: var(--x-icon-settings); color: var(--x-text-muted); }
 }
+
+/* The one rule outside the themes, on under every theme. Since 0.83.0 the Theme button sits in the project rail, whose
+   own style clips what overflows it, so the theme menu that opens beside it was cut away and the button seemed dead.
+   The rail stops clipping only while that menu is open; without it, a non-Ink theme would leave no way back. */
+.project-rail:has(.theme-menu) { overflow: visible !important; }

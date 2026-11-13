@@ -61,11 +61,16 @@ else {
   check(css.includes(`html[data-theme^="${EXTENSION_ID}:"] {`), 'shared rules are scoped to this extension');
   check(!css.includes('__S__'), 'no scope word left in the style sheet');
   for (const t of THEMES) check(css.includes(`html[data-theme="${EXTENSION_ID}:${t.id}"] { --nim-on-primary: ${t.onPrimary}`), `${t.id}: has its own rule`);
-  // Outside the two scopes there must be nothing, or the fonts and shapes would leak into other themes
+  // Outside the two scopes there must be nothing, or the fonts and shapes would leak into other themes.
+  // One exception, on purpose: the rail stops clipping while the theme menu is open (the way back from any theme).
+  const MENU_FIX = '.project-rail:has(.theme-menu)';
   let depth = 0, outside = '';
   for (const ch of css) { if (ch === '{') depth++; else if (ch === '}') depth--; else if (depth === 0) outside += ch; }
   const selectors = outside.split('\n').map((s) => s.trim()).filter(Boolean);
-  check(selectors.every((s) => s.startsWith('html[data-theme')), `nothing styled outside the themes: ${selectors.filter((s) => !s.startsWith('html[data-theme')).join(' | ').slice(0, 200)}`);
+  const leaks = selectors.filter((s) => !s.startsWith('html[data-theme') && s !== MENU_FIX);
+  check(leaks.length === 0, `nothing styled outside the themes: ${leaks.join(' | ').slice(0, 200)}`);
+  check(selectors.filter((s) => s === MENU_FIX).length === 1 && /\.project-rail:has\(\.theme-menu\) \{ overflow: visible !important; \}/.test(css),
+    'the theme menu fix is there once, outside the themes, and does only that');
 }
 // shell.js, the pure part: the button label
 check(labelFor('new session') === 'New session' && labelFor('New file') === 'New file' && labelFor(' Open folder ') === 'Open folder', 'shell: button label from the list, else the app label');

@@ -19,6 +19,8 @@ check("a context budget of 150k is not a call budget", statedBudget("Keep the co
 const cases = [
   ["worker over 50: deny", ev("worker", "do S6. Budget: 70 tool calls."), true],
   ["worker-full 51: deny", ev("worker-full", "Budget: 51"), true],
+  ["worker-high 51: deny", ev("worker-high", "Budget: 51"), true],
+  ["worker-high 50: allow", ev("worker-high", "Budget: 50"), false],
   ["Task tool, worker 60: deny", ev("worker", "Budget: 60", "Task"), true],
   ["worker 50: allow", ev("worker", "Budget: 50 tool calls"), false],
   ["worker with no budget line: allow", ev("worker", "a one-off with no budget line"), false],

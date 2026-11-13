@@ -2,252 +2,247 @@
   {
     "selector": ".session-history",
     "what": "sessions panel: background",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".workspace-summary-header",
     "what": "sidebar header: background, padding; shell.js appends .ink-top here",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".workspace-summary-header-name",
     "what": "project name: title size; shell.js reads it for the empty-chat heading",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".workspace-summary-header-path",
     "what": "project path: caption, muted, UI font",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-history-section-label",
     "what": "label row above the search: micro, muted",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-history-search",
     "what": "search wrapper: padding",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-history-search-input",
     "what": "search box: 36px, radius 8, surface, hairline, focus border",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-history-filters",
     "what": "filters row: padding",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"session-list-match-count\"]",
     "what": "N sessions count: micro, muted",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".collapsible-group-header",
     "what": "group heading button: padding, micro",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".collapsible-group-title",
     "what": "group heading text: sentence case, muted",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item",
     "what": "session row: min 36px, radius 8, hover overlay",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item[aria-current=\"page\"]",
     "what": "selected session row: selected overlay",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item-title",
     "what": "row title: body",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item-datetime",
     "what": "row age: never shrinks",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item-model",
     "what": "row model: after the phase, dropped when the panel is narrow",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item-icon",
     "what": "row icon group (provider mark, branch or worktree mark): muted colour, fixed 36px slot so every title starts at the same x",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item-content",
     "what": "row text column that holds the title: its left edge is the title x (checked live)",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item-meta",
     "what": "row meta line: caption, muted",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item-phase",
     "what": "row phase: plain muted text, no pill",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"session-kanban-button\"]",
     "what": "Kanban button: caption size, regular weight",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".workstream-header",
     "what": "session header: 64px, padding 24",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".workstream-header-title",
     "what": "session header title: title size",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".window-top-bar__create-primary",
     "what": "top-bar create button: shell.js presses it and reads its aria-label for the New session label (its look is the app's own)",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"agent-mode-button\"]",
     "what": "gutter Agent button: hidden while the Ink switch shows; name under the icon; shell.js presses it",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"files-mode-button\"]",
     "what": "gutter Files button: hidden while the Ink switch shows; name under the icon; shell.js presses it",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"tracker-mode-button\"]",
     "what": "gutter Tracker button: hidden while the Ink switch shows; name under the icon; shell.js presses it",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".navigation-gutter .nav-button",
     "what": "gutter buttons: radius 8, name under the icon, column layout",
-    "seenIn": "0.82.7"
-  },
-  {
-    "selector": ".nav-button[aria-label=\"Project Graph\"]",
-    "what": "gutter name \"Graph\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"terminal-panel-button\"]",
     "what": "gutter name \"Term\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".nav-button[data-panel-id*=\"systemsmap\"]",
     "what": "gutter name \"Map\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".nav-button[data-panel-id*=\"usageplan\"]",
     "what": "gutter name \"Usage\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".nav-button[data-panel-id*=\"commandbuttons\"]",
     "what": "gutter name \"Cmds\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".nav-button[aria-label=\"Git Log\"]",
     "what": "gutter name \"Git\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"claude-usage-indicator\"]",
     "what": "gutter Claude ring: 44px, percent 11px 550, name",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"codex-usage-indicator\"]",
     "what": "gutter Codex ring: same",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"gemini-usage-indicator\"]",
     "what": "gutter Gemini ring: same",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"gutter-permissions-button\"]",
     "what": "gutter name \"Rights\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"gutter-theme-button\"]",
     "what": "gutter name \"Theme\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"gutter-user-button\"]",
     "what": "gutter name \"Account\"",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"gutter-feedback-button\"]",
     "what": "feedback button: hidden",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".trust-indicator-dot",
     "what": "dot on the Rights button: moved to the icon",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".ai-chat-input",
     "what": "chat box: surface, hairline, radius 12, margin 16, padding 12",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".ai-chat-input-field",
     "what": "chat text area: transparent, body size",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".command-pill-overlay",
     "what": "overlay that draws the typed text: same size as the text area",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".mode-tag",
     "what": "AGENT/PLAN tag in the chat box: neutral, no uppercase",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".model-selector-button",
     "what": "model picker: radius 8, regular weight",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".action-prompts-dropdown-button",
     "what": "action prompts button: radius 8, regular weight",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"effort-level-selector\"]",
     "what": "effort selector: radius 8, regular weight",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".ai-chat-send-button",
     "what": "Send button: radius 8, no glow",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "a session that is not running (the app shows Cancel while it runs)"
   },
   {
@@ -295,55 +290,55 @@
   {
     "selector": "[data-testid=\"git-operations-commit-with-ai-button\"]",
     "what": "Commit with AI: neutral ghost button (the sparkle stays)",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "a session with changes in Agent mode"
   },
   {
     "selector": "[data-testid=\"git-commit-mode-toggle\"]",
     "what": "Manual/Smart segment: radius 8",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "a session with changes in Agent mode"
   },
   {
     "selector": "[data-testid=\"git-commit-mode-toggle\"] button",
     "what": "Manual/Smart buttons: radius 4, 11px",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "a session with changes in Agent mode"
   },
   {
     "selector": ".git-operations-panel__btn-text",
     "what": "\"Show Recent Commits\" link: 11px, regular",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "a session with changes in Agent mode"
   },
   {
     "selector": ".theme-menu",
     "what": "theme menu: shell.js folds the Ink themes in it",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "the theme menu open"
   },
   {
     "selector": ".theme-menu-item",
     "what": "theme menu row: shell.js clones and hides them",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "the theme menu open"
   },
   {
     "selector": ".theme-menu-item .theme-name",
     "what": "theme row name: shell.js reads it",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "the theme menu open"
   },
   {
     "selector": ".theme-menu-item .theme-icon > *",
     "what": "theme row icon: shell.js clones it for the fold arrow",
-    "seenIn": "0.82.7",
+    "seenIn": "0.83.0",
     "onlyWhen": "the theme menu open"
   },
   {
     "selector": ".window-top-bar__workspace-name",
     "what": "top bar project name: shell.js falls back to it for the empty-chat heading",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".session-list-item-pin-icon",
@@ -354,21 +349,56 @@
   {
     "selector": ".workstream-file-viewer-heading",
     "what": "file viewer heading (right placement): shell.js appends .ink-close-pane here",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".agent-workstream-right-panel",
     "what": "agent right pane: shell.js appends .ink-close-pane to its first content row and walks up from it to the toggleRightPanel ref",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".ml-auto",
     "what": "the file viewer's own maximize button (ml-auto); the close button then drops its own auto margin",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
   },
   {
     "selector": ".org-switcher-button",
     "what": "account tile at the top of the project rail: the app draws a blue-to-violet gradient, flattened to the accent",
-    "seenIn": "0.82.7"
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-testid=\"collab-mode-button\"]",
+    "what": "gutter Wiki button: name under the icon",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".project-rail",
+    "what": "project rail (0.83.0): the theme menu fix un-clips it while .theme-menu is open",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".project-rail-global-items",
+    "what": "project rail bottom group (usage rings, Theme, Account): empty slots hidden",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".navigation-gutter",
+    "what": "project gutter beside the rail: rows aligned with the rail",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".nav-extension-panels",
+    "what": "gutter extension panel group: bottom padding matches the rail",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".nav-settings",
+    "what": "gutter bottom group (Rights): padding matches the rail",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-gutter-item=\"feedback\"]",
+    "what": "feedback slot in the rail: hidden with its button",
+    "seenIn": "0.83.0"
   }
 ]

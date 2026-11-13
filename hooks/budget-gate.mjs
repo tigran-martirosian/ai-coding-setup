@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// budget-gate: a PreToolUse hook on Agent/Task. A worker or worker-full brief whose stated budget is over 50 tool calls
+// budget-gate: a PreToolUse hook on Agent/Task. A worker, worker-full or worker-high brief whose stated budget is over 50 tool calls
 // is refused: a worker stops at 80 turns, and steps run over their estimate when they read code nobody summarised
 // (a step briefed at 70 calls used 115, built nothing on the first run, and refused the next step it was handed).
 // Over 50 = split the step in two. A brief with no number passes.
@@ -10,6 +10,7 @@ import { runHook, isMain, emit } from "./lib/hook-io.mjs";
 import { writeSync } from "node:fs";
 
 export const MAX = 50;
+const WORKER_TYPES = new Set(["worker", "worker-full", "worker-high"]);
 
 // "Budget: 55", "**Budget (tool calls):** about 70", "budget of 40-60" (the higher end counts); not "150k" (context)
 const BUDGET = /budget(?:\s*\([^)]{0,20}\))?\W{0,4}(?:about\s+|around\s+|of\s+|~\s*|up to\s+)?(\d{1,4})(?:\s*(?:-|–|to)\s*(\d{1,4}))?(?![\dk])/gi;
@@ -29,7 +30,7 @@ export function decide(event) {
   if (!["Agent", "Task"].includes(event.tool_name)) return null;
   const input = event.tool_input || {};
   const type = String(input.subagent_type || "").toLowerCase();
-  if (type !== "worker" && type !== "worker-full") return null;
+  if (!WORKER_TYPES.has(type)) return null;
   const budget = statedBudget(input.prompt);
   if (budget === null || budget <= MAX) return null;
   return `[budget-gate] This ${type} brief states a budget of ${budget} tool calls; the most is ${MAX}. A worker stops at 80 turns, and reading code nobody summarised runs a step over its estimate (a 70-call step took 115). Split it into two steps (for example the server side and the screen), each with its own brief and budget of ${MAX} or less. BUDGET_GATE=off disables this.`;

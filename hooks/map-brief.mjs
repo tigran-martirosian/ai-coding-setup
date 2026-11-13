@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // map-brief: PreToolUse hook on the Agent tool. A helper's brief arrives with the Systems map lines for the things the brief touches, and
-// only those. Reads the hook JSON on stdin. For tool_name Agent or Task with a subagent_type of worker, worker-full, reviewer, planner or plan-reviewer it
+// only those. Reads the hook JSON on stdin. For tool_name Agent or Task with a subagent_type of worker, worker-full, worker-high, reviewer, planner or plan-reviewer it
 // takes <project>/.claude/systems-map.json ($CLAUDE_PROJECT_DIR), cuts it to the things the prompt is about (skills/systems-map/map.mjs, the
 // same as `map.mjs --brief`) and appends that to the prompt. updatedInput replaces the whole tool input, so every other field is copied.
 // A prompt that already holds the marker "SYSTEMS MAP:" is left alone. A project with no map file, or one with no nodes, gets no output at
@@ -11,7 +11,7 @@ import { loadMap } from "./lib/map-file.mjs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const TYPES = new Set(["worker", "worker-full", "reviewer", "planner", "plan-reviewer"]);
+const TYPES = new Set(["worker", "worker-full", "worker-high", "reviewer", "planner", "plan-reviewer"]);
 const MARKER = "SYSTEMS MAP:";
 const MAP_JS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "skills", "systems-map", "map.mjs");
 

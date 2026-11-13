@@ -78,7 +78,7 @@ const helper = (n, brief, edits, report, type = "worker") => {
 };
 helper("a", "Change a.js only.\nSYSTEMS MAP:\n## Thing\nStart in: other.js, a.js", ["C:/p/a.js", "C:/p/other.js"], "done", "plan-reviewer");
 helper("b", "Change c.js and d.js.", ["C:/p/c.js"], "done");
-helper("c", "Change e.js.", ["C:/p/zzz.js"], "NOTE: this agent stopped at its 25-turn limit before finishing.");
+helper("c", "Change e.js.", ["C:/p/zzz.js"], "NOTE: this agent stopped at its 25-turn limit before finishing.", "worker-high");
 
 fs.writeFileSync(path.join(proj, `${sid}.jsonl`), chat.map((r) => JSON.stringify(r)).join("\n") + "\n");
 
@@ -96,7 +96,8 @@ check("code-review skill: 1 run, edit after the next message", line("| code-revi
 check("verify gate: 3 blocks, 2 followed by a build, 1 passing", line("| verify-gate"), "| verify-gate | 3, too few to judge | 2 of 3 | 1 of 3 |");
 check("plan-reviewer is a map helper type", out.includes("planner, plan-reviewer that have a record"), true);
 check("map: one helper (a plan-reviewer), its edit outside the brief is the file only the map names", line("| with map"), "| with map | 1, too few to judge | 1 of 1 | 1 of 1 | 0 of 1 |");
-check("no map: two helpers, one edit outside the brief, one stopped", line("| without map"), "| without map | 2, too few to judge | 2 of 2 | 1 of 2 | 1 of 2 |");
+check("worker-high is a map helper type", out.includes("worker, worker-full, worker-high, reviewer"), true);
+check("no map: two helpers (one a worker-high), one edit outside the brief, one stopped", line("| without map"), "| without map | 2, too few to judge | 2 of 2 | 1 of 2 | 1 of 2 |");
 const missing = (() => { try { execFileSync(process.execPath, [SCRIPT, "--root", path.join(root, "none")], { encoding: "utf8", stdio: "pipe" }); return 0; } catch (e) { return e.status; } })();
 check("a transcripts folder that is not there is an error, exit 2", missing, 2);
 check("--project that matches nothing reads no chats", run("--days", "2", "--project", "nomatch").includes("0 chats read"), true);

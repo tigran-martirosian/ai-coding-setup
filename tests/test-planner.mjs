@@ -38,6 +38,7 @@ check("body: reads only the folder the brief names", /Read code only in those fo
 check("body: looks up map parts the brief missed", /map\.mjs --near/.test(body));
 check("body: lists the helpers with model and effort", ["`worker`", "`worker-full`", "`reviewer`", "Sonnet", "Opus"].every((s) => body.includes(s)));
 check("body: a Fable-medium worker row for code, deep web research, charts, science or maths", /\| `worker`, model `fable` \| Fable, medium \|[^\n]*code changes[^\n]*deep web research[^\n]*charts[^\n]*science or maths/.test(body));
+check("body: a worker-high row on Fable at high for refactors", /\| `worker-high` \| Fable, high \|[^\n]*refactor/.test(body));
 check("body: security work stays off Fable", /Security work[^\n]*stays on Opus/.test(body));
 check("body: rows carry helper, runs and budget", /\| Helper \| Runs \| Budget \|/.test(body));
 check("body: says which folders and commits it read", /\*\*Read:\*\* the folders and commits/.test(body));

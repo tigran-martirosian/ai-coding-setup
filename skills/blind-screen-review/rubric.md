@@ -17,7 +17,7 @@ The reviewer gets the Level, Name and Test columns of section 1, sections 2 to 4
 Each check is answered from the pictures. Default severity in brackets; the reviewer may change it with a reason.
 
 **Layout**
-1. [4] Inside the frame: every element sits fully inside its container at every shot size.
+1. [4] Inside the frame: every element sits fully inside its container at every shot size, a name inside its own hover or selected box included.
 2. [4] No overlap: no two elements overlap unless plainly intended.
 3. [3] Breathing room: every text string has a visible gap to its box edge and to its neighbours.
 4. [3] Even padding: left and right look equal, top and bottom equal.
@@ -50,7 +50,7 @@ Each check is answered from the pictures. Default severity in brackets; the revi
 23. [3] Crisp at every shot size: no blurry, half-pixel or stretched edge.
 24. [3] Grid: aligned items share one pitch and equal spacing; icons are centred the same way.
 25. [3] Clean borders: no distorted corner, seam or stray line; light comes from one direction.
-26. [3] One icon style: same density and outline on every icon.
+26. [3] One icon style: same density, outline and drawn size on every icon; icons side by side in one row or column that differ in size are a 3, not an uneven repeat (6).
 
 **Effects and states**
 27. [3] Effects mean something and stay inside their area: nothing over text or a control, nothing blinking several times a second.

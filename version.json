@@ -1,9 +1,14 @@
 {
-  "version": "1.0.109",
+  "version": "1.0.110",
   "claudeCodeMin": "2.1.321",
-  "date": "2026-11-09",
-  "summary": "Helpers that write code run Fable, your own rules survive updates, and small fixes install themselves.",
+  "date": "2026-11-10",
+  "summary": "The Ink themes fit Nimbalyst 0.83 again, long refactors get a stronger helper, and /pc-tidy clears more leftovers.",
   "releases": {
+    "1.0.110": {
+      "kind": "setup",
+      "important": true,
+      "headline": "Theme menu works again in Nimbalyst 0.83, stronger helper for long refactors"
+    },
     "1.0.109": {
       "kind": "setup",
       "important": true,
