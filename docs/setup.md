@@ -52,7 +52,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 
 | When | Hook | Rule it enforces |
 |---|---|---|
-| Before a file read or shell command | `big-read-gate` | Read large files in parts |
+| Before a file read or shell command | `big-read-gate` | Read large files in parts (a Markdown file shows its headings) |
 | Before a subagent starts | `worker-nudge` | Long local reading, a build or a check goes to the capped `worker` agent (`worker-full` when it needs a skill or an MCP tool), and a review of a finished job goes to the `reviewer` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
 | Before a shell command | `command-explain` | Explain the command in plain words; a command without that line runs with a stand-in line, and the agent is reminded |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
@@ -82,7 +82,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | Before a helper starts | `map-brief` | A helper's brief gets the lines of the project's systems map for the parts it touches, and only those |
 | When I send a message | `background-tasks` | When Nimbalyst's "background tasks have settled" prompt only repeats tasks already reported, have the agent reply with one line while work still runs and one complete answer when it is done (`BACKGROUND_TASKS=off`) |
 | Before a background launch | `background-tasks` | Add a note on what a background command or helper costs, that the foreground is the default, and that a finished job's notice gets no reply of its own while other work still runs |
-| When I send a message | `job-done` | After a commit, tag or push in a session over 100k tokens, a new job is pointed to a fresh session (`JOB_DONE=off`) |
+| When I send a message | `job-done` | After a commit, tag or push in a session over 100k tokens, a new job is pointed to a fresh session; and right after a commit or merge, with steps of the job left, Claude hands the next one to a fresh session it opens itself (`JOB_DONE=off`) |
 | After a helper's tool call | `worker-size` | A helper past 150k tokens of context is told to finish the step in hand and report (`WORKER_SIZE=off`) |
 | When I send a message | `map-nudge` | A project with 100 or more code files and no systems map gets one built by a background worker |
 | Before an edit | `map-generated` | A hand edit of a file a script writes is refused, with the script to change and rerun (`MAP_GENERATED=off`) |

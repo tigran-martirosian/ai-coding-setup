@@ -100,6 +100,21 @@ function addAllowances(prompt) {
   saveAllowances(all);
 }
 
+// A Markdown file's headings with their line numbers (none inside ``` or ~~~ fences), so the next Read can aim at a section
+const MAX_HEADINGS = 40;
+function headings(path) {
+  const found = [];
+  let fence = null; // the marker that opened the current fence
+  readFileSync(path, "utf8").split("\n").forEach((line, i) => {
+    const mark = line.match(/^\s*(```|~~~)/)?.[1];
+    if (mark && (fence === null || fence === mark)) fence = fence === null ? mark : null;
+    else if (fence === null && /^#{1,6}\s/.test(line)) found.push(`${i + 1}: ${line.trimEnd()}`);
+  });
+  if (found.length === 0) return [];
+  const more = found.length - MAX_HEADINGS;
+  return ["Headings:", ...found.slice(0, MAX_HEADINGS), ...(more > 0 ? [`(${more} more)`] : [])];
+}
+
 function deny(path, m) {
   if (takeAllowance(path)) return; // the user named this file in the prompt
   const kb = Math.round(m.bytes / 1024);
@@ -116,6 +131,7 @@ function deny(path, m) {
       : `2. To understand or summarise it, hand the reading to a subagent with subagent_type: "worker" (Agent tool), naming ${path} and one specific question, and keep only its answer. Ask for terse bullets, each starting with the line number.`,
     `   Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,
+    ...(extname(path).toLowerCase() === ".md" ? headings(path) : []),
   ].join("\n");
   emit.deny(reason);
   process.exit(0);

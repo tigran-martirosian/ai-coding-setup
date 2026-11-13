@@ -98,6 +98,33 @@ report(s.corrupt === "gone" && lines().some((l) => /state: .*bad\.json is not va
 report(Array.isArray(s.part) && s.part.length === 0, "writeJson leaves no .part file");
 report(JSON.stringify(s.left) === JSON.stringify(["bad.json", "fresh.json", "k1.json"]), "sweep removes only files older than N days");
 
+// state on Windows: a rename refused while another process holds the file, a .part gone before the sweep stats it
+const race = run(`
+import fs from "node:fs";
+import path from "node:path";
+import { stateFile, readJson, writeJson, sweep } from ${JSON.stringify(url("state.mjs"))};
+const out = {};
+const realRename = fs.renameSync, realStat = fs.statSync;
+const refuse = (times, code) => { let left = times; fs.renameSync = (a, b) => { if (left-- > 0) throw Object.assign(new Error(code + ": rename"), { code }); return realRename(a, b); }; };
+const f = stateFile("race", "k");
+refuse(2, "EPERM");
+writeJson(f, { b: 2 });
+out.retried = readJson(f);
+refuse(99, "EPERM");
+try { writeJson(f, { b: 3 }); out.gaveUp = "no error"; } catch (err) { out.gaveUp = err.code; }
+out.kept = readJson(f);
+fs.renameSync = realRename;
+out.part = fs.readdirSync(path.dirname(f)).filter((x) => x.endsWith(".part"));
+fs.writeFileSync(f + ".999.part", "{}");
+fs.statSync = (p, ...rest) => { if (String(p).endsWith(".999.part")) { fs.rmSync(p, { force: true }); throw Object.assign(new Error("ENOENT: stat"), { code: "ENOENT" }); } return realStat(p, ...rest); };
+try { sweep("race", 2); out.swept = "ok"; } catch (err) { out.swept = err.message; }
+console.log(JSON.stringify(out));
+`);
+const r2 = JSON.parse(race.stdout || "{}");
+report(r2.retried?.b === 2, "writeJson retries a rename refused twice with EPERM and saves");
+report(r2.gaveUp === "EPERM" && r2.kept?.b === 2 && Array.isArray(r2.part) && r2.part.length === 0, "a rename refused every time throws, keeps the old file and removes its .part");
+report(r2.swept === "ok", "sweep skips a .part that vanished before it was stat'ed");
+
 // paths
 mkdirSync(join(dir, "proj", "sub"), { recursive: true });
 writeFileSync(join(dir, "proj", "CLAUDE.md"), "x");

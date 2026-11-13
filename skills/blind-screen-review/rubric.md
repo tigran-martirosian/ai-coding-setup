@@ -63,6 +63,15 @@ Each check is answered from the pictures. Default severity in brackets; the revi
 **Story** (only when the work is a page read top to bottom)
 31. [3] Scrolling as a newcomer: is each section's grouping sensible, is its message clear, is the order logical, where does interest drop?
 
+**AI look**
+32. [3] No AI tells: the screen looks chosen for this product, not like the stock look generated pages share. The finding names the tell seen, from these families:
+    - Palette: a purple-to-blue gradient, gradient-filled text, cyan or acid-green neon on near-black, cream with terracotta.
+    - Type: Inter or Space Grotesk as the only face, one serif-italic accent word inside a sans headline, an all-caps spaced-out label or pill badge above the headline, monospace labels used as decoration.
+    - Layout scaffolds: three identical icon-tile cards in a row, one giant hero number, cards inside bordered sections, fake code-editor window chrome on a page that is not about code, 01/02/03 numbering on things that are not steps.
+    - Surfaces: a coloured stripe down one edge of a rounded card, frosted-glass blur as decoration, a glow that follows the cursor, a grain overlay, glowing shadows.
+    - Copy: emoji in headings, dashes as the main punctuation, buzzwords ("seamless", "supercharge", "next-level"), meta lines strung together with middle dots, an arrow on every button.
+    - Untouched defaults: a component library's stock look left as it ships, the same thin-line icon set on everything.
+
 ## 3. Persona and rules
 
 - Persona: a picky user on a large monitor and on a small device. Judge only what a user sees.

@@ -99,6 +99,7 @@ Workers talk only to you. Nobody talks sideways: what another step needs goes un
 - **A block that shows the plan itself is wrong goes back to the planner:** SendMessage to the same planner when its report shows turns to spare, otherwise a new planner run with the first brief, the job list so far and the `BLOCKED` line. Its new rows replace the old ones on the job list.
 - **Compare every report with its brief.** Check the files it changed against FILES (`git status --short`) and read its `Outside the brief` line. A change you wouldn't have asked for is undone; one you would is added to the job list.
 - Read a worker's report and the diff yourself; don't forward it unchecked. Update State on the job list with the calls it used (`tool_uses`) next to its budget, so later plans can size from real numbers.
+- **One piece per session** (user, 2026-11-08). Once a step is committed and steps are left, bring State up to date and hand the rest of the job to a fresh session (handoff skill; it opens that session with its prompt queued, so a build without check-ins keeps running); that session reads the job list and runs the next row. Compaction is only the safety net inside a step.
 - **A design step for something the user looks at or uses** (a build, a page, a screen) ends with the user's OK: show the design file's link and a picture or a short summary of it, and the build steps after it wait for the answer (user, 2026-11-07). A change they ask for goes back to the same worker.
 
 New work discovered → a new step on the list, or do it yourself if it's small.

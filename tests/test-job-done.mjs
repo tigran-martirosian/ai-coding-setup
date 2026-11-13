@@ -84,6 +84,43 @@ run("empty-file", [""], false);
 run("missing-file", null, false);
 run("broken-event", "broken-event", false);
 
+// PostToolUse: a main-session git commit that made a commit tells Claude to hand the next piece to a fresh session
+function post(name, command, stdout, expectNote, extra = {}) {
+	const ev = { hook_event_name: "PostToolUse", session_id: `${runId}-post`, tool_name: "Bash",
+		tool_input: { command }, tool_response: { stdout, stderr: "", interrupted: false }, ...extra };
+	const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(ev), encoding: "utf8", env: { ...process.env, ...(extra.env || {}) } });
+	const out = r.stdout.trim();
+	let ok = r.status === 0;
+	if (expectNote) {
+		try {
+			const h = JSON.parse(out).hookSpecificOutput;
+			ok = ok && h.hookEventName === "PostToolUse" && h.additionalContext.includes("A piece of work is committed") &&
+				h.additionalContext.includes("handoff skill") && h.additionalContext.includes("spawn_session") && h.additionalContext.includes("nobody pastes") && h.additionalContext.includes("wins over a context-guard");
+		} catch { ok = false; }
+	} else ok = ok && out === "";
+	if (!ok) failed++;
+	console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  -> status " + r.status + ", out: " + out.slice(0, 200)}`);
+}
+const made = "[main 1a2b3c4] Brewery hall roof\n 3 files changed, 40 insertions(+)";
+post("post-commit-made-notes", 'git commit -m "roof"', made, true);
+post("post-commit-with-C-notes", 'git -C "C:/x y" commit -am "x"', made, true);
+post("post-root-commit-notes", 'git commit -m "first"', "[master (root-commit) 9f8e7d6] first", true);
+post("post-commit-in-chain-notes", 'git add a && git commit -m "x" && git log -1', "[feat/x 0abcdef1] x\n1 file changed", true);
+post("post-string-response-notes", 'git commit -m "x"', null, true, { tool_response: made });
+post("post-detached-head-notes", 'git commit -m "x"', "[detached HEAD 1a2b3c4] x", true);
+post("post-dash-c-config-notes", 'git -c user.name=x --no-pager commit -m "x"', made, true);
+post("post-merge-notes", "git merge --no-ff step-3", "Merge made by the 'ort' strategy.\n a | 1 +", true);
+post("post-fast-forward-merge-notes", "git merge step-3", "Updating 1a2b3c4..5d6e7f8\nFast-forward\n a | 1 +", true);
+post("post-merge-conflict-silent", "git merge step-3", "Auto-merging a\nCONFLICT (content): Merge conflict in a", false);
+post("post-amend-silent", 'git commit --amend --no-edit', made, false);
+post("post-nothing-to-commit-silent", 'git commit -m "x"', "On branch main\nnothing to commit, working tree clean", false);
+post("post-hook-refused-commit-silent", 'git commit -m "x"', "", false);
+post("post-git-log-silent", "git log --oneline -3", "1a2b3c4 x", false);
+post("post-commit-word-in-echo-silent", 'echo "[main 1a2b3c4] x"', made, false);
+post("post-non-bash-silent", 'git commit -m "x"', made, false, { tool_name: "Edit" });
+post("post-subagent-silent", 'git commit -m "x"', made, false, { agent_id: "abc" });
+post("post-off-switch", 'git commit -m "x"', made, false, { env: { JOB_DONE: "off" } });
+
 fs.rmSync(dir, { recursive: true, force: true });
 for (const s of sessions) fs.rmSync(path.join(stateDir, s + ".json"), { force: true });
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");

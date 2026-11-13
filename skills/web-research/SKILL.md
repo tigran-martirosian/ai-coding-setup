@@ -31,4 +31,8 @@ web-answer-gate hook blocks a reply that hedges without having checked one (`HED
 - **Community opinion** ("what do people recommend", "is it any good") means real forum threads, and a
   site like Reddit needs your own signed-in browser: a plain fetch of its search JSON returns HTML and
   the text proxies get a 403. Drive your own browser for it rather than passing off a search summary.
-- A page's own text beats anyone's summary of it: WebFetch the URL once you have it.
+- A page's own text beats anyone's summary of it. WebFetch answers a question about a page, but a
+  small model writes that answer, so it cuts quotes and long pages. When the exact words matter (a
+  quote, a SKILL.md to compare, a changelog) and `npx` is available, save the page as Markdown with
+  `npx -y defuddle parse <url> --md > <file>.md` and Grep/Read that file. `r.jina.ai` stays for sites
+  that block it.

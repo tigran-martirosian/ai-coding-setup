@@ -124,7 +124,7 @@ const expected = ["ask-anything/.claude/skills/read-web/SKILL.md", "claude-setti
   "internet-search/.claude/skills/finder/SKILL.md", "internet-search/.claude/hooks/finder-link-gate.mjs", "internet-search/tools/peek.mjs",
   "internet-search/profile.md", "internet-search/finds/INDEX.md"];
 ok("the skills, the link gate, the tools and the starter notes are there", expected.filter((f) => !fs.existsSync(path.join(projects, f))), []);
-ok("the one audit skill arrives with its sub-commands and scripts", ["SKILL.md", "chat.md", "full.md", "usage.md", "scan.md", "outcomes.md", "scripts/outcomes.mjs", "scripts/usage-scan.mjs"].filter((f) => !fs.existsSync(path.join(claude, "skills", "setup-audit", f))), []);
+ok("the one audit skill arrives with its sub-commands and scripts", ["SKILL.md", "chat.md", "full.md", "usage.md", "scan.md", "outcomes.md", "memory.md", "scripts/outcomes.mjs", "scripts/usage-scan.mjs"].filter((f) => !fs.existsSync(path.join(claude, "skills", "setup-audit", f))), []);
 const NESTED = ["skills/lead/reference.md", "hooks/nimbalyst-notes.mjs", "hooks/verify-gate.mjs", "workers/versions.mjs"];
 ok("files in folders below a skill, and the newer hooks and workers, are in the repo and arrive",
   [...NESTED, ...walk(path.join(REPO, "skills", "setup-audit", "scripts")).map((f) => fwd(path.relative(REPO, f)))]

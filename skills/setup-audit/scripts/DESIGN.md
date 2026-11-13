@@ -214,3 +214,23 @@ Gentle corners: 10px on panels, 8px on controls, inputs, chips, popover and the 
 - **Don't** invent a token; add it to `:root` in the template first, then here.
 - **Don't** add shadows or nest a panel inside a panel.
 - **Don't** edit `~/.claude/reports/usage-dashboard.html`; change the template and rebuild.
+
+## Responsive Behavior
+
+One breakpoint, `max-width: 900px`. Touch targets are the desktop sizes; nothing grows for touch.
+
+- **Page:** padding drops from 32px 28px 96px to 20px 14px 64px.
+- **Panels:** padding drops to 16px.
+- **Plan and two-column grids:** collapse to one column.
+- **Ranked lists:** the note column is hidden; columns become label (at least 80px), bar, 64px value.
+- **Chat table:** the second and third columns are hidden; titles cut at 200px instead of 440px; the split bar cell is 90px wide.
+- **Search field:** full width.
+- **Other tables:** keep every column and scroll sideways inside their panel.
+- **Range buttons, chips, popover:** unchanged.
+
+## Known Gaps
+
+- **Error:** none designed. The data is baked into the page at build time; if it is missing or broken, the script stops and the panels stay blank.
+- **Empty:** designed as a muted one-line sentence in the panel ("Nothing recorded in this period.", "No chats match."). The daily chart hides itself when the range has fewer than two days.
+- **Loading:** none, and none needed: the page is static output with the data inside it.
+- **Long text:** rank labels, chat titles and part descriptions cut with an ellipsis, the full text in a `title` tooltip only (not reachable by touch). Gemini titles wrap. Long lists show the first rows and a "Show all" button.

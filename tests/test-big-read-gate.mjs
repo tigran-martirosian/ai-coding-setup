@@ -112,6 +112,21 @@ for (const [name, ok] of [
   ["text: no Codex", !/codex/i.test(denyText)],
   ["text: suggests a read that fits under 20 KB (66 lines)", /at most 6\d lines/.test(denyText)],
 ]) { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); }
+// A big .md refusal lists its headings with line numbers (none from inside ``` fences, at most 40); other types don't
+const reasonFor = (file) => JSON.parse(spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: file } }) }).stdout.toString()).hookSpecificOutput.permissionDecisionReason;
+const filler = "text\n".repeat(200);
+const MD = join(dir, "doc.md");
+writeFileSync(MD, `# Title\n${filler}## Part one\n\`\`\`sh\n# a shell comment\n\`\`\`\n${filler}### Part two\n${filler}`);
+const mdText = reasonFor(MD);
+const MANY = join(dir, "many.md");
+writeFileSync(MANY, Array.from({ length: 45 }, (_, i) => `## H${i + 1}\n${"text\n".repeat(9)}`).join(""));
+const manyText = reasonFor(MANY);
+for (const [name, ok] of [
+  ["md: headings with line numbers", /\nHeadings:\n1: # Title\n202: ## Part one\n406: ### Part two$/.test(mdText)],
+  ["md: no heading from inside a fence", !/a shell comment/.test(mdText)],
+  ["md: capped at 40 headings, then (5 more)", /\n391: ## H40\n\(5 more\)$/.test(manyText) && !/H41/.test(manyText)],
+  ["txt: no headings list", !/Headings:/.test(reasonFor(B)) && reasonFor(B).endsWith("Never edit from a summary alone.")],
+]) { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}`); }
 // A Read of a file that does not exist passes and logs no crash (the Read tool reports it itself)
 const LOG = join(dir, "crash.log");
 const gone = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: join(dir, "no-such-dir", "none.txt") } }), env: { ...process.env, HOOK_ERRORS_LOG: LOG } });

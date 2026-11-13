@@ -25,12 +25,24 @@ export function readJson(file, { missing = null } = {}) {
 }
 
 // Writes a .part file of its own (one per process, so two hooks saving at once never share one) and renames
-// it over the old one, so a reader never sees half a file
+// it over the old one, so a reader never sees half a file. On Windows the rename fails with EPERM/EBUSY/EACCES
+// while another process (another hook, antivirus) holds the target for a moment, so it is tried a few times;
+// on the last failure the .part is removed and the error thrown.
+const RENAME_TRIES = 5;
+const RENAME_WAIT_MS = 30;
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
 export function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const part = `${file}.${process.pid}.part`;
   fs.writeFileSync(part, JSON.stringify(value));
-  fs.renameSync(part, file);
+  for (let i = 1; ; i++) {
+    try { fs.renameSync(part, file); return; } catch (err) {
+      if (i < RENAME_TRIES && ["EPERM", "EBUSY", "EACCES"].includes(err.code)) { sleep(RENAME_WAIT_MS); continue; }
+      fs.rmSync(part, { force: true });
+      throw err;
+    }
+  }
 }
 
 // Removes the hook's state files not touched for `days` days
@@ -44,6 +56,11 @@ export function sweep(hook, days) {
   const cutoff = Date.now() - days * 86400000;
   for (const n of names) {
     const f = path.join(dir, n);
-    if (fs.statSync(f).mtimeMs < cutoff) fs.rmSync(f, { force: true });
+    let st;
+    try { st = fs.statSync(f); } catch (err) {
+      if (err.code === "ENOENT") continue; // another process renamed or removed it (a .part) since the listing
+      throw err;
+    }
+    if (st.mtimeMs < cutoff) fs.rmSync(f, { force: true });
   }
 }

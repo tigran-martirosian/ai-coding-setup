@@ -96,7 +96,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 
 | Hook | What it does |
 |---|---|
-| `big-read-gate` | Large files are read in parts, not whole |
+| `big-read-gate` | Large files are read in parts, not whole; a refused Markdown file comes with its list of headings and their lines, so the right part is read next |
 | `budget-gate` | Refuses a worker brief that states a budget of more than 50 tool calls, so a big step is split in two |
 | `worker-nudge` | Sends long local reading, a build or a check to the capped `worker` agent (`worker-full` when it needs a skill or an MCP tool) and a review of a finished job to the `reviewer` agent. It reminds the agent that a worker starts without `CLAUDE.md`, so the brief names the project commands. An uncapped Explore, general-purpose or claude helper is refused every time |
 | `loop-warn` | Tells the agent when it repeats the same call |
@@ -118,7 +118,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `background-tasks` | When Nimbalyst's "background tasks have settled" prompt only repeats tasks already reported, tells the agent to reply with one line while work still runs and one complete answer when it is done, refuses every background helper from the main session (helpers that run side by side go as foreground calls in one message, since a background helper dies when the turn ends), refuses a background command unless the description says it runs `beside` another step, another background task is still running, or it is a server or watcher, sends back a reply that obeyed a "user doesn't want to take this action" the app gave in a turn the user didn't start, so the call is sent again (a reply that says a helper still runs or that it waits for one, while no helper or background command of the session is live, is sent back once; BACKGROUND_TASKS=warn turns the refusal into a note; in the desktop app and VS Code, which always run helpers in the background, a helper launch gets the note) |
 | `agent-run-log` | Writes one line per helper to `~/.claude/state/agent-runs.jsonl` with the model and effort it runs on, so the agents panel can show them. It sends nothing back (`AGENT_RUN_LOG=off` turns it off) |
 | `patch-next` | At the start of a session in a project that has `docs/patches/next.md`, shows that shared release list, so parallel sessions each add their line and the session that ships includes every one. Silent in other projects (`PATCH_NEXT=off` turns it off) |
-| `job-done` | After a commit, tag or push in a session over 100k tokens, points a new job to a fresh session, once per commit |
+| `job-done` | After a commit or merge in the main session, says that with steps of the job left the next one starts in a fresh session Claude opens itself (one piece per session); after a commit, tag or push in a session over 100k tokens, points a new job to a fresh session, once per commit |
 | `worker-size` | Tells a helper whose context passed 150k tokens to finish the step in hand and report; a `worker` or `worker-full` helper past 180k gets 3 more calls of other tools, then those are refused until it reports, so it never reaches the compaction that loses work; Write and Edit still pass until 190k and use none of the 3, so work it has only in its head reaches disk (`WORKER_STOP_K`, `WORKER_STOP_GRACE`, `WORKER_SAVE_K`) |
 
 A hook that hits an error lets the call through. `link-gate` knows that a page was opened, not what it said.
@@ -181,7 +181,7 @@ The installer creates four project folders ([projects](../projects)). A request 
 
 | Project | For | Its own tools |
 |---|---|---|
-| `claude-settings` | Changing and checking the setup itself | `/setup-audit` with `usage`, `chat`, `full`, `scan`, `outcomes` |
+| `claude-settings` | Changing and checking the setup itself | `/setup-audit` with `usage`, `chat`, `full`, `scan`, `outcomes`, `memory` (saved memories checked against the code) |
 | `ask-anything` | General questions | The picture skill, reading web pages and videos |
 | `internet-search` | Finding things online | A finder skill with a fixed order, and its own link gate that accepts only pages that were opened |
 | `quick-tasks` | One-off file jobs | A dated folder per job, work on copies, the picture skill |

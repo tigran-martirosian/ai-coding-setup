@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Move the current work to a fresh, cheap session — write a short handoff brief (goal, state, next step, files) and open a new session that continues from it. Use when context-guard says to move the work to a fresh session, or the user says "handoff", "new session", "move to a fresh session", or runs /handoff (optional: another project's folder to hand the work to).
+description: Move the current work to a fresh, cheap session — write a short handoff brief (goal, state, next step, files) and open a new session that continues from it. Use when context-guard says to move the work to a fresh session, when job-done says a piece is committed with steps of the job left, or the user says "handoff", "new session", "move to a fresh session", or runs /handoff (optional: another project's folder to hand the work to).
 ---
 
 # Handoff to a fresh session

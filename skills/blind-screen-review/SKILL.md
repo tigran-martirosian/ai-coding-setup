@@ -25,6 +25,7 @@ Done when: the round limit is written in the first line of your plan.
 ## 2. Make the pictures
 
 1. The author makes the change and builds it.
+   - **Web page with the impeccable plugin installed** (`~/.claude/plugins/cache/impeccable/impeccable/<version>/skills/impeccable/scripts/impeccable`, `impeccable.cmd` from cmd or PowerShell): run its detector on the file, then on the page's `file://` or `http(s)://` URL at phone width, with `"<scripts>/impeccable" detect <file>` and `"<scripts>/impeccable" detect --viewport 390x844 <url>`. Findings print to stderr; read them instead of the exit code (2 means findings, but the `.cmd` can print `exit 0` under Git Bash). Fix every finding before the screenshots, so the reviewer's look goes to what a scanner cannot see. A finding that is the project's deliberate choice goes into its `DESIGN.md` instead. Without the plugin, skip this.
 2. Screenshot at two sizes where the platform has them (large and small viewport, two GUI scale settings), plus a phone or narrow shot for web pages.
 3. Cover every state the change has: hover, empty, full, locked, error, the longest text, every shipped language.
 4. A new or rebuilt screen also gets one extra tightest-case shot and one shot of a comparable existing screen for style comparison.
