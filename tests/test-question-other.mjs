@@ -234,7 +234,7 @@ for (const [name, entries, input, deny] of outsideCases) {
   const file = join(dir, "envcase.jsonl");
   writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n"));
   const withEnv = run({ ...input, transcript_path: file }, { CLAUDE_PROJECT_DIR: realProj });
-  const okEnv = check(withEnv, "fix") && introOf(withEnv).endsWith(`[plan.md](/${f.replace(/ /g, "%20")})`);
+  const okEnv = check(withEnv, "fix") && introOf(withEnv).endsWith(`[plan.md](${f.startsWith("/") ? "" : "/"}${f.replace(/ /g, "%20")})`); // a Mac path already starts with "/"
   const badEnv = run({ ...input, transcript_path: file }, { CLAUDE_PROJECT_DIR: join(dir, "nope") }) === "";
   for (const [name, ok] of [["without CLAUDE_PROJECT_DIR the cwd's project decides: file in another project counts as outside, path in code passes", noEnv], ["CLAUDE_PROJECT_DIR wins over a moved cwd: the file is inside the project and needs a link", okEnv], ["CLAUDE_PROJECT_DIR that does not exist falls back to the cwd walk", badEnv]]) {
     if (!ok) fail++;

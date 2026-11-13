@@ -1,6 +1,6 @@
 {
-  "version": "1.0.100",
+  "version": "1.0.101",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-06",
-  "summary": "The whole setup is rebuilt from shared parts so it breaks less, a new /untangle-codebase command does the same for your own projects, and a security pass closes holes: the OpenCLI read-only check can no longer be talked around, a claude.exe placed in a project folder is never run or handed to Nimbalyst, Git runs without a shell, and updates never drop to plain http. The chat and usage reports now cover 14 days, project settings in settings.local.json and parent folders count, extension installs stop with a clear message when Nimbalyst is missing, helpers handle background jobs and finished-job notices better, question forms are repaired instead of refused, and the homepage has a new film."
+  "summary": "On macOS the check that an edited script was run reads Windows-style file paths correctly, and the tests pass there again."
 }

@@ -1,5 +1,6 @@
 # Changelog
 
+- 1.0.101 (Nov 6, 2026): On macOS the check that an edited script was run reads Windows-style file paths correctly, and the tests pass there again.
 - 1.0.100 (Nov 6, 2026): The whole setup is rebuilt from shared parts so it breaks less, a new /untangle-codebase command does the same for your own projects, and a security pass closes holes: the OpenCLI read-only check can no longer be talked around, a claude.exe placed in a project folder is never run or handed to Nimbalyst, Git runs without a shell, and updates never drop to plain http. The chat and usage reports now cover 14 days, project settings in settings.local.json and parent folders count, extension installs stop with a clear message when Nimbalyst is missing, helpers handle background jobs and finished-job notices better, question forms are repaired instead of refused, and the homepage has a new film.
 - 1.0.99 (Nov 6, 2026): The usage dashboard shows plan use and token use by plan week (this week, last week, the weeks before) with this computer's part of each, opens as a full panel from the Usage icon in Nimbalyst, and builds in seconds instead of half a minute.
 - 1.0.98 (Nov 5, 2026): The review-gate test builds file names the way the hook does, so it passes on macOS too (1.0.97's fix was not enough).

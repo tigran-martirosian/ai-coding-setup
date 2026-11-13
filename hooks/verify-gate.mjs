@@ -63,7 +63,7 @@ export function unverified(entries, pattern) {
       const p = b.input?.file_path;
       if (EDIT_TOOLS.test(b.name) && p && isCode(p)) {
         const k = fileKey(p);
-        files.set(k, { name: path.basename(String(p)), edit: step, run: files.get(k)?.run ?? -1 });
+        files.set(k, { name: path.win32.basename(String(p)), edit: step, run: files.get(k)?.run ?? -1 });
       } else if (SHELL_TOOLS.test(b.name)) {
         const c = String(b.input?.command || "");
         if (isBuild(c, pattern)) lastBuild = step;
