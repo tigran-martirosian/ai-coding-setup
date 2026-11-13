@@ -60,6 +60,7 @@ const warmT = transcript("warm.jsonl", [asst(300000, { timestamp: ago(3) })]);
 const coldT = transcript("cold.jsonl", [asst(300000, { timestamp: ago(90) })]);
 const warmCtx = ctx(warmT);
 check("warm cache: queue /compact onto itself with the focus line", /compact-self\.mjs/.test(warmCtx) && /Keep every message the user typed, quoted/.test(warmCtx) && /unconfirmed/.test(warmCtx) && !/fresh session/.test(warmCtx));
+check("warm cache: the reply tells the user the compact is coming", /end the reply with one line saying so/.test(warmCtx) && /compacts itself now/.test(warmCtx));
 const coldCtx = ctx(coldT);
 check("cold cache: fresh session, no /compact", /fresh session/.test(coldCtx) && /~90 min/.test(coldCtx) && !/compact-self/.test(coldCtx));
 check("CONTEXT_GUARD_COLD_MIN moves the cold line", /compact-self/.test((() => { try { return JSON.parse(run({ prompt: "x", transcript_path: coldT, session_id: sid }, { CONTEXT_GUARD_COLD_MIN: "120" })).hookSpecificOutput.additionalContext; } catch { return ""; } })()));
