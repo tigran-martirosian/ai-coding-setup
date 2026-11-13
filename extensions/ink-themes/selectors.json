@@ -146,7 +146,22 @@
   },
   {
     "selector": "[data-testid=\"terminal-panel-button\"]",
-    "what": "gutter name \"Terminal\"",
+    "what": "gutter name \"Term\"",
+    "seenIn": "0.82.7"
+  },
+  {
+    "selector": ".nav-button[data-panel-id*=\"systemsmap\"]",
+    "what": "gutter name \"Map\"",
+    "seenIn": "0.82.7"
+  },
+  {
+    "selector": ".nav-button[data-panel-id*=\"usageplan\"]",
+    "what": "gutter name \"Usage\"",
+    "seenIn": "0.82.7"
+  },
+  {
+    "selector": ".nav-button[data-panel-id*=\"commandbuttons\"]",
+    "what": "gutter name \"Cmds\"",
     "seenIn": "0.82.7"
   },
   {

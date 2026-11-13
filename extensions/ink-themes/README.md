@@ -38,8 +38,9 @@ it was.
 
 - A **New session** button and a Sessions / Files / Tracker switch (tabs) at the top of the side panel. The
   button follows the switch (**New file** in Files, and so on), the same as the app's own create button.
-- A name under every side button (a name that does not fit the 48px side bar, "Commands", is left to
-  the button's tooltip), and a usage-ring percent that can be read on a large monitor (the app's Claude ring is the one place weekly use shows).
+- The theme menu stays open after a pick, so themes can be tried one after another (a click outside closes it).
+- A short name under every side button, the extensions' buttons too ("Term", "Map", "Usage", "Cmds" fit
+  the 48px side bar; the full name is in the tooltip), and a usage-ring percent that can be read on a large monitor (the app's Claude ring is the one place weekly use shows).
 - In an empty chat, the project name as the heading with the app's command pills as rows under it.
 - "Commit with AI" as a quiet outlined button (its sparkle stays).
 
