@@ -39,6 +39,8 @@ const english = {
   unitDay: 'a day',
   unitHour: 'an hour',
   noPlan: 'No plan numbers recorded yet.',
+  refreshFailed: 'Could not refresh the numbers.',
+  dashboardFailed: 'Could not build the dashboard.',
   loading: 'Loading…',
   opening: 'Opening…',
   fullDashboard: 'Full dashboard',
@@ -54,6 +56,8 @@ type Strings = typeof english;
 
 const russian: Strings = {
   locale: ['ru'],
+  refreshFailed: 'Не удалось обновить данные.',
+  dashboardFailed: 'Не удалось собрать дашборд.',
   day: 'д',
   hour: 'ч',
   weekShort: 'нед',

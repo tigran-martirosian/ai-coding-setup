@@ -17,6 +17,12 @@ export interface Plan {
 
 export type Tone = 'success' | 'warning' | 'error';
 
+/** What to show for a failed command. A crash ends in "Node.js v24.13.0"; a process killed at its time limit reports only "Command failed: <the whole command line>". */
+export const failureLine = (stderr: string, plain: string) => {
+  const line = stderr.trim().split('\n').pop() ?? '';
+  return !line || /^(Command failed:|Node\.js v)/.test(line) ? plain : line;
+};
+
 const HOUR = 3_600_000;
 export const WEEK_MS = 7 * 24 * HOUR;
 export const FIVE_MS = 5 * HOUR;

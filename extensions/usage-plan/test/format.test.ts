@@ -1,6 +1,6 @@
 // How the session pace is worked out, and how time spans are worded.
 import assert from 'node:assert/strict';
-import { sessionPace, span, weekTone } from '../src/format.ts';
+import { failureLine, sessionPace, span, weekTone } from '../src/format.ts';
 import type { Pace, Plan } from '../src/format.ts';
 import { gutterCss } from '../src/gutter.ts';
 
@@ -19,6 +19,11 @@ const cases: [string, () => void][] = [
       { budget: 20, perHour: 31.3, atReset: 122.5, full: '2026-10-03T03:17:00.000Z' }
     )],
   ['session pace: nothing while no window is open', () => assert.equal(sessionPace({ status: 'ok', five: { open: false } }, 0), null)],
+  ['errors: a kill, a crash or silence gives the plain sentence, a real last line stays', () =>
+    assert.deepEqual(
+      [failureLine('Command failed: node -e "x"', 'plain'), failureLine('boom\nNode.js v24.13.0\n', 'plain'), failureLine('', 'plain'), failureLine('no such log', 'plain')],
+      ['plain', 'plain', 'plain', 'no such log']
+    )],
   ['spans', () => assert.deepEqual([span(130 * 3_600_000), span(125 * 60_000), span(12 * 60_000)], ['5d 10h', '2h 5m', '12m'])],
   ['tone', () =>
     assert.deepEqual(

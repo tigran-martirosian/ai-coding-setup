@@ -1,5 +1,5 @@
 {
-  "version": "1.0.66",
+  "version": "1.0.67",
   "date": "2026-10-30",
-  "summary": "A note sent to a busy session now counts as delivered only when it is really in that session: one lost to a cancelled tool call is sent again, the sender's message says Delivered or Queued instead of Sent, and the sender is told about any note that didn't arrive. A picture shown in the chat stays there: it is shown from the project's `shown` folder, so cleaning up a scratch folder no longer leaves \"File not found\"."
+  "summary": "The Usage Plan panel no longer shows a \"Command failed\" line on a long chat history: it gets its numbers in under a second, and a refresh that does fail says so in a plain sentence."
 }
