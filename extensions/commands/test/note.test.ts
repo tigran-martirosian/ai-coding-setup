@@ -97,14 +97,17 @@ ok('an idle session (exit 3): steer.mjs, then createQueuedPrompt(sessionId, text
 
 r = await run(2);
 assert.equal(r.outcome.ok, false);
-assert.match(r.outcome.message, /Not sent \(code 2\): NOT SENT: idle/);
+assert.equal(r.outcome.message, 'Not sent: idle');
+assert.ok(!/code|steer|exit/i.test(r.outcome.message));
 assert.ok(!r.calls.some((c) => c[0] === 'ai:createQueuedPrompt'));
 r = await run(3, 'ai:createQueuedPrompt');
 assert.deepEqual(r.outcome, { ok: false, message: 'Not sent: boom' });
 r = await run(0, 'extensions:write-file');
 assert.equal(r.outcome.ok, false);
 assert.equal((await sendNote('   ', 's', 'C:/h', async () => ({}))).ok, false);
-assert.equal((await sendNote('x', 'a & del *', 'C:/h', async () => ({}))).ok, false);
+const odd = await sendNote('x', 'a & del *', 'C:/h', async () => ({}));
+assert.equal(odd.ok, false);
+assert.ok(!odd.message.includes('del'), 'the id is not shown');
 ok('errors come back as text: unknown session, failed queue, failed write, empty note, unsafe id');
 
 const shot = { id: 'a1', filename: 'shot.png', filepath: 'C:/Temp/att/shot.png' };
@@ -142,7 +145,8 @@ r = await run(0, undefined, 'x', [], 'Queued for it, not delivered yet.\nNote id
 assert.deepEqual(r.outcome, { ok: true, message: 'Note on its way', noteId: 'mvw123' });
 r = await run(0, undefined, 'x', [], 'Sent.');
 assert.equal(r.outcome.noteId, undefined);
-assert.match(r.outcome.message, /cannot follow it/);
+assert.ok(!/steer\.mjs/.test(r.outcome.message));
+assert.match(r.outcome.message, /cannot be followed/);
 ok('steer answers at once: the note counts as on its way with its id, and a missing id is said');
 
 const NOTE = (id: string, ts = 1000) => ({ id, session: 's1', home: 'C:/h', ts, text: 'look at X' });

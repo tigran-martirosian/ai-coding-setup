@@ -1,116 +1,166 @@
-/* Ink themes: shapes, fonts and button labels, shared by every theme. Colours come from themes.mjs.
-   The scope word on the next line is replaced by build.mjs with the selector that is only true while one of the themes is on. */
+/* Ink themes: the shell, shared by every theme. Colours come from themes.mjs; sizes, radii, spacing and motion from ../shared/tokens.css (--x-*).
+   The scope word on the next line is replaced by build.mjs with the selector that is only true while one of the themes is on;
+   build.mjs also puts tokens.css inside this block, so --x-* exist only while a theme is on and the other extensions' own copies are untouched.
+   Every app selector used below is listed in selectors.json (node probe.mjs checks them against the running app). */
 __S__ {
   --ink-sans: Figtree, "Segoe UI", system-ui, sans-serif;
-  --ink-display: "Bricolage Grotesque", Figtree, "Segoe UI", sans-serif;
   --ink-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
 
-  /* Fonts */
+  /* Fonts: Figtree for everything, the mono font for code only */
   body { font-family: var(--ink-sans) !important; }
-  h1, h2, h3, .workspace-summary-header-name { font-family: var(--ink-display); letter-spacing: -0.01em; }
   code, kbd { font-family: var(--ink-mono); }
 
   /* Text on the accent: light or dark, as the theme says */
   [class^="bg-[var(--nim-primary)]"], [class*=" bg-[var(--nim-primary)]"] { color: var(--nim-on-primary) !important; }
 
-  /* Rounder shapes (split buttons keep their flat inner edges) */
-  .rounded:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]) { border-radius: 8px; }
-  .rounded-md:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]) { border-radius: 10px; }
-  .rounded-lg:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]) { border-radius: 13px; }
+  /* Corners: 8 for controls and rows, 12 for boxes (split buttons keep their flat inner edges) */
+  .rounded:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]),
+  .rounded-md:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]) { border-radius: var(--x-radius-control); }
+  .rounded-lg:not([class*="rounded-r-"], [class*="rounded-l-"], [class*="rounded-t-"], [class*="rounded-b-"]) { border-radius: var(--x-radius-window); }
 
-  /* Sessions panel: one darker surface with no dividing lines, like the mockup's side panel */
+  /* Sidebar header: project name, path under it */
   .session-history, .workspace-summary-header { background: var(--nim-bg-secondary) !important; }
-  .workspace-summary-header { padding: 16px 14px 10px !important; border-bottom: 0 !important; }
-  .workspace-summary-header-name { font-size: 17px !important; font-weight: 600 !important; }
-  .workspace-summary-header-path { font-family: var(--ink-mono); font-size: 10.5px !important; margin-top: 3px !important; }
-  .session-history-section-label { border-bottom: 0 !important; background: transparent !important; padding: 4px 14px 2px !important;
-    text-transform: none !important; letter-spacing: 0 !important; font-weight: 500 !important; }
-  .session-history-search, .session-history-filters { border-bottom: 0 !important; padding: 6px 14px !important; }
-  .session-history-search-input { border-radius: 11px !important; background: var(--nim-bg) !important; padding-top: 9px !important; padding-bottom: 9px !important; }
+  .workspace-summary-header { padding: var(--x-space-4) !important; border-bottom: 0 !important; }
+  .workspace-summary-header-name { font: var(--x-title) !important; }
+  .workspace-summary-header-path { font: var(--x-caption) !important; color: var(--x-text-muted) !important; margin-top: var(--x-space-1) !important; }
+  .session-history-section-label { border-bottom: 0 !important; background: transparent !important; padding: var(--x-space-1) var(--x-space-4) !important;
+    font: var(--x-micro) !important; text-transform: none !important; letter-spacing: 0 !important; color: var(--x-text-muted) !important; }
 
-  /* Parts added by shell.js: New session button, mode switch, usage bars */
-  .ink-top { display: grid; gap: 10px; margin-top: 12px; }
-  .ink-new { display: block; width: 100%; text-align: left; padding: 9px 13px; border: 0; border-radius: 11px; cursor: pointer;
-    background: var(--nim-primary); color: var(--nim-on-primary); font: 600 13.5px var(--ink-sans); box-shadow: 0 6px 22px color-mix(in srgb, var(--nim-primary) 32%, transparent); }
+  /* Search box and filters */
+  .session-history-search, .session-history-filters { border-bottom: 0 !important; padding: var(--x-space-2) var(--x-space-4) !important; }
+  .session-history-search-input { box-sizing: border-box; height: 36px; padding: 0 var(--x-space-3) !important; border: 1px solid var(--x-hairline) !important; border-radius: var(--x-radius-control) !important;
+    background: var(--x-surface-1) !important; font: var(--x-body) !important; text-overflow: ellipsis; transition: border-color var(--x-motion-fast); }
+  .session-history-search-input:focus, .session-history-search-input:focus-visible { border-color: var(--nim-border-focus) !important; outline: none !important; }
+  [data-testid="session-list-match-count"] { font: var(--x-micro) !important; color: var(--x-text-muted) !important; }
+
+  /* Parts added by shell.js: New session button, mode switch */
+  .ink-top { display: grid; gap: var(--x-space-2); margin-top: var(--x-space-3); }
+  .ink-new { display: flex; align-items: center; gap: var(--x-space-2); width: 100%; height: 36px; padding: 0 var(--x-space-3); border: 0; border-radius: var(--x-radius-control);
+    cursor: pointer; background: var(--x-accent); color: var(--x-on-accent); font: 550 13px/20px var(--x-font-ui); text-align: left; transition: background var(--x-motion-fast); }
   .ink-new:hover { background: var(--nim-primary-hover); }
-  .ink-seg { display: flex; padding: 2px; border: 1px solid var(--nim-border); border-radius: 11px; background: var(--nim-bg-tertiary); }
-  .ink-seg-btn { flex: 1; padding: 5px 0; border: 0; border-radius: 9px; cursor: pointer; background: transparent; color: var(--nim-text-muted); font: 500 12px var(--ink-sans); }
-  .ink-seg-btn:hover { color: var(--nim-text); }
-  .ink-seg-btn.on { background: var(--nim-bg-active); color: var(--nim-text); }
-  .ink-usage { flex-shrink: 0; display: grid; gap: 10px; padding: 12px 16px 14px; border-top: 1px solid var(--nim-border); }
-  .ink-usage[hidden], .ink-usage-row[hidden] { display: none; }
-  .ink-usage-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--nim-text-muted); }
-  .ink-usage-pct { font: 500 12px var(--ink-mono); color: var(--nim-text); }
-  .ink-usage-bar { height: 4px; margin-top: 5px; border-radius: 2px; background: var(--nim-border); overflow: hidden; }
-  .ink-usage-fill { display: block; height: 100%; border-radius: 2px; background: var(--nim-primary); transition: width 0.3s ease; }
-  .ink-usage-row[data-tone="warning"] .ink-usage-fill { background: var(--nim-warning); }
-  .ink-usage-row[data-tone="error"] .ink-usage-fill { background: var(--nim-error); }
+  .ink-new:active { transform: translateY(1px); }
+  .ink-new:focus-visible { outline: 2px solid var(--x-text); outline-offset: 2px; }
+  /* Close button on the right pane's header row; margin-left: auto pushes it to the row's end */
+  .ink-close-pane { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; margin-left: auto; padding: 0; border: 0;
+    border-radius: var(--x-radius-control); background: transparent; color: var(--x-text-muted); cursor: pointer; transition: background var(--x-motion-fast), color var(--x-motion-fast); }
+  .workstream-file-viewer-heading > .ml-auto ~ .ink-close-pane { margin-left: 0; }
+  .ink-close-pane:hover { background: var(--x-overlay-hover); color: var(--x-text); }
+  .ink-close-pane:focus-visible { outline: 2px solid var(--x-text); outline-offset: -2px; }
+  .ink-sym { font-family: "Material Symbols Outlined"; font-size: 16px; line-height: 16px; font-variation-settings: var(--x-icon-settings); font-weight: 400; }
+  .ink-seg { display: flex; box-sizing: border-box; height: 28px; padding: 2px; border: 1px solid var(--x-hairline); border-radius: var(--x-radius-control); background: var(--x-surface-1); }
+  .ink-seg-btn { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box; height: 100%; padding: 0 !important;
+    border: 1px solid transparent; border-radius: var(--x-radius-inner); cursor: pointer; background: transparent; color: var(--x-text-muted);
+    font: var(--x-caption); transition: background var(--x-motion-fast), color var(--x-motion-fast); }
+  .ink-seg-btn:hover { background: var(--x-overlay-hover); color: var(--x-text); }
+  .ink-seg-btn[aria-selected="true"] { background: var(--x-surface-2); border-color: var(--x-hairline); color: var(--x-text); }
+  .ink-seg-btn:focus-visible { outline: none; box-shadow: var(--x-focus-ring); }
+
   /* While the switch is on screen it replaces these three side icons (shell.js sets the class) */
   &.ink-shell [data-testid="agent-mode-button"], &.ink-shell [data-testid="files-mode-button"], &.ink-shell [data-testid="tracker-mode-button"] { display: none !important; }
 
-  /* Session header: bigger title in the display font, more air */
-  .workstream-header { height: 62px !important; padding-left: 22px !important; padding-right: 22px !important; }
-  .workstream-header-title { font: 600 16px/1.25 var(--ink-display) !important; letter-spacing: -0.01em; }
+  /* Session header */
+  .workstream-header { height: 64px !important; padding-left: var(--x-space-5) !important; padding-right: var(--x-space-5) !important; }
+  .workstream-header-title { font: var(--x-title) !important; }
 
-  /* Group headings: quiet, not shouting */
-  .collapsible-group { margin-bottom: 8px; }
-  .collapsible-group-header { padding: 10px 14px 4px !important; font-size: 11.5px !important; font-weight: 500 !important; }
-  .collapsible-group-title { text-transform: none !important; letter-spacing: 0 !important; }
+  /* Group headings: quiet, sentence case */
+  .collapsible-group-header { padding: var(--x-space-3) var(--x-space-4) var(--x-space-1) !important; font: var(--x-micro) !important; }
+  .collapsible-group-title { text-transform: lowercase !important; letter-spacing: 0 !important; color: var(--x-text-muted); }
   .collapsible-group-title::first-letter { text-transform: uppercase; }
 
-  /* Session rows: roomier, rounder, small details in the mono font, pill-shaped status */
-  .session-list-item { border-radius: 11px; padding-top: 8px; padding-bottom: 8px; margin-top: 1px; margin-bottom: 1px; }
-  .session-list-item-title { font-size: 13.5px !important; }
-  .session-list-item-icon { opacity: 0.6; }
-  .session-list-item-meta { font-family: var(--ink-mono); font-size: 10.5px !important; margin-top: 2px !important; }
-  .session-list-item-phase { border-radius: 99px; padding: 2px 9px; font: 500 10px/1.3 var(--ink-sans); }
+  /* Session rows: selected and hover are overlays, the phase is plain text */
+  .session-list-item { min-height: 36px; border-radius: var(--x-radius-control); transition: background-color var(--x-motion-fast); }
+  .session-list-item:hover { background: var(--x-overlay-hover) !important; }
+  .session-list-item[aria-current="page"] { background: var(--x-overlay-selected) !important; }
+  .session-list-item-title { font: var(--x-body) !important; }
+  /* The icons before the title (provider mark, branch or worktree mark) share one fixed slot, so every title starts at the same x */
+  /* The pin sits in the left margin of the row, out of the flow, so a pinned row's title does not move */
+  .session-list-item-pin-icon { position: absolute; left: var(--x-space-2); top: var(--x-space-3); margin: 0 !important; }
+  .session-list-item-icon { flex: none; min-width: 36px; color: var(--x-text-muted) !important; opacity: 1 !important; }
+  /* Meta line: age, then the phase, then the model; whatever does not fit ends in an ellipsis, and a narrow panel drops the model */
+  .session-list-item-meta { font: var(--x-caption) !important; color: var(--x-text-muted); margin-top: 0 !important; container-type: inline-size; overflow: hidden; }
+  .session-list-item-datetime { flex: none; }
+  .session-list-item-phase { order: 1; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    padding: 0 !important; border-radius: 0 !important; background: transparent !important; font: var(--x-caption) !important; color: var(--x-text-muted) !important; }
+  .session-list-item-phase:not([style*="success"]) { color: var(--x-accent) !important; }
+  .session-list-item-model { order: 2; flex: 0 1 auto; min-width: 0; }
+  @container (max-width: 200px) { .session-list-item-model { display: none; } }
 
-  /* The two main buttons stand out */
-  .ai-chat-send-button { box-shadow: 0 4px 18px color-mix(in srgb, var(--nim-primary) 35%, transparent); }
-  .window-top-bar__create-primary { background: var(--nim-primary) !important; color: var(--nim-on-primary) !important; padding: 0 10px; }
+  /* Buttons next to the session list */
+  [data-testid="session-kanban-button"] { font: var(--x-caption) !important; }
 
-  /* Side buttons: a name under every icon. The Usage Plan button is left alone: its extension draws the week's percent in ::after. */
-  .nav-button:not([data-panel-id*="usageplan"]), [data-testid$="-usage-indicator"] { height: auto !important; min-height: 36px; flex-direction: column; gap: 3px; padding: 5px 0 4px !important; }
-  .nav-button:not([data-panel-id*="usageplan"])::after, [data-testid$="-usage-indicator"]::after { font: 600 10px/1 var(--ink-sans); color: var(--nim-text-faint); white-space: nowrap; }
+  /* Send button: the app's own primary, without a glow */
+  .ai-chat-send-button { border-radius: var(--x-radius-control); box-shadow: none !important; }
+
+  /* Side buttons: a name under every icon (a name wider than the 48px gutter at 11px, "Commands", is left to the icon's tooltip). The Usage Plan button is left alone: its extension draws the week's percent in ::after. */
+  .nav-button { border-radius: var(--x-radius-control); }
+  .nav-button:not([data-panel-id*="usageplan"]), [data-testid$="-usage-indicator"] { height: auto !important; min-height: 36px; flex-direction: column; gap: var(--x-space-1); padding: var(--x-space-1) 0 !important; }
+  .nav-button:not([data-panel-id*="usageplan"])::after, [data-testid$="-usage-indicator"]::after { font: var(--x-micro); color: var(--x-text-muted); white-space: nowrap; }
   .nav-button.active:not([data-panel-id*="usageplan"])::after { color: inherit; }
   [data-testid="files-mode-button"]::after { content: "Files"; }
   [data-testid="agent-mode-button"]::after { content: "Agent"; }
   [data-testid="tracker-mode-button"]::after { content: "Tracker"; }
   .nav-button[aria-label="Project Graph"]::after { content: "Graph"; }
-  .nav-button[aria-label="Commands"]::after { content: "Cmds"; }
-  [data-testid="terminal-panel-button"]::after { content: "Term"; }
+  [data-testid="terminal-panel-button"]::after { content: "Terminal"; }
   .nav-button[aria-label="Git Log"]::after { content: "Git"; }
   [data-testid="claude-usage-indicator"]::after { content: "Claude"; }
   [data-testid="codex-usage-indicator"]::after { content: "Codex"; }
   [data-testid="gemini-usage-indicator"]::after { content: "Gemini"; }
-  [data-testid="gutter-permissions-button"]::after { content: "Perms"; }
+  [data-testid="gutter-permissions-button"]::after { content: "Rights"; }
   [data-testid="gutter-theme-button"]::after { content: "Theme"; }
-  [data-testid="gutter-user-button"]::after { content: "Me"; }
+  [data-testid="gutter-user-button"]::after { content: "Account"; }
 
-  /* The app centres these on the whole button; with a name underneath they belong on the icon (5px padding, 32px ring) */
-  [data-testid$="-usage-indicator"] > span { inset: 5px 0 auto 0 !important; height: 44px; }
-  /* The rings are drawn at 44px instead of the app's 32px, so an 11.5px bold percent fits inside and can be read */
-  [data-testid$="-usage-indicator"], button[data-panel-id*="usageplan"] { width: 44px !important; margin: 0 -5px; flex-shrink: 0; }
+  /* The app centres these on the whole button; with a name underneath they belong on the icon (4px padding, 44px ring) */
+  [data-testid$="-usage-indicator"] > span { inset: var(--x-space-1) 0 auto 0 !important; height: 44px; }
+  [data-testid$="-usage-indicator"], button[data-panel-id*="usageplan"] { width: 44px !important; margin: 0 -4px; flex-shrink: 0; }
   button[data-panel-id*="usageplan"] { height: 44px !important; }
   [data-testid$="-usage-indicator"] > svg { width: 44px; height: 44px; }
   button[data-panel-id*="usageplan"]::before { inset: 6px !important; transform: scale(1.375); }
-  [data-testid$="-usage-indicator"] > span, button[data-panel-id*="usageplan"]::after { font-size: 11.5px !important; font-weight: 700 !important; letter-spacing: -0.05em; color: var(--nim-text) !important; }
+  [data-testid$="-usage-indicator"] > span, button[data-panel-id*="usageplan"]::after { font: 550 11px/1 var(--x-font-ui) !important; letter-spacing: 0 !important; color: var(--x-text) !important; }
   .trust-indicator-dot { bottom: auto !important; top: 19px; right: 5px !important; }
 
   /* Nothing to show */
   [data-testid="gutter-feedback-button"] { display: none !important; }
 
-  /* Message box: one floating rounded box instead of a bar across the bottom */
-  .ai-chat-input { margin: 0 20px 16px; padding: 10px 12px !important; border: 1px solid var(--nim-border) !important; border-radius: 16px;
-    background: var(--nim-bg-tertiary) !important; box-shadow: 0 10px 28px var(--ink-shadow); }
-  .ai-chat-input:focus-within { border-color: var(--nim-border-focus) !important; }
-  .ai-chat-input-field { background: transparent !important; border-color: transparent !important; font-size: 14px; }
+  /* The account tile at the top of the project rail: one flat accent, no blue-to-violet gradient */
+  /* The long hint in an empty chat box stays on one line and ends in an ellipsis instead of a half-cut second line */
+  .ai-chat-input-field::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .org-switcher-button { background-image: none !important; background-color: var(--x-accent) !important; color: var(--x-on-accent) !important; }
 
-  /* Empty chat: a heading and command cards instead of the rotating product tip */
+  /* Message box: one box with a hairline, no shadow */
+  .ai-chat-input { margin: 0 var(--x-space-4) var(--x-space-4); padding: var(--x-space-3) !important; border: 1px solid var(--x-hairline) !important; border-radius: var(--x-radius-window);
+    background: var(--x-surface-1) !important; box-shadow: none !important; }
+  .ai-chat-input:focus-within { border-color: var(--nim-border-focus) !important; }
+  .ai-chat-input-field { background: transparent !important; border-color: transparent !important; }
+  /* The typed text is drawn twice (the text area and the overlay that colours command pills): both get the same size */
+  .ai-chat-input-field, .command-pill-overlay { font: var(--x-body) !important; }
+  /* The row of small controls under the text: neutral, 8px corners, no orange */
+  .mode-tag { background: var(--x-overlay-hover) !important; color: var(--x-text-muted) !important; border-radius: var(--x-radius-control) !important;
+    font: var(--x-micro) !important; text-transform: none !important; letter-spacing: 0 !important; }
+  .mode-tag:hover { background: var(--x-overlay-selected) !important; transform: none !important; box-shadow: none !important; }
+  .model-selector-button, .action-prompts-dropdown-button, [data-testid="effort-level-selector"] { border-radius: var(--x-radius-control) !important; font-weight: 400 !important; }
+
+  /* Empty chat: the project name as the heading (shell.js puts it in data-ink-project), the app's command pills as rows under it */
   .tip-card--inline, .slash-command-suggestions-label { display: none !important; }
-  .rich-transcript-empty-extras::before { content: "What are we working on?"; font: 700 34px/1.15 var(--ink-display); letter-spacing: -0.02em; color: var(--nim-text); text-align: center; }
-  .slash-command-suggestions-pills { gap: 12px; }
-  .slash-command-pill { border-radius: 14px !important; padding: 12px 18px !important;
-    background: var(--nim-bg-tertiary) !important; box-shadow: 0 10px 28px var(--ink-shadow); }
-  .slash-command-pill:hover { border-color: var(--nim-border-focus) !important; }
+  .rich-transcript-empty-extras::before { content: attr(data-ink-project); font: var(--x-title); color: var(--x-text); text-align: center; }
+  .slash-command-suggestions-pills { flex-direction: column; align-items: stretch; width: 320px; max-width: 100%; gap: var(--x-space-2); }
+  .slash-command-pill-wrapper { display: flex; }
+  .slash-command-pill { width: 100%; height: 36px; padding: 0 var(--x-space-3) !important; border-radius: var(--x-radius-control) !important; border-color: var(--x-hairline) !important;
+    background: var(--x-surface-1) !important; box-shadow: none !important; font: var(--x-body) !important; transition: background-color var(--x-motion-fast); }
+  .slash-command-pill:hover { background: var(--x-surface-2) !important; }
+  .slash-command-pill:focus-visible { outline: none; box-shadow: var(--x-focus-ring) !important; }
+  .slash-command-pill-icon { font-weight: 400 !important; opacity: 1 !important; }
+
+  /* Commit panel: "Commit with AI" is rarely used, so it is a quiet button; the sparkle stays */
+  [data-testid="git-operations-commit-with-ai-button"] { background: transparent !important; background-image: none !important; color: var(--x-text) !important;
+    border: 1px solid var(--x-hairline) !important; border-radius: var(--x-radius-control) !important; font: var(--x-caption) !important; transition: background-color var(--x-motion-fast); }
+  [data-testid="git-operations-commit-with-ai-button"]:hover { background: var(--x-overlay-hover) !important; }
+  [data-testid="git-commit-mode-toggle"] { border-radius: var(--x-radius-control) !important; }
+  [data-testid="git-commit-mode-toggle"] button { border-radius: var(--x-radius-inner) !important; font-size: 11px !important; font-weight: 400 !important; }
+  .git-operations-panel__btn-text { font-size: 11px !important; font-weight: 400 !important; }
+
+  /* Theme menu fold (shell.js) */
+  .ink-fold { cursor: pointer; transition: background-color var(--x-motion-fast); }
+  .ink-fold:hover { background: var(--x-overlay-hover); }
+  .ink-fold:focus-visible { outline: 2px solid var(--x-accent); outline-offset: -2px; }
+  .ink-fold-arrow { margin-left: auto; font-family: "Material Symbols Outlined"; font-size: 16px; line-height: 16px; font-variation-settings: var(--x-icon-settings); color: var(--x-text-muted); }
 }

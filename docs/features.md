@@ -4,7 +4,7 @@ The parts of the setup that the [README](../README.md) only names.
 
 ## Install details
 
-This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks into `~/.claude/settings.json`, writes `~/.claude/CLAUDE.md` if there is none, and creates four project folders under `~/Projects`. When Nimbalyst is installed it also builds the editor extensions (the themes, the usage ring, the command buttons, the agents list) and puts them into Nimbalyst; `--extensions no` leaves them out. It installs the `claude-hud` plugin when the `claude` command and Git are there (`--plugins no` leaves it out), sets the model to Sonnet if you never set one, and adds permission rules so the agent can't read saved sign-ins or SSH keys and asks before it reads a `.env` file. The settings inside Nimbalyst and voice typing need a chat: the run names them, and `/update-setup` carries them out once. A file it replaces is kept as `<name>.before-install-<date>`.
+This copies `hooks`, `agents` and `skills` into `~/.claude`, wires the hooks into `~/.claude/settings.json`, writes `~/.claude/CLAUDE.md` if there is none, and creates four project folders under `~/Projects`. When Nimbalyst is installed it also builds the editor extensions (the themes, the usage pop-up, the command buttons, the agents list) and puts them into Nimbalyst; `--extensions no` leaves them out. It installs the `claude-hud` plugin when the `claude` command and Git are there (`--plugins no` leaves it out), sets the model to Sonnet if you never set one, and adds permission rules so the agent can't read saved sign-ins or SSH keys and asks before it reads a `.env` file. The settings inside Nimbalyst and voice typing need a chat: the run names them, and `/update-setup` carries them out once. A file it replaces is kept as `<name>.before-install-<date>`.
 
 The `phone-bot` skill, the `shared-usage` skill and the `read-aloud` extension are add-ons, left out of a default install. `node install.mjs --with phone-bot,shared-usage,read-aloud` (any subset) adds them; a copy already in place stays and keeps being updated by a plain run.
 
@@ -61,15 +61,15 @@ Five agents in [agents](../agents). The main session starts them with the Agent 
 
 ## Systems map
 
-A project with 100 or more code files gets a dictionary of its parts and what connects to what, in `.claude/systems-map.json`. A part is something a person would name out loud (a feature, a service, a screen, a data store, a background job), not a folder. A link says that changing one part means looking at the other, and names the code that does it. [skills/systems-map](../skills/systems-map/SKILL.md) builds the map, refreshes it when files have moved, and looks things up with `map.mjs`: `--scan` to start a build, `--near <word>` for a part with its links, `--check` for listed paths that no longer exist.
+A project with 100 or more code files gets a dictionary of its parts and what connects to what, in `.claude/systems-map.json`. A part is something a person would name out loud (a feature, a service, a screen, a data store, a background job), not a folder. A link says that changing one part means looking at the other, and names the code that does it. [skills/systems-map](../skills/systems-map/SKILL.md) builds the map, refreshes it when files have moved, and looks things up with `map.mjs`: `--scan` to start a build, `--near <word>` for a part with its links, `--check` for listed paths that no longer exist and for links whose code changed. A link can name its kind (`uses`, `feeds`, `spends`, `opens`, `boosts`, `limits`) and the token in a file that proves it; a part can have a group and words that match a brief.
 
-Two hooks run it. `map-nudge` notices a big project without a map and has the agent start a background worker that builds one, so nobody has to ask. `map-brief` adds to each helper's brief only the lines for the parts that brief is about, so the helper doesn't search for files or load a whole graph: the top 3 parts in full, and one line with the start files for every further match, up to 7,000 characters.
+Three hooks run it. `map-nudge` notices a big project without a map and has the agent start a background worker that builds one, so nobody has to ask. `map-brief` adds to each helper's brief only the lines for the parts that brief is about, so the helper doesn't search for files or load a whole graph: the top 3 parts in full, and one line with the start files for every further match, up to 7,000 characters. `map-drift` notices an edit that removes the token a link rests on and tells the agent to check that link before it is done.
 
 ## Hooks
 
 ![A reply that links a page it never opened is sent back, then three more checks](img/clip-checks.gif)
 
-Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 30 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
+Each check is a Node.js hook: a script Claude Code runs around a step, and that can send the step back. Claude Code logs every tool call in a session, and several hooks compare a reply with that log. If you read one file, read [hooks/link-gate.mjs](../hooks/link-gate.mjs). There are 35 hooks in [hooks](../hooks), and each one has an off switch, an environment variable named after it: `LINK_GATE=off` turns off `link-gate`. `PLAN_USAGE_LOGGER=off` and `USAGE_DASHBOARD=off` do the same for the usage logger and the dashboard hook. The settings some hooks take beyond that are listed [below the tables](#hook-settings).
 
 ### Checks that can send a step back
 
@@ -94,6 +94,7 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | Hook | What it does |
 |---|---|
 | `big-read-gate` | Large files are read in parts, not whole |
+| `budget-gate` | Refuses a worker brief that states a budget of more than 50 tool calls, so a big step is split in two |
 | `worker-nudge` | Sends long local reading, a build or a check to the capped `worker` agent (Sonnet; `worker-full` when it needs a skill or an MCP tool) and a review of a finished job to the `reviewer` agent. It reminds the agent that a worker starts without `CLAUDE.md`, so the brief names the project commands. An uncapped Explore, general-purpose or claude helper is refused every time |
 | `loop-warn` | Tells the agent when it repeats the same call |
 | `repeat-guard` | Refuses a retry of the same call after the same error came back three times |
@@ -103,7 +104,8 @@ Each check is a Node.js hook: a script Claude Code runs around a step, and that 
 | `handoff-brief` | Rewrites a brief after every reply, so a fresh session can continue |
 | `decided-quote` | Refuses a helper's brief that calls something decided without quoting your words |
 | `map-brief` | Adds to a helper's brief (worker, worker-full, reviewer or planner) the lines of the project's systems map for the parts that brief touches, and only those; a project with no map gets nothing |
-| `map-nudge` | In a project with 100 or more code files and no systems map, has the agent start a background worker that builds one; it asks at most three times, a week apart, and does the same once a week for a map whose files are mostly gone |
+| `map-nudge` | In a project with 100 or more code files and no systems map, has the agent start a background worker that builds one; it asks at most three times, a week apart, and does the same once a week for a map whose files are mostly gone or changed under a link |
+| `map-drift` | After an edit to a file that backs a link of the systems map, says when the token the link rests on is gone, so the agent checks that link and fixes or drops it before it is done |
 | `nimbalyst-notes` | At the start of a session inside Nimbalyst, tells the agent two quirks of Nimbalyst's tools, so they don't sit in the rules of every session. Silent in the terminal |
 | `board-nudge` | Offers a board cleanup when many sessions have piled up |
 | `pc-tidy-nudge` | On Windows, says to restart Nimbalyst after 12 hours open and points to `/pc-tidy` |
@@ -129,6 +131,7 @@ Set these in your shell or system environment. The first four are also read from
 | `SKILL_POINTER=off` | Turns off `skill-pointer` |
 | `NIMBALYST_NOTES=off` | Turns off `nimbalyst-notes` |
 | `MAP_NUDGE=off` | Turns off `map-nudge`, which has the agent start a background worker to build or refresh a project's systems map |
+| `MAP_DRIFT=off` | Turns off `map-drift` |
 | `BIG_READ_MAX_LINES` | The longest file `big-read-gate` lets be read whole, in lines; the default is 350 |
 | `BIG_READ_MAX_BYTES` | The same in characters; the default is 20000 |
 | `UPDATE_CHECK=off` | Turns off the version check |
@@ -152,7 +155,7 @@ Set these in your shell or system environment. The first four are also read from
 
 ![The usage pop-up with its forecast, then the dashboard with projects, models, days and chats](img/clip-usage.gif)
 
-- **The forecast.** [extensions/usage-plan](../extensions/usage-plan/README.md) puts a ring on the editor's side bar with the week's usage. Its pop-up shows the weekly and 5-hour limits, the day and hour the week runs out at the current pace, and the daily budget that would make it last.
+- **The forecast.** [extensions/usage-plan](../extensions/usage-plan/README.md) adds a button to the editor's side bar that opens a pop-up. It shows this week's usage and the 5-hour limit's usage as bars, a forecast line, and the budget and your pace side by side. The forecast line gives the day and hour the week runs out at the current pace; the budget is the daily amount that would make it last.
 - **The dashboard.** Typing `usage` opens one HTML file built by [skills/setup-audit](../skills/setup-audit/usage.md) from the logs on the computer, so opening it uses no tokens. It shows tokens by project, model, day and chat, the main chat apart from its subagents, the Codex and Gemini use found on the computer, what the same work would cost at API prices, and this computer's use apart from other use of the same account.
 
 For the forecast, `plan-usage-logger` reads your saved Claude login, `~/.claude/.credentials.json`, and asks api.anthropic.com for the plan percentages.
@@ -187,13 +190,15 @@ With Codex installed, `ask-anything` and `quick-tasks` get the picture skill. It
 
 ![The commands button starting a setup audit, and Read Aloud speaking a reply](img/clip-commands.gif)
 
-Five extensions for Nimbalyst. The first three are written in TypeScript and React; the themes and the agents list are plain CSS and a small script.
+Seven extensions for Nimbalyst. The first three and the systems map are written in TypeScript and React; the themes, the agents list and Board Tidy are plain CSS and small scripts.
 
-- [usage-plan](../extensions/usage-plan/README.md) is the ring and the pop-up from the usage section.
+- [usage-plan](../extensions/usage-plan/README.md) is the usage pop-up from the usage section.
 - [read-aloud](../extensions/read-aloud/README.md) reads replies aloud with Kokoro, a voice model that runs on the computer. It cleans a reply for speech (no code, no Markdown), and a Python worker speaks it sentence by sentence.
 - [commands](../extensions/commands/README.md) puts eight commands behind one button on the side bar: board cleanup, next move, project scan, setup audit, usage report, PC tidy, new project and update setup. In the `claude-settings` folder it also shows chat review and full review, ten in all. A press starts a new session in the open project with that command.
 - [ink-themes](../extensions/ink-themes/README.md) adds eleven colour themes with their own fonts and rounder shapes, eight dark and three light, under one **Ink themes** row of the Theme menu.
 - [agents-panel](../extensions/agents-panel/README.md) makes the **Agents & commands** list in the right sidebar readable: running helpers and commands on top, finished ones folded behind one line, a taller list you can resize, and each row titled in plain words (a command by its `# WHAT THIS DOES:` line). It also keeps the commit panel below it inside the sidebar when the sidebar is narrow.
+- [board-tidy](../extensions/board-tidy/README.md) keeps the Sessions board to current work. Once an hour, in every project, it archives sessions that are Complete and idle for 3 days, have no phase and are idle for 14 days, or have sat in planning, validating or implementing for 30 days. Pinned, running and worktree sessions stay, and nothing is deleted: Unarchive brings a session back, and Claude can undo the last run. `/board-cleanup` runs it too.
+- [systems-map](../extensions/systems-map/README.md) draws the open project's systems map as a graph you can pan, zoom and search, coloured by group, with a card for each part: its files, notes and links. A link whose code changed is marked, and a project with no map gets a button that starts a session to build one.
 
 ![The eleven themes, one after another on the same window](img/clip-themes.gif)
 

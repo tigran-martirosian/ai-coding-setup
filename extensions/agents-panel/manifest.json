@@ -1,11 +1,14 @@
 {
   "id": "com.local.agentspanel",
   "name": "Agents Panel",
-  "version": "0.2.0",
-  "description": "Makes the 'Agents & commands' list readable: running items on top, finished ones folded, a taller resizable list, and shell commands titled by their 'WHAT THIS DOES' line (the command shows on hover). Also keeps the commit panel at the bottom of the right sidebar inside the sidebar when it is made narrow.",
+  "version": "0.3.0",
+  "description": "Makes the 'Agents & commands' list readable: running rows on top in their own cards, finished ones folded behind an 'N done' line, each row titled in plain words with one line of kind, state, time, tools and what it is doing now, and a header that says what is running and what failed. The list is taller and resizable, and the commit panel below it fits a narrow sidebar.",
   "author": "Local",
   "main": "dist/index.js",
   "apiVersion": "1.0.0",
   "defaultEnabled": true,
+  "permissions": {
+    "filesystem": true
+  },
   "styles": "dist/style.css"
 }

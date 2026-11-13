@@ -225,6 +225,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|MultiEdit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/map-drift.mjs",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

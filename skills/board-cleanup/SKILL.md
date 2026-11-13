@@ -1,12 +1,12 @@
 ---
 name: board-cleanup
-description: Tidy this project's Nimbalyst Sessions board cheaply — move finished sessions to Complete (no git needed) and say how to archive them. Use instead of /planning:session-cleanup when the user says "clean up the board", "tidy sessions", or runs /board-cleanup.
+description: Tidy this project's Nimbalyst Sessions board cheaply — move finished sessions to Complete (no git needed), then archive old ones with Board Tidy. Use instead of /planning:session-cleanup when the user says "clean up the board", "tidy sessions", or runs /board-cleanup.
 model: sonnet
 ---
 
 # Board cleanup
 
-Covers **this project's board only** (the tools can't see other projects). Budget: about 6 turns. Send independent tool calls together in one message. Nothing changes before the user approves the form in step 3.
+Covers **this project's board only** (the tools can't see other projects). Budget: about 7 turns. Send independent tool calls together in one message. Nothing changes before the user approves the form in step 3.
 
 Ignore `committed` / `uncommitted` tags: they depend on git, which the project may not have. A session is **done** when it gave its final report, was handed off to another session, or only answered a question.
 
@@ -22,8 +22,10 @@ Ignore `committed` / `uncommitted` tags: they depend on git, which the project m
 
 4. **Apply.** For each checked id, `update_session_board` with `sessionId` and `phase: "complete"`, all in one message. Don't pass `tags` (it replaces the whole list), never pass `phase: null`, and never use `update_session_meta` for another session. Add no labels such as `archived-candidate`.
 
-5. **Close.** Only if this session was opened just for the cleanup: one `update_session_meta` for this session, name "Board cleanup", phase `complete`. If it ran inside a session doing other work, leave that session's name and phase alone.
+5. **Archive.** Find the Board Tidy tool with ToolSearch `board_tidy` and call its archive tool once (no arguments). It archives, in every project, sessions Complete and idle for 3 days, with no phase for 14 days, or in planning/validating/implementing for 30 days; pinned, running and worktree sessions stay, nothing is deleted. Sessions just moved to Complete wait their 3 days. If ToolSearch finds no `board_tidy` tool, the Board Tidy extension is off or not installed: say so in the report, change nothing else.
 
-6. **Report in under 10 lines, plain words.** What moved; what was left and why (one line each); then exactly this, with the count of sessions now in Complete: "**To hide finished sessions:** open the Sessions board, select the cards in the Complete column (Ctrl-click), then choose Archive selected, or drag them onto the ARCHIVE strip at the right edge. N are waiting. I can't archive for you." Don't explain phases, tags or the search box unless asked.
+6. **Close.** Only if this session was opened just for the cleanup: one `update_session_meta` for this session, name "Board cleanup", phase `complete`. If it ran inside a session doing other work, leave that session's name and phase alone.
+
+7. **Report in under 10 lines, plain words.** What moved; what was left and why (one line each); how many Board Tidy archived; then: "Board Tidy also does this by itself every hour. Archived view → Unarchive brings one back; ask me to undo the last Board Tidy run to bring them all back." Don't explain phases, tags or the search box unless asked.
 
 **Plan mode on?** Do steps 1–2, print the list of what would move, and tell the user to switch plan mode off and run it again. Don't write a plan file and don't call ExitPlanMode.

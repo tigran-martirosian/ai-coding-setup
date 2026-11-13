@@ -3,8 +3,8 @@ process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the h
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const HOOK = fileURLToPath(new URL("../hooks/map-nudge.mjs", import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "map-nudge-test-"));
@@ -100,7 +100,7 @@ check("map present, nothing gone, not a git repo: silent", run(noGit).stdout ===
 
 const stale = project("stale", 150, { map: listed(10, 5) });
 r = run(stale);
-check("stale map (5 of 10 listed files gone): nudges to refresh", /\[map-nudge\] The Systems map of this project .* 5 of the 10 files it lists \(50 %\) no longer exist/.test(context(r)) && /start one background worker now to refresh it: Agent tool, subagent_type "worker"/.test(context(r)), r.stdout + r.stderr);
+check("stale map (5 of 10 listed files gone): nudges to refresh", /\[map-nudge\] The Systems map of this project .* 5 of the 10 files it lists \(50 %\) are gone or changed under a link/.test(context(r)) && /start one background worker now to refresh it: Agent tool, subagent_type "worker"/.test(context(r)), r.stdout + r.stderr);
 check("stale map: the refresh prompt names the skill file", /Refresh this project's Systems map\. Read [^"]*SKILL\.md/.test(context(r)));
 check("stale map: second prompt silent", run(stale).stdout === "");
 setState(stale, { checkedAt: Date.now() - 2 * DAY, staleNudgedAt: Date.now() - 3 * DAY });
@@ -112,21 +112,29 @@ check("stale map, MAP_NUDGE=off: silent", run(stale, "x", { MAP_NUDGE: "off" }).
 const edge = project("edge", 150, { map: listed(10, 2) });
 check("exactly 20 % gone: silent (more than 20 % is the line)", run(edge).stdout === "");
 
-// ---- speed on a big repository: 3,000 code files. The best of five runs. A busy machine slows several runs in a row and a slow
-// code path slows every run, so the limits must hold in one of four rounds, 1.5 s apart.
+// ---- drift counts with the gone files: (gone + drifted) / total
+const tokened = (gone, lost) => ({
+  nodes: [{ id: "a", name: "Alpha part", what: "Does alpha.", files: ["src/mod0/file0.js"] }, { id: "b", name: "Beta part", what: "Does beta.", files: ["src/mod1/file1.js"] }],
+  links: [{ from: "a", to: "b", says: "Alpha asks beta.", evidence: [
+    ...Array.from({ length: gone }, (_, i) => `src/missing${i}.js`),
+    ...Array.from({ length: lost }, (_, i) => ({ file: `src/mod${i + 2}/file${i + 2}.js`, token: "NOT_THERE" })),
+    ...Array.from({ length: 10 - gone - lost }, (_, i) => ({ file: `src/mod${(i + 5) % 10}/file${i + 5}.js`, token: "x" })),
+  ] }],
+});
+const drifting = project("drifting", 150, { map: tokened(1, 3) });
+r = run(drifting);
+check("1 gone + 3 changed of 12 listed files: nudges, counting both", /4 of the 12 files it lists \(33 %\) are gone or changed under a link/.test(context(r)), r.stdout + r.stderr);
+const slight = project("slight", 150, { map: tokened(1, 1) });
+check("1 gone + 1 changed (2 of 12, under 20 %): silent", run(slight).stdout === "");
+
+// ---- speed on a big repository: 3,000 code files. The best of five runs, since other sessions share this computer.
 const bigp = project("big", 3000);
 const best = (n, f) => Math.min(...Array.from({ length: n }, f));
-const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-const round = () => ({
-  baseline: best(5, () => { const t = Date.now(); spawnSync("node", ["-e", "0"]); return Date.now() - t; }),
-  counting: best(5, () => { fs.rmSync(bigp.state, { recursive: true, force: true }); return run(bigp).ms; }),
-  fast: best(5, () => run(bigp).ms),
-});
-const fits = (m) => m.counting < 300 && m.fast < m.baseline + 40;
-let m = round();
-for (let i = 1; i < 4 && !fits(m); i++) { pause(1500); m = round(); }
-check(`3,000 code files, no map, the count runs: under 300 ms (best of five ${m.counting} ms; an empty node start ${m.baseline} ms)`, m.counting < 300);
-check(`a project nudged before skips the count: within 40 ms of an empty node start (${m.fast} ms)`, m.fast < m.baseline + 40);
+const baseline = best(5, () => { const t = Date.now(); spawnSync("node", ["-e", "0"]); return Date.now() - t; });
+const counting = best(5, () => { fs.rmSync(bigp.state, { recursive: true, force: true }); return run(bigp).ms; });
+check(`3,000 code files, no map, the count runs: under 300 ms (best of five ${counting} ms; an empty node start ${baseline} ms)`, counting < 300);
+const fast = best(5, () => run(bigp).ms);
+check(`a project nudged before skips the count: within 40 ms of an empty node start (${fast} ms)`, fast < baseline + 40);
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);

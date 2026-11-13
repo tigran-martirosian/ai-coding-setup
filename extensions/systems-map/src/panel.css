@@ -1,0 +1,492 @@
+/* Systems map. Colours, type and spacing come from the shared tokens; nothing here is a colour of its own. */
+.sm {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  background: var(--x-surface-0);
+  color: var(--x-text);
+  font: var(--x-body);
+}
+.sm *,
+.sm *::before {
+  box-sizing: border-box;
+}
+.sm h1,
+.sm h2,
+.sm h3,
+.sm p,
+.sm ul {
+  margin: 0;
+  padding: 0;
+}
+.sm ul {
+  list-style: none;
+}
+.sm button {
+  font: inherit;
+  color: inherit;
+}
+.sm-sym {
+  font-size: 18px;
+  line-height: 1;
+  font-variation-settings: var(--x-icon-settings);
+}
+
+/* Header */
+.sm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--x-space-4);
+  padding: var(--x-space-3) var(--x-space-5);
+  border-bottom: 1px solid var(--x-hairline);
+}
+.sm-titles {
+  flex: 1;
+  min-width: 0;
+}
+/* .sm in front: the host's own h1 and p rules (colour, padding) are more specific than one class */
+.sm .sm-title {
+  margin: 0;
+  color: var(--x-text);
+  font: var(--x-title);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-caption {
+  display: flex;
+  gap: var(--x-space-2);
+  font: var(--x-caption);
+  color: var(--x-text-muted);
+}
+/* Group colours: eight steps made from the theme colours, so a theme changes them with the rest. */
+.sm {
+  --x-group-1: var(--x-accent);
+  --x-group-2: var(--x-success);
+  --x-group-3: var(--x-warning);
+  /* no group is red: red means a link whose code changed. Steps 5, 6 and 8 are paler, never darker, so
+     they stay clear of a dark page */
+  --x-group-4: color-mix(in oklab, var(--x-accent), var(--x-error) 50%);
+  --x-group-5: color-mix(in oklab, var(--x-accent), var(--x-text) 55%);
+  --x-group-6: color-mix(in oklab, var(--x-success), var(--x-text) 55%);
+  --x-group-7: color-mix(in oklab, var(--x-warning), var(--x-error) 45%);
+  --x-group-8: color-mix(in oklab, var(--x-group-4), var(--x-text) 50%);
+}
+.sm-bad {
+  color: var(--x-error);
+}
+.sm .sm-gone {
+  margin: 0;
+  padding: var(--x-space-2) var(--x-space-5);
+  border-bottom: 1px solid var(--x-hairline);
+  font: var(--x-caption);
+  color: var(--x-error);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sm-search {
+  display: flex;
+  align-items: center;
+  gap: var(--x-space-2);
+  width: 280px;
+  height: 36px;
+  padding: 0 var(--x-space-2) 0 var(--x-space-3);
+  border-radius: var(--x-radius-control);
+  background: var(--x-surface-1);
+  color: var(--x-text-muted);
+}
+.sm-search:focus-within {
+  box-shadow: var(--x-focus-ring);
+}
+.sm-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--x-text);
+  font: var(--x-body);
+}
+.sm-search input::placeholder {
+  color: var(--x-text-muted);
+}
+.sm-clear {
+  width: 24px;
+  height: 24px;
+}
+
+.sm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--x-radius-control);
+  background: transparent;
+  color: var(--x-text-muted);
+  cursor: pointer;
+  transition: background var(--x-motion-fast) var(--x-ease);
+}
+.sm-icon:hover:not(:disabled) {
+  background: var(--x-overlay-hover);
+  color: var(--x-text);
+}
+.sm-icon:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.sm button:focus-visible {
+  outline: 0;
+  box-shadow: var(--x-focus-ring);
+}
+
+/* Graph */
+.sm-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.sm-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.sm-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.sm-svg:active {
+  cursor: grabbing;
+}
+.sm-edge {
+  stroke: var(--x-text);
+  stroke-opacity: 0.2;
+  stroke-width: 1;
+  transition: stroke-opacity var(--x-motion-base) var(--x-ease);
+}
+/* Dash by type: uses stays solid. */
+.sm-edge.t-feeds {
+  stroke-dasharray: 8 4;
+}
+.sm-edge.t-spends {
+  stroke-dasharray: 2 3;
+}
+.sm-edge.t-opens {
+  stroke-dasharray: 10 3 2 3;
+}
+.sm-edge.t-boosts {
+  stroke-dasharray: 14 3 3 3 3 3;
+}
+.sm-edge.t-limits {
+  stroke-dasharray: 1 5;
+}
+.sm-edge.is-drift {
+  stroke: var(--x-error);
+  stroke-opacity: 0.9;
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+.sm-edge.is-lit {
+  stroke-opacity: 0.6;
+}
+.sm-edge.is-dim {
+  stroke-opacity: 0.05;
+}
+.sm-node {
+  cursor: pointer;
+  outline: 0;
+  transition: opacity var(--x-motion-base) var(--x-ease);
+}
+.sm-node.is-dim {
+  opacity: 0.2;
+}
+.sm-hit {
+  fill: transparent;
+}
+.sm-dot {
+  fill: var(--x-text-muted);
+  stroke: var(--x-surface-0);
+  stroke-width: 1.5;
+}
+.sm-node.g1 .sm-dot {
+  fill: var(--x-group-1);
+}
+.sm-swatch.g1 {
+  background: var(--x-group-1);
+}
+.sm-node.g2 .sm-dot {
+  fill: var(--x-group-2);
+}
+.sm-swatch.g2 {
+  background: var(--x-group-2);
+}
+.sm-node.g3 .sm-dot {
+  fill: var(--x-group-3);
+}
+.sm-swatch.g3 {
+  background: var(--x-group-3);
+}
+.sm-node.g4 .sm-dot {
+  fill: var(--x-group-4);
+}
+.sm-swatch.g4 {
+  background: var(--x-group-4);
+}
+.sm-node.g5 .sm-dot {
+  fill: var(--x-group-5);
+}
+.sm-swatch.g5 {
+  background: var(--x-group-5);
+}
+.sm-node.g6 .sm-dot {
+  fill: var(--x-group-6);
+}
+.sm-swatch.g6 {
+  background: var(--x-group-6);
+}
+.sm-node.g7 .sm-dot {
+  fill: var(--x-group-7);
+}
+.sm-swatch.g7 {
+  background: var(--x-group-7);
+}
+.sm-node.g8 .sm-dot {
+  fill: var(--x-group-8);
+}
+.sm-swatch.g8 {
+  background: var(--x-group-8);
+}
+.sm-node:hover .sm-dot {
+  fill: var(--x-text);
+}
+.sm-node.is-match .sm-dot {
+  fill: var(--x-text);
+}
+.sm-node.is-selected .sm-dot {
+  fill: var(--x-accent);
+}
+.sm-node:focus-visible .sm-dot {
+  stroke: var(--x-accent);
+  stroke-width: 2.5;
+}
+.sm-label {
+  font: var(--x-caption);
+  fill: var(--x-text);
+  stroke: var(--x-surface-0);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+  pointer-events: none;
+}
+.sm-zoom {
+  position: absolute;
+  left: var(--x-space-4);
+  bottom: var(--x-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--x-space-1);
+  padding: var(--x-space-1);
+  border-radius: var(--x-radius-window);
+  background: var(--x-surface-1);
+}
+.sm-legend {
+  position: absolute;
+  left: calc(var(--x-space-4) + 32px + var(--x-space-1) * 2 + var(--x-space-2));
+  bottom: var(--x-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: var(--x-space-2) var(--x-space-3);
+  border-radius: var(--x-radius-window);
+  background: var(--x-surface-1);
+  font: var(--x-caption);
+  color: var(--x-text-muted);
+  list-style: none;
+}
+.sm-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--x-space-2);
+}
+.sm-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.sm-nomatch {
+  position: absolute;
+  top: var(--x-space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  font: var(--x-caption);
+  color: var(--x-text-muted);
+}
+
+/* Card */
+.sm-card {
+  flex: none;
+  width: 340px;
+  overflow-y: auto;
+  padding: var(--x-space-4) var(--x-space-4) var(--x-space-5);
+  border-left: 1px solid var(--x-hairline);
+  background: var(--x-surface-0);
+}
+.sm-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--x-space-2);
+}
+.sm-card-title {
+  font: var(--x-title);
+  overflow-wrap: anywhere;
+}
+.sm-what {
+  margin-top: var(--x-space-2);
+  color: var(--x-text-muted);
+}
+/* .sm in front: the reset above (.sm h3) would otherwise take the margin away */
+.sm .sm-heading {
+  margin: var(--x-space-5) 0 var(--x-space-2);
+  font: var(--x-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--x-text-muted);
+}
+.sm-quiet {
+  font: var(--x-caption);
+  color: var(--x-text-muted);
+}
+.sm-file {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--x-space-2);
+  width: 100%;
+  min-height: 28px;
+  padding: var(--x-space-1) var(--x-space-2);
+  margin-left: calc(var(--x-space-2) * -1);
+  border: 0;
+  border-radius: var(--x-radius-inner);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.sm-file:hover {
+  background: var(--x-overlay-hover);
+}
+.sm-file.is-gone {
+  color: var(--x-error);
+  cursor: default;
+}
+.sm-file.is-gone:hover {
+  background: transparent;
+}
+.sm-path {
+  font: var(--x-caption);
+  overflow-wrap: break-word;
+}
+.sm-aside {
+  flex: none;
+  font: var(--x-micro);
+}
+.sm-link {
+  padding: var(--x-space-1) 0;
+}
+.sm-link + .sm-link {
+  border-top: 1px solid var(--x-hairline);
+}
+.sm-link-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--x-space-1) var(--x-space-2);
+  margin-left: calc(var(--x-space-2) * -1);
+  border: 0;
+  border-radius: var(--x-radius-inner);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.sm-link-main:hover {
+  background: var(--x-overlay-hover);
+}
+.sm-dir {
+  color: var(--x-text-muted);
+}
+.sm-says {
+  font: var(--x-caption);
+  color: var(--x-text-muted);
+}
+.sm-more {
+  margin: 0 0 0 calc(var(--x-space-2) * -1);
+  padding: var(--x-space-1) var(--x-space-2);
+  border: 0;
+  border-radius: var(--x-radius-inner);
+  background: transparent;
+  font: var(--x-micro);
+  color: var(--x-text-muted);
+  cursor: pointer;
+}
+.sm-more:hover {
+  color: var(--x-text);
+}
+
+/* States without a graph */
+.sm-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--x-space-3);
+  padding: var(--x-space-5);
+  text-align: center;
+}
+.sm-empty > p {
+  max-width: 420px;
+}
+.sm-empty-title {
+  font: var(--x-title);
+}
+.sm-error {
+  font: var(--x-body);
+  color: var(--x-error);
+  overflow-wrap: anywhere;
+}
+.sm-btn {
+  height: 36px;
+  padding: 0 var(--x-space-4);
+  border: 0;
+  border-radius: var(--x-radius-control);
+  background: var(--x-accent);
+  color: var(--x-on-accent);
+  cursor: pointer;
+  transition: opacity var(--x-motion-fast) var(--x-ease);
+}
+.sm-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.sm-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

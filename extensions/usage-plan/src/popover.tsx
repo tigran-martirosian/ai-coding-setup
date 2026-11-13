@@ -8,8 +8,9 @@
 import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
-import { BUTTON } from './gutter';
 
+// Nimbalyst draws the gutter button itself, from the manifest icon
+export const BUTTON = 'button[data-panel-id*="usageplan"]';
 const ID = 'usage-plan-popover';
 const GAP = 8;
 
@@ -18,6 +19,7 @@ let root: Root | undefined;
 let box: HTMLDivElement | undefined;
 let sized: ResizeObserver | undefined;
 let anchored: Element | undefined;
+let label = '';
 
 const button = (target: EventTarget | null) => (target instanceof Element ? target.closest(BUTTON) : null);
 
@@ -28,21 +30,32 @@ function place(anchor: Element) {
   box.style.top = `${Math.round(Math.max(GAP, Math.min(r.top, window.innerHeight - box.offsetHeight - GAP)))}px`;
 }
 
-export function closePopover() {
+/** Closes the popover. `giveBack` returns the focus to the gutter button (Esc); a click elsewhere keeps its own. */
+export function closePopover(giveBack = false) {
+  const trigger = anchored;
   sized?.disconnect();
   root?.unmount();
   box?.remove();
   sized = root = box = anchored = undefined;
+  if (giveBack && trigger instanceof HTMLElement) trigger.focus();
 }
 
 function open(anchor: Element) {
   anchored = anchor;
   box = document.createElement('div');
   box.id = ID;
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-label', label);
+  box.tabIndex = -1;
   document.body.appendChild(box);
   root = createRoot(box);
   root.render(view!());
   place(anchor);
+  // Focus goes in once React has drawn the panel: onto its first button, or the window itself
+  const drawn = box;
+  requestAnimationFrame(() => {
+    if (box === drawn) (drawn.querySelector<HTMLElement>('button:not(:disabled)') ?? drawn).focus();
+  });
   // the numbers arrive after the first paint and change the height
   sized = new ResizeObserver(() => place(anchor));
   sized.observe(box);
@@ -65,13 +78,14 @@ const onResize = () => {
   if (anchored) place(anchored);
 };
 
-const onKey =(e: KeyboardEvent) => {
-  if (e.key === 'Escape') closePopover();
+const onKey = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && box) closePopover(true);
 };
 
-export function installPopover(render: () => ReactNode) {
+export function installPopover(render: () => ReactNode, title: string) {
   if (view) return;
   view = render;
+  label = title;
   window.addEventListener('click', onClick, true);
   window.addEventListener('mousedown', onDown, true);
   window.addEventListener('keydown', onKey, true);

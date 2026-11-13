@@ -34,39 +34,52 @@ function clearTextarea(row: Element) {
 
 function build(invoke: Invoke, sent: (note: Pending) => void): { wrap: HTMLElement; handle: Handle } {
   const wrap = document.createElement('span');
+  wrap.className = 'cb-note-wrap';
   wrap.setAttribute(WRAP, '');
-  wrap.style.cssText = 'position:relative;display:inline-flex;flex:none';
-  // The message sits to the left of the button, inside the chat box, so it never covers the context
-  // number above the box; it goes after a few seconds, on a click on it, or when the user types
-  const status = document.createElement('span');
-  status.style.cssText =
-    'position:absolute;right:calc(100% + 6px);top:50%;transform:translateY(-50%);max-width:260px;width:max-content;padding:4px 8px;border-radius:6px;font-size:12px;line-height:1.3;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--nim-bg-secondary,#222);border:1px solid var(--nim-border,#444);z-index:10000;cursor:pointer;display:none';
+  // The message sits to the left of the button, inside the chat box (see note.css); it goes after a few
+  // seconds, with its close button, or when the user types
+  const status = document.createElement('div');
+  status.className = 'cb-note-bubble';
+  status.setAttribute('role', 'status');
+  status.hidden = true;
+  const state = document.createElement('span');
+  state.className = 'cb-note-state';
+  const words = document.createElement('span');
+  words.className = 'cb-note-text';
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'cb-note-close';
+  close.textContent = '×';
+  close.title = t.note.dismiss;
+  close.setAttribute('aria-label', t.note.dismiss);
+  status.append(state, words, close);
   // A note that was not confirmed can end hours after the press, so that message stays until it is
-  // clicked or the next press: typing, a timer or good news about another note must not clear it
+  // closed or the next press: typing, a timer or good news about another note must not clear it
   let held = false;
-  const hide = () => (status.style.display = 'none');
-  status.addEventListener('click', () => {
+  const hide = () => (status.hidden = true);
+  close.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     held = false;
     hide();
   });
   const button = document.createElement('button');
   button.type = 'button';
+  button.className = 'cb-note-btn';
   button.textContent = t.note.button;
   button.title = t.note.hint;
-  button.style.cssText =
-    'height:36px;padding:0 10px;border:1px solid var(--nim-border,#444);border-radius:6px;background:transparent;color:var(--nim-text,inherit);font:inherit;font-size:12px;cursor:pointer';
   // Lit while a note from this chat box is on its way: a message would have to stay on the chat box
   // for minutes, and it covers what is being typed
   const dot = document.createElement('span');
-  dot.style.cssText =
-    'position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--nim-warning,#e0a800);pointer-events:none;display:none';
+  dot.className = 'cb-note-pending';
+  dot.hidden = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const say: Say = (kind, message) => {
     if (held && kind === 'ok') return;
-    status.textContent = held && kind === 'held' ? `${status.textContent}\n${message}` : message;
+    words.textContent = held && kind === 'held' ? `${words.textContent}\n${message}` : message;
     held = kind === 'held';
-    status.style.color = kind === 'ok' ? 'var(--nim-success,#4caf50)' : kind === 'busy' ? 'var(--nim-text,inherit)' : 'var(--nim-error,#f44336)';
-    status.style.display = 'block';
+    status.dataset.kind = kind;
+    status.hidden = false;
     clearTimeout(timer);
     if (kind === 'busy' || kind === 'held') return;
     timer = setTimeout(hide, kind === 'ok' ? 3000 : 6000);
@@ -82,8 +95,6 @@ function build(invoke: Invoke, sent: (note: Pending) => void): { wrap: HTMLEleme
     if (!row || !box) return say('bad', t.note.noBox);
     if (!panel || !sessionId) return say('bad', t.note.noSession);
     button.disabled = true;
-    button.style.opacity = '0.5';
-    button.style.cursor = 'progress';
     say('busy', t.note.sending);
     try {
       // Read together and before any wait: what is added while the note goes out stays in the box
@@ -101,8 +112,6 @@ function build(invoke: Invoke, sent: (note: Pending) => void): { wrap: HTMLEleme
       say('bad', t.note.notSent(String((err as Error)?.message ?? err)));
     } finally {
       button.disabled = false;
-      button.style.opacity = '';
-      button.style.cursor = 'pointer';
     }
   });
   wrap.append(status, button, dot);
@@ -126,7 +135,7 @@ export function startNoteButtons(invoke: Invoke): () => void {
     const h = handles.get(wrap);
     if (!h) return;
     const waiting = pending.filter((p) => p.session === session).length;
-    h.dot.style.display = waiting ? 'block' : 'none';
+    h.dot.hidden = !waiting;
     h.button.title = waiting ? t.note.waitingTip(waiting) : t.note.hint;
   };
   let notePoll: ReturnType<typeof setInterval> | undefined;

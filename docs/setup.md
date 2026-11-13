@@ -85,6 +85,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When I send a message | `job-done` | After a commit, tag or push in a session over 100k tokens, a new job is pointed to a fresh session (`JOB_DONE=off`) |
 | After a helper's tool call | `worker-size` | A helper past 150k tokens of context is told to finish the step in hand and report (`WORKER_SIZE=off`) |
 | When I send a message | `map-nudge` | A project with 100 or more code files and no systems map gets one built by a background worker |
+| After an edit | `map-drift` | An edit that removes the code a map link rests on is named, so the agent checks that link (`MAP_DRIFT=off`) |
 
 The scanner counts how often `big-read-gate` stopped a whole-file read and `worker-nudge` stopped a search subagent. I use the scanner's counts to decide which rule needs a hook next. The wiring is in [settings.example.json](../settings.example.json).
 
@@ -96,7 +97,7 @@ Each project keeps three short files that a new session reads first: `CLAUDE.md`
 
 ## The systems map
 
-A project with 100 or more code files gets a map of itself: a dictionary of its parts and what connects to what, saved in the project as `.claude/systems-map.json`. You don't write it. `map-nudge` has the agent start a background worker that builds it from [skills/systems-map](../skills/systems-map/SKILL.md), and the agent tells you in one line. After that `map-brief` adds to each helper's brief only the lines for the parts the brief touches, so a helper knows what its change connects to without searching for files or loading a whole graph. A project with fewer code files gets neither, and the map file is yours to read, edit or delete. A brief that ends with the line `SYSTEMS MAP: none` is left without map lines. `MAP_NUDGE=off` and `MAP_BRIEF=off` turn the two hooks off.
+A project with 100 or more code files gets a map of itself: a dictionary of its parts and what connects to what, saved in the project as `.claude/systems-map.json`. You don't write it. `map-nudge` has the agent start a background worker that builds it from [skills/systems-map](../skills/systems-map/SKILL.md), and the agent tells you in one line. After that `map-brief` adds to each helper's brief only the lines for the parts the brief touches, so a helper knows what its change connects to without searching for files or loading a whole graph. A project with fewer code files gets neither, and the map file is yours to read, edit or delete. A brief that ends with the line `SYSTEMS MAP: none` is left without map lines. When an edit removes the code a link rests on, `map-drift` names the link, so the map is fixed in the same session. In Nimbalyst the systems-map extension draws the map. `MAP_NUDGE=off`, `MAP_BRIEF=off` and `MAP_DRIFT=off` turn the three hooks off.
 
 ## Add-ons
 

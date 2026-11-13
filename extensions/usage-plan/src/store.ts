@@ -1,4 +1,4 @@
-// One shared copy of the planner's numbers for the gutter button and the panel.
+// One shared copy of the planner's numbers for the panel and the popover.
 
 import { script } from './command';
 import { failureLine } from './format';
@@ -15,16 +15,20 @@ export type Exec = (command: string, options?: { timeout?: number }) => Promise<
 
 export interface State {
   plan: Plan | null;
+  /** A plain sentence about the numbers (what to do next); the technical reason goes to the console. */
   error: string;
   loading: boolean;
+  /** The full dashboard: being built, just opened, or at rest. */
+  dashboard: 'idle' | 'building' | 'opened';
+  dashboardError: string;
 }
 
 const EXTENSION_ID = 'com.local.usageplan';
 const REFRESH_MS = 5 * 60_000;
+const OPENED_MS = 4000;
 
-// The gutter button is drawn before any panel host exists, so until the panel is opened the
-// numbers come through the same call host.exec makes. If the app ever changes that call, the
-// button shows its plain icon until the panel is opened once.
+// The popover is drawn before any panel host exists, so until the panel is opened the
+// numbers come through the same call host.exec makes.
 const direct: Exec = (command, options) =>
   (window as unknown as { electronAPI: { invoke: (channel: string, args: unknown) => Promise<ExecResult> } }).electronAPI.invoke(
     'extension:exec',
@@ -32,7 +36,7 @@ const direct: Exec = (command, options) =>
   );
 
 let exec: Exec = direct;
-let state: State = { plan: null, error: '', loading: false };
+let state: State = { plan: null, error: '', loading: false, dashboard: 'idle', dashboardError: '' };
 let timer: ReturnType<typeof setInterval> | undefined;
 const listeners = new Set<() => void>();
 
@@ -63,17 +67,23 @@ export async function refresh() {
     if (!r.success) throw new Error(failureLine(r.stderr, t.refreshFailed));
     set({ plan: JSON.parse(r.stdout), error: '', loading: false });
   } catch (e) {
-    set({ error: e instanceof Error ? e.message : String(e), loading: false });
+    console.warn('[usageplan] refresh:', e instanceof Error ? e.message : String(e));
+    set({ error: t.refreshFailed, loading: false });
   }
 }
 
-/** Builds the full dashboard page and opens it in the browser. */
+/** Builds the full dashboard page, which opens in the browser by itself. */
 export async function openDashboard() {
+  if (state.dashboard === 'building') return;
+  set({ dashboard: 'building', dashboardError: '' });
   try {
     const r = await exec(script('usage-dashboard.mjs'), { timeout: 120_000 });
-    if (!r.success) set({ error: failureLine(r.stderr, t.dashboardFailed) });
+    if (!r.success) throw new Error(failureLine(r.stderr, t.dashboardFailed));
+    set({ dashboard: 'opened' });
+    setTimeout(() => state.dashboard === 'opened' && set({ dashboard: 'idle' }), OPENED_MS);
   } catch (e) {
-    set({ error: e instanceof Error ? e.message : String(e) });
+    console.warn('[usageplan] dashboard:', e instanceof Error ? e.message : String(e));
+    set({ dashboard: 'idle', dashboardError: t.dashboardFailed });
   }
 }
 

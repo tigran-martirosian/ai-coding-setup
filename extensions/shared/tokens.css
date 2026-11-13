@@ -1,0 +1,70 @@
+/* Shared design tokens for the Nimbalyst extensions. Everything derives from --nim-*, so a theme changes colour only. */
+:root {
+  /* Surfaces: the app background and three steps up from it */
+  --x-surface-0: var(--nim-bg);
+  --x-surface-1: color-mix(in oklab, var(--nim-bg), var(--nim-text) 4%);
+  --x-surface-2: color-mix(in oklab, var(--nim-bg), var(--nim-text) 8%);
+  --x-surface-3: color-mix(in oklab, var(--nim-bg), var(--nim-text) 12%);
+
+  /* Lines and state overlays */
+  --x-hairline: color-mix(in oklab, var(--nim-text) 8%, transparent);
+  --x-overlay-hover: color-mix(in oklab, var(--nim-text) 6%, transparent);
+  --x-overlay-selected: color-mix(in oklab, var(--nim-text) 10%, transparent);
+
+  /* Text and accent colours */
+  --x-text: var(--nim-text);
+  --x-text-muted: var(--nim-text-muted);
+  --x-accent: var(--nim-primary);
+  --x-on-accent: var(--nim-on-primary);
+  --x-error: var(--nim-error);
+  --x-success: var(--nim-success);
+  --x-warning: var(--nim-warning);
+
+  /* Type: full `font` shorthands (weight size/line-height family; the family is required, or the
+     browser drops the whole declaration). The family is the Ink theme font when one is on, else Nimbalyst's own UI stack. */
+  --x-font-ui: var(--ink-sans, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif);
+  --x-title: 550 16px/22px var(--x-font-ui);
+  --x-body: 400 13px/20px var(--x-font-ui);
+  --x-caption: 400 12px/16px var(--x-font-ui);
+  --x-micro: 400 11px/14px var(--x-font-ui);
+  --x-figure: 550 18px/24px var(--x-font-ui);
+
+  /* Spacing */
+  --x-space-1: 4px;
+  --x-space-2: 8px;
+  --x-space-3: 12px;
+  --x-space-4: 16px;
+  --x-space-5: 24px;
+
+  /* Corner radii */
+  --x-radius-window: 12px;
+  --x-radius-control: 8px;
+  --x-radius-inner: 4px;
+
+  /* Motion */
+  --x-motion-fast: 80ms;
+  --x-motion-base: 160ms;
+  --x-motion-slow: 240ms;
+  --x-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Icon font variation settings (Material Symbols Outlined) */
+  --x-icon-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
+
+  /* Keyboard focus ring */
+  --x-focus-ring: 0 0 0 2px var(--x-accent);
+}
+
+/* Light themes (Nimbalyst marks dark ones with .dark-theme on html): weaker overlays */
+html:not(.dark-theme) {
+  --x-overlay-hover: color-mix(in oklab, var(--nim-text) 4%, transparent);
+  --x-overlay-selected: color-mix(in oklab, var(--nim-text) 7%, transparent);
+}
+
+/* Reduced motion: no durations */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --x-motion-fast: 0ms;
+    --x-motion-base: 0ms;
+    --x-motion-slow: 0ms;
+  }
+}

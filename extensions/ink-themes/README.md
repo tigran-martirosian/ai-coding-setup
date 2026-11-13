@@ -1,7 +1,7 @@
 # Ink themes
 
-Eleven colour themes for Nimbalyst. They share one look (the Figtree and Bricolage Grotesque fonts,
-rounder shapes, a name under every side button, a floating message box) and differ only in colour.
+Eleven colour themes for Nimbalyst. They share one look (the Figtree font, 8px corners, hairlines
+instead of shadows, a name under every side button, one calm message box) and differ only in colour.
 
 ![The eleven themes side by side](preview.png)
 
@@ -36,11 +36,12 @@ it was.
 
 ## What it adds besides colour
 
-- A **New session** button and a Sessions / Files / Tracker switch at the top of the side panel. The
+- A **New session** button and a Sessions / Files / Tracker switch (tabs) at the top of the side panel. The
   button follows the switch (**New file** in Files, and so on), the same as the app's own create button.
-- Two usage bars at the bottom of the sessions panel (this week, the 5-hour window). They read the
-  numbers the side bar's own rings show, so they appear only when those rings do.
-- Bigger usage rings with a percent that can be read on a large monitor.
+- A name under every side button (a name that does not fit the 48px side bar, "Commands", is left to
+  the button's tooltip), and a usage-ring percent that can be read on a large monitor (the app's Claude ring is the one place weekly use shows).
+- In an empty chat, the project name as the heading with the app's command pills as rows under it.
+- "Commit with AI" as a quiet outlined button (its sparkle stays).
 
 Every added part presses or reads one of the app's own buttons. If an update of the app renames
 one, that part does not appear and the app's own button stays.
@@ -63,13 +64,32 @@ To try a theme on a running window without installing it, start Nimbalyst with
 file in the window's inspector. `node build.mjs --swatches <file.html>` writes the page the picture
 above was taken from.
 
+## After a Nimbalyst update: node probe.mjs
+
+The shell styles the app's own class names and test ids, and an update can rename one; the rule then
+does nothing and no error shows. `selectors.json` lists every app selector the style sheet and
+`shell.js` use (what it is for, the Nimbalyst version it was last seen in). With Nimbalyst running with
+`--remote-debugging-port=9222`:
+
+```
+node probe.mjs
+```
+
+It prints the app version, every selector that matches nothing (`UNMATCHED`) and the line
+`N unmatched of M`. Selectors for a surface that is not on screen right now (an empty chat, the Send
+button while a session runs, the commit panel, the open theme menu) are listed apart as "not on
+screen": open that surface and run it again. When it is clean, set `seenIn` in `selectors.json` to
+the new version. A selector added to `theme.src.css` or `shell.js` goes into `selectors.json` too.
+
 ## Files
 
 | File | What |
 |---|---|
 | `themes.mjs` | The colours of each theme |
-| `theme.src.css` | Fonts, shapes and labels, shared by all the themes |
-| `shell.js` | The New session button, the switch, the usage bars and the folded theme menu |
+| `theme.src.css` | The shell: sizes, shapes and labels on the shared tokens (`../shared/tokens.css`, put into the built style sheet by `build.mjs`), shared by all the themes |
+| `shell.js` | The New session button, the tabs, the empty-chat heading and the folded theme menu |
+| `selectors.json` | Every app selector the shell relies on |
+| `probe.mjs` | Checks `selectors.json` against the running app |
 | `build.mjs` | Writes `manifest.json` and `dist/` |
 | `test.mjs` | The checks |
-| `fonts/` | Figtree, Bricolage Grotesque and JetBrains Mono, each under the SIL Open Font License |
+| `fonts/` | Figtree and JetBrains Mono (code only), each under the SIL Open Font License |

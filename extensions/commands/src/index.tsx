@@ -1,21 +1,20 @@
 /**
  * Commands: the setup's utility commands as buttons, in a popover next to a gutter button.
  *
- * The list and the call a button makes are in commands.ts. This file only draws them.
+ * The list, the call a button makes and the press logic are in commands.ts. This file only draws them.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { PanelHostProps } from '@nimbalyst/extension-sdk';
-import { run, visible } from './commands';
-import type { Command } from './commands';
+import { launcher, visible } from './commands';
 import { installPopover, removePopover } from './popover';
 import { CSS } from './styles';
+import '../../shared/tokens.css';
 import './chat-wrap.css';
+import './note.css';
 import { t } from './strings';
 import { NoteBridge } from './host';
 
-type Api = { invoke: (channel: string, args: unknown) => Promise<unknown> };
-const api = () => (window as unknown as { electronAPI: Api }).electronAPI;
 // The popover has no panel host, so the open project comes from the app's own window value.
 const openProject = () => (window as unknown as { workspacePath?: string; __workspacePath?: string }).workspacePath ?? (window as unknown as { __workspacePath?: string }).__workspacePath ?? '';
 
@@ -25,52 +24,92 @@ const Sym = ({ name }: { name: string }) => (
   </span>
 );
 
+const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
 /** The whole view. With a host it is the sidebar panel; without one, the popover. */
 function CommandsPanel({ host }: Partial<PanelHostProps>) {
-  const [busy, setBusy] = useState('');
-  const [started, setStarted] = useState<string[]>([]);
-  const [error, setError] = useState('');
+  const s = useSyncExternalStore(launcher.subscribe, launcher.get);
+  const [hint, setHint] = useState('');
   const commands = visible(host?.workspacePath ?? openProject());
+  const rows = useRef(new Map<string, HTMLElement>());
+  const cancel = useRef<HTMLButtonElement>(null);
+  const asked = useRef('');
 
-  const press = async (command: Command) => {
-    setBusy(command.id);
-    setError('');
-    const refused = await run(command, (channel, args) => api().invoke(channel, args));
-    setBusy('');
-    if (refused) setError(refused);
-    else setStarted((ids) => [...ids, command.id]);
-  };
+  // The question takes the focus (on Cancel, so a double click cannot confirm it); closing it gives the focus back to the row
+  useEffect(() => {
+    if (s.asking) {
+      asked.current = s.asking;
+      cancel.current?.focus();
+    } else if (asked.current) {
+      rows.current.get(asked.current)?.focus();
+      asked.current = '';
+    }
+  }, [s.asking]);
 
   return (
     <div className="cb" data-command-buttons>
       <style>{CSS}</style>
-      <div className="cb-head">
-        <div className="cb-title">{t.title}</div>
-        <div className="cb-sub">{t.subtitle}</div>
-      </div>
+      <div className="cb-title">{t.title}</div>
       <div className="cb-list">
         {commands.map((c) => {
-          const done = started.includes(c.id);
-          return (
-            <button key={c.id} className={`cb-item ${done ? 'started' : ''}`} disabled={busy !== '' || done} onClick={() => press(c)} title={c.prompt}>
-              <span className="cb-badge">
-                <Sym name={done ? 'check' : c.icon} />
-              </span>
-              <div>
-                <div className="cb-label">{c.label}</div>
-                <div className="cb-note">{busy === c.id ? t.starting : done ? t.started : c.note}</div>
+          const at = s.started[c.id];
+          if (s.asking === c.id) {
+            return (
+              <div key={c.id} className="cb-ask" data-asking role="group" aria-label={c.label} onKeyDown={(e) => e.key === 'Escape' && launcher.cancel()}>
+                <Sym name={c.icon} />
+                <div className="cb-ask-text">
+                  <div>{c.label}</div>
+                  <div className="cb-ask-note">{t.askAgain(clock(at))}</div>
+                </div>
+                <button ref={cancel} className="cb-btn" onClick={() => launcher.cancel()}>
+                  {t.cancel}
+                </button>
+                <button className="cb-btn primary" onClick={() => launcher.confirm(c)}>
+                  {t.again}
+                </button>
               </div>
+            );
+          }
+          return (
+            <button
+              key={c.id}
+              ref={(el) => void (el ? rows.current.set(c.id, el) : rows.current.delete(c.id))}
+              className="cb-row"
+              aria-disabled={s.starting !== ''}
+              onClick={() => launcher.press(c)}
+              onMouseEnter={() => setHint(c.note)}
+              onMouseLeave={() => setHint('')}
+              onFocus={() => setHint(c.note)}
+              onBlur={() => setHint('')}
+            >
+              <Sym name={c.icon} />
+              <span className="cb-label">{c.label}</span>
+              {s.starting === c.id ? (
+                <span className="cb-status">{t.starting}</span>
+              ) : (
+                at && (
+                  <span className="cb-status" title={t.startedHint}>
+                    <span className="cb-dot" />
+                    {t.started(clock(at))}
+                  </span>
+                )
+              )}
             </button>
           );
         })}
       </div>
-      {error && <div className="cb-error">{error}</div>}
+      <div className="cb-hint">{hint || t.subtitle}</div>
+      {s.error && (
+        <div className="cb-error" role="alert">
+          {s.error}
+        </div>
+      )}
     </div>
   );
 }
 
 export function activate() {
-  installPopover(() => <CommandsPanel />);
+  installPopover(() => <CommandsPanel />, t.title);
 }
 
 export function deactivate() {
@@ -79,7 +118,7 @@ export function deactivate() {
 
 // The app reads `panels` when it loads the extension, so the button opens the popover from the
 // first click even if the app only activates the extension when its panel is opened.
-if (typeof window !== 'undefined') installPopover(() => <CommandsPanel />);
+if (typeof window !== 'undefined') installPopover(() => <CommandsPanel />, t.title);
 
 export const panels = {
   commands: { component: CommandsPanel },
