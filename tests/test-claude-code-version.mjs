@@ -1,6 +1,6 @@
 // Tests for scripts/claude-code-version.mjs with every command stubbed: no network, no real update.
 // Run: node tests/test-claude-code-version.mjs
-import { checkClaudeCode, compareVersions, parseVersion, nimbalystCandidates, updateCommand, childEnv } from "../scripts/claude-code-version.mjs";
+import { checkClaudeCode, pointNimbalyst, compareVersions, parseVersion, nimbalystCandidates, updateCommand, childEnv } from "../scripts/claude-code-version.mjs";
 
 let fails = 0;
 const ok = (name, got, want = true) => {
@@ -96,6 +96,56 @@ ok("stop text tells to close Claude and update in a plain terminal", (r.stop || 
 {
   const e = childEnv({ DISABLE_UPDATES: "1", DISABLE_AUTOUPDATER: "1", PATH: "/bin" });
   ok("update runs without Nimbalyst's update blocks, other settings kept", !("DISABLE_UPDATES" in e) && !("DISABLE_AUTOUPDATER" in e) && e.PATH === "/bin");
+}
+
+// ---- pointNimbalyst: Nimbalyst's chats on the person's own Claude Code
+{
+  const AI = "C:/A/@nimbalyst/electron/ai-settings.json";
+  const BUN = "C:/L/Programs/Nimbalyst/resources/claude-runtime/win32-x64/claude.exe";
+  const OWN = "C:/U/.local/bin/claude.exe";
+  const point = ({ field = "", own = "2.1.318", bundled = "2.1.314", where = `C:/U/npm/claude.cmd\n${OWN}\n`, previous = null, env = {}, dry = false, file = true, text = null }) => {
+    let saved = text ?? JSON.stringify({ customClaudeCodePath: field, other: 1 });
+    const out = [];
+    const run = (cmd) => {
+      const c = cmd.replaceAll(String.fromCharCode(92), "/");
+      if (c === "where") return where ? { status: 0, stdout: where } : { status: 1, stdout: "" };
+      if (c === BUN) return { status: 0, stdout: `${bundled} (Claude Code)\n` };
+      if (c === OWN) return own ? { status: 0, stdout: `${own} (Claude Code)\n` } : { status: 1, stdout: "" };
+      return { status: 1, stdout: "" };
+    };
+    const exists = (p) => { const c = p.replaceAll(String.fromCharCode(92), "/"); return c === BUN || (file && c === AI); };
+    const r = pointNimbalyst({ file: AI, min: "2.1.296", previous, dry, run, exists, platform: "win32", arch: "x64", env: { LOCALAPPDATA: "C:/L", ...env },
+      log: (s) => out.push(s), read: () => saved, write: (f, t) => { saved = t; } });
+    let ai = null; try { ai = JSON.parse(saved); } catch {}
+    return { ...r, path: ai?.customClaudeCodePath, other: ai?.other, out: out.join("\n") };
+  };
+  let p = point({});
+  ok("own newer than bundled: Nimbalyst points at it, other settings kept", [p.path, p.set, p.other], [OWN, OWN, 1]);
+  ok("says it in a line with the undo", /now yours, 2\.1\.318, instead of its own 2\.1\.314.*SETUP_NIMBALYST_CLAUDE=off/.test(p.out));
+  p = point({ field: OWN, previous: OWN });
+  ok("already pointed: left, still on record", [p.path, p.set, /yours, 2\.1\.318/.test(p.out)], [OWN, OWN, true]);
+  p = point({ field: "D:/my/claude.exe" });
+  ok("a path the person set is never touched", [p.path, p.set, /you set D:\/my\/claude\.exe yourself/.test(p.out)], ["D:/my/claude.exe", null, true]);
+  p = point({ own: "2.1.310" });
+  ok("own older than bundled: not pointed", [p.path, p.set], ["", null]);
+  p = point({ own: "2.1.310", field: OWN, previous: OWN });
+  ok("own fell behind a newer Nimbalyst: back to bundled", [p.path, p.set, /back to its own \(2\.1\.314\)/.test(p.out)], ["", null, true]);
+  p = point({ own: "2.2.0" });
+  ok("a newer line than the bundled one waits for Nimbalyst", [p.path, p.set, /newer line/.test(p.out)], ["", null, true]);
+  p = point({ own: "2.2.0", field: OWN, previous: OWN });
+  ok("a newer line after being pointed: back to bundled", [p.path, p.set], ["", null]);
+  p = point({ where: "C:/U/npm/claude.cmd\n" });
+  ok("only an npm shim: not pointed, says why", [p.path, p.set, /no native Claude Code/.test(p.out)], ["", null, true]);
+  p = point({ own: null });
+  ok("own gives no version: not pointed", [p.path, p.set], ["", null]);
+  p = point({ dry: true });
+  ok("dry run: writes nothing", [p.path, p.set, /a real run sets it/.test(p.out)], ["", null, true]);
+  p = point({ env: { SETUP_NIMBALYST_CLAUDE: "off" } });
+  ok("SETUP_NIMBALYST_CLAUDE=off: left as it is", [p.path, /SETUP_NIMBALYST_CLAUDE=off/.test(p.out)], ["", true]);
+  p = point({ file: false });
+  ok("no Nimbalyst settings file: nothing, no line", [p.set, p.out], [null, ""]);
+  p = point({ text: "{oops" });
+  ok("broken settings file: left, said", [p.set, /not valid JSON/.test(p.out)], [null, true]);
 }
 
 process.exit(fails ? 1 : 0);
