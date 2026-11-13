@@ -90,7 +90,7 @@ const after = json(settingsFile);
 check("the user's own model and hook stay", after.model === "opus" && JSON.stringify(after.hooks.Stop).includes("my-own-hook.mjs"));
 check("an older install gets the new Stop gates and question-other's wider matcher",
   ["code-review-gate.mjs", "file-link-gate.mjs"].every((h) => JSON.stringify(after.hooks.Stop).includes(h))
-  && after.hooks.PreToolUse.some((g) => g.matcher === "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion" && JSON.stringify(g).includes("question-other.mjs")));
+  && after.hooks.PreToolUse.some((g) => g.matcher === "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion|AskUserQuestion" && JSON.stringify(g).includes("question-other.mjs")));
 check("the user's notes stay", fs.readFileSync(profile, "utf8") === "# My profile\n");
 check("the answers about the workers are remembered", ["codex.off", "agy.off"].every((f) => fs.existsSync(path.join(claude, "workers", f))) && /Codex CLI \(GPT\): not used, optional \(as answered before\)/.test(done.out));
 check("the changed extension is named, the others are not", done.out.includes("extension changed: commands") && !done.out.includes("extension changed: usage-plan"));

@@ -1,6 +1,7 @@
 // The Claude Code settings this setup adds to ~/.claude/settings.json, for install.mjs and
-// scripts/app-settings.mjs: "model": "sonnet" when no model is set, and permission rules (the agent
-// can't read the saved sign-ins or the SSH keys, and asks before a .env file). What is there stays.
+// scripts/app-settings.mjs: "model": "sonnet" when no model is set, a one-hour prompt cache for helpers,
+// and permission rules (the agent can't read the saved sign-ins or the SSH keys, and asks before a
+// .env file). What is there stays.
 const DENY = [
   "Read(~/.claude/.credentials.json)", "Read(~/.codex/auth.json)", "Read(~/.gemini/oauth_creds.json)",
   "Read(~/.gemini/google_accounts.json)", "Read(~/.ssh/**)",
@@ -21,10 +22,13 @@ export function addClaudeCodeSettings(settings, win = process.platform === "win3
   // Compact at about 200k, mid-work or before the next message, so a finished chat is left alone
   const compact = settings.autoCompactWindow === undefined;
   if (compact) settings.autoCompactWindow = 230000;
+  // A helper waiting on a long build or test keeps its context cached instead of paying to read it again
+  const cache = settings.subagentPromptCacheTtl === undefined;
+  if (cache) settings.subagentPromptCacheTtl = "1h";
   let added = 0;
   for (const [kind, rules] of [["deny", DENY], ["ask", ASK]]) {
     const list = ((settings.permissions ??= {})[kind] ??= []);
     for (const rule of rules.filter((r) => win || !r.startsWith("PowerShell("))) if (!list.includes(rule)) { list.push(rule); added++; }
   }
-  return { model, added, compact };
+  return { model, added, compact, cache };
 }

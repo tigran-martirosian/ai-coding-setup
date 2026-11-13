@@ -30,10 +30,13 @@ The rule: long reading of local files and second opinions go to GPT (through the
 |---|---|---|
 | Claude Code in the Nimbalyst editor (the main session) | Planning a change with me, writing and editing the code, running the checks | It does what I asked and nothing else: no unrelated refactoring, no extra features |
 | GPT (Codex CLI) and Gemini (Antigravity CLI) | Reading long files and logs, sweeping a project folder, a second opinion on a plan or a diff | They never edit files, and their answers are leads that get checked |
-| `worker` subagent ([agents/worker.md](../agents/worker.md)) | Routine edits that follow a clear plan | A smaller model, and it stops after 25 turns |
+| `worker` subagent ([agents/worker.md](../agents/worker.md)) | One step of a bigger job, or routine edits that follow a clear plan | A smaller model, no `CLAUDE.md` loaded, and it stops after 80 turns. Its brief has to name the goal of the job, the files and the project commands it needs |
+| `worker-full` subagent ([agents/worker-full.md](../agents/worker-full.md)) | The same, for a step that needs a skill or an MCP tool | It loads every tool and the `CLAUDE.md` files, so it costs much more to start |
+| `reviewer` subagent ([agents/reviewer.md](../agents/reviewer.md)) | One independent check of a finished bigger change, against the request and for quality | It reads files and changes nothing, stops after 40 turns, and one is enough |
+| `rec-check` subagent ([agents/rec-check.md](../agents/rec-check.md)) | A second look at a recommended option before a question reaches me | It reads files and changes nothing, stops after 8 turns, and answers keep or change |
 | `planner` subagent ([agents/planner.md](../agents/planner.md)) | The plan for a big or hard-to-undo piece of work, written by the strongest model before the main session starts on it | It reads files and changes nothing, stops after 15 turns, and gets the situation without the main session's own idea of the answer |
 
-Long reading costs the most on the main model, which is why it goes to the other two. Web research stays with Claude, which reads the page or the catalogue that knows the answer. For a hard question or a claim, where one model's answer isn't enough, I ask all three with the [court skill](../skills/court/SKILL.md): GPT, Gemini and Claude answer on their own, GPT and Gemini review the answers without knowing who wrote them, and a Claude chair sums up. I read the verdict and decide. For a larger task I use a [skill](../skills/lead/SKILL.md) that splits the work across child sessions (research, build, an independent review, fixes), so what comes back to me has already been checked once.
+Long reading costs the most on the main model, which is why it goes to the other two. Web research stays with Claude, which reads the page or the catalogue that knows the answer. For a hard question or a claim, where one model's answer isn't enough, I ask all three with the [court skill](../skills/court/SKILL.md): GPT, Gemini and Claude answer on their own, GPT and Gemini review the answers without knowing who wrote them, and a Claude chair sums up. I read the verdict and decide. For a larger task I use a [skill](../skills/lead/SKILL.md) that makes the main session the planner: it writes a numbered job list, hands each step to a worker that knows the goal of the whole job, and has one reviewer check the result, so what comes back to me has already been checked once. A separate Nimbalyst session is used only when a step needs my input or has to run past the turn.
 
 ## The rules I wrote
 
@@ -53,27 +56,30 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When | Hook | Rule it enforces |
 |---|---|---|
 | Before a file read or shell command | `big-read-gate` | Read large files in parts |
-| Before a subagent starts | `worker-nudge` | Long local reading goes to the first free worker that is ready (Codex or Gemini), and other helper jobs go to the capped `worker` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
+| Before a subagent starts | `worker-nudge` | Long local reading goes to the first free worker that is ready (Codex or Gemini), a build or check goes to the capped `worker` agent (`worker-full` when it needs a skill or an MCP tool), and a review of a finished job goes to the `reviewer` agent; an uncapped Explore, general-purpose or claude helper is refused every time |
 | Before a shell command | `command-explain` | Explain the command in plain words; a command without that line runs with a stand-in line, and the agent is reminded |
 | Before a shell command | `sql-guard` | Confirm destructive SQL with me |
 | Before a shell command | `opencli-readonly` | In my signed-in browser, only read: never post, like, follow or log in |
 | Before a picture is shown in the chat | `picture-in-project` | The picture is shown from the project's `shown` folder, so it still loads after a cleanup and a click opens it enlarged |
-| Before a question to me | `question-other` | Every question lets me type my own answer, a question about something to look at links to it, and a recommendation that says "Checked:" must match a lookup in the session log |
+| Before a question to me | `question-other` | Every question lets me type my own answer, a question about something to look at links to it, a recommendation that says "Checked:" must match a lookup in the session log, and a recommendation has to pass a `rec-check` agent first (`REC_CHECK=off` turns that part off) |
 | Before any tool call | `loop-warn` | Tell the agent when it repeats the same call |
 | Before a file edit, read or shell command | `repeat-guard` | Refuse a retry of the same call after the same error came back three times, and remind once when one file is edited six times or read four times in a turn |
 | When I send a message | `context-guard` | Warn when the session passes 150k tokens |
 | When a reply ends | `context-guard` | Show one line suggesting fewer, batched steps when a session passes 200k tokens |
 | When I send a message | `cold-cache` | Warn when I come back to a session over 100k tokens after the prompt cache has expired (55 minutes), because the next message pays for the whole history again |
 | When I send a message | `board-nudge` | Offer a board cleanup when many sessions have piled up |
+| When I send a message | `pc-tidy-nudge` | On Windows, say to restart Nimbalyst after 12 hours open |
 | When I send a message | `update-check` | Say, at most every 12 hours, when a newer version of the setup is released |
 | When I send a message | `usage-dashboard-hook` | Typing just `usage` opens the usage dashboard without a model call |
 | While a session runs | `plan-usage-logger` | Save the plan's 5-hour and weekly percentages every 5 minutes, for the usage forecast |
 | Before a reply goes out | `link-gate` | No link that wasn't opened in this session |
 | Before a reply goes out | `file-link-gate` | File links are written in the form Nimbalyst's chat can open (an absolute path with forward slashes) |
-| Before a reply goes out | `code-review-gate` | A turn that changed three or more code files runs `/code-review` before it ends |
+| Before a reply goes out | `code-review-gate` | A turn that changed five or more code files, or in which two or more helpers edited code, gets one `reviewer` agent before it ends |
 | Before a reply goes out | `run-yourself` | A reply that tells me to run a command is sent back once, so the agent runs it |
 | After each reply | `handoff-brief` | Keep a brief so a new session can continue |
 | Before a helper starts or a handoff note is written | `decided-quote` | A brief that says I decided something quotes my own words next to it; the first try is refused, the identical retry goes through |
+| Before a helper starts | `map-brief` | A helper's brief gets the lines of the project's systems map for the parts it touches, and only those |
+| When I send a message | `map-nudge` | A project with 100 or more code files and no systems map gets one built by a background worker |
 
 In the seven days up to October 1, 2026, `big-read-gate` stopped 11 whole-file reads and `worker-nudge` stopped 3 search subagents. I use the scanner's counts to decide which rule needs a hook next. The wiring is in [settings.example.json](../settings.example.json).
 
@@ -82,3 +88,7 @@ In the seven days up to October 1, 2026, `big-read-gate` stopped 11 whole-file r
 A long session sends its whole history again on every step, so every step costs more. `context-guard` warns at 150k tokens and suggests fewer, batched steps. The [handoff skill](../skills/handoff/SKILL.md) writes a short brief (goal, state, next step, files) and the new session starts from it. `handoff-brief` also rewrites that brief after every reply, so one exists even when a session ends unexpectedly.
 
 Each project keeps three short files that a new session reads first: `CLAUDE.md` (rules and commands for the project), `HANDOFF.md` (current state and what's next) and `DECISIONS.md` (what I decided and when).
+
+## The systems map
+
+A project with 100 or more code files gets a map of itself: a dictionary of its parts and what connects to what, saved in the project as `.claude/systems-map.json`. You don't write it. `map-nudge` has the agent start a background worker that builds it from [skills/systems-map](../skills/systems-map/SKILL.md), and the agent tells you in one line. After that `map-brief` adds to each helper's brief only the lines for the parts the brief touches, so a helper knows what its change connects to without searching for files or loading a whole graph. A project with fewer code files gets neither, and the map file is yours to read, edit or delete. A brief that ends with the line `SYSTEMS MAP: none` is left without map lines. `MAP_NUDGE=off` and `MAP_BRIEF=off` turn the two hooks off.

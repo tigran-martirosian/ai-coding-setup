@@ -17,7 +17,7 @@ Claude Code gives you hooks and skills. This is what I built with them.
 | Its claims | Nothing checks them | Hooks compare them with the log of what it did |
 | Commands | It may ask you to run them | It runs them itself |
 | Long chats | Compact when nearly full, or by hand | Compact themselves at about 200k, mid-work, and leave finished chats alone |
-| Big jobs | Subagents you arrange | `/lead`: sessions side by side, then a separate review |
+| Big jobs | Subagents you arrange | `/lead`: a plan in numbered steps, workers that know the goal, then one reviewer |
 | Spending | `/usage`: the last 7 days | Per project, with a forecast of when the limit runs out |
 
 ## What it does
@@ -30,11 +30,12 @@ These go back to the agent:
 
 - a reply with a link it never opened
 - "now run this in a terminal", when it can run that itself
-- a turn that changed three or more code files with no `/code-review`
+- a bigger code change (five or more code files, or a job of several helpers) that ends with no reviewer agent having looked at it
+- a recommended answer in a question that no second agent has checked
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE` ask you first.
 
-In 30 days on my computer, 360 of 11,042 replies were sent back. All 24 hooks are listed in [docs/features.md](docs/features.md#hooks).
+In 30 days on my computer, 360 of 11,042 replies were sent back. All 27 hooks are listed in [docs/features.md](docs/features.md#hooks).
 
 ### Cost
 
@@ -45,7 +46,11 @@ In 30 days on my computer, 360 of 11,042 replies were sent back. All 24 hooks ar
 ### Long work
 
 - A hook rewrites a short handoff note after every reply, so a fresh session can start from it.
-- I hand big jobs to `/lead`. It splits the work across sessions in Nimbalyst, and a separate session reviews the result.
+- I hand big jobs to `/lead`. It writes a numbered plan, hands each step to a worker agent that knows the goal of the whole job, and one reviewer agent checks the result.
+
+### Systems map
+
+In a project with 100 or more code files, the setup builds a map of it by itself, in the background. The map is a dictionary of the project's parts and what connects to what. A helper's brief gets only the lines for the parts it touches, so no session hunts for files or loads a whole graph.
 
 ## What changes on day one
 
@@ -102,12 +107,12 @@ The installer adds rules that stop Claude Code reading saved sign-ins for Claude
 
 - A check knows a page was opened, not what it said. An agent that opens the page and still gets it wrong passes.
 - A hook that hits an error lets the call through, so a broken check stops nothing.
-- Only some rules have a check behind them. "Lead with the answer" is text the model reads and can ignore. The rules file adds about 4,200 tokens to every session.
+- Only some rules have a check behind them. "Lead with the answer" is text the model reads and can ignore. The rules file adds about 4,700 tokens to every session.
 - Checks are sometimes wrong: a send-back can be a false alarm. I measure that and fix the checks that cause it.
 
 ## Everything else
 
-Asking three models the same hard question (`/court`), four starter projects, a planner agent, a capped worker agent, reading videos (`/watch`), a phone bot, voice typing, Read Aloud and colour themes are in [docs/features.md](docs/features.md). Changes per version are in [CHANGELOG.md](CHANGELOG.md).
+Asking three models the same hard question (`/court`), four starter projects, a planner agent, capped worker agents, a reviewer, a checker for recommended answers, a map of big projects, reading videos (`/watch`), a phone bot, voice typing, Read Aloud and colour themes are in [docs/features.md](docs/features.md). Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tests
 

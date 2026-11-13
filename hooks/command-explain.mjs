@@ -15,6 +15,8 @@
 // the hook appends a stand-in note, "(no note given)" plus the command's start, through updatedInput.
 // No permissionDecision goes with it, so the normal permission prompt still decides; "allow" would
 // skip the prompt. A line of additionalContext tells Claude to write the note itself next time.
+// A helper gets the stand-in without that line: the new worker got 58 of them in a day although its own
+// rules ask for the note, so the line changed nothing there (2026-11-02).
 // The PowerShell-tool refusal stays. Added 2026-09-30.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
 import { existsSync, readFileSync } from "node:fs";
@@ -59,13 +61,12 @@ try {
   const afterBlank = lines.length > 1 && lines[lines.length - 2].trim() === "";
   if (words.length < 3 || !afterBlank) {
     const start = command.replace(/\s+/g, " ").trim().slice(0, 60);
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        updatedInput: { ...event.tool_input, command: `${command.trimEnd()}\n\n# WHAT THIS DOES: (no note given) ${start}` },
-        additionalContext: `command-explain: that command had no "# WHAT THIS DOES:" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`,
-      },
-    }));
+    const output = {
+      hookEventName: "PreToolUse",
+      updatedInput: { ...event.tool_input, command: `${command.trimEnd()}\n\n# WHAT THIS DOES: (no note given) ${start}` },
+    };
+    if (!event.agent_id) output.additionalContext = `command-explain: that command had no "# WHAT THIS DOES:" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`;
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: output }));
     process.exit(0);
   }
 } catch {

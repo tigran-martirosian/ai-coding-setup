@@ -1,4 +1,5 @@
 {
+  "subagentPromptCacheTtl": "1h",
   "hooks": {
     "PreToolUse": [
       {
@@ -22,6 +23,16 @@
         ]
       },
       {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/map-brief.mjs",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "Agent|Task|Write|mcp__nimbalyst-host__spawn_session|mcp__nimbalyst-host__create_session|mcp__nimbalyst-host__send_prompt",
         "hooks": [
           {
@@ -32,7 +43,7 @@
         ]
       },
       {
-        "matcher": "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion",
+        "matcher": "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion|AskUserQuestion",
         "hooks": [
           {
             "type": "command",
@@ -163,6 +174,16 @@
           },
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/pc-tidy-nudge.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/map-nudge.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "node ~/.claude/hooks/cold-cache.mjs",
             "timeout": 5
           },
@@ -173,7 +194,8 @@
           },
           {
             "type": "command",
-            "command": "node ~/.claude/hooks/usage-dashboard-hook.mjs"
+            "command": "node ~/.claude/hooks/usage-dashboard-hook.mjs",
+            "timeout": 200
           },
           {
             "type": "command",

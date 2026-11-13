@@ -27,6 +27,11 @@
 //   file inside the open project (the nearest ancestor of the hook input's cwd with a CLAUDE.md or .git,
 //   else the cwd). A file outside it is presented by its path in inline code (`~/.claude/x.md`,
 //   `C:/Users/you/x.md`) in the form or the reply text; a link to it would not open.
+// Since 2026-11-02 (about a third of 739 real recommended questions truly missed, and a pick's "Checked:"
+// did little better than "Judgment:") a form with a recommended option, AskUserQuestion included, also
+// needs its own rec-check agent: one called since the user's last message and since the last form that went
+// through. That call is no lookup, so it can't back a "Checked:". A singleSelect needs at least 2 options.
+// REC_CHECK=off turns the agent check off; it is skipped too when ~/.claude/agents/rec-check.md isn't there (an install without that agent).
 // It fails open, so any error or odd input lets the call through. QUESTION_OTHER=off disables it.
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -60,10 +65,10 @@ const checkedClause = (o) => (reasonOf(o).match(/(?:^|[^a-z])checked\s*:\s*([\s\
 const sources = (s) => [...s.matchAll(/[\w~.\-\/\\]*[\w\-]\.[a-z][a-z0-9]{0,5}\b/gi)].map((m) => m[0].split(/[\/\\]/).pop().toLowerCase());
 export const readRecord = (file) => recordFrom(readFileSync(file, "utf8").split("\n"));
 export function recordFrom(lines) {
-  const calls = [], results = [], forms = new Set();
+  const calls = [], results = [], forms = new Set(), recCalls = new Set();
   // replyText / shown: what the user has in front of them right before the form, i.e. the text and
   // pictures since the last ordinary tool call (an old research URL earlier in the turn doesn't count)
-  let turnStart = 0, replyText = "", shown = false, fromPhone = false;
+  let turnStart = 0, replyText = "", shown = false, fromPhone = false, recChecked = false;
   for (const line of lines) {
     let e;
     try { e = JSON.parse(line); } catch { continue; }
@@ -74,22 +79,28 @@ export function recordFrom(lines) {
       const said = typeof content === "string" ? content : blocks.map((b) => (b?.type === "text" ? b.text || "" : "")).join("\n");
       const typed = (typeof content === "string" || (blocks.some((b) => b?.type === "text") && !blocks.some((b) => b?.type === "tool_result")))
         && !INJECTED.test(said) && e.origin?.kind !== "task-notification";
-      if (typed) { turnStart = calls.length; replyText = ""; shown = false; fromPhone = PHONE.test(said); }
+      if (typed) { turnStart = calls.length; replyText = ""; shown = false; fromPhone = PHONE.test(said); recChecked = false; }
     }
     for (const b of blocks) {
       if (e.type === "assistant" && b?.type === "text") replyText += `\n${b.text || ""}`;
       if (e.type === "assistant" && b?.type === "tool_use") {
+        const isRec = /^(Agent|Task)$/.test(b.name || "") && b.input?.subagent_type === "rec-check";
         if (SHOWN.test(b.name || "")) shown = true;
-        else if (!FORM.test(b.name || "") && !QUIET.test(b.name || "")) { replyText = ""; shown = false; }
+        else if (!FORM.test(b.name || "") && !QUIET.test(b.name || "") && !isRec) { replyText = ""; shown = false; }
         if (FORM.test(b.name || "")) forms.add(b.id);
+        else if (isRec) { recCalls.add(b.id); recChecked = true; } // not a lookup: the form it checks can't be backed by it
         else calls.push({ name: b.name || "", text: JSON.stringify(b.input || {}).toLowerCase() });
-      } else if (e.type === "user" && b?.type === "tool_result" && !forms.has(b.tool_use_id)) {
-        results.push(JSON.stringify(b.content ?? "").toLowerCase());
+      } else if (e.type === "user" && b?.type === "tool_result") {
+        if (forms.has(b.tool_use_id)) { if (!b.is_error) recChecked = false; } // a check covers the one form it saw; a refused form keeps it
+        else if (recCalls.has(b.tool_use_id)) { if (b.is_error) recChecked = false; }
+        else results.push(JSON.stringify(b.content ?? "").toLowerCase());
       }
     }
   }
-  return { calls, results, thisTurn: calls.slice(turnStart), replyText, shown, fromPhone };
+  const thisTurn = calls.slice(turnStart);
+  return { calls, results, thisTurn, replyText, shown, fromPhone, recChecked };
 }
+const recCheckOn = () => (process.env.REC_CHECK || "").toLowerCase() !== "off" && existsSync(join(homedir(), ".claude", "agents", "rec-check.md"));
 const backed = (o, seen) => {
   const clause = checkedClause(o);
   if (!clause) return true; // "Judgment:" claims nothing
@@ -176,19 +187,28 @@ const inCode = (s, file) => {
   return [...s.matchAll(/`([^`\n]+)`/g)].some((m) => /[\\/~]/.test(m[1]) && m[1].toLowerCase().includes(name));
 };
 
+const REC_ASK = `This form recommends an option and no rec-check agent has looked at it: none since the user's last message, or none since the last form went through. ` +
+  `The user clicks the recommended option on trust and about a third of them missed. Call the Agent tool once, in the foreground, with subagent_type "rec-check". Its prompt: the user's own words on this, ` +
+  `the question, every option with its reason, and what you looked at. Act on what it says, then send the form again. Fix anything it changes; if you overrule it, say why in the reply.`;
+
 // The reasons to refuse one call (empty when it may go through). seen = readRecord(...) or null.
 export function review(event, seen) {
   const tool = String(event.tool_name || "");
-  if (tool === "mcp__nimbalyst__AskUserQuestion")
-    return seen?.fromPhone ? [] : [`Nimbalyst's AskUserQuestion has no box where the user can type their own answer, and the user wants one on every question. ` +
-      `Use mcp__nimbalyst__PromptForUserInput instead: a singleSelect with allowOther: true for a choice, a confirm field for a plain yes/no, ` +
-      `plus an optional editText field ("Anything else?") when no field takes typing.`];
+  if (/AskUserQuestion$/.test(tool)) {
+    if (tool.startsWith("mcp__") && !seen?.fromPhone)
+      return [`Nimbalyst's AskUserQuestion has no box where the user can type their own answer, and the user wants one on every question. ` +
+        `Use mcp__nimbalyst__PromptForUserInput instead: a singleSelect with allowOther: true for a choice, a confirm field for a plain yes/no, ` +
+        `plus an optional editText field ("Anything else?") when no field takes typing.`];
+    const pick = (event.tool_input?.questions || []).some((q) => (q?.options || []).some(recommended));
+    return pick && seen?.recChecked === false && recCheckOn() ? [REC_ASK] : [];
+  }
   if (!tool.endsWith("PromptForUserInput")) return [];
   const input = event.tool_input || {};
   let fields = input.fields;
   if (typeof fields === "string") try { fields = JSON.parse(fields); } catch { return []; }
   if (!Array.isArray(fields)) return [];
-  const noOther = [], noReason = [], noShape = [], notChecked = [], twoRecommended = [];
+  const noOther = [], noReason = [], noShape = [], notChecked = [], twoRecommended = [], oneOption = [];
+  let anyPick = false;
   for (const f of fields) {
     if (!f) continue;
     const name = `"${f.label || f.id}"`;
@@ -196,6 +216,8 @@ export function review(event, seen) {
     const options = f.type === "singleSelect" ? f.options : f.type === "multiSelect" ? f.items : null;
     if (!Array.isArray(options)) continue;
     const picks = options.filter(recommended);
+    anyPick ||= picks.length > 0;
+    if (f.type === "singleSelect" && options.length < 2) oneOption.push(name);
     if (f.type === "singleSelect" && picks.length > 1) twoRecommended.push(name);
     if (picks.some((o) => !hasReason(o))) noReason.push(name);
     else if (picks.some((o) => !hasShape(o))) noShape.push(name);
@@ -243,6 +265,9 @@ export function review(event, seen) {
       `or write "Judgment:" instead. The user clicks the recommended option on trust, so "Checked:" has to be true.`);
   if (twoRecommended.length)
     parts.push(`${twoRecommended.join(", ")} marks more than one option as recommended. Recommend one, or none.`);
+  if (oneOption.length)
+    parts.push(`${oneOption.join(", ")} has fewer than 2 options, so it asks nothing. Add the real alternative, or use a confirm field if it is a plain yes/no, or decide it yourself and say so.`);
+  if (anyPick && seen?.recChecked === false && recCheckOn()) parts.push(REC_ASK);
   return parts;
 }
 
@@ -251,11 +276,11 @@ if (process.argv[1] && resolve(fileURLToPath(import.meta.url)).toLowerCase() ===
     if ((process.env.QUESTION_OTHER || "").toLowerCase() === "off") process.exit(0);
     const event = JSON.parse(readFileSync(0, "utf8"));
     let seen = null; // no session record (or an unreadable one) lets "Checked:" and the link check through
-    const needsRecord = /PromptForUserInput$|^mcp__nimbalyst__AskUserQuestion$/.test(String(event.tool_name || ""));
+    const needsRecord = /PromptForUserInput$|AskUserQuestion$/.test(String(event.tool_name || ""));
     try { if (needsRecord && event.transcript_path) seen = readRecord(event.transcript_path); } catch {}
     const parts = review(event, seen);
     if (parts.length) {
-      const again = String(event.tool_name || "") === "mcp__nimbalyst__AskUserQuestion" ? "" : " Then call PromptForUserInput again.";
+      const again = /AskUserQuestion$/.test(String(event.tool_name || "")) ? "" : " Then call PromptForUserInput again.";
       process.stdout.write(JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "PreToolUse",

@@ -43,6 +43,7 @@ const tooBig = (r) => r.lines > MAX_LINES || r.bytes > MAX_BYTES;
 const ALLOW_FILE = process.env.BIG_READ_ALLOW_FILE || join(homedir(), ".claude", "hooks", "state", "big-read-allow.json");
 const PATH_START = /(?:[A-Za-z]:[\\/]|\/[A-Za-z]\/)/g;
 let SESSION = "";
+let IN_HELPER = false; // a helper has no Agent tool, so it is not told to start one
 const samePath = (a, b) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
 
 // A corrupt file counts as no allowances, so the gate still blocks; the next save rewrites it
@@ -117,7 +118,9 @@ function deny(path, m) {
     `2. To understand or summarise it, hand the reading to a cheap worker and keep only its answer:`,
     // ask.mjs uses the first free worker that is set up and working and says which
     `   - A free worker: ~/.claude/workers/ask.mjs "Read ${path}. <specific question>. Answer in terse bullets, each starting with the line number. Do not edit anything."`,
-    `   - If that ends with "no free worker could answer": a subagent with subagent_type: "worker", model: "haiku" (Agent tool) that answers from targeted reads.`,
+    IN_HELPER
+      ? `   - If that ends with "no free worker could answer": answer it yourself from targeted reads.`
+      : `   - If that ends with "no free worker could answer": a subagent with subagent_type: "worker", model: "haiku" (Agent tool) that answers from targeted reads.`,
     `   Ask one specific question per call. Treat the answer as a lead, not ground truth.`,
     `Before editing, confirm the exact lines with a targeted Read. Never edit from a summary alone.`,
   ].join("\n");
@@ -314,6 +317,7 @@ try {
   const cwd = native(event.cwd || process.cwd());
   if (projectOptedOut(cwd)) process.exit(0);
   SESSION = event.session_id || "";
+  IN_HELPER = Boolean(event.agent_id);
   if (event.hook_event_name === "UserPromptSubmit") {
     addAllowances(event.prompt || "");
     process.exit(0);

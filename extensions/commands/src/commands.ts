@@ -29,6 +29,7 @@ const ALL: Command[] = [
   { id: 'project-scan', label: t.commands.projectScan.label, prompt: '/project-scan', note: t.commands.projectScan.note, icon: 'troubleshoot' },
   { id: 'setup-audit', label: t.commands.setupAudit.label, prompt: '/setup-audit', note: t.commands.setupAudit.note, icon: 'fact_check' },
   { id: 'usage-report', label: t.commands.usageReport.label, prompt: '/usage-report', note: t.commands.usageReport.note, icon: 'bar_chart' },
+  { id: 'pc-tidy', label: t.commands.pcTidy.label, prompt: '/pc-tidy', note: t.commands.pcTidy.note, icon: 'memory' },
   { id: 'chat-review', label: t.commands.chatReview.label, prompt: '/chat-review', note: t.commands.chatReview.note, icon: 'forum', only: 'claude-settings' },
   { id: 'full-review', label: t.commands.fullReview.label, prompt: '/full-review', note: t.commands.fullReview.note, icon: 'rate_review', only: 'claude-settings' },
   ...(SHARE ? [] : OWN),

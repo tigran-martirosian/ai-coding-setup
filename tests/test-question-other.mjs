@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 const HOOK = fileURLToPath(new URL("../hooks/question-other.mjs", import.meta.url));
 const run = (input, env = {}) =>
-  spawnSync(process.execPath, [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), env: { ...process.env, CLAUDE_PROJECT_DIR: "", ...env }, encoding: "utf8" }).stdout;
+  spawnSync(process.execPath, [HOOK], { input: typeof input === "string" ? input : JSON.stringify(input), env: { ...process.env, CLAUDE_PROJECT_DIR: "", REC_CHECK: "off", ...env }, encoding: "utf8" }).stdout;
 const P = (fields) => ({ tool_name: "mcp__nimbalyst__PromptForUserInput", tool_input: { fields } });
 const single = (extra = {}) => ({ type: "singleSelect", id: "a", label: "Which look?", options: [{ id: "x", label: "X" }, { id: "y", label: "Y" }], ...extra });
 const rec = (extra = {}) => ({ id: "x", label: "X (recommended)", ...extra });
@@ -214,9 +214,90 @@ for (const [name, entries, deny] of [
   if (!ok) fail++;
   console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
 }
+// The check runs only where ~/.claude/agents/rec-check.md exists, so these runs get a made-up home folder that holds it
+const recHome = mkdtempSync(join(tmpdir(), "question-other-home-"));
+mkdirSync(join(recHome, ".claude", "agents"), { recursive: true });
+writeFileSync(join(recHome, ".claude", "agents", "rec-check.md"), "---\nname: rec-check\n---\n");
+const noRecHome = mkdtempSync(join(tmpdir(), "question-other-home-"));
+const REC_ENV = { REC_CHECK: "", HOME: recHome, USERPROFILE: recHome };
+// a recommended form needs one rec-check agent since the user's last message; a singleSelect needs 2 options
+const recTurn =(entries, input = form(JUDGED)) => {
+  const file = join(dir, `rec-${Math.random()}.jsonl`);
+  writeFileSync(file, entries.map((e) => JSON.stringify(e)).join(String.fromCharCode(10)));
+  return run({ ...input, transcript_path: file }, REC_ENV);
+};
+const REC = call("Agent", { subagent_type: "rec-check", prompt: "look" });
+const sent = (id, name, input = {}) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] } });
+const back = (id, content = "ok", error = false) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content, ...(error ? { is_error: true } : {}) }] } });
+const FORM_TOOL = "mcp__nimbalyst__PromptForUserInput";
+for (const [name, entries, deny] of [
+  ["a recommended form with no rec-check is denied", [user("which?")], true],
+  ["a recommended form after a rec-check this turn passes", [user("which?"), REC], false],
+  ["a rec-check before the user's last message doesn't count", [user("which?"), REC, user("now the other thing")], true],
+  ["a background notice doesn't start a new turn for rec-check", [user("which?"), REC, user("<task-notification><status>completed</status></task-notification>")], false],
+  ["another agent type doesn't count as a rec-check", [user("which?"), call("Agent", { subagent_type: "worker", prompt: "rec-check this" })], true],
+  ["a form that went through used up its check", [user("which?"), REC, sent("f1", FORM_TOOL), back("f1")], true],
+  ["a refused form keeps its check for the next try", [user("which?"), REC, sent("f2", FORM_TOOL), back("f2", "refused", true)], false],
+  ["a new rec-check covers the next form", [user("which?"), REC, sent("f3", FORM_TOOL), back("f3"), REC], false],
+  ["a rec-check that failed doesn't count", [user("which?"), sent("r1", "Agent", { subagent_type: "rec-check" }), back("r1", "failed", true)], true],
+]) {
+  const out = recTurn(entries);
+  const ok = deny ? out.includes('"deny"') && out.includes("rec-check") : out === "";
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+}
+{
+  const file = join(dir, "rec-off.jsonl");
+  writeFileSync(file, JSON.stringify(user("which?")));
+  const offOk = run({ ...form("Judgment: it is the simplest way. Other wins if: speed matters more."), transcript_path: file }, { REC_CHECK: "off" }) === "";
+  if (!offOk) fail++;
+  console.log(`${offOk ? "PASS" : "FAIL"} REC_CHECK=off turns the rec-check off`);
+  const noRec = run({ ...P([single({ allowOther: true })]), transcript_path: file }, REC_ENV) === "";
+  if (!noRec) fail++;
+  console.log(`${noRec ? "PASS" : "FAIL"} a form with no recommended option needs no rec-check`);
+  const noAgent = run({ ...form(JUDGED), transcript_path: file }, { ...REC_ENV, HOME: noRecHome, USERPROFILE: noRecHome }) === "";
+  if (!noAgent) fail++;
+  console.log(`${noAgent ? "PASS" : "FAIL"} an install without the rec-check agent skips the check`);
+  const one = run(P([single({ allowOther: true, options: [{ id: "x", label: "X" }] })]));
+  const oneOk = one.includes('"deny"') && one.includes("fewer than 2 options");
+  if (!oneOk) fail++;
+  console.log(`${oneOk ? "PASS" : "FAIL"} a one-option singleSelect is denied`);
+}
+// a rec-check is no lookup: neither the call nor what it said backs a "Checked:"
+const NAMED = "Checked: nothing-real.md shows it. Other wins if: speed matters more.";
+for (const [name, entries, description, deny] of [
+  ["a rec-check doesn't back a Checked: naming a file nothing opened", [user("which?"), REC], NAMED, true],
+  ["a rec-check doesn't back a Checked: naming nothing", [user("which?"), REC], "Checked: looked at the code. Other wins if: speed matters more.", true],
+  ["a rec-check's answer naming the file doesn't back it", [user("which?"), sent("r2", "Agent", { subagent_type: "rec-check", prompt: "nothing-real.md" }), back("r2", "nothing-real.md is fine")], NAMED, true],
+  ["a real lookup plus a rec-check passes", [user("which?"), call("Read", { file_path: "C:/p/nothing-real.md" }), result(), REC], NAMED, false],
+]) {
+  const out = recTurn(entries, form(description));
+  const ok = deny ? out.includes('"deny"') && out.includes('says \\"Checked:\\"') : out === "";
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+}
+const quietOk = withTurn([user("make it"), text(LINKED), REC, result()], look()) === "";
+if (!quietOk) fail++;
+console.log(`${quietOk ? "PASS" : "FAIL"} a link written before the rec-check still counts`);
+// AskUserQuestion: the same check on a recommended option, also from the phone
+const ASK_REC = (tool_name) => ({ tool_name, tool_input: { questions: [{ header: "h", question: "Which?", options: [{ label: "A (recommended)", description: JUDGED }, { label: "B", description: "b" }] }] } });
+for (const [name, entries, input, deny] of [
+  ["the built-in AskUserQuestion with a recommended option needs a rec-check", [user("which?")], ASK_REC("AskUserQuestion"), true],
+  ["the built-in one passes after a rec-check", [user("which?"), REC], ASK_REC("AskUserQuestion"), false],
+  ["the built-in one with no recommended option needs none", [user("which?")], { ...ASK_NIM, tool_name: "AskUserQuestion" }, false],
+  ["from the phone, a recommended option needs a rec-check", [user(PHONE_PROMPT)], ASK_REC("mcp__nimbalyst__AskUserQuestion"), true],
+  ["from the phone, it passes after a rec-check", [user(PHONE_PROMPT), REC], ASK_REC("mcp__nimbalyst__AskUserQuestion"), false],
+]) {
+  const out = recTurn(entries, input);
+  const ok = deny ? out.includes('"deny"') && out.includes("rec-check") && !out.includes("PromptForUserInput again") : out === "";
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+}
 const missing = run({ ...form(WHY), transcript_path: join(dir, "missing.jsonl") }) === "";
 if (!missing) fail++;
 console.log(`${missing ? "PASS" : "FAIL"} a missing session record fails open`);
 rmSync(dir, { recursive: true, force: true });
-console.log(fail ? `${fail} failed` : `all ${cases.length + recordCases.length + linkCases.length + outsideCases.length + 13} passed`);
+rmSync(recHome, { recursive: true, force: true });
+rmSync(noRecHome, { recursive: true, force: true });
+console.log(fail ? `${fail} failed` : `all ${cases.length + recordCases.length + linkCases.length + outsideCases.length + 28} passed`);
 process.exit(fail ? 1 : 0);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Installs this setup. Safe to run again: it adds what is missing and a second run changes nothing.
-//   1. ~/.claude: the hooks, the worker agent and the skills, and the hook wiring from
+//   1. ~/.claude: the hooks, the agents and the skills, and the hook wiring from
 //      settings.example.json merged into settings.json
 //   2. ~/.claude/CLAUDE.md: the global rules from rules/, with the section about outside workers that
 //      fits what is installed (Codex, Antigravity, both or neither)
@@ -383,7 +383,7 @@ if (have.codex) for (const rel of filesIn(shared)) put(path.join(CLAUDE, rel), f
 // A script named as ~/.claude/... is the one in ~/.claude, any other path is inside the project folder.
 // A hook whose example matcher changed: an install that still has exactly the old one gets the new one.
 // A matcher the user changed themselves is not in this list and is left alone.
-const OLD_MATCHERS = { "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput"] };
+const OLD_MATCHERS = { "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput", "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion"] };
 // Hooks the setup retired (their files are gone): an install that has one wired from ~/.claude loses
 // that entry on the next run. The same script from another folder is the user's own and stays.
 // (RETIRED itself is defined above the uninstall block, which needs it too.)
@@ -461,13 +461,14 @@ if (!wired) say(`hooks already wired in ${fwd(settingsFile)}`);
 const own = addClaudeCodeSettings(settings, WIN);
 if (own.model) say(`model: set to sonnet in ${fwd(settingsFile)} (none was set)`);
 if (own.compact) say(`compact: long chats compact themselves at about 200k, set in ${fwd(settingsFile)}`);
+if (own.cache) say(`cache: helpers keep their prompt cache for an hour, set in ${fwd(settingsFile)}`);
 if (own.added) say(`permissions: ${own.added} rule(s) added (the saved sign-ins and SSH keys can't be read, a .env file is asked about)`);
 // Claude Code's own reply-language setting follows the language. english removes only the "russian"
 // this setup wrote: a language the person set to something else stays.
 let langChanged = false;
 if (LANG === "russian" && settings.language !== "russian") { settings.language = "russian"; langChanged = true; say(`language: russian set in ${fwd(settingsFile)}`); }
 else if (LANG === "english" && state.language === "russian" && settings.language === "russian") { delete settings.language; langChanged = true; say(`language: russian removed from ${fwd(settingsFile)}`); }
-if (wired || own.model || own.compact || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
+if (wired || own.model || own.compact || own.cache || own.added || langChanged) putJson(settingsFile, settings, settingsWas);
 
 // ---- 2. the global rules, with the worker section that fits
 // Every heading the worker section has ever carried: an older rules file on disk still has an old one.

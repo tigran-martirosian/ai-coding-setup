@@ -46,8 +46,8 @@ try {
       (hasAgy || hasCodex ? ` Do gathering with one free external worker call instead (no Claude usage). Run it with Bash, in the background if you have other work meanwhile, and ask for a short answer with paths/lines:` : ""),
     ...workers,
     `Keep the reasoning and the final answer yourself, and verify anything the answer depends on.`,
-    `A job that is not gathering (a review, a build, a check) goes to subagent_type "worker" (Sonnet, capped at 25 turns) with a budget in its prompt, not to an uncapped agent type.`,
-    `If it really needs a Claude subagent (it edits files, or the worker failed), make the same call with subagent_type "worker" (it has every tool, including Edit and Write). Retrying this agent type is refused too.`,
+    `A job that is not gathering (a build, a check) goes to subagent_type "worker" (Sonnet, capped at 80 turns) with a budget in its prompt, and a review of a finished job to subagent_type "reviewer", not to an uncapped agent type.`,
+    `If it really needs a Claude subagent (it edits files, or the worker failed), make the same call with subagent_type "worker" (it edits files; it starts without CLAUDE.md, so name the project commands in its prompt), or "worker-full" when it needs a skill or an MCP tool. Retrying this agent type is refused too.`,
   ].join("\n");
   writeSync(1, JSON.stringify({
     hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
