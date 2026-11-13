@@ -127,7 +127,17 @@ const onlyTheUser = (text, c) => {
   const before = text.slice(Math.max(0, c.at - 120), c.at);
   return SECRET_IN_CODE.test(c.code) || SECRET_BESIDE.test(near) || PIN_BESIDE.test(near) || OTHER_PERSON.test(near) ||
     FOR_THIS_CHAT.test(before) || /\b(?:see|shows?|prints?|says?|reads?|returns?|displays?|output)\s*:?\s*$/i.test(before) || // output shown, not a command
-    PERM_REFUSED.test(near) || SKILL_PROMPT.test(c.code) || ruOnlyTheUser(c, near, before);
+    PERM_REFUSED.test(near) || SKILL_PROMPT.test(c.code) || CHAT_REPLY(c.code, near) || ruOnlyTheUser(c, near, before);
+};
+// A short reply the user types back to Claude ("go", "go, the rule only", "commit the skill edits"),
+// not a shell command: the text beside it says type or reply, up to 8 words, no path, pipe, flag or variable,
+// and no program name first. Taking one for a command made Claude answer this hook and then refuse the user's
+// real "go". Without the type/reply cue, "run `pnpm install`" slipped through.
+const SHELL_FIRST = /^(?:git|gh|npm|npx|node|python3?|py|pip|uv|uvx|bash|sh|cd|ls|dir|cat|rm|mv|cp|mkdir|powershell|pwsh|cmd|winget|choco|scoop|brew|curl|wget|claude|code|docker|java|gradle|mvn|cargo|go\s+(?:run|build|get|install|test|mod)|set|setx|export|start|explorer|ssh|tar|unzip)\b/i;
+const CHAT_REPLY = (code, near) => {
+  const s = code.trim();
+  return /\b(?:type|reply|answer|say)\b/i.test(near) && s.length > 0 && s.split(/\s+/).length <= 8 && !/[\/\\|$=<>{}`;]|(?:^|\s)--?\w|\.\w{1,4}\b/.test(s) && !SHELL_FIRST.test(s) &&
+    !/\b(?:terminal|powershell|shell|command prompt|cmd|console)\b/i.test(near);
 };
 
 const codeCandidates = (text) => {

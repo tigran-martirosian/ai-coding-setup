@@ -160,6 +160,16 @@ check("ru vague fires: 'Скажите новой сессии' with no text", v
 check("ru vague silent: the exact text is in a code block", msg("### Нужно от вас\n- Отправьте промпт в новую сессию:\n```\nПрочитай notes.md и продолжай работу\n```") === "");
 check("ru vague silent: a value only the user knows", msg("### Нужно от вас\n- Пароль от почты, когда захотите включить рассылку.") === "");
 
+// A short reply for the user to type back to Claude is not a shell command
+check("silent: type this reply, a block holding go", msg("### Needs you\n- To run the rows' before and after, type this:\n```\ngo\n```") === "");
+check("silent: you need to type a short scoped reply", msg("### Needs you\n- You need to type `go, the rule + one-project only` to limit it.") === "");
+check("silent: just type a plain sentence back", msg("When you want them in, just type `commit the skill edits`.") === "");
+check("still fires: a program name first", blocks(msg("You need to run `npm test` first.")));
+check("still fires: a short reply-like text, but in your terminal", blocks(msg("Run this in your terminal: `make deploy now`")));
+check("still fires: a flag in a short command", blocks(msg("Please run `make build --fast` now.")));
+for (const cmd of ["pnpm install", "gcloud auth login", "make test", "firebase deploy", "ollama pull llama3"])
+  check(`still fires: run \`${cmd}\` (a program the list doesn't name)`, blocks(msg(`You need to run \`${cmd}\` yourself.`)) && blocks(msg(`### Needs you\n- Run this:\n\`\`\`\n${cmd}\n\`\`\``)));
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);
