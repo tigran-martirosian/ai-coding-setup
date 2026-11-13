@@ -50,8 +50,12 @@ let js = fs.readFileSync(path.join(src, 'index.js'), 'utf8');
 // The extension loads one file, so src/runs.js (no imports of its own) goes in place of its import line
 const RUNS_IMPORT = "import { parseRuns, matchRun, readRuns } from './runs.js';";
 if (!js.includes(RUNS_IMPORT)) throw new Error('runs.js import not found in src/index.js');
-const runsSource = fs.readFileSync(path.join(src, 'runs.js'), 'utf8').replace(/\nexport \{[^}]*\};\s*$/, '\n').trimEnd();
-js = js.replace(RUNS_IMPORT, () => runsSource);
+const inline = (file) => fs.readFileSync(path.join(src, file), 'utf8').replace(/\nexport \{[^}]*\};\s*$/, '\n').trimEnd();
+js = js.replace(RUNS_IMPORT, () => inline('runs.js'));
+// src/scroll-hold.js the same way
+const HOLD_IMPORT = "import { createHold, holdInnerScrolls, holdEditable, startScrollHold, stopScrollHold } from './scroll-hold.js';";
+if (!js.includes(HOLD_IMPORT)) throw new Error('scroll-hold.js import not found in src/index.js');
+js = js.replace(HOLD_IMPORT, () => inline('scroll-hold.js'));
 if (lang === 'russian') js = swapStrings(js, RUSSIAN_STRINGS);
 fs.writeFileSync(path.join(dist, 'index.js'), js);
 fs.writeFileSync(path.join(dist, 'style.css'), readTokens() + '\n' + fs.readFileSync(path.join(src, 'style.css'), 'utf8'));

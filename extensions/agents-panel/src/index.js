@@ -6,10 +6,12 @@
 //     tools and, while running, what it is doing now (the time counts up every second from the task's
 //     start; a helper silent for over 2 minutes reads "quiet for Nm")
 //   - the header reads "2 running · 1 failed" / "1 failed" / "Nothing running" instead of the app's N/M
+//   - a chat scrolled up stays put while the agent writes (scroll-hold.js)
 // React owns the rows and rewrites their class names, so this only adds data-ap-* attributes and
 // its own .ap-* elements, never changes the app's ones. Styles are in style.css.
 
 import { parseRuns, matchRun, readRuns } from './runs.js';
+import { createHold, holdInnerScrolls, holdEditable, startScrollHold, stopScrollHold } from './scroll-hold.js';
 
 // Every visible word. {n} is replaced by a number. The Russian build swaps this whole object.
 const STRINGS = {
@@ -390,9 +392,11 @@ function activate() {
     if (document.querySelector('.teammate-panel .task-item[data-status="running"]')) queue();
   }, 1000);
   queue();
+  startScrollHold();
 }
 
 function deactivate() {
+  stopScrollHold();
   observer?.disconnect();
   observer = undefined;
   clearInterval(ticker);
@@ -402,4 +406,4 @@ function deactivate() {
   removeAll();
 }
 
-export { activate, deactivate, plainTitle, nowWords, parseMeta, metaWords, countWords, clock, rowTask, modelWords, effortWords, runWords, matchRun, parseRuns, STRINGS };
+export { activate, deactivate, plainTitle, nowWords, parseMeta, metaWords, countWords, clock, rowTask, modelWords, effortWords, runWords, matchRun, parseRuns, createHold, holdInnerScrolls, holdEditable, STRINGS };

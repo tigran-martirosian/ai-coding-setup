@@ -107,6 +107,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   and background commands Claude has started. Each row is named after its job, for example
   `Web search: library sign-in steps`; hover a row to see the full command. Click "N finished" to
   open or fold the finished ones, and drag the list's bottom edge to make it taller.
+- **Reading back while Claude works.** Scroll up in the chat and it stays there while new text
+  arrives (also from the `agents-panel` extension). Scroll back to the end, press the round arrow at
+  the bottom, or send a message, and it follows the newest text again.
 - **Big files.** `big-read-gate` refuses to read a whole file of more than 350 lines or about 20,000
   characters, so Claude reads the part it needs. To move the limits, set `BIG_READ_MAX_LINES`
   (default 350) and `BIG_READ_MAX_BYTES` (default 20000) in the environment. A file you name in your

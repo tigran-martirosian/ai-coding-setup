@@ -1,8 +1,8 @@
 {
   "id": "com.local.agentspanel",
   "name": "Agents Panel",
-  "version": "0.3.0",
-  "description": "Makes the 'Agents & commands' list readable: running rows on top in their own cards, finished ones folded behind an 'N done' line, each row titled in plain words with one line of kind, state, time, tools and what it is doing now, and a header that says what is running and what failed. The list is taller and resizable, and the commit panel below it fits a narrow sidebar.",
+  "version": "0.4.0",
+  "description": "Makes the 'Agents & commands' list readable: running rows on top in their own cards, finished ones folded behind an 'N done' line, each row titled in plain words with one line of kind, state, time, tools and what it is doing now, and a header that says what is running and what failed. The list is taller and resizable, the commit panel below it fits a narrow sidebar, and a chat you scroll up in stays where you put it while the agent keeps writing.",
   "author": "Local",
   "main": "dist/index.js",
   "apiVersion": "1.0.0",

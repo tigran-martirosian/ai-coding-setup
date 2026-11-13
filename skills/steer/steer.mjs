@@ -430,9 +430,12 @@ ${show(list)}` : "NOT SENT: no other session was active in this folder in the la
         write(OUTBOX, keep);
       }
       const name = row.title ? `"${String(row.title).slice(0, 60)}"` : `session ${row.id.slice(0, 8)}`;
+      // Nimbalyst shows any blocked prompt as a red box (a CLI "warning"; no hook field changes that), so the
+      // line stays short and the CLI's "Original prompt: <whole message>" echo is switched off.
       process.stdout.write(JSON.stringify({ decision: "block", reason: isReport
-        ? `Forwarded to ${name}, which leads this work now; ${busy ? "it reads the report before its next step" : "it was idle and is being woken to read it"}. Nothing runs here.`
-        : `Your message went to ${name}, which continues this work now; ${busy ? "it reads it before its next step" : "it was idle and is being woken to read it"}. Nothing runs here.` }));
+        ? `→ Report sent to ${name}, which leads this work now${busy ? "; it reads it before its next step" : " (woken to read it)"}.`
+        : `→ Sent to ${name}, which continues this work${busy ? "; it reads this before its next step" : " (woken to read it)"}.`,
+        hookSpecificOutput: { hookEventName: "UserPromptSubmit", suppressOriginalPrompt: true } }));
       process.exit(0);
     }
     // Inside a subagent the hook carries the parent's session id. The note stays for the parent, but

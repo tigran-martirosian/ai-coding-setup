@@ -21,6 +21,12 @@ background commands show up while Claude works.
 - In the Russian build every word of the panel is in Russian.
 - The commit panel at the bottom of the same sidebar shrinks with it, so the **Manual / Smart** switch no
   longer slides off the right edge when the sidebar is narrow.
+- A chat you scroll up in stays where you put it while the agent keeps writing. Nimbalyst follows the
+  end of the chat and treats anything within 50 px of it as "at the end", so the first small steps of a
+  touchpad or a smooth-scrolling mouse wheel got undone by the next line of text. Now a scroll up (wheel,
+  PageUp / Arrow up / Home, the scrollbar, touch) holds the view; scrolling back to the end, the **Scroll
+  to bottom** arrow, sending a message or switching sessions makes it follow again. A wheel inside a
+  tool's output box that scrolls on its own, or keys in a text field, leave it alone.
 
 ## Install
 

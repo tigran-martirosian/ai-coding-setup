@@ -66,5 +66,6 @@ Tool calls measure the doing, not the deciding. A step that has to invent a desi
 5. **Review:** yes or no, and why.
 6. The other ways you weighed and why you set them aside.
 7. Anything in the request or in the decisions that you would push back on, and what you would need to know to be sure.
+8. **Needs the user's OK:** a short list, first in your reply after item 1. Include every place where you read the user's intent instead of following their words, every choice that is costly to undo, and every point where your plan differs from the brief. Write "none" when there is none.
 
 If you run out of turns, send what you have and say what you did not get to read.

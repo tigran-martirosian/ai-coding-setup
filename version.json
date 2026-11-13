@@ -1,6 +1,6 @@
 {
-  "version": "1.0.107",
+  "version": "1.0.108",
   "claudeCodeMin": "2.1.296",
   "date": "2026-11-08",
-  "summary": "Design reviews now catch screens that look AI-made, pages are read word for word, and after a finished piece of a bigger job Claude hands the next one to a fresh session it opens itself."
+  "summary": "A chat you scroll up in now stays where you put it while Claude keeps writing, instead of jumping back to the end."
 }

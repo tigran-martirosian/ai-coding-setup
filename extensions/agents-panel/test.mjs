@@ -103,8 +103,58 @@ check('meta: model words follow the kind in every state', metaWords('Sub-agent �
   && metaWords('Sub-agent · 1s', 'failed', null, 0, { model: 'fable', effort: 'high' }) === 'Sub-agent · Fable, high · failed · 1s');
 check('meta: no run or an unknown model changes nothing', metaWords('Sub-agent · 4m 24s', 'completed', null, 0, null) === 'Sub-agent · done · 4m 24s' && metaWords('Sub-agent · 4m 24s', 'completed', null, 0, { model: 'inherited', effort: 'high' }) === 'Sub-agent · done · 4m 24s');
 check('russian: model and effort', ruMod.metaWords('Sub-agent · 4m 24s', 'completed', null, 0, { model: 'sonnet', effort: 'xhigh' }) === 'Субагент · Sonnet, очень высокий · готово · 4м 24с');
-check('manifest: filesystem permission', manifest.permissions?.filesystem === true && manifest.version === '0.3.0');
+check('manifest: filesystem permission', manifest.permissions?.filesystem === true && manifest.version === '0.4.0');
 check('build: runs.js inlined, no import left', !ru.includes("from './runs.js'") && ru.includes('function matchRun') && fs.readFileSync(path.join(here, 'dist', 'index.js'), 'utf8').includes('function readRuns'));
+check('build: scroll-hold.js inlined, no import left', !ru.includes("from './scroll-hold.js'") && ru.includes('function startScrollHold'));
+
+// Scroll hold. The chat's end is at 5000; the app follows it by scrolling there after each update.
+{
+  const { createHold } = mod;
+  const MAX = 5000;
+  let h = createHold();
+  check('hold: not reading, the app follows the bottom', h.allows(4990, MAX, MAX));
+  // The bug: one small step up (20px, a touchpad or a smooth wheel) is still inside the app's 50px,
+  // and the next update pulled the reader back down
+  h.up();
+  h.scrolled(1000, 20);
+  check('hold: a small step up holds against the follow scroll', h.reading && !h.allows(4980, MAX, MAX));
+  check('hold: a scroll near the end (list library estimate) is held too', !h.allows(4800, MAX - 60, MAX));
+  check('hold: a jump to a message further up or in the middle goes through', h.allows(4980, 1200, MAX) && h.allows(2000, 3000, MAX));
+  check('hold: scrolling up goes through', h.allows(4980, 4000, MAX));
+  h.scrolled(2000, 10);
+  check('hold: reaching the end without the user going down keeps reading', h.reading);
+  h.down(3000, 400);
+  h.scrolled(3200, 300);
+  check('hold: on the way down, not yet at the end, still reading', h.reading);
+  h.scrolled(3500, 30);
+  check('hold: the user back at the end, following again', !h.reading && h.allows(4970, MAX, MAX));
+  h = createHold();
+  h.up();
+  h.down(10000, 400);
+  h.scrolled(11500, 0);
+  check('hold: a down gesture over a second old does not end reading', h.reading);
+  h.down(12000, 0);
+  check('hold: a wheel down already at the end ends reading', !h.reading);
+  h.up();
+  h.stop();
+  check('hold: stop (the scroll-to-bottom arrow, another session) ends reading', !h.reading && h.allows(0, MAX, MAX));
+
+  // A tool's output box inside the chat with its own scrollbar
+  const { holdInnerScrolls, holdEditable } = mod;
+  const list = { scrollHeight: 9000, clientHeight: 800, scrollTop: 8200, parentElement: null };
+  const box = { scrollHeight: 600, clientHeight: 256, scrollTop: 100, parentElement: list };
+  const line = { scrollHeight: 20, clientHeight: 20, scrollTop: 0, parentElement: box };
+  const auto = () => 'auto';
+  check('inner box: a wheel inside a box that can still scroll moves the box, not the chat', holdInnerScrolls(line, list, -1, auto) && holdInnerScrolls(line, list, 1, auto));
+  box.scrollTop = 0;
+  check('inner box: at its top, a wheel up moves the chat', !holdInnerScrolls(line, list, -1, auto) && holdInnerScrolls(line, list, 1, auto));
+  box.scrollTop = 344;
+  check('inner box: at its end, a wheel down moves the chat', !holdInnerScrolls(line, list, 1, auto) && holdInnerScrolls(line, list, -1, auto));
+  box.scrollTop = 100;
+  check('inner box: overflow hidden or visible does not count', !holdInnerScrolls(line, list, -1, () => 'hidden') && !holdInnerScrolls(line, list, -1, () => 'visible'));
+  check('inner box: the list itself is not an inner box', !holdInnerScrolls(list, list, -1, auto));
+  check('editable: text fields and contenteditable, not a plain block', holdEditable({ tagName: 'TEXTAREA' }) && holdEditable({ tagName: 'INPUT' }) && holdEditable({ tagName: 'DIV', isContentEditable: true }) && !holdEditable({ tagName: 'DIV', isContentEditable: false }) && !holdEditable(null));
+}
 
 const rawCss =fs.readFileSync(path.join(here, 'dist', 'style.css'), 'utf8');
 const tokens = fs.readFileSync(path.join(here, '..', 'shared', 'tokens.css'), 'utf8');
