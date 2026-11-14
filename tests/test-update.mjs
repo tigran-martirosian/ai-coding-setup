@@ -771,7 +771,7 @@ check(
 check(
   "a hook of the setup's that the user changed is kept and listed",
   fs.readFileSync(myHook, "utf8").endsWith("// my own change\n") &&
-    /Kept as yours[^\n]*\n  hooks\/sql-guard\.mjs\n/.test(keptMine.out),
+    /Kept as yours[^\n]*\n {2}hooks\/sql-guard\.mjs\n/.test(keptMine.out),
 );
 const hookTaken = await update(mine, "--replace", "hooks/sql-guard.mjs");
 check(
@@ -986,10 +986,18 @@ fs.writeFileSync(
   path.join(filesPack, "version.json"),
   JSON.stringify(filesRelease),
 );
+// the release's heading goes above the newest version heading, as a release writes it
 const log = fs.readFileSync(path.join(filesPack, "CHANGELOG.md"), "utf8");
+if (!/^## \[\d/m.test(log))
+  throw new Error(
+    "CHANGELOG.md has no version heading to put the test release above",
+  );
 fs.writeFileSync(
   path.join(filesPack, "CHANGELOG.md"),
-  log.replace(/^- /m, `- ${FILESV} (Nov 9, 2026): Two hooks say more.\n- `),
+  log.replace(
+    /^## \[\d/m,
+    (head) => `## [${FILESV}] - 2026-11-09\n\n- Two hooks say more.\n\n${head}`,
+  ),
 );
 fs.appendFileSync(
   path.join(filesPack, "hooks", "sql-guard.mjs"),

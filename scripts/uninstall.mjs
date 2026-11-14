@@ -6,6 +6,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  restore as restoreNimbalyst,
+  runningFrom,
+} from "../tools/nimbalyst-patch/patch.mjs";
+import { HELPER_DENY } from "./claude-code-settings.mjs";
+import { dropAgy, dropCcpoolStart, dropSwitches } from "./claude-files.mjs";
+import {
   BACKUP_DIR,
   filesIn,
   fwd,
@@ -14,14 +20,8 @@ import {
   read,
   sha,
 } from "./files.mjs";
-import { dropAgy, dropCcpoolStart, dropSwitches } from "./claude-files.mjs";
 import { EXT_FOLDER, nimbalystHome } from "./nimbalyst-paths.mjs";
 import { scriptsOf, unwire } from "./wiring.mjs";
-import { HELPER_DENY } from "./claude-code-settings.mjs";
-import {
-  restore as restoreNimbalyst,
-  runningFrom,
-} from "../tools/nimbalyst-patch/patch.mjs";
 
 // Nimbalyst's resources folder as patch.mjs lays it out (its paths() is not exported): the patched app.asar, the
 // original it keeps as app.asar.orig, its marker file, and the install folder its running check looks in

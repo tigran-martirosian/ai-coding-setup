@@ -1,10 +1,11 @@
 // Tests for skills/setup-audit/scripts/usage-scan.mjs on a made-up transcripts folder.
 // Run: node tests/test-usage-scan.mjs
-import { fileURLToPath } from "node:url";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const SCRIPT = fileURLToPath(
   new URL("../skills/setup-audit/scripts/usage-scan.mjs", import.meta.url),
@@ -438,14 +439,14 @@ write(path.join(root, "C--Projects-src", "q1.jsonl"), [
 ]);
 const Q = run("--project", "src", "--days", "10000").wasted;
 check(
-  "wasted: wake-up sources and text-only turns",
+  "wasted: wake-up sources and text-only turns (the agent turn called Read, so only one is text-only)",
   [Q.wakeSources, Q.wakeTextOnly],
   [
     {
       "bash wait for the build": { n: 1, tokens: 122000 },
       "agent Explore": { n: 1, tokens: 123000 + 124000 },
     },
-    2,
+    1,
   ],
 );
 check(
@@ -543,12 +544,21 @@ check(
     requests: 4,
     tools: 1,
     withNote: 1,
+    closedNote: 0,
     repeats: 1,
     tokens: 3000 + 4000 + 5000 + 6000,
   },
 );
 check("settled turns: per project", Z.settled.perProject, {
-  sett: { n: 3, requests: 4, tools: 1, withNote: 1, repeats: 1, tokens: 18000 },
+  sett: {
+    n: 3,
+    requests: 4,
+    tools: 1,
+    withNote: 1,
+    closedNote: 0,
+    repeats: 1,
+    tokens: 18000,
+  },
 });
 check(
   "launches: Agent in background (explicit true + implicit async result; run_in_background:false and a plain result are not)",
@@ -570,6 +580,136 @@ check(
   Z.typed.perProject.sett,
   { typed: 2, tokens: 28000, median: 21000, mean: 14000 },
 );
+
+// Side branches: a settled prompt cut off a reply (its calls refused and cancelled on a branch the chat never
+// continued from; the chat goes on from the "No response requested." placeholder). Lines carry uuid/parentUuid.
+fs.mkdirSync(path.join(root, "C--Projects-branch"), { recursive: true });
+const link = (line, uuid, parentUuid) => ({ ...line, uuid, parentUuid });
+const bgRefused = (min, id) =>
+  result(
+    min,
+    id,
+    "PreToolUse:Agent hook error: [background-tasks] Refused: this helper would run in the background.",
+    true,
+  );
+const cancelText =
+  "The user doesn't want to take this action right now. STOP what you are doing and wait for the user to tell you how to proceed.";
+write(path.join(root, "C--Projects-branch", "b1.jsonl"), [
+  link(user(0, "go"), "u1", null),
+  link(asst(1, "b-m1", usage(0, 1000, 0), [tool("b1", "Agent")]), "u2", "u1"),
+  link(bgRefused(1, "b1"), "u3", "u2"),
+  link(
+    asst(2, "b-m2", usage(0, 2000, 0), [{ type: "text", text: "wait" }]),
+    "u4",
+    "u3",
+  ),
+  link(
+    user(
+      3,
+      '[System: background task(s) you launched have settled:\n- "job" completed\n\nNimbalyst closed the Claude Code process that held these results and is delivering them here.',
+    ),
+    "u5",
+    "u4",
+  ),
+  // the cut-off reply: a side branch from the settled prompt
+  link(asst(4, "b-m3", usage(0, 3000, 0), [tool("b2", "Agent")]), "u6", "u5"),
+  link(asst(4, "b-m3", usage(0, 3000, 0), [tool("b3", "Bash")]), "u7", "u6"),
+  link(bgRefused(4, "b2"), "u8", "u7"),
+  {
+    ...link(result(4, "b3", cancelText, true), "u9", "u8"),
+    toolDenialKind: "cancelled",
+  },
+  // the live branch goes on from the settled prompt
+  link(
+    asst(5, "b-m4", usage(0, 4000, 0), [
+      { type: "text", text: "No response requested." },
+    ]),
+    "u10",
+    "u5",
+  ),
+  link(
+    {
+      ...user(6, note("t1", 'Agent "x" finished')),
+      origin: { kind: "task-notification" },
+    },
+    "u11",
+    "u10",
+  ),
+  // two parallel calls: the first one's result hangs off its own call, beside the live path
+  link(asst(7, "b-m5", usage(0, 5000, 0), [tool("b4", "Agent")]), "u12", "u11"),
+  link(asst(7, "b-m5", usage(0, 5000, 0), [tool("b5", "Read")]), "u13", "u12"),
+  link(bgRefused(7, "b4"), "u14", "u12"),
+  link(result(7, "b5", "ok"), "u15", "u13"),
+  link(
+    asst(8, "b-m6", usage(0, 6000, 0), [{ type: "text", text: "read" }]),
+    "u16",
+    "u15",
+  ),
+  link(
+    {
+      type: "attachment",
+      timestamp: at(9),
+      attachment: {
+        type: "hook_blocking_error",
+        hookEvent: "Stop",
+        blockingError: {
+          blockingError: "[run-yourself] run it yourself",
+          command: "node run-yourself.mjs",
+        },
+      },
+    },
+    "u17",
+    "u16",
+  ),
+  link(asst(10, "b-m7", usage(0, 7000, 0), [tool("b6", "Bash")]), "u18", "u17"),
+  link(result(10, "b6", cancelText, true), "u19", "u18"),
+  link(
+    asst(11, "b-m8", usage(0, 8000, 0), [{ type: "text", text: "stopped" }]),
+    "u20",
+    "u19",
+  ),
+  link(
+    {
+      ...user(12, note("t2", 'Agent "y" finished')),
+      origin: { kind: "task-notification" },
+    },
+    "u21",
+    "u20",
+  ),
+  link(
+    asst(13, "b-m9", usage(0, 9000, 0), [{ type: "text", text: "nothing" }]),
+    "u22",
+    "u21",
+  ),
+]);
+const B = run("--project", "branch", "--days", "10000").wasted;
+check(
+  "text-only wake-up turns: a tool call in an earlier request makes the turn not text-only",
+  [B.wake.n, B.wakeTextOnly],
+  [3, 1],
+);
+check(
+  "hook blocks: a refusal on a side branch is left out (one beside the path, off a live call, is kept)",
+  Object.values(B.hooks).reduce((a, h) => a + h.blocks, 0),
+  2,
+);
+check(
+  'hook blocks: "[background-tasks] Refused:" is named after the hook, not "Refused"',
+  B.hooks,
+  { "background-tasks": { blocks: 2, tokens: 1000 + 5000 } },
+);
+check(
+  "settled turns: the closed-process note",
+  [B.settled.total.n, B.settled.total.closedNote],
+  [1, 1],
+);
+check("cancelled calls by what started the turn", B.settled.cancelled, {
+  "settled prompt": { n: 1, dead: 1 },
+  "task notice": { n: 0, dead: 0 },
+  "Stop-hook send-back": { n: 1, dead: 0 },
+  "user message": { n: 0, dead: 0 },
+  other: { n: 0, dead: 0 },
+});
 
 // Big helper runs (past 150k): background from the parent's call/result, calls before/after the worker-size note, compaction, Bash share; first-call medians
 const bigDir = path.join(root, "C--Projects-big");

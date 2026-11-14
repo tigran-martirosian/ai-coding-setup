@@ -9,7 +9,7 @@
   const key = target.getAttribute("data-readaloud-key");
   const titles = () =>
     [...target.querySelectorAll("button, span[title]")]
-      .map((b) => b.title)
+      .map((b) => b.querySelector(".readaloud-word")?.textContent || b.title)
       .filter(Boolean)
       .join("|");
   const log = [];
@@ -17,25 +17,32 @@
     log.push(
       `${label}: ${titles()} ${target.querySelector(".readaloud-status")?.textContent ?? ""} ${target.querySelector(".readaloud-error")?.textContent ?? ""}`.trim(),
     );
+  const button = (word) =>
+    [...target.querySelectorAll("button")].find(
+      (b) =>
+        ((b) => b.querySelector(".readaloud-word")?.textContent || b.title)(
+          b,
+        ) === word,
+    );
   sample("before");
-  target.querySelector('button[title="Read aloud"]').click();
+  button("Read aloud").click();
   for (let i = 0; i < 12; i++) {
     await sleep(250);
     sample(`t+${(i + 1) * 250}ms`);
   }
-  const pauseBtn = target.querySelector('button[title="Pause"]');
+  const pauseBtn = button("Pause");
   if (pauseBtn) {
     pauseBtn.click();
     await sleep(300);
     sample("after pause");
     await sleep(1200);
     sample("still paused");
-    target.querySelector('button[title="Resume"]')?.click();
+    button("Resume")?.click();
     await sleep(600);
     sample("after resume");
   }
-  target.querySelector('button[title="Stop"]')?.click();
+  button("Close")?.click();
   await sleep(300);
-  sample("after stop");
+  sample("after close");
   return { key, log: [...new Set(log)] };
 })();

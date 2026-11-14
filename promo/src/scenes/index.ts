@@ -1,5 +1,5 @@
-import React from "react";
-import { SceneProps } from "../Scene";
+import type React from "react";
+import type { SceneProps } from "../Scene";
 import { Agents } from "./Agents";
 import { Btw } from "./Btw";
 import { Commands } from "./Commands";
@@ -56,7 +56,11 @@ export const CLIPS = Object.entries(CLIP_SCENES).map(([id, sceneIds]) => ({
 export const ALL_SCENE_IDS = SCENES.map((scene) => scene.id);
 
 export const scenesById = (ids: string[]): SceneEntry[] =>
-  ids.map((id) => SCENES.find((scene) => scene.id === id)!);
+  ids.map((id) => {
+    const scene = SCENES.find((s) => s.id === id);
+    if (!scene) throw new Error(`No scene with the id ${id}.`);
+    return scene;
+  });
 
 export const totalFrames = (ids: string[]): number =>
   scenesById(ids).reduce((sum, scene) => sum + scene.durationInFrames, 0);

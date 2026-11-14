@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 // rules/history.json: the keys of every block the setup ever shipped in rules/CLAUDE.md and the
 // projects/<home>/CLAUDE.md files, so the carve (scripts/blocks.mjs) knows old setup text from a person's own.
 //   --write        rebuild "shipped" from every commit plus the working tree (needs git); "added" is kept
@@ -8,10 +9,9 @@
 // commit ids or dates, so nothing private ships.
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { key, lead, splitBlocks, unfit } from "./blocks.mjs";
 import { fitter } from "./repo.mjs";
-import { splitBlocks, key, lead, unfit } from "./blocks.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FILE = (repo) => path.join(repo, "rules", "history.json");

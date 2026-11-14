@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 // run-yourself: Stop hook. Backs the "Do the work yourself." rule in CLAUDE.md. If Claude ends
 // a turn by telling the user to run, paste or type a shell command (a code span or block next to
 // phrases like "open a terminal and run", "you need to run", "paste this into"), it blocks the stop
@@ -19,7 +20,6 @@
 import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 import { ru } from "./lib/ru.mjs";
 import { entries, lastReply, userText } from "./lib/transcript.mjs";
-import fs from "node:fs";
 
 // Russian twins of the English patterns below (for `--language russian`; ru() in lib/ru.mjs explains « »). Each RU_
 // regex sits next to the English one it mirrors and is OR-ed in where the English one is used; the English patterns
@@ -239,7 +239,7 @@ const CHAT_REPLY = (code, near) => {
     /\b(?:type|reply|answer|say)\b/i.test(near) &&
     s.length > 0 &&
     s.split(/\s+/).length <= 8 &&
-    !/[\/\\|$=<>{}`;]|(?:^|\s)--?\w|\.\w{1,4}\b/.test(s) &&
+    !/[/\\|$=<>{}`;]|(?:^|\s)--?\w|\.\w{1,4}\b/.test(s) &&
     !SHELL_FIRST.test(s) &&
     !/\b(?:terminal|powershell|shell|command prompt|cmd|console)\b/i.test(near)
   );

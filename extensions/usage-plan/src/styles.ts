@@ -12,7 +12,7 @@ export const CSS = `
 
 .up-head { display: flex; align-items: center; gap: var(--x-space-2); }
 .up-title { flex: 1; font: var(--x-title); }
-.up-busy { font: var(--x-caption); color: var(--x-text-muted); }
+.up-busy { font: var(--x-meta); color: var(--x-text-muted); }
 .up-iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0;
   border-radius: var(--x-radius-control); background: transparent; color: var(--x-text-muted); cursor: pointer;
   transition: background var(--x-motion-fast) var(--x-ease); }
@@ -26,12 +26,12 @@ export const CSS = `
 .up-group + .up-group { padding-top: var(--x-space-4); border-top: 1px solid var(--x-hairline); }
 .up-limit { display: flex; flex-direction: column; }
 .up-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--x-space-2); }
-.up-label { font: var(--x-caption); font-weight: 550; color: var(--x-text-muted); }
+.up-label { font: var(--x-heading); color: var(--x-text-muted); }
 .up-figline { display: flex; align-items: baseline; gap: var(--x-space-1); margin-top: 2px; }
 .up-fig { font: 600 32px/36px var(--x-font-ui); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .up-limit.small .up-fig { font: var(--x-figure); }
-.up-unit { font: var(--x-caption); color: var(--x-text-muted); margin-left: 3px; }
-.up-cap { font: var(--x-caption); color: var(--x-text-muted); }
+.up-unit { font: var(--x-meta); color: var(--x-text-muted); margin-left: 3px; }
+.up-cap { font: var(--x-meta); color: var(--x-text-muted); }
 
 /* The bar: a track with the fill drawn by scaleX, and the labelled tick for the time that has passed.
    8px for the week, 4px for the 5-hour window. */
@@ -42,7 +42,7 @@ export const CSS = `
 .up-fill.error { background: var(--x-error); }
 .up-tick { position: absolute; top: 0; width: 2px; height: 100%; margin-left: -1px; border-radius: 1px; background: var(--x-text); }
 .up-tick::after { content: ''; position: absolute; inset: -2px -6px; }
-.up-now { position: relative; height: 14px; margin-bottom: var(--x-space-1); font: var(--x-micro); color: var(--x-text-muted); }
+.up-now { position: relative; height: 16px; margin-bottom: var(--x-space-1); font: var(--x-count); color: var(--x-text-muted); }
 .up-now span { position: absolute; top: 0; transform: translateX(-50%); }
 
 /* The forecast: one tinted line in the tone's colour, then budget and pace side by side */
@@ -71,9 +71,9 @@ export const CSS = `
 .up-btn:active { background: var(--x-overlay-selected); box-shadow: inset 0 1px 0 var(--x-hairline); }
 .up-btn:disabled { color: var(--x-text-muted); cursor: default; background: transparent; box-shadow: none; }
 .up-btn .up-sym { color: var(--x-text-muted); }
-.up-error { display: flex; align-items: center; justify-content: space-between; gap: var(--x-space-2); font: var(--x-caption); color: var(--x-error); }
+.up-error { display: flex; align-items: center; justify-content: space-between; gap: var(--x-space-2); font: var(--x-meta); color: var(--x-error); }
 .up-error button { flex: none; height: 28px; padding: 0 var(--x-space-3); border: 1px solid var(--x-hairline); border-radius: var(--x-radius-control);
-  background: transparent; color: var(--x-text); font: var(--x-caption); cursor: pointer; }
+  background: transparent; color: var(--x-text); font: var(--x-meta); cursor: pointer; }
 .up-error button:hover { background: var(--x-overlay-hover); }
 .up-error button:focus-visible { outline: none; box-shadow: var(--x-focus-ring); }
 .up-empty { color: var(--x-text-muted); }

@@ -332,6 +332,15 @@ const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const rgba = (c, a) =>
   `rgba(${(Array.isArray(c) ? c : rgb(c)).join(", ")}, ${a})`;
 
+/** The themes as the Theme menu lists them: dark ones first, then light, each name marked "(dark)" or "(light)". */
+export const menuThemes = () =>
+  [...THEMES.filter((t) => t.isDark), ...THEMES.filter((t) => !t.isDark)].map(
+    (t) => ({
+      ...t,
+      name: `${t.name} (${t.isDark ? "dark" : "light"})`,
+    }),
+  );
+
 /** The full colour set for one theme, in the names Nimbalyst's manifest uses. */
 export function colors(t) {
   return {

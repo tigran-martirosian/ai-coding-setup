@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync, spawnSync } from "node:child_process";
 // picture.mjs: the tools of the `picture` skill.
 //   node picture.mjs frames <youtube id or link> [folder]        still frames of a video, as sheets (default folder: yt)
 //   node picture.mjs cut <sheet.jpg> <row> <column> <out.jpg>     one frame out of a sheet, enlarged 3x (row 1, column 1 = top left)
@@ -13,9 +14,8 @@
 // review: gives Codex the picture, the in-use frames, facts.md and checklist.md, and writes <try>.review.md
 //   with the picture's sha256 and the faults as R1, R2, ... The check file has to answer each one.
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { spawnSync, execFileSync } from "node:child_process";
+import path from "node:path";
 
 // The gate sits two folders up, in hooks/, both in ~/.claude and in the repository this came from
 const gate = await import(

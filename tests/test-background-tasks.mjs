@@ -1,9 +1,10 @@
 // Test for ~/.claude/hooks/background-tasks.mjs: made-up small transcripts, hook run as a child process.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(

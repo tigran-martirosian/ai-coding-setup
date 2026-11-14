@@ -16,11 +16,11 @@
 // skip the prompt. A line of additionalContext tells Claude to write the note itself next time.
 // A helper gets the stand-in without that line: its own rules already ask for the note.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 import {
   COMMAND_EXPLAIN,
-  NOTE_LINE_RE,
   NO_NOTE,
+  NOTE_LINE_RE,
   WHAT_THIS_DOES,
 } from "./lib/texts.mjs";
 

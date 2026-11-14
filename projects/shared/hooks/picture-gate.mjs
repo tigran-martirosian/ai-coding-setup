@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import crypto from "node:crypto";
 // picture-gate: backs the `picture` skill ("never show a generated picture that fails its checklist").
 // Registered per project (quick-tasks), not globally. Two events:
 //   PreToolUse on mcp__nimbalyst__display_to_user: denies showing an image that Codex generated
@@ -18,9 +19,8 @@
 // picture.mjs imports the rules from here, so `gen` refuses on the same grounds before a picture is made.
 // Fails open. PICTURE_GATE=off disables it.
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import crypto from "node:crypto";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const GEN_DIR =

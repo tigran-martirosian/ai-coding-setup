@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFile } from "node:child_process";
 // Phone inbox: saves everything sent to the Telegram bot (photos, files, links, text)
 // into C:\Users\<user>\phone-inbox and adds one line per item to index.md there.
 // Uses no Claude usage. Answers only the owner (the first account that writes to it), in a private chat.
@@ -6,7 +7,6 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -216,6 +216,7 @@ function freeName(base, ext, dir = INBOX) {
 }
 
 function safe(name) {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are not allowed in Windows file names
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(-80);
 }
 

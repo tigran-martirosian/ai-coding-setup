@@ -57,7 +57,7 @@ async function mapPart(prompt) {
     "\n\nSYSTEMS MAP: the project's dictionary of what connects to what, cut to the things this brief touches. A change to one of these " +
     "links means checking the thing at the other end, or naming it under Outside the brief.\n";
   const tail = `\nMore: ${CMD} --near <thing>; --near alone lists every thing.`;
-  const none = `\n\nSYSTEMS MAP: nothing in this brief matched. ${CMD} --near lists every thing; --near <thing> gives its links.`;
+  const none = `\n\nSYSTEMS MAP: nothing in this brief matched (${CMD} --near <word> looks one up).`;
   const lines = brief(prompt, map, project).trim();
   return lines ? head + lines + tail : none;
 }
@@ -145,7 +145,7 @@ export function planFiles(prompt, bases) {
   const spaced = [
     // from every drive, ~ or (Mac, Linux) word-starting / start, so an earlier path mentioned in the same line doesn't swallow this one
     ...[
-      ...prompt.matchAll(/(?<![\w])(?:[A-Za-z]:|~)[\\/]|(?<![^\s(\[])\/(?=\w)/g),
+      ...prompt.matchAll(/(?<![\w])(?:[A-Za-z]:|~)[\\/]|(?<![^\s([])\/(?=\w)/g),
     ]
       .map(
         (m) =>
@@ -255,16 +255,26 @@ export function holds(text, quote) {
 // A Serves quote cut with "…" counts for an entry's words (or raw phrase) when its parts are found there in order
 // and together hold at least half as many words.
 const wordCount = (s) =>
-  s.split(new RegExp(CUT.source, "g")).map(norm).join(" ").split(" ").filter(Boolean).length;
+  s
+    .split(new RegExp(CUT.source, "g"))
+    .map(norm)
+    .join(" ")
+    .split(" ")
+    .filter(Boolean).length;
 export const cutHolds = (text, quote) =>
-  CUT.test(quote) && holds(text, quote) && 2 * wordCount(quote) >= wordCount(text);
+  CUT.test(quote) &&
+  holds(text, quote) &&
+  2 * wordCount(quote) >= wordCount(text);
 const quotes = (cell) =>
   [...cell.matchAll(/"([^"]*)"|“([^”]*)”/g)].map((m) => m[1] ?? m[2]);
 // Code spans and path-like words (with / or \, or a file extension) set no limit: `--dry-run`, planner-readonly.mjs.
 const plain = (c) =>
   c
     .replace(/`[^`]*`/g, " ")
-    .replace(/[^\s|`]*(?:[\\/][^\s|`]*|\.\p{L}[\p{L}\p{N}]{0,4}(?![\p{L}\p{N}]))/gu, " ");
+    .replace(
+      /[^\s|`]*(?:[\\/][^\s|`]*|\.\p{L}[\p{L}\p{N}]{0,4}(?![\p{L}\p{N}]))/gu,
+      " ",
+    );
 
 // A name matches with no letter, digit, - or _ before it and no letter or digit after it (past an optional s or 's);
 // inside it a space, - or _ match each other.
@@ -417,8 +427,7 @@ export function purposeLines(checked, record) {
     named = new Map();
   for (const { shown, id, row } of checked) {
     const r = checkRow(row, record);
-    for (const e of r.named)
-      named.set(e, [...(named.get(e) ?? []), id]);
+    for (const e of r.named) named.set(e, [...(named.get(e) ?? []), id]);
     if (r.fails.length) failing.push({ shown, id, fails: r.fails });
   }
   for (const [e, ids] of named)

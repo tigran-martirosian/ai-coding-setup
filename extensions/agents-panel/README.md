@@ -10,7 +10,8 @@ background commands show up while Claude works.
   its first line. The full text shows when you hover the row.
 - Under the title, one line: the kind, the state, the time, the tool count and, while it runs, what it is
   doing now ("searching files (Grep)").
-- After the kind, a sub-agent's model and effort ("Sub-agent · Sonnet, medium · 4m 24s"). The app does not
+- At the end of a running helper's line, its model and effort ("Helper · reading a file (Read) · 1m 0s ·
+  Opus high"; the model alone when the log names no effort). The app does not
   expose them, so they come from `~/.claude/state/agent-runs.jsonl`, which the `agent-run-log.mjs` hook
   writes for each helper call (`AGENT_RUN_LOG=off` turns the hook off). The panel reads the last 200 lines
   when the rows change and every 5 s while one runs, and matches a row to the newest line with the same

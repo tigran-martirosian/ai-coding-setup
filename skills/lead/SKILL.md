@@ -15,6 +15,7 @@ You own the outcome. The `planner` agent writes the plan and the job-list rows, 
 - **The brief is the worker's whole context.** A `worker` loads no CLAUDE.md and has file, shell and web tools only, so the brief names the project commands its step needs. A step that needs a skill or an MCP tool goes to `worker-full`, which costs far more to start. A code row goes to `worker-code`, the same start on Opus at high; a long refactor row goes to `worker-refactor`, the same start on Fable at high.
 - **Spawn less, reuse more.** A follow-up to a worker that just finished is far cheaper than a new worker. So a step is a real piece of work, small pieces are grouped into one step, and the next step on the same files goes to the same worker with SendMessage. Parallel steps save time, not tokens.
 - **A 2-3 call change** you can already see: do it here. Beyond that this session doesn't build: workers do the steps, whole, on the helper their row names.
+- **Side by side, only as many as the user can read:** the user's review is the bottleneck, so at most about 3 steps whose result the user must see run at once; the release's "Needs you" line shows that queue.
 - **A step runs in the foreground**: one request, and its report comes back in it. Pass `run_in_background: false` on the Agent call: a launch without it counts as background and is refused. Steps that run side by side go as several Agent calls in one message, each with `run_in_background: false`: they run in parallel and the turn waits for all of them (a background helper dies when the turn ends and the app stops the idle session). A worker can't ask the user, so its question comes back to you as a `BLOCKED` line and you ask.
 - **One-shot lookups** go where CLAUDE.md sends them.
 - **A worker that stopped is not done:** read reference.md section "A stopped worker" on a turn-limit notice, an empty report, or before reusing a worker.
@@ -23,9 +24,9 @@ You own the outcome. The `planner` agent writes the plan and the job-list rows, 
 
 1. **Understand the request and talk it through.** Restate it; ask only what only the user knows. When the facts to plan from are missing (how the code works, run data, how others do it), the next step is a research `worker` that writes them to `docs/research/YYYY-MM-DD-topic.md`: show the user its link and short answer before planning, instead of a guessed pick.
 2. Inspect just enough of the project to brief the planner (CLAUDE.md, HANDOFF, DECISIONS, the files in scope).
-3. Create **one tracker item** for the whole request (`tracker_create`, type `plan` or `task`) and link this session (`tracker_link_session`). That item is the Kanban-level unit: what, why, status. Decisions made along the way go on it as comments or as `decision` items.
+3. **The tracker is the job's record:** one `release` item, and after the user's OK one `task` item (a **step**) per plan row (step 5). Take the open release, or create one (`tracker_create`) after a `tracker_list` with `search` finds no duplicate, and link this session (`tracker_link_session`). Decisions made along the way go on it as comments or as `decision` items. A project whose tracker lacks the task-type patch (`/where-are-we` says so) gets it from `/update-project` first; if the user says no, tell them in one line that this job runs without a tracker and its state lives in the plan's State cells.
 4. Set this session's phase with `update_session_meta` (`planning` → `implementing` → `validating`). For a plain research job or a build→review→test loop, consider `workflowPreset` `research` or `implement-review-test`.
-5. Get the plan from the `planner` (below), have it reviewed and fixed, and show it to the user; its rows become the job list (section 3).
+5. Get the plan from the `planner` (below), have it reviewed and fixed, and show it to the user; its rows become the job list (section 3). On the user's OK, write the plan file's path into the release's description and run `/where-are-we` once: it copies the rows into the release as steps (duplicate check included), plus one step per thing only the user can do (an OK, a look, a restart time).
 
 **How much of this a job gets.** A question, a small edit, a fix with a clear cause or a data change: none of it, do it here. A plan that comes back as one step, touching no hook, rule, agent, skill, settings or CI file and with nothing costly to undo: no plan review, and a build review only when the gate asks. A job is **big**, and gets every stage, when its plan has 2 or more helper steps, a change to a hook, rule, agent, skill, settings or CI file, a design step for something a person looks at or uses, or a step its Needs-OK list calls costly to undo. Decide from the plan, not the request.
 
@@ -67,7 +68,7 @@ If the call fails (for example the agent is missing), say so and write the plan 
 
 ## 3. The job list and the briefs
 
-The job list is the plan file, one per job, in the project: `docs/<date>-<job>-plan.md`. It holds the Brief, the whole plan, the rows with your State column, the Review section, the `Changed <date>` lines of re-plans and the Findings; the JOB LIST line of every brief points to it, and every worker reads it first. Only a job with no project folder uses `~/.claude/job-lists/<date>-<job>.md`. The rows are the planner's; you add and keep the State column; workers only add lines under Findings.
+The job list is the plan file, one per job, in the project: `docs/<date>-<job>-plan.md`. It holds the Brief, the whole plan, the rows with your State column, the Review section, the `Changed <date>` lines of re-plans and the Findings; the JOB LIST line of every brief points to it, and every worker reads it first. Only a job with no project folder uses `~/.claude/job-lists/<date>-<job>.md`. The rows are the planner's; you add and keep the State column; workers only add lines under Findings. The plan file keeps each row's design; the step's state lives on its tracker item. The State cell holds only the claim and the `done <hash>` mark the job-done hook reads, and no `docs/progress.md` or HANDOFF step lines are kept beside it: HANDOFF, DECISIONS and `docs/facts.md` keep knowledge, the tracker keeps state.
 
 ```
 # Job: <title>
@@ -76,9 +77,9 @@ Plan read: <folders> at <commits>. Review: <plan yes/no, build yes/no, why>. Sta
 
 ## Brief
 ## Plan
-| Step | Job | Decides | Serves | Files | Expect before | Done when | Helper | Runs | Budget | State |
-|---|---|---|---|---|---|---|---|---|---|---|
-| S1 | ... | ... | "<user's words>" (DECISIONS <date>) | ... | ... | ... | worker | first | ~20 | open |
+| Step | Job | Decides | Serves | Files | Stage | Expect before | Done when | Helper | Runs | Budget | State |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| S1 | ... | ... | "<user's words>" (DECISIONS <date>) | ... | Part 1 · build | ... | ... | worker | first | ~20 | open |
 
 ## Review
 ## Findings
@@ -95,15 +96,21 @@ Workers talk only to you. Nobody talks sideways: what another step needs goes un
 - **Answer a `BLOCKED` line from the plan you hold.** Send the one thing it asked for with SendMessage to its agent id, so it goes on with what it learned. A follow-up long after it stopped, to a worker with a big context, goes to a fresh worker with a written brief instead (see reference.md).
 - **Write every `BLOCKED` line under Findings** with `plan cause: yes/no` and, for yes, which plan-review checklist item would have caught it.
 - **A size-line stop (`[worker-size]`) or a block that shows the plan is wrong:** read reference.md section "Re-plans and size-line stops".
-- **A changed plan is rewritten in place.** When the user's answer or a later decision changes a plan, the affected rows, tables, Needs-OK list and risks are rewritten in place, and one `Changed <date>: <row>: <what>, user: "<quote>"` line is added at the end. No top block that wins over the rest: sessions run the rows. A decision made after the plan gets a row or an `out, because <why>` line in the same turn it goes into DECISIONS. A row is marked done only when its own checks ran, live ones included; a check not run stays named in the State cell.
+- **A changed plan is rewritten in place.** When the user's answer or a later decision changes a plan, the affected rows, tables, Needs-OK list and risks are rewritten in place, and one `Changed <date>: <row>: <what>, user: "<quote>"` line is added at the end. No top block that wins over the rest: sessions run the rows. A decision made after the plan gets a row or an `out, because <why>` line in the same turn it goes into DECISIONS. A row is marked done only when its own checks ran, live ones included; a check not run stays named in the State cell beside the done mark, and under Not verified in its step's handoff comment.
 - **A reviewed plan is run as written.** A bug found mid-run is fixed, but the plan is not re-reasoned into new questions. A card answer given in passing doesn't override a plan row. A conflict between the two goes to the user only with the row's text, the answer's text and the evidence, with your recommendation.
 - **The user's purpose travels with every row.** A row you write or change yourself carries a Serves cell as the planner writes it (the user's words, the DECISIONS date, never a pointer), and the `plan-reviewer` checks the changed rows before their helper starts, even a single row. A limit not in the user's words is written `NARROWED: <what>, because <why>` and goes to the user before the row runs. A side lane's state file opens with the Serves quotes of its rows.
 - **A step that cannot do what the user decided stops and asks.** It builds no safer stand-in: the user gets the Serves quote and what blocks it.
 - **A tick on a card approves only what that card asked**; it never stands in for the purpose decision or approves the whole run.
 - **A hold covers only what the user named as held**; work outside it, such as the user's own use of a held thing, still gets its row.
 - **Compare every report with its brief.** Check the files it changed against FILES (`git status --short`) and read its `Outside the brief` line. A change you wouldn't have asked for is undone; one you would is added to the job list.
-- Read a worker's report and the diff yourself; don't forward it unchecked. Update State on the job list with the calls it used (`tool_uses`) next to its budget, so later plans can size from real numbers.
-- **One piece per session** (user, 2026-11-08). Once a step is committed and steps are left, bring State up to date and hand the rest of the job to a fresh session (handoff skill; it opens that session with its prompt queued, so a build without check-ins keeps running); that session reads the plan file and runs the next row. Before it starts a row, a session claims it in that row's State cell: read reference.md section "Claiming a row". The handoff names the plan file and its Stage. A handover before the plan's fix round ends starts a **new planner** with the Brief, the plan file and its `open` findings, told to fix only those; you check them as in section 2, with no second plan review. Compaction is only the safety net inside a step.
+- Read a worker's report and the diff yourself; don't forward it unchecked. Write the calls it used (`tool_uses`) next to its budget in the step's handoff comment, so later plans can size from real numbers.
+- **The step's tracker item moves with the work:**
+  - **Ready gate:** a step with no Done when, or with an open question in its comments, is not claimed; settle it first (the user's answer or the planner).
+  - **Claimed:** status in-progress, `tracker_link_session`.
+  - **Needs the user:** status waits-for-you ("Needs you"), the question as a comment, `waitsOn` "your answer"; while the user is here, the question card is still asked.
+  - **A piece committed:** `proof` (commit and session id) and one handoff comment: what changed, Verified, Not verified.
+  - **Done when passed:** see section 6.
+- **One piece per session** (user, 2026-11-08). Once a step is committed and steps are left, bring its tracker item and State cell up to date and hand the rest of the job to a fresh session (handoff skill; it opens that session with its prompt queued, so a build without check-ins keeps running); that session reads the plan file and runs the next row. Before it starts a row, a session claims it in that row's State cell: read reference.md section "Claiming a row". The handoff names the plan file and its Stage. A handover before the plan's fix round ends starts a **new planner** with the Brief, the plan file and its `open` findings, told to fix only those; you check them as in section 2, with no second plan review. Compaction is only the safety net inside a step.
 - **A design step for something the user looks at or uses** (a build, a page, a screen) ends with the user's OK: show the design file's link and a picture or a short summary of it, and the build steps after it wait for the answer (user, 2026-11-07). A change they ask for goes back to the same worker. Before you show it, its mock-up, first screen or draft gets the early blind look (section 5), and the serious findings are fixed or named to the user.
 
 New work discovered → a new step on the list, or do it yourself if it's small.
@@ -123,5 +130,5 @@ Problems → merge the build review and the blind look, check each finding again
 ## 6. Finish
 
 - Run the cheapest real check yourself and show its output. A failed full test run is followed by a rerun of only the failed tests (`node tests/run-all.mjs --failed` in a setup repo), not a second full run.
-- Update the tracker item (status, short summary, linked files) and set this session to `validating` or `complete` per the user's rules.
+- **Close the steps.** A step whose Done when check passed goes to done. A step whose result the user must see (a design, a screen, a text to read) goes to in-review ("Checking"), and only the user closes it. At the end of a release run `/where-are-we` once for the reading and the release's close. Set this session to `validating` or `complete` per the user's rules.
 - Report to the user: result first, what each step produced, what was checked (with proof), each review finding with its fix or answer, and a "Needs you" list if anything's left. Release and tests come after the user's answer, when the job has them.

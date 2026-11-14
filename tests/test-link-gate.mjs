@@ -1,11 +1,12 @@
 // Tests for hooks/link-gate.mjs. Run: node tests/test-link-gate.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { key, linksIn, scan, problems } from "../hooks/link-gate.mjs";
+import { key, linksIn, problems, scan } from "../hooks/link-gate.mjs";
 
 const HOOK = fileURLToPath(new URL("../hooks/link-gate.mjs", import.meta.url));
 let fails = 0;

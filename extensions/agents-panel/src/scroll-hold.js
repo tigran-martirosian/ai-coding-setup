@@ -297,8 +297,8 @@ function stopScrollHold() {
 
 export {
   createHold,
-  holdInnerScrolls,
   holdEditable,
+  holdInnerScrolls,
   startScrollHold,
   stopScrollHold,
 };

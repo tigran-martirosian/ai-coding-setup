@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 // next-step-gate: backs "a finished step is not a stopping point" (a session finished a step, wrote "Next: ..." and ended the turn).
 // Stop: when the reply names a next step of Claude's own ("Next: ...", "### Next", "Next is ...", "**Next:** ...") and nothing
 // in it waits on the user, block with that line: carry on now, or say which real reason stops the work. Each different step
@@ -8,17 +9,16 @@
 // ("once the build finishes"); a "Next, I ran ..." narration; a turn with a handoff skill or a new session started; a turn
 // with no tool calls (a plain answer: its "next" is a suggestion). Subagents (agent_id) are skipped.
 // Fails open. NEXT_STEP_GATE=off disables it.
-import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 import { sessionKey } from "./lib/paths.mjs";
-import { stateFile, readJson, writeJson, sweep } from "./lib/state.mjs";
+import { readJson, stateFile, sweep, writeJson } from "./lib/state.mjs";
 import {
-  entries as readEntries,
   assistantText,
   currentTurn,
   QUESTION_TOOLS,
+  entries as readEntries,
   SYNTHETIC,
 } from "./lib/transcript.mjs";
-import fs from "node:fs";
 
 const HANDOFF = (b) =>
   (b.name === "Skill" &&

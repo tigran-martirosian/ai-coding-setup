@@ -1022,7 +1022,7 @@ ok(
   [
     fs.readFileSync(usedHook, "utf8"),
     onUsed.out.includes(`kept yours ${fwd(usedHook)}`),
-    /Kept as yours[^\n]*\n  hooks\/sql-guard\.mjs\n[^\n]*--replace <name>[^\n]*--replace-all/.test(
+    /Kept as yours[^\n]*\n {2}hooks\/sql-guard\.mjs\n[^\n]*--replace <name>[^\n]*--replace-all/.test(
       onUsed.out,
     ),
   ],
@@ -1095,7 +1095,7 @@ ok(
       .readFileSync(usedHook)
       .equals(fs.readFileSync(path.join(REPO, "hooks", "sql-guard.mjs"))),
     hookCopy && fs.readFileSync(hookCopy, "utf8"),
-    /Replaced[^\n]*\n  hooks\/sql-guard\.mjs\n/.test(oneTaken.out),
+    /Replaced[^\n]*\n {2}hooks\/sql-guard\.mjs\n/.test(oneTaken.out),
   ],
   [true, "// an older version\n", true],
 );

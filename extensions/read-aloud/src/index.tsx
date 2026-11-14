@@ -5,16 +5,17 @@
  * everything here talks to it only through callBackend().
  */
 
-import { useEffect } from "react";
 import {
   clearTranscriptMarkdownContributions,
   setTranscriptMarkdownContributions,
 } from "@nimbalyst/runtime";
+import { useEffect } from "react";
 import { startAutoRead } from "./autoRead";
 import { initBridge } from "./bridge";
+import { startDock } from "./dock";
 import { player } from "./player";
-import { initSettings } from "./settings";
 import { ReadAloudSettingsPanel } from "./SettingsPanel";
+import { initSettings } from "./settings";
 import {
   CONTROL_TAG,
   ReadAloudControl,
@@ -54,9 +55,11 @@ function ReadAloudHost(): null {
       styles: [{ id: "readaloud", type: "css-text", cssText: TRANSCRIPT_CSS }],
     });
     const stopAutoRead = startAutoRead();
+    const stopDock = startDock();
     return () => {
       clearTranscriptMarkdownContributions(SOURCE);
       stopAutoRead();
+      stopDock();
       player.stop();
     };
   }, []);

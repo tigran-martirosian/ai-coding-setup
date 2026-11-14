@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { readFileSync, statSync } from "node:fs";
+import { delimiter, extname, join, resolve } from "node:path";
 // big-read-gate: a PreToolUse hook that blocks whole-file dumps of large text files.
 // Based on the "shunt" pattern from Spotify's portal-ai-plugins: hooks enforce, the model routes.
 // Covers Read, and cat/less/more/head/tail/type/Get-Content in Bash or PowerShell (also inside
@@ -11,13 +13,11 @@
 // A Read of a .docx, .pptx or .xlsx file is refused with the command that converts it to Markdown once (markitdown
 // through uvx), when uvx is on the PATH; without uvx it passes. PDFs are never refused for being a document.
 import { crashLog } from "./lib/crash-log.mjs";
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 import { gitBashToNative as native } from "./lib/paths.mjs";
 import { setting } from "./lib/settings-env.mjs";
+import { readJson, stateFile, writeJson } from "./lib/state.mjs";
 import { BIG_READ_GATE } from "./lib/texts.mjs";
-import { stateFile, readJson, writeJson } from "./lib/state.mjs";
-import { readFileSync, statSync } from "node:fs";
-import { resolve, extname, delimiter, join } from "node:path";
 
 const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
 // 80000 bytes (about 20k tokens): only a file of very long lines is too big under 350 lines. 20000 refused plan

@@ -1,11 +1,11 @@
-import React from "react";
+import type React from "react";
 import { BlindReview, Lead } from "./BigJobs";
 import { Claim } from "./Checks";
 import { Install } from "./Close";
 import { Usage } from "./Cost";
 import { Fade, Field } from "./kit";
 import { Compare, Results, Title } from "./Open";
-import { Shot } from "./script";
+import type { Shot } from "./script";
 import { Also, Btw, SystemsMap } from "./Tools";
 
 const VIEWS: Record<string, React.FC<{ shot: Shot }>> = {

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
+import { spawn as spawnChild } from "node:child_process";
 // Tests nimbalyst.mjs against a fake HTTP server that speaks the endpoint's JSON-RPC.   node test-nimbalyst.mjs
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import http from "node:http";
-import { spawn as spawnChild } from "node:child_process";
 
 let passed = 0,
   failed = 0;
@@ -61,17 +61,17 @@ const PENDING = {
       content: {},
     },
   },
-  ["b0000000-0000-0000-0000-000000000001"]: {
+  "b0000000-0000-0000-0000-000000000001": {
     status: "waiting_for_input",
     pendingPrompt: null,
     originalPrompt: "find the color task",
   },
-  ["b0000000-0000-0000-0000-000000000002"]: {
+  "b0000000-0000-0000-0000-000000000002": {
     status: "idle",
     pendingPrompt: null,
     originalPrompt: "find the color task",
   },
-  ["b0000000-0000-0000-0000-000000000003"]: {
+  "b0000000-0000-0000-0000-000000000003": {
     status: "waiting_for_input",
     pendingPrompt: QUESTION,
     originalPrompt: "find the color task",

@@ -1,10 +1,11 @@
 // Test for hooks/job-done.mjs: made-up small transcripts, hook run as a child process.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import { fileURLToPath } from "node:url";
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(new URL("../hooks/job-done.mjs", import.meta.url));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "job-done-test-"));
@@ -491,6 +492,43 @@ post(
   false,
   { cwd: PLANONLY },
 );
+// The tracker line: the piece note asks to update the step's tracker item; a records-only commit gets no note, so no line
+hook(
+  "post-note-has-tracker-line",
+  {
+    hook_event_name: "PostToolUse",
+    session_id: postSession,
+    tool_name: "Bash",
+    cwd: path.join(OPEN, "docs"),
+    tool_input: { command: 'git commit -m "roof"' },
+    tool_response: { stdout: made, stderr: "", interrupted: false },
+  },
+  "note",
+  [
+    "Update the step's tracker item",
+    "proof (the commit and session id)",
+    "done only once the row's Done when check passed",
+    "in-review",
+  ],
+);
+{
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({
+      hook_event_name: "PostToolUse",
+      session_id: postSession,
+      tool_name: "Bash",
+      cwd: PLANONLY,
+      tool_input: { command: 'git commit -q -m "plan: S3 done"' },
+      tool_response: { stdout: "", stderr: "", interrupted: false },
+    }),
+    encoding: "utf8",
+  });
+  const ok = r.status === 0 && !r.stdout.includes("tracker item");
+  if (!ok) failed++;
+  console.log(
+    `${ok ? "PASS" : "FAIL"}  post-records-only-no-tracker-line${ok ? "" : "  -> status " + r.status + ", out: " + r.stdout.slice(0, 200)}`,
+  );
+}
 post("post-git-log-silent", "git log --oneline -3", "1a2b3c4 x", false);
 post("post-commit-word-in-echo-silent", 'echo "[main 1a2b3c4] x"', made, false);
 post("post-non-bash-silent", 'git commit -m "x"', made, false, {
@@ -609,20 +647,20 @@ s = claimSession();
 landed("claim-3-piece-landed-notes", s);
 hook(
   "claim-3-second-commit-denied",
-  bashPre(s, 'git commit -q -m "S4 part"'),
+  bashPre(s, 'git commit -q -m "cards part"'),
   "deny",
   [...HELD, "second commit"],
 );
 hook(
   "claim-3-second-commit-resent-allowed",
-  bashPre(s, 'git commit -q -m "S4 part"'),
+  bashPre(s, 'git commit -q -m "cards part"'),
   "",
 );
 s = claimSession();
 landed("claim-3b-piece-landed-notes", s);
 hook(
   "claim-3-plan-only-commit-allowed",
-  bashPre(s, 'git commit -q -m "plan: S3 done" -- docs/2026-11-12-x-plan.md'),
+  bashPre(s, 'git commit -q -m "plan: hall done" -- docs/2026-11-12-x-plan.md'),
   "",
 );
 hook(
@@ -647,7 +685,7 @@ hook(
   "claim-commit-by-tool-denied",
   ev(s, CLAIM, "PreToolUse", {
     tool_name: COMMIT_TOOL,
-    tool_input: { filesToStage: ["src/b.txt"], commitMessage: "S4" },
+    tool_input: { filesToStage: ["src/b.txt"], commitMessage: "cards" },
   }),
   "deny",
   HELD,
@@ -655,7 +693,7 @@ hook(
 s = claimSession();
 hook(
   "claim-before-piece-landed-allowed",
-  bashPre(s, 'git commit -q -m "S3"'),
+  bashPre(s, 'git commit -q -m "hall"'),
   "",
 );
 s = claimSession("ffff0000");
@@ -663,7 +701,7 @@ landed("claim-4-no-claim-piece-notes", s);
 hook("claim-4-no-claim-agent-silent", agent(s, "S4: build the cards"), "");
 hook(
   "claim-4-no-claim-commit-silent",
-  bashPre(s, 'git commit -q -m "S4 part"'),
+  bashPre(s, 'git commit -q -m "cards part"'),
   "",
 );
 hook(
@@ -793,7 +831,7 @@ hook("state-file-claim-no-id-note", ask(s, LANE), "");
 landed("state-file-claim-piece-notes", s, LANE);
 hook(
   "state-file-claim-second-commit-denied",
-  bashPre(s, 'git commit -q -m "S4 part"', LANE),
+  bashPre(s, 'git commit -q -m "cards part"', LANE),
   "deny",
   [...HELD, "2026-11-12-x-plan.md"],
 );
@@ -831,7 +869,7 @@ hook(
 );
 hook(
   "claim-kept-after-state-done-commit-denied",
-  bashPre(survB, 'git commit -q -m "S4 part"', SURV),
+  bashPre(survB, 'git commit -q -m "cards part"', SURV),
   "deny",
   HELD,
 );
@@ -847,7 +885,7 @@ hook(
   "records-state-and-progress-commit-allowed",
   bashPre(
     s,
-    'git commit -q -m "lane D: S3 done" docs/2026-11-12-state-d.md docs/progress.md',
+    'git commit -q -m "lane D: hall done" docs/2026-11-12-state-d.md docs/progress.md',
     LANE,
   ),
   "",
@@ -857,14 +895,14 @@ hook(
   "records-decisions-with-plan-commit-allowed",
   bashPre(
     s,
-    'git commit -q -m "S3 done" docs/2026-11-12-state-d.md DECISIONS.md docs/decisions-archive.md',
+    'git commit -q -m "hall done" docs/2026-11-12-state-d.md DECISIONS.md docs/decisions-archive.md',
     LANE,
   ),
   "",
 );
 hook(
   "records-refusal-not-used-up-denied",
-  bashPre(s, 'git commit -q -m "S4 part"', LANE),
+  bashPre(s, 'git commit -q -m "cards part"', LANE),
   "deny",
   HELD,
 );
@@ -886,7 +924,7 @@ s = claimSession("cafe0002");
 landed("records-claim-commit-no-piece-silent", s, LANEB, "");
 hook(
   "records-row-first-commit-allowed",
-  bashPre(s, 'git commit -q -m "S3 work"', LANEB),
+  bashPre(s, 'git commit -q -m "hall work"', LANEB),
   "",
 );
 // Paths given to git commit without "--"; a merge-base or commit-graph call is no commit; the -C of another git call
@@ -902,7 +940,7 @@ hook(
   "paths-plan-commit-without-dashes-allowed",
   bashPre(
     s,
-    'git commit -q -m "plan: S3 done" docs/2026-11-12-x-plan.md',
+    'git commit -q -m "plan: hall done" docs/2026-11-12-x-plan.md',
     CLAIM2,
   ),
   "",
@@ -911,7 +949,7 @@ hook(
   "paths-code-commit-without-dashes-denied",
   bashPre(
     s,
-    'git commit -q -m "S4" src/b.txt docs/2026-11-12-x-plan.md',
+    'git commit -q -m "cards" src/b.txt docs/2026-11-12-x-plan.md',
     CLAIM2,
   ),
   "deny",
@@ -930,6 +968,182 @@ post(
   "",
   true,
 );
+
+// Commit subject (PreToolUse, every time, helpers too): over 72 characters, an open row's id as the plan writes it,
+// or a session id is refused; done rows, plans older than 48 hours and other casings refuse nothing
+const SUBJ_PLAN = (v2) =>
+  `| Step | Job | State |\n|---|---|---|\n| V2 | the layout | ${v2} |\n| S3 | read keys | done 2026-11-13 1a2b3c4 |\n`;
+const SUBJ = project("subj", {
+  "docs/2026-11-13-s-plan.md": SUBJ_PLAN("open"),
+});
+const SUBJ_DONE = project("subj-done", {
+  "docs/2026-11-13-s-plan.md": SUBJ_PLAN("done 1a2b3c4"),
+});
+const SUBJ_OLD = project("subj-old", {
+  "docs/2026-11-13-s-plan.md":
+    "| Step | Job | State |\n|---|---|---|\n| S3 | read keys | open |\n",
+});
+fs.utimesSync(path.join(SUBJ_OLD, "docs/2026-11-13-s-plan.md"), old, old);
+const subjSession = `${runId}-subj`;
+sessions.push(subjSession);
+const pre = (cwd, tool_input, extra = {}) =>
+  ev(subjSession, cwd, "PreToolUse", {
+    tool_name: "Bash",
+    tool_input,
+    ...extra,
+  });
+const commitPre = (cwd, message, extra) =>
+  pre(cwd, { command: `git commit -q -m ${JSON.stringify(message)}` }, extra);
+const toolPre = (cwd, commitMessage) =>
+  pre(
+    cwd,
+    { filesToStage: ["src/a.txt"], commitMessage },
+    { tool_name: COMMIT_TOOL },
+  );
+const REWORD = ["Commit refused", "<type>: <what the person gains>"];
+const long = "feat: " + "a".repeat(84);
+hook("subject-90-chars-denied", commitPre(NONE, long), "deny", [
+  ...REWORD,
+  "90 characters",
+  "72",
+]);
+hook("subject-72-chars-allowed", commitPre(NONE, long.slice(0, 72)), "");
+hook(
+  "subject-open-row-id-denied",
+  commitPre(SUBJ, "feat: V2 layout for the cards"),
+  "deny",
+  [...REWORD, "2026-11-13-s-plan.md", "row V2"],
+);
+hook(
+  "subject-open-row-id-of-commit-repo-denied",
+  pre(NONE, {
+    command: `cd "${fwd(SUBJ)}" && git commit -q -m "feat: V2 layout for the cards"`,
+  }),
+  "deny",
+  ["row V2"],
+);
+hook(
+  "subject-done-row-id-allowed",
+  commitPre(SUBJ_DONE, "feat: V2 layout for the cards"),
+  "",
+);
+hook(
+  "subject-S3-of-done-row-allowed",
+  commitPre(SUBJ, "fix: read S3 keys once"),
+  "",
+);
+hook(
+  "subject-S3-of-plan-over-48h-allowed",
+  commitPre(SUBJ_OLD, "fix: read S3 keys once"),
+  "",
+);
+hook("subject-other-casing-allowed", commitPre(SUBJ, "fix: v2 layout"), "");
+hook("subject-clear-allowed", commitPre(SUBJ, "fix: steadier card layout"), "");
+hook(
+  "subject-helper-commit-denied",
+  commitPre(SUBJ, "feat: V2 layout for the cards", { agent_id: "abc" }),
+  "deny",
+  ["row V2"],
+);
+hook(
+  "subject-helper-commit-denied-again",
+  commitPre(SUBJ, "feat: V2 layout for the cards", { agent_id: "abc" }),
+  "deny",
+  ["row V2"],
+);
+hook(
+  "subject-commit-tool-denied",
+  toolPre(SUBJ, "feat: V2 layout\n\nbody"),
+  "deny",
+  ["row V2"],
+);
+hook(
+  "subject-commit-tool-clear-allowed",
+  toolPre(SUBJ, "fix: steadier layout"),
+  "",
+);
+hook(
+  "subject-heredoc-denied",
+  pre(SUBJ, {
+    command: `git commit -q -m "$(cat <<'EOF'\nfeat: V2 layout\n\nWhy it changed.\nEOF\n)"`,
+  }),
+  "deny",
+  ["row V2"],
+);
+// A " inside a heredoc message must not end it early and let the commit through unchecked
+const heredoc = (open, text, close = "EOF") =>
+  pre(NONE, {
+    command: `git commit -q -m "$(cat <<${open}\n${text}\n${close}\n)"`,
+  });
+hook(
+  "subject-heredoc-quote-in-body-90-chars-denied",
+  heredoc("'EOF'", `${long}\n\nSay "hello" to the new layout.`),
+  "deny",
+  ["90 characters"],
+);
+hook(
+  "subject-heredoc-quote-in-body-allowed",
+  heredoc("'EOF'", 'fix: steadier layout\n\nSay "hello" to it.'),
+  "",
+);
+hook(
+  "subject-heredoc-quote-in-subject-checked",
+  pre(SUBJ, {
+    command: `git commit -q -m "$(cat <<'EOF'\nfeat: V2 "layout"\n\nWhy.\nEOF\n)"`,
+  }),
+  "deny",
+  ["row V2"],
+);
+for (const [name, open, close] of [
+  ["unquoted", "EOF", "EOF"],
+  ["double-quoted", '"MSG"', "MSG"],
+  ["dash-tabs", "-END_MSG", "\tEND_MSG"],
+])
+  hook(
+    `subject-heredoc-${name}-denied`,
+    heredoc(open, `\t${long}\n\nSay "hi".`, close),
+    "deny",
+    ["90 characters"],
+  );
+hook(
+  "subject-body-not-checked-allowed",
+  pre(SUBJ, {
+    command: 'git commit -q -m "fix: steadier layout\n\nRow V2 of the plan."',
+  }),
+  "",
+);
+hook(
+  "subject-session-id-denied",
+  commitPre(NONE, "fix: notes of session 1a2b3c4d"),
+  "deny",
+  ["session id"],
+);
+hook(
+  "subject-own-session-id-denied",
+  commitPre(NONE, `fix: notes from ${subjSession.slice(0, 8)}`),
+  "deny",
+  ["this session's id"],
+);
+hook(
+  "subject-file-message-not-checked",
+  pre(SUBJ, { command: "git commit -q -F V2.txt" }),
+  "",
+);
+hook(
+  "subject-merge-not-checked",
+  pre(SUBJ, { command: 'git merge -m "V2" dev' }),
+  "",
+);
+for (const [name, event] of [
+  ["long", commitPre(NONE, long)],
+  ["open-row", commitPre(SUBJ, "feat: V2 layout")],
+  ["tool", toolPre(SUBJ, "feat: V2 layout")],
+  ["session", commitPre(NONE, "fix: notes of session 1a2b3c4d")],
+  ["helper", commitPre(SUBJ, "feat: V2 layout", { agent_id: "abc" })],
+])
+  hook(`subject-off-switch-${name}-allowed`, event, "", [], {
+    COMMIT_SUBJECT: "off",
+  });
 
 fs.rmSync(dir, { recursive: true, force: true });
 for (const s of sessions)

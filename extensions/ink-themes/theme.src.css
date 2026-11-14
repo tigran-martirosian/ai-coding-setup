@@ -2,6 +2,7 @@
    The scope word on the next line is replaced by build.mjs with the selector that is only true while one of the themes is on;
    build.mjs also puts tokens.css inside this block, so --x-* exist only while a theme is on and the other extensions' own copies are untouched.
    Every app selector used below is listed in selectors.json (node probe.mjs checks them against the running app). */
+/* biome-ignore lint/correctness/noUnknownTypeSelector: __S__ is a placeholder; build.mjs puts the theme's scope selector here */
 __S__ {
   --ink-sans: Figtree, "Segoe UI", system-ui, sans-serif;
   --ink-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
@@ -22,35 +23,38 @@ __S__ {
   .session-history, .workspace-summary-header { background: var(--nim-bg-secondary) !important; }
   .workspace-summary-header { padding: var(--x-space-4) !important; border-bottom: 0 !important; }
   .workspace-summary-header-name { font: var(--x-title) !important; }
-  .workspace-summary-header-path { font: var(--x-caption) !important; color: var(--x-text-muted) !important; margin-top: var(--x-space-1) !important; }
+  .workspace-summary-header-path { font: var(--x-meta) !important; color: var(--x-text-muted) !important; margin-top: var(--x-space-1) !important; }
   .session-history-section-label { border-bottom: 0 !important; background: transparent !important; padding: var(--x-space-1) var(--x-space-4) !important;
-    font: var(--x-micro) !important; text-transform: none !important; letter-spacing: 0 !important; color: var(--x-text-muted) !important; }
+    font: var(--x-meta) !important; text-transform: none !important; letter-spacing: 0 !important; color: var(--x-text-muted) !important; }
 
   /* Search box and filters */
   .session-history-search, .session-history-filters { border-bottom: 0 !important; padding: var(--x-space-2) var(--x-space-4) !important; }
   .session-history-search-input { box-sizing: border-box; height: 36px; padding: 0 var(--x-space-3) !important; border: 1px solid var(--x-hairline) !important; border-radius: var(--x-radius-control) !important;
     background: var(--x-surface-1) !important; font: var(--x-body) !important; text-overflow: ellipsis; transition: border-color var(--x-motion-fast); }
   .session-history-search-input:focus, .session-history-search-input:focus-visible { border-color: var(--nim-border-focus) !important; outline: none !important; }
-  [data-testid="session-list-match-count"] { font: var(--x-micro) !important; color: var(--x-text-muted) !important; }
+  [data-testid="session-list-match-count"] { font: var(--x-meta) !important; color: var(--x-text-muted) !important; }
 
   /* Parts added by shell.js: New session button, mode switch */
   .ink-top { display: grid; gap: var(--x-space-2); margin-top: var(--x-space-3); }
-  .ink-new { display: flex; align-items: center; gap: var(--x-space-2); width: 100%; height: 36px; padding: 0 var(--x-space-3); border: 0; border-radius: var(--x-radius-control);
-    cursor: pointer; background: var(--x-accent); color: var(--x-on-accent); font: 550 13px/20px var(--x-font-ui); text-align: left; transition: background var(--x-motion-fast); }
+  .ink-new { display: flex; align-items: center; gap: var(--x-space-2); width: 100%; height: var(--x-control-height); padding: 0 var(--x-space-3); border: 0; border-radius: var(--x-radius-control);
+    cursor: pointer; background: var(--x-accent); color: var(--x-on-accent); font: var(--x-row-title); text-align: left; transition: background var(--x-motion-fast); }
   .ink-new:hover { background: var(--nim-primary-hover); }
   .ink-new:active { transform: translateY(1px); }
   .ink-new:focus-visible { outline: 2px solid var(--x-text); outline-offset: 2px; }
   /* Close button on the right pane's header row; margin-left: auto pushes it to the row's end */
   .ink-close-pane { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; margin-left: auto; padding: 0; border: 0;
     border-radius: var(--x-radius-control); background: transparent; color: var(--x-text-muted); cursor: pointer; transition: background var(--x-motion-fast), color var(--x-motion-fast); }
-  .workstream-file-viewer-heading > .ml-auto ~ .ink-close-pane { margin-left: 0; }
+  /* The full-screen button (.ml-auto) is drawn only while a file is open, so React can put it after the cross;
+     order keeps the cross last and only the button's auto margin splits the row, so the pair stays at the right end */
+  .workstream-file-viewer-heading > .ink-close-pane { order: 1; }
+  .workstream-file-viewer-heading:has(> .ml-auto) > .ink-close-pane { margin-left: 0; }
   .ink-close-pane:hover { background: var(--x-overlay-hover); color: var(--x-text); }
   .ink-close-pane:focus-visible { outline: 2px solid var(--x-text); outline-offset: -2px; }
-  .ink-sym { font-family: "Material Symbols Outlined"; font-size: 16px; line-height: 16px; font-variation-settings: var(--x-icon-settings); font-weight: 400; }
+  .ink-sym { /* biome-ignore lint/a11y/useGenericFontNames: an icon font; a generic family would draw the icon names as words */ font-family: "Material Symbols Outlined"; font-size: 16px; line-height: 16px; font-variation-settings: var(--x-icon-settings); font-weight: 400; }
   .ink-seg { display: flex; box-sizing: border-box; height: 28px; padding: 2px; border: 1px solid var(--x-hairline); border-radius: var(--x-radius-control); background: var(--x-surface-1); }
   .ink-seg-btn { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box; height: 100%; padding: 0 !important;
     border: 1px solid transparent; border-radius: var(--x-radius-inner); cursor: pointer; background: transparent; color: var(--x-text-muted);
-    font: var(--x-caption); transition: background var(--x-motion-fast), color var(--x-motion-fast); }
+    font: var(--x-meta); font-weight: 500; transition: background var(--x-motion-fast), color var(--x-motion-fast); }
   .ink-seg-btn:hover { background: var(--x-overlay-hover); color: var(--x-text); }
   .ink-seg-btn[aria-selected="true"] { background: var(--x-surface-2); border-color: var(--x-hairline); color: var(--x-text); }
   .ink-seg-btn:focus-visible { outline: none; box-shadow: var(--x-focus-ring); }
@@ -62,51 +66,155 @@ __S__ {
   .workstream-header { height: 66px !important; padding-left: var(--x-space-5) !important; padding-right: var(--x-space-5) !important; }
   .workstream-header-title { font: var(--x-title) !important; }
 
-  /* Group headings: quiet, sentence case */
-  .collapsible-group-header { padding: var(--x-space-3) var(--x-space-4) var(--x-space-1) !important; font: var(--x-micro) !important; }
-  .collapsible-group-title { text-transform: lowercase !important; letter-spacing: 0 !important; color: var(--x-text-muted); }
+  /* Group headings: heading type in the text colour, sentence case */
+  .collapsible-group-header { padding: var(--x-space-3) var(--x-space-4) var(--x-space-1) !important; font: var(--x-heading) !important; }
+  .collapsible-group-title { text-transform: lowercase !important; letter-spacing: 0 !important; color: var(--x-text); }
   .collapsible-group-title::first-letter { text-transform: uppercase; }
 
-  /* Session rows: selected and hover are overlays, the phase is plain text */
+  /* Session rows: hover is an overlay, the selected row is surface-2 (no edge stripe), the phase is plain text */
   .session-list-item { min-height: 36px; border-radius: var(--x-radius-control); transition: background-color var(--x-motion-fast); }
   .session-list-item:hover { background: var(--x-overlay-hover) !important; }
-  .session-list-item[aria-current="page"] { background: var(--x-overlay-selected) !important; }
-  .session-list-item-title { font: var(--x-body) !important; }
+  .session-list-item[aria-current="page"] { background: var(--x-state-selected) !important; }
+  /* No coloured stripe on a row's edge: the app draws one inline on a Needs you row (a 2 px left border in the warning tone) */
+  .session-list-item[style*="border-left"] { border-left: 0 !important; }
+  .session-list-item-title { font: var(--x-row-title) !important; }
+  /* The title wraps to two lines at most, then ends in an ellipsis; the app's own tooltip holds the full name. Compact rows keep their one line. */
+  .session-list-item-content > .session-list-item-title { display: -webkit-box !important; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal !important; overflow-wrap: anywhere; }
   /* The icons before the title (provider mark, branch or worktree mark) share one fixed slot, so every title starts at the same x */
   /* The pin sits in the left margin of the row, out of the flow, so a pinned row's title does not move */
   .session-list-item-pin-icon { position: absolute; left: var(--x-space-2); top: var(--x-space-3); margin: 0 !important; }
   .session-list-item-icon { flex: none; min-width: 36px; color: var(--x-text-muted) !important; opacity: 1 !important; }
   /* Meta line: age, then the phase, then the model; whatever does not fit ends in an ellipsis, and a narrow panel drops the model */
-  .session-list-item-meta { font: var(--x-caption) !important; color: var(--x-text-muted); margin-top: 0 !important; container-type: inline-size; overflow: hidden; }
+  .session-list-item-meta { font: var(--x-meta) !important; color: var(--x-text-muted); margin-top: 0 !important; container-type: inline-size; overflow: hidden; }
   .session-list-item-datetime { flex: none; }
   .session-list-item-phase { order: 1; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-    padding: 0 !important; border-radius: 0 !important; background: transparent !important; font: var(--x-caption) !important; color: var(--x-text-muted) !important; }
+    padding: 0 !important; border-radius: 0 !important; background: transparent !important; font: var(--x-meta) !important; color: var(--x-text-muted) !important; }
   .session-list-item-phase:not([style*="success"]) { color: var(--x-accent) !important; }
   .session-list-item-model { order: 2; flex: 0 1 auto; min-width: 0; }
   @container (max-width: 200px) { .session-list-item-model { display: none; } }
 
   /* Buttons next to the session list */
-  [data-testid="session-kanban-button"] { font: var(--x-caption) !important; }
+  [data-testid="session-kanban-button"] { font: var(--x-meta) !important; }
+
+  /* Top bar, right: the two panel buttons say what they open, as the side buttons do. The word follows the button's own
+     label (it ends with the pane or the right panel's view), so a label not listed here keeps the icon alone.
+     Open shows as the selected tone with an inset hairline in the text colour; closed is plain and muted. */
+  [data-testid="window-top-bar-left-pane"], [data-testid="window-top-bar-right-pane"] { width: auto !important; gap: var(--x-space-2); padding: 0 10px 0 var(--x-space-2) !important;
+    font: var(--x-row-title) !important; white-space: nowrap; color: var(--x-text-muted) !important; }
+  [data-testid="window-top-bar-left-pane"] { border-radius: var(--x-radius-control) !important; }
+  [data-testid="window-top-bar-left-pane"][aria-label$=" Session history"]::after { content: "Sessions"; }
+  [data-testid="window-top-bar-right-pane"][aria-label$=": Files & agents"]::after { content: "Files & agents"; }
+  /* Without the files-and-agents patch the app calls the same view "Edited Files": the button keeps the menu's word */
+  [data-testid="window-top-bar-right-pane"][aria-label$=": Edited Files"]::after { content: "Edited files"; }
+  [data-testid="window-top-bar-right-pane"][aria-label$=": Review"]::after { content: "Review"; }
+  [data-testid="window-top-bar-right-pane"][aria-label$=": Chat with Session"]::after,
+  [data-testid="window-top-bar-right-pane"][aria-label$=": Chat with session"]::after { content: "Chat with session"; }
+  [data-testid="window-top-bar-right-pane"][aria-label$=": File viewer"]::after { content: "File viewer"; }
+  /* The name replaces the tiny mode badge on the icon */
+  .window-top-bar__panel-mode-badge { display: none !important; }
+  .window-top-bar__panel-split { border-radius: var(--x-radius-control) !important; }
+  .window-top-bar__panel-split-toggle { border-radius: var(--x-radius-control) 0 0 var(--x-radius-control) !important; }
+  .window-top-bar__panel-split-caret { border-radius: 0 var(--x-radius-control) var(--x-radius-control) 0 !important; color: var(--x-text-muted) !important; }
+  .window-top-bar__panel-split-divider { background: var(--x-hairline) !important; }
+  [data-testid="window-top-bar-left-pane"][data-collapsed="false"], .window-top-bar__panel-split[data-collapsed="false"] { background: var(--x-overlay-selected) !important;
+    box-shadow: inset 0 0 0 1px var(--x-hairline); }
+  [data-testid="window-top-bar-left-pane"][data-collapsed="false"], .window-top-bar__panel-split[data-collapsed="false"] > .window-top-bar__panel-button { color: var(--x-text) !important; }
+  .window-top-bar__panel-split[data-collapsed="false"] > .window-top-bar__panel-button:not(:hover) { background: transparent !important; }
+
+  /* The right panel's menu: a heading, then one name line and one description line per view. shell.js marks each item
+     with its view (data-ink-view) from the item's own words, so a description never lands on the wrong view, and adds
+     the hide row with the app's shortcut at the end (.ink-menu-*). */
+  [data-testid="window-top-bar-right-pane-menu"] { width: 344px; max-width: calc(100vw - 24px) !important; padding: var(--x-space-1) !important;
+    border-radius: var(--x-radius-window) !important; border-color: var(--x-hairline) !important; background: var(--x-surface-1) !important; }
+  [data-testid="window-top-bar-right-pane-menu"]::before { content: "Right panel shows"; margin: var(--x-space-2) var(--x-space-3) var(--x-space-1); font: var(--x-heading); color: var(--x-text); }
+  [data-testid="window-top-bar-right-pane-menu"] > .window-top-bar__menu-item, .ink-menu-row { display: grid !important; grid-template-columns: 16px 1fr auto; column-gap: var(--x-space-3);
+    align-items: center; box-sizing: border-box; width: 100%; padding: var(--x-space-2) var(--x-space-3) !important; border: 0; border-radius: var(--x-radius-control) !important;
+    background: transparent; font: var(--x-row-title) !important; color: var(--x-text) !important; text-align: left; cursor: pointer; }
+  [data-testid="window-top-bar-right-pane-menu"] > .window-top-bar__menu-item > :first-child { grid-row: 1 / 3; align-self: start; margin-top: 2px; color: var(--x-text-muted); }
+  [data-testid="window-top-bar-right-pane-menu"] > .window-top-bar__menu-item > :nth-child(3) { grid-row: 1; grid-column: 3; }
+  [data-testid="window-top-bar-right-pane-menu"] > .window-top-bar__menu-item::after { grid-column: 2 / 4; font: var(--x-meta); color: var(--x-text-muted); white-space: nowrap; }
+  [data-testid="window-top-bar-right-pane-menu"] > [data-ink-view="files"]::after { content: "Changed files, running agents and commands"; }
+  [data-testid="window-top-bar-right-pane-menu"] > [data-ink-view="review"]::after { content: "This session's changes, file by file"; }
+  [data-testid="window-top-bar-right-pane-menu"] > [data-ink-view="chat"]::after { content: "A second chat beside this one"; }
+  [data-testid="window-top-bar-right-pane-menu"] > [data-ink-view="viewer"]::after { content: "One file open beside the chat"; }
+  [data-testid="window-top-bar-right-pane-menu"] > .window-top-bar__menu-item:hover, .ink-menu-row:hover { background: var(--x-overlay-hover) !important; }
+  [data-testid="window-top-bar-right-pane-menu"] > .window-top-bar__menu-item[data-selected="true"] { background: var(--x-state-selected) !important; }
+  .ink-menu-row:focus-visible { outline: none; box-shadow: var(--x-focus-ring); }
+  .ink-menu-row .ink-sym { color: var(--x-text-muted); }
+  .ink-menu-row kbd { font: var(--x-meta); color: var(--x-text-muted); }
+  .ink-menu-sep { height: 1px; margin: var(--x-space-1) var(--x-space-2); background: var(--x-hairline); }
+
+  /* Git button: "master · 68 uncommitted" in place of the warning-coloured "Modified". shell.js writes the count of the
+     app's own uncommitted-file list on the word (data-ink-count); while there is no count the app's word stays, muted. */
+  [data-testid="window-top-bar-git-status"] { gap: var(--x-space-2) !important; padding: 0 10px 0 var(--x-space-2) !important; font: var(--x-row-title) !important;
+    border-radius: var(--x-radius-control) !important; }
+  .window-top-bar__branch { color: var(--x-text) !important; }
+  .window-top-bar__git-detail { font-size: 12px !important; }
+  .window-top-bar__dirty { font: var(--x-body) !important; color: var(--x-text-muted) !important; }
+  /* Flex, so the hidden word leaves no empty line that lifts the count above "master" */
+  .window-top-bar__dirty[data-ink-count] { display: inline-flex !important; font-size: 0 !important; }
+  .window-top-bar__dirty[data-ink-count]::before { content: "· " attr(data-ink-count) " uncommitted"; font: var(--x-body); }
 
   /* Send button: the app's own primary, without a glow */
   .ai-chat-send-button { border-radius: var(--x-radius-control); box-shadow: none !important; }
 
-  /* Side buttons: a short name under every icon, the extensions' too, at 11px ("Term", "Cmds"); the full name is in the tooltip.
-     Since 0.83.0 two columns stand side by side at the bottom: the project rail (usage rings, Theme, Account) and the
-     project's gutter (extension panels, Git, Rights). Every button in both is the same cell (4px, a 40px icon box, 4px,
-     the 14px name, 4px = 66px) on a 4px gap, so each row lines up with its neighbour: Claude/Usage ... Account/Rights.
+  /* Side buttons: the full name under every icon, the extensions' too, at 12px ("Terminal", "Permissions"), so no name
+     needs a hover. Since 0.83.0 two columns stand side by side: the project rail (56 wide: usage rings, Theme, Account)
+     and the project's gutter (72 wide: Needs you on top, then the tools). A cell is 4px, a 40px icon box, 4px, the name
+     (16px a line), 4px = 68px; a name too long for one line ("Systems map") wraps to two and the cell grows. Both columns
+     end at the window's foot and every other cell is 68, so each rail button sits level with its gutter neighbour.
      One icon size in both, matched to the rings: a ring is 40px with a 2px line (the app draws it with room around it, so it shows
-     32px across and its number sits clear of the line); icons (in a light 300 weight, so they are not heavier than a ring line) and the Account circle are 28px. Every button is 46px wide, so the
-     longest name ("Account") stays inside its hover box. */
+     32px across); icons (in a light 300 weight, so they are not heavier than a ring line) and the Account circle are 28px.
+     A gutter button is the gutter's full 64: short names (user, 2026-11-14: "Map", "Cmds", "Perm") so the two columns stay
+     narrow; the widest, "Terminal", is 45 at 12px. A rail button is the rail's 58 ("Account" 46). */
+  .project-rail { width: 58px !important; min-width: 58px !important; }
   .nav-button { border-radius: var(--x-radius-control); }
-  .nav-button, [data-testid$="-usage-indicator"] { height: 66px !important; min-height: 0; flex-shrink: 0; display: grid !important; grid-template-rows: 40px 14px;
-    align-items: center; justify-items: center; row-gap: var(--x-space-1); padding: var(--x-space-1) 0 !important;
-    width: 46px !important; margin: 0 -5px; }
-  .nav-button::after, [data-testid$="-usage-indicator"]::after { font: var(--x-micro); color: var(--x-text-muted); white-space: nowrap; grid-row: 2; }
-  /* Empty slots take no gap; the gutter's divider takes the same 4px as a gap (3px + the 1px line); both columns end 8px above the window edge */
+  .nav-button, [data-testid$="-usage-indicator"] { height: auto !important; min-height: 68px; flex-shrink: 0; display: grid !important; grid-template-rows: 40px auto;
+    align-content: start; align-items: center; justify-items: center; row-gap: var(--x-space-1); padding: var(--x-space-1) 0 !important;
+    box-sizing: border-box; width: 58px !important; margin: 0; }
+  .navigation-gutter .nav-button { width: 64px !important; }
+  .nav-button::after, [data-testid$="-usage-indicator"]::after { font: 400 12px/16px var(--x-font-ui); color: var(--x-text-muted); text-align: center; grid-row: 2; max-width: 100%; }
+  .nav-button::after, [data-testid$="-usage-indicator"]::after { white-space: nowrap; }
+  /* Empty slots take no gap; the gutter's items sit on one 4px gap */
   .project-rail-global-items > :empty, .navigation-gutter .nav-settings > :empty { display: none; }
-  .navigation-gutter .nav-extension-panels { padding-bottom: 3px !important; }
-  .navigation-gutter .nav-settings { padding-top: 0 !important; padding-bottom: 0 !important; }
+  .navigation-gutter { width: 64px !important; gap: var(--x-space-1); }
+  /* No divider line above the bottom section: its 1px would put every gutter button above it 1px off its rail neighbour */
+  .navigation-gutter .nav-settings { padding: 0 !important; border-top: 0 !important; }
+
+  /* Wiki first in the tools group, then the tools (Systems map, Usage, Commands, Terminal, Git, in the order the user
+     gave them by right-click); the top spot is the Needs you cell. The app keeps Wiki in its top section, so the top and
+     tools sections lend their items to the gutter (display: contents) and the order is set per item: the top items,
+     Wiki, the tools, the bottom section. */
+  .navigation-gutter > .nav-content-modes, .navigation-gutter > .nav-extension-panels { display: contents; }
+  .navigation-gutter > .nav-quick-access { order: 1; }
+  .navigation-gutter > .nav-content-modes > [data-gutter-item="collab"] { order: 2; }
+  .navigation-gutter > .nav-extension-panels > [data-gutter-item] { order: 3; }
+  .navigation-gutter > .nav-settings { order: 4; }
+  /* The α mark on Wiki goes; its tooltip still says "Wiki (alpha)" */
+  [data-testid="collab-mode-button"] > [data-testid="alpha-badge"] { display: none !important; }
+
+  /* The top cell, "Needs you": the app's sessions bubble while it counts sessions waiting on the user (data-state
+     "orange"), grown into a full cell in the warning tone: the listening orb (shell.js), the count on the orb's corner,
+     the words under it. The bubble is the count; its ::after spreads its click over the whole cell, so the cell opens
+     the app's own list of those sessions. While the bubble counts running or unread sessions it is hidden: those are
+     not waiting on the user. All of this only while the Ink switch hides the Agent button the bubble sits on. */
+  &.ink-shell .navigation-gutter [data-gutter-item="files"], &.ink-shell .navigation-gutter [data-gutter-item="tracker"],
+  &.ink-shell .navigation-gutter [data-gutter-item="agent"]:not(:has([data-testid="agent-sessions-bubble"][data-state="orange"])) { display: none !important; }
+  .ink-needs-orb { display: none; }
+  &.ink-shell [data-gutter-item="agent"] > .nav-mode-button-wrapper { display: grid; grid-template-rows: 40px auto; row-gap: var(--x-space-1); align-items: center; justify-items: center;
+    box-sizing: border-box; width: 64px; min-height: 68px; padding: var(--x-space-1) 0; border-radius: var(--x-radius-control); background: var(--x-state-needs-tint);
+    transition: background-color var(--x-motion-fast); }
+  &.ink-shell [data-gutter-item="agent"] > .nav-mode-button-wrapper::after { content: "Needs you"; grid-row: 2; font: 600 12px/16px var(--x-font-ui); color: var(--x-state-needs); white-space: nowrap; }
+  &.ink-shell [data-gutter-item="agent"] > .nav-mode-button-wrapper > .ink-needs-orb { display: block; grid-row: 1; width: var(--x-orb-size); height: var(--x-orb-size); pointer-events: none; }
+  &.ink-shell [data-gutter-item="agent"] > .nav-mode-button-wrapper:has(> [data-testid="agent-sessions-bubble"]:hover) { background: color-mix(in oklab, var(--nim-warning) 20%, transparent); }
+  &.ink-shell [data-gutter-item="agent"] > .nav-mode-button-wrapper:has(> [data-testid="agent-sessions-bubble"]:focus-visible) { box-shadow: var(--x-focus-ring); }
+  &.ink-shell [data-testid="agent-sessions-bubble"]:not([data-state="orange"]) { display: none !important; }
+  &.ink-shell [data-testid="agent-sessions-bubble"][data-state="orange"] { top: 2px !important; right: 6px !important; height: 18px !important; min-width: 18px !important; padding: 0 5px !important;
+    border: 0 !important; border-radius: 9px !important; box-shadow: none !important; background: var(--x-state-needs) !important; color: var(--x-surface-0) !important;
+    font: var(--x-count) !important; line-height: 18px !important; font-variant-numeric: tabular-nums; outline: none; }
+  /* The click area: the whole cell (the bubble sits 2px below its top and 6px in from its right) */
+  &.ink-shell [data-testid="agent-sessions-bubble"][data-state="orange"]::after { content: ""; position: absolute; top: -2px; right: -6px; width: 64px; height: 68px; border-radius: var(--x-radius-control); }
+
   .nav-button > .material-symbols-outlined { font-size: 28px !important; width: 28px; height: 28px; font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24 !important; }
   [data-testid="gutter-user-button"] > span:first-child { width: 28px !important; height: 28px !important; font-size: 13px !important; }
   .nav-button.active::after { color: inherit; }
@@ -114,7 +222,7 @@ __S__ {
   [data-testid="agent-mode-button"]::after { content: "Agent"; }
   [data-testid="tracker-mode-button"]::after { content: "Tracker"; }
   [data-testid="collab-mode-button"]::after { content: "Wiki"; }
-  [data-testid="terminal-panel-button"]::after { content: "Term"; }
+  [data-testid="terminal-panel-button"]::after { content: "Terminal"; }
   .nav-button[data-panel-id*="systemsmap"]::after { content: "Map"; }
   .nav-button[data-panel-id*="usageplan"]::after { content: "Usage"; }
   .nav-button[data-panel-id*="commandbuttons"]::after { content: "Cmds"; }
@@ -122,16 +230,20 @@ __S__ {
   [data-testid="claude-usage-indicator"]::after { content: "Claude"; }
   [data-testid="codex-usage-indicator"]::after { content: "Codex"; }
   [data-testid="gemini-usage-indicator"]::after { content: "Gemini"; }
-  [data-testid="gutter-permissions-button"]::after { content: "Rights"; }
+  [data-testid="gutter-permissions-button"]::after { content: "Perm"; }
   [data-testid="gutter-theme-button"]::after { content: "Theme"; }
   [data-testid="gutter-user-button"]::after { content: "Account"; }
 
-  /* The app centres these on the whole button; with a name underneath they belong on the icon box (4px padding, 40px ring, a thinner line so the number has room) */
+  /* The app centres these on the whole button; with a name underneath they belong on the icon box (4px padding, 40px ring, a thinner line) */
   [data-testid$="-usage-indicator"] > span { inset: var(--x-space-1) 0 auto 0 !important; height: 40px; }
-  [data-testid$="-usage-indicator"] > svg { width: 40px; height: 40px; }
-  [data-testid$="-usage-indicator"] > svg circle { stroke-width: 2px; }
-  [data-testid$="-usage-indicator"] > span { font: 600 11px/1 var(--x-font-ui) !important; letter-spacing: 0 !important; color: var(--x-text) !important; }
-  .trust-indicator-dot { bottom: auto !important; top: 19px; right: 5px !important; }
+  /* The app draws its circle (r 12) in a 32-unit box, so a 40px svg showed a 30px ring with the 12px number touching it.
+     Scaled 1.125 the ring is 36px across, the line 1.6 units (2.25px), and 31.5px inside: "69%" (23px) has 4px each side, "100%" (30px) fits */
+  [data-testid$="-usage-indicator"] > svg { width: 40px; height: 40px; transform: scale(1.125); }
+  [data-testid$="-usage-indicator"] > svg circle { stroke-width: 1.6px; }
+  /* The ring's number one step lighter than a count (500, not 600): at 600 it read too bold inside the thin ring */
+  [data-testid$="-usage-indicator"] > span { font: var(--x-count) !important; font-weight: 500 !important; line-height: 1 !important; letter-spacing: 0 !important; color: var(--x-text) !important; }
+  /* On the icon's corner: the icon is 28 wide in the middle of the 64 button */
+  .trust-indicator-dot { bottom: auto !important; top: 19px; right: 14px !important; }
 
   /* Nothing to show */
   [data-testid="gutter-feedback-button"], [data-gutter-item="feedback"] { display: none !important; }
@@ -150,7 +262,7 @@ __S__ {
   .ai-chat-input-field, .command-pill-overlay { font: var(--x-body) !important; }
   /* The row of small controls under the text: neutral, 8px corners, no orange */
   .mode-tag { background: var(--x-overlay-hover) !important; color: var(--x-text-muted) !important; border-radius: var(--x-radius-control) !important;
-    font: var(--x-micro) !important; text-transform: none !important; letter-spacing: 0 !important; }
+    font: var(--x-meta) !important; text-transform: none !important; letter-spacing: 0 !important; }
   .mode-tag:hover { background: var(--x-overlay-selected) !important; transform: none !important; box-shadow: none !important; }
   .model-selector-button, .action-prompts-dropdown-button, [data-testid="effort-level-selector"] { border-radius: var(--x-radius-control) !important; font-weight: 400 !important; }
 
@@ -165,19 +277,53 @@ __S__ {
   .slash-command-pill:focus-visible { outline: none; box-shadow: var(--x-focus-ring) !important; }
   .slash-command-pill-icon { font-weight: 400 !important; opacity: 1 !important; }
 
+  /* "Tracker Created" card in the chat (the tracker_create tool). The app draws it with inline styles only, no class, so
+     it is found by its parts' styles: the card is the tool container's child whose header holds the raw id in monospace
+     (no other tracker card has that). Header on the heading type, the id muted at 12px and cut with an ellipsis; one label
+     column (64 wide, meta, muted) so every value starts at one x; one field per row: the app puts Priority beside Status
+     after a 12px spacer, so that row becomes a two-column grid and the Priority word starts its own line; the pills are
+     the theme's tag style (overlay fill, radius 6, meta type, no capitals), the running status in its tone, done grey. */
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) { border-color: var(--x-hairline) !important;
+    border-radius: var(--x-radius-window) !important; font: var(--x-meta) !important; color: var(--x-text); }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) > div:first-child { gap: var(--x-space-3) !important;
+    padding: var(--x-space-2) var(--x-space-3) !important; background: var(--x-surface-1) !important; border-bottom-color: var(--x-hairline) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) > div:first-child > span:first-child { flex: none;
+    font: var(--x-heading) !important; color: var(--x-text) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) > div:first-child > span[style*="font-family: monospace"] { min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/16px var(--ink-mono) !important; color: var(--x-text-muted) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) > div:last-child { gap: var(--x-space-2) !important; padding: var(--x-space-3) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) > div:last-child > div { flex-wrap: nowrap !important; align-items: baseline !important;
+    column-gap: var(--x-space-3) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) span[style*="min-width: 50px"] { flex: none; width: 64px; min-width: 64px !important;
+    font: var(--x-meta) !important; color: var(--x-text-muted) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) > div:last-child > div:has(> span[style*="width: 12px"]) { display: grid !important;
+    grid-template-columns: 64px auto; justify-content: start; justify-items: start; row-gap: var(--x-space-2) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) span[style*="width: 12px"] { display: none !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) span[style*="width: 12px"] + span { grid-column: 1;
+    font: var(--x-meta) !important; color: var(--x-text-muted) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) span[style*="cursor: pointer"] { min-width: 0; overflow-wrap: anywhere;
+    font: var(--x-row-title) !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) span[style*="border-radius: 10px"] { padding: 1px var(--x-space-2) !important;
+    border: 0 !important; border-radius: var(--x-radius-control) !important; background: var(--x-overlay-hover) !important; color: var(--x-text) !important;
+    font: var(--x-meta) !important; text-transform: none !important; letter-spacing: 0 !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) span[style*="border-radius: 10px"][style*="rgb(96, 165, 250)"] {
+    color: var(--x-state-running) !important; font-weight: 500 !important; }
+  .rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*="font-family: monospace"]:last-child) span[style*="border-radius: 10px"][style*="rgb(74, 222, 128)"] {
+    color: var(--x-state-done) !important; }
+
   /* Commit panel: "Commit with AI" is rarely used, so it is a quiet button; the sparkle stays */
   [data-testid="git-operations-commit-with-ai-button"] { background: transparent !important; background-image: none !important; color: var(--x-text) !important;
-    border: 1px solid var(--x-hairline) !important; border-radius: var(--x-radius-control) !important; font: var(--x-caption) !important; transition: background-color var(--x-motion-fast); }
+    border: 1px solid var(--x-hairline) !important; border-radius: var(--x-radius-control) !important; font: var(--x-meta) !important; transition: background-color var(--x-motion-fast); }
   [data-testid="git-operations-commit-with-ai-button"]:hover { background: var(--x-overlay-hover) !important; }
   [data-testid="git-commit-mode-toggle"] { border-radius: var(--x-radius-control) !important; }
-  [data-testid="git-commit-mode-toggle"] button { border-radius: var(--x-radius-inner) !important; font-size: 11px !important; font-weight: 400 !important; }
-  .git-operations-panel__btn-text { font-size: 11px !important; font-weight: 400 !important; }
+  [data-testid="git-commit-mode-toggle"] button { border-radius: var(--x-radius-inner) !important; font: var(--x-meta) !important; }
+  .git-operations-panel__btn-text { font: var(--x-meta) !important; }
 
   /* Theme menu fold (shell.js) */
   .ink-fold { cursor: pointer; transition: background-color var(--x-motion-fast); }
   .ink-fold:hover { background: var(--x-overlay-hover); }
   .ink-fold:focus-visible { outline: 2px solid var(--x-accent); outline-offset: -2px; }
-  .ink-fold-arrow { margin-left: auto; font-family: "Material Symbols Outlined"; font-size: 16px; line-height: 16px; font-variation-settings: var(--x-icon-settings); color: var(--x-text-muted); }
+  .ink-fold-arrow { margin-left: auto; /* biome-ignore lint/a11y/useGenericFontNames: an icon font; a generic family would draw the icon names as words */ font-family: "Material Symbols Outlined"; font-size: 16px; line-height: 16px; font-variation-settings: var(--x-icon-settings); color: var(--x-text-muted); }
 }
 
 /* The one rule outside the themes, on under every theme. Since 0.83.0 the Theme button sits in the project rail, whose

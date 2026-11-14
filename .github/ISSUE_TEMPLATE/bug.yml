@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in the setup doesn't work the way the docs say.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A security problem goes through a private report instead (see SECURITY.md).
+        Before you paste a log, take out anything private: your home folder path, names, keys and tokens.
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options:
+        - Windows
+        - macOS
+        - Other (Linux is untested)
+    validations:
+      required: true
+  - type: input
+    id: system-version
+    attributes:
+      label: System version
+      placeholder: Windows 11 24H2, macOS 15.5, Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: claude-code
+    attributes:
+      label: Claude Code version
+      description: What `claude --version` prints.
+    validations:
+      required: true
+  - type: input
+    id: setup-version
+    attributes:
+      label: Setup version
+      description: The `version` in `~/.claude/setup-state.json`, or `version.json` in your copy if that file is missing.
+    validations:
+      required: true
+  - type: input
+    id: nimbalyst
+    attributes:
+      label: Nimbalyst version
+      description: Leave empty if you don't use Nimbalyst.
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: The steps, or the message you typed, that lead to the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: For a send-back you think was wrong, give the hook's name and the message the agent got.
+    validations:
+      required: true
+  - type: textarea
+    id: hook-errors
+    attributes:
+      label: Hook errors
+      description: For a hook that crashed, its lines from `~/.claude/hooks/state/hook-errors.log`.
+      render: text

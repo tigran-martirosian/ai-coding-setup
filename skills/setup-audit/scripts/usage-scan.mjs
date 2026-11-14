@@ -18,10 +18,9 @@
 //   --no-cache        parse every transcript (default: reuse per-file results in ~/.claude/reports/usage-scan-cache.jsonl)
 //   --cache-file PATH use another cache file
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import {
-  BIG_READ_GATE,
   COMMAND_EXPLAIN,
   NOTE_ANYWHERE_RE,
   POWERSHELL_TOOL,
@@ -30,9 +29,9 @@ import {
   SETTLED_NOTE,
   WORKER_SIZE_NOTE,
 } from "../../../hooks/lib/texts.mjs";
-import { ARGS, opt } from "./lib/opt.mjs";
+import { defaultRoot, TOO_FEW } from "./lib/chats.mjs";
 import { DAY_MS, DEFAULT_DAYS, day as dayKey } from "./lib/days.mjs";
-import { TOO_FEW, defaultRoot } from "./lib/chats.mjs";
+import { ARGS, opt } from "./lib/opt.mjs";
 import { PRICE, PRICE_UNLISTED } from "./lib/prices.mjs";
 
 const flag = (name) => ARGS.includes(`--${name}`);
@@ -134,7 +133,8 @@ const textOf = (content) =>
       : "";
 
 // Requests the setup itself causes: per file, every API request (last usage of its message id), the user
-// messages (turns) with the requests under each, runs of failed tool calls, and hook blocks.
+// messages (turns) with the requests under each, runs of failed tool calls, hook blocks (not those on a side
+// branch), and cancelled calls.
 const emptyWaste = () => ({
   reqs: new Map(),
   turns: [],
@@ -143,9 +143,43 @@ const emptyWaste = () => ({
   unmatched: 0,
   launches: [],
   firings: {},
+  cancelled: [], // main chats: { cause: what started the turn (CAUSES), dead: on a side branch }
 });
+// The hook's name: a "[name-x]" right after "hook error:", else the "name:" after an optional "[...]" ("[node hook]: x:")
 const WASTE_HOOK_RE =
-  /hook (?:error|blocking error)[^:]*:\s*(?:\[[^\]]*\]:?\s*)?([a-z][a-z-]+):/i;
+  /hook (?:error|blocking error)[^:]*:\s*(?:\[([a-z]+(?:-[a-z]+)+)\]|(?:\[[^\]]*\]:?\s*)?([a-z][a-z-]+):)/i;
+const wasteHook = (body) => {
+  const m = body.match(WASTE_HOOK_RE);
+  return m ? (m[1] ?? m[2]) : null;
+};
+// The live branch of a transcript: the uuids on the parent path from its last entry back to the root. A chain that
+// breaks (a compaction boundary whose logical parent was not saved) goes on from the last entry written before the
+// break. Entries off this path sit on a side branch the chat never continued from.
+const liveBranch = (lines, sub) => {
+  const own = (l) => l.uuid && (sub || !l.isSidechain);
+  const at = new Map();
+  lines.forEach((l, i) => l.uuid && at.set(l.uuid, i));
+  const live = new Set();
+  let i = lines.findLastIndex(own);
+  while (i >= 0 && !live.has(lines[i].uuid)) {
+    const l = lines[i];
+    live.add(l.uuid);
+    const parent = l.parentUuid ?? l.logicalParentUuid;
+    if (!parent) break;
+    i = at.get(parent) ?? lines.findLastIndex((x, k) => k < i && own(x));
+  }
+  return live;
+};
+// A cancelled call: Claude Code cut it off ("The user doesn't want to take this action right now"); older lines lack toolDenialKind
+const CANCELLED_RE = /^The user doesn't want to take this action/;
+const CLOSED_NOTE_RE = /Nimbalyst closed the Claude Code process/;
+const CAUSES = [
+  "settled prompt",
+  "task notice",
+  "Stop-hook send-back",
+  "user message",
+  "other",
+];
 // Hook firings, per hook: the traces a hook leaves in a transcript. "attachment" lines: hook_additional_context (text
 // added to the model's context), hook_system_message (shown to the user only), hook_blocking_error (a Stop or prompt
 // hook refused), hook_stopped_continuation, hook_non_blocking_error (crash), hook_cancelled (timed out), hook_success
@@ -285,13 +319,14 @@ function scan(file, window, sub = false, info = {}) {
   const lines = readLines(file);
   const stamps = lines
     .map((l) => Date.parse(l.timestamp))
-    .filter((t) => !isNaN(t));
+    .filter((t) => !Number.isNaN(t));
   info.minT = null;
   info.maxT = null;
   info.ledger = [];
   if (!stamps.length) return null;
   const start = Math.min(...stamps);
   info.minT = start;
+  // biome-ignore lint/complexity/useMathMinMax: Math.max(...stamps) overflows the call stack on a long log
   info.maxT = stamps.reduce((a, t) => (t > a ? t : a), -Infinity);
   const end = window.minutes
     ? Math.min(window.until, start + window.minutes * 60000)
@@ -299,7 +334,7 @@ function scan(file, window, sub = false, info = {}) {
   const from = window.minutes ? start : window.since;
   const inWin = (l) => {
     const t = Date.parse(l.timestamp);
-    return !isNaN(t) && t >= from && t <= end;
+    return !Number.isNaN(t) && t >= from && t <= end;
   };
 
   const msgs = new Map(); // message id -> usage
@@ -340,6 +375,20 @@ function scan(file, window, sub = false, info = {}) {
   }; // subagent files: size-note position, compactions
   const agentBg = {}; // main files: helper agent id -> launched in the background?
   const refused = []; // tool calls a hook refused: { name, id: request id }
+  // A tool result is on a side branch when neither its own line nor the line of its call is on the live branch
+  // (results of parallel calls hang off their own call, beside the live path)
+  const live = liveBranch(lines, sub);
+  const callLine = new Map(); // tool_use id -> uuid of the assistant line that made the call
+  for (const l of lines)
+    if (l.type === "assistant" && l.uuid)
+      for (const c of l.message?.content ?? [])
+        if (c.type === "tool_use") callLine.set(c.id, l.uuid);
+  const deadResult = (l, x) =>
+    Boolean(l.uuid) &&
+    live.size > 0 &&
+    !live.has(l.uuid) &&
+    !live.has(callLine.get(x.tool_use_id));
+  let cause = "other"; // what started the current turn (CAUSES)
   const wasteLine = (l) => {
     if (sub && l.type === "system" && l.subtype === "compact_boundary")
       helper.compacts++;
@@ -354,6 +403,12 @@ function scan(file, window, sub = false, info = {}) {
     if (!sub && l.isSidechain) return;
     if (l.type === "attachment") {
       hookTrace(waste.firings, l);
+      // a refused stop sends the model back: what follows belongs to the hook's send-back
+      if (
+        l.attachment?.type === "hook_blocking_error" &&
+        l.attachment.hookEvent === "Stop"
+      )
+        cause = "Stop-hook send-back";
       if (
         !sub &&
         turn?.settled &&
@@ -423,20 +478,37 @@ function scan(file, window, sub = false, info = {}) {
           source: wake ? wakeSource(text, wasteUses, agentByDesc) : null,
           t: Date.parse(l.timestamp),
           settled: SETTLED_RE.test(text),
+          closed: SETTLED_RE.test(text) && CLOSED_NOTE_RE.test(text),
           typed: !wake && !NOT_TYPED_RE.test(text),
           note: false,
         };
         waste.turns.push(turn);
+        cause = turn.settled
+          ? "settled prompt"
+          : turn.wake
+            ? "task notice"
+            : turn.typed
+              ? "user message"
+              : "other";
       }
       if (!Array.isArray(c)) return;
       for (const x of c) {
         if (x.type !== "tool_result") continue;
         const use = wasteTool.get(x.tool_use_id);
         const body = textOf(x.content);
+        const dead = deadResult(l, x);
+        if (
+          !sub &&
+          (l.toolDenialKind
+            ? l.toolDenialKind === "cancelled"
+            : x.is_error && CANCELLED_RE.test(body))
+        )
+          waste.cancelled.push({ cause, dead });
         const hook =
-          body.match(WASTE_HOOK_RE)?.[1] ??
+          wasteHook(body) ??
           (body.includes(COMMAND_EXPLAIN) ? "command-explain" : null);
-        if (hook && x.is_error) {
+        // a refusal on a side branch the chat never continued from is not counted as a block
+        if (hook && x.is_error && !dead) {
           const reason =
             hook !== "command-explain"
               ? ""
@@ -525,7 +597,8 @@ function scan(file, window, sub = false, info = {}) {
         const day = (days[dayKey(t)] ??= {});
         day[m] = (day[m] ?? 0) + tok;
         if (m !== "<synthetic>") {
-          const c = apiCost(u, m), dk = dayKey(t);
+          const c = apiCost(u, m),
+            dk = dayKey(t);
           usd[dk] = (usd[dk] ?? 0) + c;
           (dayUsd[dk] ??= {})[m] = (dayUsd[dk][m] ?? 0) + c;
         }
@@ -711,7 +784,7 @@ function scan(file, window, sub = false, info = {}) {
     workers,
     hooks,
     title,
-    first: isFinite(first) ? new Date(first).toISOString() : null,
+    first: Number.isFinite(first) ? new Date(first).toISOString() : null,
     last: last ? new Date(last).toISOString() : null,
   };
 }
@@ -728,7 +801,7 @@ const cacheFile = opt(
 );
 // Raise SCAN_VERSION by hand whenever an edit changes what a parsed file yields (a pattern, a field, a price); a
 // comment or layout edit leaves it. The time zone is part of the version because the cached days are local dates.
-const SCAN_VERSION = 8;
+const SCAN_VERSION = 9;
 const CACHE_VERSION = `${SCAN_VERSION}|${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
 // The cache file's lines, read in chunks: the file is hundreds of MB, past what one string can hold
 function* cacheLines(file) {
@@ -736,7 +809,7 @@ function* cacheLines(file) {
   const buf = Buffer.alloc(1 << 24);
   let rest = Buffer.alloc(0);
   try {
-    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) {
+    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0; ) {
       let chunk = Buffer.concat([rest, buf.subarray(0, n)]);
       let i;
       while ((i = chunk.indexOf(10)) !== -1) {
@@ -1081,7 +1154,17 @@ const wasted = {
   settled: {
     turns: [],
     perProject: {},
-    total: { n: 0, requests: 0, tools: 0, withNote: 0, repeats: 0, tokens: 0 },
+    total: {
+      n: 0,
+      requests: 0,
+      tools: 0,
+      withNote: 0,
+      closedNote: 0,
+      repeats: 0,
+      tokens: 0,
+    },
+    // cancelled calls by what started their turn; dead = on a side branch the chat never continued from
+    cancelled: Object.fromEntries(CAUSES.map((k) => [k, { n: 0, dead: 0 }])),
   },
   quality: { minClaims: TOO_FEW, perProject: {}, total: {} },
   launches: { perProject: {}, total: { agent: 0, bash: 0, moved: 0 } },
@@ -1149,6 +1232,10 @@ for (const s of all) {
     lp[k]++;
     wasted.launches.total[k]++;
   }
+  for (const k of W.cancelled) {
+    wasted.settled.cancelled[k.cause].n++;
+    if (k.dead) wasted.settled.cancelled[k.cause].dead++;
+  }
   // Settled turns: requests and tool calls until the next user message or wake-up; repeats = an item named in a settled prompt within 15 min before
   const seenItems = new Map();
   for (const t of W.turns) {
@@ -1164,6 +1251,7 @@ for (const s of all) {
       requests: t.ids.length,
       tools: sum(t.ids, (id) => W.reqs.get(id).tools.length),
       note: t.note,
+      closed: t.closed,
       repeat,
       tokens: sum(t.ids, reqCtx),
     };
@@ -1173,6 +1261,7 @@ for (const s of all) {
       requests: 0,
       tools: 0,
       withNote: 0,
+      closedNote: 0,
       repeats: 0,
       tokens: 0,
     });
@@ -1181,6 +1270,7 @@ for (const s of all) {
       o.requests += row.requests;
       o.tools += row.tools;
       o.withNote += row.note ? 1 : 0;
+      o.closedNote += row.closed ? 1 : 0;
       o.repeats += row.repeat ? 1 : 0;
       o.tokens += row.tokens;
     }
@@ -1269,7 +1359,8 @@ for (const s of all) {
       const ws = (wasted.wakeSources[t.source] ??= { n: 0, tokens: 0 });
       ws.n++;
       ws.tokens += row.tokens;
-      if (!W.reqs.get(t.ids.at(-1)).tools.length) wasted.wakeTextOnly++;
+      if (t.ids.every((id) => !W.reqs.get(id).tools.length))
+        wasted.wakeTextOnly++;
     }
   }
   if (s.maxContext > 100e3) {
@@ -1503,7 +1594,9 @@ const report = {
     models: s.models,
     days: s.days,
     usd: cents(s.usd),
-    dayUsd: Object.fromEntries(Object.entries(s.dayUsd).map(([d, o]) => [d, cents(o)])),
+    dayUsd: Object.fromEntries(
+      Object.entries(s.dayUsd).map(([d, o]) => [d, cents(o)]),
+    ),
     workers: [s, ...s.subagents].flatMap((x) => x.workers),
     subagents: s.subagents.map((a) => ({
       id: a.id,
@@ -1515,7 +1608,9 @@ const report = {
       models: a.models,
       days: a.days,
       usd: cents(a.usd),
-      dayUsd: Object.fromEntries(Object.entries(a.dayUsd).map(([d, o]) => [d, cents(o)])),
+      dayUsd: Object.fromEntries(
+        Object.entries(a.dayUsd).map(([d, o]) => [d, cents(o)]),
+      ),
     })),
   })),
   ...(withCost
@@ -1735,7 +1830,7 @@ const byProj = (o, f) => {
 out.push(
   ``,
   `**Wake-up turns** (the harness started the turn: a background task or agent finished; main chats): ${X.wake.n} turns, ${M(X.wake.tokens)}. By project: ${byProj(X.wake.perProject, (v) => `${v.n} (${M(v.tokens)})`)}.`,
-  `  By source (top 8; text-only wake-up turns, no tool call at the end: ${X.wakeTextOnly} of ${X.wake.n}): ${
+  `  By source (top 8; text-only wake-up turns, no tool call in any request: ${X.wakeTextOnly} of ${X.wake.n}): ${
     Object.entries(X.wakeSources)
       .sort((a, b) => b[1].tokens - a[1].tokens)
       .slice(0, 8)
@@ -1766,22 +1861,24 @@ out.push(
   ``,
   `## Settled turns`,
   ``,
-  `A settled turn starts with a "[System: background task(s) you launched have settled" prompt; its requests run until the next user message or wake-up. "With note": the background-tasks hook added its settled-notice note. "Repeat": it names an item a settled prompt named less than 15 min before (main chats).`,
+  `A settled turn starts with a "[System: background task(s) you launched have settled" prompt; its requests run until the next user message or wake-up. "With note": the background-tasks hook added its settled-notice note. "Repeat": it names an item a settled prompt named less than 15 min before (main chats). "Closed process": the prompt says Nimbalyst closed the Claude Code process that held the results.`,
   ``,
-  `**Total:** ${SE.total.n} settled turns, ${SE.total.requests} requests, ${SE.total.tools} tool calls, ${M(SE.total.tokens)} tokens; ${SE.total.withNote} with the note, ${SE.total.repeats} repeats.`,
+  `**Total:** ${SE.total.n} settled turns, ${SE.total.requests} requests, ${SE.total.tools} tool calls, ${M(SE.total.tokens)} tokens; ${SE.total.withNote} with the note, ${SE.total.closedNote} with the closed-process note, ${SE.total.repeats} repeats.`,
   ``,
-  `| Project | Settled turns | Requests | Tool calls | With note | Repeats | Tokens |`,
-  `|---|---|---|---|---|---|---|`,
+  `| Project | Settled turns | Requests | Tool calls | With note | Closed process | Repeats | Tokens |`,
+  `|---|---|---|---|---|---|---|---|`,
 );
 for (const [k, v] of Object.entries(SE.perProject).sort(
   (a, b) => b[1].n - a[1].n,
 ))
   out.push(
-    `| ${k} | ${v.n} | ${v.requests} | ${v.tools} | ${v.withNote} | ${v.repeats} | ${M(v.tokens)} |`,
+    `| ${k} | ${v.n} | ${v.requests} | ${v.tools} | ${v.withNote} | ${v.closedNote} | ${v.repeats} | ${M(v.tokens)} |`,
   );
 out.push(
   ``,
   `Most requests in one settled turn: ${SE.worst.map((r) => `${r.project}/${r.session} ${r.requests} requests, ${r.tools} tools, ${r.note ? "note" : "no note"}${r.repeat ? ", repeat" : ""}`).join("; ") || "none"}.`,
+  ``,
+  `**Cancelled calls** ("The user doesn't want to take this action", main chats) by what started the turn (side branch = a branch the chat never continued from): ${CAUSES.map((k) => `${k} ${SE.cancelled[k].n} (${SE.cancelled[k].dead} on a side branch)`).join(", ")}.`,
 );
 out.push(
   ``,

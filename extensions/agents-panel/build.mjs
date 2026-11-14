@@ -25,13 +25,19 @@ const RUSSIAN_STRINGS = `const STRINGS = {
   done: 'Готово: {n}',
   stopped: 'Остановлено: {n}',
   idle: 'Ничего не запущено',
+  doneIn: 'готово за {n}',
+  failedAfter: 'сбой через {n}',
+  stoppedAfter: 'остановлено через {n}',
   doneWord: 'готово',
   failedWord: 'сбой',
   stoppedWord: 'остановлено',
-  kinds: { 'Sub-agent': 'Субагент', Command: 'Команда', Workflow: 'Процесс', 'MCP task': 'Задача MCP', Task: 'Задача' },
+  kinds: { 'Sub-agent': 'Помощник', Command: 'Команда', Workflow: 'Процесс', 'MCP task': 'Задача MCP', Task: 'Задача' },
   tools: { one: 'инструментов: {n}', many: 'инструментов: {n}' },
   units: { h: 'ч', m: 'м', s: 'с' },
-  quiet: 'тихо уже {n}',
+  waiting: '{step} уже {n}',
+  thinking: 'думает',
+  planning: 'планирует',
+  background: 'работает в фоне',
   models: { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku', fable: 'Fable' },
   efforts: { low: 'низкий', medium: 'средний', high: 'высокий', xhigh: 'очень высокий', max: 'максимальный' },
   now: {
@@ -45,7 +51,64 @@ const RUSSIAN_STRINGS = `const STRINGS = {
     MultiEdit: 'правит файл',
     Bash: 'выполняет команду',
     PowerShell: 'выполняет команду',
-    Agent: 'ждёт субагента',
+    Agent: 'ждёт помощника',
+  },
+  filesLine: '{files}, {folders}',
+  files: { one: 'Файлов: {n}', many: 'Файлов: {n}' },
+  folders: { one: 'папок: {n}', many: 'папок: {n}' },
+  moreFolders: { one: 'ещё папок: {n}', many: 'ещё папок: {n}' },
+  filesOpen: 'Открыть весь список',
+  filesFold: 'Свернуть список',
+  commit: 'Коммит',
+  waitLine: {
+    thinking: 'Думает',
+    background: 'Ждёт фоновую задачу',
+    backgroundWhat: 'Ждёт фоновую задачу: {what}',
+    backgrounds: 'Ждёт фоновые задачи: {n}',
+    helper: 'Ждёт помощника',
+    helpers: 'Ждёт помощников: {n}',
+  },
+  needs: {
+    word: 'Ждёт вас',
+    one: '1 вопрос: {what}',
+    many: 'Вопросов: {n}. {what} и ещё {more}',
+    oneBare: '1 вопрос',
+    manyBare: 'Вопросов: {n}',
+    running: 'работает',
+  },
+  helperCard: {
+    roles: { helper: 'Помощник', reviewer: 'Проверяющий', planner: 'Планировщик' },
+    finished: '{role}: готово',
+    doingLine: '{role} {doing}',
+    still: '{role} всё ещё {doing}',
+    doing: {
+      WebFetch: 'читает страницу',
+      WebSearch: 'ищет в сети',
+      Read: 'читает файлы',
+      Grep: 'ищет по файлам',
+      Glob: 'ищет по файлам',
+      Edit: 'правит файлы',
+      Write: 'правит файлы',
+      MultiEdit: 'правит файлы',
+      Bash: 'выполняет команду',
+      PowerShell: 'выполняет команду',
+      Agent: 'ждёт помощника',
+      Task: 'ждёт помощника',
+    },
+    running: 'работает',
+    background: 'Работает в фоне',
+    inBackground: 'В фоне',
+    stopped: 'Остановлен раньше срока',
+    failed: 'Сбой',
+    turnLimit: 'исчерпал лимит ходов',
+    steps: { one: 'шагов: {n}', many: 'шагов: {n}' },
+    tokens: 'токенов: {n}',
+    noTokens: 'токены не сообщены',
+    lastStep: 'последний шаг {n} назад',
+    started: 'начат в {n}',
+    timeLocale: 'ru-RU',
+    thousand: ' тыс.',
+    million: ' млн',
   },
 };`;
 const lang = lenientLanguage();
@@ -73,6 +136,36 @@ const HOLD_IMPORT = importOf("scroll-hold.js");
 if (!HOLD_IMPORT.test(js))
   throw new Error("scroll-hold.js import not found in src/index.js");
 js = js.replace(HOLD_IMPORT, () => inline("scroll-hold.js"));
+// src/stage.js the same way
+const STAGE_IMPORT = importOf("stage.js");
+if (!STAGE_IMPORT.test(js))
+  throw new Error("stage.js import not found in src/index.js");
+js = js.replace(STAGE_IMPORT, () => inline("stage.js"));
+// src/files-fold.js the same way
+const FOLD_IMPORT = importOf("files-fold.js");
+if (!FOLD_IMPORT.test(js))
+  throw new Error("files-fold.js import not found in src/index.js");
+js = js.replace(FOLD_IMPORT, () => inline("files-fold.js"));
+// src/chat-state.js the same way
+const CHAT_IMPORT = importOf("chat-state.js");
+if (!CHAT_IMPORT.test(js))
+  throw new Error("chat-state.js import not found in src/index.js");
+js = js.replace(CHAT_IMPORT, () => inline("chat-state.js"));
+// src/helper-card.js the same way
+const HELPER_IMPORT = importOf("helper-card.js");
+if (!HELPER_IMPORT.test(js))
+  throw new Error("helper-card.js import not found in src/index.js");
+js = js.replace(HELPER_IMPORT, () => inline("helper-card.js"));
+// The shared thinking-orbs mount goes in place of the marker line inside loadOrbs(), so it runs at activate,
+// not when the file is imported (test.mjs imports it in Node, where there is no window)
+const ORBS_MARKER = /^[ \t]*\/\/ ORBS-MOUNT \(build\.mjs\)[ \t]*\r?$/m;
+if (!ORBS_MARKER.test(js))
+  throw new Error("ORBS-MOUNT marker not found in src/index.js");
+const orbs = fs.readFileSync(
+  path.join(here, "..", "shared", "orbs", "orbs.js"),
+  "utf8",
+);
+js = js.replace(ORBS_MARKER, () => orbs.trimEnd());
 if (lang === "russian") js = swapStrings(js, RUSSIAN_STRINGS);
 fs.writeFileSync(path.join(dist, "index.js"), js);
 fs.writeFileSync(

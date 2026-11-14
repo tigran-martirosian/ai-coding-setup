@@ -286,7 +286,7 @@ export const otherTokensFor = (P, shared, filtered, d) =>
     : 0;
 
 export function niceMax(v) {
-  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const p = 10 ** Math.floor(Math.log10(v));
   const f = v / p;
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
 }

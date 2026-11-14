@@ -1,5 +1,6 @@
 // Tests for hooks/question-other.mjs. Run: node tests/test-question-other.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
@@ -1212,7 +1213,12 @@ for (const [name, out, ok] of [
   const home = mkdtempSync(join(dir, "home-"));
   const homeEnv = { HOME: home, USERPROFILE: home };
   const thirdFile = join(dir, "third.jsonl");
-  writeFileSync(thirdFile, tries(2).map((e) => JSON.stringify(e)).join("\n"));
+  writeFileSync(
+    thirdFile,
+    tries(2)
+      .map((e) => JSON.stringify(e))
+      .join("\n"),
+  );
   const third = run(
     { ...ask("Fix it in S7?"), transcript_path: thirdFile, session_id: "s1" },
     homeEnv,
@@ -1220,7 +1226,14 @@ for (const [name, out, ok] of [
   let logged = "";
   try {
     logged = readFileSync(
-      join(home, ".claude", "hooks", "state", "question-other", "let-through.log"),
+      join(
+        home,
+        ".claude",
+        "hooks",
+        "state",
+        "question-other",
+        "let-through.log",
+      ),
       "utf8",
     );
   } catch {}
@@ -1284,7 +1297,11 @@ for (const [name, out, ok] of [
     ],
     [
       "a status question (are you still sorting them) is refused as asking no decision",
-      card(ask("The photo folder still shows 5 of 40 photos sorted. Are you still sorting them?")),
+      card(
+        ask(
+          "The photo folder still shows 5 of 40 photos sorted. Are you still sorting them?",
+        ),
+      ),
       NAG,
     ],
     [
@@ -1344,13 +1361,23 @@ for (const [name, out, ok] of [
     ],
     [
       "a compaction summary is not the user's words: a label only it names is refused",
-      withTurn([user("fix the thing"), summary("The next step is S7.")], ask("Fix it in S7?")),
+      withTurn(
+        [user("fix the thing"), summary("The next step is S7.")],
+        ask("Fix it in S7?"),
+      ),
       refusedFor(["S7"]),
     ],
     [
       "a compaction summary does not end the run of refusals",
-      withTurn([...tries(2), summary("Two cards were refused.")], ask("Fix it in S7?"), homeEnv),
-      (o) => check(o, "note") && !o.includes(MARK) && reason(o).includes("2 refusals in a row"),
+      withTurn(
+        [...tries(2), summary("Two cards were refused.")],
+        ask("Fix it in S7?"),
+        homeEnv,
+      ),
+      (o) =>
+        check(o, "note") &&
+        !o.includes(MARK) &&
+        reason(o).includes("2 refusals in a row"),
     ],
     [
       "an answered card whose answer quotes the marker is no refusal, so it ends the run",
@@ -1368,7 +1395,10 @@ for (const [name, out, ok] of [
       "with no session record a faulty card goes through with a note, no marker",
       [
         run(ask("Fix it in S7?")),
-        run({ ...ask("Fix it in S7?"), transcript_path: join(dir, "gone.jsonl") }),
+        run({
+          ...ask("Fix it in S7?"),
+          transcript_path: join(dir, "gone.jsonl"),
+        }),
       ],
       (outs) =>
         outs.every(
@@ -1406,7 +1436,10 @@ for (const [name, out, ok] of [
     [
       "the third faulty card is logged",
       logged,
-      (l) => /s1 mcp__nimbalyst__AskUserQuestion: let through after 2 refusals; labels: S7/.test(l),
+      (l) =>
+        /s1 mcp__nimbalyst__AskUserQuestion: let through after 2 refusals; labels: S7/.test(
+          l,
+        ),
     ],
     [
       "a card that went through ends the run of refusals",
@@ -1452,7 +1485,11 @@ for (const [name, out, ok] of [
     }
   };
   for (const [name, out, ok] of [
-    ["a label listed exactly (T3) passes", at(good, ask("Raise the drop rate at T3?")), (o) => o === ""],
+    [
+      "a label listed exactly (T3) passes",
+      at(good, ask("Raise the drop rate at T3?")),
+      (o) => o === "",
+    ],
     [
       "labels of a listed family (/K[1-5]/, /W-\\d+/) pass",
       at(good, ask("Move K4 next to W-120?")),
@@ -1506,12 +1543,17 @@ for (const [name, out, ok] of [
     [
       "a bad regex line is named in the note and skipped; the rest of the list works",
       at(bad, ask("Raise the drop rate at T3?")),
-      (o) => !denied(o) && o.includes('line 1 \\"/[unclosed/\\"') && o.includes("card-labels.txt"),
+      (o) =>
+        !denied(o) &&
+        o.includes('line 1 \\"/[unclosed/\\"') &&
+        o.includes("card-labels.txt"),
     ],
     [
       "a bad regex line is named in a refusal too",
       at(bad, ask("Fix it in S7?")),
-      (o) => denied(o).startsWith(MARK) && denied(o).includes('line 1 "/[unclosed/"'),
+      (o) =>
+        denied(o).startsWith(MARK) &&
+        denied(o).includes('line 1 "/[unclosed/"'),
     ],
   ]) {
     const passed = ok(out);

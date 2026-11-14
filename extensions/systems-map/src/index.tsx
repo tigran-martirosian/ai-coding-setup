@@ -6,15 +6,25 @@
  * This file only draws them.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PanelHostProps } from "@nimbalyst/extension-sdk";
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import type { PanelHostProps } from "@nimbalyst/extension-sdk";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import "../../shared/tokens.css";
 import "./panel.css";
-import { t } from "./strings.ts";
+import { hostError, hostInvoke as invoke } from "../../shared/host.ts";
+import type { Place } from "./layout.ts";
+import { layout, radius } from "./layout.ts";
+import type { Check, Evidence, Link, MapData, Thing } from "./map.ts";
 import {
   absolute,
   checkLine,
@@ -23,13 +33,10 @@ import {
   projectName,
   sizeLine,
 } from "./map.ts";
-import type { Check, Evidence, Link, MapData, Thing } from "./map.ts";
 import { search } from "./search.ts";
-import { layout, radius } from "./layout.ts";
-import type { Place } from "./layout.ts";
-import { REFRESH_MS, build, read } from "./store.ts";
 import type { Snapshot } from "./store.ts";
-import { hostError, hostInvoke as invoke } from "../../shared/host.ts";
+import { build, REFRESH_MS, read } from "./store.ts";
+import { t } from "./strings.ts";
 
 const Sym = ({ name }: { name: string }) => (
   <span className="material-symbols-outlined sm-sym" aria-hidden="true">
@@ -206,9 +213,11 @@ function Graph({
   }, []);
 
   // The whole map is shown until the person moves it by hand; a new layout starts again from the whole.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: places (a new layout) is the trigger: the effect must run again when it changes
   useEffect(() => {
     touched.current = false;
   }, [places]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: places (a new layout) is the trigger: the effect must run again when it changes
   useEffect(() => {
     if (size.w > 0 && size.h > 0 && !touched.current)
       setView(fitView(size.w, size.h));
@@ -298,6 +307,7 @@ function Graph({
 
   // Labels: the focused part and its neighbours first, then matches, then the busiest parts; one that
   // would cover an earlier label is left out. Zooming in makes room for the rest.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: r and screen are new on every render and read view, which is listed; listing them would rerun this on every render
   const labels = useMemo(() => {
     const order = [...map.things].sort(
       (a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0),
@@ -401,6 +411,7 @@ function Graph({
 
   return (
     <div className="sm-canvas" ref={boxRef}>
+      {/* biome-ignore lint/a11y/useSemanticElements: an <svg> cannot be a <fieldset>; the group role names the drawing for screen readers */}
       <svg
         ref={svgRef}
         className="sm-svg"
@@ -420,6 +431,7 @@ function Graph({
             const on = lineLit(l);
             return (
               <line
+                // biome-ignore lint/suspicious/noArrayIndexKey: links have no id and the same from/to pair can repeat; the list is rebuilt whole
                 key={i}
                 className={`sm-edge t-${l.type}${drifted.has(linkKey(l.from, l.to)) ? " is-drift" : ""}${focusId && on ? " is-lit" : ""}${on ? "" : " is-dim"}`}
                 x1={sa.x}
@@ -444,6 +456,7 @@ function Graph({
               dim ? "is-dim" : "",
             ];
             return (
+              // biome-ignore lint/a11y/useSemanticElements: an SVG <g> cannot be a <button>; it has tabIndex and key handling instead
               <g
                 key={n.id}
                 className={cls.filter(Boolean).join(" ")}
@@ -465,6 +478,7 @@ function Graph({
           })}
         </g>
         {/* labels in their own layer, above every dot, so a neighbour's dot never covers one */}
+        {/* biome-ignore lint/a11y/noAriaHiddenOnFocusable: the label layer holds no focusable element; it repeats the names the dots carry */}
         <g aria-hidden="true">
           {map.things.map((n) => {
             const p = places.get(n.id);
@@ -593,6 +607,7 @@ function FileList({
 const breakable = (p: string) =>
   p
     .split("/")
+    // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one path string; their order never changes
     .flatMap((part, i) => (i ? ["/", <wbr key={i} />, part] : [part]));
 
 function Card({
@@ -610,6 +625,7 @@ function Card({
     (l) => l.from === thing.id || l.to === thing.id,
   );
   const [open, setOpen] = useState<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: thing.id (another part picked) is the trigger: the effect must run again when it changes
   useEffect(() => setOpen(null), [thing.id]);
   return (
     <aside className="sm-card" aria-label={thing.name}>
@@ -661,6 +677,7 @@ function Card({
           const changed = new Map(hits.map((d) => [d.file, d.token]));
           const files = l.evidence.map((e: Evidence) => e.file);
           return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: links have no id and the same from/to pair can repeat; the list is rebuilt whole
             <li key={i} className="sm-link">
               <button
                 type="button"
@@ -794,7 +811,7 @@ function SystemsMapPanel({ host }: PanelHostProps) {
       ? snapshot.check.gone.join(", ")
       : "";
 
-  let body;
+  let body: ReactNode;
   if (error && !snapshot) {
     body = (
       <div className="sm-empty">
@@ -853,6 +870,7 @@ function SystemsMapPanel({ host }: PanelHostProps) {
   }
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: catches the keys of the focusable parts inside the panel
     <div className="sm" ref={rootRef} onKeyDown={onKeyDown} data-systems-map>
       <header className="sm-head">
         <div className="sm-titles">

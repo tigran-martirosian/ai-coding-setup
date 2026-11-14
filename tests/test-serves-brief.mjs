@@ -1,10 +1,11 @@
 // Tests for hooks/serves-brief.mjs and its rules in hooks/lib/serves.mjs: a plan row's Serves cell travels into the
 // helper's brief. Run: node tests/test-serves-brief.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(
@@ -215,14 +216,15 @@ for (const t of ["reviewer", "plan-reviewer"]) {
   u = updated(
     hook(agent("Review the plan docs/plan.md before the user sees it.", t)),
   );
-  const want = [
-    "SERVES (from docs/plan.md, every row): what the user said each row is for.",
-    "I1: “prove it on the real case” (DECISIONS 2026-11-12)",
-    'I2: no quoted purpose (the row\'s Serves cell ("decided, see DECISIONS") quotes no words of the user)',
-    'I3: "hook I3 yes" (DECISIONS 2026-11-12)',
-    "I4: no quoted purpose (the row's Serves cell is empty)",
-    "I6: none (mechanics)",
-  ].join("\n") + NOREC(dir);
+  const want =
+    [
+      "SERVES (from docs/plan.md, every row): what the user said each row is for.",
+      "I1: “prove it on the real case” (DECISIONS 2026-11-12)",
+      'I2: no quoted purpose (the row\'s Serves cell ("decided, see DECISIONS") quotes no words of the user)',
+      'I3: "hook I3 yes" (DECISIONS 2026-11-12)',
+      "I4: no quoted purpose (the row's Serves cell is empty)",
+      "I6: none (mechanics)",
+    ].join("\n") + NOREC(dir);
   check(
     `${t}: every row's cell, one per line, struck-out rows left out`,
     u?.prompt.endsWith(`\n\n${want}`),
@@ -365,7 +367,7 @@ const PPLAN = [
   '| P11 | Sort the planner\'s table | "keep tests green" (DECISIONS 2026-01-05) | `docs/` | sorted | worker |',
   '| P12 | Fix the planner hook | "Plans as careful as a senior engineer." (DECISIONS 2026-01-04) | hooks/planner-readonly.mjs | `node x.mjs --dry-run` passes | worker |',
   '| P13 | Report builder fix | "Monthly sales reports" (DECISIONS 2026-01-06) | `src/report.js` | fixed | worker |',
-  '| P14 | Resizer fix | “Smaller … the shop pages, made when I upload.” (DECISIONS 2026-01-05) | `src/resize.js` | fixed | worker |',
+  "| P14 | Resizer fix | “Smaller … the shop pages, made when I upload.” (DECISIONS 2026-01-05) | `src/resize.js` | fixed | worker |",
   '| P15 | Resizer fix | "Smaller … upload" (DECISIONS 2026-01-05) | `src/resize.js` | fixed | worker |',
   '| P16 | Resizer fix | "made when I upload … smaller photos" (DECISIONS 2026-01-05) | `src/resize.js` | fixed | worker |',
   "",
@@ -383,8 +385,11 @@ const deny = (r) => {
   const o = out(r);
   return o?.permissionDecision === "deny" ? o.permissionDecisionReason : null;
 };
-const start = (id, type = "worker", prompt = `STEP: ${id} of docs/purpose-plan.md`) =>
-  hook({ ...agent(prompt, type), cwd: pdir }, { cwd: pdir });
+const start = (
+  id,
+  type = "worker",
+  prompt = `STEP: ${id} of docs/purpose-plan.md`,
+) => hook({ ...agent(prompt, type), cwd: pdir }, { cwd: pdir });
 const want = {
   P1: "a", // names the resizer, Serves lacks its words
   P2: "b", // has the words, says read-only with no mark
@@ -411,17 +416,20 @@ for (const [id, rules] of Object.entries(want)) {
     ? !!d &&
       d.startsWith("serves-brief refused this helper start: ") &&
       d.includes(`row ${id} of docs/purpose-plan.md names `) &&
-      (rules.includes("a") === d.includes("Serves cell lacks these words")) &&
-      (rules.includes("b") === /says "read-only" without a NARROWED/.test(d)) &&
+      rules.includes("a") === d.includes("Serves cell lacks these words") &&
+      rules.includes("b") === /says "read-only" without a NARROWED/.test(d) &&
       d.endsWith("Do not start a safer stand-in.")
-    : !d && /\nPURPOSE CHECK: 1 row\(s\) checked .*none fails/.test(updated(r)?.prompt ?? "");
+    : !d &&
+      /\nPURPOSE CHECK: 1 row\(s\) checked .*none fails/.test(
+        updated(r)?.prompt ?? "",
+      );
   check(
     `worker start on ${id}: ${rules ? `refused by rule ${rules.split("").join(" and ")}` : "goes through"}`,
     ok,
     d ?? updated(r)?.prompt.split("\n\n").at(-1),
   );
 }
-let d = deny(start("P1"));
+const d = deny(start("P1"));
 check(
   "the refusal quotes the entry's words and date, and names the raw words",
   d?.includes(
@@ -431,7 +439,13 @@ check(
 );
 check(
   "a brief that already holds a SERVES line is still refused",
-  !!deny(start("P1", "worker-code", "STEP: P1 of docs/purpose-plan.md\n\nSERVES (from docs/purpose-plan.md P1): x")),
+  !!deny(
+    start(
+      "P1",
+      "worker-code",
+      "STEP: P1 of docs/purpose-plan.md\n\nSERVES (from docs/purpose-plan.md P1): x",
+    ),
+  ),
 );
 u = updated(start("P4"));
 check(
@@ -445,9 +459,15 @@ o = out(start("P1", "planner"));
 check(
   "planner on a failing row: not refused; FOR line, a PURPOSE CHECK line and the failing row",
   !o?.permissionDecision &&
-    /\nFOR image resizer \(named by P1\): /.test(o?.updatedInput?.prompt ?? "") &&
-    /\nPURPOSE CHECK: 1 row\(s\) checked against 4 entries of DECISIONS\.md; 1 fail \(below\)\./.test(o.updatedInput.prompt) &&
-    /\n- P1: image resizer: the row's Serves cell lacks these words; the row needs "Smaller photos/.test(o.updatedInput.prompt) &&
+    /\nFOR image resizer \(named by P1\): /.test(
+      o?.updatedInput?.prompt ?? "",
+    ) &&
+    /\nPURPOSE CHECK: 1 row\(s\) checked against 4 entries of DECISIONS\.md; 1 fail \(below\)\./.test(
+      o.updatedInput.prompt,
+    ) &&
+    /\n- P1: image resizer: the row's Serves cell lacks these words; the row needs "Smaller photos/.test(
+      o.updatedInput.prompt,
+    ) &&
     /^serves-brief purpose check: docs\/purpose-plan\.md P1 fails \(image resizer: the row's Serves cell lacks these words\); fix the row before a worker starts on it\./m.test(
       o.additionalContext ?? "",
     ) &&
@@ -460,7 +480,9 @@ for (const t of ["reviewer", "plan-reviewer"]) {
   check(
     `${t}: never refused; every row checked, one line per failing row`,
     !o?.permissionDecision &&
-      /\nPURPOSE CHECK: 17 row\(s\) checked against 4 entries of DECISIONS\.md; 10 fail \(below\)\./.test(p) &&
+      /\nPURPOSE CHECK: 17 row\(s\) checked against 4 entries of DECISIONS\.md; 10 fail \(below\)\./.test(
+        p,
+      ) &&
       ["P1", "P3", "P9", "R1"].every((id) => p.includes(`\n- ${id}: `)) &&
       !p.includes("\n- P4: ") &&
       p.includes("\nFOR planner (named by P9, P11, P12): "),
@@ -471,15 +493,22 @@ check(
   "unbacked and stale entries and a line that does not parse are named in the result line and the note",
   /Record: unbacked: report builder; stale: old exporter; lines that do not parse: "- this line does not parse", "this prose line is no entry either"\./.test(
     o?.updatedInput?.prompt ?? "",
-  ) && /DECISIONS\.md record: unbacked: report builder; stale: old exporter/.test(o.additionalContext ?? ""),
+  ) &&
+    /DECISIONS\.md record: unbacked: report builder; stale: old exporter/.test(
+      o.additionalContext ?? "",
+    ),
   o?.updatedInput?.prompt.split("\n\n").at(-1),
 );
 const nosec = project("no-section", {
-  "DECISIONS.md": "# Decisions\n\n## 2026-01-05\n\n- **A choice.** · *user, 2026-01-05*\n",
+  "DECISIONS.md":
+    "# Decisions\n\n## 2026-01-05\n\n- **A choice.** · *user, 2026-01-05*\n",
   "docs/purpose-plan.md": PPLAN,
 });
 o = out(
-  hook({ ...agent("STEP: P1 of docs/purpose-plan.md"), cwd: nosec }, { cwd: nosec }),
+  hook(
+    { ...agent("STEP: P1 of docs/purpose-plan.md"), cwd: nosec },
+    { cwd: nosec },
+  ),
 );
 check(
   "no record section: not refused, a result line says the check did not run, and the lead gets a note",
@@ -512,29 +541,43 @@ const pair = project("pair", {
 });
 o = out(
   hook(
-    { ...agent("Design: docs/pair-design.md. Plan: docs/pair-plan.md, row K2."), cwd: pair },
+    {
+      ...agent("Design: docs/pair-design.md. Plan: docs/pair-plan.md, row K2."),
+      cwd: pair,
+    },
     { cwd: pair },
   ),
 );
 check(
   "plan and design both named: the row of the file with a Serves column wins, the design's row is dropped",
   !o?.permissionDecision &&
-    o?.updatedInput?.prompt.includes(`\n\nSERVES (from docs/pair-plan.md K2): ${OK_QUOTE}\n`) &&
+    o?.updatedInput?.prompt.includes(
+      `\n\nSERVES (from docs/pair-plan.md K2): ${OK_QUOTE}\n`,
+    ) &&
     !o.updatedInput.prompt.includes("pair-design.md K2") &&
-    /\nPURPOSE CHECK: 1 row\(s\) checked .*none fails/.test(o.updatedInput.prompt),
+    /\nPURPOSE CHECK: 1 row\(s\) checked .*none fails/.test(
+      o.updatedInput.prompt,
+    ),
   o?.permissionDecisionReason ?? o?.updatedInput?.prompt,
 );
 o = out(
   hook(
-    { ...agent("Review docs/pair-plan.md and docs/pair-design.md", "reviewer"), cwd: pair },
+    {
+      ...agent("Review docs/pair-plan.md and docs/pair-design.md", "reviewer"),
+      cwd: pair,
+    },
     { cwd: pair },
   ),
 );
 check(
   "reviewer, plan and design both named: no 'no Serves column' line for the design",
-  o?.updatedInput?.prompt.includes("SERVES (from docs/pair-plan.md, every row)") &&
+  o?.updatedInput?.prompt.includes(
+    "SERVES (from docs/pair-plan.md, every row)",
+  ) &&
     !o.updatedInput.prompt.includes("SERVES (from docs/pair-design.md") &&
-    /\nPURPOSE CHECK: 1 row\(s\) checked .*none fails/.test(o.updatedInput.prompt),
+    /\nPURPOSE CHECK: 1 row\(s\) checked .*none fails/.test(
+      o.updatedInput.prompt,
+    ),
   o?.updatedInput?.prompt,
 );
 
@@ -545,8 +588,12 @@ check(
   "an error in the check: not refused, a 'PURPOSE CHECK: not run: <error>' line and a lead note",
   br.status === 0 &&
     !o?.permissionDecision &&
-    o?.updatedInput?.prompt.startsWith("STEP: I3 of docs/plan.md\n\nPURPOSE CHECK: not run: TypeError: ") &&
-    /^serves-brief purpose check: not run: TypeError: /.test(o.additionalContext ?? "") &&
+    o?.updatedInput?.prompt.startsWith(
+      "STEP: I3 of docs/plan.md\n\nPURPOSE CHECK: not run: TypeError: ",
+    ) &&
+    /^serves-brief purpose check: not run: TypeError: /.test(
+      o.additionalContext ?? "",
+    ) &&
     /serves-brief hook skipped/.test(br.stderr),
   `${br.stdout}\n     ${br.stderr}`,
 );
@@ -637,6 +684,49 @@ const dp = hook(
 check(
   "a folder named like a plan: no output, exit 0",
   dp.stdout === "" && dp.status === 0 && dp.stderr === "",
+);
+
+// ---- the map part beside the Serves part
+const MAP_JS = fileURLToPath(
+  new URL("../skills/systems-map/map.mjs", import.meta.url),
+).replace(/\\/g, "/");
+const NONE = `\n\nSYSTEMS MAP: nothing in this brief matched (node "${MAP_JS}" --near <word> looks one up).`;
+const mapped = project("mapped", {
+  "docs/plan.md": PLAN,
+  "src/ship.js": "x",
+  ".claude/systems-map.json": JSON.stringify({
+    nodes: [
+      {
+        id: "ship",
+        name: "Parcel dispatch",
+        what: "Sends parcels.",
+        files: ["src/ship.js"],
+        words: ["\\bshipping\\b"],
+      },
+    ],
+    links: [],
+  }),
+});
+const mappedRun = (prompt) =>
+  updated(hook({ ...agent(prompt), cwd: mapped }, { cwd: mapped }));
+const serveI3 =
+  '\n\nSERVES (from docs/plan.md I3): "hook I3 yes" (DECISIONS 2026-11-12)' +
+  NOREC(mapped);
+u = mappedRun("STEP: I3 of docs/plan.md. Fix the shipping rules.");
+check(
+  "map: a brief whose only match is a code part matched by words gets the short 'nothing matched' line, then the Serves lines",
+  u?.prompt ===
+    "STEP: I3 of docs/plan.md. Fix the shipping rules." + NONE + serveI3,
+  u?.prompt,
+);
+const matched = mappedRun("STEP: I3 of docs/plan.md. Fix src/ship.js.");
+check(
+  "map: the SYSTEMS MAP: marker opens the map part, matched or not (outcomes.mjs counts it)",
+  NONE.startsWith("\n\nSYSTEMS MAP: ") &&
+    matched?.prompt.includes("\n\nSYSTEMS MAP: ") &&
+    matched.prompt.includes("## Parcel dispatch [ship]") &&
+    matched.prompt.endsWith(serveI3),
+  matched?.prompt,
 );
 
 fs.rmSync(tmp, { recursive: true, force: true });

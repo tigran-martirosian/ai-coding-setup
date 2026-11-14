@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // map-nudge: UserPromptSubmit hook. A project with 100 or more tracked code files (git ls-files, code extensions only, no vendored
 // folders) and no .claude/systems-map.json gets one line of context: start a background worker now, without asking, to build the map from
 // skills/systems-map/SKILL.md, and tell the user in one line. At most 3 times, a week apart: a build can be killed or refused, and the prompt
@@ -8,12 +11,9 @@
 // {"handledBy": "..."}: the project keeps its own map) means silence. Project = $CLAUDE_PROJECT_DIR. Each project is looked at once a day
 // at most, so a prompt costs one small file read. Silent for /commands. Fails open. MAP_NUDGE=off disables it.
 // State: ~/.claude/hooks/state/map-nudge/projects.json.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 import { loadMap } from "./lib/map-file.mjs";
-import { stateFile, readJson, writeJson } from "./lib/state.mjs";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { readJson, stateFile, writeJson } from "./lib/state.mjs";
 
 const MIN_CODE_FILES = 100;
 const STALE_SHARE = 0.2;

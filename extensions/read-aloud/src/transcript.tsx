@@ -7,16 +7,22 @@
  *
  * The Markdown source for each block is kept in a small in-memory map keyed by
  * a hash, so the visible transcript is never modified.
+ *
+ * At rest the control is one line of worded buttons (Read aloud, Read full, Hands-free). While its block is
+ * read it becomes the player box: line 1 the state word and the part, line 2 Pause or Resume, Next, speed and
+ * Close. Close (or Esc inside the box) stops, clears and returns to rest.
  */
 
-import { useLayoutEffect, useRef, useState } from "react";
-import { player, usePlayer } from "./player";
-import { updateSetting, useSettings } from "./settings";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import tokensCss from "../../shared/tokens.css?inline";
 import { setAutoRead } from "./autoRead";
 import { splitVoice } from "./cleanText";
-import { formatSpeed, t } from "./strings";
-import tokensCss from "../../shared/tokens.css?inline";
 import panelCss from "./panel.css?inline";
+import { type PlayerState, player, usePlayer } from "./player";
+import { updateSetting, useSettings } from "./settings";
+import { formatSpeed, t } from "./strings";
+// The shared thinking-orbs mount (plain script, one copy per window): draws every canvas[data-orb] on the page
+import "../../shared/orbs/orbs.js";
 
 export const CONTROL_TAG = "readaloud-control";
 
@@ -148,10 +154,105 @@ function Icon({ name }: { name: string }) {
   return <span className="material-symbols-outlined">{name}</span>;
 }
 
+/** A button with its icon and its word; the tooltip only where it says more than the word. */
+function WordButton({
+  icon,
+  word,
+  title,
+  className = "",
+  onClick,
+  ...rest
+}: {
+  icon: string;
+  word: string;
+  title?: string;
+  className?: string;
+  onClick: () => void;
+  "aria-pressed"?: boolean;
+  "aria-keyshortcuts"?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`readaloud-btn ${className}`.trim()}
+      title={title}
+      onClick={onClick}
+      {...rest}
+    >
+      <Icon name={icon} />
+      <span className="readaloud-word">{word}</span>
+    </button>
+  );
+}
+
+/** The preparing orb shows only when preparing lasts longer than this, so a quick start does not flicker. */
+export const ORB_DELAY_MS = 300;
+
+/** Close: stop the player, clear its item and any error, back to rest. The one way out of the player box. */
+export function closePlayer() {
+  player.stop();
+  player.clearError();
+}
+
+/**
+ * Esc inside the player box closes it. The key stops here, so the app's own Esc (which stops a running turn)
+ * does not fire too; outside the box Esc is left to the app. Returns whether the key was taken.
+ */
+export function boxKeyDown(
+  e: { key: string; preventDefault(): void; stopPropagation(): void },
+  close: () => void = closePlayer,
+): boolean {
+  if (e.key !== "Escape") return false;
+  e.preventDefault();
+  e.stopPropagation();
+  close();
+  return true;
+}
+
+export interface BoxView {
+  state: "preparing" | "playing" | "paused";
+  /** The state word, line 1's lead ("Playing"). */
+  word: string;
+  /** Where it is ("part 2 of 5"); empty for a one-part reply. */
+  detail: string;
+  /** What sits before the word: the breathing orb (preparing, after ORB_DELAY_MS), a still dot, or nothing yet. */
+  mark: "orb" | "dot" | "none";
+}
+
+/** What the player box shows for one block, or null when that block is at rest (no box). */
+export function boxView(
+  st: PlayerState,
+  key: string | null | undefined,
+  orbShown: boolean,
+): BoxView | null {
+  if (!key || st.key !== key || st.status === "idle") return null;
+  const n = st.chunk + 1;
+  const many = st.total > 1;
+  if (st.status === "paused")
+    return {
+      state: "paused",
+      word: t.statePaused,
+      detail: many ? t.pausedAt(n, st.total) : "",
+      mark: "dot",
+    };
+  const detail = many ? t.partOf(n, st.total) : "";
+  if (st.status === "synthesizing")
+    return {
+      state: "preparing",
+      word: t.statePreparing,
+      detail,
+      mark: orbShown ? "orb" : "none",
+    };
+  return { state: "playing", word: t.statePlaying, detail, mark: "dot" };
+}
+
 export function ReadAloudControl(props: Record<string, unknown>) {
   const key = (props["data-key"] ?? props.dataKey) as string | undefined;
   const ref = useRef<HTMLSpanElement>(null);
   const [eligible, setEligible] = useState(false);
+  const [orbShown, setOrbShown] = useState(false);
+  const refocus = useRef(false);
   const st = usePlayer();
   const settings = useSettings();
 
@@ -160,9 +261,33 @@ export function ReadAloudControl(props: Record<string, unknown>) {
   }, []);
 
   const visible = eligible && settings.enabled && !!key;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: visible (the control shown or hidden) is the trigger: the effect must run again when it changes
   useLayoutEffect(watchTurnEnds, [visible]);
-  const mine = !!key && st.key === key;
+
+  const preparing = !!key && st.key === key && st.status === "synthesizing";
+  useEffect(() => {
+    if (!preparing) {
+      setOrbShown(false);
+      return;
+    }
+    const timer = setTimeout(() => setOrbShown(true), ORB_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [preparing]);
+
+  const view = boxView(st, key, orbShown);
   const error = st.error && st.error.key === key ? st.error.message : null;
+
+  // Closing from inside the box hands the focus to "Read aloud", so the keyboard is not dropped on the page
+  const close = () => {
+    refocus.current = !!ref.current?.contains(document.activeElement);
+    closePlayer();
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs only when the player opens or closes, not when the open view changes
+  useLayoutEffect(() => {
+    if (view || !refocus.current) return;
+    refocus.current = false;
+    ref.current?.querySelector<HTMLButtonElement>(".readaloud-btn")?.focus();
+  }, [!!view]);
 
   const speech = speechForKey(key);
   const readAloud = (full: boolean) => {
@@ -176,143 +301,118 @@ export function ReadAloudControl(props: Record<string, unknown>) {
   };
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: catches the keys of the focusable player inside the control
     <span
       ref={ref}
-      className={`readaloud-control${mine ? " active" : ""}`}
+      className={`readaloud-control${view ? " active" : ""}`}
       data-readaloud-key={key}
       hidden={!visible}
+      onKeyDown={view ? (e) => void boxKeyDown(e, close) : undefined}
     >
-      {!mine && (
-        <button
-          type="button"
-          className="readaloud-btn"
-          title={speech?.hasSummary ? t.readSummary : t.readAloud}
-          onClick={() => readAloud(false)}
-        >
-          <Icon name="volume_up" />
-        </button>
-      )}
-      {!mine && speech?.hasSummary && (
-        <button
-          type="button"
-          className="readaloud-btn"
-          title={t.readFull}
-          onClick={() => readAloud(true)}
-        >
-          <Icon name="article" />
-        </button>
-      )}
-      {mine && st.status === "synthesizing" && (
-        <button
-          type="button"
-          className="readaloud-btn"
-          title={t.pause}
-          aria-label={t.pause}
-          onClick={() => player.pause()}
-        >
-          <Icon name="pause" />
-        </button>
-      )}
-      {mine && st.status === "playing" && (
-        <button
-          type="button"
-          className="readaloud-btn on"
-          title={t.pause}
-          onClick={() => player.pause()}
-        >
-          <Icon name="pause" />
-        </button>
-      )}
-      {mine && st.status === "paused" && (
-        <button
-          type="button"
-          className="readaloud-btn on"
-          title={t.resume}
-          onClick={() => player.resume()}
-        >
-          <Icon name="play_arrow" />
-        </button>
-      )}
-      {mine && (
-        <button
-          type="button"
-          className="readaloud-btn"
-          title={t.skipAhead}
-          onClick={() => void player.skip()}
-        >
-          <Icon name="skip_next" />
-        </button>
-      )}
-      {mine && (
-        <button
-          type="button"
-          className="readaloud-btn"
-          title={t.stop}
-          onClick={() => player.stop()}
-        >
-          <Icon name="stop" />
-        </button>
-      )}
-      {mine && (
-        <span className="readaloud-state">
-          <span
-            className={`readaloud-dot${st.status === "paused" ? "" : " live"}`}
+      {view ? (
+        <>
+          <span className="readaloud-status" aria-live="polite">
+            <span className="readaloud-mark">
+              {view.mark === "orb" && (
+                <canvas data-orb="breathing" data-orb-px="24" aria-hidden />
+              )}
+              {view.mark === "dot" && (
+                <span className={`readaloud-dot ${view.state}`} />
+              )}
+            </span>
+            <span className={`readaloud-state-word ${view.state}`}>
+              {view.word}
+            </span>
+            {view.detail && (
+              <span className="readaloud-detail">{view.detail}</span>
+            )}
+          </span>
+          <span className="readaloud-actions">
+            {view.state === "paused" ? (
+              <WordButton
+                icon="play_arrow"
+                word={t.resume}
+                onClick={() => player.resume()}
+              />
+            ) : (
+              <WordButton
+                icon="pause"
+                word={t.pause}
+                onClick={() => player.pause()}
+              />
+            )}
+            <WordButton
+              icon="skip_next"
+              word={t.next}
+              title={t.skipAhead}
+              disabled={view.state === "preparing"}
+              onClick={() => void player.skip()}
+            />
+            <label className="readaloud-speed" title={t.speedLabel}>
+              <input
+                type="range"
+                className="readaloud-range"
+                aria-label={t.speedLabel}
+                min={0.5}
+                max={2}
+                step={0.05}
+                value={settings.speed}
+                onChange={(e) =>
+                  void updateSetting("speed", Number(e.target.value))
+                }
+              />
+              <span className="readaloud-speed-value">
+                {formatSpeed(settings.speed)}
+              </span>
+            </label>
+            <WordButton
+              icon="close"
+              word={t.close}
+              title={t.closeTip}
+              className="readaloud-close"
+              aria-keyshortcuts="Escape"
+              onClick={close}
+            />
+          </span>
+        </>
+      ) : (
+        <>
+          <WordButton
+            icon="volume_up"
+            word={t.readAloud}
+            title={speech?.hasSummary ? t.readSummary : undefined}
+            onClick={() => readAloud(false)}
           />
-          {st.status === "synthesizing"
-            ? t.statePreparing
-            : st.status === "paused"
-              ? t.statePaused
-              : t.statePlaying}
-          {st.total > 1 && (
-            <span className="readaloud-count">
-              {st.chunk + 1}/{st.total}
+          {speech?.hasSummary && (
+            <WordButton
+              icon="article"
+              word={t.readFullWord}
+              title={t.readFull}
+              onClick={() => readAloud(true)}
+            />
+          )}
+          <WordButton
+            icon="headphones"
+            word={settings.autoRead ? t.autoOnWord : t.autoWord}
+            title={settings.autoRead ? t.autoOnTip : t.autoOffTip}
+            className={`readaloud-auto${settings.autoRead ? " on" : ""}`}
+            aria-pressed={settings.autoRead}
+            onClick={toggleAuto}
+          />
+          {error && (
+            <span className="readaloud-error" role="alert">
+              <span className="readaloud-dot error" />
+              <span className="readaloud-error-text">{error}</span>
+              <button
+                type="button"
+                className="readaloud-dismiss"
+                onClick={() => player.clearError()}
+              >
+                {t.dismiss}
+              </button>
             </span>
           )}
-        </span>
-      )}
-      {mine && (
-        <label className="readaloud-speed" title={t.speedLabel}>
-          <input
-            type="range"
-            className="readaloud-range"
-            aria-label={t.speedLabel}
-            min={0.5}
-            max={2}
-            step={0.05}
-            value={settings.speed}
-            onChange={(e) =>
-              void updateSetting("speed", Number(e.target.value))
-            }
-          />
-          <span className="readaloud-speed-value">
-            {formatSpeed(settings.speed)}
-          </span>
-        </label>
-      )}
-      <button
-        type="button"
-        className={`readaloud-btn readaloud-auto${settings.autoRead ? " on" : ""}`}
-        title={settings.autoRead ? t.autoOnTip : t.autoOffTip}
-        aria-label={settings.autoRead ? t.autoOnTip : t.autoOffTip}
-        aria-pressed={settings.autoRead}
-        onClick={toggleAuto}
-      >
-        <Icon name="headphones" />
-      </button>
-      {error && (
-        <span className="readaloud-error">
-          <span className="readaloud-dot error" />
-          {error}
-          <button
-            type="button"
-            className="readaloud-btn"
-            title={t.dismiss}
-            aria-label={t.dismiss}
-            onClick={() => player.clearError()}
-          >
-            <Icon name="close" />
-          </button>
-        </span>
+        </>
       )}
     </span>
   );

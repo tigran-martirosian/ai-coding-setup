@@ -1,6 +1,7 @@
 // Fake `claude` for test-assistant.mjs: records its arguments and stdin, then prints a made-up answer.
 // FAKE_MODE: ok (default) | iserror | badjson | noreply | exit1
 import fs from "node:fs";
+
 const args = process.argv.slice(2);
 const stdin = fs.readFileSync(0, "utf8");
 fs.writeFileSync(process.env.FAKE_RECORD, JSON.stringify({ args, stdin }));

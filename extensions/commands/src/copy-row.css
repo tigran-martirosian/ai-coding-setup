@@ -1,0 +1,143 @@
+/* The copy row at the end of each finished reply (copy-row.tsx). Tokens come from ../../shared/tokens.css.
+   inline-flex, so Read Aloud's strip (also inline-flex) sits on the same line after it, past a hairline divider.
+   No row at rest on blocks that do not end a turn, and none while the turn still runs (no data-turn-end then). */
+.cb-copy {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--x-space-2);
+  max-width: 100%;
+  margin-top: var(--x-space-1);
+  vertical-align: top;
+  color: var(--x-text-muted);
+  font: var(--x-meta);
+}
+.cb-copy[hidden],
+.cb-copy:not([data-turn-end]) {
+  display: none;
+}
+
+/* The last turn always shows its row; an earlier one only while its reply is hovered or the row has the focus.
+   It keeps its place while hidden, so nothing moves when it shows. */
+.cb-copy:not([data-last-turn]) {
+  opacity: 0;
+  transition: opacity var(--x-motion-base) var(--x-ease);
+}
+.rich-transcript-message:hover .cb-copy,
+.cb-copy:focus-within {
+  opacity: 1;
+}
+
+/* Divider before Read Aloud's buttons when they share the line */
+.cb-copy:has(~ .readaloud-control:not([hidden]):is([data-turn-end], .active))::after {
+  content: '';
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin-right: var(--x-space-1);
+  background: var(--x-hairline);
+}
+
+/* Copy: an icon plus its word, quiet. Both faces sit in one grid cell, so the width fits the longer word and
+   never changes; "Copied" crossfades in for 2 s. */
+.cb-copy-btn {
+  box-sizing: border-box;
+  display: inline-grid;
+  flex: none;
+  align-items: center;
+  height: var(--x-control-height);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--x-radius-control);
+  background: transparent;
+  color: var(--x-text-muted);
+  font: var(--x-meta);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--x-motion-fast) var(--x-ease), color var(--x-motion-fast) var(--x-ease);
+}
+.cb-copy-btn:hover {
+  background: var(--x-overlay-hover);
+  color: var(--x-text);
+}
+.cb-copy-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.cb-copy-btn:active {
+  background: var(--x-overlay-selected);
+  box-shadow: inset 0 1px 0 var(--x-hairline);
+}
+.cb-copy-face {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity var(--x-motion-base) var(--x-ease);
+}
+.cb-copy-done,
+.cb-copy-btn[data-copied] .cb-copy-face:not(.cb-copy-done) {
+  opacity: 0;
+}
+.cb-copy-btn[data-copied] .cb-copy-done {
+  opacity: 1;
+}
+.cb-copy-btn[data-copied] {
+  color: var(--x-text);
+}
+.cb-copy-sym {
+  font-size: 18px;
+  line-height: 1;
+  font-variation-settings: var(--x-icon-settings);
+}
+
+/* Copy failed: a still dot and the words in the failed tone, then a bordered Dismiss */
+.cb-copy-error {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--x-space-2);
+  min-width: 0;
+  color: var(--x-state-failed);
+}
+.cb-copy-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--x-state-failed);
+}
+.cb-copy-error-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cb-copy-dismiss {
+  box-sizing: border-box;
+  flex: none;
+  height: var(--x-control-height);
+  padding: 0 var(--x-space-3);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: transparent;
+  color: var(--x-text);
+  font: var(--x-meta);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--x-motion-fast) var(--x-ease);
+}
+.cb-copy-dismiss:hover {
+  background: var(--x-overlay-hover);
+}
+.cb-copy-dismiss:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.cb-copy-dismiss:active {
+  background: var(--x-overlay-selected);
+  box-shadow: inset 0 1px 0 var(--x-hairline);
+}
+
+/* One copy action per reply: the app's floating icon is hidden on replies that carry the row; user messages keep it */
+.rich-transcript-message:not(.user):has(.cb-copy:not([hidden])) .rich-transcript-message-copy-action {
+  display: none;
+}

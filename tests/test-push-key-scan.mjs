@@ -1,12 +1,13 @@
 // Tests for hooks/push-key-scan.mjs, on real git repos in a temp folder (each with a bare remote). Run: node test-push-key-scan.mjs
 // The fake keys are put together at run time, so this file holds no key shape itself and its own push passes the hook.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { keyIn, keyFile, parsePush } from "../hooks/push-key-scan.mjs";
+import { keyFile, keyIn, parsePush } from "../hooks/push-key-scan.mjs";
 
 const hook = fileURLToPath(
   new URL("../hooks/push-key-scan.mjs", import.meta.url),

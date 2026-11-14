@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 // map.mjs: the Systems map of a project, a dictionary of its parts ("things") and what connects to what ("links").
 // The map is one file, <project>/.claude/systems-map.json:
 //   { "nodes": [{ "id", "name", "what", "files": [...], "notes": [...], "group"?, "words"?: [regex, ...] }],
@@ -8,21 +9,20 @@
 // Commands, run in the project folder (or add --project <dir>):
 //   --near                 list every thing
 //   --near <word>...       those things: what they are, where to start, their links with the code behind them, the things one step further
-//   --brief                read a helper's brief on stdin; print the lines of the things it is about: the top 3 in full, one line for each further match, at most 7,000 characters
-//   --check                list files and evidence paths that no longer exist, evidence that lost its token (DRIFT), and the JSON mistakes; exit 1 when anything is wrong
+//   --brief                read a helper's brief on stdin; print the lines of the things it is about: the top 3 in full, one line for each further match, at most 2,000 characters
+//   --check                list files and evidence paths that no longer exist, evidence that lost its token (DRIFT), words patterns that are one bare common word (WORD), and the JSON mistakes; exit 1 when anything is wrong
 //   --scan                 what a builder needs to start a map: code files by folder, biggest files, entry points (at most about 8 KB)
 // The two hooks (map-brief.mjs, map-nudge.mjs) import this file. Node.js only; the map file's reader is hooks/lib/map-file.mjs.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { MAP_REL, loadMap } from "../../hooks/lib/map-file.mjs";
 import { MAP_CODE_EXT } from "../../hooks/lib/code-files.mjs";
+import { loadMap, MAP_REL } from "../../hooks/lib/map-file.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 export const CMD = `node "${SELF.replace(/\\/g, "/")}"`;
-export { MAP_REL, loadMap };
+export { loadMap, MAP_REL };
 
 export const CODE_EXT = MAP_CODE_EXT;
 // Folders that hold other people's code or build output
@@ -33,10 +33,12 @@ export const VENDORED = new Set(
   ).split(" "),
 );
 
-export const BRIEF_MAX = 7000; // characters of the whole --brief output
+export const BRIEF_MAX = 2000; // characters of the whole --brief output; cut at whole lines
 export const BRIEF_FULL = 3; // things in it with links; every further match gets one line
 export const BRIEF_LINE_FILES = 3; // "Start in" files on such a line
-const BRIEF_LINES_ROOM = 1500; // characters kept free for those lines when the full entries would fill the cap
+export const BRIEF_WORDS = 2; // how-to things and topics matched by words alone get one line each, at most this many
+const BRIEF_LINES_ROOM = 500; // characters kept free for those lines when the full entries would fill the cap
+const SHARED_MIN = 30; // a folder that every file of a line starts with is written once when it is at least this long
 export const BRIEF_FOLDER = 8; // a written folder holding files of more things than this names none of them
 export const BRIEF_LINKS = 12; // links per thing
 export const BRIEF_FILES = 6; // "Start in" files per thing
@@ -53,6 +55,22 @@ export const COMMON = new Set(
     "frontend cache queue logic engine manager handler handlers controller controllers lib libs src script scripts release plugin plugins"
   ).split(" "),
 );
+
+/** A words pattern that is one bare COMMON word ("\\brelease\\b", "\\breleases?\\b", "^tests$"): it matches nearly every text, so the
+ *  readers ignore it and --check flags it. */
+export function bareCommon(w) {
+  const s = String(w)
+    .replace(/\\b/g, "")
+    .replace(/^\^/, "")
+    .replace(/\$$/, "")
+    .toLowerCase();
+  return [
+    s,
+    s.replace(/s\?$/, ""),
+    s.replace(/es$/, ""),
+    s.replace(/s$/, ""),
+  ].some((c) => /^[a-z]+$/.test(c) && COMMON.has(c));
+}
 
 const FILE_EXTS = [
   ...new Set([
@@ -105,7 +123,11 @@ export const LINK_TYPES = [
   "boosts",
   "limits",
 ];
-const DECIDED_MAX = 10; // DECISIONS.md lines under a thing in --near
+const DECIDED_MAX = 3; // DECISIONS.md lines under a thing in --near
+const DECIDED_CHARS = 200; // characters of each such line, its line number included
+// A file more things list than this names none of them in a brief, and a thing that only a link's evidence ties to a file is named by it
+// only when at most this many things touch the file: a shared index file says nothing about which thing the brief is about.
+export const FILE_SHARED_MAX = 3;
 
 const arr = (x) => (Array.isArray(x) ? x : []);
 const str = (x) => (typeof x === "string" ? x : "");
@@ -114,9 +136,12 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // a map of any person's project can point at the setup without a user name in it.
 const HOME_PATH = /^~[\\/]/;
 export const placeOf = (dir, p) =>
-  HOME_PATH.test(p) ? path.join(os.homedir(), p.slice(2)) : path.resolve(dir, p);
+  HOME_PATH.test(p)
+    ? path.join(os.homedir(), p.slice(2))
+    : path.resolve(dir, p);
 // What a helper is shown: a "~/" path written out in full with forward slashes, so a Read of it works as is.
-const shown = (p) => (HOME_PATH.test(p) ? placeOf("", p).replace(/\\/g, "/") : p);
+const shown = (p) =>
+  HOME_PATH.test(p) ? placeOf("", p).replace(/\\/g, "/") : p;
 const exists = (dir, p) => fs.existsSync(placeOf(dir, p));
 const isFile = (p) => {
   try {
@@ -278,14 +303,17 @@ export function drift(map, dir) {
   return driftOf(links, dir).map(({ link, ...d }) => d);
 }
 
-/** Normal shape for the readers: plain strings, evidence as { file, token? }, links between known things only. dropGone removes paths that no longer exist. */
+/** Normal shape for the readers: plain strings, evidence as { file, token? }, links between known things only, no bare common word in
+ *  words. dropGone removes paths that no longer exist. */
 function prep(map, dir, dropGone) {
   const keep = (p) =>
     typeof p === "string" && p && (!dropGone || exists(dir, p));
   const wordRes = (n) =>
     arr(n.words).flatMap((w) => {
       try {
-        return typeof w === "string" && w ? [new RegExp(w, "i")] : [];
+        return typeof w === "string" && w && !bareCommon(w)
+          ? [new RegExp(w, "i")]
+          : [];
       } catch {
         return [];
       }
@@ -357,8 +385,9 @@ function writtenFolders(text) {
   return out;
 }
 
-/** [all matching ids, ranked; files named in the text that the map knows]: a named file first, then a name or id, then a written folder,
- *  and only when none of those found anything, a named file that lies in the folder of a thing's file. */
+/** [all matching ids, ranked; files named in the text that the map knows; id -> how it matched: "file", "name", "folder" or "words"]:
+ *  a named file first, then a name or id, then a written folder, then a words pattern, and only when none of the first three found
+ *  anything, a named file that lies in the folder of a thing's file. */
 export function briefFind(text, nodes, links, dir) {
   const own = new Map(),
     touch = new Map();
@@ -381,14 +410,47 @@ export function briefFind(text, nodes, links, dir) {
     ),
   );
   const camel = new Set(text.match(CAMEL) ?? []);
-  const got = new Set();
+  // A written path names a listed file only when it can mean that one file: the whole path, an end that holds a folder
+  // (systems-map/SKILL.md), or a bare name no other listed file has. A bare SKILL.md in a map of five skills names none of them; a full
+  // path to a file in the project root names it.
+  const base = new Map();
+  for (const f of touch.keys())
+    addTo(base, path.posix.basename(f).toLowerCase(), f);
+  const root = dir.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const names = (fl, p) => {
+    if (fl === p) return true;
+    const [long, short] = fl.length > p.length ? [fl, p] : [p, fl];
+    if (!long.endsWith("/" + short)) return false;
+    // A longer path to a file of the project root names it only as that root's file: ~/.claude/CLAUDE.md or another project's
+    // HANDOFF.md is not this project's.
+    if (short === fl && !fl.includes("/")) return p === root + "/" + fl;
+    return short.includes("/") || base.get(short).size === 1;
+  };
+  // A written path stops at a space, so a listed path with a space in it (its own, or the project root's) names its file when the brief
+  // holds it whole: with a folder, also at the end of a longer path; a root file, bare or after the project root only.
+  const slashed = text.replace(/\\/g, "/").toLowerCase();
+  const spaced = (fl) =>
+    [fl, root + "/" + fl].some(
+      (q, k) =>
+        q.includes(" ") &&
+        new RegExp(
+          (!k && fl.includes("/") ? "(?<![\\w.-])" : "(?<![\\w./-])") +
+            escapeRe(q) +
+            "(?![\\w])",
+        ).test(slashed),
+    );
+  const got = new Set(),
+    hit = new Set();
   for (const f of touch.keys()) {
     const fl = f.toLowerCase(),
       stem = path.posix.parse(f).name;
-    const byPath = [...named].some(
-      (p) => fl === p || fl.endsWith("/" + p) || p.endsWith("/" + fl),
-    );
-    if (byPath || (CLASS_FILE.test(f) && camel.has(stem) && stem.length >= 5))
+    const byPath = [...named].filter((p) => names(fl, p));
+    for (const p of byPath) hit.add(p);
+    if (
+      byPath.length ||
+      spaced(fl) ||
+      (CLASS_FILE.test(f) && camel.has(stem) && stem.length >= 5)
+    )
       got.add(f);
   }
   const score = new Map();
@@ -396,9 +458,14 @@ export function briefFind(text, nodes, links, dir) {
     if (!score.has(i)) score.set(i, [0, 0, 0, 0]);
     return score.get(i);
   };
-  for (const f of got)
-    for (const i of touch.get(f))
-      sc(i)[0] += (own.get(f)?.has(i) ? 2 : 1) / touch.get(f).size;
+  for (const f of got) {
+    const all = touch.get(f).size;
+    if ((own.get(f)?.size ?? 0) > FILE_SHARED_MAX) continue;
+    for (const i of touch.get(f)) {
+      const mine = own.get(f)?.has(i);
+      if (mine || all <= FILE_SHARED_MAX) sc(i)[0] += (mine ? 2 : 1) / all;
+    }
+  }
   const flat = " " + text.toLowerCase().replace(/[-_\s]+/g, " ") + " ";
   // A words hit ranks last: words are loose patterns, and a passing line of the brief ("Budget: 150k tokens") must not push out a thing
   // the brief names.
@@ -412,7 +479,6 @@ export function briefFind(text, nodes, links, dir) {
     if (w) sc(n.id)[1] = w;
     if (x) sc(n.id)[3] = x;
   }
-  const bare = !score.size;
   // A written folder names the things that have a file in it (the folder itself, else the folders below it), unless more things sit
   // there than a brief can sensibly carry: a broad path names none of them.
   const here = new Map();
@@ -433,10 +499,13 @@ export function briefFind(text, nodes, links, dir) {
       for (const i of ids) sc(i)[2] += 1 / ids.size;
   }
   const order = new Map(nodes.map((n, k) => [n.id, k]));
+  // A words hit alone does not count here: a loose pattern must not switch off the stronger hint of a folder.
+  const bare = ![...score.values()].some((s) => s[0] || s[1] || s[2]);
+  const fell = new Set();
   if (bare && (named.size || camel.size)) {
     // A file no thing lists: it counts by a written path, or a class name, that points at a folder holding a file of a thing, unless
-    // more things sit there than a brief can carry. A bare name (index.ts) says nothing, and the project root is no folder to go by.
-    // At most BRIEF_FULL things come of it.
+    // more things sit there than a brief can carry. A bare name (index.ts) says nothing, a one-word folder (hooks/x.mjs) says too
+    // little, and the project root is no folder to go by. At most BRIEF_FULL things come of it.
     const dirs = new Set(
       [...touch.keys()]
         .map((f) => path.posix.dirname(f))
@@ -451,8 +520,9 @@ export function briefFind(text, nodes, links, dir) {
       )
         folders.add(d.toLowerCase());
       for (const p of named) {
-        if (!p.includes("/")) continue;
+        if (!p.includes("/") || hit.has(p)) continue; // a listed file was weighed above
         const parent = p.slice(0, p.lastIndexOf("/"));
+        if (!parent.includes("/")) continue;
         if (
           d.toLowerCase() === parent ||
           d.toLowerCase().endsWith("/" + parent)
@@ -478,8 +548,10 @@ export function briefFind(text, nodes, links, dir) {
     }
     for (const i of [...near.keys()]
       .sort((a, b) => near.get(b) - near.get(a) || order.get(a) - order.get(b))
-      .slice(0, BRIEF_FULL))
+      .slice(0, BRIEF_FULL)) {
       sc(i)[0] += near.get(i);
+      fell.add(i);
+    }
   }
   const ranked = [...score.keys()].sort(
     (a, b) =>
@@ -489,7 +561,25 @@ export function briefFind(text, nodes, links, dir) {
       score.get(b)[3] - score.get(a)[3] ||
       order.get(a) - order.get(b),
   );
-  return [ranked, got];
+  // The strongest way each thing matched; a thing found through the folder of an unlisted file counts as found by folder.
+  const kinds = new Map(
+    ranked.map((i) => {
+      const [f, n, d] = score.get(i);
+      return [
+        i,
+        fell.has(i)
+          ? "folder"
+          : f
+            ? "file"
+            : n
+              ? "name"
+              : d
+                ? "folder"
+                : "words",
+      ];
+    }),
+  );
+  return [ranked, got, kinds];
 }
 
 /** A link seen from one end. A link with a type shows its word: `feeds -> Pricing`, `<- limits from Cart`. */
@@ -498,15 +588,48 @@ const arrow = (l, id, by) =>
     ? `${l.type ? l.type + " ->" : "to"} ${by.get(l.to).name}`
     : `${l.type ? "<- " + l.type + " " : ""}from ${by.get(l.from).name}`;
 
-/** The map lines for the things a helper's brief is about, and only those. Empty string when none. */
+/** The folder every one of these files starts with, when there are two or more, it is absolute and SHARED_MIN characters or longer; else "". */
+function sharedFolder(files) {
+  if (files.length < 2 || !files.every((f) => /^(?:[A-Za-z]:)?\//.test(f)))
+    return "";
+  let parts = files[0].split("/").slice(0, -1);
+  for (const f of files.slice(1)) {
+    const q = f.split("/");
+    let k = 0;
+    while (k < parts.length && k < q.length - 1 && parts[k] === q[k]) k++;
+    parts = parts.slice(0, k);
+  }
+  const d = parts.join("/");
+  return d.length >= SHARED_MIN ? d : "";
+}
+
+/** "<head>: a, b", or with a long shared folder written once: "<head><join><folder>/: a, b". */
+function startList(head, files, join) {
+  if (!files.length) return head;
+  const d = sharedFolder(files);
+  return d
+    ? `${head}${join}${d}/: ` +
+        files.map((f) => f.slice(d.length + 1)).join(", ")
+    : `${head}: ` + files.join(", ");
+}
+
+/** The map lines for the things a helper's brief is about, and only those. Empty string when none.
+ *  The top BRIEF_FULL things matched by file, name or folder get a full entry; the rest one line each, then at most BRIEF_WORDS how-to
+ *  things or topics matched by words alone, marked "(by words)". A code part matched by words alone is left out. Over BRIEF_MAX, whole
+ *  lines are cut in this order: start files to BRIEF_FILES_CUT; links, one at a time from the entry with the most, until the full
+ *  entries leave room for the one-line ones; one-line entries from the end; then the third and the second full entry become one line. */
 export function brief(text, map, dir) {
   const { nodes, links } = prep(map, dir, true);
-  const [ranked, got] = briefFind(text, nodes, links, dir);
-  if (!ranked.length) return "";
-  const ids = ranked.slice(0, BRIEF_FULL),
-    rest = ranked.slice(BRIEF_FULL);
+  const [ranked, got, kinds] = briefFind(text, nodes, links, dir);
   const by = new Map(nodes.map((n) => [n.id, n]));
-  const blocks = ids.map((i) => {
+  const strong = ranked.filter((i) => kinds.get(i) !== "words");
+  const weak = ranked
+    .filter((i) => kinds.get(i) === "words" && isGuide(by.get(i)))
+    .slice(0, BRIEF_WORDS);
+  if (!strong.length && !weak.length) return "";
+  const firstFiles = (n) =>
+    [...n.files].sort((a, b) => Number(!got.has(a)) - Number(!got.has(b)));
+  const full = strong.slice(0, BRIEF_FULL).map((i) => {
     const n = by.get(i);
     const mine = links.filter((l) => l.from === i || l.to === i);
     mine.sort(
@@ -514,120 +637,171 @@ export function brief(text, map, dir) {
         Number(!a.evidence.some((e) => got.has(e.file))) -
         Number(!b.evidence.some((e) => got.has(e.file))),
     );
-    const lines = mine.map((l) => `- ${arrow(l, i, by)}: ${l.says}`);
-    const files = [...n.files]
-      .sort((a, b) => Number(!got.has(a)) - Number(!got.has(b)))
-      .slice(0, BRIEF_FILES);
-    return { name: n.name, id: i, what: n.what, files, notes: n.notes, lines };
+    return {
+      name: n.name,
+      id: i,
+      what: n.what,
+      files: firstFiles(n).slice(0, BRIEF_FILES),
+      notes: n.notes,
+      lines: mine.map((l) => `- ${arrow(l, i, by)}: ${l.says}`),
+      cap: BRIEF_LINKS,
+    };
   });
-  const caps = blocks.map(() => BRIEF_LINKS);
-  let fileCap = BRIEF_FILES;
+  const oneLine = (i, words) =>
+    startList(
+      `- ${by.get(i).name} [${i}]`,
+      firstFiles(by.get(i)).slice(0, BRIEF_LINE_FILES),
+      " in ",
+    ) + (words ? " (by words)" : "");
+  const more = [
+    ...strong.slice(BRIEF_FULL).map((i) => oneLine(i, false)),
+    ...weak.map((i) => oneLine(i, true)),
+  ];
+  let keep = more.length,
+    fileCap = BRIEF_FILES;
+  const linksOf = (e) => Math.min(e.cap, e.lines.length);
+  const entry = (e) => {
+    const head = [`## ${e.name} [${e.id}]`, e.what];
+    if (e.files.length)
+      head.push(startList("Start in", e.files.slice(0, fileCap), " "));
+    if (e.notes.length) head.push("Read: " + e.notes.join(", "));
+    const k = linksOf(e),
+      cut = e.lines.length - k;
+    if (!e.lines.length) head.push("Links: none");
+    else if (!k) head.push(`Links: ${cut} (--near ${e.id})`);
+    else
+      head.push(
+        "Links:",
+        ...e.lines.slice(0, k),
+        ...(cut ? [`- (${cut} more: --near ${e.id})`] : []),
+      );
+    return head.join("\n");
+  };
+  const fullPart = () => full.map(entry).join("\n\n");
+  const morePart = (n) =>
+    more.length
+      ? [
+          "Also matched (name, where to start):",
+          ...more.slice(0, n),
+          ...(n < more.length
+            ? [`- (${more.length - n} more matches left out)`]
+            : []),
+        ].join("\n")
+      : "";
   const render = () =>
-    blocks
-      .map(({ name, id, what, files, notes, lines }, k) => {
-        const head = [`## ${name} [${id}]`, what];
-        if (files.length)
-          head.push("Start in: " + files.slice(0, fileCap).join(", "));
-        if (notes.length) head.push("Read: " + notes.join(", "));
-        const body = lines.slice(0, caps[k]);
-        if (lines.length > caps[k])
-          body.push(
-            `- (${lines.length - caps[k]} more links: ${CMD} --near ${ids[k]})`,
-          );
-        return [...head, lines.length ? "Links:" : "Links: none", ...body].join(
-          "\n",
-        );
-      })
-      .join("\n\n");
+    [fullPart(), morePart(keep)].filter(Boolean).join("\n\n");
   let out = render();
-  const top =
-    BRIEF_MAX -
-    (rest.length
-      ? Math.min(moreLines(rest, by, got, 1e9).length, BRIEF_LINES_ROOM)
-      : 0);
-  while (
-    out.length > top &&
-    (fileCap > BRIEF_FILES_CUT || caps.some((c) => c))
-  ) {
-    if (fileCap > BRIEF_FILES_CUT) {
-      fileCap = BRIEF_FILES_CUT;
-      out = render();
-      continue;
-    } // start files first, links after
-    let k = 0;
-    caps.forEach((c, j) => {
-      if (c >= caps[k]) k = j;
-    }); // the largest cap, the last of equals
-    caps[k]--;
+  while (out.length > BRIEF_MAX) {
+    // the entry with the most links shown, the last of equals
+    const most = full.reduce(
+      (m, e) => (linksOf(e) >= linksOf(m) ? e : m),
+      full[0],
+    );
+    const shown = most ? linksOf(most) : 0;
+    const room = more.length
+      ? Math.min(morePart(more.length).length + 2, BRIEF_LINES_ROOM)
+      : 0;
+    if (fileCap > BRIEF_FILES_CUT) fileCap = BRIEF_FILES_CUT;
+    else if (shown && fullPart().length > BRIEF_MAX - room)
+      most.cap = shown - 1;
+    else if (keep) keep--;
+    else if (full.length > 1) {
+      more.unshift(oneLine(full.pop().id, false));
+      keep = 1;
+    } else if (shown) most.cap = shown - 1;
+    else break; // the top entry's name, what and start files stay whole
     out = render();
   }
-  out = out.slice(0, top).trimEnd();
-  return rest.length
-    ? out + moreLines(rest, by, got, BRIEF_MAX - out.length)
-    : out;
+  // A full entry made one line frees room: one-line entries cut before it come back while they fit.
+  while (keep < more.length) {
+    keep++;
+    const next = render();
+    if (next.length > BRIEF_MAX) {
+      keep--;
+      break;
+    }
+    out = next;
+  }
+  return out;
 }
 
 /** A how-to thing (id `do-`, group `how-to`) or a topic (id `topic-`, group `topic`). */
 export const isGuide = (n) =>
   /^(do|topic)-/.test(n.id) || n.group === "how-to" || n.group === "topic";
 
-/** The how-to things and topics a person's message asks about, by name or words only (a file it names does not count), best first:
- *  [{ id, name, files, score }] with the thing's first 3 files; score counts the name and word hits. The map-prompt hook uses it. */
+/** Whether a session holds a file from its start, so a note pointing at it repeats what the session has: a SKILL.md of a skill installed
+ *  in ~/.claude/skills or the project's .claude/skills (a public-repo copy too), a plugin's SKILL.md, a rules or agents file, a CLAUDE.md
+ *  the session loads, the project's MEMORY.md. file is a path as prep() gives it (from the project root or absolute). */
+export function heldAtStart(file, dir) {
+  const key = (p) => path.resolve(p).replace(/\\/g, "/").toLowerCase();
+  const homeDir = os.homedir();
+  const f = key(placeOf(dir, file));
+  const home = key(homeDir) + "/.claude";
+  const proj = key(dir);
+  const name = path.posix.basename(f);
+  const parent = path.posix.dirname(f);
+  if (name === "skill.md") {
+    const s = path.basename(path.dirname(placeOf(dir, file)));
+    if (
+      [homeDir, dir].some((r) =>
+        isFile(path.join(r, ".claude", "skills", s, "SKILL.md")),
+      )
+    )
+      return true;
+    if (f.startsWith(home + "/plugins/")) return true;
+  }
+  const inClaude = (sub) =>
+    parent === `${home}/${sub}` || parent === `${proj}/.claude/${sub}`;
+  if (name.endsWith(".md") && (inClaude("rules") || inClaude("agents")))
+    return true;
+  if (name === "claude.md") {
+    if (f === `${home}/claude.md` || f === `${proj}/.claude/claude.md`)
+      return true;
+    if (proj === parent || proj.startsWith(parent.replace(/\/$/, "") + "/"))
+      return true;
+  }
+  const projectKey = path
+    .resolve(dir)
+    .replace(/[^a-zA-Z0-9]/g, "-")
+    .toLowerCase();
+  return f === `${home}/projects/${projectKey}/memory/memory.md`;
+}
+
+/** The things a person's message names, best first: [{ id, name, files, score, held }] with the thing's first 3 files. A part of the code
+ *  counts by its name or id only; a how-to thing or topic also by its name without "How to:" and by its words. A file the message names
+ *  does not count. score counts the name and word hits; held says the thing's first file is one the session holds from its start
+ *  (heldAtStart), so the map-prompt hook leaves it out. */
 export function promptFind(text, map, dir) {
   const { nodes } = prep(map, dir, true);
   const flat = " " + text.toLowerCase().replace(/[-_\s]+/g, " ") + " ";
   const hits = [];
   nodes.forEach((n, k) => {
-    if (!isGuide(n)) return;
+    const guide = isGuide(n);
     let s = 0;
-    // A how-to name reads "How to: web research"; what follows "How to:" is how people ask for it.
     const names = new Set(aliases(n));
+    // A how-to name reads "How to: web research"; what follows "How to:" is how people ask for it.
     const bare = n.name
       .replace(/^how to:\s*/i, "")
       .toLowerCase()
       .replace(/[-_\s]+/g, " ")
       .trim();
-    if (bare && !COMMON.has(bare)) names.add(bare);
+    if (guide && bare && !COMMON.has(bare)) names.add(bare);
     for (const a of names)
       if (new RegExp("(?<![a-z0-9])" + escapeRe(a) + "(?![a-z0-9])").test(flat))
         s += a.includes(" ") ? 2 : 1;
-    for (const re of n.words) if (re.test(text)) s += 1;
-    if (s) hits.push({ id: n.id, name: n.name, files: n.files.slice(0, 3), s, k });
+    if (guide) for (const re of n.words) if (re.test(text)) s += 1;
+    if (s)
+      hits.push({ id: n.id, name: n.name, files: n.files.slice(0, 3), s, k });
   });
   return hits
     .sort((a, b) => b.s - a.s || a.k - b.k)
-    .map(({ id, name, files, s }) => ({ id, name, files, score: s }));
-}
-
-/** One line per further match (name and start files), in rank order, cut where the 7,000 characters end, and a count of those left out. */
-function moreLines(rest, by, got, room) {
-  const head = "\n\nAlso matched (name, where to start):";
-  const lines = rest.map(
-    (i) =>
-      `- ${by.get(i).name} [${i}]: ` +
-      [...by.get(i).files]
-        .sort((a, b) => Number(!got.has(a)) - Number(!got.has(b)))
-        .slice(0, BRIEF_LINE_FILES)
-        .join(", "),
-  );
-  const left = (k) => `- (${k} more matches left out)`;
-  room -= head.length;
-  if (lines.reduce((t, l) => t + l.length + 1, 0) <= room)
-    return head + lines.map((l) => "\n" + l).join("");
-  const shown = [];
-  let used = 0;
-  for (const l of lines) {
-    if (used + l.length + 1 + left(lines.length).length + 1 > room) break;
-    shown.push(l);
-    used += l.length + 1;
-  }
-  if (used + left(lines.length).length + 1 > room) return "";
-  return (
-    head +
-    shown.map((l) => "\n" + l).join("") +
-    "\n" +
-    left(lines.length - shown.length)
-  );
+    .map(({ id, name, files, s }) => ({
+      id,
+      name,
+      files,
+      score: s,
+      held: files.length > 0 && heldAtStart(files[0], dir),
+    }));
 }
 
 // ---- --near ---------------------------------------------------------------------------------------------------------------------------
@@ -681,8 +855,11 @@ export function near(words, map, dir) {
     decisions = fs
       .readFileSync(path.join(dir, "DECISIONS.md"), "utf8")
       .split(/\r?\n/)
-      .filter((x) => x.startsWith("- "));
+      .map((x, k) => [k + 1, x])
+      .filter(([, x]) => x.startsWith("- "));
   } catch {}
+  const cut = (s) =>
+    s.length > DECIDED_CHARS ? s.slice(0, DECIDED_CHARS - 1) + "…" : s;
   const out = [];
   for (const n of hits) {
     const mine = links.filter((l) => l.from === n.id || l.to === n.id);
@@ -702,11 +879,13 @@ export function near(words, map, dir) {
       );
     }
     if (decisions && n.words.length) {
-      const hit = decisions.filter((x) => n.words.some((re) => re.test(x)));
+      const hit = decisions.filter(([, x]) => n.words.some((re) => re.test(x)));
       if (hit.length)
         out.push(
           "Decided:",
-          ...hit.slice(0, DECIDED_MAX),
+          ...hit
+            .slice(0, DECIDED_MAX)
+            .map(([k, x]) => cut(`- line ${k}: ${x.slice(2)}`)),
           ...(hit.length > DECIDED_MAX
             ? [`(${hit.length - DECIDED_MAX} more in DECISIONS.md)`]
             : []),
@@ -726,15 +905,18 @@ export function near(words, map, dir) {
 
 // ---- --check --------------------------------------------------------------------------------------------------------------------------
 
-/** { bad: [mistakes in the JSON], gone: [[path, who]], drifted: [drift()], total, things, links }. */
+/** { bad: [mistakes in the JSON], gone: [[path, who]], drifted: [drift()], hand, common: [[id, words pattern that is one bare common
+ *  word]], total, things, links }. */
 export function checkMap(map, dir) {
   const bad = [];
+  const common = [];
   if (!map || typeof map !== "object" || Array.isArray(map)) {
     return {
       bad: ["the file must hold one JSON object with nodes and links"],
       gone: [],
       drifted: [],
       hand: [],
+      common,
       total: 0,
       things: 0,
       links: 0,
@@ -775,6 +957,7 @@ export function checkMap(map, dir) {
           try {
             if (typeof w !== "string" || !w) throw new Error("not a string");
             new RegExp(w, "i");
+            if (bareCommon(w)) common.push([n.id, w]);
           } catch (e) {
             bad.push(
               `${at}: words entry ${JSON.stringify(w)} is not a valid regex (${e.message})`,
@@ -840,6 +1023,7 @@ export function checkMap(map, dir) {
     gone,
     drifted: drift(map, dir),
     hand: handEdits(map, dir),
+    common,
     total,
     things: arr(map.nodes).length,
     links: arr(map.links).length,
@@ -887,10 +1071,8 @@ const MANIFESTS = new Set(
     "composer.json Gemfile requirements.txt tsconfig.json Package.swift CMakeLists.txt"
   ).split(" "),
 );
-const MAIN_FILE = new RegExp(
-  String.raw`^(?:(?:main|index|app|server|cli|__main__|manage|wsgi|asgi|program|startup)\.[a-z]+|[a-z0-9]*(?:application|main|program)\.(?:java|kt|cs))$`,
-  "i",
-);
+const MAIN_FILE =
+  /^(?:(?:main|index|app|server|cli|__main__|manage|wsgi|asgi|program|startup)\.[a-z]+|[a-z0-9]*(?:application|main|program)\.(?:java|kt|cs))$/i;
 const depth = (p) => p.split("/").length - 1;
 
 export function scan(dir) {
@@ -1133,11 +1315,20 @@ function main(argv) {
     console.log(
       `HAND ${h.file}  (written by ${h.by}): changed by hand after its last run, a rerun undoes it: ${h.commits.slice(0, 3).join("; ")}`,
     );
+  for (const [id, w] of r.common)
+    console.log(
+      `WORD ${id}: ${JSON.stringify(w)} is one common word, so the map ignores it; write the phrase people use (for example "release to the public repo").`,
+    );
   const share = r.total ? ((100 * r.gone.length) / r.total).toFixed(1) : "0.0";
   const wrong =
-    r.bad.length + r.gone.length + r.drifted.length + r.hand.length > 0;
+    r.bad.length +
+      r.gone.length +
+      r.drifted.length +
+      r.hand.length +
+      r.common.length >
+    0;
   console.log(
-    `${wrong ? "FAIL" : "ok"}: ${r.things} things, ${r.links} links, ${r.total} listed paths, ${r.gone.length} gone (${share}%), ${r.bad.length} JSON mistakes, ${r.drifted.length} drifted${Array.isArray(map.generated) ? `, ${r.hand.length} hand-edited` : ""}`,
+    `${wrong ? "FAIL" : "ok"}: ${r.things} things, ${r.links} links, ${r.total} listed paths, ${r.gone.length} gone (${share}%), ${r.bad.length} JSON mistakes, ${r.drifted.length} drifted, ${r.common.length} common words${Array.isArray(map.generated) ? `, ${r.hand.length} hand-edited` : ""}`,
   );
   return wrong ? 1 : 0;
 }

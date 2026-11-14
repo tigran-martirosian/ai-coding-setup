@@ -1,10 +1,11 @@
 // Tests for hooks/repeat-guard.mjs. Run: node test-repeat-guard.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import { fileURLToPath } from "node:url";
+
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/repeat-guard.mjs", import.meta.url),
@@ -997,7 +998,11 @@ const cases = [
     () => nearCap("worker-refactor", 70),
     "close to your limit",
   ],
-  ["worker-refactor at 69 turns: nothing", () => nearCap("worker-refactor", 69), false],
+  [
+    "worker-refactor at 69 turns: nothing",
+    () => nearCap("worker-refactor", 69),
+    false,
+  ],
   [
     "worker-code at 70 turns: told to finish and report",
     () => nearCap("worker-code", 70),

@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extensionTarget, readTokens } from "../shared/build-lib.mjs";
-import { EXTENSION_ID, THEMES, colors } from "./themes.mjs";
+import { colors, EXTENSION_ID, menuThemes, THEMES } from "./themes.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fontsDir = path.join(here, "fonts");
@@ -50,7 +50,7 @@ if (manifest.id !== EXTENSION_ID)
   throw new Error(
     `manifest.json has id ${manifest.id}, themes.mjs says ${EXTENSION_ID}`,
   );
-manifest.contributions.themes = THEMES.map((t) => ({
+manifest.contributions.themes = menuThemes().map((t) => ({
   id: t.id,
   name: t.name,
   isDark: t.isDark,
@@ -96,8 +96,18 @@ console.log(
   "themes",
 );
 
-// shell.js is the extension's code file as it is (no bundling)
-const shell = fs.readFileSync(path.join(here, "shell.js"), "utf8");
+// shell.js is the extension's code file as it is (no bundling), except for one line: the shared thinking-orbs mount
+// goes in place of the marker line inside loadOrbs(), so it runs at activate, not when the file is imported
+// (test.mjs imports shell.js in Node, where there is no window). The mount keeps one copy per window.
+const ORBS_MARKER = /^[ \t]*\/\/ ORBS-MOUNT \(build\.mjs\)[ \t]*\r?$/m;
+const source = fs.readFileSync(path.join(here, "shell.js"), "utf8");
+if (!ORBS_MARKER.test(source))
+  throw new Error("ORBS-MOUNT marker not found in shell.js");
+const orbs = fs.readFileSync(
+  path.join(here, "..", "shared", "orbs", "orbs.js"),
+  "utf8",
+);
+const shell = source.replace(ORBS_MARKER, () => orbs.trimEnd());
 const main = path.join(here, manifest.main);
 fs.writeFileSync(main, shell);
 

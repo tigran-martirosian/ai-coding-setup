@@ -4,8 +4,8 @@
 // has no call that reaches a session that is already running (read from the app's code),
 // so /handoff and /btw, which belong to a running chat, are not here.
 
-import { REFUSAL_MS, hostInvoke, startSession } from "../../shared/host.ts";
 import type { Invoke } from "../../shared/host.ts";
+import { hostInvoke, REFUSAL_MS, startSession } from "../../shared/host.ts";
 import { HIDE, OWN } from "./own.ts";
 import { t } from "./strings.ts";
 
@@ -209,10 +209,10 @@ export function createLauncher(
   };
   return {
     get: () => state,
-    subscribe: (l: () => void) => (
-      listeners.add(l),
-      () => void listeners.delete(l)
-    ),
+    subscribe: (l: () => void) => {
+      listeners.add(l);
+      return () => void listeners.delete(l);
+    },
     /** The row's button. Returns what it did, so the caller can move focus. */
     async press(command: Command): Promise<"ignored" | "asking" | "started"> {
       if (state.starting) return "ignored";

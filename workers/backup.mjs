@@ -17,7 +17,7 @@
 // Paths: CLAUDE_BACKUP_HOME (default ~/.claude-backup: password, b2.env, config.json, bin/, logs/), CLAUDE_HOME (default
 // ~/.claude, always backed up). The restic password reaches restic only as RESTIC_PASSWORD_FILE, the B2 key only as env
 // vars; neither is ever put on a command line or printed (except the password once, on the recovery sheet in setup).
-import { spawnSync, spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";

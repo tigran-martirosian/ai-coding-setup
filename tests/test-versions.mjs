@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Tests for ~/.claude/workers/versions.mjs - the version / "is X available" lookup.
-// The pure matching logic runs offline; the live lookups are skipped with --offline.
+// The pure matching logic and gh: (against a local stand-in for the GitHub API) run offline; the live
+// end-of-life, npm and PyPI lookups are skipped with --offline.
 // Run: node test-versions.mjs [--offline]
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -218,6 +220,121 @@ const run = (args) => {
   );
 }
 
+// ---------------- gh: against a stand-in for the GitHub API ----------------
+// Never the real GitHub: shared CI runners hit its hourly limit for calls without a token, so a live call made
+// the test fail for reasons outside the code. The command runs as a child (async, so this server can answer).
+{
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push({ url: req.url, auth: req.headers.authorization || "" });
+    const json = (status, body, headers = {}) => {
+      res.writeHead(status, { "content-type": "application/json", ...headers });
+      res.end(JSON.stringify(body));
+    };
+    if (req.url === "/repos/acme/rel/releases?per_page=20")
+      return json(200, [
+        {
+          tag_name: "v2.1.0-rc1",
+          name: "2.1.0 rc1",
+          published_at: "2026-11-01T10:00:00Z",
+          prerelease: true,
+        },
+        {
+          tag_name: "v2.0.0",
+          name: "2.0.0",
+          published_at: "2026-10-01T10:00:00Z",
+          prerelease: false,
+        },
+      ]);
+    if (req.url === "/repos/acme/tagsonly/releases?per_page=20")
+      return json(200, []);
+    if (req.url === "/repos/acme/tagsonly/tags?per_page=20")
+      return json(200, [{ name: "v0.9.0" }, { name: "v0.8.0" }]);
+    if (req.url === "/repos/acme/limited/releases?per_page=20")
+      return json(
+        403,
+        { message: "API rate limit exceeded" },
+        {
+          "x-ratelimit-remaining": "0",
+          "x-ratelimit-reset": String(Date.UTC(2026, 10, 13, 18, 30) / 1000),
+        },
+      );
+    json(404, { message: "Not Found" });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const api = `http://127.0.0.1:${server.address().port}`;
+  const runGh = (args) =>
+    new Promise((resolve) => {
+      const env = {
+        ...process.env,
+        VERSIONS_GITHUB_API: api,
+        GITHUB_TOKEN: "stand-in-token",
+      };
+      delete env.GH_TOKEN;
+      const child = spawn(process.execPath, [TOOL, ...args], { env });
+      let out = "";
+      child.stdout.on("data", (d) => (out += d));
+      child.stderr.on("data", (d) => (out += d));
+      const timer = setTimeout(() => child.kill(), 60000);
+      child.on("close", (status) => {
+        clearTimeout(timer);
+        resolve({ out, status });
+      });
+    });
+  try {
+    {
+      const r = await runGh(["gh:acme/rel"]);
+      ok(
+        "gh: lists releases newest first with dates",
+        r.status === 0 &&
+          /GitHub releases/.test(r.out) &&
+          /v2\.1\.0-rc1\s+2026-11-01[\s\S]*v2\.0\.0\s+2026-10-01/.test(r.out),
+        r.out.slice(0, 300),
+      );
+      ok(
+        "a pre-release is marked",
+        /v2\.1\.0-rc1\s+2026-11-01\s+\(pre-release\)/.test(r.out),
+        r.out.slice(0, 300),
+      );
+      ok(
+        "the answer prints the releases page",
+        /source: https:\/\/github\.com\/acme\/rel\/releases/.test(r.out),
+        r.out,
+      );
+      ok(
+        "the token goes with the GitHub call",
+        seen.some(
+          (s) =>
+            s.url.startsWith("/repos/acme/rel/") &&
+            s.auth === "Bearer stand-in-token",
+        ),
+        JSON.stringify(seen),
+      );
+    }
+    {
+      const r = await runGh(["gh:acme/tagsonly"]);
+      ok(
+        "gh: a repo with no releases falls back to its tags",
+        r.status === 0 && /no releases/.test(r.out) && /v0\.9\.0/.test(r.out),
+        r.out.slice(0, 300),
+      );
+    }
+    {
+      const r = await runGh(["gh:acme/limited"]);
+      ok(
+        "gh: the rate limit is named, with the reset time",
+        r.status !== 0 &&
+          /rate limit reached for this token; it resets at 18:30 UTC/.test(
+            r.out,
+          ),
+        r.out.slice(0, 300),
+      );
+    }
+  } finally {
+    server.close();
+  }
+}
+
 if (OFFLINE) {
   console.log("(live lookups skipped: --offline)");
 } else {
@@ -264,17 +381,6 @@ if (OFFLINE) {
       /END OF LIFE/.test(r.out) &&
         !/older branches are end-of-life/.test(r.out),
     );
-  }
-  {
-    const r = run(["gh:sqlfluff/sqlfluff"]);
-    ok(
-      "gh: lists releases newest first with dates",
-      r.status === 0 &&
-        /GitHub releases/.test(r.out) &&
-        /\d{4}-\d{2}-\d{2}/.test(r.out),
-      r.out.slice(0, 200),
-    );
-    ok("a pre-release is marked", /pre-release/.test(r.out));
   }
   {
     const r = run(["npm:sql-formatter"]);

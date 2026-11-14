@@ -1,5 +1,5 @@
 // Evaluated inside the Nimbalyst window via: node scripts/cdp.mjs --file test/ui-controls.js
-// Checks the speed button, skip ahead and stop on the longest visible reply; restores the speed.
+// Checks the speed button, skip ahead and close on the longest visible reply; restores the speed.
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const out = {};
@@ -21,10 +21,15 @@
     document.querySelector(".readaloud-control.active") ??
     document.createElement("span");
   const btn = (title) =>
-    [...c().querySelectorAll("button")].find((b) => b.title.startsWith(title));
+    [...c().querySelectorAll("button")].find((b) =>
+      [b.querySelector(".readaloud-word")?.textContent ?? "", b.title].some(
+        (x) => x.startsWith(title),
+      ),
+    );
   const status = () =>
     c().querySelector(".readaloud-status")?.textContent ?? "";
 
+  // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
   out.markerTextShown = document.body.innerText.includes("<!-- voice");
 
   const speedBtn = c().querySelector(".readaloud-speed");
@@ -37,8 +42,10 @@
   const t0 = performance.now();
   while (
     !btn("Skip") ||
-    !/playing|Pause/.test(
-      [...c().querySelectorAll("button")].map((b) => b.title).join(),
+    !/Playing|Pause/.test(
+      [...c().querySelectorAll("button")]
+        .map((b) => b.querySelector(".readaloud-word")?.textContent || b.title)
+        .join(),
     )
   ) {
     if (performance.now() - t0 > 15000) break;
@@ -49,9 +56,9 @@
   btn("Skip").click();
   await sleep(1500);
   out.afterSkip = status() || "(item finished)";
-  btn("Stop")?.click();
+  btn("Close")?.click();
   await sleep(200);
-  out.stopped = !btn("Stop");
+  out.closed = !btn("Close");
 
   // Restore the original speed.
   for (

@@ -4,14 +4,18 @@
 
 /* ---- Control strip -------------------------------------------------------------------------- */
 
+/* At rest: one line of worded buttons. inline-flex, so it sits on one line with the copy row (Commands extension),
+   which ends each turn in the same spot. */
 .readaloud-control {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--x-space-1);
+  gap: 2px;
+  max-width: 100%;
   margin-top: var(--x-space-1);
+  vertical-align: top;
   color: var(--x-text-muted);
-  font: var(--x-caption);
+  font: var(--x-meta);
 }
 .readaloud-control[hidden] {
   display: none;
@@ -22,20 +26,70 @@
   display: none;
 }
 
-/* Icon button: 28px hit box, muted at rest */
+/* While its block is read: the player box, two lines, depth from tone (surface 1, no border), radius 8 */
+.readaloud-control.active {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  padding: var(--x-space-2) 6px 6px 14px;
+  border-radius: var(--x-radius-window);
+  background: var(--x-surface-1);
+}
+
+/* Line 1: the mark (orb or dot in a 24px slot), the state word, where it is */
+.readaloud-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.readaloud-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--x-orb-size);
+  height: var(--x-orb-size);
+}
+.readaloud-state-word {
+  font: var(--x-row-title);
+  color: var(--x-text);
+}
+.readaloud-state-word.preparing,
+.readaloud-state-word.playing {
+  color: var(--x-state-running);
+}
+.readaloud-detail {
+  color: var(--x-text-muted);
+}
+
+/* Line 2: Pause or Resume, Next, speed, Close; pulled left so the first icon lines up under the mark */
+.readaloud-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-left: -10px;
+}
+
+/* Button: icon plus its word, 32px high, muted at rest */
 .readaloud-btn {
   box-sizing: border-box;
   display: inline-flex;
   flex: none;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
+  gap: 6px;
+  height: var(--x-control-height);
+  padding: 0 10px;
   border: 0;
   border-radius: var(--x-radius-control);
   background: transparent;
   color: var(--x-text-muted);
+  font: var(--x-meta);
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   transition: background var(--x-motion-fast) var(--x-ease), color var(--x-motion-fast) var(--x-ease);
 }
@@ -55,28 +109,23 @@
   background: transparent;
   box-shadow: none;
   color: var(--x-text-muted);
+  opacity: 0.6;
   cursor: default;
 }
+/* Hands-free on: the word and icon in the accent text tone */
 .readaloud-btn.on {
-  color: var(--x-accent);
+  color: var(--x-state-running);
 }
 .readaloud-btn .material-symbols-outlined {
-  font-size: 16px;
+  font-size: 18px;
   font-variation-settings: var(--x-icon-settings);
 }
+/* Close sits at the right end of line 2 */
+.readaloud-close {
+  margin-left: auto;
+}
 
-/* Status: a dot and one word */
-.readaloud-state,
-.ra-state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--x-space-2);
-  color: var(--x-text-muted);
-  font: var(--x-caption);
-}
-.readaloud-state {
-  padding: 0 var(--x-space-1);
-}
+/* Status dots: running in the accent text tone, paused grey, error in the failed tone */
 .readaloud-dot,
 .ra-dot {
   flex: none;
@@ -85,18 +134,22 @@
   border-radius: 50%;
   background: var(--x-text-muted);
 }
-.readaloud-dot.live,
+.readaloud-dot.playing,
 .ra-dot.live {
-  background: var(--x-accent);
+  background: var(--x-state-running);
 }
 .readaloud-dot.error,
 .ra-dot.error {
-  background: var(--x-error);
+  background: var(--x-state-failed);
 }
-.readaloud-count {
+
+/* Settings page status: a dot and one word */
+.ra-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--x-space-2);
   color: var(--x-text-muted);
-  font: var(--x-micro);
-  font-variant-numeric: tabular-nums;
+  font: var(--x-meta);
 }
 
 /* Speed: one range and its value */
@@ -104,29 +157,50 @@
   display: inline-flex;
   align-items: center;
   gap: var(--x-space-2);
-  height: 28px;
-  padding: 0 var(--x-space-1);
+  height: var(--x-control-height);
+  padding: 0 var(--x-space-2);
 }
 .readaloud-speed-value,
 .ra-speed-value {
   min-width: 36px;
   color: var(--x-text-muted);
-  font: var(--x-caption);
+  font: var(--x-meta);
   font-variant-numeric: tabular-nums;
 }
 .readaloud-speed-value {
   text-align: right;
 }
 
-/* Error: a dot, the message, and a visible dismiss */
+/* Error: a dot, the message in the failed tone, and a bordered Dismiss (so it reads as a button) */
 .readaloud-error {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--x-space-2);
   max-width: 100%;
-  padding-left: var(--x-space-1);
-  color: var(--x-error);
-  font: var(--x-caption);
+  padding-left: var(--x-space-2);
+  color: var(--x-state-failed);
+  font: var(--x-meta);
+}
+.readaloud-dismiss {
+  box-sizing: border-box;
+  height: var(--x-control-height);
+  padding: 0 var(--x-space-3);
+  /* no shared token for a strong hairline yet: the text colour at 16%, as the mock-ups' "hairline-strong" */
+  border: 1px solid color-mix(in oklab, var(--x-text) 16%, transparent);
+  border-radius: var(--x-radius-control);
+  background: transparent;
+  color: var(--x-text);
+  font: var(--x-meta);
+  font-weight: 500;
+  cursor: pointer;
+}
+.readaloud-dismiss:hover {
+  background: var(--x-overlay-hover);
+}
+.readaloud-dismiss:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
 }
 
 /* ---- Range input (strip and settings) ------------------------------------------------------- */
@@ -191,7 +265,7 @@
 .ra-hint {
   margin: 0;
   color: var(--x-text-muted);
-  font: var(--x-caption);
+  font: var(--x-meta);
 }
 .ra-intro {
   margin-bottom: var(--x-space-3);
@@ -371,7 +445,7 @@
   border-radius: var(--x-radius-control);
   background: transparent;
   color: var(--x-text-muted);
-  font: var(--x-caption);
+  font: var(--x-meta);
   cursor: pointer;
 }
 .ra-link:hover {
@@ -385,5 +459,33 @@
 .ra-error {
   margin: 0;
   color: var(--x-error);
-  font: var(--x-caption);
+  font: var(--x-meta);
+}
+
+/* ---- Docked player (dock.ts) ---------------------------------------------------------------- */
+
+/* One line just above the chat box while the reply being read is scrolled away; its side margins are copied from
+   the chat box, so both edges line up */
+.readaloud-dock {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 44px;
+  margin-bottom: var(--x-space-2);
+  padding: 0 6px 0 14px;
+  border-radius: var(--x-radius-window);
+  background: var(--x-surface-2);
+  color: var(--x-text-muted);
+  font: var(--x-meta);
+  white-space: nowrap;
+}
+.readaloud-dock .readaloud-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.readaloud-dock .readaloud-close {
+  margin-left: 0;
 }

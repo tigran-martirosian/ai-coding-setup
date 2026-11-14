@@ -1,9 +1,9 @@
-import React from "react";
+import type React from "react";
 import { AbsoluteFill, Sequence } from "remotion";
 import { Rail } from "./kit";
 import { color } from "./look";
-import { timeline } from "./script";
 import { ShotView } from "./Shots";
+import { timeline } from "./script";
 
 /** Plays the named shots one after another on the one background: all of them for the film, or a few for a clip. */
 export const Film: React.FC<{ shots?: string[] }> = ({ shots }) => (

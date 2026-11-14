@@ -39,7 +39,7 @@ Add the project's commands and its rule for checks when the step needs them: the
 
 **A reviewer's brief carries the purposes.** A plan-reviewer or reviewer brief quotes the Serves cell of each row it covers. A focus list adds to the agent's own checklist and never replaces it. A build review's request is the purpose decision plus the card the user ticked, never the card alone.
 
-**What no helper sees.** No helper loads auto-memory, so a memory note that bears on the step is pasted into its brief. The project's systems map reaches every brief by itself as `SYSTEMS MAP:` lines; a planner, plan-reviewer or reviewer brief also names the map, for what the change reaches: `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>`.
+**What no helper sees.** No helper loads auto-memory, so a memory note that bears on the step is pasted into its brief. The project's systems map reaches every brief by itself as `SYSTEMS MAP:` lines; a planner, plan-reviewer or reviewer reads what the change reaches from those lines, and runs `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>` only for a part they don't cover or whose links they cut, never when the brief has no `SYSTEMS MAP:` line.
 
 **Worktree steps** need a project whose CLAUDE.md allows local git; you merge each one. After the stage commit and the full suites pass, remove the worktree, `git worktree remove <path>` without `--force`, then delete its branch with `git branch -D <branch>` (after a squash, `-d` always refuses: git does not see the branch as merged). When `git worktree remove` refuses, the worktree holds uncommitted files: name them to the user and leave it. A failed full run is followed by a rerun of only the failed tests (`node tests/run-all.mjs --failed` in a setup repo), not a second full run. A worktree left behind costs up to a gigabyte, and Claude Code only clears it after its chat-retention days.
 
@@ -50,7 +50,7 @@ Add the project's commands and its rule for checks when the step needs them: the
 ## Re-plans and size-line stops
 
 - **A helper stopped by the size line (`[worker-size]`, 180k) is followed by a fresh worker** whose brief carries its report, not by SendMessage: SendMessage would re-send its 180k.
-- **A block that shows the plan itself is wrong goes back to the planner** with the plan file and the `BLOCKED` line: SendMessage to the same planner when its report shows turns to spare, otherwise a new planner run with the Brief and the plan file. It rewrites the saved rows in place, adds one `Changed <date>: <row>: <what>` line at the end per change, and keeps the State column. A re-plan that changes only the blocked row and the rows that depend on it gets no plan review; one that adds or removes steps, or moves a file to another owner, goes to the `plan-reviewer`, told to check only the changed rows.
+- **A block that shows the plan itself is wrong goes back to the planner** with the plan file and the `BLOCKED` line: SendMessage to the same planner when its report shows turns to spare, otherwise a new planner run with the Brief and the plan file. It rewrites the saved rows in place, adds one `Changed <date>: <row>: <what>` line at the end per change, and keeps the State column; `/where-are-we` then brings the changed rows' steps in the tracker up to date and adds the new ones. A re-plan that changes only the blocked row and the rows that depend on it gets no plan review; one that adds or removes steps, or moves a file to another owner, goes to the `plan-reviewer`, told to check only the changed rows.
 
 ## A blind look's brief
 
@@ -68,7 +68,7 @@ The `blind-reviewer` has only the Read tool and loads no project rules: what it 
 
 ## Claiming a row
 
-Before it starts a row, a session claims it with one line in that row's State cell (a side session: in its lane's state file), `session <id>: S3, ends with commit + handoff`, where `<id>` is the 8 characters the job-done note "This session's id starts with …" gives at its first message. When it marks the row done, it keeps the claim in the cell: `done <hash>, session <id>: S3`. The hook then refuses its next commit or its helper for another row once and holds its turn end until it hands off.
+Before it starts a row, a session claims it with one line in that row's State cell (a side session: in its lane's state file), `session <id>: S3, ends with commit + handoff`, where `<id>` is the 8 characters the job-done note "This session's id starts with …" gives at its first message. When it marks the row done, it keeps the claim in the cell: `done <hash>, session <id>: S3`. The hook then refuses its next commit or its helper for another row once and holds its turn end until it hands off. The claim and the done mark stay in the State cell because the hook reads them there; the step's status, proof and handoff comment go on its tracker item (`SKILL.md` section 4).
 
 ## Release review
 

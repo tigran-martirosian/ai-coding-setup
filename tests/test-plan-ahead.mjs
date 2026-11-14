@@ -2,10 +2,11 @@
 // version and the dashboard build. Made-up samples in a temp folder; the real log is not touched.
 // Checks use fixed instants, so they hold in any time zone.
 // Run: node tests/test-plan-ahead.mjs
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SKILL = fileURLToPath(
@@ -59,7 +60,7 @@ check(
 );
 
 // ---- the week
-let A = planAhead(
+const A = planAhead(
   samples,
   [],
   { status: "calibrating" },
@@ -153,7 +154,6 @@ check(
     { from: "2026-10-05T07:00:00.000Z", to: "2026-10-05T16:00:00.000Z" },
   ],
 );
-const tip = (X, k) => X.tips.find((t) => t.k === k)?.text ?? null;
 check(
   "advice: the week, the budget and the 5-hour window, nothing about when to get on or off",
   A.tips.map((t) => t.k),

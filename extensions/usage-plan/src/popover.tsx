@@ -6,8 +6,8 @@
 // goes through and the sidebar panel opens as before.
 
 import type { ReactNode } from "react";
-import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
+import { createRoot } from "react-dom/client";
 
 // Nimbalyst draws the gutter button itself, from the manifest icon. Only the Usage Plan one: the dashboard
 // panel's hidden button must reach the app when "Full dashboard" clicks it.
@@ -51,6 +51,7 @@ function open(anchor: Element) {
   box.tabIndex = -1;
   document.body.appendChild(box);
   root = createRoot(box);
+  // biome-ignore lint/style/noNonNullAssertion: installPopover sets view before any popover can open
   root.render(view!());
   place(anchor);
   // Focus goes in once React has drawn the panel: onto its first button, or the window itself

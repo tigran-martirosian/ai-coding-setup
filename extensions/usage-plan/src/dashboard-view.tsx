@@ -4,10 +4,10 @@
  * usage-dashboard-lib; this file only filters, lays out and words it.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { progressFraction } from "./dashboard-data";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { DashboardData, DashboardState } from "./dashboard-data";
+import { progressFraction } from "./dashboard-data";
 import { DASHBOARD_CSS } from "./dashboard-styles";
 import { clock } from "./format";
 import { t } from "./strings";
@@ -159,6 +159,8 @@ function Ranks({
         );
         return onPick && x.key != null ? (
           <button
+            type="button"
+            // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
             key={i}
             className={`ud-rank${picked === x.key ? " on" : ""}`}
             aria-pressed={picked === x.key}
@@ -167,6 +169,7 @@ function Ranks({
             {inner}
           </button>
         ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
           <div key={i} className="ud-rank">
             {inner}
           </div>
@@ -565,6 +568,7 @@ function Daily(p: {
               };
               return (
                 <button
+                  type="button"
                   key={d}
                   className={`day${p.picked === d ? " on" : ""}`}
                   aria-pressed={p.picked === d}
@@ -726,6 +730,7 @@ function ChatDetail({ r, days }: { r: any; days: Set<string> }) {
           </thead>
           <tbody>
             {parts.map((x, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
               <tr key={i}>
                 <td className="nowrap">
                   <Dot s={x.cls} />
@@ -754,6 +759,7 @@ function ChatDetail({ r, days }: { r: any; days: Set<string> }) {
             <h3>{t.workersFromChat}</h3>
             <ul>
               {ws.map((w, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
                 <li key={i}>
                   {name[w.worker] ?? w.worker}
                   {w.web ? ` (${t.webSearch})` : ""}
@@ -832,6 +838,7 @@ function Chats(p: { rs: any[]; days: Set<string> }) {
             <tr>
               {cols.map(([k, label, c], i) => (
                 <th
+                  // biome-ignore lint/suspicious/noArrayIndexKey: fixed column list; it never reorders
                   key={i}
                   className={c}
                   aria-sort={
@@ -844,6 +851,7 @@ function Chats(p: { rs: any[]; days: Set<string> }) {
                 >
                   {k ? (
                     <button
+                      type="button"
                       className={sort === k ? "on" : ""}
                       onClick={() => pick(k)}
                     >
@@ -904,7 +912,7 @@ function Chats(p: { rs: any[]; days: Set<string> }) {
         </table>
       </div>
       {rs.length > shown.length && (
-        <button className="ud-more" onClick={() => setAll(true)}>
+        <button type="button" className="ud-more" onClick={() => setAll(true)}>
           {t.showAllChats(rs.length)}
         </button>
       )}
@@ -977,6 +985,7 @@ function CodexBody({
           </thead>
           <tbody>
             {shown.map((x, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
               <tr key={i}>
                 <td className="nowrap ud-muted">{fmtTime(x.at)}</td>
                 <td>
@@ -1016,7 +1025,7 @@ function CodexBody({
         </table>
       </div>
       {cx.length > shown.length && (
-        <button className="ud-more" onClick={() => setAll(true)}>
+        <button type="button" className="ud-more" onClick={() => setAll(true)}>
           {t.showAllRuns(cx.length)}
         </button>
       )}
@@ -1058,6 +1067,7 @@ function GeminiBody({
           </thead>
           <tbody>
             {shown.map((g, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
               <tr key={i}>
                 <td className="nowrap ud-muted">{fmtTime(g.at)}</td>
                 <td>{g.title || t.untitled}</td>
@@ -1073,7 +1083,7 @@ function GeminiBody({
         </table>
       </div>
       {gm.length > shown.length && (
-        <button className="ud-more" onClick={() => setAll(true)}>
+        <button type="button" className="ud-more" onClick={() => setAll(true)}>
           {t.showAllConversations(gm.length)}
         </button>
       )}
@@ -1182,7 +1192,9 @@ function Body({ D }: { D: any }) {
   for (const r of rs) {
     for (const u of [r.s, ...r.s.subagents]) {
       if (!u.dayUsd)
-        throw new Error("usage data has no per-model cost: rerun the usage scan");
+        throw new Error(
+          "usage data has no per-model cost: rerun the usage scan",
+        );
       for (const [d, m] of Object.entries<Record<string, number>>(
         u.days || {},
       )) {
@@ -1195,13 +1207,18 @@ function Body({ D }: { D: any }) {
         if (!days.has(d)) continue;
         for (const [name, c] of Object.entries(m))
           if (c > 0)
-            useByModel[modelName(name)] = (useByModel[modelName(name)] ?? 0) + c;
+            useByModel[modelName(name)] =
+              (useByModel[modelName(name)] ?? 0) + c;
       }
     }
   }
   const modelTotal = Object.values(useByModel).reduce((a, b) => a + b, 0);
   const modelItems: RankItem[] = Object.entries(byModel)
-    .map(([label, n]) => ({ label, value: useByModel[label] ?? 0, shown: fmt(n) }))
+    .map(([label, n]) => ({
+      label,
+      value: useByModel[label] ?? 0,
+      shown: fmt(n),
+    }))
     .sort((a, b) => b.value - a.value)
     .map((x) => ({
       ...x,
@@ -1312,11 +1329,13 @@ function Body({ D }: { D: any }) {
       </Section>
 
       <div className="ud-controls">
+        {/* biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border and padding; the group role keeps the look */}
         <div className="ud-seg" role="group">
           {ranges.map((r) => {
             const on = range === r.key && !day;
             return (
               <button
+                type="button"
                 key={r.key}
                 className={on ? "on" : ""}
                 aria-pressed={on}
@@ -1350,6 +1369,7 @@ function Body({ D }: { D: any }) {
         <div className="ud-chips">
           {chips.map(([k, label]) => (
             <button
+              type="button"
               key={k}
               className="ud-chip"
               aria-label={t.removeFilter(label)}
@@ -1527,7 +1547,12 @@ export function DashboardView({ state, onRefresh }: Props) {
               {t.rebuildingFor(Math.floor(elapsed / 1000))}
             </span>
           )}
-          <button className="ud-btn" onClick={onRefresh} disabled={rebuilding}>
+          <button
+            type="button"
+            className="ud-btn"
+            onClick={onRefresh}
+            disabled={rebuilding}
+          >
             {t.refresh}
           </button>
         </header>
@@ -1536,6 +1561,7 @@ export function DashboardView({ state, onRefresh }: Props) {
           <div className="ud-error" role="alert">
             <span>{error}</span>
             <button
+              type="button"
               className="ud-btn"
               onClick={onRefresh}
               disabled={rebuilding}

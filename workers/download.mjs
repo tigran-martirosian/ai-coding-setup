@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 // download: fetches one big file as many byte ranges side by side, because one stream is slow from the
 // big hosts (measured 2026-11-11 from Hugging Face: one curl ~1.5 MB/s, 32 ranges ~37 MB/s). No npm
 // dependencies. hooks/download-guard.mjs rewrites a plain big curl, wget or Invoke-WebRequest into this.
@@ -18,7 +19,6 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_PARTS = 32;

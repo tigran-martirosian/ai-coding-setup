@@ -163,17 +163,21 @@
     {
       "id": "housekeeping-nudges",
       "name": "Housekeeping nudges",
-      "what": "One-line prompts at a message or session start: the chat archive every 3 days, the patch list, new Claude Code experiments and feature flags, and facts past their recheck date.",
+      "what": "One-line prompts at a message or session start (the chat archive every 3 days, the patch list, new Claude Code experiments and feature flags, facts past their recheck date), and after a commit or a HANDOFF.md edit, a once-a-day note that has the agent fix the project's records: HANDOFF.md over 120 lines, dead paths, replaced decisions.",
       "files": [
         "hooks/pc-tidy-nudge.mjs",
         "hooks/patch-next.mjs",
         "hooks/experiment-alert.mjs",
         "hooks/recheck-dates.mjs",
-        "tests/test-recheck-dates.mjs"
+        "tests/test-recheck-dates.mjs",
+        "hooks/upkeep-note.mjs",
+        "hooks/lib/upkeep-checks.mjs",
+        "tests/test-upkeep-note.mjs"
       ],
       "group": "hooks",
       "words": [
-        "patch list"
+        "patch list",
+        "upkeep"
       ]
     },
     {
@@ -343,7 +347,9 @@
       "group": "release",
       "words": [
         "update-setup",
-        "\\brelease\\b"
+        "\\bnewer? release\\b",
+        "files-only release",
+        "version check"
       ]
     },
     {
@@ -447,15 +453,19 @@
     {
       "id": "nimbalyst-patcher",
       "name": "Nimbalyst patcher",
-      "what": "Puts fixes into Nimbalyst's app.asar and takes them out again: status, apply, skip on a changed anchor, retire, restore. Tests point it at other program folders with NIMBALYST_PATCH_PROGRAM_DIRS. patches/updater-block.mjs turns Nimbalyst's own updater off: requiredFirst (applied before all others; without it no patch is applied), upstream: null (never retires), and a quit listener that reads staged.json from the delivery's data folder, logs to quit-hook.log and answers the quit word --ai-coding-setup-quit. patches/1944.mjs requires 1558; its upstream marker is `function answersPushedMessage(`. patches/ask-line.mjs rewrites the question block of Nimbalyst's built-in system prompt (a card only for a quick yes/no or pick-one; never retires). pin.json pins the Nimbalyst version the setup delivers and its patch list; deliver.mjs (Windows) downloads, checks, installs and patches the pinned version, with --off/--on and NIMBALYST_FOLLOW=off; restart.mjs closes Nimbalyst, installs, patches and reopens it.",
+      "what": "Puts fixes into Nimbalyst's app.asar and takes them out again: status, apply, skip on a changed anchor, retire, restore. Tests point it at other program folders with NIMBALYST_PATCH_PROGRAM_DIRS. patches/updater-block.mjs turns Nimbalyst's own updater off: requiredFirst (applied before all others; without it no patch is applied), upstream: null (never retires), and a quit listener that reads staged.json from the delivery's data folder, logs to quit-hook.log and answers the quit word --ai-coding-setup-quit. patches/1944.mjs requires 1558; its upstream marker is `function answersPushedMessage(`. patches/settled-repeat.mjs requires 1944: a closed-process settled prompt leaves out results a transcript proves Claude already read (helper reads count; any doubt sends all), and the background test reads only a tool result's first line. patches/ask-line.mjs rewrites the question block of Nimbalyst's built-in system prompt (a card only for a quick yes/no or pick-one; never retires). pin.json pins the Nimbalyst version the setup delivers and its patch list; deliver.mjs (Windows) downloads, checks, installs and patches the pinned version, with --off/--on and NIMBALYST_FOLLOW=off; restart.mjs closes Nimbalyst, installs, patches and reopens it.",
       "files": [
         "tools/nimbalyst-patch/patch.mjs",
         "tools/nimbalyst-patch/patches/updater-block.mjs",
         "tools/nimbalyst-patch/patches/1558.mjs",
+        "tools/nimbalyst-patch/patches/1758.mjs",
         "tools/nimbalyst-patch/patches/1792.mjs",
         "tools/nimbalyst-patch/patches/1836.mjs",
+        "tools/nimbalyst-patch/patches/1867.mjs",
+        "tools/nimbalyst-patch/patches/files-and-agents.mjs",
         "tools/nimbalyst-patch/patches/1944.mjs",
         "tools/nimbalyst-patch/patches/ask-line.mjs",
+        "tools/nimbalyst-patch/patches/settled-repeat.mjs",
         "tools/nimbalyst-patch/pin.json",
         "tools/nimbalyst-patch/deliver.mjs",
         "tools/nimbalyst-patch/restart.mjs",
@@ -1588,7 +1598,11 @@
         },
         {
           "file": "scripts/setup-state.mjs",
-          "token": "\"handy\", \"backup\""
+          "token": "\"handy\","
+        },
+        {
+          "file": "scripts/setup-state.mjs",
+          "token": "\"backup\","
         }
       ]
     },

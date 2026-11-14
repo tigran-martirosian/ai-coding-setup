@@ -303,7 +303,7 @@ export function chunkForSpeech(
       const parts = line
         .replace(/\s+/g, " ")
         .trim()
-        .split(/(?<=[.!?…])\s+(?=["'(\[]?[A-Z0-9])/);
+        .split(/(?<=[.!?…])\s+(?=["'([]?[A-Z0-9])/);
       for (const p of parts) {
         if (!p.trim()) continue;
         sentences.push({ text: p.trim(), newPara: first });

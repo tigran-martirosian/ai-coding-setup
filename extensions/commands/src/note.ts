@@ -1,11 +1,10 @@
 // Sends a note to a running session: the steer script puts it where the session reads it before its
 // next step; an idle session is started with the text instead.
 
-import { hostError, hostExec } from "../../shared/host.ts";
 import type { Invoke } from "../../shared/host.ts";
-import { t } from "./strings.ts";
-
+import { hostError, hostExec } from "../../shared/host.ts";
 import { readOrNull } from "./bridge.ts";
+import { t } from "./strings.ts";
 
 /** A file in the chat box, as the app saved it (only the fields used here are named). */
 export interface Attachment {

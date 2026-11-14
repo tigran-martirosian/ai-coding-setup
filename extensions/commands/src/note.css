@@ -15,7 +15,7 @@
   border-radius: var(--x-radius-control);
   background: transparent;
   color: var(--x-text);
-  font: var(--x-body);
+  font: var(--x-row-title);
   cursor: pointer;
   transition: background var(--x-motion-fast) var(--x-ease);
 }
@@ -69,7 +69,7 @@
   border-radius: var(--x-radius-control);
   background: var(--x-surface-2);
   color: var(--x-text);
-  font: var(--x-caption);
+  font: var(--x-meta);
 }
 .cb-note-bubble[hidden] {
   display: none;

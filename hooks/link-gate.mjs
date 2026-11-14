@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 // link-gate: a Stop hook. Before a reply goes out, it reads the session's transcript and blocks the
 // reply when it gives a link that was never opened in this session. Opened means a tool call that
 // went to the address and did not fail: a browser tool navigated there, WebFetch or a fetch tool read
@@ -6,11 +7,10 @@
 // opened. Links the user typed are never questioned, and neither are local or example addresses.
 // It blocks the same reply at most 3 times, then lets it through, so it can't loop.
 // Fails open. LINK_GATE=off disables it.
-import { runHook, isMain, emit } from "./lib/hook-io.mjs";
-import { entries } from "./lib/transcript.mjs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 import { sessionKey } from "./lib/paths.mjs";
-import { stateFile, readJson, writeJson } from "./lib/state.mjs";
-import fs from "node:fs";
+import { readJson, stateFile, writeJson } from "./lib/state.mjs";
+import { entries } from "./lib/transcript.mjs";
 
 const MAX_BLOCKS = 3;
 const URL_RE = /https?:\/\/[^\s<>"'`)\]|\\]+/g;

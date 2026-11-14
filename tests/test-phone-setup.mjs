@@ -1,9 +1,10 @@
 // Tests for skills/phone-bot/setup.mjs (dry mode: nothing is started, stopped or sent).
 // Run: node tests/test-phone-setup.mjs
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const SETUP = fileURLToPath(

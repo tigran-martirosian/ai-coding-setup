@@ -77,6 +77,7 @@ export function layout(
   o.groups?.forEach((g, i) => {
     if (!g || i >= n) return;
     if (!groupIds.has(g)) groupIds.set(g, groupIds.size);
+    // biome-ignore lint/style/noNonNullAssertion: the line above sets it
     groupOf[i] = groupIds.get(g)!;
   });
   const gx = new Float64Array(groupIds.size);

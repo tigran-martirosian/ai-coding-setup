@@ -1,13 +1,13 @@
 // Tests for the Systems map reader: skills/systems-map/map.mjs (--brief, --near, --check, --scan) and the hook
 // hooks/map-brief.mjs. Run: node tests/test-map-brief.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const HOME = os.homedir();
 const HOOK = fileURLToPath(new URL("../hooks/map-brief.mjs", import.meta.url));
 const MAP = fileURLToPath(
   new URL("../skills/systems-map/map.mjs", import.meta.url),
@@ -190,7 +190,7 @@ check(
 u = updated(hook(dir, agent("Review the planned change", "planner")));
 check(
   "planner is a covered type (nothing matched line)",
-  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."),
+  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
 u = updated(
   hook(dir, agent("Review the plan for Dashboard.tsx", "plan-reviewer")),
@@ -222,7 +222,7 @@ check(
 u = updated(hook(dir, agent("Add a line to README.md about the install.")));
 check(
   "folder fallback ignores the project root",
-  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."),
+  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
 u = updated(
   hook(
@@ -232,7 +232,7 @@ u = updated(
 );
 check(
   "folder fallback: a bare common name points at no folder",
-  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."),
+  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
 const parts = {
   nodes: ["a", "b", "c", "d"].map((k) => ({
@@ -261,15 +261,17 @@ u = updated(
 );
 check(
   "folder fallback: a folder with more things than a brief carries counts for nothing",
-  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."),
+  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
 u = updated(hook(dir, agent("Do something unrelated to anything listed.")));
+// changed on purpose (B1): the "nothing matched" line is shorter and names one command
 check(
-  "nothing matched: one line naming the commands",
+  "nothing matched: one short line naming --near",
   u &&
-    /\n\nSYSTEMS MAP: nothing in this brief matched\. node ".*map\.mjs" --near lists every thing; --near <thing> gives its links\.$/.test(
-      u.prompt,
+    u.prompt.endsWith(
+      `\n\nSYSTEMS MAP: nothing in this brief matched (node "${MAP.replace(/\\/g, "/")}" --near <word> looks one up).`,
     ),
+  u?.prompt,
 );
 const done = agent("Fix src/billing/invoice.js\n\nSYSTEMS MAP: already here.");
 check("marker already there: no output", hook(dir, done).stdout === "");
@@ -482,7 +484,8 @@ check(
     !/Start in:.*removed/.test(u.prompt.split("Fix src/auth/removed.js")[1]),
 );
 
-// ---- the cap: 7,000 characters, 3 full entries, one line for each further match
+// ---- the cap: 2,000 characters, 3 full entries, one line for each further match
+// changed on purpose (B1): the cap went from 7,000 to 2,000 characters, and the "more links" line no longer repeats the command
 const big = { nodes: [], links: [] };
 for (let k = 0; k < 5; k++)
   big.nodes.push({
@@ -508,10 +511,10 @@ const five =
   "Work on Area number 0, Area number 1, Area number 2, Area number 3 and Area number 4.";
 const rb = cli(["--brief"], { cwd: bigDir, input: five });
 check(
-  "cap: at most 7,000 characters",
+  "cap: at most 2,000 characters",
   rb.status === 0 &&
-    rb.stdout.trimEnd().length <= 7000 &&
-    rb.stdout.length > 5000,
+    rb.stdout.trimEnd().length <= 2000 &&
+    rb.stdout.length > 1500,
   `length ${rb.stdout.length}`,
 );
 check(
@@ -523,17 +526,19 @@ check(
   rb.stdout.slice(-300),
 );
 check(
-  "cap: links cut with a 'more links' line naming --near",
-  /\(\d+ more links: node ".*map\.mjs" --near area\d\)/.test(rb.stdout),
+  "cap: links cut with a '- (<k> more: --near <id>)' line, no command in it",
+  /^- \(\d+ more: --near area\d\)$/m.test(rb.stdout) &&
+    !rb.stdout.includes('node "'),
+  rb.stdout,
 );
 const hb = updated(hook(bigDir, agent(five)));
 check(
-  "cap: the hook adds at most 7,000 characters of map lines",
-  hb && hb.prompt.length - five.length < 7000 + 700,
+  "cap: the hook adds at most 2,000 characters of map lines",
+  hb && hb.prompt.length - five.length < 2000 + 700,
 );
 
 // ---- trim order: over the cap, start files are cut to 3 before any link is cut
-const WORDS = 22; // link text length: full output is a little over 7,000 characters, and fits once the start files are cut to 3
+const WORDS = 0; // link text length: full output is a little over 2,000 characters, and fits once the start files are cut to 3
 const fat = { nodes: [], links: [] };
 const fatFiles = (k) =>
   [0, 1, 2, 3, 4, 5].map((j) => `src/area${k}/module-with-a-long-name-${j}.js`);
@@ -570,8 +575,8 @@ check(
   `counts ${startCounts(noCap.stdout)}, length ${noCap.stdout.length}`,
 );
 check(
-  "trim order: with the files cut, no link is cut (36 link lines, no 'more links')",
-  !/more links/.test(noCap.stdout) &&
+  "trim order: with the files cut, no link is cut (36 link lines, no 'more' line)",
+  !/ more: --near|^Links: \d/m.test(noCap.stdout) &&
     (noCap.stdout.match(/^- (to|from) /gm) ?? []).length === 36,
   noCap.stdout.slice(-200),
 );
@@ -605,8 +610,18 @@ const rw = cli(["--brief"], {
 });
 const wl = rw.stdout.trimEnd();
 check(
-  "cap: 120 matches stay within 7,000 characters, cut at a whole line",
-  rw.status === 0 && wl.length <= 7000 && wl.length > 6500,
+  "cap: 120 matches stay within 2,000 characters, every line whole",
+  rw.status === 0 &&
+    wl.length <= 2000 &&
+    wl.length > 1800 &&
+    wl
+      .split("\n")
+      .filter((l) => l.startsWith("- Part"))
+      .every((l) =>
+        /^- Part number (\d+) \[part\1\]: lib\/part\1\/a-fairly-long-file-name-\1\.js, lib\/part\1\/another-long-file-name-\1\.js$/.test(
+          l,
+        ),
+      ),
   `length ${wl.length}`,
 );
 check(
@@ -653,7 +668,7 @@ check(
   '"release" alone matches nothing',
   hookOn(
     "Reviewing this change before the release and precision.",
-  ).prompt.includes("SYSTEMS MAP: nothing in this brief matched."),
+  ).prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
 check(
   '"Release Beacon" still matches',
@@ -692,12 +707,12 @@ check(
 u = hookOn("Review target: src/wide and src/wide/");
 check(
   "a broad folder (files of more than 8 things) adds nothing",
-  u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."),
+  u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
 u = hookOn("Fix the bug in src/wide/other.js");
 check(
   "a named file in a broad folder still matches nothing (crowded-folder rule)",
-  u.prompt.includes("SYSTEMS MAP: nothing in this brief matched."),
+  u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
 
 // ---- --brief on its own
@@ -976,7 +991,7 @@ check(
 check(
   "--check: summary counts drifted, exit 1",
   r.status === 1 &&
-    /, 1 drifted$/m.test(r.stdout) &&
+    /, 1 drifted, 0 common words$/m.test(r.stdout) &&
     /GONE src\/old\/missing\.js/.test(r.stdout),
   r.stdout,
 );
@@ -987,7 +1002,7 @@ const goodTdir = project("typed-good", TFILES, {
 r = cli(["--check"], { cwd: goodTdir });
 check(
   "--check: typed link with present token: ok, 0 drifted, exit 0",
-  r.status === 0 && /^ok: .*, 0 drifted$/m.test(r.stdout),
+  r.status === 0 && /^ok: .*, 0 drifted, 0 common words$/m.test(r.stdout),
   r.stdout,
 );
 const badMap = {
@@ -1059,8 +1074,8 @@ check(
 );
 r = cli(["--near", "ship"], { cwd: tdir });
 check(
-  "--near: Decided lines are the '- ' lines of DECISIONS.md that the words match",
-  /Decided:\n- Shipping rule: free over 50\.\n/.test(r.stdout) &&
+  "--near: Decided lines are the '- ' lines of DECISIONS.md that the words match, with their line number",
+  /Decided:\n- line 2: Shipping rule: free over 50\.\n/.test(r.stdout) &&
     !/Unrelated line|plain line|Tax is off/.test(r.stdout),
   r.stdout,
 );
@@ -1087,9 +1102,10 @@ r = cli(["--brief"], {
   cwd: tdir,
   input: "Work on the shipping rules, nothing else.",
 });
+// changed on purpose (B1, rule 3): a code part matched by words alone is no longer shown
 check(
-  "--brief: a words hit finds the thing",
-  /## Parcel dispatch \[ship\]/.test(r.stdout),
+  "--brief: a code part matched by words alone is not shown",
+  r.status === 0 && r.stdout === "",
   r.stdout,
 );
 r = cli(["--brief"], {
@@ -1097,8 +1113,8 @@ r = cli(["--brief"], {
   input: "Fix the Pricing table.\nBudget: keep shipping costs out of it.",
 });
 check(
-  "--brief: a words hit ranks below a thing the brief names",
-  /## Pricing \[pricing\][\s\S]*## Parcel dispatch \[ship\]/.test(r.stdout),
+  "--brief: beside a thing the brief names, a code part matched by words alone is not shown",
+  /## Pricing \[pricing\]/.test(r.stdout) && !/Parcel dispatch/.test(r.stdout),
   r.stdout,
 );
 check(
@@ -1118,6 +1134,404 @@ check(
   (await import(pathToFileURL(MAP).href)).drift(TMAP, tdir).length === 1,
 );
 
-fs.rmSync(tmp, { recursive: true, force: true });
+// ---- a path names a thing only when it means one listed file; a shared file names none; --near keeps Decided short
+const skillIds = ["alpha", "bravo", "charlie", "delta", "echo"];
+const SFILES = {
+  "docs/index.md": "x",
+  "DECISIONS.md":
+    "# Decisions\n" +
+    Array.from(
+      { length: 6 },
+      (_, k) => `- Skill rule ${k + 1}: ${"long words ".repeat(40)}end.\n`,
+    ).join(""),
+};
+for (const s of skillIds) SFILES[`skills/${s}/SKILL.md`] = "x";
+SFILES["tools/solo.mjs"] = "x";
+const SMAP = {
+  nodes: skillIds.map((s) => ({
+    id: s,
+    name: `Skill ${s}`,
+    what: "A skill.",
+    files: [`skills/${s}/SKILL.md`, "docs/index.md"],
+    words: ["\\bskill rule\\b"],
+  })),
+  links: [],
+};
+SMAP.nodes[0].files.push("tools/solo.mjs");
+const sdir = project("shared", SFILES, SMAP);
+r = cli(["--brief"], { cwd: sdir, input: "Fix the wording in SKILL.md." });
+check(
+  "--brief: a bare SKILL.md that five things list names none of them",
+  r.status === 0 && r.stdout === "",
+  r.stdout,
+);
+r = cli(["--brief"], {
+  cwd: sdir,
+  input: "Fix the wording in skills/charlie/SKILL.md.",
+});
+check(
+  "--brief: a path with its folder names the one thing that lists it",
+  /## Skill charlie \[charlie\]/.test(r.stdout) &&
+    !/\[(alpha|bravo|delta|echo)\]/.test(r.stdout),
+  r.stdout,
+);
+r = cli(["--brief"], { cwd: sdir, input: "Change solo.mjs only." });
+check(
+  "--brief: a bare name only one listed file has names its thing",
+  /## Skill alpha \[alpha\]/.test(r.stdout),
+  r.stdout,
+);
+r = cli(["--brief"], { cwd: sdir, input: "Update docs/index.md." });
+check(
+  "--brief: a file that five things list names none of them",
+  r.status === 0 && r.stdout === "",
+  r.stdout,
+);
+const LMAP = {
+  nodes: ["a", "b", "c", "d"].map((id) => ({
+    id,
+    name: `Part ${id}`,
+    what: "A part.",
+    files: [`src/${id}.js`],
+  })),
+  links: [
+    { from: "a", to: "b", says: "A calls B.", evidence: ["src/hub.js"] },
+    { from: "c", to: "d", says: "C calls D.", evidence: ["src/hub.js"] },
+  ],
+};
+const ldir = project(
+  "evidence-hub",
+  {
+    "src/a.js": "x",
+    "src/b.js": "x",
+    "src/c.js": "x",
+    "src/d.js": "x",
+    "src/hub.js": "x",
+  },
+  LMAP,
+);
+r = cli(["--brief"], { cwd: ldir, input: "Change src/hub.js." });
+check(
+  "--brief: evidence alone names no thing when more than 3 things touch the file",
+  r.status === 0 && r.stdout === "",
+  r.stdout,
+);
+r = cli(["--brief"], {
+  cwd: project(
+    "evidence-small",
+    { "src/a.js": "x", "src/b.js": "x", "src/hub.js": "x" },
+    { nodes: LMAP.nodes.slice(0, 2), links: LMAP.links.slice(0, 1) },
+  ),
+  input: "Change src/hub.js.",
+});
+check(
+  "--brief: evidence names its two things when at most 3 touch the file",
+  /## Part a \[a\]/.test(r.stdout) && /## Part b \[b\]/.test(r.stdout),
+  r.stdout,
+);
+r = cli(["--near", "alpha"], { cwd: sdir });
+const decided = (r.stdout.split("Decided:\n")[1] ?? "")
+  .split("\n")
+  .filter((l) => l.startsWith("- line "));
+check(
+  "--near: at most 3 Decided lines, each at most 200 characters with its line number",
+  decided.length === 3 &&
+    decided.every((l) => l.length <= 200) &&
+    decided[0].startsWith("- line 2: Skill rule 1:") &&
+    /\(3 more in DECISIONS\.md\)/.test(r.stdout),
+  r.stdout,
+);
+
+// ---- match kind: words alone give a how-to thing one line, a code part nothing; shared folders; cut order
+const KFILES = {
+  "src/billing/invoice.js": "x",
+  "docs/a.md": "x",
+  "docs/b.md": "x",
+  "docs/c.md": "x",
+};
+const howTo = (id, name, words) => ({
+  id,
+  name,
+  what: "How it is done.",
+  files: [`docs/${id.slice(3)}.md`],
+  group: "how-to",
+  words,
+});
+const KMAP = {
+  nodes: [
+    {
+      id: "billing",
+      name: "Invoice billing",
+      what: "Issues the invoice.",
+      files: ["src/billing/invoice.js"],
+      words: ["\\bpayment run\\b"],
+    },
+    howTo("do-a", "How to: alpha", ["\\balpha step\\b"]),
+    howTo("do-b", "How to: bravo", ["\\bbravo step\\b"]),
+    howTo("do-c", "How to: charlie", [
+      "\\bcharlie step\\b",
+      "\\bcharlie go\\b",
+    ]),
+  ],
+  links: [],
+};
+const kdir = project("kinds", KFILES, KMAP);
+r = cli(["--brief"], { cwd: kdir, input: "Do the alpha step once." });
+check(
+  "words: a how-to thing matched by words alone is one line ending ' (by words)', no full entry",
+  r.stdout ===
+    "Also matched (name, where to start):\n- How to: alpha [do-a]: docs/a.md (by words)\n",
+  r.stdout,
+);
+r = cli(["--brief"], {
+  cwd: kdir,
+  input: "The alpha step, the bravo step, the charlie step, charlie go.",
+});
+check(
+  "words: of three how-to things matched by words alone, the best 2 by rank are shown",
+  /\[do-c\][^\n]*\(by words\)\n- How to: alpha \[do-a\]/.test(r.stdout) &&
+    !/do-b/.test(r.stdout) &&
+    !/left out/.test(r.stdout),
+  r.stdout,
+);
+r = cli(["--brief"], { cwd: kdir, input: "Start the payment run." });
+u = updated(hook(kdir, agent("Start the payment run.")));
+check(
+  "words: a code part matched by words alone is not shown; alone, the hook writes the 'nothing matched' line",
+  r.stdout === "" &&
+    u?.prompt.includes("\n\nSYSTEMS MAP: nothing in this brief matched ("),
+  r.stdout,
+);
+r = cli(["--brief"], {
+  cwd: kdir,
+  input: "Fix src/billing/invoice.js, then the alpha step.",
+});
+check(
+  "words: a thing matched by file is a full entry, the words line comes last",
+  r.stdout.startsWith("## Invoice billing [billing]") &&
+    r.stdout.endsWith(
+      "\n\nAlso matched (name, where to start):\n- How to: alpha [do-a]: docs/a.md (by words)\n",
+    ),
+  r.stdout,
+);
+r = cli(["--brief"], {
+  cwd: kdir,
+  input: "Add src/billing/new.ts for the alpha step.",
+});
+check(
+  "fallback: an unlisted file's folder still counts beside a words hit (full entry, then the words line)",
+  r.stdout.startsWith("## Invoice billing [billing]") &&
+    /\n- How to: alpha \[do-a\]: docs\/a\.md \(by words\)\n$/.test(r.stdout),
+  r.stdout,
+);
+
+// a one-word folder names nothing in the fallback; a folder with a slash does, as kind "folder"
+const { briefFind } = await import(pathToFileURL(MAP).href);
+const fnodes = [
+  { id: "top", name: "Top hooks", files: ["hooks/y.mjs"], words: [] },
+  { id: "deep", name: "Deep hooks", files: ["lib/hooks/y.mjs"], words: [] },
+];
+const fdir = project(
+  "fallback",
+  { "hooks/y.mjs": "x", "lib/hooks/y.mjs": "x" },
+  {
+    nodes: fnodes.map(({ words, ...n }) => ({ ...n, what: "x" })),
+    links: [],
+  },
+);
+check(
+  "fallback: the unlisted hooks/x.mjs (one-word folder) matches nothing",
+  cli(["--brief"], { cwd: fdir, input: "Add hooks/x.mjs." }).stdout === "",
+);
+const [fRanked, , fKinds] = briefFind("Add lib/hooks/x.mjs.", fnodes, [], fdir);
+check(
+  "fallback: the unlisted lib/hooks/x.mjs beside a listed lib/hooks/y.mjs gives that thing, kind folder",
+  fRanked.join() === "deep" && fKinds.get("deep") === "folder",
+  `${fRanked} ${[...fKinds]}`,
+);
+
+// a file of the project root is named by its bare name or the root's own path, not by a path into another folder
+const rnodes = [
+  { id: "hn", name: "Handoff notes", files: ["HANDOFF.md"], words: [] },
+  { id: "pr", name: "Project rules", files: ["CLAUDE.md"], words: [] },
+];
+const rroot = "C:/Work/app";
+const rfind = (t, d = rroot, n = rnodes) => briefFind(t, n, [], d)[0].join();
+for (const [t, want] of [
+  ["Read ~/.claude/CLAUDE.md first.", ""],
+  ["Copy the steps from C:/Other/HANDOFF.md.", ""],
+  ["Update HANDOFF.md.", "hn"],
+  [`Update ${rroot}/HANDOFF.md.`, "hn"],
+  ["Update C:\\Work\\App\\handoff.md.", "hn"],
+])
+  check(
+    `root file: "${t}" names ${want || "nothing"}`,
+    rfind(t) === want,
+    rfind(t),
+  );
+
+// a listed path with a space names its file when the brief holds it whole; plain text with the same words does not
+const spnodes = [
+  {
+    id: "sp",
+    name: "Spaced hook",
+    files: [
+      "C:/Projects/my apps/github-staging/claude-code-hooks/hooks/map-brief.mjs",
+    ],
+    words: [],
+  },
+  { id: "mn", name: "Meeting log", files: ["docs/my notes.md"], words: [] },
+];
+const sroot = "C:/Projects/my apps";
+for (const [t, want, d = rroot, n = spnodes] of [
+  [
+    "Fix C:/Projects/my apps/github-staging/claude-code-hooks/hooks/map-brief.mjs now.",
+    "sp",
+  ],
+  [
+    "Fix C:\\Projects\\My Apps\\github-staging\\claude-code-hooks\\hooks\\map-brief.mjs now.",
+    "sp",
+  ],
+  ["Look at the my apps folder and map-brief.", ""],
+  ["Fill in docs/my notes.md.", "mn"],
+  ["Fill in my notes.", ""],
+  [`Update ${sroot}/HANDOFF.md.`, "hn", sroot, rnodes],
+  ["Update C:/Other projects/HANDOFF.md.", "", sroot, rnodes],
+])
+  check(
+    `space path: "${t}" names ${want || "nothing"}`,
+    rfind(t, d, n) === want,
+    rfind(t, d, n),
+  );
+
+// a long absolute folder that every file of a line starts with is written once
+const abs = path
+  .join(tmp, "shared-abs-map", "shared-abs", "some", "folder")
+  .replace(/\\/g, "/");
+const other = process.execPath.replace(/\\/g, "/");
+const AFILES = {};
+for (const f of ["a.js", "b.js", "c.js", "d.js", "e.js"])
+  AFILES[`shared-abs/some/folder/${f}`] = "x";
+const part = (id, files) => ({ id, name: `Part ${id}`, what: "x", files });
+const adir = project("shared-abs-map", AFILES, {
+  nodes: [
+    part("x", [`${abs}/a.js`, `${abs}/b.js`, `${abs}/c.js`]),
+    part("y", [`${abs}/d.js`]),
+    part("z", [`${abs}/e.js`, other]),
+    part("w", [`${abs}/d.js`, `${abs}/e.js`]),
+  ],
+  links: [],
+});
+r = cli(["--brief"], {
+  cwd: adir,
+  input: "Part x, Part y, Part z and Part w.",
+});
+check(
+  "shared folder: three files under one long folder read 'Start in <folder>/: a, b, c'",
+  r.stdout.includes(`\nStart in ${abs}/: a.js, b.js, c.js\n`),
+  r.stdout,
+);
+check(
+  "shared folder: one file, or files in two folders, keep their whole paths",
+  r.stdout.includes(`\nStart in: ${abs}/d.js\n`) &&
+    r.stdout.includes(`\nStart in: ${abs}/e.js, ${other}\n`),
+  r.stdout,
+);
+check(
+  "shared folder: a one-line entry reads '- <name> [<id>] in <folder>/: a, b'",
+  r.stdout.includes(`\n- Part w [w] in ${abs}/: d.js, e.js`),
+  r.stdout,
+);
+
+// cut order: one-line entries go before a full entry loses its head, words lines before the others
+const WHAT = 560; // characters of each `what`: the output is just over 2,000 and fits once the words line is cut
+const OFILES = { "docs/w.md": "x" };
+const ONODES = [];
+for (const k of [1, 2, 3, 4, 5]) {
+  OFILES[`src/o${k}.js`] = "x";
+  ONODES.push({
+    id: `o${k}`,
+    name: `Order part ${k}`,
+    what: `Part ${k} ` + "x".repeat(WHAT),
+    files: [`src/o${k}.js`],
+  });
+}
+ONODES.push({ ...howTo("do-w", "How to: whistle", ["\\bwhistle loud\\b"]) });
+const odir = project("cut-order", OFILES, { nodes: ONODES, links: [] });
+r = cli(["--brief"], {
+  cwd: odir,
+  input:
+    "Order part 1, Order part 2, Order part 3, Order part 4, Order part 5; whistle loud.",
+});
+check(
+  "cut order: the words line is cut first; the file-matched one-line entries and all 3 full entries stay",
+  r.stdout.trimEnd().length <= 2000 &&
+    (r.stdout.match(/^## /gm) ?? []).length === 3 &&
+    /\n- Order part 4 \[o4\]: src\/o4\.js\n- Order part 5 \[o5\]: src\/o5\.js\n- \(1 more matches left out\)\n$/.test(
+      r.stdout,
+    ),
+  `length ${r.stdout.length}\n${r.stdout.slice(-200)}`,
+);
+
+// a top entry with a 2,500-character `what`: its name, what and start files stay; its links shrink to one line
+const LFILES = { "src/l1.js": "x", "src/l2.js": "x", "src/l3.js": "x" };
+const LNODES = [1, 2, 3].map((k) => ({
+  id: `l${k}`,
+  name: `Long part ${k}`,
+  what: k === 1 ? "y".repeat(2500) : `Part ${k}.`,
+  files: [`src/l${k}.js`],
+}));
+const ldir2 = project("long-what", LFILES, {
+  nodes: LNODES,
+  links: [
+    { from: "l1", to: "l2", says: "One feeds two.", evidence: ["src/l1.js"] },
+    { from: "l1", to: "l3", says: "One feeds three.", evidence: ["src/l1.js"] },
+  ],
+});
+r = cli(["--brief"], {
+  cwd: ldir2,
+  input: "Long part 1, Long part 2 and Long part 3.",
+});
+check(
+  "long what: the top entry keeps its name, what and start files; every link cut reads 'Links: <k> (--near <id>)'",
+  r.stdout.startsWith(
+    `## Long part 1 [l1]\n${"y".repeat(2500)}\nStart in: src/l1.js\nLinks: 2 (--near l1)`,
+  ),
+  r.stdout.slice(2500),
+);
+check(
+  "long what: the second and third full entries became one-line entries, then were left out",
+  (r.stdout.match(/^## /gm) ?? []).length === 1 &&
+    r.stdout.endsWith(
+      "\n\nAlso matched (name, where to start):\n- (2 more matches left out)\n",
+    ),
+  r.stdout.slice(2500),
+);
+
+// three 700-character entries: the third becomes one line, and the one-line entries cut before it come back into the freed room
+const WFILES = {};
+const WNODES = [1, 2, 3, 4, 5, 6, 7].map((k) => {
+  WFILES[`src/w${k}.js`] = "x";
+  return {
+    id: `w${k}`,
+    name: `Wide part ${k}`,
+    what: k <= 3 ? "z".repeat(700) : `Part ${k}.`,
+    files: [`src/w${k}.js`],
+  };
+});
+r = cli(["--brief"], {
+  cwd: project("refill", WFILES, { nodes: WNODES, links: [] }),
+  input: WNODES.map((n) => n.name).join(", ") + ".",
+});
+check(
+  "refill: after the third full entry became one line, all five one-line entries are shown",
+  (r.stdout.match(/^## /gm) ?? []).length === 2 &&
+    [3, 4, 5, 6, 7].every((k) =>
+      r.stdout.includes(`\n- Wide part ${k} [w${k}]`),
+    ) &&
+    !r.stdout.includes("left out") &&
+    r.stdout.length <= 2000,
+  `length ${r.stdout.length}\n${r.stdout.slice(1400)}`,
+);
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

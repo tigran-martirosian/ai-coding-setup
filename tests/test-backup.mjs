@@ -1,11 +1,11 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 // Test of workers/backup.mjs against a restic repository in a local temp folder (no B2 calls). restic 0.19.1 is
 // downloaded from its GitHub release and hash-checked into the test's temp folder, so the test needs the network.
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import crypto from "node:crypto";
-import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const script = fileURLToPath(new URL("../workers/backup.mjs", import.meta.url));
@@ -63,8 +63,8 @@ fs.mkdirSync(tmpRun, { recursive: true });
 const settings = put("settings.json", '{ "model": "x" }\n');
 put("rules/one.md", "# rule\n");
 put("skills/x/SKILL.md", "---\nname: x\n---\n");
-const memory = put("projects/p1/memory/MEMORY.md", "remember this\n");
-const chat = put("projects/p1/chat.jsonl", "{}\n");
+put("projects/p1/memory/MEMORY.md", "remember this\n");
+put("projects/p1/chat.jsonl", "{}\n");
 put("scratch/s.txt", "scratch\n");
 put("browser-profiles/site/Cookies", "cookie\n");
 put("skills/y/node_modules/m.js", "module\n");

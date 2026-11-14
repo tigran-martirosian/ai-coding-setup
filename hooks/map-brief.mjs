@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { crashLog } from "./lib/crash-log.mjs";
 // map-brief: PreToolUse hook on the Agent tool. A helper's brief arrives with the Systems map lines for the things the brief touches, and
 // only those. Reads the hook JSON on stdin. For tool_name Agent or Task with a subagent_type of worker, worker-full, worker-code, worker-refactor, reviewer, planner or plan-reviewer it
 // takes <project>/.claude/systems-map.json ($CLAUDE_PROJECT_DIR), cuts it to the things the prompt is about (skills/systems-map/map.mjs, the
@@ -10,7 +11,6 @@
 // start that serves-brief refuses (the purpose check) is refused here too, with the same text.
 // MAP_BRIEF=off disables it.
 import { emit, runHook } from "./lib/hook-io.mjs";
-import { crashLog } from "./lib/crash-log.mjs";
 import { fullBrief } from "./lib/serves.mjs";
 
 runHook("map-brief", async (event) => {

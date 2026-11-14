@@ -1,0 +1,318 @@
+<!doctype html>
+<!-- Picture fixture for the Agents Panel: a session list with waiting, running, unread and plain rows; the right panel's markup as Nimbalyst 0.83.0 draws it (docs ui-facts), with
+     one running row per orb stage, the longest real title, and a done, a failed and a stopped row; above them an
+     uncommitted list of 340 files in 9 folders and an open commit box, for the panel to fold. In the chat column, the
+     app's "Thinking..." line (three dots, words, time) once per kind of words, each after its turn's tool cards; the
+     first line's time ticks and the second line's words are rewritten after a second, as React does. dist/ must be built
+     (node build.mjs). It loads ES modules, so it must be served over http, not opened as a file:
+     the page path is extensions/agents-panel/test/fixture.html, the theme is the hash (#ink-aurora, #ink-bone). -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200">
+<link rel="stylesheet" href="../dist/style.css">
+<style>
+  @font-face { font-family: Figtree; src: url("../../ink-themes/fonts/Figtree.woff2") format("woff2"); }
+  :root { --ink-sans: Figtree, sans-serif; }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; background: var(--nim-bg); color: var(--nim-text); font: var(--x-body); overflow: hidden; }
+  .material-symbols-outlined { font-family: "Material Symbols Outlined"; font-weight: normal; font-style: normal; font-size: 20px; line-height: 1; display: inline-block; }
+  /* Stand-ins for the app's chat column and its Tailwind utilities (only the ones the rows use) */
+  .chat { flex: 1; border-right: 1px solid var(--nim-border); }
+  .agent-workstream-right-panel { width: 27.2%; background: var(--nim-bg-secondary); }
+  .files-edited-sidebar { display: flex; flex-direction: column; height: 100%; }
+  .files-edited-sidebar__header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--nim-border); font: var(--x-heading); color: var(--nim-text); }
+  .files-edited-sidebar__header > .grow { flex: 1; } .files-edited-sidebar__header small { display: block; font: var(--x-meta); color: var(--nim-text-muted); }
+  .files-edited-sidebar__control-btn { width: 24px; height: 24px; border: none; background: none; color: var(--nim-text-muted); }
+  .files-edited-sidebar__content { flex: 1 1 0%; overflow: hidden; display: flex; flex-direction: column; }
+  .file-edits-sidebar__files { flex: 1 1 0%; overflow-y: auto; padding: 4px; color: var(--nim-text-muted); font-size: 13px; }
+  .file-edits-sidebar__root-checkbox { padding: 6px 8px; border-bottom: 1px solid var(--nim-border); }
+  .file-edits-sidebar__directory-header { display: flex; gap: 4px; width: 100%; padding: 2px 8px; border: none; background: none; color: inherit; font: inherit; }
+  .file-edits-sidebar__directory-path { flex: 1; text-align: left; } .file-edits-sidebar__directory-count { font-size: 9px; }
+  .file-edits-sidebar__file { padding: 2px 8px 2px 32px; }
+  .git-operations-panel { border-top: 1px solid var(--nim-border); color: var(--nim-text-muted); font-size: 12px; }
+  .git-operations-panel__header { display: flex; padding: 8px 12px; border-bottom: 1px solid var(--nim-border); }
+  .git-operations-panel__header-left { display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer; }
+  .git-operations-panel__header-left .material-symbols-outlined { font-size: 16px; }
+  .git-operations-panel__branch { font-weight: 600; color: var(--nim-text); }
+  .git-operations-panel__content { display: flex; flex-direction: column; gap: 12px; padding: 0 12px 12px; }
+  .git-operations-panel__content button { height: 32px; border: 1px solid var(--nim-border); border-radius: 6px; background: none; color: var(--nim-text); }
+  .teammate-panel { border-top: 1px solid var(--nim-border); padding: 4px 8px 8px; }
+  .teammate-panel > div > button { display: flex; align-items: center; gap: 4px; width: 100%; padding: 6px 4px; border: none; background: none; color: var(--nim-text); font: var(--x-heading); }
+  .flex { display: flex; } .flex-col { flex-direction: column; } .flex-1 { flex: 1 1 0%; min-width: 0; }
+  .ml-auto { margin-left: auto; } .font-mono { font-family: monospace; font-size: 10px; }
+  .overflow-y-auto { overflow-y: auto; } .max-h-\[200px\] { max-height: 200px; }
+  .task-item { display: flex; align-items: flex-start; gap: 8px; }
+  .shrink-0 { flex-shrink: 0; } .w-4 { width: 16px; } .h-4 { height: 16px; }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-radius: 50%; }
+  .chat { padding: 16px 24px; }
+  .chat .turn { padding: 8px 0 4px; border-bottom: 1px solid var(--nim-border); }
+  .chat .turn > p { margin: 0 0 6px; color: var(--nim-text-muted); font: var(--x-meta); }
+  .rich-transcript-tool-button { border: none; border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; background: var(--nim-bg-secondary); color: var(--nim-text-muted); font: var(--x-meta); }
+  .items-center { align-items: center; } .gap-1 { gap: 4px; } .gap-2 { gap: 8px; } .italic { font-style: italic; } .not-italic { font-style: normal; }
+  .py-2 { padding-top: 8px; padding-bottom: 8px; } .px-4 { padding-left: 16px; padding-right: 16px; } .mb-2 { margin-bottom: 8px; }
+  .rich-transcript-waiting { color: var(--nim-text-muted); }
+  .rich-transcript-waiting-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nim-primary); }
+  .tabular-nums { font-variant-numeric: tabular-nums; } .rich-transcript-waiting-elapsed { color: var(--nim-text-faint); }
+  /* Stand-ins for the session list (titles and meta on the Ink theme's scale), the chat view and its question card */
+  .sessions { width: 300px; flex: none; padding: 12px 0 0 8px; border-right: 1px solid var(--nim-border); background: var(--nim-bg-secondary); }
+  .sessions h3 { margin: 0 0 8px 12px; font: var(--x-heading); color: var(--nim-text-muted); }
+  .session-list-item { display: flex; align-items: flex-start; gap: 10px; padding: 6px 12px 6px 12px; margin-right: 8px; border-radius: 6px; }
+  .session-list-item.active { background: var(--nim-bg-selected); }
+  .session-list-item-content { flex: 1; min-width: 0; }
+  .session-list-item-title { display: block; font: var(--x-row-title); color: var(--nim-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-list-item-meta { display: flex; gap: 6px; align-items: center; font: var(--x-meta); color: var(--nim-text-faint); }
+  .session-list-item-right { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .session-list-item-status { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+  .session-list-item-status .material-symbols-outlined { font-size: 14px; }
+  .session-list-item-status.waiting-for-input, .session-list-item-status.pending-prompt { color: var(--nim-warning); }
+  .session-list-item-status.processing, .session-list-item-status.unread { color: var(--nim-primary); }
+  .rich-transcript-view { margin-bottom: 8px; border-bottom: 1px solid var(--nim-border); }
+  .ask-user-question-widget { border: 1px solid var(--nim-primary); border-radius: 8px; background: var(--nim-bg-secondary); overflow: hidden; margin-bottom: 8px; }
+  .ask-user-question-widget > div:first-child { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--nim-border); background: var(--nim-bg-tertiary); }
+  .ask-user-question-widget > div:first-child > span.flex-1 { flex: 1; font-weight: 600; font-size: 14px; }
+  .ask-user-question-widget .q { padding: 12px 16px; font-size: 14px; }
+  .rich-transcript-question-navigation { display: flex; justify-content: flex-end; align-items: center; border-top: 1px solid var(--nim-border); background: var(--nim-bg); padding: 8px 12px; }
+  .rich-transcript-question-button { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; border-radius: 6px; background: var(--nim-primary); color: var(--nim-on-primary); font: 500 13px/18px var(--x-font-ui); }
+  /* Stand-ins for the app's helper card (TranscriptToolCard with isSubAgent; its own sub-agent tint and border) */
+  .chat .rich-transcript-tool-card { border: 1px solid var(--nim-border); border-radius: 4px; overflow: hidden; }
+  .chat .rich-transcript-tool-card.sub-agent { background-color: color-mix(in srgb, var(--nim-primary) 5%, var(--nim-bg-secondary)); border-color: color-mix(in srgb, var(--nim-primary) 20%, var(--nim-border)); }
+  .chat .rich-transcript-tool-card.child-tool { background: var(--nim-bg-tertiary); }
+  .chat .rich-transcript-tool-card > .rich-transcript-tool-button { display: flex; align-items: center; gap: 6px; width: 100%; margin: 0; padding: 4px 8px; border: none; border-radius: 0; background: transparent; color: var(--nim-text); font: 500 14px/20px var(--x-font-ui); text-align: left; cursor: pointer; }
+  .rich-transcript-tool-subagent-type { color: var(--nim-primary); font-weight: 600; }
+  .rich-transcript-tool-expanded { padding: 8px; border-top: 1px solid var(--nim-border); font: var(--x-body); color: var(--nim-text); }
+  .rich-transcript-tool-section-label { color: var(--nim-text-faint); font-size: 12px; margin-bottom: 2px; }
+  .rich-transcript-subagent-children { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .rich-transcript-tool-container.nested { margin: 0 0 0 16px; }
+  #broken { position: fixed; inset: 0; background: #c00; color: #fff; font: 700 24px sans-serif; padding: 24px; }
+</style>
+</head>
+<body>
+<div class="sessions"><h3>Today</h3><div id="session-rows"></div></div>
+<div class="chat"></div>
+<div class="agent-workstream-right-panel">
+  <div class="files-edited-sidebar">
+    <div class="files-edited-sidebar__header">
+      <div class="grow">All Uncommitted Files<small>in this Workspace</small></div>
+      <div class="files-edited-sidebar__controls">
+        <button class="files-edited-sidebar__control-btn" title="Expand all"><span class="material-symbols-outlined">unfold_more</span></button>
+        <button class="files-edited-sidebar__control-btn" title="Collapse all"><span class="material-symbols-outlined">unfold_less</span></button>
+      </div>
+    </div>
+    <div class="files-edited-sidebar__content"><div class="file-edits-sidebar__files" id="files"></div></div>
+    <div class="git-operations-panel" id="commit">
+      <div class="git-operations-panel__header"><div class="git-operations-panel__header-left">
+        <span class="material-symbols-outlined">expand_more</span><span class="material-symbols-outlined">account_tree</span><span class="git-operations-panel__branch">master</span>
+      </div></div>
+    </div>
+    <div class="teammate-panel"><div>
+      <button><span class="material-symbols-outlined">expand_more</span><span class="material-symbols-outlined">swap_horiz</span>Agents &amp; commands<span class="ml-auto font-mono">0/10</span></button>
+      <div class="overflow-y-auto max-h-[200px]"><div class="flex flex-col" id="rows"></div></div>
+    </div></div>
+  </div>
+</div>
+<script type="module">
+  import { colors, THEMES } from "../../ink-themes/themes.mjs";
+
+  const theme = THEMES.find((t) => t.id === (location.hash.slice(1) || "ink-aurora"));
+  if (!theme) throw new Error(`unknown theme ${location.hash}`);
+  for (const [k, v] of Object.entries(colors(theme))) document.documentElement.style.setProperty(`--nim-${k}`, v);
+  document.documentElement.classList.toggle("dark-theme", theme.isDark);
+
+  const now = Date.now();
+  const s = 1000, m = 60 * s;
+  // [status, description, app meta, seconds since start, seconds since last report, run log line or null]
+  const ROWS = [
+    ["running", "Web search: library sign-in steps", "Sub-agent · 1m 20s · 9 tools · Grep", 80, 4, { model: "sonnet", effort: "medium" }],
+    ["running", "S3: rename the config keys", "Sub-agent · 2m 5s · 14 tools · Edit", 125, 2, { model: "sonnet", effort: "high" }],
+    ["running", "Planner: split the build into steps", "Sub-agent · 4m 2s · 6 tools · Agent", 250, 8, { model: "opus", effort: "xhigh", type: "planner" }],
+    ["running", "Reviewer: check the settings page", "Sub-agent · 50s · 7 tools · Read", 52, 2, { model: "opus", effort: "high", type: "reviewer" }],
+    ["running", "Plan the right panel rows", "Sub-agent · 30s · 3 tools · TodoWrite", 31, 1, { model: "opus", effort: "high", type: "Plan" }],
+    ["running", "Read files: theme tokens", "Sub-agent · 5s", 215, 210, { model: "haiku" }, { toolUseId: "h-bg", status: "running", lastToolName: "Read" }],
+    ["running", "du -sh ~/.claude/* | sort -h | tail -20; sleep 480\n\n# WHAT THIS DOES: Lists the biggest loose files in ~/.claude, then waits (up to ~8 min)", "Command · 40s", 41, 1, null],
+    ["running", "node test.mjs\n\n# WHAT THIS DOES: Runs the agents panel tests", "Command · 6s", 7, 1, null],
+    ["failed", "Fetch the release notes", "Sub-agent · 12s · 2 tools · failed", 12, 12, { model: "sonnet" }],
+    ["stopped", "Web search: icon font licence", "Sub-agent · 2m 10s · stopped", 130, 130, null],
+    ["completed", "Read files: invoice importer", "Sub-agent · 4m 24s · 30 tools", 264, 264, { model: "opus", effort: "xhigh" }, { toolUseId: "h-bg-done", status: "completed", durationMs: 264 * s, toolCount: 30, tokenCount: 0 }],
+  ];
+  // [7]: more of the row's task, for the two background helpers in the chat (the agents list keeps their end)
+  const list = document.getElementById("rows");
+  const log = [];
+  for (const [status, text, meta, ago, quiet, run, task] of ROWS) {
+    const row = document.createElement("div");
+    row.className = "task-item";
+    row.dataset.status = status;
+    const mark = status === "running" ? '<span class="spin"></span>' : "<span>●</span>";
+    row.innerHTML = `<div class="shrink-0 w-4 h-4">${mark}</div><div class="flex-1"><div></div><div class="font-mono"></div></div>`;
+    row.querySelector(".flex-1 > div").textContent = text;
+    row.querySelector(".font-mono").textContent = meta;
+    row.__reactFiber$fixture = { memoizedProps: { task: { startedAt: now - ago * s, durationMs: (ago - quiet) * s, ...task } }, return: null };
+    list.append(row);
+    if (run) log.push(JSON.stringify({ description: text, ...run }));
+  }
+  document.querySelector(".font-mono.ml-auto").textContent = `1/${ROWS.length}`;
+  window.electronAPI = { invoke: async () => ({ success: true, stdout: log.join("\n") }) };
+  localStorage.setItem("agentsPanel.folded", "0");
+
+  // The uncommitted list: 340 files in 9 top folders, every folder open as the app draws it (a folder's count is every
+  // file under it); the panel folds it to its summary line. A few file rows per folder stand in for the rest. As in
+  // the app, the folders sit in a root folder node that has no header of its own.
+  const FOLDERS = [["agents", 5], ["audits", 120], ["docs", 64], ["extensions", 40], ["hooks", 22], ["scripts", 9], ["skills", 18], ["tests", 14], ["tools", 48]];
+  const list = document.getElementById("files");
+  list.innerHTML = `<div class="file-edits-sidebar__root-checkbox"><span>Select all (340 uncommitted)</span></div><div class="file-edits-sidebar__directory-node"><div></div></div>`;
+  const files = list.querySelector(".file-edits-sidebar__directory-node > div");
+  for (const [name, count] of FOLDERS) {
+    const node = document.createElement("div");
+    node.className = "file-edits-sidebar__directory-node";
+    node.innerHTML = `<button class="file-edits-sidebar__directory-header"><span class="material-symbols-outlined">expand_more</span><span class="material-symbols-outlined">folder_open</span><span class="file-edits-sidebar__directory-path"></span><span class="file-edits-sidebar__directory-count">${count}</span></button><div class="file-edits-sidebar__directory-children"></div>`;
+    node.querySelector(".file-edits-sidebar__directory-path").textContent = name;
+    for (let i = 1; i <= Math.min(count, 3); i++)
+      node.querySelector(".file-edits-sidebar__directory-children").insertAdjacentHTML("beforeend", `<div class="file-edits-sidebar__file">file-${i}.md</div>`);
+    files.append(node);
+  }
+  // The commit box starts open on every mount, as the app's does; its header toggles it
+  const commit = document.getElementById("commit");
+  const commitBody = document.createElement("div");
+  commitBody.className = "git-operations-panel__content";
+  commitBody.innerHTML = `<span>Commit</span><span>Let AI analyze your changes and propose a commit message.</span><button>Commit with AI</button>`;
+  commit.append(commitBody);
+  commit.querySelector(".git-operations-panel__header-left").onclick = () => {
+    if (commitBody.isConnected) commitBody.remove();
+    else commit.append(commitBody);
+    commit.querySelector(".material-symbols-outlined").textContent = commitBody.isConnected ? "expand_more" : "chevron_right";
+  };
+  localStorage.removeItem("agentsPanel.filesOpen");
+  localStorage.removeItem("agentsPanel.commitOpen");
+
+  // The chat: one turn per kind of the app's words, each ending in its "Thinking..." line as the app draws it. A card
+  // carries its tool call on the React props of its TranscriptToolCard (one fiber up); no result = still running.
+  // [what the turn shows, the app's words, time, the turn's tool cards: [tool name, running, command]]
+  const TURNS = [
+    ["Thinking while a search runs", "Thinking...", "40s", [["Read", false], ["Grep", true]]],
+    ["Background tasks (the app's words change after a second)", "Waiting on 2 background tasks...", "2m 05s", [["Bash", false, "npm test"]]],
+    ["One background task", "Waiting on background task: Scan the chat logs", "2m 05s", [["Bash", false, "node scan.mjs"]]],
+    ["Two helpers", "Waiting for 2 agents to complete...", "4m 12s", [["Task", false], ["Task", false]]],
+    ["Thinking, no tool yet", "Thinking...", "6s", []],
+  ];
+  const chat = document.querySelector(".chat");
+  for (const [about, words, time, cards] of TURNS) {
+    const turn = document.createElement("div");
+    turn.className = "turn";
+    turn.innerHTML = `<p></p>`;
+    turn.querySelector("p").textContent = about;
+    for (const [toolName, running, command] of cards) {
+      const card = document.createElement("div");
+      card.className = "rich-transcript-tool-container mb-2";
+      card.innerHTML = `<button class="rich-transcript-tool-button"></button>`;
+      card.firstChild.textContent = `${toolName}${running ? " (running)" : ""}`;
+      const toolCall = { toolName, arguments: command ? { command } : {}, ...(running ? {} : { result: "ok" }) };
+      card.__reactFiber$fixture = { memoizedProps: {}, return: { memoizedProps: { toolMsg: { toolCall } }, return: null } };
+      turn.append(card);
+    }
+    turn.insertAdjacentHTML("beforeend", `<div class="rich-transcript-waiting flex items-center gap-2 italic py-2 px-4 mb-2"><div class="rich-transcript-waiting-dots flex gap-1"><div class="rich-transcript-waiting-dot"></div><div class="rich-transcript-waiting-dot"></div><div class="rich-transcript-waiting-dot"></div></div><span class="rich-transcript-waiting-text"></span><span class="rich-transcript-waiting-elapsed tabular-nums not-italic" data-testid="turn-elapsed"></span></div>`);
+    turn.querySelector(".rich-transcript-waiting-text").textContent = words;
+    turn.querySelector(".rich-transcript-waiting-elapsed").textContent = time;
+    chat.append(turn);
+  }
+  // The app's time ticks through its own ref; React rewrites the words span whole when its words change
+  const firstTime = chat.querySelector(".rich-transcript-waiting-elapsed");
+  setInterval(() => (firstTime.textContent = `${parseInt(firstTime.textContent, 10) + 1}s`), 1000);
+  setTimeout(() => (chat.querySelectorAll(".rich-transcript-waiting-text")[1].textContent = "Waiting on 3 background tasks..."), 1000);
+
+  // "Needs you": a chat view carries its session and messages on the React props of RichTranscriptView (two fibers
+  // up). The waiting session's chat has two open question cards (one on screen, one scrolled away) and the app's
+  // Jump to question bar; the first turn above becomes the running session's chat, so its row takes that turn's orb.
+  const fiber = (node, props) => (node.__reactFiber$fixture = { memoizedProps: {}, return: { memoizedProps: {}, return: { memoizedProps: props, return: null } } });
+  const ask = (id, question) => ({ type: "tool_call", toolCall: { toolName: "AskUserQuestion", providerToolCallId: id, arguments: { questions: [{ question, header: "Owner", options: [{ label: "Commands" }] }] } } });
+  const waitView = document.createElement("div");
+  waitView.className = "rich-transcript-view";
+  waitView.innerHTML = `<div class="ask-user-question-widget" data-testid="ask-user-question-widget" data-state="pending"><div><div class="material-symbols-outlined">help</div><span class="flex-1">Questions from Claude</span></div><div class="q">Who should own the copy row?</div></div><div class="rich-transcript-question-navigation"><button class="rich-transcript-question-button" aria-label="Jump to question"><span class="material-symbols-outlined">help</span>Jump to question</button></div>`;
+  fiber(waitView, { sessionId: "s-wait", hasPendingInteractivePrompt: true, messages: [{ type: "user_message", text: "Plan the copy row" }, ask("q1", "Which theme goes first?"), ask("q2", "Who should own the copy row?")] });
+  chat.prepend(waitView);
+  const runView = document.createElement("div");
+  runView.className = "rich-transcript-view";
+  chat.querySelector(".turn").before(runView);
+  runView.append(chat.querySelectorAll(".turn")[0]);
+  fiber(runView, { sessionId: "s-run", hasPendingInteractivePrompt: false, messages: [] });
+  // The agents list belongs to the waiting session (TeammatePanel's props)
+  document.querySelector(".teammate-panel").__reactFiber$fixture = { memoizedProps: {}, return: { memoizedProps: { sessionId: "s-wait" }, return: null } };
+  // Helper cards in the chat, one per state, as the app draws them: the card's toolMsg on the React props of
+  // TranscriptToolCard (one fiber up), its run-log line by tool id (log above), a background helper's end on its
+  // agents-list task (ROWS [7]). The opened card shows the app's description and its child tool list.
+  // [tool id, the agent type, background, minutes since start, child tools (the last one newest), result or null,
+  //  run-log line fields or null, opened]
+  const HELPERS = [
+    ["h-run", "worker-full", false, 2.2, ["Read", "Read", "Glob", "Grep"], null, { model: "opus", effort: "high", description: "U3: chat column design and mock-up" }, false],
+    ["h-bg", "worker-light", true, 3.6, [], "Async agent launched successfully.", null, false],
+    ["h-done", "reviewer", false, 6, ["Read", "Grep"], "Two findings, both small.\n\n1. The tick has no reduced-motion rule.", { model: "opus", effort: "high", description: "Review the chat column build", result: "success", totalTokens: 125096, totalDurationMs: 308565, totalToolUseCount: 51 }, false],
+    ["h-bg-done", "worker-light", true, 9, [], "Async agent launched successfully.", null, false],
+    ["h-stop", "worker-full", false, 12, ["Edit"], "Done: S1 and S2.\n\nWhat is left: 2 items left", { model: "sonnet", effort: "medium", description: "S3: rename the config keys", result: "partial", why: "What is left: 2 items left", totalTokens: 61000, totalDurationMs: 410000, totalToolUseCount: 22 }, false],
+    ["h-fail", "worker-full", false, 15, ["Bash"], "error: npm test exited with code 1", { model: "sonnet", description: "Run the extension tests", result: "fail", why: "error: npm test exited with code 1" }, false],
+    ["h-open", "worker-full", false, 20, ["Read", "Edit", "Bash"], "## Helper card built\n\nThe card shows time, steps and tokens.", { model: "opus", effort: "high", description: "A5: helper card in the chat", result: "success", totalTokens: 84210, totalDurationMs: 252000, totalToolUseCount: 3 }, true],
+  ];
+  const helperTurn = document.createElement("div");
+  helperTurn.className = "turn";
+  helperTurn.innerHTML = `<p>Helper cards: running, in the background, done, done in the background, stopped early, failed, opened</p>`;
+  const child = (toolName, i, at) => ({ type: "tool_call", createdAt: new Date(at), toolCall: { toolName, providerToolCallId: `c${i}`, arguments: {}, result: "ok" } });
+  for (const [id, type, background, mins, kids, result, run, opened] of HELPERS) {
+    const started = now - mins * m;
+    // The running helper: 14 steps, the newest 5s ago
+    const childEvents = id === "h-run"
+      ? Array.from({ length: 14 }, (_, i) => (i === 13 ? child("Grep", i, now - 5 * s) : child(kids[i % kids.length], i, started + i * 9 * s)))
+      : kids.map((t, i) => child(t, i, started + (i + 1) * m));
+    const prompt = run?.description ? `${run.description}\n\nThe whole brief.` : `Scan the chat logs for helper runs\n\nThe whole brief.`;
+    const toolMsg = {
+      createdAt: new Date(started),
+      isError: run?.result === "fail",
+      toolCall: { toolName: "Task", providerToolCallId: id, arguments: { description: run?.description ?? "Scan the chat logs", prompt, subagent_type: type, ...(background ? { run_in_background: true } : {}) }, ...(result ? { result } : {}) },
+      subagent: { agentType: type, isBackground: background, model: run?.model ?? null, reasoningEffort: run?.effort ?? null, childEvents },
+    };
+    const box = document.createElement("div");
+    box.className = "rich-transcript-tool-container mb-2";
+    box.innerHTML = `<div class="rich-transcript-tool-card sub-agent rounded border overflow-hidden"><button class="rich-transcript-tool-button"><span class="material-symbols-outlined rich-transcript-tool-icon sub-agent-icon">${background ? "cloud_sync" : "description"}</span><span class="rich-transcript-tool-name" title="Task">${background ? "Background Agent" : "Sub-Agent"}<span class="rich-transcript-tool-subagent-type"> [${type}]</span></span><span class="material-symbols-outlined rich-transcript-tool-chevron">chevron_right</span></button></div>`;
+    if (opened) {
+      const kidsHtml = kids.map((t) => `<div class="rich-transcript-tool-container mb-2 nested ml-0"><div class="rich-transcript-tool-card child-tool"><button class="rich-transcript-tool-button"><span class="material-symbols-outlined rich-transcript-tool-icon">build</span><span class="rich-transcript-tool-name">${t}</span></button></div></div>`).join("");
+      box.firstChild.insertAdjacentHTML("beforeend", `<div class="rich-transcript-tool-expanded"><div class="rich-transcript-tool-section"><div class="rich-transcript-tool-description">${run.description}</div></div><div class="rich-transcript-tool-section"><div class="rich-transcript-tool-section-label">Sub-agent Actions (${kids.length}):</div><div class="rich-transcript-subagent-children">${kidsHtml}</div></div></div>`);
+    }
+    box.__reactFiber$fixture = { memoizedProps: {}, return: { memoizedProps: { toolMsg }, return: null } };
+    helperTurn.append(box);
+    if (run) log.push(JSON.stringify({ toolUseId: id, type, ...run }));
+  }
+  // ?helpers puts the scene first in the chat (its picture); else it closes the chat
+  if (new URLSearchParams(location.search).has("helpers")) chat.prepend(helperTurn);
+  else chat.append(helperTurn);
+
+  // Session rows: [id, title, time, status class, its title, icon, active]
+  const SESSIONS = [
+    ["s-wait", "Copy row under each reply", "2m", "waiting-for-input", "Waiting for your response", "contact_support", true],
+    ["s-other-wait", "Tracker item model", "14m", "pending-prompt", "Waiting for your response", "help", false],
+    ["s-run", "Thinking line with a stage orb", "now", "processing", "Processing...", "progress_activity", false],
+    ["s-run-2", "Gutter names at 13 px", "1m", "processing", "Processing...", "progress_activity", false],
+    ["s-bg", "Scan the chat logs", "6m", "background-wait", "Waiting on background task: Scan the chat logs (6m)", "timelapse", false],
+    ["s-unread", "Read Aloud close button", "20m", "unread", "Unread response", "circle", false],
+    ["s-done", "Shared tokens and type scale", "1h", "", "", "", false],
+  ];
+  const sessionRows = document.getElementById("session-rows");
+  for (const [id, title, time, state, tip, icon, active] of SESSIONS) {
+    const row = document.createElement("div");
+    row.id = `session-list-item-${id}`;
+    row.className = `session-list-item${active ? " active" : ""}`;
+    row.dataset.testid = "session-list-item";
+    if (active) row.setAttribute("aria-current", "page");
+    row.innerHTML = `<div class="session-list-item-content"><span class="session-list-item-title"></span><div class="session-list-item-meta"><span class="session-list-item-datetime">${time}</span><span class="session-list-item-model">Opus 4.7</span></div></div><div class="session-list-item-right">${state ? `<div class="session-list-item-status ${state}"><span class="material-symbols-outlined">${icon}</span></div>` : ""}</div>`;
+    row.querySelector(".session-list-item-title").textContent = title;
+    if (state) row.querySelector(".session-list-item-status").title = tip;
+    sessionRows.append(row);
+  }
+
+  try {
+    const { activate } = await import("../dist/index.js");
+    activate();
+  } catch (e) {
+    document.body.insertAdjacentHTML("beforeend", `<div id="broken"></div>`);
+    document.getElementById("broken").textContent = `agents panel failed to start: ${e.message}`;
+    throw e;
+  }
+</script>
+</body>
+</html>

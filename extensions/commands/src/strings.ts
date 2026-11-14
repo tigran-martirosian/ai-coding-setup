@@ -41,6 +41,14 @@ const english = {
     untracked:
       "Note sent, but it cannot be followed to the end. Update the setup to see when it arrives",
   },
+  copy: {
+    button: "Copy",
+    done: "Copied",
+    hint: "Copy the whole reply as Markdown",
+    blocked: "Couldn't copy: clipboard blocked",
+    noText: "Couldn't copy: the reply's text is no longer loaded",
+    dismiss: "Dismiss",
+  },
   commands: {
     boardCleanup: {
       label: "Board cleanup",
@@ -131,6 +139,14 @@ const russian: Strings = {
       `Нет подтверждения, при необходимости отправьте ещё раз: «${text}»`,
     untracked:
       "Заметка отправлена, но проследить её до конца нельзя. Обновите настройку, чтобы видеть, когда она дойдёт",
+  },
+  copy: {
+    button: "Копировать",
+    done: "Скопировано",
+    hint: "Скопировать весь ответ как Markdown",
+    blocked: "Не скопировано: буфер обмена заблокирован",
+    noText: "Не скопировано: текст ответа больше не загружен",
+    dismiss: "Закрыть",
   },
   commands: {
     boardCleanup: {

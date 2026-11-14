@@ -37,7 +37,7 @@ export function readSamples(file) {
         return null;
       }
     })
-    .filter((s) => s?.week && !isNaN(Date.parse(s.t)));
+    .filter((s) => s?.week && !Number.isNaN(Date.parse(s.t)));
 }
 
 // g tells apart two windows with the same reset time (cleanSamples sets it after an early reset)
@@ -109,7 +109,7 @@ export function cleanSamples(samples) {
     const hasFive = Boolean(s.five); // before a stale 5-hour reading is dropped below
     for (const k of ["five", "week"]) {
       const r = Date.parse(s[k]?.r ?? "");
-      if (isNaN(r)) continue;
+      if (Number.isNaN(r)) continue;
       const t = top[k],
         u = s[k].u;
       if (r < t.r - SAME)

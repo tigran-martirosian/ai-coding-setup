@@ -5,29 +5,29 @@
  * This file only draws them. The week's percent is not drawn on the gutter button: the app's own Claude ring shows it.
  */
 
-import { useEffect, useState, useSyncExternalStore } from "react";
 import type { PanelHostProps } from "@nimbalyst/extension-sdk";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
-  FIVE_MS,
-  WEEK_MS,
-  HOUR_MS,
+  hideDashboardButton,
+  showDashboardPanel,
+  UsageDashboardPanel,
+  unhideDashboardButton,
+} from "./dashboard";
+import type { Tone } from "./format";
+import {
   clock,
   elapsedPercent,
   extraLimits,
-  paceHours,
+  FIVE_MS,
+  HOUR_MS,
   pace,
+  paceHours,
   sessionPace,
   span,
+  WEEK_MS,
   weekForecast,
   when,
 } from "./format";
-import type { Tone } from "./format";
-import {
-  UsageDashboardPanel,
-  hideDashboardButton,
-  showDashboardPanel,
-  unhideDashboardButton,
-} from "./dashboard";
 import { closePopover, installPopover, removePopover } from "./popover";
 import { getState, refresh, setExec, start, stop, subscribe } from "./store";
 import { CSS } from "./styles";
@@ -257,6 +257,7 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
         <span className="up-title">{t.title}</span>
         {loading && <span className="up-busy">{t.updating}</span>}
         <button
+          type="button"
           className="up-iconbtn"
           onClick={refresh}
           disabled={loading}
@@ -355,10 +356,12 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
         {error && (
           <div className="up-error" role="alert">
             <span>{error}</span>
-            <button onClick={refresh}>{t.retry}</button>
+            <button type="button" onClick={refresh}>
+              {t.retry}
+            </button>
           </div>
         )}
-        <button className="up-btn" onClick={openFullDashboard}>
+        <button type="button" className="up-btn" onClick={openFullDashboard}>
           <Sym name="open_in_new" />
           <span>{t.dashboard}</span>
         </button>

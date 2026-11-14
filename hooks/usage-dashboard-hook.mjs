@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 // usage-dashboard-hook (UserPromptSubmit): when the whole prompt is just "usage"
 // (or "usage dashboard"), build and open the usage dashboard and stop the prompt,
 // so no model call is made and no tokens are spent. Anything else passes through untouched.
@@ -6,9 +9,6 @@
 // USAGE_DASH_NO_OPEN=1 builds without opening the browser (for tests).
 // Fails open: on any error the prompt goes through. USAGE_DASHBOARD=off disables it.
 import { inNimbalyst, runHook } from "./lib/hook-io.mjs";
-import os from "node:os";
-import path from "node:path";
-import { execFileSync } from "node:child_process";
 
 runHook(
   "usage-dashboard-hook",

@@ -1,14 +1,15 @@
 // node --experimental-strip-types test/note.test.ts
 import assert from "node:assert/strict";
-import { findComposers, readFiles, removeFiles } from "../src/find.ts";
-import { endMessage, GIVE_UP_MS, noteEnds, sendNote } from "../src/note.ts";
-import type { Attachment } from "../src/note.ts";
 import {
+  LOCK_MS,
+  MAX_TRIES,
   pollOutbox,
   newState as slowState,
-  MAX_TRIES,
-  LOCK_MS,
 } from "../src/bridge.ts";
+import { RESCAN_MS, startNoteButtons } from "../src/composer.ts";
+import { findComposers, readFiles, removeFiles } from "../src/find.ts";
+import type { Attachment } from "../src/note.ts";
+import { endMessage, GIVE_UP_MS, noteEnds, sendNote } from "../src/note.ts";
 
 let n = 0;
 const ok = (name: string) => console.log(`ok ${++n} ${name}`);
@@ -25,7 +26,10 @@ class Node {
     this.attrs = attrs;
   }
   add(...c: Node[]) {
-    for (const x of c) ((x.parentElement = this), this.children.push(x));
+    for (const x of c) {
+      x.parentElement = this;
+      this.children.push(x);
+    }
     return this;
   }
   matches(sel: string): boolean {
@@ -505,4 +509,86 @@ assert.deepEqual(
 );
 ok(
   "two windows: only the lock holder delivers; a stale lock is taken over without repeats",
+);
+
+// ---- the Note button's rescan: a streaming reply changes the page every few ms, and the chat box of
+// a running session must still get its button (a stand-in page, observer and clock)
+{
+  const g = globalThis as Record<string, unknown>;
+  const saved = [
+    "document",
+    "MutationObserver",
+    "setTimeout",
+    "clearTimeout",
+  ].map((k) => [k, g[k]] as const);
+  let now = 0,
+    nextId = 0;
+  const due = new Map<number, { at: number; fn: () => void }>();
+  const advance = (ms: number) => {
+    const end = now + ms;
+    for (;;) {
+      const first = [...due]
+        .filter(([, x]) => x.at <= end)
+        .sort((a, b) => a[1].at - b[1].at)[0];
+      if (!first) break;
+      due.delete(first[0]);
+      now = first[1].at;
+      first[1].fn();
+    }
+    now = end;
+  };
+  let changed = () => {};
+  let scans = 0;
+  try {
+    g.setTimeout = (fn: () => void, ms: number) => {
+      due.set(++nextId, { at: now + ms, fn });
+      return nextId;
+    };
+    g.clearTimeout = (id: number) => void due.delete(id);
+    g.MutationObserver = class {
+      constructor(cb: () => void) {
+        changed = cb;
+      }
+      observe() {}
+      disconnect() {}
+    };
+    // every scan looks for Send buttons; the stop function's own lookup of Note buttons is not a scan
+    g.document = {
+      body: {},
+      querySelectorAll: (sel: string) => {
+        if (!sel.includes("data-note-wrap")) scans++;
+        return [];
+      },
+    };
+    const stop = startNoteButtons(async () => {
+      throw new Error("no host in this test");
+    });
+    assert.equal(scans, 1, "one scan at start");
+    for (let i = 0; i < 40; i++) {
+      changed();
+      advance(30);
+    }
+    assert.ok(
+      scans >= 1 + Math.floor(1200 / RESCAN_MS) - 1,
+      `changes every 30 ms for 1.2 s still rescan about every ${RESCAN_MS} ms (scans: ${scans})`,
+    );
+    const before = scans;
+    changed();
+    changed();
+    advance(RESCAN_MS);
+    assert.equal(
+      scans,
+      before + 1,
+      "the last change is scanned once, within RESCAN_MS",
+    );
+    changed();
+    stop();
+    advance(RESCAN_MS * 2);
+    assert.equal(scans, before + 1, "stop cancels a scan still waiting");
+  } finally {
+    for (const [k, v] of saved) g[k] = v;
+  }
+}
+ok(
+  "the Note button rescan runs while the page keeps changing faster than its 150 ms wait",
 );

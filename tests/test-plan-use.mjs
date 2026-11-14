@@ -1,10 +1,11 @@
 // Tests for the "other use" estimate: skills/setup-audit/scripts/plan-use.mjs, usage-scan --cost and the
 // dashboard build, on made-up data in a temp folder. Nothing here touches a real login or log.
 // Run: node tests/test-plan-use.mjs
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SKILL = fileURLToPath(
@@ -511,7 +512,8 @@ check(
   const start = new Date(2026, 9, 1, 0, 0).getTime();
   const R = new Date(2026, 9, 7, 12).toISOString(); // the week's window holds day 1 (with the 5-hour limit) and later days
   let seed = 7;
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const rnd = () =>
+    (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
   const busyDay = Array.from({ length: 13 }, () => 0.3 + 2 * rnd()); // the last reading falls on day 12
   let acc = 0;
   const S2 = [],
@@ -527,7 +529,10 @@ check(
     }
     S2.push({
       t: d.toISOString(),
-      five: m < 1440 ? { u: 0, r: new Date(start + 5 * 3600000).toISOString() } : null,
+      five:
+        m < 1440
+          ? { u: 0, r: new Date(start + 5 * 3600000).toISOString() }
+          : null,
       week: { u: Math.floor(acc), r: R },
     });
   }
@@ -543,7 +548,10 @@ check(
     true,
   );
   const wk = w.weeks[0];
-  const busy1 = C2.filter(([m]) => m * 60000 < start + 1440 * 60000).reduce((n, c) => n + c[1], 0);
+  const busy1 = C2.filter(([m]) => m * 60000 < start + 1440 * 60000).reduce(
+    (n, c) => n + c[1],
+    0,
+  );
   check(
     "a week holding a plan change: minutes before it at the old plan's scale, which has none here",
     [w.weeks.length, wk.mine, busy1 > 0],

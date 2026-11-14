@@ -1,12 +1,11 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 // Test for skills/setup-audit/scripts/review-scan.mjs: builds a small chats folder and checks the report.
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCAN = fileURLToPath(
   new URL("../skills/setup-audit/scripts/review-scan.mjs", import.meta.url),
 );

@@ -14,13 +14,14 @@
   const seenVoices = [];
   const origInvoke = window.electronAPI.invoke;
   try {
-    window.electronAPI.invoke = function (channel, payload) {
+    window.electronAPI.invoke = function (...args) {
+      const [channel, payload] = args;
       if (
         channel === "extensions:ai-call-backend-tool" &&
         payload?.toolName === "readaloud.synthesize"
       )
         seenVoices.push(payload.args.voice);
-      return origInvoke.apply(this, arguments);
+      return origInvoke.apply(this, args);
     };
   } catch {
     /* frozen */
@@ -32,7 +33,7 @@
     );
   const state = (c) =>
     [...c.querySelectorAll("button,span[title]")]
-      .map((b) => b.title)
+      .map((b) => b.querySelector(".readaloud-word")?.textContent || b.title)
       .filter((x) => x && !/hands-free/i.test(x))
       .join("|");
   const waitFor = async (c, pred, ms) => {
@@ -49,8 +50,10 @@
   const B = cs[cs.length - 2];
 
   // 1. Cold start (worker was stopped): click -> first audio.
-  A.querySelector('button[title="Read aloud"]').click();
-  out.coldStartMs = await waitFor(A, (s) => s.startsWith("Pause|Stop"), 20000);
+  [...A.querySelectorAll("button")]
+    .find((b) => b.textContent.endsWith("Read aloud"))
+    .click();
+  out.coldStartMs = await waitFor(A, (s) => s.startsWith("Pause|Next"), 20000);
   const st1 = await ipc("status");
   out.workerAfterFirst = {
     worker: st1.worker,
@@ -59,16 +62,18 @@
   };
 
   // 2. Only one plays: clicking B stops A.
-  B.querySelector('button[title="Read aloud"]').click();
+  [...B.querySelectorAll("button")]
+    .find((b) => b.textContent.endsWith("Read aloud"))
+    .click();
   await sleep(100);
   out.aAfterClickingB = state(A);
-  out.warmStartMs = await waitFor(B, (s) => s.startsWith("Pause|Stop"), 20000);
+  out.warmStartMs = await waitFor(B, (s) => s.startsWith("Pause|Next"), 20000);
   const st2 = await ipc("status");
   out.samePidAcrossRequests = st2.pid === st1.pid;
   out.requestsServed = st2.requestsServed;
-  B.querySelector('button[title="Stop"]')?.click();
+  B.querySelector(".readaloud-close")?.click();
   await sleep(200);
-  out.bAfterStop = state(B);
+  out.bAfterClose = state(B);
 
   // 3. Voice actually requested by the player, and what the backend used.
   const probe = await ipc("synthesize", { text: "Voice probe." });
@@ -99,8 +104,8 @@
   };
   fake(90001, `<span data-readaloud-key="${key}"></span>`, "assistant");
   fake(90002, '<div class="rich-transcript-turn-elapsed">Finished in 1s</div>');
-  out.autoReplyStartMs = await waitFor(B, (s) => s.includes("Stop"), 20000);
-  B.querySelector('button[title="Stop"]')?.click();
+  out.autoReplyStartMs = await waitFor(B, (s) => s.includes("Close"), 20000);
+  B.querySelector(".readaloud-close")?.click();
   await sleep(300);
 
   fake(

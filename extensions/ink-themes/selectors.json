@@ -141,12 +141,12 @@
   },
   {
     "selector": "[data-testid=\"terminal-panel-button\"]",
-    "what": "gutter name \"Term\"",
+    "what": "gutter name \"Terminal\"",
     "seenIn": "0.83.0"
   },
   {
     "selector": ".nav-button[data-panel-id*=\"systemsmap\"]",
-    "what": "gutter name \"Map\"",
+    "what": "gutter name \"Systems map\"",
     "seenIn": "0.83.0"
   },
   {
@@ -156,7 +156,7 @@
   },
   {
     "selector": ".nav-button[data-panel-id*=\"commandbuttons\"]",
-    "what": "gutter name \"Cmds\"",
+    "what": "gutter name \"Commands\"",
     "seenIn": "0.83.0"
   },
   {
@@ -166,22 +166,22 @@
   },
   {
     "selector": "[data-testid=\"claude-usage-indicator\"]",
-    "what": "gutter Claude ring: 44px, percent 11px 550, name",
+    "what": "rail Claude ring: 40px ring, name, \"53% used\" under it (shell.js copies the number)",
     "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"codex-usage-indicator\"]",
-    "what": "gutter Codex ring: same",
+    "what": "rail ring: same as Claude",
     "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"gemini-usage-indicator\"]",
-    "what": "gutter Gemini ring: same",
+    "what": "rail ring: same as Claude",
     "seenIn": "0.83.0"
   },
   {
     "selector": "[data-testid=\"gutter-permissions-button\"]",
-    "what": "gutter name \"Rights\"",
+    "what": "gutter name \"Permissions\"",
     "seenIn": "0.83.0"
   },
   {
@@ -201,7 +201,58 @@
   },
   {
     "selector": ".trust-indicator-dot",
-    "what": "dot on the Rights button: moved to the icon",
+    "what": "dot on the Permissions button: moved to the icon",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".nav-content-modes",
+    "what": "gutter top section: lends its items to the gutter (display: contents) so Wiki can sit after Systems map",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".nav-quick-access",
+    "what": "gutter spacer between the top and the tools: order 1",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-gutter-item=\"collab\"]",
+    "what": "gutter Wiki item: order 3, after Systems map",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-gutter-item*=\"systemsmap\"]",
+    "what": "gutter Systems map item: the tools after it come after Wiki",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-gutter-item=\"agent\"]",
+    "what": "gutter Agent item: shown only while the bubble counts waiting sessions (the Needs you cell)",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-gutter-item=\"files\"]",
+    "what": "gutter Files item: hidden with its button while the Ink switch shows",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-gutter-item=\"tracker\"]",
+    "what": "gutter Tracker item: hidden with its button while the Ink switch shows",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".nav-mode-button-wrapper",
+    "what": "wrapper of a gutter mode button: the Needs you cell; shell.js adds the listening orb in it",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-testid=\"agent-sessions-bubble\"]",
+    "what": "the app's sessions bubble: data-state orange counts sessions waiting on the user; restyled as the Needs you count, hidden in its green and blue states",
+    "seenIn": "0.83.0",
+    "onlyWhen": "a session waiting on the user"
+  },
+  {
+    "selector": "[data-testid=\"alpha-badge\"]",
+    "what": "the α mark on the Wiki button: hidden",
     "seenIn": "0.83.0"
   },
   {
@@ -250,6 +301,18 @@
     "what": "empty chat: heading from data-ink-project (set by shell.js)",
     "seenIn": "0.82.7",
     "onlyWhen": "a session with no messages"
+  },
+  {
+    "selector": ".rich-transcript-tool-container",
+    "what": "chat tool card wrapper: the Tracker Created card is its direct child",
+    "seenIn": "0.83.0",
+    "onlyWhen": "a chat with a tool call"
+  },
+  {
+    "selector": ".rich-transcript-tool-container > div:has(> div:first-child > span:first-child + span[style*=\"font-family: monospace\"]:last-child)",
+    "what": "Tracker Created card (tracker_create; inline styles only, no class): heading-type header, muted id, 64px label column, Priority on its own row, theme pills",
+    "seenIn": "0.83.0",
+    "onlyWhen": "a chat with a tracker_create call"
   },
   {
     "selector": ".tip-card--inline",
@@ -357,6 +420,11 @@
     "seenIn": "0.83.0"
   },
   {
+    "selector": ".files-edited-sidebar",
+    "what": "the right pane's files view (FilesEditedSidebar root): shell.js's cross closes the pane only while it is shown, else it goes back to it",
+    "seenIn": "0.83.0"
+  },
+  {
     "selector": ".ml-auto",
     "what": "the file viewer's own maximize button (ml-auto); the close button then drops its own auto margin",
     "seenIn": "0.83.0"
@@ -399,6 +467,148 @@
   {
     "selector": "[data-gutter-item=\"feedback\"]",
     "what": "feedback slot in the rail: hidden with its button",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-left-pane\"]",
+    "what": "top-bar session list button: the word Sessions beside the icon, open tone",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-left-pane\"][aria-label$=\" Session history\"]",
+    "what": "top-bar session list button in the agent view: its label ends with the pane's name",
+    "seenIn": "0.83.0",
+    "onlyWhen": "the agent view"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-right-pane\"]",
+    "what": "top-bar right panel button: the view's name beside the icon; shell.js reads Hide/Show from its aria-label and presses it from the menu's hide row",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-right-pane\"][aria-label$=\": Files & agents\"]",
+    "what": "right panel button on the files view (label from the files-and-agents patch)",
+    "seenIn": "0.83.0",
+    "onlyWhen": "the right panel on Files & agents"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-right-pane\"][aria-label$=\": Edited Files\"]",
+    "what": "right panel button on the files view (the app's own label, without the files-and-agents patch)",
+    "seenIn": "0.83.0",
+    "onlyWhen": "the right panel on Edited Files, the patch not applied"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-right-pane\"][aria-label$=\": Review\"]",
+    "what": "right panel button on the Review view",
+    "seenIn": "0.83.0",
+    "onlyWhen": "the right panel on Review"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-right-pane\"][aria-label$=\": Chat with Session\"]",
+    "what": "right panel button on the second-chat view (the app's case; \": Chat with session\" covers a sentence-case patch)",
+    "seenIn": "0.83.0",
+    "onlyWhen": "the right panel on Chat with Session"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-right-pane\"][aria-label$=\": File viewer\"]",
+    "what": "right panel button on the file viewer",
+    "seenIn": "0.83.0",
+    "onlyWhen": "the right panel on File viewer"
+  },
+  {
+    "selector": ".window-top-bar__panel-mode-badge",
+    "what": "tiny mode badge on the right panel icon: hidden, the view's name replaces it",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".window-top-bar__panel-split",
+    "what": "right panel split control: radius, open tone",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".window-top-bar__panel-split-toggle",
+    "what": "right panel split control, show/hide half: radius",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".window-top-bar__panel-split-caret",
+    "what": "right panel split control, menu arrow: radius, muted; shell.js presses it to close the menu from the hide row",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".window-top-bar__panel-split-divider",
+    "what": "hairline between the two halves of the split control",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".window-top-bar__panel-button",
+    "what": "top-bar panel buttons: text colour while open",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-right-pane-menu-button\"]",
+    "what": "right panel menu arrow: shell.js presses it to close the menu before the hide row hides the panel",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-right-pane-menu\"]",
+    "what": "right panel menu: 344 wide, heading, hide row (.ink-menu-*) added by shell.js at its end",
+    "seenIn": "0.83.0",
+    "onlyWhen": "the right panel menu open"
+  },
+  {
+    "selector": ".window-top-bar__menu-item",
+    "what": "right panel menu rows: name and description lines; shell.js tags each with data-ink-view from its words",
+    "seenIn": "0.83.0",
+    "onlyWhen": "a top-bar menu open"
+  },
+  {
+    "selector": "[data-testid=\"window-top-bar-git-status\"]",
+    "what": "top-bar git button: row title type, padding",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".window-top-bar__branch",
+    "what": "git button branch name: text colour",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".window-top-bar__git-detail",
+    "what": "git button details (ahead, behind): 12px",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".window-top-bar__dirty",
+    "what": "git button \"Modified\": muted; shell.js writes the uncommitted file count on it (data-ink-count)",
+    "seenIn": "0.83.0",
+    "onlyWhen": "uncommitted changes in the project"
+  },
+  {
+    "selector": ".window-top-bar__git-repo",
+    "what": "git button repo name, drawn only with several repos: shell.js then shows no count (the workspace count would not match the repo shown)",
+    "seenIn": "0.83.0",
+    "onlyWhen": "a project with several git repos"
+  },
+  {
+    "selector": "[data-testid=\"agent-history-resize-handle\"]",
+    "what": "session list resize handle: shell.js reads aria-valuenow and drags it once from the app's 240 default to 320",
+    "seenIn": "0.83.0",
+    "onlyWhen": "the agent view with the session list open"
+  },
+  {
+    "selector": ".resize-drag-shield",
+    "what": "the app's drag cover while resizing: shell.js moves and releases the pointer on it",
+    "seenIn": "0.83.0",
+    "onlyWhen": "a resize drag"
+  },
+  {
+    "selector": "[data-testid=\"editor-mode-sidebar-resize-handle\"]",
+    "what": "Files mode sidebar handle: shell.js drags it to the shared left width",
+    "seenIn": "0.83.0"
+  },
+  {
+    "selector": ".workspace-sidebar",
+    "what": "Files mode sidebar: shell.js reads its wrapper width for the shared left width",
     "seenIn": "0.83.0"
   }
 ]

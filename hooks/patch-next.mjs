@@ -4,9 +4,10 @@
 // open ones (not yet shipped, deployed or released), each cut to its start, so the session adds its own line and the
 // deploying session ships every line. The whole Items section is not shown: most sessions only add one line.
 // Projects without the file: silent. Subagents skip it. Fails open. PATCH_NEXT=off disables it.
-import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+
 import fs from "node:fs";
 import path from "node:path";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 
 const MAX_LINES = 10,
   LINE_CHARS = 160;

@@ -1,10 +1,11 @@
 // Tests for hooks/map-drift.mjs. Run: node tests/test-map-drift.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
 const HOOK = fileURLToPath(new URL("../hooks/map-drift.mjs", import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "map-drift-test-"));
@@ -222,10 +223,10 @@ check(
     context(run(sound, edit(path.join(wt, "src/cart.js")))),
   ),
 );
+reset();
 check(
   "MAP_DRIFT=off: silent, nothing recorded",
-  (reset(),
-  run(dir, edit("src/cart.js"), { MAP_DRIFT: "off" }).stdout === "") &&
+  run(dir, edit("src/cart.js"), { MAP_DRIFT: "off" }).stdout === "" &&
     !fs.existsSync(STATE_FILE),
 );
 const nomap = path.join(tmp, "nomap");

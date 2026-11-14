@@ -15,12 +15,15 @@
   if (!document.querySelector("[data-usage-plan]")) button.click();
   for (let i = 0; i < 40; i++) {
     const panel = document.querySelector("[data-usage-plan]");
+    // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
     if (panel && /%|No plan numbers|exit|Error/i.test(panel.innerText))
+      // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
       return panel.innerText;
     await new Promise((r) => setTimeout(r, 250));
   }
   return (
     "button found, panel did not show numbers: " +
+    // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
     (document.querySelector("[data-usage-plan]")?.innerText ?? "no panel")
   );
 })();

@@ -1,12 +1,26 @@
 {
   "_setup": {
     "_note": "Read by install.mjs and tests/test-wiring.mjs; never written into a settings.json. retired: hooks in ~/.claude/hooks that earlier versions wired and this one dropped (an upgrade unwires them). retiredInHomes: the same for a project folder's own .claude/hooks. oldMatchers: matcher strings an earlier version wired for a hook; an install that still has exactly one gets the current matcher.",
-    "retired": ["build-nudge.mjs", "turn-cap.mjs", "web-worker-gate.mjs", "board-nudge.mjs", "worker-nudge.mjs", "loop-warn.mjs", "skill-pointer.mjs", "file-link-gate.mjs --remind"],
+    "retired": [
+      "build-nudge.mjs",
+      "turn-cap.mjs",
+      "web-worker-gate.mjs",
+      "board-nudge.mjs",
+      "worker-nudge.mjs",
+      "loop-warn.mjs",
+      "skill-pointer.mjs",
+      "file-link-gate.mjs --remind"
+    ],
     "retiredInHomes": {},
     "oldMatchers": {
       "background-tasks.mjs": ["Bash|Agent|Task"],
-      "repeat-guard.mjs": ["Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch"],
-      "question-other.mjs": ["mcp__nimbalyst__PromptForUserInput", "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion"],
+      "repeat-guard.mjs": [
+        "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch"
+      ],
+      "question-other.mjs": [
+        "mcp__nimbalyst__PromptForUserInput",
+        "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion"
+      ],
       "job-done.mjs": ["Bash"]
     }
   },
@@ -385,6 +399,16 @@
           {
             "type": "command",
             "command": "node ~/.claude/hooks/map-drift.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal|Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/upkeep-note.mjs",
             "timeout": 5
           }
         ]

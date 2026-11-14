@@ -4,7 +4,7 @@
 // to read it: what they typed outweighs what they ticked, a tick against their words is not a decision yet, and a
 // tick is reported in full with what it would undo. The rule lives here instead of in CLAUDE.md, where it sat in
 // every turn of every session. Main session only: a helper gets no forms. FORM_ANSWER=off disables it.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 
 const FORMS = [
   "mcp__nimbalyst__PromptForUserInput",

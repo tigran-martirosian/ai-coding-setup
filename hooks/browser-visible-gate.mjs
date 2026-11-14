@@ -2,7 +2,7 @@
 // browser-visible-gate: PreToolUse on mcp__nimbalyst-browser__browser_open_session. Refuses headless:false:
 // the Nimbalyst browser's tab never shows in a window of its own, so you could not see the page or type a sign-in.
 // Sign-ins go through the site-login skill (a real Chromium window). Test: tests/test-browser-visible-gate.mjs
-import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 
 // The command that opens a page (or a local file) in the user's own default browser, in a window they see.
 export function showCommand(platform = process.platform) {

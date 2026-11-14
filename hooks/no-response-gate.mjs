@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 // no-response-gate: backs "every question the user typed gets its answer" (a skipped question was a reply of only
 // "No response requested." or a /btw question only forwarded).
 // Stop, two checks, each blocks once (stop_hook_active):
@@ -24,20 +25,19 @@
 // System events (background-task notices, "[System: ...]", "[Child Session Update]") are not typed
 // messages, so "No response requested." stays allowed there. Subagents (agent_id) are skipped.
 // Fails open. NO_RESPONSE_GATE=off disables it.
-import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
+import { ruHyphen as ru } from "./lib/ru.mjs";
 import {
-  entries as readEntries,
-  tail,
-  userText,
   assistantText,
-  typedByUser,
   currentTurn,
   INTERRUPTED,
   QUESTION_TOOLS,
+  entries as readEntries,
   SYNTHETIC,
+  tail,
+  typedByUser,
+  userText,
 } from "./lib/transcript.mjs";
-import { ruHyphen as ru } from "./lib/ru.mjs";
-import fs from "node:fs";
 
 // Only the transcript's end is read (a long session's file reaches 100s of MB); a turn longer than this
 // has no start in it and passes
@@ -50,7 +50,7 @@ const RU_ASK_WORD = String.raw`(?:что|чего|чему|чем|почему|�
 const RU_QUESTION_WORD = ru(
   String.raw`^[^\p{L}\d]*(?:${RU_ASK_WORD}|есть\s+ли|можно\s+ли|нужно\s+ли|стоит\s+ли|\p{L}+\s+ли)»`,
 );
-const RU_ASKS_WHAT = ru(String.raw`«(?:${RU_ASK_WORD}|ли)»`);
+const RU_ASKS_WHAT = ru(`«(?:${RU_ASK_WORD}|ли)»`);
 const RU_REQUEST = ru(
   String.raw`«(?:можешь|можете|сможешь|сможете|(?:не\s+)?мог(?:ла|ли)?\s+бы|будь\s+добр|будьте\s+добры)»|^[^\p{L}\d]*пожалуйста»`,
 );

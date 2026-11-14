@@ -39,13 +39,48 @@
     "configuration": {
       "title": "Read Aloud",
       "properties": {
-        "enabled": { "type": "boolean", "default": true, "description": "Show the Read Aloud control on agent replies", "scope": "user" },
-        "voice": { "type": "string", "default": "af_heart", "description": "Kokoro voice", "scope": "user" },
-        "speed": { "type": "number", "default": 1.0, "description": "Playback speed (0.5 to 2.0)", "scope": "user" },
-        "skipCodeBlocks": { "type": "boolean", "default": true, "description": "Skip fenced code blocks", "scope": "user" },
-        "skipTerminalOutput": { "type": "boolean", "default": true, "description": "Skip terminal output and diffs", "scope": "user" },
-        "ttsDirectory": { "type": "string", "default": "C:\\LocalTTS", "description": "Folder with venv, kokoro-v1.0.onnx and voices-v1.0.bin", "scope": "user" },
-        "autoRead": { "type": "boolean", "default": false, "description": "Hands-free: read finished replies and questions automatically", "scope": "user" }
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Read Aloud control on agent replies",
+          "scope": "user"
+        },
+        "voice": {
+          "type": "string",
+          "default": "af_heart",
+          "description": "Kokoro voice",
+          "scope": "user"
+        },
+        "speed": {
+          "type": "number",
+          "default": 1.0,
+          "description": "Playback speed (0.5 to 2.0)",
+          "scope": "user"
+        },
+        "skipCodeBlocks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Skip fenced code blocks",
+          "scope": "user"
+        },
+        "skipTerminalOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Skip terminal output and diffs",
+          "scope": "user"
+        },
+        "ttsDirectory": {
+          "type": "string",
+          "default": "C:\\LocalTTS",
+          "description": "Folder with venv, kokoro-v1.0.onnx and voices-v1.0.bin",
+          "scope": "user"
+        },
+        "autoRead": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hands-free: read finished replies and questions automatically",
+          "scope": "user"
+        }
       }
     },
     "claudePlugin": {

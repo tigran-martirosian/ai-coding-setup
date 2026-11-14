@@ -1,11 +1,12 @@
 // Tests for skills/setup-audit/scripts/usage-dashboard-lib.mjs (number logic of the usage
 // dashboard) and for the build writing usage-dashboard.json next to the page.
 // Run: node tests/test-usage-dashboard-lib.mjs
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPTS = fileURLToPath(

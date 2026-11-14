@@ -1,0 +1,25 @@
+# Copied to .github/dependabot.yml. Each entry has the "build" prefix, so Dependabot's pull-request
+# titles follow the commit rule ("build: ...").
+# The skill uncomments the entry of the project's stack (npm for package.json, pip for Python).
+# Private repo: the stack's entry is offered, off by default (each update pull request runs CI on
+# the included minutes); security updates come anyway through the repo's security settings.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+  # - package-ecosystem: npm
+  #   directory: /
+  #   schedule:
+  #     interval: weekly
+  #   commit-message:
+  #     prefix: "build"
+  # - package-ecosystem: pip
+  #   directory: /
+  #   schedule:
+  #     interval: weekly
+  #   commit-message:
+  #     prefix: "build"

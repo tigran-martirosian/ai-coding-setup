@@ -1,11 +1,12 @@
 // Tests for the picture gate (projects/shared/hooks/picture-gate.mjs) and the shared `picture` skill.
 // Nothing here calls Codex or the network. Run: node tests/test-picture-gate.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
-import crypto from "node:crypto";
+
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SHARED = fileURLToPath(new URL("../projects/shared", import.meta.url));

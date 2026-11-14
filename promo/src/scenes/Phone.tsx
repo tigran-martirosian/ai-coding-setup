@@ -1,7 +1,7 @@
-import React from "react";
+import type React from "react";
 import { interpolate, useCurrentFrame } from "remotion";
 import { Appear } from "../anim";
-import { Scene, SceneProps } from "../Scene";
+import { Scene, type SceneProps } from "../Scene";
 import { color, mono } from "../theme";
 import { Chip, Columns, Step, Window } from "../ui";
 
@@ -239,6 +239,7 @@ export const Phone: React.FC<SceneProps> = ({ durationInFrames }) => {
                       >
                         {Array.from({ length: 6 }, (_, k) => (
                           <span
+                            // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list drawn once per video frame; it never reorders and holds no state
                             key={k}
                             style={{
                               height: 40,

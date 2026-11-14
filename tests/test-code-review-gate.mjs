@@ -2,32 +2,34 @@
 // Most cases write a small transcript and run the hook on it as a Stop event; the last parts test the push check's
 // command reading, the small-rule-edit rule and the decision (assess, hooks/lib/review-decide.mjs) on made-up evidence.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
-  writeFileSync,
   rmSync,
   utimesSync,
-  existsSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
 import { delimiter, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { isPush, offInCommand } from "../hooks/code-review-gate.mjs";
+import { fileKey } from "../hooks/lib/paths.mjs";
 import {
   assess,
   editsSinceReview,
-  namesFile,
-  smallSetupEdits,
   HELPER_IDLE,
   MIN_FILES,
   NEW_JOB_FILES,
   NOTE_WINDOW,
+  namesFile,
   SMALL_SETUP_LINES,
+  smallSetupEdits,
 } from "../hooks/lib/review-decide.mjs";
-import { fileKey } from "../hooks/lib/paths.mjs";
+
 delete process.env.REVIEW_PUSH_PATTERN; // a project that sets one must not reach the test through this shell
 
 const HOOK = fileURLToPath(

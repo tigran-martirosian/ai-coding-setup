@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 // agent-run-log: PreToolUse hook on the Agent tool. Writes one line per helper to ~/.claude/state/agent-runs.jsonl:
 // {ts, session, cwd, description, type, model, effort}, so the Agents Panel can show which model and effort a helper runs on (the app's
 // own row carries neither). model = tool_input.model, else the `model:` of <project>/.claude/agents/<type>.md, else of
@@ -9,7 +12,8 @@
 // auto or unset sends no level, so effort is null then. What none of these name stays null. The line also keeps toolUseId
 // (the call's tool_use_id), so the result below finds it.
 // The result: on PostToolUse and PostToolUseFailure of the same tools, the helper's line gets {result, why, endedAt}, result being
-// success, partial or fail (sortResult). The line is found by toolUseId, else as the newest one of the same session and description
+// success, partial or fail (sortResult), plus the helper's own totals from its tool result when they are numbers there:
+// totalTokens, totalDurationMs and totalToolUseCount (the Agents Panel's helper card shows them; a missing one stays off the line). The line is found by toolUseId, else as the newest one of the same session and description
 // with no result yet; with none (trimmed away, or the hook was off at the start) a line with no description is added, which the
 // Agents Panel skips (it shows lines with a description), so a result never shows as a helper of its own.
 // The sorting is done on the report the hook sees, after the app's "[harness: ...]" lines are dropped:
@@ -26,9 +30,6 @@
 import { runHook } from "./lib/hook-io.mjs";
 import { TURN_LIMIT_RE } from "./lib/texts.mjs";
 import { entries, tail } from "./lib/transcript.mjs";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const KEEP = 500;
 const TAIL_BYTES = 512 * 1024;
@@ -127,6 +128,18 @@ function sortResult(event) {
   return { result: "success", why: null };
 }
 
+const TOTALS = ["totalTokens", "totalDurationMs", "totalToolUseCount"];
+
+// The helper's totals from its tool result: only the ones that are numbers
+function totals(response) {
+  const out = {};
+  if (!response || typeof response !== "object" || Array.isArray(response))
+    return out;
+  for (const key of TOTALS)
+    if (Number.isFinite(response[key])) out[key] = response[key];
+  return out;
+}
+
 function readLog() {
   try {
     return fs.readFileSync(LOG, "utf8").split("\n").filter(Boolean);
@@ -152,7 +165,11 @@ function logResult(event) {
   const description =
     typeof input.description === "string" ? input.description : "";
   const id = event.tool_use_id || null;
-  const done = { ...sorted, endedAt: new Date().toISOString() };
+  const done = {
+    ...sorted,
+    ...totals(event.tool_response),
+    endedAt: new Date().toISOString(),
+  };
   const lines = readLog();
   for (let i = lines.length - 1; i >= 0; i--) {
     let run;

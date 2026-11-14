@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
+import { isBuildCode as isCode } from "./lib/code-files.mjs";
 // verify-gate: Stop hook. Catches "code was edited and nothing was built or tested after it".
 // If the main session edited a code file this turn and no Bash call after the last such edit ran a build or test,
 // it blocks once with one line: run the project's build or test, then finish. It never runs a command itself.
@@ -19,11 +22,8 @@ import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 import { fileKey, sessionKey } from "./lib/paths.mjs";
 import { setting } from "./lib/settings-env.mjs";
 import { readJson, stateFile, sweep, writeJson } from "./lib/state.mjs";
-import { entries as readEntries, currentTurn } from "./lib/transcript.mjs";
-import { isBuildCode as isCode } from "./lib/code-files.mjs";
 import { VERIFY_GATE } from "./lib/texts.mjs";
-import fs from "node:fs";
-import path from "node:path";
+import { currentTurn, entries as readEntries } from "./lib/transcript.mjs";
 
 const EDIT_TOOLS = /^(Edit|Write|MultiEdit)$/;
 const SHELL_TOOLS = /^(Bash|PowerShell)$/;

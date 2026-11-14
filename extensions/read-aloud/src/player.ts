@@ -107,6 +107,7 @@ class Player {
 
       let next: Promise<AudioBuffer> | null = synth(0);
       for (let i = 0; i < chunks.length; i++) {
+        // biome-ignore lint/style/noNonNullAssertion: next is null only after the last chunk, where the loop ends
         const buf: AudioBuffer = await next!;
         if (g !== this.gen) return;
         next = i + 1 < chunks.length ? synth(i + 1) : null;

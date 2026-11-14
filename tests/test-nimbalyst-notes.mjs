@@ -1,10 +1,11 @@
 // Test for hooks/nimbalyst-notes.mjs: notes in Nimbalyst (sdk entrypoint), silent in the
 // terminal and when switched off.
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/nimbalyst-notes.mjs", import.meta.url),

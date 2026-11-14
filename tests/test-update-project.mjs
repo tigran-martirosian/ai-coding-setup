@@ -1,4 +1,6 @@
-// Tests for skills/update-project/pass.mjs: --check on a made-up folder raises each check id (P1 to P12), and the
+// Tests for skills/update-project/pass.mjs: --check on a made-up folder raises each check id (P1 to P12, and P13 to
+// P15 for a local git folder), the git and GitHub checks (P13 to P23) on folders of each kind with a fake gh (an
+// organisation's repo, an owner in another case, a 401 and a 404 among them), a folder inside a bigger repo, and the
 // stamp modes (--done with --kept, --skip, --skip-all, --list) write ~/.claude/project-pass.json as the design says,
 // and version.json's projectPass equals pass.mjs's LEVEL.
 // Everything happens in a temporary home folder (--home), so the real ~/.claude is never read or written.
@@ -25,6 +27,13 @@ const check = (name, ok, detail = "") => {
 const fwd = (p) => p.replace(/\\/g, "/");
 const home = path.join(tmp, "home"),
   claude = path.join(home, ".claude");
+const runEnv = (env, ...args) => {
+  const r = spawnSync(process.execPath, [PASS, ...args, "--home", home], {
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+  return { code: r.status, out: (r.stdout || "") + (r.stderr || "") };
+};
 const run = (...args) => {
   const r = spawnSync(process.execPath, [PASS, ...args, "--home", home], {
     encoding: "utf8",
@@ -89,9 +98,10 @@ check(
     ).test(lines.at(-1)),
   first.out,
 );
+// a local git folder without the preset also raises P13 (no Git: line), P14 (no commit line), P15 (no .gitattributes)
 check(
-  "--check raises every check id, P1 to P12",
-  top.join() === Array.from({ length: 12 }, (_, i) => `P${i + 1}`).join(),
+  "--check raises every check id, P1 to P15",
+  top.join() === Array.from({ length: 15 }, (_, i) => `P${i + 1}`).join(),
   top.join(),
 );
 check(
@@ -138,22 +148,285 @@ check(
 );
 check(
   "P12 asks for a map when the folder has none",
-  lines.some((l) => /^P12\s+ask\s+\.claude\/systems-map\.json\s+no Systems map/.test(l)),
+  lines.some((l) =>
+    /^P12\s+ask\s+\.claude\/systems-map\.json\s+no Systems map/.test(l),
+  ),
   first.out,
 );
 // P12 on a folder with a map: none of its things lists a ~/ file -> ask; one does -> nothing
 const mapped = path.join(tmp, "mapped");
 const node = (files) => ({ id: "a", name: "A", what: "A.", files });
-write(path.join(mapped, ".claude", "systems-map.json"), JSON.stringify({ nodes: [node(["src/a.js"])], links: [] }));
+write(
+  path.join(mapped, ".claude", "systems-map.json"),
+  JSON.stringify({ nodes: [node(["src/a.js"])], links: [] }),
+);
 const noHow = run("--check", mapped).out;
 check(
   "P12 asks for how-to things when no thing lists a ~/ file",
   /^P12\s+ask\s+\S+\s+the map has no "how we do X" things/m.test(noHow),
   noHow,
 );
-write(path.join(mapped, ".claude", "systems-map.json"), JSON.stringify({ nodes: [node(["src/a.js"]), { ...node(["~/.claude/skills/web-research/SKILL.md"]), id: "b" }], links: [] }));
+write(
+  path.join(mapped, ".claude", "systems-map.json"),
+  JSON.stringify({
+    nodes: [
+      node(["src/a.js"]),
+      { ...node(["~/.claude/skills/web-research/SKILL.md"]), id: "b" },
+    ],
+    links: [],
+  }),
+);
 const withHow = run("--check", mapped).out;
-check("P12 is quiet when the map has a how-to thing", !/^P12/m.test(withHow), withHow);
+check(
+  "P12 is quiet when the map has a how-to thing",
+  !/^P12/m.test(withHow),
+  withHow,
+);
+
+// The git and GitHub checks. A fake gh (PASS_GH) answers as FAKE_GH says: "off" (nothing set, a public repo),
+// "on" (everything set), "upgrade" (a private repo on GitHub Free: rulesets answer 403), "revoked" (401) or "gone" (404).
+// The signed-in accounts are FAKE_ACCOUNTS (default "someone"); the organisation repo acme/thing is read only with
+// member's token. Owner names compare case-insensitively, as on GitHub.
+const fakeGh = path.join(tmp, "fake-gh.mjs");
+write(
+  fakeGh,
+  `const mode = process.env.FAKE_GH, on = mode === "on", accounts = (process.env.FAKE_ACCOUNTS || "someone").split(",");
+const a = process.argv.slice(2).join(" ").replace(/^api repos\\/someone\\//i, "api repos/someone/");
+const out = (x) => { process.stdout.write(typeof x === "string" ? x : JSON.stringify(x)); process.exit(0); };
+const fail = (msg, body = "") => { process.stdout.write(body); process.stderr.write("gh: " + msg + "\\n"); process.exit(1); };
+if (a === "auth status") out("github.com\\n" + accounts.map((n) => "  ✓ Logged in to github.com account " + n + " (keyring)\\n").join(""));
+const u = a.match(/^auth token -u (\\S+)$/);
+if (u) accounts.includes(u[1]) ? out("token-" + u[1] + "\\n") : fail("no oauth token found for github.com account " + u[1]);
+const org = a.startsWith("api repos/acme/thing");
+if (org && process.env.GH_TOKEN !== "token-member") fail("Not Found (HTTP 404)");
+const R = org ? "api repos/acme/thing" : "api repos/someone/thing";
+if (a === R && mode === "revoked") fail("Bad credentials (HTTP 401)");
+if (a === R && mode === "gone") fail("Not Found (HTTP 404)");
+if (a === R) out({ permissions: { admin: process.env.FAKE_ADMIN !== "no" }, private: mode === "upgrade", default_branch: on ? "main" : "master", allow_squash_merge: true,
+  allow_merge_commit: !on, allow_rebase_merge: !on, squash_merge_commit_title: on ? "PR_TITLE" : "COMMIT_OR_PR_TITLE",
+  delete_branch_on_merge: on, security_and_analysis: { secret_scanning: { status: on ? "enabled" : "disabled" },
+  secret_scanning_push_protection: { status: on ? "enabled" : "disabled" } } });
+if (a === R + "/rulesets") mode === "upgrade"
+  ? fail("Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)", '{"message":"Upgrade to GitHub Pro"}')
+  : out(on ? [{ id: 1, name: "main" }] : []);
+if (a === R + "/rules/branches/main") out(["pull_request", "non_fast_forward", "deletion", "required_status_checks"].map((type) => ({ type })));
+if (a === R + "/actions/runs?status=success&per_page=1") out({ total_count: 1 });
+if (a === R + "/vulnerability-alerts") on ? out("") : fail("Not Found (HTTP 404)");
+if (a === R + "/automated-security-fixes") out({ enabled: on, paused: false });
+if (a === R + "/private-vulnerability-reporting") out({ enabled: on });
+if (a === R + "/code-scanning/default-setup") out({ state: on ? "configured" : "not-configured" });
+fail("fake gh has no answer for: " + a);
+`,
+);
+const NEW = Array.from({ length: 11 }, (_, i) => `P${i + 13}`);
+const gitIds = (out) =>
+  out
+    .trim()
+    .split(/\r?\n/)
+    .slice(0, -1)
+    .map((l) => l.split(/\s+/))
+    .filter(([id]) => /^P(1[3-9]|2\d)\b/.test(id));
+const preset = (n) =>
+  fs.readFileSync(
+    fileURLToPath(
+      new URL(`../skills/new-project/preset/${n}`, import.meta.url),
+    ),
+    "utf8",
+  );
+const hub = path.join(tmp, "hub");
+spawnSync("git", ["init", "-q", hub]);
+spawnSync("git", [
+  "-C",
+  hub,
+  "remote",
+  "add",
+  "origin",
+  "https://github.com/someone/thing.git",
+]);
+write(path.join(hub, "CLAUDE.md"), "# Hub\n\nA made-up project.\n"); // no Git: line, no commit line
+write(path.join(hub, "CHANGELOG.md"), "# Changelog\n\n## Version 1\n"); // P23: an old-form heading
+write(
+  path.join(hub, "package.json"),
+  '{ "scripts": { "test": "node test.mjs" } }\n',
+); // P18: a Node stack, so CI is offered
+const hubOff = runEnv({ PASS_GH: fakeGh, FAKE_GH: "off" }, "--check", hub);
+const offIds = gitIds(hubOff.out);
+check(
+  "a GitHub folder with no preset and GitHub settings off prints every id P13 to P23, each as ask",
+  hubOff.code === 0 &&
+    NEW.every((i) => offIds.some(([id]) => id === i)) &&
+    offIds.every(([, kind]) => kind === "ask") &&
+    !/^P24/m.test(hubOff.out),
+  hubOff.out,
+);
+write(
+  path.join(hub, "CLAUDE.md"),
+  "# Hub\n\nGit: GitHub (public); main holds merged work only; each change goes on a branch <type>/<topic> and reaches main as one squash-merged pull request whose title follows the commit rule.\n" +
+    'Commits: subject "<type>: <what the person gains>", at most 72 characters; type is one of feat, fix, docs, test, ci, refactor, perf, build, chore; no plan-step or session ids.\n',
+);
+write(path.join(hub, ".gitattributes"), preset("gitattributes.txt"));
+write(
+  path.join(hub, ".github", "pull_request_template.md"),
+  preset("pull_request_template.md"),
+);
+write(path.join(hub, ".github", "workflows", "ci.yml"), preset("ci-node.yml"));
+write(path.join(hub, ".github", "dependabot.yml"), preset("dependabot.yml"));
+write(path.join(hub, "CHANGELOG.md"), preset("CHANGELOG.md"));
+spawnSync("git", [
+  "-C",
+  hub,
+  "symbolic-ref",
+  "refs/remotes/origin/HEAD",
+  "refs/remotes/origin/main",
+]);
+const hubOn = runEnv({ PASS_GH: fakeGh, FAKE_GH: "on" }, "--check", hub);
+check(
+  "the same folder with the preset in place and the settings on prints none of P13 to P23",
+  hubOn.code === 0 && gitIds(hubOn.out).length === 0,
+  hubOn.out,
+);
+const free = runEnv({ PASS_GH: fakeGh, FAKE_GH: "upgrade" }, "--check", hub);
+check(
+  "a private repo on GitHub Free: the 403 on rulesets prints P21 as a note",
+  free.code === 0 &&
+    /^P21\s+note\s+\S+\s+a protected main is not possible on this plan/m.test(
+      free.out,
+    ) &&
+    /^P13\s+ask\s+CLAUDE\.md\s+the Git: line says public, GitHub says private/m.test(
+      free.out,
+    ),
+  free.out,
+);
+const noGh = runEnv({ PASS_GH: path.join(tmp, "no-such-gh") }, "--check", hub);
+check(
+  "without gh, P20 to P22 print as notes and nothing else of theirs",
+  noGh.code === 0 &&
+    ["P20", "P21", "P22"].every((i) =>
+      new RegExp(
+        `^${i}\\s+note\\s+github\\.com/someone/thing\\s+not checked: gh not found`,
+        "m",
+      ).test(noGh.out),
+    ) &&
+    gitIds(noGh.out).every(([, kind]) => kind === "note"),
+  noGh.out,
+);
+const setOrigin = (url) =>
+  spawnSync("git", ["-C", hub, "remote", "set-url", "origin", url]);
+setOrigin("https://github.com/acme/thing.git");
+const org = runEnv(
+  { PASS_GH: fakeGh, FAKE_GH: "on", FAKE_ACCOUNTS: "outsider,member" },
+  "--check",
+  hub,
+);
+check(
+  "an organisation's repo is read with the token of a signed-in account that can read it",
+  org.code === 0 &&
+    gitIds(org.out).length === 0 &&
+    !/not checked|^GitHub/m.test(org.out),
+  org.out,
+);
+const orgNone = runEnv(
+  { PASS_GH: fakeGh, FAKE_GH: "on", FAKE_ACCOUNTS: "outsider" },
+  "--check",
+  hub,
+);
+check(
+  "an organisation's repo no signed-in account can read: P20 to P22 notes name the accounts tried",
+  orgNone.code === 0 &&
+    ["P20", "P21", "P22"].every((i) =>
+      new RegExp(
+        `^${i}\\s+note\\s+github\\.com/acme/thing\\s+not checked: no signed-in gh account can read acme/thing \\(tried outsider\\): one of them needs access to acme/thing`,
+        "m",
+      ).test(orgNone.out),
+    ),
+  orgNone.out,
+);
+const orgReader = runEnv(
+  {
+    PASS_GH: fakeGh,
+    FAKE_GH: "on",
+    FAKE_ACCOUNTS: "outsider,member",
+    FAKE_ADMIN: "no",
+  },
+  "--check",
+  hub,
+);
+check(
+  "a repo the signed-in accounts can read but not administer: P20 to P22 are notes, nothing offered",
+  orgReader.code === 0 &&
+    ["P20", "P21", "P22"].every((i) =>
+      new RegExp(
+        `^${i}\\s+note\\s+github\\.com/acme/thing\\s+not checked: no signed-in gh account is an admin of acme/thing`,
+        "m",
+      ).test(orgReader.out),
+    ) &&
+    !/^P2[0-2]\s+ask/m.test(orgReader.out),
+  orgReader.out,
+);
+setOrigin("https://github.com/SomeOne/thing.git");
+const cased = runEnv({ PASS_GH: fakeGh, FAKE_GH: "on" }, "--check", hub);
+check(
+  "an owner written in another case than the signed-in account still uses that account",
+  cased.code === 0 &&
+    gitIds(cased.out).length === 0 &&
+    !/not checked/.test(cased.out),
+  cased.out,
+);
+setOrigin("https://github.com/someone/thing.git");
+for (const [mode, code] of [
+  ["revoked", 401],
+  ["gone", 404],
+]) {
+  const r = runEnv({ PASS_GH: fakeGh, FAKE_GH: mode }, "--check", hub);
+  check(
+    `a GitHub ${code} keeps the local findings and prints one line naming the error and the checks not run`,
+    r.code === 0 &&
+      /^P1\s+fix\s+HANDOFF\.md/m.test(r.out) &&
+      new RegExp(
+        `^GitHub\\s+note\\s+github\\.com/someone/thing\\s+GitHub answered gh api repos/someone/thing: .*HTTP ${code}.*; did not run: P13 \\(the visibility\\), P20, P21, P22$`,
+        "m",
+      ).test(r.out) &&
+      !/^P2[0-2]/m.test(r.out) &&
+      /^project-pass .* level /m.test(r.out),
+    r.out,
+  );
+}
+// a project folder inside a bigger repo (a package with its own CLAUDE.md) is a git folder of that repo
+const mono = path.join(tmp, "mono"),
+  pkg = path.join(mono, "packages", "app");
+spawnSync("git", ["init", "-q", mono]);
+write(path.join(mono, ".gitattributes"), preset("gitattributes.txt"));
+write(path.join(pkg, "CLAUDE.md"), "# App\n\nA made-up package.\n");
+const monoOut = run("--check", pkg).out;
+check(
+  "a folder inside a bigger repo is a git folder: no git init offered, the repo's .gitattributes counts",
+  /^P13\s+ask\s+CLAUDE\.md\s+no Git: line \(the folder is git on this computer only\)/m.test(
+    monoOut,
+  ) &&
+    !/not a git folder|git init -b main/.test(monoOut) &&
+    /^P14\s/m.test(monoOut) &&
+    !/^P15\s/m.test(monoOut) &&
+    /^P7\s+ask\s+\.\/\s+the whole folder is untracked/m.test(monoOut),
+  monoOut,
+);
+const noGit = path.join(tmp, "nogit");
+write(path.join(noGit, "CLAUDE.md"), "# No git\n\nA made-up project.\n");
+const noGitOut = run("--check", noGit).out;
+check(
+  "a folder without git prints only P13 of the git checks",
+  gitIds(noGitOut)
+    .map(([id]) => id)
+    .join() === "P13" &&
+    /^P13\s+ask\s+CLAUDE\.md\s+no Git: line \(the folder is not a git folder\)/m.test(
+      noGitOut,
+    ),
+  noGitOut,
+);
+write(path.join(noGit, "CLAUDE.md"), "# No git\n\nGit: none.\n");
+check(
+  "a folder without git and a Git: none line prints no git check",
+  gitIds(run("--check", noGit).out).length === 0,
+);
 check(
   "--check writes nothing",
   !fs.existsSync(path.join(claude, "project-pass.json")),

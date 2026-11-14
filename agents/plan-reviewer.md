@@ -20,7 +20,7 @@ The brief gives you the user's request in their words, the decisions with quotes
 
 Where to look:
 - **Decisions:** the project's `DECISIONS.md`: its first section `## What each thing is for` (the purpose record) and its newest dated section below it, plus a Grep of it for each topic a row touches, never a whole read.
-- **What a change reaches:** `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>`, to check that each row's Files cover the places its change reaches.
+- **What a change reaches:** check that each row's Files cover the places its change reaches, from the SYSTEMS MAP lines in your brief. Run `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>` only for a part a row changes that those lines don't cover or whose links they cut, and not at all when the brief has no SYSTEMS MAP line.
 - **The files the plan names**, in the folders the brief names (not a `-old` copy or another worktree).
 
 Budget about 35 tool calls: 15 for reading, the rest shared across the rows, riskiest rows first. Run independent calls side by side. If you run out, report what you have and name the rows you did not check.

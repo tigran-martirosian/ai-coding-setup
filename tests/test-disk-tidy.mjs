@@ -3,6 +3,7 @@
 // workers/disk-tidy.mjs on them and checks what it reports, removes, archives and leaves; then the chat-archive
 // part of hooks/pc-tidy-nudge.mjs (every 3 days, only after the person's yes). Real git for the worktrees.
 process.env.HOOK_ERRORS_LOG = "off";
+
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -10,12 +11,12 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import {
+  cwdOf,
+  fmtBytes,
+  globMatch,
+  isReplayLine,
   normPath,
   under,
-  globMatch,
-  fmtBytes,
-  cwdOf,
-  isReplayLine,
 } from "../workers/disk-tidy.mjs";
 
 const WORKER = path.join(import.meta.dirname, "..", "workers", "disk-tidy.mjs");
@@ -518,7 +519,7 @@ const expected = freedItems.reduce((t, i) => t + i.bytes, 0);
 check(
   "the freed line gives the right total",
   new RegExp(
-    `disk: freed ${fmtBytes(expected).replace(".", "\.")} of setup leftovers`,
+    `disk: freed ${fmtBytes(expected).replace(".", ".")} of setup leftovers`,
   ).test(a1.out),
   `${fmtBytes(expected)} | ${a1.out}`,
 );
@@ -932,7 +933,7 @@ function hook(prompt = "hello") {
 }
 function ran() {
   // the worker runs detached: wait up to 5 s for its mark
-  for (const end = Date.now() + 5000; Date.now() < end;) {
+  for (const end = Date.now() + 5000; Date.now() < end; ) {
     if (ex(MARK)) return true;
     spawnSync(process.execPath, ["-e", "setTimeout(()=>{},100)"]);
   }
@@ -983,7 +984,7 @@ put(
   JSON.stringify({ ranAt: Date.now() - 3.1 * DAY }),
 );
 hook();
-for (const end = Date.now() + 5000; runs() < 2 && Date.now() < end;)
+for (const end = Date.now() + 5000; runs() < 2 && Date.now() < end; )
   spawnSync(process.execPath, ["-e", "setTimeout(()=>{},100)"]);
 check("hook: 3 days after the last run it runs again", runs() === 2);
 check(

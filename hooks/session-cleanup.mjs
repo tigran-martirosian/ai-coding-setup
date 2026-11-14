@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { crashLog } from "./lib/crash-log.mjs";
 // session-cleanup: a session closes what it opened (dev servers, watchers, headless browsers, background shells,
 // llama-server, Gradle daemons) and lists the git worktrees it made; it never touches a process it did not start.
 // Design: docs/2026-11-12-session-cleanup-design.md (D4) in the setup project.
@@ -27,13 +32,8 @@
 // Tests: SESSION_CLEANUP_TEST_PROCS names a JSON file used as the process list (each read appends a line to
 // <file>.calls), and closing appends "kill <pid>" to <file>.kills instead of stopping anything;
 // SESSION_CLEANUP_TEST_ROOT names the PID that stands for this session's claude.exe.
-import { runHook, isMain } from "./lib/hook-io.mjs";
-import { crashLog } from "./lib/crash-log.mjs";
-import { readJson, writeJson, sweep, STATE_DIR } from "./lib/state.mjs";
-import { spawn, spawnSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { isMain, runHook } from "./lib/hook-io.mjs";
+import { readJson, STATE_DIR, sweep, writeJson } from "./lib/state.mjs";
 
 const NAME = "session-cleanup";
 const HOOK_FILE = fileURLToPath(import.meta.url);
@@ -65,7 +65,7 @@ const SERVER =
 // ...and the other ways to start something that stays: a trailing & (not && or 2>&1), a detached start, the tools
 // known to leave a process behind
 const STARTS =
-  /(?<![&>|])&(?![&>])\s*($|[;)#])|\bStart-Process\b|\bnohup\b|\bstart\s+\/b\b|\bcmd(\.exe)?\s+[\/]+c\s+start\b|\bllama-server\b|\bgradlew?\b|--headless\b|\bplaywright\b|\bpuppeteer\b/im;
+  /(?<![&>|])&(?![&>])\s*($|[;)#])|\bStart-Process\b|\bnohup\b|\bstart\s+\/b\b|\bcmd(\.exe)?\s+[/]+c\s+start\b|\bllama-server\b|\bgradlew?\b|--headless\b|\bplaywright\b|\bpuppeteer\b/im;
 const GRADLE = /\bgradlew?\b/i;
 const WORKTREE_ADD = /\bgit\b[^\n;&|]*?\bworktree\s+add\s+([^\n;&|]+)/i;
 export const isLaunch = (command, background = false) =>
@@ -162,7 +162,7 @@ const HOOK_RUN = /[\\/]\.claude[\\/]hooks[\\/]/i; // other hooks running at the 
 // The setup's Nimbalyst delivery (deliver.mjs, restart.mjs) outlives the session on purpose: it waits for Nimbalyst
 // to close, swaps its files and starts it again. Neither it nor what it starts is this session's to close.
 const DELIVERY = /tools[\\/]nimbalyst-patch[\\/]/i;
-const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // The programs a call names: the first word of each command, past wrappers (nohup, Start-Process, start /b, cmd /c,
 // env settings) and shell builtins; a runner (npx, pnpx, bunx) names the program after it too. "./gradlew" -> gradlew
 const WRAPPER =
@@ -195,7 +195,7 @@ export function programsOf(command) {
 }
 // The word stands in the command line as a word or a path part (npm in ...\node_modules\npm\bin\npm-cli.js)
 const holds = (cmd, word) =>
-  new RegExp(`(^|[^\\w.-])${escape(word)}(\\.exe)?($|[^\\w-])`, "i").test(
+  new RegExp(`(^|[^\\w.-])${escapeRegExp(word)}(\\.exe)?($|[^\\w-])`, "i").test(
     String(cmd ?? ""),
   );
 

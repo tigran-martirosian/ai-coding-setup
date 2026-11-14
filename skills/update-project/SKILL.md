@@ -19,6 +19,15 @@ Folder: the one the user names, else the current one. `PASS` below is
 2. **Judge.** For each `ask` line, and for the judgment checks the script leaves to you (P4 decisions
    still in force, P8 stale lines and memory notes, P10 tools), read only the lines it names and
    write the proposed change. What each id means, its evidence and its smallest fix: `checks.md`.
+   A project with plan files (`docs/*-plan.md`) whose tracker `task` type lacks the step fields or
+   the waits-for-you status (`tracker_list_types`) gets one more item: the task-type patch, as
+   new-project's tools table gives it (row "has a plan and multiple steps").
+   P20-P22 read GitHub through a signed-in `gh` account: the remote's owner when that is one of them,
+   else (an organisation's repo) the first one that can read the repo. When they print "not checked",
+   say what the note names (no account signed in: `gh auth login`; no account can read the repo: one
+   of the accounts tried needs access to it) and keep them out of the list. A `GitHub` note means
+   GitHub answered an error (a revoked token, a deleted repo): show it and the checks it names as
+   not run, and keep those out of the list.
    Done when every line of the check output has either a proposed change or "keep, because …".
 3. **Show.** Write `audits/<yyyy-mm-dd>-project-pass.md` in the project: the check output, then a
    numbered list, each item the file, what is wrong with its evidence, and the change (for an edit,
@@ -39,11 +48,19 @@ Folder: the one the user names, else the current one. `PASS` below is
 
 ## What needs the user's yes
 
-- **Listed in the reply, no tick needed:** new files only (P1, a missing `docs/` folder), and the
-  stamp `pass.mjs` writes in `~/.claude/project-pass.json`.
-- **A tick:** every edit to an existing file, every move or rename, every `.gitignore` line, every
+- **Listed in the reply, no tick needed:** only the base files and folders P1 creates (a `fix` line,
+  such as a missing `docs/` folder), and the stamp `pass.mjs` writes in `~/.claude/project-pass.json`.
+- **A tick:** every item the check prints as `ask`, a new file among them (the preset files of P15
+  and P17-P19), every edit to an existing file, every move or rename, every `.gitignore` line, every
   `DECISIONS.md` archive move.
+- **A tick per item, its command shown:** every `git init` (only through P13) and every GitHub setting
+  (P16 rename, P20-P22). A setting is read back with a `GET` after it is set, and the reply shows
+  the value read.
 - **A tick per item, its full path shown:** every delete (untracked scratch, a stale memory note).
+- **Done without a tick, outside a pass:** after a commit or a `HANDOFF.md` edit, the `upkeep-note`
+  hook has Claude trim a `HANDOFF.md` over 120 lines (P3), fix or drop dead paths (P8), and archive
+  the older `DECISIONS.md` entry that a newly added line says it replaces (P4, that entry only). In a
+  pass the same changes still need a tick, and older "Replaces" lines are archived only here.
 - **Outside a pass:** a git commit or push (only when the user asks), a change outside the folder
   (its memory folder under `~/.claude/projects/` and the stamp are the exceptions), a plugin turned
   on in every folder.
@@ -55,5 +72,5 @@ The update-check hook offers a pass once in a folder that is behind the setup's 
 any folder": `PASS --skip-all`. `PASS --list` names the folders worked in lately and whether each is
 behind, done or declined; `PASS --status` prints the stamp file.
 
-Budget: about 30 tool calls for a folder with a 60-line `CLAUDE.md`. A big `DECISIONS.md` tidy (P4)
+Budget: about 35 tool calls for a folder with a 60-line `CLAUDE.md`. A big `DECISIONS.md` tidy (P4)
 is its own `worker` step with that file in its Files.

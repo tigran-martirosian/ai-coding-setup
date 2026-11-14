@@ -29,8 +29,9 @@ process.env.INBOX_NIMBALYST_MODULE = path.join(
   "phone-bot",
   "fake-nimbalyst.mjs",
 );
-const { ask, gatherContext, findClaude } =
-  await import("../skills/phone-bot/bot/assistant.mjs");
+const { ask, gatherContext, findClaude } = await import(
+  "../skills/phone-bot/bot/assistant.mjs"
+);
 
 const rec = () => JSON.parse(fs.readFileSync(record, "utf8"));
 async function rejects(fn) {

@@ -45,21 +45,22 @@
 // background agent made (foreground ones too); such an item is found in <session>/subagents/agent-<id>.jsonl and counts
 // as handled once that agent's own notification came. A "<task-notification>" without a task id (Stop hook feedback)
 // is not a task's.
-import { runHook, emit } from "./lib/hook-io.mjs";
+
+import fs from "node:fs";
+import path from "node:path";
+import { emit, runHook } from "./lib/hook-io.mjs";
+import { SETTLED_NOTE, STAND_IN_RE } from "./lib/texts.mjs";
 import {
   agentLaunches,
   currentTurn,
   entries,
   userText,
 } from "./lib/transcript.mjs";
-import { SETTLED_NOTE, STAND_IN_RE } from "./lib/texts.mjs";
-import fs from "node:fs";
-import path from "node:path";
 
 const SETTLED = /^\[System: background task\(s\)[^\n]*settled/;
-const ITEM_END = /" [a-z][a-z ()0-9-]{0,30}\n  Summary:/g;
+const ITEM_END = /" [a-z][a-z ()0-9-]{0,30}\n {2}Summary:/g;
 // A whole item header on one line with no Summary line under it: this parser can't check that item
-const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n  Summary:)/m;
+const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n {2}Summary:)/m;
 // A command that doesn't end by itself: dev server, game server, watcher, follow-mode log read, endless loop
 const SERVER =
   /\b(runServer|runClient|nodemon|http-server|live-server|webpack-dev-server|http\.server|uvicorn|gunicorn)\b|\bflask\s+run\b|\bmanage\.py\s+runserver\b|\bnode\s[^|;&\n]*server|\bnpx\s+(serve|vite)\b|\bserve\s+-s\b|\bdocker[ -]compose\s+up\b(?![^|;&\n]*\s-\w*d)|\b(npm|pnpm|yarn)\s+run\s+preview\b|\bstreamlit\s+run\b|\brails\s+(s|server)\b|--watch\b|\btsc\b[^|;&\n]*\s-w\b|-Wait\b|\btail\b[^|;&\n]*\s-\w*[fF]\b|(^|[\s;&|(])(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b|(^|[\s;&|(])(vite|next|nuxt|astro)(\s+dev)?\s*$|(^|[\s;&|(])watch\s|\bwhile\s+(true|:)/im;
@@ -118,14 +119,14 @@ const DUPLICATE =
 // A reply that says a helper of this session runs now or will report back. Only claims count: a sentence that
 // starts with the helper doing something now, a first-person wait or promise, a "will notify" line. A
 // description ("the hook blocks when the task is finished", "reload once the build is done") does not match.
-const NOUN = String.raw`the (?:planner|agent|helper|worker|reviewer|subagent|build|job|task|command|tests?|run|search|script|scan|research)`;
-const HELPER = String.raw`(?:it|they|${NOUN})`;
+const NOUN = `the (?:planner|agent|helper|worker|reviewer|subagent|build|job|task|command|tests?|run|search|script|scan|research)`;
+const HELPER = `(?:it|they|${NOUN})`;
 const START = String.raw`(?:^|[.!:;]\s+|\n\s*(?:[-*]\s+)?)`;
 const DONE = String.raw`(?:once|when|after) ${HELPER}(?:'s| is| are| has)? (?:done|finished|finish|finishes|returns|reports|completes|comes back|ready)\b`;
 const WAITING = new RegExp(
   [
     String.raw`${START}${HELPER}(?:'s|'re| is| are)(?: still| now)* (?:running|working|busy|adding|writing|building|checking|reviewing|searching|reading|finishing|processing|planning)\b(?![^.!\n]*\?)`,
-    String.raw`${START}(?:I'm |I am |I'll be |still )?(?:waiting|standing by) (?:for|on) (?:it|them|its|their|${NOUN})`,
+    `${START}(?:I'm |I am |I'll be |still )?(?:waiting|standing by) (?:for|on) (?:it|them|its|their|${NOUN})`,
     String.raw`\bI(?:'ll| will)\b[^.!?\n]{0,100}${DONE}`,
     String.raw`\b${HELPER}(?: will|'ll) (?:notify|report back|let me know|come back|ping)\b`,
     String.raw`\b(?:was|is being|has been) resumed\b[^.!?\n]{0,60}\bwill notify\b`,

@@ -10,7 +10,7 @@
  * request in flight at a time (see worker/tts_worker.py).
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -154,6 +154,7 @@ class KokoroWorker {
       child.stderr?.on("data", (d: Buffer) => {
         this.stderrTail = (this.stderrTail + d.toString()).slice(-2000);
       });
+      // biome-ignore lint/style/noNonNullAssertion: spawn without a stdio option pipes stdout, so it is set
       createInterface({ input: child.stdout! }).on("line", (line) => {
         let msg: Record<string, unknown>;
         try {

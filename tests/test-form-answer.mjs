@@ -1,5 +1,6 @@
 // Tests for hooks/form-answer.mjs: the note after a form's answer. Run: node tests/test-form-answer.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -44,7 +45,7 @@ const form = (tool_name, extra = {}) => ({
 });
 
 let r = run(form("mcp__nimbalyst__PromptForUserInput"));
-let o = note(r);
+const o = note(r);
 check(
   "PromptForUserInput answer: the note",
   o?.hookEventName === "PostToolUse" &&

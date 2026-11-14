@@ -32,17 +32,17 @@ const stop = (why) => {
   console.log(`own-rules stopped: ${why}`);
   process.exit(1);
 };
-const valueOf = (flag) => {
+const flagValue = (flag) => {
   const at = args.indexOf(flag);
   if (at === -1) return undefined;
   const v = args[at + 1];
   return v && !v.startsWith("--") ? v : null;
 };
-const homeArg = valueOf("--home");
+const homeArg = flagValue("--home");
 if (homeArg === null) stop("--home needs a folder.");
 const home = homeArg === undefined ? os.homedir() : path.resolve(homeArg);
 const HOMES = args.includes("--homes");
-if (HOMES && valueOf("--homes"))
+if (HOMES && flagValue("--homes"))
   stop("--homes takes no value (--home <folder> is the test switch).");
 const CLAUDE = path.join(home, ".claude");
 const fwd = (p) => p.replace(/\\/g, "/");
@@ -179,6 +179,7 @@ const normal = (text) =>
     .trim();
 const key = (text) =>
   crypto.createHash("sha256").update(normal(text)).digest("hex").slice(0, 16);
+// biome-ignore lint/correctness/noUnusedVariables: kept so this part stays a copy of scripts/blocks.mjs
 const lead = (text) => {
   const t = normal(text).replace(/^(#+|[-*]|\d+\.)\s+/, "");
   const bold = t.match(/^\*\*(.+?)\*\*/);
@@ -444,7 +445,7 @@ const pathsOf = (text) => {
 };
 
 function loadLedger(flag) {
-  const file = valueOf(flag);
+  const file = flagValue(flag);
   if (!file || !fs.existsSync(file))
     stop(
       `${flag} needs the ledger file${file ? ` (${fwd(file)} is not there)` : ""}.`,
@@ -875,7 +876,7 @@ function replaceRun(text, now, body) {
 
 function restore() {
   notLocked();
-  const id = valueOf("--restore");
+  const id = flagValue("--restore");
   if (!id || !/^V\d+$/.test(id))
     stop("--restore needs a vault id like V7 (see --vault).");
   const state = readState();

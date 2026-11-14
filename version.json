@@ -1,7 +1,7 @@
 {
   "version": "26.1",
   "claudeCodeMin": "2.1.321",
-  "projectPass": 2,
+  "projectPass": 3,
   "date": "2026-11-13",
   "summary": "Project maps point Claude at the right files, /backup saves your setup to your own storage, and Nimbalyst updates through the setup.",
   "releases": {

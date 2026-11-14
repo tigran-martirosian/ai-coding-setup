@@ -84,7 +84,10 @@ const never = new Promise(() => {});
 assert.equal(
   await run(
     COMMANDS[0],
-    (channel, args) => (calls.push([channel, args]), never),
+    (channel, args) => {
+      calls.push([channel, args]);
+      return never;
+    },
     20,
   ),
   "",

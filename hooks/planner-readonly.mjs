@@ -7,7 +7,8 @@
 // planner's frontmatter and in settings.json, so a skipped frontmatter hook still leaves a guard.
 // Each segment of the command (split on && || ; | and new lines) must be one of the allowed commands below;
 // everything else is denied, and so is anything the hook cannot read: $(...), backticks, redirects other than
-// 2>&1 and >/dev/null, a lone &, an env assignment, and an error inside the hook (it fails closed).
+// 2>&1 and >/dev/null, a lone &, an env assignment before a command (a variable set on its own passes unless it is
+// PATH, GIT_* and the like), and an error inside the hook (it fails closed).
 // Flags that make an allowed command run another program (rg --pre, git grep -O, git -c, --ext-diff,
 // --textconv, sort --compress-program) or write a file (--output, sort -o) are denied too.
 // The plan-reviewer (agent_type "plan-reviewer") gets the same reading list plus test runs, since it runs a plan's
@@ -15,11 +16,11 @@
 // python on a test file (user, 2026-11-09: "Hook like the planner's, plus the project's test commands"; a test may
 // still write caches).
 // Off switch: PLANNER_READONLY=off.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 
 const ALLOWED_TEXT =
   "git status/diff/log/show/rev-parse/ls-files/ls-tree/blame/grep, git branch (list), git worktree list, " +
-  "git remote -v, git stash list, ls, dir, wc, stat, du, file, head, tail, sort, uniq, cut, tr, grep, rg, and node <...>/skills/systems-map/map.mjs";
+  'git remote -v, git stash list, cd, pwd, echo, a plain variable on its own (R="C:/x"), ls, dir, wc, stat, du, file, head, tail, sort, uniq, cut, tr, grep, rg, and node <...>/skills/systems-map/map.mjs';
 const TEST_TEXT =
   "; and test runs: node <a file named *test* or in a tests folder>.mjs/.js, npm test, npm run test*, pytest, python [-m pytest | <a file named *test*>.py]";
 const agentName = (event) =>
@@ -48,6 +49,7 @@ const NULL_TARGETS = new Set(["/dev/null", "$null", "nul"]);
 // Split a command into segments of words. Returns { segments } or { error }.
 export function lex(command) {
   const segments = [[]];
+  const unquoted = new Set();
   let word = null; // null = no word open
   const seg = () => segments[segments.length - 1];
   const end = () => {
@@ -79,6 +81,7 @@ export function lex(command) {
           (command[j] === "$" && "({".includes(command[j + 1]))
         )
           return {
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: names the shell's ${...} syntax
             error: "a command inside the command ($(...), ${...} or backticks)",
           };
         if (command[j] === "\\" && j + 1 < command.length) {
@@ -94,6 +97,7 @@ export function lex(command) {
     }
     if (c === "`" || (c === "$" && (next === "(" || next === "{")))
       return {
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: names the shell's ${...} syntax
         error: "a command inside the command ($(...), ${...} or backticks)",
       };
     if ((c === "<" || c === ">") && next === "(")
@@ -158,10 +162,14 @@ export function lex(command) {
         error:
           "an unquoted bracket (a subshell, or in PowerShell a command run inside the command)",
       };
+    if (c === "$") {
+      const m = /^[A-Za-z_]\w*/.exec(command.slice(i + 1));
+      if (m) unquoted.add(m[0]); // an unquoted $R splits on spaces in its value
+    }
     word = (word ?? "") + c;
   }
   end();
-  return { segments: segments.filter((s) => s.length) };
+  return { segments: segments.filter((s) => s.length), unquoted };
 }
 
 const flag = (args, re) => args.find((a) => re.test(a));
@@ -241,6 +249,9 @@ const SIMPLE = new Set([
   "tr",
   "grep",
   "head",
+  "cd", // 1258 refusals in 7 days were mostly cd, echo and R=... (2026-11-13); a redirect is still refused
+  "pwd",
+  "echo",
 ]);
 
 // A test file: named test-x, test_x, x.test, x-tests, x.spec..., or inside a test(s) folder; never with a .. step.
@@ -278,10 +289,19 @@ function isTestRun(name, args) {
   return false;
 }
 
+// A variable set on its own (R="C:/x", then ls "$R") only names a path; these names change what a later command runs.
+const RISKY_VAR =
+  /^(PATH|IFS|CDPATH|ENV|BASH_ENV|PS4|PROMPT_COMMAND|SHELLOPTS|BASHOPTS|HOME|GIT_\w*|NODE_\w*|NPM_\w*|PYTHON\w*|LD_\w*|RG_\w*)$/i;
+
 export function checkSegment(words, { tests = false } = {}) {
   const [first, ...args] = words;
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(first))
-    return `setting a variable (${first.split("=")[0]}=) before a command`;
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(first)) {
+    const name = first.split("=")[0];
+    if (args.length) return `setting a variable (${name}=) before a command`;
+    return RISKY_VAR.test(name)
+      ? `setting ${name}, which changes what later commands run`
+      : null;
+  }
   if (/[\\/]/.test(first))
     return `${first} is a command with a path (only the plain names below are allowed)`;
   const name = first.replace(/\.exe$/i, "").toLowerCase();
@@ -328,11 +348,22 @@ export function checkSegment(words, { tests = false } = {}) {
 }
 
 export function decide(command, opts) {
-  const { segments, error } = lex(command);
+  const { segments, unquoted, error } = lex(command);
   if (error) return `the command has ${error}`;
-  for (const words of segments) {
+  // Each later $R is checked as its value, so a flag hidden in a variable is seen (R=--open=vi; git grep "$R").
+  const vars = {};
+  const expand = (w) =>
+    w.replace(/\$([A-Za-z_]\w*)/g, (m, n) => (n in vars ? vars[n] : m));
+  for (const raw of segments) {
+    const words = raw.map(expand);
     const why = checkSegment(words, opts);
     if (why) return why;
+    const set = /^([A-Za-z_]\w*)=([\s\S]*)$/.exec(words[0]);
+    if (set && words.length === 1) {
+      if (/\s/.test(set[2]) && unquoted.has(set[1]))
+        return `$${set[1]} is used without quotes and its value has a space`;
+      vars[set[1]] = set[2];
+    }
   }
   return null;
 }

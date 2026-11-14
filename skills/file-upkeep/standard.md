@@ -38,7 +38,7 @@ each glob with its reason.
 | Research notes | `docs/research/YYYY-MM-DD-topic.md` | kept while a decision, design or doc links to it |
 | Designs and plans | `docs/YYYY-MM-DD-topic-design.md`, `-plan.md` | a design stays (the why behind built code); a plan stays while linked |
 | Audits and run output | P4 | the `.md` record stays; a run folder stays while linked |
-| Changelog | one `CHANGELOG.md` at the root | kept for good (Keep a Changelog) |
+| Changelog | one `CHANGELOG.md` at the root; a public changelog has one heading per version with short plain bullets; a README has no dated "What's new" paragraphs; a public branch gets one squashed commit per release or hotfix | kept for good (Keep a Changelog) |
 
 R1 flags a handoff or decisions copy (`docs/history-handoff-2026-11-06.md`), R2 a dated decisions archive (merged into
 `docs/decisions-archive.md`), R3 a dated doc or audit run folder older than 90 days that nothing links to. R3 is a

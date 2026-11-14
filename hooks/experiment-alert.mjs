@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 // experiment-alert: SessionStart hook. Tells the user when ~/.claude.json lists an experiment or feature flag it has
 // not listed before, so a new server-side experiment (like breezy_horizon, which CLAUDE_CODE_BREEZY_HORIZON=0 turns
 // off) is not noticed only by its effects. Claude Code keeps them in three places of ~/.claude.json:
@@ -14,9 +17,6 @@
 // Fails open. EXPERIMENT_ALERT=off disables it. EXPERIMENT_ALERT_FILE replaces the ~/.claude.json path (tests).
 import { runHook } from "./lib/hook-io.mjs";
 import { readJson, stateFile, writeJson } from "./lib/state.mjs";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const FILE =
   process.env.EXPERIMENT_ALERT_FILE || path.join(os.homedir(), ".claude.json");

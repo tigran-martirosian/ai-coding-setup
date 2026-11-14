@@ -13,7 +13,7 @@
 // Quoted text, heredoc and here-string bodies are not commands: `echo "sleep 300"` passes. A sleep inside
 // `bash -c "..."`, `cmd /c "..."` or `powershell -Command "..."` is read as a command; one inside a script file or
 // `python -c` is not seen. Fails open. LONG_SLEEP_GUARD=off disables it; =warn turns a refusal into a note.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 
 const LIMIT = 60;
 const UNIT = { "": 1, s: 1, m: 60, h: 3600, d: 86400 };

@@ -1,10 +1,11 @@
 // The talking assistant: builds the context block and runs one `claude -p` call per message.
 // The model has no tools; it only returns { reply, actions } and the bot decides what happens.
-import fs from "node:fs";
+
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 // Tests swap the module for a stub; the real one is the default.

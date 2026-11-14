@@ -4,7 +4,7 @@
 // the next run of that script would undo the edit, and the script would go on saying the old thing (the point of the map is that one fact has one home).
 // The refusal names the script and the command that reruns it.
 // Silent for every other file and for a project with no map. Fails open: any error is one line on stderr, exit 0. MAP_GENERATED=off disables it.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 import { loadMap, mapFolderFor, normRel } from "./lib/map-file.mjs";
 
 runHook("map-generated", (event) => {

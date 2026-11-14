@@ -1,7 +1,7 @@
-import React from "react";
+import type React from "react";
 import { interpolate, useCurrentFrame } from "remotion";
 import { Appear, appear } from "../anim";
-import { Scene, SceneProps } from "../Scene";
+import { Scene, type SceneProps } from "../Scene";
 import { color } from "../theme";
 import { Chip, Step, Window } from "../ui";
 
@@ -21,6 +21,7 @@ const PASSED_AT = 132;
 
 const Shelf: React.FC<{ labels?: boolean }> = ({ labels }) => (
   <svg
+    aria-hidden="true"
     viewBox="0 0 520 300"
     width="100%"
     style={{ display: "block", background: "#e2e8f0", borderRadius: 10 }}

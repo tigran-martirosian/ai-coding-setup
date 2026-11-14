@@ -4,16 +4,40 @@
  * The list, the call a button makes and the press logic are in commands.ts. This file only draws them.
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { PanelHostProps } from "@nimbalyst/extension-sdk";
+// Host-provided module, kept out of the bundle by the SDK's vite config; it ships no types, so the two calls are typed below.
+// biome-ignore format: @ts-expect-error covers only the next line, so the import stays on one line
+// @ts-expect-error no type declarations for @nimbalyst/runtime
+import { clearTranscriptMarkdownContributions, setTranscriptMarkdownContributions } from "@nimbalyst/runtime";
+import type { ComponentType } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { launcher, visible } from "./commands";
 import { installPopover, removePopover } from "./popover";
 import { CSS } from "./styles";
 import "../../shared/tokens.css";
 import "./chat-wrap.css";
 import "./note.css";
-import { t } from "./strings";
+import "./copy-row.css";
+import {
+  COPY_TAG,
+  CopyRow,
+  rehypeCopyRow,
+  stopWatchingTurns,
+} from "./copy-row";
 import { NoteBridge } from "./host";
+import { t } from "./strings";
+
+const SOURCE = "com.local.commandbuttons";
+
+const setContribution: (
+  source: string,
+  contribution: {
+    rehypePlugins: unknown[];
+    components: Record<string, ComponentType<any>>;
+  },
+) => void = setTranscriptMarkdownContributions;
+const clearContribution: (source: string) => void =
+  clearTranscriptMarkdownContributions;
 
 // The popover has no panel host, so the open project comes from the app's own window value.
 const openProject = () =>
@@ -60,6 +84,7 @@ function CommandsPanel({ host }: Partial<PanelHostProps>) {
           const at = s.started[c.id];
           if (s.asking === c.id) {
             return (
+              // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border and padding; the group role keeps the look
               <div
                 key={c.id}
                 className="cb-ask"
@@ -74,6 +99,7 @@ function CommandsPanel({ host }: Partial<PanelHostProps>) {
                   <div className="cb-ask-note">{t.askAgain(clock(at))}</div>
                 </div>
                 <button
+                  type="button"
                   ref={cancel}
                   className="cb-btn"
                   onClick={() => launcher.cancel()}
@@ -81,6 +107,7 @@ function CommandsPanel({ host }: Partial<PanelHostProps>) {
                   {t.cancel}
                 </button>
                 <button
+                  type="button"
                   className="cb-btn primary"
                   onClick={() => launcher.confirm(c)}
                 >
@@ -91,6 +118,7 @@ function CommandsPanel({ host }: Partial<PanelHostProps>) {
           }
           return (
             <button
+              type="button"
               key={c.id}
               ref={(el) =>
                 void (el
@@ -148,4 +176,22 @@ export const panels = {
   commands: { component: CommandsPanel },
 };
 
-export const hostComponents = { NoteBridge };
+/**
+ * Mounted by the app once (the manifest names it NoteBridge): the Note button, plus the copy row under replies
+ * through the transcript markdown contribution. Its styles come with dist/index.css (copy-row.css above).
+ */
+function ChatHost() {
+  useEffect(() => {
+    setContribution(SOURCE, {
+      rehypePlugins: [rehypeCopyRow],
+      components: { [COPY_TAG]: CopyRow },
+    });
+    return () => {
+      clearContribution(SOURCE);
+      stopWatchingTurns();
+    };
+  }, []);
+  return <NoteBridge />;
+}
+
+export const hostComponents = { NoteBridge: ChatHost };

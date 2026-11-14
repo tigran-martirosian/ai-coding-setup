@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 // plan-ahead: what to expect from the Claude plan. Built from the samples saved by
 // ~/.claude/hooks/plan-usage-logger.mjs (the account-wide 5-hour and weekly percentages); every
 // number is a straight line drawn from what was recorded. Nothing is asked from Anthropic.
@@ -23,13 +24,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { isMain } from "../../../hooks/lib/hook-io.mjs";
 import { ARGS, opt } from "./lib/opt.mjs";
 import {
-  NEED_WEEK,
   cleanSamples,
+  NEED_WEEK,
   planUse,
   readSamples,
   rise,
@@ -141,7 +141,7 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
   const minute = (r) => Math.round(Date.parse(r ?? "") / MIN) * MIN; // the reported reset time jitters by under a second
   let reset = minute(last?.week.r),
     used = last?.week.u;
-  if (!last || isNaN(reset)) return { status: "none" };
+  if (!last || Number.isNaN(reset)) return { status: "none" };
   const res = { status: "ok", at: last.t, now: iso(now), tips: [] };
   // Per-model weekly limits and other limits from the logger, passed on for the Usage Plan panel
   if (last.models) res.models = last.models;
@@ -274,7 +274,7 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
       sumW += dW;
       sumF += dF;
     } // the current plan only
-    for (let t = a.ms; t < b.ms;) {
+    for (let t = a.ms; t < b.ms; ) {
       const d = new Date(t);
       const end = Math.min(
         new Date(

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 // map-drift: PostToolUse hook on Edit, MultiEdit, Write and NotebookEdit. When the file just edited backs a link of the project's Systems map
 // as tokened evidence ({ "file", "token" } in <project>/.claude/systems-map.json, $CLAUDE_PROJECT_DIR) and the file no longer holds the token,
 // the model gets one line per such link: check the thing at the other end, then fix the link's evidence or drop the link. Silent for every
 // other file, for path-only evidence and for a project with no map. Each project + file + link is said once an hour. Never blocks.
 // Fails open: any error is one line on stderr, exit 0. MAP_DRIFT=off disables it.
 // State: ~/.claude/hooks/state/map-drift/said.json.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 import { loadMap, mapFolderFor, normRel } from "./lib/map-file.mjs";
-import { stateFile, readJson, writeJson } from "./lib/state.mjs";
-import fs from "node:fs";
+import { readJson, stateFile, writeJson } from "./lib/state.mjs";
 
 const HOUR = 60 * 60 * 1000;
 const STATE_FILE = stateFile("map-drift", "said");

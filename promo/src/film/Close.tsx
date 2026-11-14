@@ -1,8 +1,8 @@
-import React from "react";
+import type React from "react";
 import { ease, FADE, Field, Head, sec, Typed, useTick } from "./kit";
 import { accent, color, MARGIN, TOP, TYPE } from "./look";
-import { Shot } from "./script";
 import { need } from "./need";
+import type { Shot } from "./script";
 
 const ink = accent.Install;
 const TERM = { x: MARGIN, y: TOP, w: 1920 - 2 * MARGIN, h: 650 };

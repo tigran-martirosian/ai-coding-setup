@@ -2,12 +2,12 @@
 // Run: node tests/test-claude-code-version.mjs
 import {
   checkClaudeCode,
-  pointNimbalyst,
-  compareVersions,
-  parseVersion,
-  nimbalystCandidates,
-  updateCommand,
   childEnv,
+  compareVersions,
+  nimbalystCandidates,
+  parseVersion,
+  pointNimbalyst,
+  updateCommand,
 } from "../scripts/claude-code-version.mjs";
 
 let fails = 0;
@@ -276,7 +276,7 @@ ok(
       },
       log: (s) => out.push(s),
       read: () => saved,
-      write: (f, t) => {
+      write: (_f, t) => {
         saved = t;
       },
     });

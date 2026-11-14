@@ -1,20 +1,20 @@
 // node test.mjs  (Node 22.6+ with type stripping: 24 runs it as is, 22 needs --experimental-strip-types)
 import assert from "node:assert/strict";
+import { layout, radius, random } from "./src/layout.ts";
 import {
-  classify,
-  parseCheck,
-  checkLine,
   absolute,
-  sizeLine,
-  projectName,
-  groupSlot,
-  legend,
+  checkLine,
+  classify,
   driftedLinks,
+  groupSlot,
   LINK_TYPES,
+  legend,
+  parseCheck,
+  projectName,
+  sizeLine,
 } from "./src/map.ts";
 import { find, search } from "./src/search.ts";
-import { layout, radius, random } from "./src/layout.ts";
-import { checkCommand, read, build } from "./src/store.ts";
+import { build, checkCommand, read } from "./src/store.ts";
 
 let passed = 0;
 const test = async (name, fn) => {
@@ -584,7 +584,14 @@ await test("store: read picks the screen, the check runs only for a map", async 
 await test("store: build sends /systems-map and reports a refusal", async () => {
   let sent;
   assert.equal(
-    await build(async (c, a) => ((sent = [c, a]), {}), "Build a map", 50),
+    await build(
+      async (c, a) => {
+        sent = [c, a];
+        return {};
+      },
+      "Build a map",
+      50,
+    ),
     "",
   );
   assert.equal(sent[0], "extensions:ai-send-prompt");

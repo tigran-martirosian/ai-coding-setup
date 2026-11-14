@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, posix, win32 } from "node:path";
 // question-other: PreToolUse hook for Nimbalyst's PromptForUserInput (and both AskUserQuestion tools). The user wants to type their own answer on every
 // question, so every singleSelect sets allowOther: true, every multiSelect is followed right away by an editText
 // (Nimbalyst drops allowOther on a multiSelect), and a confirm or reorder field needs an editText in the form.
@@ -35,9 +38,6 @@ import { ru } from "./lib/ru.mjs";
 import { STATE_DIR } from "./lib/state.mjs";
 // INJECTED: user text Claude Code, Nimbalyst or a hook adds on its own; it does not start a new turn
 import { INJECTED } from "./lib/transcript.mjs";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, posix, win32 } from "node:path";
 
 // Never change it: the card-refused patch hides a card whose result contains it
 export const MARKER = "[card-refused]";
@@ -101,12 +101,20 @@ export function recordFrom(lines) {
     }
     for (const b of blocks) {
       // A refusal is an error result holding the marker; an answer that quotes the marker is no refusal
-      if (e.type === "user" && b?.type === "tool_result" && cards.has(b.tool_use_id))
+      if (
+        e.type === "user" &&
+        b?.type === "tool_result" &&
+        cards.has(b.tool_use_id)
+      )
         refusedRun =
           b.is_error && JSON.stringify(b.content ?? "").includes(MARKER)
             ? refusedRun + 1
             : 0;
-      if (e.type === "assistant" && b?.type === "tool_use" && FORM.test(b.name || ""))
+      if (
+        e.type === "assistant" &&
+        b?.type === "tool_use" &&
+        FORM.test(b.name || "")
+      )
         cards.add(b.id);
       if (e.type === "assistant" && b?.type === "text")
         replyText += `\n${b.text || ""}`;
@@ -126,7 +134,7 @@ export function recordFrom(lines) {
 // letter, an optional range. Common names of that shape (file formats, codecs, paper sizes, quarters, consoles,
 // storage services, text encodings, hashes, chips, HTML headings) are not ids.
 const ROW_ID =
-  /(?<![\w.\-])[A-Z]{1,3}-?\d{1,3}[a-z]?(?:-[A-Z]{1,3}-?\d{1,3}[a-z]?)?(?![\w\-]|\.\w)/g; // a full stop ends a sentence; "A4.pdf" is a file
+  /(?<![\w.-])[A-Z]{1,3}-?\d{1,3}[a-z]?(?:-[A-Z]{1,3}-?\d{1,3}[a-z]?)?(?![\w-]|\.\w)/g; // a full stop ends a sentence; "A4.pdf" is a file
 const COMMON_ID =
   /^(?:MP[34]|M4[AV]|H26[45]|AV1|VP[89]|A[3-6]|Q[1-4]|PS[2-5]|X11|CSS3|K8s|GPT-?\d|S3|B2|R2|UTF-?(?:8|16|32)|SHA-?(?:1|256|384|512)|AES-?(?:128|192|256)|M[1-4]|H[1-6])$/;
 export const rowIds = (text, asked = "") =>
@@ -162,7 +170,9 @@ const LETTER_NAME = new RegExp(
 const OPTION_LETTER = /^\s*(?:[Oo]ption\s+)?([A-Z])(?![\w'’])/;
 export const letterNames = (text, optionLabels = [], asked = "") => {
   const own = new Set(
-    optionLabels.map((l) => String(l).match(OPTION_LETTER)?.[1]).filter(Boolean),
+    optionLabels
+      .map((l) => String(l).match(OPTION_LETTER)?.[1])
+      .filter(Boolean),
   );
   return [
     ...new Set(
@@ -223,7 +233,7 @@ export function untypeable(fields) {
 
 // Words that send the user to look at something. Bare nouns ("page", "file") are left out on purpose:
 // on real forms they mostly name a shop's page or a source, not something Claude made.
-const NOUN = String.raw`(?:page|file|doc|document|draft|mockup|preview|picture|photo|image|screenshot|report|video|version|layout|site|html)s?`;
+const NOUN = `(?:page|file|doc|document|draft|mockup|preview|picture|photo|image|screenshot|report|video|version|layout|site|html)s?`;
 const POINTS = new RegExp(
   [
     String.raw`\b(?:look|looking|glance) (?:through|at|over) (?:it|this|them|these)\b`, // not "look at the buyer"
@@ -235,26 +245,26 @@ const POINTS = new RegExp(
 ); // not "looks right?" or "take a look": often about a plan written in the chat itself
 // Russian twins of POINTS and NOT_TO_LOOK (`--language russian`). \b does not see Cyrillic: u flag and lookarounds.
 const RU_NOUN = String.raw`(?:страниц\p{L}*|файл\p{L}*|документ\p{L}*|черновик\p{L}*|макет\p{L}*|превью|картинк\p{L}*|фото\p{L}*|изображени\p{L}*|скриншот\p{L}*|отч[её]т\p{L}*|видео|верси\p{L}*|сайт\p{L}*|html)`;
-const RU_LOOK = String.raw`(?:посмотрите|посмотри|взгляните|взгляни|откройте|открой|проверьте|проверь|прочитайте|прочти|просмотрите|просмотри|пролистайте|пролистай|ознакомьтесь с|протестируйте|протестируй|попробуйте|попробуй)`;
+const RU_LOOK = `(?:посмотрите|посмотри|взгляните|взгляни|откройте|открой|проверьте|проверь|прочитайте|прочти|просмотрите|просмотри|пролистайте|пролистай|ознакомьтесь с|протестируйте|протестируй|попробуйте|попробуй)`;
 const RU_POINTS = ru(
   [
     String.raw`«(?:посмотрите|посмотри|взгляните|взгляни)\s+(?:на\s+)?(?:него|неё|нее|это|них|эти)»`,
     String.raw`«${RU_LOOK}\s+(?:на\s+)?(?:эту|этот|это|эти|мою|мой|моё|мое|мои|ваш\p{L}*|его|её|ее|их)(?:\s+[\p{L}-]+){0,2}?\s+${RU_NOUN}»`,
-    String.raw`«то, что я (?:сделал|сделала|собрал|собрала|написал|написала|нарисовал|нарисовала|изменил|изменила)»`,
+    `«то, что я (?:сделал|сделала|собрал|собрала|написал|написала|нарисовал|нарисовала|изменил|изменила)»`,
     String.raw`«(?:этот|мой|новый|обновл[её]нный)\s+макет»`,
   ].join("|"),
 );
 const RU_NOT_TO_LOOK =
-  /(?<!\p{L})(?:из|как|(?:добавлено|записано|сохранено|скопировано|перенесено|попадут|попадёт|попадет|идут|пойдут) в)\s*[(`"'\[]?\s*$/iu;
+  /(?<!\p{L})(?:из|как|(?:добавлено|записано|сохранено|скопировано|перенесено|попадут|попадёт|попадет|идут|пойдут) в)\s*[(`"'[]?\s*$/iu;
 const PATH =
-  /(?:^|[\s(:"'`\[])((?:\/?[A-Za-z]:|~)?[\\/]?(?:[\w.\-]+[\\/])*[\w\-]+\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|mp4|docx?|xlsx?|pptx?|csv))\b/gi;
+  /(?:^|[\s(:"'`[])((?:\/?[A-Za-z]:|~)?[\\/]?(?:[\w.-]+[\\/])*[\w-]+\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|mp4|docx?|xlsx?|pptx?|csv))\b/gi;
 const NOTES = /(?:^|[\\/])(?:decisions|claude|handoff|memory)(?:\.md$|[\\/])/i; // where answers get written, not something to look at
 // "goes into x.md", "added to x.md", "save it as `x.png`", "counts are from x.xlsx"
 const NOT_TO_LOOK =
-  /\b(?:into|(?:added|written|saved|copied|moved|appended) to|as|from)\s*[(`"'\[]?\s*$/i;
+  /\b(?:into|(?:added|written|saved|copied|moved|appended) to|as|from)\s*[(`"'[]?\s*$/i;
 // Links Nimbalyst's chat opens: an absolute local path with forward slashes (/C:/..., or /Users/... on
 // a Mac), or a web address
-const LOCAL_LINK = /\]\(\s*<?(?:\/?[A-Za-z]:\/|\/(?![\/\\]|[A-Za-z]\/))[^)]*\)/; // not //host or Git Bash's /c/...
+const LOCAL_LINK = /\]\(\s*<?(?:\/?[A-Za-z]:\/|\/(?![/\\]|[A-Za-z]\/))[^)]*\)/; // not //host or Git Bash's /c/...
 const WEB_LINK = /https?:\/\/[^\s)]+/i;
 export const LINK = new RegExp(`${LOCAL_LINK.source}|${WEB_LINK.source}`, "i");
 // The form's own words; option descriptions hold the reasons for an option, which often name files, so they are left out
@@ -377,9 +387,7 @@ export function readLabels(root) {
   // "worker L" is listed when "L" is; "WT2-WT4" when "WT2" and "WT4" are
   return {
     has: (l) =>
-      one(l) ||
-      one(l.replace(/^\S+\s+/, "")) ||
-      !!range(l)?.every(one),
+      one(l) || one(l.replace(/^\S+\s+/, "")) || !!range(l)?.every(one),
     bad,
   };
 }
@@ -410,7 +418,9 @@ export function cardFaults(event, seen, list = NO_LIST) {
     const fields = fieldsOf(input);
     if (!fields) return { labels: [], nag: null };
     const subLines = fields
-      .flatMap((f) => optionsOf(f).flatMap((o) => [o?.description, o?.subtitle]))
+      .flatMap((f) =>
+        optionsOf(f).flatMap((o) => [o?.description, o?.subtitle]),
+      )
       .filter((s) => typeof s === "string");
     text = [formText(input, fields), ...subLines].join("\n");
     optionLabels = fields.flatMap((f) =>
@@ -425,7 +435,11 @@ export function cardFaults(event, seen, list = NO_LIST) {
   return {
     labels: [
       ...rowIds(text, asked).filter((id) => !own.includes(id)),
-      ...letterNames(text, optionLabels.filter((l) => typeof l === "string"), asked),
+      ...letterNames(
+        text,
+        optionLabels.filter((l) => typeof l === "string"),
+        asked,
+      ),
     ].filter((l) => !list.has(l)),
     nag: nagQuestion(questions),
   };

@@ -1,7 +1,7 @@
 import React from "react";
 import {
-  clamp,
   Count,
+  clamp,
   Fade,
   Field,
   glide,
@@ -11,8 +11,8 @@ import {
   useTick,
 } from "./kit";
 import { accent, color, MARGIN, TYPE, WIDTH } from "./look";
-import { ALONE_LABEL, SETUP_LABEL, Shot } from "./script";
 import { need } from "./need";
+import { ALONE_LABEL, SETUP_LABEL, type Shot } from "./script";
 
 const ink = accent.Overview;
 const OPEN_SIZE = 68;
@@ -23,13 +23,11 @@ const SPEED = 0.75;
 export const Title: React.FC<{ shot: Shot }> = ({ shot }) => {
   const t = useTick();
   const { lines, name } = need(shot.body, "open");
-  const starts = lines.reduce<number[]>(
-    (at, line, i) => [
-      ...at,
-      i ? at[i - 1] + lines[i - 1].length / SPEED + sec(0.3) : sec(0.3),
-    ],
-    [],
-  );
+  const starts: number[] = [];
+  for (let i = 0; i < lines.length; i++)
+    starts.push(
+      i ? starts[i - 1] + lines[i - 1].length / SPEED + sec(0.3) : sec(0.3),
+    );
   const typedAt =
     starts[starts.length - 1] + lines[lines.length - 1].length / SPEED;
   return (
@@ -94,8 +92,7 @@ export const Compare: React.FC<{ shot: Shot }> = ({ shot }) => {
   const t = useTick();
   const { rows } = need(shot.body, "compare");
   const place = rows.reduce(
-    (sum, _, i) =>
-      sum + (i ? glide(t, sec(2.5 + (i - 1) * 1.4), sec(0.6)) : 0),
+    (sum, _, i) => sum + (i ? glide(t, sec(2.5 + (i - 1) * 1.4), sec(0.6)) : 0),
     0,
   );
   return (

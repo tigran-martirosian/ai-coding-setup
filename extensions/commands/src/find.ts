@@ -5,8 +5,8 @@
 // `data-session-id` of the nearest ancestor (agent-session-panel, panel-session-transcript or
 // chat-sidebar), and it is the Nimbalyst session id, the one steer.mjs and createQueuedPrompt take.
 
-import { t } from "./strings.ts";
 import type { Attachment } from "./note.ts";
+import { t } from "./strings.ts";
 
 export interface El {
   parentElement: El | null;

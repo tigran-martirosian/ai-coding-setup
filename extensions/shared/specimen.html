@@ -1,0 +1,113 @@
+<!doctype html>
+<!-- Swatch page for tokens.css: every state row, the type scale, the buttons and the surfaces.
+     It needs a theme's --nim-* colours: run applyTheme(name, colors, isDark) (colors() of ink-themes/themes.mjs), e.g. as the
+     script argument of a headless picture. Until then the page says so. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shared tokens: specimen</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { margin: 0; background: var(--x-surface-0); color: var(--x-text); font: var(--x-body); }
+  .page { padding: var(--x-space-5); max-width: 760px; }
+  .view-title { font: var(--x-title); margin: 0 0 var(--x-space-1); }
+  .lead { font: var(--x-meta); color: var(--x-text-muted); margin: 0; }
+  .group { margin-top: var(--x-space-4); padding-top: var(--x-space-4); border-top: 1px solid var(--x-hairline); }
+  .group h2 { font: var(--x-heading); margin: 0 0 var(--x-space-2); }
+  .count { font: var(--x-count); font-variant-numeric: tabular-nums; }
+
+  .row { position: relative; display: grid; grid-template-columns: 24px 1fr auto; gap: var(--x-space-3); align-items: center;
+    padding: 6px 8px; border-radius: var(--x-radius-control); }
+  .row .title { font: var(--x-row-title); }
+  .row .meta { font: var(--x-meta); color: var(--x-text-muted); }
+  .row .side { font: var(--x-meta); color: var(--x-text-muted); font-variant-numeric: tabular-nums; }
+  .mark { width: 24px; height: 24px; display: grid; place-items: center; }
+  .ring { width: 14px; height: 14px; border-radius: 50%; border: 2px dotted currentColor; box-sizing: border-box; }
+  .ring.solid { border-style: solid; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .dash { width: 12px; height: 2px; border-radius: 1px; background: currentColor; }
+  .word { font-weight: 500; }
+
+  .running .mark, .running .word { color: var(--x-state-running); }
+  .needs { background: var(--x-state-needs-tint); }
+  .needs .mark, .needs .word { color: var(--x-state-needs); font-weight: 600; }
+  .failed .mark, .failed .word { color: var(--x-state-failed); }
+  .done .mark, .done .word { color: var(--x-state-done); }
+  .done .title { color: var(--x-text-muted); font-weight: 400; }
+  .stopped .mark, .stopped .word { color: var(--x-state-stopped); }
+  .unread .mark, .unread .word { color: var(--x-state-unread); }
+  .selected { background: var(--x-state-selected); }
+
+  .type div { margin: 2px 0; }
+  .buttons { display: flex; gap: var(--x-space-2); }
+  button { height: var(--x-control-height); padding: 0 12px; border-radius: var(--x-radius-control); font: var(--x-row-title);
+    border: 1px solid var(--x-hairline); background: transparent; color: var(--x-text); }
+  button.main { background: var(--x-accent); color: var(--x-on-accent); border-color: transparent; }
+  .swatches { display: flex; gap: var(--x-space-2); }
+  .swatch { width: 120px; height: 48px; border-radius: var(--x-radius-window); border: 1px solid var(--x-hairline);
+    font: var(--x-meta); padding: 6px 8px; box-sizing: border-box; }
+  .waiting { font: var(--x-meta); color: var(--x-state-failed); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1 class="view-title">Shared tokens</h1>
+  <p class="lead" id="theme-name"><span class="waiting">No theme yet: run applyTheme(name, colors, isDark).</span></p>
+
+  <section class="group">
+    <h2>States <span class="count">8</span></h2>
+    <div class="row running"><span class="mark"><span class="ring"></span></span>
+      <div><div class="title">Refactor the theme build</div><div class="meta"><span class="word">running</span> · a command (Bash) · 3m</div></div><span class="side">Opus</span></div>
+    <div class="row needs"><span class="mark"><span class="ring"></span></span>
+      <div><div class="title">Pick the release date</div><div class="meta"><span class="word">needs you</span> · a question is waiting · 1m</div></div><span class="side">Sonnet</span></div>
+    <div class="row failed"><span class="mark"><span class="dot"></span></span>
+      <div><div class="title">Run the extension tests</div><div class="meta"><span class="word">failed</span> · 2 checks · 4m</div></div><span class="side">Haiku</span></div>
+    <div class="row done"><span class="mark"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <div><div class="title">Write the changelog lines</div><div class="meta"><span class="word">done</span> · 12m</div></div><span class="side">Opus</span></div>
+    <div class="row stopped"><span class="mark"><span class="dash"></span></span>
+      <div><div class="title">Rename the old tokens</div><div class="meta"><span class="word">stopped</span> · by you · 2m</div></div><span class="side">Sonnet</span></div>
+    <div class="row stopped"><span class="mark"><span class="ring solid"></span></span>
+      <div><div class="title">Move the dashboard to the new scale</div><div class="meta"><span class="word">to do</span></div></div><span class="side"></span></div>
+    <div class="row unread"><span class="mark"><span class="dot"></span></span>
+      <div><div class="title">Session about the gutter</div><div class="meta"><span class="word">New</span> · reply finished · 5m</div></div><span class="side">Opus</span></div>
+    <div class="row selected"><span class="mark"></span>
+      <div><div class="title">Selected session</div><div class="meta">surface-2, no stripe · 20m</div></div><span class="side">Opus</span></div>
+  </section>
+
+  <section class="group type">
+    <h2>Type scale</h2>
+    <div style="font: var(--x-title)">View title 16/600</div>
+    <div style="font: var(--x-heading)">Section heading 13/600</div>
+    <div style="font: var(--x-row-title)">Row title 14/500</div>
+    <div style="font: var(--x-body)">Body 14/400</div>
+    <div style="font: var(--x-meta); color: var(--x-text-muted)">Meta 13/400, muted</div>
+    <div class="count">Count 12/600 · 340</div>
+  </section>
+
+  <section class="group">
+    <h2>Buttons</h2>
+    <div class="buttons"><button type="button" class="main">Commit</button><button type="button">Discard</button><button type="button">Show files</button></div>
+  </section>
+
+  <section class="group">
+    <h2>Surfaces</h2>
+    <div class="swatches">
+      <div class="swatch" style="background: var(--x-surface-0)">surface-0</div>
+      <div class="swatch" style="background: var(--x-surface-1)">surface-1</div>
+      <div class="swatch" style="background: var(--x-surface-2)">surface-2</div>
+      <div class="swatch" style="background: var(--x-surface-3)">surface-3</div>
+    </div>
+  </section>
+</div>
+<script>
+  /** Puts one theme's colours on the page: `colors` is colors(theme) from ink-themes/themes.mjs. */
+  // biome-ignore lint/correctness/noUnusedVariables: called from outside the page, as a headless browser's script
+  function applyTheme(name, colors, isDark) {
+    for (const [k, v] of Object.entries(colors)) document.documentElement.style.setProperty(`--nim-${k}`, v);
+    document.documentElement.classList.toggle("dark-theme", isDark);
+    document.getElementById("theme-name").textContent = `${name} (${isDark ? "dark" : "light"})`;
+    return name;
+  }
+</script>
+</body>
+</html>

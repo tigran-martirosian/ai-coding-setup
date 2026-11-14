@@ -13,6 +13,7 @@
   const inPopover = !!document.querySelector(
     "#command-buttons-popover [data-command-buttons]",
   );
+  // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
   const text = panel ? panel.innerText : "button found, nothing opened";
   if (inPopover) button.click();
   return (inPopover ? "popover:\n" : "not a popover:\n") + text;

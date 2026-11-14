@@ -18,7 +18,7 @@ export function projectRoot(event) {
     return gitBashToNative(envDir.replace(/\\/g, "/"));
   // A C:/ path climbs with Windows rules everywhere: elsewhere dirname walks "C:" to "." (the process's own folder)
   const P = /^[A-Za-z]:[\\/]/.test(cwd) ? path.win32 : path;
-  for (let d = cwd; ;) {
+  for (let d = cwd; ; ) {
     if (
       fs.existsSync(P.join(d, "CLAUDE.md")) ||
       fs.existsSync(P.join(d, ".git"))

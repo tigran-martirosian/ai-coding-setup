@@ -1,5 +1,6 @@
 // Tests for hooks/planner-readonly.mjs. Run: node tests/test-planner-readonly.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -58,6 +59,21 @@ allow("git status --short 2>&1");
 allow("git log --oneline -5 2>/dev/null");
 allow("git status --short && git log --oneline -3; git worktree list");
 allow("grep -n 'planner' agents/planner.md | head -20");
+// The harmless ones planners and reviewers kept being refused (2026-11-13)
+allow('cd "C:/Projects/my x" && git log --oneline -3');
+allow("echo === && ls; pwd");
+allow('R="C:/Projects/my folder/x"; ls "$R"; git -C "$R" status');
+allow("echo === && node tests/test-x.mjs", { agent: "reviewer" });
+deny("echo hi > f.txt");
+deny("echo $(rm x) && cd x");
+deny("PATH=/tmp/evil; ls");
+deny("GIT_DIR=/x; git status");
+deny("R=x rm f");
+deny("cd x && rm f");
+deny('R="--open-files-in-pager=vi"; git grep "$R" x'); // a flag hidden in a variable
+deny("R=-o; sort $R f a.txt");
+deny('R="a b"; uniq $R'); // unquoted, splits into an output file
+allow("R=C:/x; ls $R");
 allow("rg -n --glob '*.md' planner");
 allow("sort -u a.txt | uniq -c");
 allow("tail -n 20 HANDOFF.md");
@@ -214,7 +230,9 @@ deny("tail --fol x");
 deny("rg --hostname-bin=sh x");
 deny("rg -z x");
 deny("rg --search-zip x");
+// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell command, not a template
 deny("ls ${x:='a'}${x@P}");
+// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell command, not a template
 deny('ls "${HOME}"');
 deny("./ls");
 deny("scripts/head x");

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 // repeat-guard: a PreToolUse hook that stops two kinds of looping inside one turn (a turn is everything
 // done since the user's last message). It reads the transcript backwards, in 2 MB chunks, until the
 // user's last message is found, so a long turn with big pictures is still seen
@@ -29,14 +32,11 @@
 // Fails open: any problem lets the call through silently. REPEAT_GUARD=off disables it.
 import { emit, runHook } from "./lib/hook-io.mjs";
 import {
-  backEntries,
-  typedByUser,
-  subagentPath,
   agentType,
+  backEntries,
+  subagentPath,
+  typedByUser,
 } from "./lib/transcript.mjs";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const ERRORS = Number(process.env.REPEAT_GUARD_ERRORS) || 3;
 const EDITS = Number(process.env.REPEAT_GUARD_EDITS) || 6;

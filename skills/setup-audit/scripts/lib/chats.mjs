@@ -2,8 +2,8 @@
 // walk over the chat files of a window, a chat's helper records, the tool-name patterns, the lines a program
 // wrote instead of the user, and the small text helpers. A pattern changed here changes it in every scanner.
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import { TURN_LIMIT_RE } from "../../../../hooks/lib/texts.mjs";
 
 // Fewer cases than this and a figure is "too few to judge": no percentage is printed (outcomes, usage-scan's quality counters)

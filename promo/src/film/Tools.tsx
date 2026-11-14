@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import {
   Count,
   ease,
@@ -13,8 +13,8 @@ import {
   Wire,
 } from "./kit";
 import { accent, color, FLOOR, MARGIN, TOP, TYPE } from "./look";
-import { Shot } from "./script";
 import { need } from "./need";
+import type { Shot } from "./script";
 
 const ink = accent.Steer;
 
@@ -42,7 +42,9 @@ export const SystemsMap: React.FC<{ shot: Shot }> = ({ shot }) => {
       `The map has ${parts.length} parts and ${PLACES.length} places.`,
     );
   if (!parts[changed])
-    throw new Error(`The map's changed part ${changed} is not one of its ${parts.length} parts.`);
+    throw new Error(
+      `The map's changed part ${changed} is not one of its ${parts.length} parts.`,
+    );
   const lightAt = sec(1);
   const wireAt = sec(1.6);
   const nextAt = sec(2);
@@ -62,6 +64,7 @@ export const SystemsMap: React.FC<{ shot: Shot }> = ({ shot }) => {
     <Field>
       <Head title={shot.title} sub={shot.sub} ink={ink} />
       {links.map(([a, b], i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list drawn once per video frame; it never reorders and holds no state
         <Wire key={i} a={out(a)} b={inn(b)} draw={1} ink={color.faint} />
       ))}
       {touched.map(([a, b], k) => (

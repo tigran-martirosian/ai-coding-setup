@@ -3,7 +3,13 @@
   "hooks": {
     "Stop": [
       {
-        "hooks": [{ "type": "command", "command": "node .claude/hooks/finder-link-gate.mjs", "timeout": 10 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/finder-link-gate.mjs",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }

@@ -6,6 +6,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
 const hook = fileURLToPath(
   new URL("../hooks/delete-guard.mjs", import.meta.url),
 );
@@ -124,6 +125,7 @@ const cases = [
   ["PowerShell one file", ps("Remove-Item notes.txt"), "allow"],
   // allowed
   ["rm -rf in $TEMP", bash('rm -rf "$TEMP/x"'), "allow"],
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell command, not a template
   ["rm -rf in ${TMPDIR:-/tmp}", bash('rm -rf "${TMPDIR:-/tmp}/x"'), "allow"],
   ["rm -rf in /tmp", bash("rm -rf /tmp/scratch-1"), "allow"],
   [

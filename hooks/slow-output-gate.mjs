@@ -16,6 +16,7 @@
 // Off switch: SLOW_OUTPUT_GATE=off. Threshold: SLOW_OUTPUT_GATE_SECONDS (default 120).
 
 import { emit, isMain, runHook } from "./lib/hook-io.mjs";
+
 const DEFAULT_SECONDS = 120;
 const UNITS = { s: 1, m: 60, h: 3600, d: 86400 };
 

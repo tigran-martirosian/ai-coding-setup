@@ -1,0 +1,35 @@
+# Weekly version bumps. Every entry sets the "build" prefix, so a pull request title starts with a type the
+# pr-title check knows ("build: bump ..."). These pull requests are never merged on GitHub: the bump is applied
+# on dev, the pull request is closed with a link to that commit, and the bump ships with the next release.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+  - package-ecosystem: npm
+    directory: /extensions/commands
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+  - package-ecosystem: npm
+    directory: /extensions/read-aloud
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+  - package-ecosystem: npm
+    directory: /extensions/systems-map
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+  - package-ecosystem: npm
+    directory: /extensions/usage-plan
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"

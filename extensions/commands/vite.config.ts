@@ -1,5 +1,5 @@
-import { defineConfig, mergeConfig } from "vite";
 import { createExtensionConfig } from "@nimbalyst/extension-sdk/vite";
+import { defineConfig, mergeConfig } from "vite";
 import { extensionConfig } from "../shared/vite-base.ts";
 
 // `vite build --mode share` writes dist-share: the same extension without the buttons that only work here.

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 // push-key-scan: PreToolUse on Bash|PowerShell `git push`. Reads the lines the push would send (commits on the pushed
 // branch that no remote has yet, plus uncommitted changes when the same command commits first) and asks before a push
 // whose added lines hold a key-shaped string (sk-ant-, ghp_, AKIA..., a private key block, a bot token...) or that adds
@@ -6,10 +9,7 @@
 // isPush. Rules only: no model, no network. Fails open. PUSH_KEY_SCAN=off disables it (in the command too: a prefix
 // never reaches the hook's own environment).
 // Test: tests/test-push-key-scan.mjs
-import { runHook, isMain } from "./lib/hook-io.mjs";
-import { spawnSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
+import { isMain, runHook } from "./lib/hook-io.mjs";
 
 // Key shapes. A match must hold a digit (a long CSS class name that starts with sk- is not a key) and must
 // not be a documented fake (AKIAIOSFODNN7EXAMPLE).

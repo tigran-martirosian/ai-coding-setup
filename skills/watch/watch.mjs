@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 // watch.mjs: turns a video into things a model can read cheaply.
 //   node watch.mjs <link or video file>                        the words (subtitles) and an overview: 6 sheets of stills
 //   node watch.mjs <link or video file> --from 2:10 --to 2:20  a close look at one stretch (about 5 stills a second)
@@ -18,12 +20,10 @@
 // Needs ffmpeg, and for links yt-dlp (on PATH, or it is run through uvx). YT_DLP names another yt-dlp.
 // On a Mac it needs Homebrew's ffmpeg-full: the plain ffmpeg there cannot write the time on a still.
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import crypto from "node:crypto";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
 
 const HOME =
   process.env.WATCH_HOME || path.join(os.homedir(), ".claude", "video-cache");
@@ -593,7 +593,7 @@ if (kept !== null && !(flags.listen && kept.startsWith("Subtitles:"))) {
         "automatic, expect wrong words",
       ]),
     );
-  let lines = [];
+  const lines = [];
   let found;
   const failed = [];
   for (const [lang, kind] of tracks) {
@@ -653,7 +653,7 @@ if (kept !== null && !(flags.listen && kept.startsWith("Subtitles:"))) {
 if (flags.noFrames) process.exit(0);
 
 // 3. The pictures
-let video = isLink ? path.join(dir, "video.mp4") : path.resolve(source);
+const video = isLink ? path.join(dir, "video.mp4") : path.resolve(source);
 function download() {
   if (fs.existsSync(video)) return;
   const run = yt(

@@ -1,7 +1,9 @@
 // Tests for hooks/long-sleep-guard.mjs. Run: node tests/test-long-sleep-guard.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
 const hook = fileURLToPath(
   new URL("../hooks/long-sleep-guard.mjs", import.meta.url),
 );

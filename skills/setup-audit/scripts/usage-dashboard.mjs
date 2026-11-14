@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync, spawn } from "node:child_process";
 // usage-dashboard: builds a clickable usage page and opens it in the browser.
 // Claude numbers come from usage-scan's JSON; Codex and Gemini numbers from their own
 // records on this computer. Output: ~/.claude/reports/usage-dashboard.html (one file, works offline) and
@@ -16,15 +17,14 @@
 //   --json FILE     where to write the same data as JSON (default: usage-dashboard.json next to --out)
 //   --no-open       build only, don't open the browser
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { execFileSync, spawn } from "node:child_process";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARGS, opt } from "./lib/opt.mjs";
 import { DAY_MS } from "./lib/days.mjs";
+import { ARGS, opt } from "./lib/opt.mjs";
 import { CODEX_WEIGHT } from "./lib/prices.mjs";
-import { planUse, readSamples } from "./plan-use.mjs";
 import { planAhead, readConfig } from "./plan-ahead.mjs";
+import { planUse, readSamples } from "./plan-use.mjs";
 
 const started = Date.now();
 
@@ -245,7 +245,7 @@ async function geminiUsage(home) {
             .replace(" ", "T")
             .replace(/(\.\d{3})\d*/, "$1"),
         );
-        if (isNaN(at) || at.getTime() < since) continue;
+        if (Number.isNaN(at.getTime()) || at.getTime() < since) continue;
         let folder = "";
         try {
           folder = decodeURIComponent(

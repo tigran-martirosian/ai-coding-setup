@@ -1,7 +1,7 @@
 // Checks the agent definitions in the agents folder of this repository that the rules depend on. Run: node tests/test-agents.mjs
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const AGENTS = fileURLToPath(new URL("../agents/", import.meta.url));
 const read = (name) =>
@@ -12,7 +12,7 @@ const parts = (text) => {
   return { head: m[1], body: m[2].trim() };
 };
 const has = (head, key, value) =>
-  new RegExp(String.raw`^${key}:[ ]*${value}[ ]*$`, "m").test(head);
+  new RegExp(`^${key}:[ ]*${value}[ ]*$`, "m").test(head);
 const tools = (head) =>
   (head.match(/^tools:\s*(.*)$/m)?.[1] || "").split(/,\s*/);
 
@@ -372,7 +372,9 @@ const checks = [
     "stuck-advisor's description has the tests-pass-but-wrong trigger, the 3-call budget and leaves a long refactor to worker-refactor",
     /tests pass but the behaviour is still wrong/.test(desc(advisor.head)) &&
       /At most 3 calls a session/.test(desc(advisor.head)) &&
-      /long refactor[^.]*worker-refactor[^.]*never both/.test(desc(advisor.head)),
+      /long refactor[^.]*worker-refactor[^.]*never both/.test(
+        desc(advisor.head),
+      ),
   ],
   [
     "stuck-advisor's brief is at most 300 words, its answer under 200, with one follow-up that names wrong advice",
@@ -396,7 +398,9 @@ const checks = [
     ["reviewer", rev.body],
   ].map(([name, text]) => [
     `${name} reads the purpose record and the newest dated section, and holds a failing PURPOSE CHECK row Important as it stands`,
-    /first section `## What each thing is for` \(the purpose record\) and its newest dated section below it/.test(text) &&
+    /first section `## What each thing is for` \(the purpose record\) and its newest dated section below it/.test(
+      text,
+    ) &&
       !/the top section of the project's `DECISIONS\.md`/.test(text) &&
       text.includes(
         "The brief's `FOR` and `PURPOSE CHECK` lines are code results from the purpose record: a row they fail is Important as it stands",

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 // steer: talk to a Claude session that is busy in the same folder, without waiting for its reply
 // to end (Nimbalyst queues messages until then). Used by the /btw skill and the Note button.
 //   list                     sessions in this folder active in the last 10 min (not this one)
@@ -63,11 +68,6 @@
 // Fails open: any hook error means no output.
 import { crashLog } from "../../hooks/lib/crash-log.mjs";
 import { currentTurn, SYNTHETIC } from "../../hooks/lib/transcript.mjs";
-import crypto from "crypto";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { spawnSync } from "child_process";
 
 const HOME = os.homedir();
 const DIR = path.join(HOME, ".claude", "steer");

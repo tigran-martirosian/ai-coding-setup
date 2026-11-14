@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 // decided-quote: a PreToolUse hook. A brief that says the user DECIDED something has to carry the
 // user's own words, or a helper writes a tick (or Claude's own inference) into DECISIONS.md as the
 // user's decision. Checks the prompt of Agent/Task, spawn_session,
@@ -8,10 +9,9 @@
 // next paragraph when the claim line stands alone as a heading). The first try is refused; the identical
 // retry goes through. Unreadable input is an error (exit 2), never a silent pass.
 // DECIDED_QUOTE=off disables it.
-import { runHook, isMain, emit } from "./lib/hook-io.mjs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 import { sessionKey } from "./lib/paths.mjs";
-import { stateFile, readJson, writeJson } from "./lib/state.mjs";
-import { createHash } from "node:crypto";
+import { readJson, stateFile, writeJson } from "./lib/state.mjs";
 
 const NEGATED =
   /\bnot\s+(?:yet\s+|been\s+)?(?:decided|confirmed|approved|chosen)(?:\s+by)?\b/gi;

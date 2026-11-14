@@ -31,7 +31,7 @@
 //             5 --has was asked and the answer is NO.
 import fs from "node:fs";
 import path from "node:path";
-import { argv, exit } from "node:process";
+import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
 
 const UA = {
@@ -42,11 +42,13 @@ const TIMEOUT_MS = 20000;
 let SHOW_ALL = false; // set by main(); the end-of-life source reads it when it builds its rows
 // GitHub allows 60 API calls an hour per address without a token (shared CI runners use them up); with one, 5000
 const GH_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+// VERSIONS_GITHUB_API points gh: at a stand-in server (tests/test-versions.mjs), so the test never calls GitHub
+const GH_API = process.env.VERSIONS_GITHUB_API || "https://api.github.com";
 
 async function getJson(url) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
-  const github = new URL(url).hostname === "api.github.com";
+  const github = url.startsWith(`${GH_API}/`);
   try {
     const r = await fetch(url, {
       headers:
@@ -110,9 +112,7 @@ const SOURCES = {
   async gh(repo) {
     if (!/^[^/]+\/[^/]+$/.test(repo))
       throw new Error(`gh: needs owner/repo, got "${repo}"`);
-    const rels = await getJson(
-      `https://api.github.com/repos/${repo}/releases?per_page=20`,
-    );
+    const rels = await getJson(`${GH_API}/repos/${repo}/releases?per_page=20`);
     if (Array.isArray(rels) && rels.length) {
       return {
         source: `https://github.com/${repo}/releases`,
@@ -125,9 +125,7 @@ const SOURCES = {
         ),
       };
     }
-    const tags = await getJson(
-      `https://api.github.com/repos/${repo}/tags?per_page=20`,
-    );
+    const tags = await getJson(`${GH_API}/repos/${repo}/tags?per_page=20`);
     if (!Array.isArray(tags) || !tags.length)
       throw new Error(`${repo} has no releases and no tags`);
     return {

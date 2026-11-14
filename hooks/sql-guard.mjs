@@ -3,9 +3,10 @@
 // ... DROP/DETACH (partitions, columns). It only looks at commands that call a database client
 // (clickhouse, psql, mysql, sqlite3, duckdb, sqlcmd, ...) plus any .sql file the command passes in.
 // SQL run from inside a Python or other script is not seen. Fails open. SQL_GUARD=off disables it.
-import { runHook } from "./lib/hook-io.mjs";
-import { readFileSync, existsSync, writeSync } from "node:fs";
+
+import { existsSync, readFileSync, writeSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { runHook } from "./lib/hook-io.mjs";
 
 const CLIENT =
   /\b(clickhouse(-client|-local)?|psql|pgcli|mysql|mariadb|sqlite3|duckdb|sqlcmd|bq|snowsql|trino|usql)\b/i;

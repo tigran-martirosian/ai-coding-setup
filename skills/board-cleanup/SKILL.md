@@ -13,7 +13,7 @@ Ignore `committed` / `uncommitted` tags: they depend on git, which the project m
 
 0. **Kept project?** ToolSearch `board_tidy`, then its keep tool with no arguments lists the kept projects. If this project's folder is on it, it keeps every session on purpose (a chat-style project): change nothing and say so in one line, adding that "archive what's older than 6 months here" (archive tool with `project` and `olderThanDays`) or "tidy this project again" (keep tool with `keep: false`) are there when wanted. When the user asks for one of those, do just that.
 
-1. **List.** One `list_recent_sessions` call with `limit: 250`, `includeArchived: false`.
+1. **List.** One `list_recent_sessions` call with `limit: 250`, `includeArchived: false`, and in the same message one `tracker_list` call for `task` items in-progress (ToolSearch `tracker_list`; no tracker tool: skip it).
 
 2. **Sort from the list alone.** No other calls for these:
    - **Leave:** `complete` already (just count them), `[RUNNING]`, `[CURRENT]`.
@@ -29,6 +29,6 @@ Ignore `committed` / `uncommitted` tags: they depend on git, which the project m
 
 6. **Close.** This skill runs in its own context (`context: fork`) and cannot see the calling chat, so it never renames or re-phases the session it was called from; its last reply says what moved and what was archived, and the calling session sets its own name and phase.
 
-7. **Report in under 10 lines, plain words.** What moved; what was left and why (one line each); how many Board Tidy archived; then: "Board Tidy also does this by itself every hour. Archived view → Unarchive brings one back; ask me to undo the last Board Tidy run to bring them all back." Don't explain phases, tags or the search box unless asked.
+7. **Report in under 10 lines, plain words.** What moved; what was left and why (one line each); how many Board Tidy archived; stranded steps: each tracker step in progress for over a day whose session is not `[RUNNING]`, one line with its age (restart or redo none: the user decides; `/where-are-we` gives the full reading); then: "Board Tidy also does this by itself every hour. Archived view → Unarchive brings one back; ask me to undo the last Board Tidy run to bring them all back." Don't explain phases, tags or the search box unless asked.
 
 **Plan mode on?** Do steps 1–2, print the list of what would move, and tell the user to switch plan mode off and run it again. Don't write a plan file and don't call ExitPlanMode.

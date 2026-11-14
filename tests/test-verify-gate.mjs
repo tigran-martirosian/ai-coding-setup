@@ -10,8 +10,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { makeChecker } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(

@@ -1,16 +1,16 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
 // transcript-check: SessionStart hook. About a dozen hooks read Claude Code's own transcript, a private format,
 // and they fail open, so a change to it would turn them off with no sign. Their tests use made-up lines, so this
 // one looks at a real one: the tail of the project's newest earlier transcript, once per Claude Code version.
 // It says out loud what is missing; it never stops anything. TRANSCRIPT_CHECK=off disables it.
 // It also reads hooks/state/hook-errors.log (see crash-log.mjs): when hooks have crashed since the last session saw the
 // log, it says which ones, once. HOOK_CRASH_ALARM=off disables that part. The first run only notes where the log ends.
-import { crashLog, CRASH_LOG } from "./lib/crash-log.mjs";
+import { CRASH_LOG, crashLog } from "./lib/crash-log.mjs";
 import { isMain } from "./lib/hook-io.mjs";
 import { readJson, stateFile as stateFileOf, writeJson } from "./lib/state.mjs";
 import { agentType, SYNTHETIC, tail, userText } from "./lib/transcript.mjs";
-import fs from "node:fs";
-import path from "node:path";
 
 const TAIL = 512 * 1024;
 const STATE =

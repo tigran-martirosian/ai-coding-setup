@@ -1,10 +1,11 @@
 // Tests for hooks/map-generated.mjs and the "generated" list of skills/systems-map/map.mjs. Run: node tests/test-map-generated.mjs
 process.env.HOOK_ERRORS_LOG = "off";
+
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync, execFileSync } from "node:child_process";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/map-generated.mjs", import.meta.url),
@@ -73,7 +74,7 @@ const denied = (r) => {
 
 // ---- hook
 let r = run(edit(path.join(dir, "out/road.json")));
-let o = denied(r);
+const o = denied(r);
 check(
   "a generated file is refused",
   o?.permissionDecision === "deny" && o.hookEventName === "PreToolUse",
@@ -190,7 +191,7 @@ check(
 );
 put("out/road.json", '{"a":1}');
 git("commit", "-qam", "hand edit of the output");
-let h = handEdits(MAP, dir);
+const h = handEdits(MAP, dir);
 check(
   "an output changed after the script: HAND, with the commit",
   h.length === 1 &&

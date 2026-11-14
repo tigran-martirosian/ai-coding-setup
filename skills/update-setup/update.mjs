@@ -52,8 +52,9 @@ import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-// the pieces shared with install.mjs, from a setup folder
-const setupModule = (folder, name) => {
+import { readChangelog } from "../../hooks/lib/changelog.mjs";
+
+const setupModule = (folder, name) => { // the pieces shared with install.mjs, from a setup folder
   const file = path.join(folder, "scripts", name);
   if (!fs.existsSync(file))
     stop(
@@ -653,8 +654,14 @@ console.log(`Downloaded to ${fwd(target)}`);
 // or `kind: nimbalyst` (one with no entry counts as setup)
 if (FILES_ONLY) {
   const log = fs.readFileSync(path.join(target, "CHANGELOG.md"), "utf8");
-  const missed = [...log.matchAll(/^- (\d+(?:\.\d+)*) \(/gm)]
-    .map(([, v]) => v)
+  let listed;
+  try {
+    listed = readChangelog(log);
+  } catch (e) {
+    stop(`the changelog of ${latest.version} can't be read (${e.message}).`);
+  }
+  const missed = listed
+    .map((r) => r.version)
     .filter((v) => newer(v, installed) && !newer(v, latest.version));
   if (!missed.includes(latest.version))
     stop(

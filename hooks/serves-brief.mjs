@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { crashLog } from "./lib/crash-log.mjs";
 // serves-brief: PreToolUse hook on the Agent tool. A helper's brief arrives with what the user said its plan row is for, so the
 // purpose is not lost between the plan and the brief (a constraint left out of a brief was broken 30-38% of the time, 0% when pinned).
 // A brief of worker, worker-full, worker-code, worker-refactor or planner that names a plan file and a step id of its job-list table gets
@@ -14,7 +15,6 @@
 // Its fails, its record faults and a check that did not run go to the lead as a "serves-brief purpose check:" note.
 // SERVES_BRIEF=off disables it (process env or a project's settings env).
 import { emit, runHook } from "./lib/hook-io.mjs";
-import { crashLog } from "./lib/crash-log.mjs";
 import { fullBrief } from "./lib/serves.mjs";
 
 runHook(

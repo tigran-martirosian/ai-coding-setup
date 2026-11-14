@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
 import { appear } from "./anim";
 import { color, mono, sans } from "./theme";

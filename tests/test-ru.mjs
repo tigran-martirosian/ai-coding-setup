@@ -12,7 +12,7 @@ check("a whole word matches", word.test("откройте терминал се�
 check("a letter before it does not", !word.test("мультитерминал"));
 check("a letter after it does not", !word.test("терминалы"));
 check(
-  "a prefix class (\p{L}*) takes the endings",
+  "a prefix class (p{L}*) takes the endings",
   ru(String.raw`«терминал\p{L}*»`).test("в терминале"),
 );
 check("case does not matter by default", word.test("ТЕРМИНАЛ"));

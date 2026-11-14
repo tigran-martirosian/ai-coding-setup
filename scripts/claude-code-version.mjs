@@ -97,7 +97,7 @@ export function realRun(cmd, args, ms = 10 * 60 * 1000) {
 
 // Which command updates this install: npm when `claude` sits in an npm folder, else Claude Code's own `claude update`
 export function updateCommand(claudePath) {
-  if (claudePath && /node_modules|[\/]npm[\/]|[\/]npm$/i.test(claudePath))
+  if (claudePath && /node_modules|[/]npm[/]|[/]npm$/i.test(claudePath))
     return ["npm", ["i", "-g", "@anthropic-ai/claude-code@latest"]];
   return ["claude", ["update"]];
 }

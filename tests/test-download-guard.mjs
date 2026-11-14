@@ -1,5 +1,6 @@
 // Tests for hooks/download-guard.mjs against a HEAD server on 127.0.0.1 started here. Run: node test-download-guard.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawn } from "node:child_process";
 import http from "node:http";
 import { fileURLToPath } from "node:url";

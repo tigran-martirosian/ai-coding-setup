@@ -7,7 +7,7 @@ npm install
 npm run render
 ```
 
-`npm run render` writes `promo.mp4`, `promo-poster.png` and one `clip-<name>.gif` per section of `docs/features.md` to `../docs/img`. Needs Node.js 22.18 or newer and ffmpeg; Remotion downloads its own browser on the first run. The film is drawn at 1920x1080 and 60 frames a second into `out/master.mp4`, then cut to 1600x900, and the run fails if the result passes GitHub's 10 MB limit for a video.
+`npm run render` writes `promo.mp4`, `promo-poster.png` and one `clip-<name>.gif` per section of `docs/features.md` to `../docs/img`. Needs Node.js 22.18 or newer and ffmpeg; Remotion downloads its own browser on the first run. The film is drawn at 1920x1080 and 60 frames a second into `out/master.mp4`, then cut to 1600x900, and the run fails if the result passes GitHub's 10 MB limit for a video. `promo.mp4` is made locally and not tracked in git; the README plays the copy uploaded to GitHub.
 
 - `npm run studio` opens the Remotion Studio, where each scene and each clip can be played on its own.
 - `npm run stills` writes the last frame of every film shot to `out/stills`, to check the text after a change.

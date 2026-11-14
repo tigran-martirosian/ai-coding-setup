@@ -1,11 +1,12 @@
 // Tests for hooks/agent-run-log.mjs: one line per Agent call with the helper's model and effort, and its result (success, partial
 // or fail) written onto it when the call ends. Run: node tests/test-agent-run-log.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/agent-run-log.mjs", import.meta.url),
@@ -110,7 +111,7 @@ check(
     l.cwd === bare &&
     l.description === "Read files: x" &&
     l.type === "worker" &&
-    !isNaN(Date.parse(l.ts)),
+    !Number.isNaN(Date.parse(l.ts)),
 );
 
 run(ev({ subagent_type: "worker", model: "opus" }));
@@ -292,7 +293,7 @@ check(
   "a normal report logs success",
   l.result === "success" &&
     l.why === null &&
-    !isNaN(Date.parse(l.endedAt)) &&
+    !Number.isNaN(Date.parse(l.endedAt)) &&
     r.stdout === "" &&
     r.status === 0,
   JSON.stringify(l),
@@ -313,6 +314,48 @@ check(
   lines().filter((x) => x.description === "Helper t1").length === 1 &&
     lines().length === 1,
   JSON.stringify(lines()),
+);
+check(
+  "a result with no totals keeps the old line shape (no total keys)",
+  !("totalTokens" in l) &&
+    !("totalDurationMs" in l) &&
+    !("totalToolUseCount" in l),
+  JSON.stringify(l),
+);
+l = helper("t1b", "", {
+  response: {
+    status: "completed",
+    content: [{ type: "text", text: "Card built.\nOutside the brief: none" }],
+    totalDurationMs: 308565,
+    totalTokens: 125096,
+    totalToolUseCount: 51,
+    usage: { input_tokens: 3 },
+  },
+});
+check(
+  "the helper's tokens, time and steps are kept on its line",
+  l.result === "success" &&
+    l.totalTokens === 125096 &&
+    l.totalDurationMs === 308565 &&
+    l.totalToolUseCount === 51 &&
+    !("usage" in l) &&
+    OLD_KEYS.every((k) => k in l),
+  JSON.stringify(l),
+);
+l = helper("t1c", "", {
+  response: {
+    status: "completed",
+    content: [{ type: "text", text: "Done." }],
+    totalTokens: "125k",
+    totalDurationMs: 1200,
+  },
+});
+check(
+  "a total that is not a number stays off the line",
+  !("totalTokens" in l) &&
+    l.totalDurationMs === 1200 &&
+    !("totalToolUseCount" in l),
+  JSON.stringify(l),
 );
 l = helper(
   "t2",

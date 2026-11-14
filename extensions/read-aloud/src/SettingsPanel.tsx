@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
+import { setAutoRead } from "./autoRead";
 import { callBackend } from "./bridge";
 import { player, usePlayer } from "./player";
 import {
   DEFAULTS,
+  type ReadAloudSettings,
   updateSetting,
   useSettings,
   VOICES,
-  type ReadAloudSettings,
 } from "./settings";
-import { setAutoRead } from "./autoRead";
 import { formatSpeed, t } from "./strings";
 import { TRANSCRIPT_CSS } from "./transcript";
 
@@ -98,6 +98,7 @@ export function ReadAloudSettingsPanel() {
           role="switch"
           className="ra-switch"
           checked={s.enabled}
+          aria-checked={s.enabled}
           onChange={(e) => set("enabled", e.target.checked)}
         />
       </label>
@@ -109,6 +110,7 @@ export function ReadAloudSettingsPanel() {
           role="switch"
           className="ra-switch"
           checked={s.autoRead}
+          aria-checked={s.autoRead}
           onChange={(e) => {
             set("autoRead", e.target.checked);
             setAutoRead(e.target.checked);
@@ -171,6 +173,7 @@ export function ReadAloudSettingsPanel() {
           role="switch"
           className="ra-switch"
           checked={s.skipCodeBlocks}
+          aria-checked={s.skipCodeBlocks}
           onChange={(e) => set("skipCodeBlocks", e.target.checked)}
         />
       </label>
@@ -182,6 +185,7 @@ export function ReadAloudSettingsPanel() {
           role="switch"
           className="ra-switch"
           checked={s.skipTerminalOutput}
+          aria-checked={s.skipTerminalOutput}
           onChange={(e) => set("skipTerminalOutput", e.target.checked)}
         />
       </label>

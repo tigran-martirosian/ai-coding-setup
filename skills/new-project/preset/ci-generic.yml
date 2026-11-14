@@ -1,0 +1,32 @@
+# CI for any other stack (Go, Rust, .NET, Java, a static site). Copied to .github/workflows/ci.yml.
+# The skill replaces {{TEST_COMMAND}} with the test command from the project's CLAUDE.md Checks
+# section, and adds the setup step of GitHub's matching starter file
+# (https://github.com/actions/starter-workflows/tree/main/ci), pinned by commit SHA.
+# No test command known: this file is not copied (a workflow with nothing to run proves nothing).
+# Systems: see the `os` list below (the new-project skill, step 2b, "CI systems").
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: "{{TEST_COMMAND}}"
