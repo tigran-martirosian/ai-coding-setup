@@ -1,0 +1,12 @@
+{
+  "name": "job-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "One tracker page per project for the job in hand: what needs you, what runs, what is left.",
+  "scripts": {
+    "build": "node build.mjs",
+    "install-ext": "node build.mjs --install",
+    "test": "node test.mjs"
+  }
+}

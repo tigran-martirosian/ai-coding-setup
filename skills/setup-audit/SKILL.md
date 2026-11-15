@@ -1,6 +1,6 @@
 ---
 name: setup-audit
-description: "Audit of the Claude Code setup, one entry for every review of it. Use when the user says \"setup audit\", \"audit my setup\", \"is my setup working\", \"usage report\", \"where did my tokens go\", \"will I run out\", \"chat review\", \"full review\", \"project scan\", \"outcomes\", \"memory check\", or runs /setup-audit [usage|chat|full|scan|outcomes|memory] (optional: days, a project, a session)."
+description: "Audit of the Claude Code setup, one entry for every review of it. Use when the user says \"setup audit\", \"audit my setup\", \"is my setup working\", \"usage report\", \"where did my tokens go\", \"will I run out\", \"chat review\", \"full review\", \"project scan\", \"outcomes\", \"memory check\", \"prompt audit\", or runs /setup-audit [usage|chat|full|scan|outcomes|memory|prompt] (optional: days, a project, a session)."
 ---
 
 # Setup audit
@@ -16,5 +16,6 @@ The first word of the arguments picks the sub-command; the rest are its options 
 | `scan` | one project's own Claude setup checked | `scan.md` |
 | `outcomes` | what the checks led to, counted from the chats | `outcomes.md` |
 | `memory` | each project's memory notes checked against its decisions, then a tick list of fixes and deletes | `memory.md` |
+| `prompt` | the rules, agents, skills and hook messages Claude reads, judged against a writing guide, then a tick list of cuts and rewordings (optional: a file or folder) | `prompt.md` |
 
 Analysis first: change nothing until the user picks fixes. Reply in the language the user writes in.

@@ -15,19 +15,43 @@
   --x-text: var(--nim-text);
   --x-text-muted: var(--nim-text-muted);
   --x-accent: var(--nim-primary);
+  --x-accent-hover: var(--nim-primary-hover);
   --x-on-accent: var(--nim-on-primary);
+  /* The accent as text, marks and orb ink: the theme's link colour (the fill accent is too dark for text) */
+  --x-accent-text: var(--nim-link);
   --x-error: var(--nim-error);
   --x-success: var(--nim-success);
   --x-warning: var(--nim-warning);
 
+  /* State tones (DESIGN.md "The look rule"): each state has a colour, always beside its word.
+     The "needs you" tint is the theme's own warning at 12%, laid over whatever surface is under it (on light themes
+     the word is darkened below, the tint keeps the warm hue so the row does not read as a selected grey one). */
+  --x-state-running: var(--x-accent-text);
+  --x-state-needs: var(--nim-warning);
+  --x-state-needs-tint: color-mix(in oklab, var(--nim-warning) 12%, transparent);
+  --x-state-failed: var(--nim-error);
+  --x-state-done: var(--x-text-muted);
+  --x-state-stopped: var(--x-text-muted);
+  --x-state-unread: var(--x-accent-text);
+  --x-state-selected: var(--x-surface-2);
+
   /* Type: full `font` shorthands (weight size/line-height family; the family is required, or the
-     browser drops the whole declaration). The family is the Ink theme font when one is on, else Nimbalyst's own UI stack. */
+     browser drops the whole declaration). The family is the Ink theme font when one is on, else Nimbalyst's own UI stack.
+     Four sizes do the work (16 title, 15 reading, 14 names, 13 secondary); DESIGN.md's level table says which
+     text of each area takes which. Nothing under 12px; 12px only for a count or id inside a small fixed box. */
   --x-font-ui: var(--ink-sans, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif);
-  --x-title: 550 16px/22px var(--x-font-ui);
-  --x-body: 400 13px/20px var(--x-font-ui);
-  --x-caption: 400 12px/16px var(--x-font-ui);
-  --x-micro: 400 11px/14px var(--x-font-ui);
+  --x-font-mono: var(--ink-mono, 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace);
+  --x-title: 600 16px/22px var(--x-font-ui);
+  --x-reading: 400 15px/24px var(--x-font-ui);
+  --x-body: 400 14px/20px var(--x-font-ui);
+  --x-row-title: 500 14px/20px var(--x-font-ui);
+  --x-meta: 400 13px/18px var(--x-font-ui);
+  --x-heading: 600 13px/18px var(--x-font-ui);
+  --x-label: 500 13px/18px var(--x-font-ui);
+  --x-code: 400 13px/20px var(--x-font-mono);
+  --x-count: 600 12px/16px var(--x-font-ui);
   --x-figure: 550 18px/24px var(--x-font-ui);
+  --x-hero-figure: 600 32px/36px var(--x-font-ui);
 
   /* Spacing */
   --x-space-1: 4px;
@@ -36,10 +60,19 @@
   --x-space-4: 16px;
   --x-space-5: 24px;
 
-  /* Corner radii */
-  --x-radius-window: 12px;
-  --x-radius-control: 8px;
+  /* Corner radii: 6 on rows, buttons and inputs; 8 on menus, popovers and cards; 4 only inside a control */
+  --x-radius-window: 8px;
+  --x-radius-control: 6px;
   --x-radius-inner: 4px;
+
+  /* Controls: the one main button of a view is filled with the accent, the rest are quiet */
+  --x-control-height: 32px;
+
+  /* Thinking orbs (orbs/orbs.js): a 24px canvas in a 24px slot, dots at 1.5x, ink the accent text tone */
+  --x-orb-size: 24px;
+  --x-orb-dot-size: 1.5;
+  --x-orb-ink: var(--x-accent-text);
+  --orb-dark: 1;
 
   /* Motion */
   --x-motion-fast: 80ms;
@@ -58,6 +91,19 @@
 html:not(.dark-theme) {
   --x-overlay-hover: color-mix(in oklab, var(--nim-text) 4%, transparent);
   --x-overlay-selected: color-mix(in oklab, var(--nim-text) 7%, transparent);
+  --orb-dark: 0;
+  /* State words on a light page: the theme tone darkened toward the text, so it reads 4.5:1 on surfaces 0-2 and on its tint */
+  --x-state-needs: color-mix(in oklab, var(--nim-warning), var(--nim-text) 25%);
+  --x-state-failed: color-mix(in oklab, var(--nim-error), var(--nim-text) 10%);
+}
+
+/* Orbs take the accent text tone; "needs you" (the listening orb) takes the warning tone */
+canvas[data-orb] {
+  --orb-dot-size: var(--x-orb-dot-size);
+  color: var(--x-orb-ink);
+}
+canvas[data-orb="listening"] {
+  color: var(--x-state-needs);
 }
 
 /* Reduced motion: no durations */

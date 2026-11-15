@@ -1,17 +1,18 @@
 // Tests for hooks/transcript-check.mjs. Run: node test-transcript-check.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
   existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
   utimesSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/transcript-check.mjs", import.meta.url),

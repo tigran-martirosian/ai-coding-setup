@@ -3,6 +3,7 @@
 // and only log what they would stop. The last case, on Windows, uses the real process list and taskkill, on two
 // node processes this test starts itself: the one started during the call is closed, the one started before is kept.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

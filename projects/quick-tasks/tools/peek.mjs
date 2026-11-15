@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 // peek.mjs: open pages in the hunt's browser session, one after another, and print each one's
 // address, title and the start of its text. Give every page in one command: about 2 to 6 seconds a page.
 //   node tools/peek.mjs <url>... [chars, default 600] [--find "words"] [--save <file>] [--engine nimbalyst|obscura]
@@ -11,7 +12,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { connect } from "./browser.mjs";
 
 const args = process.argv.slice(2);
@@ -101,6 +101,7 @@ function obscuraPage(exe, url) {
       if (!out.trim()) {
         const why =
           err
+            // biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal colour codes, which start with ESC
             .replace(/\x1b\[[0-9;]*m/g, "")
             .split("\n")
             .map((l) => l.trim())
@@ -202,6 +203,7 @@ try {
           same = 0;
         for (let i = 0; i < 10 && same < 2; i++) {
           await new Promise((r) => setTimeout(r, 500));
+          // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
           const n = (document.body?.innerText || "").length;
           same = n && n === last ? same + 1 : 0;
           last = n;
@@ -209,6 +211,7 @@ try {
         return {
           url: location.href,
           title: document.title,
+          // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
           body: document.body?.innerText || "",
         };
       }, {});

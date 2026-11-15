@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 // recheck-dates: SessionStart hook. Tells when a fact that can change is past its recheck date. A fact carries the
 // date at the end of its line or bullet, `(recheck YYYY-MM-DD)` (in a memory note: in the body); a line without it
 // never expires. Read line by line, nothing else parsed, for the session's folder: docs/facts.md, CLAUDE.md,
@@ -21,10 +24,7 @@
 // Fails open. RECHECK_DATES=off disables the hook (not the CLI), the backup line with it.
 import { isMain, runHook } from "./lib/hook-io.mjs";
 import { projectRoot } from "./lib/paths.mjs";
-import { STATE_DIR, readJson, writeJson } from "./lib/state.mjs";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { readJson, STATE_DIR, writeJson } from "./lib/state.mjs";
 
 const DATE = /\(recheck (\d{4}-\d{2}-\d{2})\)/;
 const MAX_BYTES = 512 * 1024;

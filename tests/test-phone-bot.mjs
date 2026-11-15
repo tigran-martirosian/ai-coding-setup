@@ -1,11 +1,11 @@
 #!/usr/bin/env node
+import { spawn, spawnSync } from "node:child_process";
 // Tests how inbox-bot.mjs starts and stops. Each case runs the real bot in a made-up home folder
 // with fetch replaced (stub-fetch.mjs), so nothing reaches Telegram and the running bot is
 // left alone.   node test-inbox-bot.mjs
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -28,7 +28,7 @@ function check(name, ok, detail) {
 }
 
 function makeHome(name) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ib-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), `ib-${name}-`));
   fs.mkdirSync(path.join(home, ".telegram-control"));
   fs.writeFileSync(
     path.join(home, ".telegram-control", "secrets.json"),

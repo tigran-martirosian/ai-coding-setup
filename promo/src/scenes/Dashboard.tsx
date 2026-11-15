@@ -1,7 +1,7 @@
 import React from "react";
 import { useCurrentFrame } from "remotion";
 import { Appear, appear } from "../anim";
-import { Scene, SceneProps } from "../Scene";
+import { Scene, type SceneProps } from "../Scene";
 import { color } from "../theme";
 import { Bar } from "../ui";
 

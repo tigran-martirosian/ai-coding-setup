@@ -6,15 +6,32 @@
  * This file only draws them.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PanelHostProps } from "@nimbalyst/extension-sdk";
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import type { PanelHostProps } from "@nimbalyst/extension-sdk";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import "../../shared/tokens.css";
 import "./panel.css";
-import { t } from "./strings.ts";
+import { hostError, hostInvoke as invoke } from "../../shared/host.ts";
+import type { Place } from "./layout.ts";
+import {
+  LABEL_BASELINE,
+  labelBox,
+  labelMeasure,
+  labelWidth,
+  layout,
+  radius,
+} from "./layout.ts";
+import type { Check, Evidence, Link, MapData, Thing } from "./map.ts";
 import {
   absolute,
   checkLine,
@@ -23,13 +40,10 @@ import {
   projectName,
   sizeLine,
 } from "./map.ts";
-import type { Check, Evidence, Link, MapData, Thing } from "./map.ts";
 import { search } from "./search.ts";
-import { layout, radius } from "./layout.ts";
-import type { Place } from "./layout.ts";
-import { REFRESH_MS, build, read } from "./store.ts";
 import type { Snapshot } from "./store.ts";
-import { hostError, hostInvoke as invoke } from "../../shared/host.ts";
+import { build, REFRESH_MS, read } from "./store.ts";
+import { t } from "./strings.ts";
 
 const Sym = ({ name }: { name: string }) => (
   <span className="material-symbols-outlined sm-sym" aria-hidden="true">
@@ -100,12 +114,12 @@ function useReading(
 
 // ---- the graph ----------------------------------------------------------------------------------------------------------------------
 
-const WORLD = { width: 1000, height: 700 };
+/** The layout's box is the canvas in CSS px, in steps of WORLD_STEP so a small resize keeps the picture: the
+ *  map opens at 1:1, where the labels were laid out at their real size. */
+const WORLD_STEP = 40;
 const SEED = 7;
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 6;
-const LABEL_HEIGHT = 15;
-const LABEL_CHAR = 6.3; // 12px UI font, average letter
 
 interface View {
   x: number;
@@ -116,10 +130,15 @@ interface View {
 const clamp = (v: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, v));
 
+interface World {
+  width: number;
+  height: number;
+}
+
 /** The view that shows the whole layout in a box of this size. */
-function fitView(w: number, h: number): View {
-  const k = Math.min(w / WORLD.width, h / WORLD.height) * 0.94;
-  return { k, x: (w - WORLD.width * k) / 2, y: (h - WORLD.height * k) / 2 };
+function fitView(w: number, h: number, world: World): View {
+  const k = Math.min(w / world.width, h / world.height);
+  return { k, x: (w - world.width * k) / 2, y: (h - world.height * k) / 2 };
 }
 
 interface GraphProps {
@@ -146,6 +165,8 @@ function Graph({
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
+  // the canvas and the part card together: the box the layout fills
+  const [full, setFull] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
   const [hover, setHover] = useState("");
   const touched = useRef(false);
@@ -175,20 +196,46 @@ function Graph({
     }
     return m;
   }, [map]);
+  // Each label's box is the width its name takes in the label font, so a name never runs past its box
+  const measure = useMemo(labelMeasure, []);
+  // The zoom buttons and the key sit over the bottom of the canvas: the drawing keeps above them
+  const [under, setUnder] = useState(0);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const tall = Math.max(
+      0,
+      ...[...el.querySelectorAll<HTMLElement>(".sm-zoom, .sm-legend")].map(
+        (e) =>
+          el.getBoundingClientRect().bottom - e.getBoundingClientRect().top,
+      ),
+    );
+    setUnder(Math.min(Math.round(tall), Math.round(size.h / 3)));
+  });
+  // The layout box is the canvas and the part card together (.sm-main): opening or closing the card narrows
+  // the canvas only, so the dots stay where they are and the view is kept; a real resize lays out again.
+  const fitH = Math.max(WORLD_STEP, full.h - under);
+  const ww = Math.max(WORLD_STEP, Math.round(full.w / WORLD_STEP) * WORLD_STEP);
+  const wh = Math.max(WORLD_STEP, Math.round(fitH / WORLD_STEP) * WORLD_STEP);
+  const world = useMemo(() => ({ width: ww, height: wh }), [ww, wh]);
+  const measured = full.w > 0 && full.h > 0;
   const places = useMemo(
     () =>
-      layout(
-        map.things.map((n) => n.id),
-        map.links.map((l): [string, string] => [l.from, l.to]),
-        {
-          ...WORLD,
-          seed: SEED,
-          pad: radius(Math.max(0, ...degree.values())) + 6,
-          groups: map.things.map((n) => n.group),
-          radii: map.things.map((n) => radius(degree.get(n.id) ?? 0)),
-        },
-      ),
-    [map, degree],
+      measured
+        ? layout(
+            map.things.map((n) => n.id),
+            map.links.map((l): [string, string] => [l.from, l.to]),
+            {
+              ...world,
+              seed: SEED,
+              pad: radius(Math.max(0, ...degree.values())) + 6,
+              groups: map.things.map((n) => n.group),
+              radii: map.things.map((n) => radius(degree.get(n.id) ?? 0)),
+              labels: map.things.map((n) => labelWidth(n.name, measure)),
+            },
+          )
+        : new Map<string, Place>(),
+    [map, degree, world, measure, measured],
   );
   const found = useMemo(
     () => search(query, map.things, map.links),
@@ -202,17 +249,28 @@ function Graph({
       setSize({ w: entry.contentRect.width, h: entry.contentRect.height }),
     );
     watcher.observe(el);
-    return () => watcher.disconnect();
+    const main = el.parentElement;
+    if (!main) throw new Error("the map canvas has no .sm-main box around it");
+    const mainWatcher = new ResizeObserver(([entry]) =>
+      setFull({ w: entry.contentRect.width, h: entry.contentRect.height }),
+    );
+    mainWatcher.observe(main);
+    return () => {
+      watcher.disconnect();
+      mainWatcher.disconnect();
+    };
   }, []);
 
   // The whole map is shown until the person moves it by hand; a new layout starts again from the whole.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: places (a new layout) is the trigger: the effect must run again when it changes
   useEffect(() => {
     touched.current = false;
   }, [places]);
+  // Refit only when the layout box changes (full), never when the card alone narrows the canvas (size)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: full and places (a new layout) are the triggers; fitH, world and measured follow full
   useEffect(() => {
-    if (size.w > 0 && size.h > 0 && !touched.current)
-      setView(fitView(size.w, size.h));
-  }, [size, places]);
+    if (measured && !touched.current) setView(fitView(full.w, fitH, world));
+  }, [full, places]);
 
   const zoomAt = useCallback((factor: number, px: number, py: number) => {
     touched.current = true;
@@ -296,8 +354,10 @@ function Graph({
     y: p.y * view.k + view.y,
   });
 
-  // Labels: the focused part and its neighbours first, then matches, then the busiest parts; one that
-  // would cover an earlier label is left out. Zooming in makes room for the rest.
+  // Labels, always under their dot: the focused part and its neighbours first, then matches, then the busiest
+  // parts. At the opening view the layout left room for every one; zoomed out, one that would cover an earlier
+  // label is left out until zooming in makes room again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: r and screen are new on every render and read view, which is listed; listing them would rerun this on every render
   const labels = useMemo(() => {
     const order = [...map.things].sort(
       (a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0),
@@ -314,7 +374,7 @@ function Graph({
               : 3;
     order.sort((a, b) => rank(a) - rank(b));
     const boxes: Array<[number, number, number, number]> = [];
-    // label baseline per shown part: under its dot, or above it when the space below is taken
+    // label baseline per shown part
     const shown = new Map<string, number>();
     // dimmed dots fade into the background, so only lit ones keep a label off them
     const dots = map.things.flatMap((m) => {
@@ -337,48 +397,36 @@ function Graph({
       const rk = rank(n);
       if (rk === 4) continue;
       const s = screen(p);
-      const w = n.name.length * LABEL_CHAR + 6;
-      const rn = r(n.id);
-      const below: [number, number, number, number] = [
-        s.x - w / 2,
-        s.y + rn + 2,
-        s.x + w / 2,
-        s.y + rn + 2 + LABEL_HEIGHT,
-      ];
-      const above: [number, number, number, number] = [
-        s.x - w / 2,
-        s.y - rn - 2 - LABEL_HEIGHT,
-        s.x + w / 2,
-        s.y - rn - 2,
-      ];
-      if (
-        below[2] < 0 ||
-        below[0] > size.w ||
-        below[3] < 0 ||
-        above[1] > size.h
-      )
+      const box = labelBox(s.x, s.y, r(n.id), labelWidth(n.name, measure));
+      if (box[2] < 0 || box[0] > size.w || box[3] < 0 || box[1] > size.h)
         continue;
-      const free = (box: [number, number, number, number]) =>
-        !boxes.some(
-          (b) =>
-            box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1],
-        );
-      let box: [number, number, number, number] | undefined;
-      if (rk === 0)
-        box = [below, above].find((b) => !underDot(n.id, b)) ?? below;
-      else box = [below, above].find((b) => free(b) && !underDot(n.id, b));
-      // the parts linked to the one in focus may sit over a dimmed dot; never over a label
-      if (!box && rk === 1) box = [below, above].find(free);
-      if (!box) continue;
+      const free = !boxes.some(
+        (b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1],
+      );
+      // the part in focus is always named; the parts linked to it may sit over a dimmed dot, never over a label
+      if (rk !== 0 && !(free && (rk === 1 || !underDot(n.id, box)))) continue;
       boxes.push(box);
-      shown.set(n.id, box[3] - 4);
+      shown.set(n.id, box[3] - LABEL_BASELINE);
     }
     return shown;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, places, view, size, focusId, focusSet, matches, lit, degree]);
+  }, [
+    map,
+    places,
+    view,
+    size,
+    focusId,
+    focusSet,
+    matches,
+    lit,
+    degree,
+    measure,
+  ]);
 
   const name = new Map(map.things.map((n) => [n.id, n.name]));
   const keyRows = useMemo(() => legend(map), [map]);
+  // dots differ in size when parts have different link counts
+  const sizes = new Set(degree.values()).size > 1;
   const slotOf = useMemo(
     () => new Map(keyRows.map((g) => [g.name, g.slot])),
     [keyRows],
@@ -401,6 +449,7 @@ function Graph({
 
   return (
     <div className="sm-canvas" ref={boxRef}>
+      {/* biome-ignore lint/a11y/useSemanticElements: an <svg> cannot be a <fieldset>; the group role names the drawing for screen readers */}
       <svg
         ref={svgRef}
         className="sm-svg"
@@ -420,6 +469,7 @@ function Graph({
             const on = lineLit(l);
             return (
               <line
+                // biome-ignore lint/suspicious/noArrayIndexKey: links have no id and the same from/to pair can repeat; the list is rebuilt whole
                 key={i}
                 className={`sm-edge t-${l.type}${drifted.has(linkKey(l.from, l.to)) ? " is-drift" : ""}${focusId && on ? " is-lit" : ""}${on ? "" : " is-dim"}`}
                 x1={sa.x}
@@ -444,6 +494,7 @@ function Graph({
               dim ? "is-dim" : "",
             ];
             return (
+              // biome-ignore lint/a11y/useSemanticElements: an SVG <g> cannot be a <button>; it has tabIndex and key handling instead
               <g
                 key={n.id}
                 className={cls.filter(Boolean).join(" ")}
@@ -465,6 +516,7 @@ function Graph({
           })}
         </g>
         {/* labels in their own layer, above every dot, so a neighbour's dot never covers one */}
+        {/* biome-ignore lint/a11y/noAriaHiddenOnFocusable: the label layer holds no focusable element; it repeats the names the dots carry */}
         <g aria-hidden="true">
           {map.things.map((n) => {
             const p = places.get(n.id);
@@ -510,13 +562,14 @@ function Graph({
           title={t.fit}
           onClick={() => {
             touched.current = false;
-            setView(fitView(size.w, size.h));
+            setView(fitView(size.w, fitH, world));
           }}
         >
           <Sym name="fit_screen" />
         </button>
       </div>
-      {keyRows.length > 0 && (
+      {/* Every colour and size the drawing uses, in words: groups, the grey of no group, dot size, a changed link */}
+      {(keyRows.length > 0 || sizes || drifted.size > 0) && (
         <ul className="sm-legend" aria-label={t.legend}>
           {keyRows.map((g) => (
             <li key={g.name} className="sm-legend-row">
@@ -524,6 +577,27 @@ function Graph({
               {g.name}
             </li>
           ))}
+          {keyRows.length > 0 && map.things.some((n) => !n.group) && (
+            <li className="sm-legend-row">
+              <span className="sm-swatch" aria-hidden="true" />
+              {t.noGroup}
+            </li>
+          )}
+          {sizes && (
+            <li className="sm-legend-row">
+              <span className="sm-sizes" aria-hidden="true">
+                <span className="sm-swatch is-small" />
+                <span className="sm-swatch is-big" />
+              </span>
+              {t.sizeKey}
+            </li>
+          )}
+          {drifted.size > 0 && (
+            <li className="sm-legend-row">
+              <span className="sm-line-swatch is-drift" aria-hidden="true" />
+              {t.driftKey}
+            </li>
+          )}
         </ul>
       )}
       {noMatch && <div className="sm-nomatch">{t.noMatch(query.trim())}</div>}
@@ -593,6 +667,7 @@ function FileList({
 const breakable = (p: string) =>
   p
     .split("/")
+    // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one path string; their order never changes
     .flatMap((part, i) => (i ? ["/", <wbr key={i} />, part] : [part]));
 
 function Card({
@@ -610,6 +685,7 @@ function Card({
     (l) => l.from === thing.id || l.to === thing.id,
   );
   const [open, setOpen] = useState<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: thing.id (another part picked) is the trigger: the effect must run again when it changes
   useEffect(() => setOpen(null), [thing.id]);
   return (
     <aside className="sm-card" aria-label={thing.name}>
@@ -661,6 +737,7 @@ function Card({
           const changed = new Map(hits.map((d) => [d.file, d.token]));
           const files = l.evidence.map((e: Evidence) => e.file);
           return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: links have no id and the same from/to pair can repeat; the list is rebuilt whole
             <li key={i} className="sm-link">
               <button
                 type="button"
@@ -794,7 +871,7 @@ function SystemsMapPanel({ host }: PanelHostProps) {
       ? snapshot.check.gone.join(", ")
       : "";
 
-  let body;
+  let body: ReactNode;
   if (error && !snapshot) {
     body = (
       <div className="sm-empty">
@@ -853,6 +930,7 @@ function SystemsMapPanel({ host }: PanelHostProps) {
   }
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: catches the keys of the focusable parts inside the panel
     <div className="sm" ref={rootRef} onKeyDown={onKeyDown} data-systems-map>
       <header className="sm-head">
         <div className="sm-titles">

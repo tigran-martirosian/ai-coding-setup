@@ -1,8 +1,8 @@
 /**
  * Single in-app player (Web Audio). Text is cleaned, chunked, and synthesized
  * one chunk ahead of playback, so long replies start speaking quickly.
- * Only one item plays at a time; a manual play replaces whatever is playing,
- * auto-read items queue behind it. No files are written: audio arrives as
+ * Only one item plays at a time; a play replaces whatever is playing.
+ * No files are written: audio arrives as
  * base64 WAV and is decoded in memory.
  */
 
@@ -40,7 +40,6 @@ class Player {
   private gen = 0;
   private ctx: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
-  private pending: Array<{ key: string; markdown: string }> = [];
 
   get = () => this.state;
 
@@ -56,17 +55,9 @@ class Player {
     this.listeners.forEach((l) => l());
   }
 
-  /** Manual play: stops anything current and clears the auto-read queue. */
+  /** Stops anything current and plays this. */
   play(key: string, markdown: string) {
-    this.pending = [];
     void this.start(key, markdown);
-  }
-
-  /** Auto-read: plays now if idle, otherwise waits its turn. */
-  enqueue(key: string, markdown: string) {
-    if (this.state.status === "idle") void this.start(key, markdown);
-    else if (this.state.key !== key && !this.pending.some((p) => p.key === key))
-      this.pending.push({ key, markdown });
   }
 
   private async start(key: string, markdown: string) {
@@ -81,7 +72,7 @@ class Player {
         key: null,
         error: { key, message: t.nothingToRead },
       });
-      return this.next();
+      return;
     }
     this.set({
       status: "synthesizing",
@@ -107,6 +98,7 @@ class Player {
 
       let next: Promise<AudioBuffer> | null = synth(0);
       for (let i = 0; i < chunks.length; i++) {
+        // biome-ignore lint/style/noNonNullAssertion: next is null only after the last chunk, where the loop ends
         const buf: AudioBuffer = await next!;
         if (g !== this.gen) return;
         next = i + 1 < chunks.length ? synth(i + 1) : null;
@@ -122,15 +114,7 @@ class Player {
       if (g !== this.gen) return;
       const message = err instanceof Error ? err.message : String(err);
       this.set({ status: "idle", key: null, error: { key, message } });
-      this.pending = [];
-      return;
     }
-    this.next();
-  }
-
-  private next() {
-    const item = this.pending.shift();
-    if (item) void this.start(item.key, item.markdown);
   }
 
   private playBuffer(ctx: AudioContext, buf: AudioBuffer): Promise<void> {
@@ -151,7 +135,7 @@ class Player {
     return this.ctx?.state === "suspended";
   }
 
-  /** Stop audio and invalidate in-flight work without touching the queue. */
+  /** Stop audio and invalidate in-flight work . */
   private halt(cancelBackend: boolean) {
     this.gen++;
     const src = this.source;
@@ -169,7 +153,6 @@ class Player {
   }
 
   stop() {
-    this.pending = [];
     const wasActive = this.state.status !== "idle";
     this.halt(wasActive);
     if (wasActive) this.set({ status: "idle", key: null, chunk: 0, total: 0 });
@@ -192,7 +175,7 @@ class Player {
     this.set({ status: this.source ? "playing" : "synthesizing" });
   }
 
-  /** Jump to the next chunk (or the next queued item after the last chunk). */
+  /** Jump to the next chunk (after the last chunk, playback ends). */
   async skip() {
     const src = this.source;
     if (!this.ctx || !src || this.state.status === "idle") return;

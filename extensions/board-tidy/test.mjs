@@ -1,14 +1,15 @@
 // Checks Board Tidy: the chooser's rules (phases and days, pinned, running, worktree, whole subtree,
 // parent covers child), the command line against a scratch database (read-only, 50-minute gap, dry
 // run, log, undo), and the build (manifest, exports, Russian words). Run: node test.mjs
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { pickSessions, ownReason, toMs, scopeOf, folderKey } from "./pick.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildFor, createChecks } from "../shared/check.mjs";
+import { folderKey, ownReason, pickSessions, scopeOf, toMs } from "./pick.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const { check, finish } = createChecks();

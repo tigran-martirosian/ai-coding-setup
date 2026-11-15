@@ -5,20 +5,38 @@
       "PreToolUse": [
         {
           "matcher": "mcp__nimbalyst__display_to_user",
-          "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/picture-gate.mjs", "timeout": 10 }]
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node ~/.claude/hooks/picture-gate.mjs",
+              "timeout": 10
+            }
+          ]
         }
       ],
       "Stop": [
         {
-          "hooks": [{ "type": "command", "command": "node ~/.claude/hooks/picture-gate.mjs", "timeout": 10 }]
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node ~/.claude/hooks/picture-gate.mjs",
+              "timeout": 10
+            }
+          ]
         }
       ]
     }
   },
   "notes": {
     "quick-tasks": [
-      { "without": ["codex"], "line": "- Codex is not set up. Where this file or a skill says Codex, look things up with WebSearch (several searches in one turn); in a hunt, open the pages with `tools/peek.mjs` as usual." },
-      { "without": ["codex"], "line": "- No generated pictures here (the picture skill needs Codex): say so in one line and offer a description or a diagram." }
+      {
+        "without": ["codex"],
+        "line": "- Codex is not set up. Where this file or a skill says Codex, look things up with WebSearch (several searches in one turn); in a hunt, open the pages with `tools/peek.mjs` as usual."
+      },
+      {
+        "without": ["codex"],
+        "line": "- No generated pictures here (the picture skill needs Codex): say so in one line and offer a description or a diagram."
+      }
     ]
   },
   "retired": ["ask-anything", "internet-search"]

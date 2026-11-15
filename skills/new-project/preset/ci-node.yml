@@ -1,0 +1,40 @@
+# CI for a Node project. Copied to .github/workflows/ci.yml by /new-project or /update-project.
+# Job shape from GitHub's starter file ci/node.js.yml; actions pinned by commit SHA (Dependabot's
+# github-actions entry keeps the pins fresh).
+# The skill adjusts, before copying:
+# - a .nvmrc file exists: replace `node-version: lts/*` with `node-version-file: .nvmrc`
+# - no package-lock.json: drop the `cache: npm` line and use `npm install` in place of `npm ci`
+# - systems: see the `os` list below (the new-project skill, step 2b, "CI systems")
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npm run lint --if-present
+      - run: npm run build --if-present
+      - run: npm test

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 // Test of skills/watch/watch.mjs on a 20-second video that ffmpeg draws here (no network).
 // WATCH_SCRIPT points the test at another copy of the script (default: this repo's).
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const script =

@@ -17,7 +17,7 @@
 // Paths: CLAUDE_BACKUP_HOME (default ~/.claude-backup: password, b2.env, config.json, bin/, logs/), CLAUDE_HOME (default
 // ~/.claude, always backed up). The restic password reaches restic only as RESTIC_PASSWORD_FILE, the B2 key only as env
 // vars; neither is ever put on a command line or printed (except the password once, on the recovery sheet in setup).
-import { spawnSync, spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -1083,11 +1083,25 @@ async function b2(apiName, url, { token, basic, body }) {
 
 // B2 bucket (private, hidden versions kept 30 days) and a key for it that cannot delete. The master key stays in memory.
 async function makeB2() {
-  console.log(
-    "Backblaze: Application Keys > Master Application Key. Typing is hidden; paste and press Enter.",
-  );
-  const masterId = await ask("Master key ID: ", true);
-  const masterKey = await ask("Master application key: ", true);
+  // A terminal that cannot paste: the keys can sit in master-key.txt (line 1 key ID, line 2 key).
+  // The file is read once and deleted at once.
+  const keyFile = path.join(BK, "master-key.txt");
+  let masterId;
+  let masterKey;
+  if (fs.existsSync(keyFile)) {
+    [masterId, masterKey] = fs
+      .readFileSync(keyFile, "utf8")
+      .split(/\r?\n/)
+      .map((l) => l.trim());
+    fs.rmSync(keyFile);
+    console.log(`Keys read from ${keyFile}; the file is deleted.`);
+  } else {
+    console.log(
+      "Backblaze: Application Keys > Master Application Key. Typing is hidden; paste and press Enter.",
+    );
+    masterId = await ask("Master key ID: ", true);
+    masterKey = await ask("Master application key: ", true);
+  }
   if (!masterId || !masterKey) stop("key ID and key are both needed");
   const auth = await b2(
     "b2_authorize_account",

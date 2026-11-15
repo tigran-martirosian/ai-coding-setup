@@ -6,8 +6,8 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types test/command.test.ts && node --experimental-strip-types test/format.test.ts && node --experimental-strip-types test/dashboard-data.test.ts",
-    "install-ext": "node scripts/install.mjs"
+    "test": "node --experimental-strip-types test/command.test.ts && node --experimental-strip-types test/format.test.ts && node --experimental-strip-types test/dashboard-data.test.ts && node --experimental-strip-types test/type-levels.test.ts",
+    "install-ext": "npm run build && node scripts/install.mjs"
   },
   "devDependencies": {
     "@nimbalyst/extension-sdk": "^0.6.0",

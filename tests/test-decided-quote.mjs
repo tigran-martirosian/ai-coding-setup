@@ -1,8 +1,9 @@
 // Test for hooks/decided-quote.mjs. Run: node test-decided-quote.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import assert from "node:assert/strict";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/decided-quote.mjs", import.meta.url),

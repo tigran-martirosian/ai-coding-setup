@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { writeSync } from "node:fs";
 // budget-gate: a PreToolUse hook on Agent/Task. A worker, worker-full, worker-code or worker-refactor brief whose stated budget is over 50 tool calls
 // is refused: a worker stops at 80 turns, and steps run over their estimate when they read code nobody summarised
 // (a step briefed at 70 calls used 115, built nothing on the first run, and refused the next step it was handed).
@@ -6,8 +7,7 @@
 // A planner call gets a one-line notice for the user instead: a plan takes minutes and nothing shows until it
 // reports, so a long one looked stuck.
 // It fails open on any error. BUDGET_GATE=off disables it.
-import { runHook, isMain, emit } from "./lib/hook-io.mjs";
-import { writeSync } from "node:fs";
+import { emit, isMain, runHook } from "./lib/hook-io.mjs";
 
 export const MAX = 50;
 const WORKER_TYPES = new Set([

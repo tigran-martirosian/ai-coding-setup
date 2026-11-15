@@ -1,7 +1,7 @@
 // Checks the agent definitions in the agents folder of this repository that the rules depend on. Run: node tests/test-agents.mjs
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const AGENTS = fileURLToPath(new URL("../agents/", import.meta.url));
 const read = (name) =>
@@ -12,7 +12,7 @@ const parts = (text) => {
   return { head: m[1], body: m[2].trim() };
 };
 const has = (head, key, value) =>
-  new RegExp(String.raw`^${key}:[ ]*${value}[ ]*$`, "m").test(head);
+  new RegExp(`^${key}:[ ]*${value}[ ]*$`, "m").test(head);
 const tools = (head) =>
   (head.match(/^tools:\s*(.*)$/m)?.[1] || "").split(/,\s*/);
 
@@ -202,7 +202,7 @@ const checks = [
   // Intent-drift fix I2 (docs/2026-11-12-intent-drift-fix-plan.md): the user's purpose travels with each row and both gates check it
   [
     "plan-reviewer item 2 greps DECISIONS itself and flags narrower, safer or opposite rows, a missing or pointer-only Serves, a Done when that passes with the purpose unmet",
-    /2\. \*\*Does what the user said it is for\.\*\*[^\n]*Grep `DECISIONS\.md` yourself[^\n]*whatever the brief quotes[^\n]*narrower than, safer than or opposite[^\n]*missing or only a pointer[^\n]*Done when that passes while the purpose is unmet[^\n]*user ticked[^\n]*no finding/.test(
+    /2\. \*\*Does what the user said it is for\.\*\*[^\n]*Grep `DECISIONS\.md` and `docs\/decisions\/` yourself[^\n]*whatever the brief quotes[^\n]*narrower than, safer than or opposite[^\n]*missing or only a pointer[^\n]*Done when that passes while the purpose is unmet[^\n]*user ticked[^\n]*no finding/.test(
       planRev.body,
     ),
   ],
@@ -237,7 +237,7 @@ const checks = [
   ],
   [
     "reviewer checks the build against the user's stated purpose and names each part of the quote it cannot do",
-    /\*\*Against the request and the plan\*\*[\s\S]*Does what the user said it is for\.[^\n]*Grep `DECISIONS\.md` yourself[^\n]*name each part of the quote the build cannot do[\s\S]*\*\*Quality\*\*/.test(
+    /\*\*Against the request and the plan\*\*[\s\S]*Does what the user said it is for\.[^\n]*Grep `DECISIONS\.md` and `docs\/decisions\/` yourself[^\n]*name each part of the quote the build cannot do[\s\S]*\*\*Quality\*\*/.test(
       rev.body,
     ) &&
       /\*\*Against the request:\*\*[^\n]*each part of the user's stated purpose the build cannot do/.test(
@@ -274,8 +274,8 @@ const checks = [
     ),
   ],
   [
-    "plan-reviewer reads DECISIONS by grep and the map",
-    /never a whole read/.test(planRev.body) &&
+    "plan-reviewer reads DECISIONS and docs/decisions by grep and the map",
+    /a Grep of `DECISIONS\.md` and `docs\/decisions\/`/.test(planRev.body) &&
       /map\.mjs --near/.test(planRev.body),
   ],
   [
@@ -305,8 +305,9 @@ const checks = [
       /\*\*Do not flag\*\*/.test(rev.body),
   ],
   [
-    "reviewer reads DECISIONS by grep and the map",
-    /never a whole read/.test(rev.body) && /map\.mjs --near/.test(rev.body),
+    "reviewer reads DECISIONS and docs/decisions by grep and the map",
+    /a Grep of `DECISIONS\.md` and `docs\/decisions\/`/.test(rev.body) &&
+      /map\.mjs --near/.test(rev.body),
   ],
   [
     "reviewer no longer says one is enough, and splits a big job into parts",
@@ -372,7 +373,9 @@ const checks = [
     "stuck-advisor's description has the tests-pass-but-wrong trigger, the 3-call budget and leaves a long refactor to worker-refactor",
     /tests pass but the behaviour is still wrong/.test(desc(advisor.head)) &&
       /At most 3 calls a session/.test(desc(advisor.head)) &&
-      /long refactor[^.]*worker-refactor[^.]*never both/.test(desc(advisor.head)),
+      /long refactor[^.]*worker-refactor[^.]*never both/.test(
+        desc(advisor.head),
+      ),
   ],
   [
     "stuck-advisor's brief is at most 300 words, its answer under 200, with one follow-up that names wrong advice",
@@ -395,8 +398,10 @@ const checks = [
     ["plan-reviewer", planRev.body],
     ["reviewer", rev.body],
   ].map(([name, text]) => [
-    `${name} reads the purpose record and the newest dated section, and holds a failing PURPOSE CHECK row Important as it stands`,
-    /first section `## What each thing is for` \(the purpose record\) and its newest dated section below it/.test(text) &&
+    `${name} reads the purpose record and the index, topic files and newest job files, and holds a failing PURPOSE CHECK row Important as it stands`,
+    /then the topic file for each topic the plan touches and the job files of the newest date/.test(
+      text,
+    ) &&
       !/the top section of the project's `DECISIONS\.md`/.test(text) &&
       text.includes(
         "The brief's `FOR` and `PURPOSE CHECK` lines are code results from the purpose record: a row they fail is Important as it stands",
@@ -404,11 +409,33 @@ const checks = [
   ]),
   [
     "new-project starts DECISIONS.md with the purpose record, then dated sections newest first",
-    /\| `DECISIONS\.md` \| First the section `## What each thing is for` \(the purpose record, empty at the start\), then the decisions in force in dated sections, newest first/.test(
+    /\| `DECISIONS\.md` \| The index: first `## What each thing is for` \(the purpose record, empty at the start\), then decisions in dated sections, newest first/.test(
       newProject,
     ),
   ],
 ];
+// Claude Code drops an agent whose frontmatter is not valid YAML; its quoting retry works only on LF files, and
+// installed copies can be CRLF (blind-reviewer went missing that way). So no plain value may hold ": " or " #",
+// or start with a YAML indicator; such a value goes in quotes.
+const unsafe = readdirSync(AGENTS)
+  .filter((f) => f.endsWith(".md"))
+  .flatMap((f) =>
+    parts(read(f.slice(0, -3)))
+      .head.split("\n")
+      .filter((l) => /^[a-zA-Z]+:/.test(l))
+      .map((l) => [f, l.replace(/^[a-zA-Z]+:\s*/, "")])
+      .filter(
+        ([, v]) =>
+          !/^(["']).*\1$/.test(v) &&
+          (/: | #/.test(v) || /^[[{*&!|>%@`"']/.test(v)),
+      )
+      .map(([f, v]) => `${f}: ${v.slice(0, 60)}`),
+  );
+if (unsafe.length) console.log(unsafe.join("\n"));
+checks.push([
+  'every agent frontmatter value parses as plain YAML (quoted when it holds ": " or " #")',
+  unsafe.length === 0,
+]);
 let fail = 0;
 for (const [name, ok] of checks) {
   if (!ok) fail++;

@@ -6,8 +6,8 @@
 // goes through and the sidebar panel opens as before.
 
 import type { ReactNode } from "react";
-import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
+import { createRoot } from "react-dom/client";
 
 export const BUTTON = 'button[data-panel-id*="commandbuttons"]';
 const ID = "command-buttons-popover";
@@ -49,6 +49,7 @@ function open(anchor: Element) {
   box.tabIndex = -1;
   document.body.appendChild(box);
   root = createRoot(box);
+  // biome-ignore lint/style/noNonNullAssertion: installPopover sets view before any popover can open
   root.render(view!());
   place(anchor);
   // Focus goes in once React has drawn the list: onto the first row, or the window itself if there is none
@@ -83,9 +84,19 @@ const onResize = () => {
   if (anchored) place(anchored);
 };
 
+/** While a row asks "start again?" or a pick is open, the list closes that first, one per Esc. */
+export const LIST_TAKES_ESC = '[data-asking], [aria-expanded="true"]';
+
+// The list hears only an Esc pressed inside it; one from anywhere else in the popover closes the popover
+const fromList = (target: EventTarget | null) =>
+  target instanceof Element && !!target.closest("[data-command-buttons]");
+
 const onKey = (e: KeyboardEvent) => {
-  // while a row asks "start again?", Esc answers that question first
-  if (e.key === "Escape" && box && !box.querySelector("[data-asking]"))
+  if (
+    e.key === "Escape" &&
+    box &&
+    !(box.querySelector(LIST_TAKES_ESC) && fromList(e.target))
+  )
     closePopover(true);
 };
 

@@ -57,7 +57,7 @@ const ignored = (() => {
   );
 })();
 
-const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const listed = fs.existsSync(WORDS_FILE)
   ? fs
       .readFileSync(WORDS_FILE, "utf8")
@@ -81,7 +81,7 @@ const PATTERNS = [
   [
     "this computer's home folder",
     new RegExp(
-      `${escape(home)}|${escape(home.replace(/\\/g, "/"))}|${escape(home.replace(/\\/g, "\\\\"))}`,
+      `${escapeRegExp(home)}|${escapeRegExp(home.replace(/\\/g, "/"))}|${escapeRegExp(home.replace(/\\/g, "\\\\"))}`,
       "i",
     ),
   ],
@@ -107,7 +107,10 @@ const PATTERNS = [
       "i",
     ),
   ],
-  ...words.map((w) => [`private word "${w}"`, new RegExp(escape(w), "i")]),
+  ...words.map((w) => [
+    `private word "${w}"`,
+    new RegExp(escapeRegExp(w), "i"),
+  ]),
 ];
 const BAD_NAME = [
   ["backup file", /\.bak(\.|$)|~$/i],

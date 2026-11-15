@@ -25,10 +25,25 @@ check(
     !/idle: ['"]Nothing running['"]/.test(ru),
 );
 check(
-  "russian: kind, time and tool count in the meta line",
+  "russian: Helper word and time in the meta line, tool count in the tooltip",
   ruMod.metaWords("Sub-agent · 2m 10s · 14 tools · stopped", "stopped") ===
-    "Субагент · остановлено · 2м 10с · инструментов: 14" &&
+    "Помощник · остановлено через 2м 10с" &&
+    ruMod.metaTip("Sub-agent · 2m 10s · 14 tools · stopped", "stopped") ===
+      "Помощник · остановлено через 2м 10с · инструментов: 14" &&
     ruMod.metaWords("Command", "completed") === "Команда · готово",
+);
+check(
+  "russian: the new words",
+  ruMod.STRINGS.kinds["Sub-agent"] === "Помощник" &&
+    ruMod.nowWords("Agent") === "ждёт помощника (Agent)" &&
+    ruMod.metaWords("Sub-agent · 1s", "completed") ===
+      "Помощник · готово за 1с" &&
+    ruMod.metaWords("Sub-agent · 12s · failed", "failed") ===
+      "Помощник · сбой через 12с" &&
+    ruMod.metaWords("Sub-agent · 5s", "running") === "Помощник · думает · 5с" &&
+    ruMod.countWords({ running: 1, failed: 0, stopped: 2 }).text ===
+      "Работает: 1 · Остановлено: 2" &&
+    !/Субагент|субагент/.test(ru),
 );
 check(
   "russian: rest of the file untouched",
@@ -43,9 +58,15 @@ const keys = (o) => Object.keys(o).sort().join();
 check(
   "russian: same keys as english",
   keys(ruMod.STRINGS) === keys(enMod.STRINGS) &&
-    keys(ruMod.STRINGS.now) === keys(enMod.STRINGS.now),
+    keys(ruMod.STRINGS.now) === keys(enMod.STRINGS.now) &&
+    keys(ruMod.STRINGS.helperCard) === keys(enMod.STRINGS.helperCard) &&
+    keys(ruMod.STRINGS.helperCard.doing) ===
+      keys(enMod.STRINGS.helperCard.doing),
 );
-// Model names are product names and stay as they are in Russian
+// Model names are product names and stay as they are in Russian; a string of placeholders only ("{role} {doing}")
+// has no words to translate
+const wordsOnly = (w) =>
+  typeof w !== "string" || /\p{L}/u.test(w.replace(/\{\w+\}/g, ""));
 check(
   "russian: every string differs",
   Object.entries(enMod.STRINGS)
@@ -53,7 +74,12 @@ check(
     .every(([k, v]) =>
       typeof v === "string"
         ? v !== ruMod.STRINGS[k]
-        : Object.entries(v).every(([t, w]) => w !== ruMod.STRINGS[k][t]),
+        : Object.entries(v)
+            .filter(([, w]) => wordsOnly(w))
+            .every(([t, w]) => w !== ruMod.STRINGS[k][t]),
+    ) &&
+    Object.entries(enMod.STRINGS.helperCard.doing).every(
+      ([t, w]) => w !== ruMod.STRINGS.helperCard.doing[t],
     ),
 );
 const manifest = JSON.parse(
@@ -95,23 +121,101 @@ check(
   plainTitle(`${"x".repeat(130)}\nmore`) === `X${"x".repeat(129)}`,
 );
 check(
-  "meta: running sub-agent",
+  "meta: running helper, one line (kind, doing, time), tool count only in the tooltip",
   metaWords("Sub-agent · 1s · 1 tool · WebFetch", "running") ===
-    "Sub-agent · 1s · 1 tool · reading a page (WebFetch)",
+    "Helper · reading a page (WebFetch) · 1s" &&
+    mod.metaTip("Sub-agent · 1s · 1 tool · WebFetch", "running") ===
+      "Helper · reading a page (WebFetch) · 1s · 1 tool",
 );
 check(
   "meta: running with unknown tool",
   metaWords("Sub-agent · 5s · 2 tools · FooTool", "running") ===
-    "Sub-agent · 5s · 2 tools · FooTool",
+    "Helper · FooTool · 5s",
 );
+check(
+  "meta: a running helper before its first tool reads thinking, a planner planning",
+  metaWords("Sub-agent · 5s", "running") === "Helper · thinking · 5s" &&
+    metaWords("Sub-agent · 5s", "running", null, 0, {
+      model: "opus",
+      type: "planner",
+    }) === "Helper · planning · 5s · Opus",
+);
+check(
+  "meta: a command the app marks as backgrounded says so",
+  metaWords(
+    "Command",
+    "running",
+    { startedAt: 0, durationMs: 0, isBackgrounded: true },
+    372000,
+  ) === "Command · running in the background · 6m 12s",
+);
+// Every tool the app names, and the roles, to its orb (DESIGN.md "Thinking orbs")
+{
+  const { stageOf } = mod;
+  const h = (tool, role = "", text = "") =>
+    stageOf({ kind: "Sub-agent", tool, role, text });
+  const cases = [
+    [h(""), "breathing"],
+    ...["Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch"].map((t) => [
+      h(t),
+      "searching",
+    ]),
+    ...["Edit", "Write", "MultiEdit", "NotebookEdit"].map((t) => [
+      h(t),
+      "composing",
+    ]),
+    ...["Bash", "PowerShell", "Skill", "FooTool"].map((t) => [h(t), "working"]),
+    ...["Agent", "Task"].map((t) => [h(t), "connecting"]),
+    ...["EnterPlanMode", "ExitPlanMode", "TodoWrite"].map((t) => [
+      h(t),
+      "shaping",
+    ]),
+    [h("Read", "planner"), "shaping"],
+    [h("", "", "Planner: the build"), "shaping"],
+    [h("Bash", "reviewer"), "solving"],
+    [h("Grep", "", "Reviewer: check A1"), "solving"],
+    [h("Agent", "reviewer"), "connecting"],
+    [stageOf({ kind: "Command", text: "git status --short" }), "working"],
+    [stageOf({ kind: "Command", text: "node test.mjs" }), "solving"],
+    [stageOf({ kind: "Command", text: "npm run lint" }), "solving"],
+    [stageOf({ kind: "Command", text: "git checkout main" }), "working"],
+  ];
+  const bad = cases.filter(([got, want]) => got !== want);
+  check(
+    `stage: each tool and role to its orb${bad.length ? ` (${bad.length} wrong)` : ""}`,
+    !bad.length,
+  );
+  check(
+    "stage: the row view carries the orb and slows it after 2 minutes without a report",
+    mod.rowView(
+      "Sub-agent · 35s · 3 tools · Edit",
+      "running",
+      { startedAt: 0, durationMs: 35000 },
+      60000,
+    ).orb === "composing" &&
+      !mod.rowView(
+        "Sub-agent · 35s · 3 tools · Edit",
+        "running",
+        { startedAt: 0, durationMs: 35000 },
+        155000,
+      ).slow &&
+      mod.rowView(
+        "Sub-agent · 35s · 3 tools · Edit",
+        "running",
+        { startedAt: 0, durationMs: 35000 },
+        156000,
+      ).slow &&
+      mod.rowView("Sub-agent · 4m 24s", "completed").orb === null,
+  );
+}
 check(
   "meta: running, no elapsed",
   metaWords("Command", "running") === "Command",
 );
 check(
-  "meta: completed sub-agent",
+  "meta: completed helper",
   metaWords("Sub-agent · 4m 24s · 30 tools", "completed") ===
-    "Sub-agent · done · 4m 24s · 30 tools",
+    "Helper · done in 4m 24s",
 );
 check(
   "meta: completed command",
@@ -122,13 +226,20 @@ check(
   metaWords("Command · failed", "failed") === "Command · failed",
 );
 check(
-  "meta: stopped sub-agent",
+  "meta: stopped helper",
   metaWords("Sub-agent · 2m 10s · 14 tools · stopped", "stopped") ===
-    "Sub-agent · stopped · 2m 10s · 14 tools",
+    "Helper · stopped after 2m 10s",
 );
 check(
   "meta: hours",
-  metaWords("Workflow · 1h 5m", "completed") === "Workflow · done · 1h 5m",
+  metaWords("Workflow · 1h 5m", "completed") === "Workflow · done in 1h 5m",
+);
+check(
+  "meta: no row reads quiet, idle or stalled",
+  !/quiet|idle|stalled/i.test(
+    JSON.stringify(Object.entries(mod.STRINGS).filter(([k]) => k !== "idle")) +
+      mod.STRINGS.idle,
+  ),
 );
 check(
   "meta: unparseable stays null",
@@ -142,7 +253,7 @@ check(
 check(
   "now: words and tool name",
   nowWords("Grep") === "searching files (Grep)" &&
-    nowWords("Agent") === "waiting on a sub-agent (Agent)" &&
+    nowWords("Agent") === "waiting on a helper (Agent)" &&
     nowWords("Bash") === "running a command (Bash)",
 );
 // A frozen row: the app said 35s while the planner had run 2 minutes
@@ -152,22 +263,27 @@ const seen = "Sub-agent · 35s · 10 tools · Grep";
 check(
   "live time: counts from startedAt, not the app's durationMs",
   metaWords(seen, "running", planner, T0 + 120000) ===
-    "Sub-agent · 2m 0s · 10 tools · searching files (Grep)",
+    "Helper · searching files (Grep) · 2m 0s",
 );
 check(
   "live time: moves each second",
   metaWords(seen, "running", planner, T0 + 121000) ===
-    "Sub-agent · 2m 1s · 10 tools · searching files (Grep)",
+    "Helper · searching files (Grep) · 2m 1s",
 );
 check(
-  "live time: no report for over 2 minutes reads quiet",
+  "live time: no report for over 2 minutes keeps the last step and adds the wait",
   metaWords(seen, "running", planner, T0 + 35000 + 4 * 60000 + 5000) ===
-    "Sub-agent · 4m 40s · 10 tools · quiet for 4m",
+    "Helper · searching files (Grep) for 4m · 4m 40s",
 );
 check(
-  "live time: exactly 2 minutes silent is not quiet yet",
-  metaWords(seen, "running", planner, T0 + 35000 + 120000).endsWith(
-    "searching files (Grep)",
+  "live time: silent with no last step reads thinking, never quiet",
+  metaWords("Sub-agent · 35s", "running", planner, T0 + 35000 + 3 * 60000) ===
+    "Helper · thinking for 3m · 3m 35s",
+);
+check(
+  "live time: exactly 2 minutes silent shows no wait yet",
+  metaWords(seen, "running", planner, T0 + 35000 + 120000).startsWith(
+    "Helper · searching files (Grep) · ",
   ),
 );
 check(
@@ -177,12 +293,11 @@ check(
     "running",
     { startedAt: T0, durationMs: 3600000 + 300000 },
     T0 + 3600000 + 330000,
-  ) === "Sub-agent · 1h 5m · 10 tools · searching files (Grep)",
+  ) === "Helper · searching files (Grep) · 1h 5m",
 );
 check(
   "live time: no task keeps the app's time",
-  metaWords(seen, "running") ===
-    "Sub-agent · 35s · 10 tools · searching files (Grep)",
+  metaWords(seen, "running") === "Helper · searching files (Grep) · 35s",
 );
 check(
   "live time: a finished row keeps the app's time",
@@ -191,7 +306,7 @@ check(
     "completed",
     planner,
     T0 + 999999,
-  ) === "Sub-agent · done · 4m 24s · 30 tools",
+  ) === "Helper · done in 4m 24s",
 );
 check(
   "live time: a running command counts up and never reads quiet",
@@ -229,14 +344,18 @@ check(
   );
 }
 check(
-  "russian: quiet words",
+  "russian: wait words",
   ruMod.metaWords(seen, "running", planner, T0 + 35000 + 4 * 60000) ===
-    "Субагент · 4м 35с · инструментов: 10 · тихо уже 4м",
+    "Помощник · ищет по файлам (Grep) уже 4м · 4м 35с",
 );
 check(
   "count: running first, a failure stays named beside it, then failed, then done",
   countWords({ running: 2, failed: 1, completed: 5 }).text ===
     "2 running · 1 failed" &&
+    countWords({ running: 8, failed: 1, stopped: 1, completed: 6 }).text ===
+      "8 running · 1 failed · 1 stopped" &&
+    countWords({ running: 0, failed: 1, stopped: 2, completed: 6 }).text ===
+      "1 failed · 2 stopped" &&
     countWords({ running: 2, failed: 0, completed: 5 }).text === "2 running" &&
     countWords({ running: 0, failed: 1, completed: 5 }).text === "1 failed" &&
     countWords({ running: 0, failed: 0, completed: 12 }).text ===
@@ -274,7 +393,7 @@ check(
 );
 check(
   "run words: joined, model only, nothing without a model",
-  runWords({ model: "sonnet", effort: "medium" }) === "Sonnet, medium" &&
+  runWords({ model: "sonnet", effort: "medium" }) === "Sonnet medium" &&
     runWords({ model: "opus", effort: null }) === "Opus" &&
     runWords({ model: null, effort: "high" }) === "" &&
     runWords(null) === "",
@@ -339,40 +458,59 @@ check(
     plainTitle("a|b") === "A|b",
 );
 check(
-  "meta: model words follow the kind in every state",
+  "meta: the model ends a running row's line; model and effort are in the tooltip in every state",
   metaWords("Sub-agent · 4m 24s · 30 tools · Grep", "running", null, 0, {
     model: "sonnet",
     effort: "medium",
-  }) ===
-    "Sub-agent · Sonnet, medium · 4m 24s · 30 tools · searching files (Grep)" &&
+  }) === "Helper · searching files (Grep) · 4m 24s · Sonnet medium" &&
+    mod.metaTip("Sub-agent · 4m 24s · 30 tools · Grep", "running", null, 0, {
+      model: "sonnet",
+      effort: "medium",
+    }) ===
+      "Helper · searching files (Grep) · 4m 24s · Sonnet medium · 30 tools" &&
     metaWords("Sub-agent · 4m 24s · 30 tools", "completed", null, 0, {
       model: "opus",
       effort: "xhigh",
-    }) === "Sub-agent · Opus, very high · done · 4m 24s · 30 tools" &&
-    metaWords("Sub-agent · 2m 10s", "stopped", null, 0, {
+    }) === "Helper · done in 4m 24s" &&
+    mod.metaTip("Sub-agent · 4m 24s · 30 tools", "completed", null, 0, {
+      model: "opus",
+      effort: "xhigh",
+    }) === "Helper · done in 4m 24s · Opus very high · 30 tools" &&
+    mod.metaTip("Sub-agent · 2m 10s", "stopped", null, 0, {
       model: "haiku",
       effort: null,
-    }) === "Sub-agent · Haiku · stopped · 2m 10s" &&
-    metaWords("Sub-agent · 1s", "failed", null, 0, {
+    }) === "Helper · stopped after 2m 10s · Haiku" &&
+    mod.metaTip("Sub-agent · 1s", "failed", null, 0, {
       model: "fable",
       effort: "high",
-    }) === "Sub-agent · Fable, high · failed · 1s",
+    }) === "Helper · failed after 1s · Fable high",
+);
+check(
+  "meta: a running helper's row names the model with its effort ('Opus high', no comma); no effort, the model alone",
+  metaWords("Sub-agent · 1m 0s · Read", "running", null, 0, {
+    model: "claude-opus-5-5",
+    effort: "high",
+  }) === "Helper · reading a file (Read) · 1m 0s · Opus high" &&
+    metaWords("Sub-agent · 1m 0s · Read", "running", null, 0, {
+      model: "opus",
+      effort: null,
+    }) === "Helper · reading a file (Read) · 1m 0s · Opus",
 );
 check(
   "meta: no run or an unknown model changes nothing",
-  metaWords("Sub-agent · 4m 24s", "completed", null, 0, null) ===
-    "Sub-agent · done · 4m 24s" &&
-    metaWords("Sub-agent · 4m 24s", "completed", null, 0, {
+  metaWords("Sub-agent · 4m 24s · Grep", "running", null, 0, null) ===
+    "Helper · searching files (Grep) · 4m 24s" &&
+    metaWords("Sub-agent · 4m 24s · Grep", "running", null, 0, {
       model: "inherited",
       effort: "high",
-    }) === "Sub-agent · done · 4m 24s",
+    }) === "Helper · searching files (Grep) · 4m 24s",
 );
 check(
   "russian: model and effort",
-  ruMod.metaWords("Sub-agent · 4m 24s", "completed", null, 0, {
+  ruMod.metaTip("Sub-agent · 4m 24s", "completed", null, 0, {
     model: "sonnet",
     effort: "xhigh",
-  }) === "Субагент · Sonnet, очень высокий · готово · 4м 24с",
+  }) === "Помощник · готово за 4м 24с · Sonnet очень высокий",
 );
 check(
   "manifest: filesystem permission",
@@ -389,7 +527,8 @@ check(
 check(
   "build: scroll-hold.js inlined, no import left",
   !/from ['"]\.\/scroll-hold\.js['"]/.test(ru) &&
-    ru.includes("function startScrollHold"),
+    ru.includes("function startScrollHold") &&
+    ru.includes("function createCardHold"),
 );
 
 // Scroll hold. The chat's end is at 5000; the app follows it by scrolling there after each update.
@@ -506,6 +645,1393 @@ check(
   );
 }
 
+// An open question card stays still on screen. Straight from src/scroll-hold.js: index.js does not
+// pass createCardHold on
+{
+  const hold = await import(
+    pathToFileURL(path.join(here, "src", "scroll-hold.js")).href
+  );
+  const { createCardHold } = hold;
+  const h = typeof createCardHold === "function" ? createCardHold() : null;
+  const moves = h
+    ? [
+        h.frame(120, true), // first sight: the anchor
+        h.frame(320, true), // a row above grew by 200, no scroll: back up by 200
+        h.frame(120.3, true), // under half a pixel: left alone
+        h.frame(-80, true), // a row above shrank by 200
+      ]
+    : [];
+  check(
+    "card hold: a card moved by a size change above it is scrolled back; under half a pixel is left alone",
+    moves.join() === "0,200,0,-200",
+  );
+  let user = false;
+  if (h) {
+    h.scrolled();
+    user = h.frame(40, true) === 0 && h.frame(240, true) === 200;
+  }
+  check(
+    "card hold: after a scroll of the list the card's new place is held",
+    user,
+  );
+  check(
+    "card hold: no open card, or one out of view, holds nothing",
+    !!h &&
+      h.frame(null, false) === 0 &&
+      h.anchor === null &&
+      h.frame(900, false) === 0 &&
+      h.frame(1100, false) === 0 &&
+      h.anchor === null,
+  );
+  let touched = false;
+  if (h && typeof h.touched === "function") {
+    h.stop();
+    h.frame(100, true, 0);
+    h.touched(10);
+    touched =
+      h.frame(300, true, 200) === 0 &&
+      h.anchor === 300 &&
+      h.frame(400, true, 900) === 100;
+  }
+  check(
+    "card hold: within half a second of the user's press in the list a move is the card's new place, after it held again",
+    touched,
+  );
+
+  // A fake chat list: rows stacked from the list's top at 100px, 300px high, the card the fourth row.
+  // The list library (virtua) does not scroll when a row partly in sight grows; only a scroll event
+  // (fired on the next frame, as a browser does) tells the hold the list moved.
+  const saved = {};
+  const globals = [
+    "document",
+    "MutationObserver",
+    "IntersectionObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "Element",
+  ];
+  for (const k of globals) saved[k] = globalThis[k];
+  let frames = new Map();
+  let nextFrame = 1;
+  const listeners = new Map();
+  const scrollEvents = [];
+  const rows = [400, 400, 200, 0].map((height) => ({ height }));
+  const LIST_TOP = 100;
+  const LIST_HEIGHT = 300;
+  const card = {
+    state: "pending",
+    isConnected: true,
+    matches(sel) {
+      return (
+        sel ===
+          '[data-testid="ask-user-question-widget"][data-state="pending"]' &&
+        this.state === "pending"
+      );
+    },
+    closest(sel) {
+      if (this.matches(sel)) return this;
+      return sel === ".rich-transcript-vlist" ? list : null;
+    },
+    getBoundingClientRect() {
+      const top =
+        LIST_TOP +
+        rows.slice(0, 3).reduce((a, r) => a + r.height, 0) -
+        list.scrollTop;
+      return { top, bottom: top + 150, height: 150 };
+    },
+  };
+  // A tool row above the card, the target of the user's clicks and keys
+  const toolRow = {
+    closest: (sel) => (sel === ".rich-transcript-vlist" ? list : null),
+  };
+  let listHidden = false;
+  const list = {
+    scrollTop: 900, // the card at 100 + 1000 - 900 = 200: in view; the row above it from 0 to 200 (half in sight)
+    scrollHeight: 3000,
+    clientHeight: LIST_HEIGHT,
+    isConnected: true,
+    matches: (sel) => sel === ".rich-transcript-vlist",
+    closest: () => null,
+    contains: (n) => n === card,
+    querySelector: (sel) => (card.matches(sel) ? card : null),
+    querySelectorAll: (sel) => (card.matches(sel) ? [card] : []),
+    getBoundingClientRect: () =>
+      listHidden
+        ? { top: 0, bottom: 0, height: 0 }
+        : {
+            top: LIST_TOP,
+            bottom: LIST_TOP + LIST_HEIGHT,
+            height: LIST_HEIGHT,
+          },
+  };
+  // As a browser: the scroll stops at the list's ends, and a scroll that moves nothing fires no event
+  const nativeScroll = function (top) {
+    const to = Math.max(
+      0,
+      Math.min(this.scrollHeight - this.clientHeight, top),
+    );
+    if (to === this.scrollTop) return;
+    this.scrollTop = to;
+    scrollEvents.push(this);
+  };
+  globalThis.Element = function Element() {};
+  globalThis.Element.prototype.scrollTo = function (a, b) {
+    nativeScroll.call(this, typeof a === "object" ? a.top : b);
+  };
+  globalThis.Element.prototype.scrollBy = function (a, b) {
+    nativeScroll.call(
+      this,
+      this.scrollTop + (typeof a === "object" ? a.top : b),
+    );
+  };
+  globalThis.document = {
+    body: {},
+    querySelectorAll: (sel) => (sel === ".rich-transcript-vlist" ? [list] : []),
+    addEventListener: (type, fn) => listeners.set(type, fn),
+    removeEventListener: (type, fn) => {
+      if (listeners.get(type) === fn) listeners.delete(type);
+    },
+  };
+  let mutated = () => {};
+  globalThis.MutationObserver = class {
+    constructor(fn) {
+      mutated = fn;
+    }
+    observe() {}
+    disconnect() {}
+  };
+  // Each observer's callback and what it watches; `seen(el, true)` tells them el came into sight
+  const sights = [];
+  globalThis.IntersectionObserver = class {
+    constructor(fn) {
+      this.fn = fn;
+      this.els = new Set();
+      sights.push(this);
+    }
+    observe(el) {
+      this.els.add(el);
+    }
+    unobserve(el) {
+      this.els.delete(el);
+    }
+    disconnect() {
+      this.els.clear();
+    }
+  };
+  const seen = (el, isIntersecting) => {
+    for (const o of sights)
+      if (o.els.has(el)) o.fn([{ target: el, isIntersecting }]);
+  };
+  // The page's clock, moved on by hand: the hold times the user's presses with performance.now()
+  let clock = 1000;
+  performance.now = () => clock;
+  globalThis.requestAnimationFrame = (fn) => {
+    frames.set(nextFrame, fn);
+    return nextFrame++;
+  };
+  globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+  // One browser frame: the scroll events queued since the last one, then the frame callbacks
+  const tick = () => {
+    clock += 16;
+    for (const el of scrollEvents.splice(0))
+      listeners.get("scroll")?.({ target: el });
+    const run = [...frames.values()];
+    frames = new Map();
+    for (const fn of run) fn(clock);
+  };
+  const fire = (type, e) => listeners.get(type)?.(e);
+  // The extension started again on a chat with these row heights, scrolled to `top`: the card's place
+  const fresh = (heights, top) => {
+    hold.stopScrollHold();
+    heights.forEach((height, i) => {
+      rows[i].height = height;
+    });
+    list.scrollTop = top;
+    scrollEvents.length = 0;
+    card.state = "pending";
+    listHidden = false;
+    hold.startScrollHold();
+    tick();
+    tick();
+    return cardTop();
+  };
+  const cardTop = () => card.getBoundingClientRect().top;
+  const near = (a, b) => Math.abs(a - b) <= 1;
+  try {
+    hold.startScrollHold();
+    tick();
+    tick();
+    const start = cardTop();
+    rows[2].height += 200; // a helper's row, partly in sight above the card, grows
+    tick();
+    tick();
+    const afterGrow = cardTop();
+    rows[2].height -= 200;
+    tick();
+    tick();
+    const afterShrink = cardTop();
+    check(
+      "card hold: a row above the card, partly in sight, grows by 200px with no scroll: the card stays within 1px",
+      start === 200 && near(afterGrow, start),
+    );
+    check(
+      "card hold: the same row shrinks by 200px: the card stays within 1px",
+      near(afterShrink, afterGrow) && near(afterShrink, start),
+    );
+    // The user scrolls the list up by 120px: the card moves down with it, and that place is held
+    list.scrollTop -= 120;
+    scrollEvents.push(list);
+    tick();
+    const scrolled = cardTop();
+    rows[2].height += 200;
+    tick();
+    tick();
+    check(
+      "card hold: a user's scroll moves the card, and its new place is then held",
+      near(scrolled, start + 120) && near(cardTop(), start + 120),
+    );
+    // Answered: the card's data-state is "completed"; a row above grows and the card goes with it
+    card.state = "completed";
+    tick();
+    const answered = cardTop();
+    rows[2].height += 100;
+    tick();
+    tick();
+    check(
+      "card hold: an answered card (data-state completed) is not held and the frame loop ends",
+      near(cardTop(), answered + 100) && frames.size === 0,
+    );
+    // Open again (the page changed) and scrolled back into view: held, then the extension stops
+    card.state = "pending";
+    list.scrollTop += 200;
+    scrollEvents.push(list);
+    mutated();
+    tick();
+    tick();
+    const reopened = cardTop();
+    rows[2].height += 100;
+    tick();
+    tick();
+    const heldBeforeStop = near(cardTop(), reopened);
+    hold.stopScrollHold();
+    const stopped = cardTop();
+    rows[2].height += 100;
+    tick();
+    tick();
+    check(
+      "card hold: a held card is let go when the extension stops: nothing held, no frame loop, no listener left",
+      heldBeforeStop &&
+        near(cardTop(), stopped + 100) &&
+        frames.size === 0 &&
+        listeners.size === 0,
+    );
+
+    // The user clicks a tool row above the card and it opens by 100px: the card goes down with it
+    let at = fresh([400, 400, 200, 0], 900);
+    fire("pointerdown", { target: toolRow });
+    fire("click", { target: toolRow });
+    rows[2].height += 100;
+    tick();
+    tick();
+    const opened = cardTop();
+    const openedScroll = list.scrollTop;
+    clock += 1000;
+    rows[2].height += 200; // a second later the session's own row grows: held again
+    tick();
+    tick();
+    check(
+      "card hold: a row the user clicks open above the card moves it, with no scroll back; the session's growth a second later is held",
+      near(opened, at + 100) && openedScroll === 900 && near(cardTop(), opened),
+    );
+    at = fresh([400, 400, 200, 0], 900);
+    fire("keydown", { target: toolRow, key: "Enter" });
+    rows[2].height += 100;
+    tick();
+    tick();
+    check(
+      "card hold: a row the user opens with a key moves the card as well",
+      near(cardTop(), at + 100) && list.scrollTop === 900,
+    );
+    at = fresh([400, 400, 200, 0], 900);
+    fire("pointerdown", { target: card });
+    fire("click", { target: card });
+    rows[2].height += 100;
+    tick();
+    tick();
+    check(
+      "card hold: a click inside the card itself (choosing an answer) does not let a session row move it",
+      near(cardTop(), at),
+    );
+
+    // The hold's own scroll back fires a scroll event a frame later; a row grows again before it
+    at = fresh([400, 400, 200, 0], 900);
+    rows[2].height += 200;
+    tick();
+    rows[2].height += 100;
+    tick();
+    tick();
+    check(
+      "card hold: the hold's own scroll back is not taken for the user's: growth in the frame after it is held too",
+      near(cardTop(), at),
+    );
+
+    // The list at its top: a row above the card shrinks and the list cannot scroll up to follow
+    at = fresh([0, 0, 200, 0], 0);
+    rows[2].height -= 150;
+    tick();
+    tick();
+    const stuck = cardTop();
+    rows[2].height += 150;
+    tick();
+    tick();
+    check(
+      "card hold: a scroll back the list cannot make (at its top) is dropped: the card does not jump back to its old place later",
+      at === 300 && near(stuck, 150) && near(cardTop(), stuck),
+    );
+
+    // Nothing to watch: the list hidden, or the card scrolled out of view. The frame loop pauses and
+    // starts again when they come into sight
+    at = fresh([400, 400, 200, 0], 900);
+    listHidden = true;
+    tick();
+    tick();
+    const pausedHidden = frames.size === 0;
+    listHidden = false;
+    seen(list, true);
+    const wokeShown = frames.size === 1;
+    tick();
+    list.scrollTop -= 600; // the card at 800: below the list
+    scrollEvents.push(list);
+    tick();
+    tick();
+    const pausedOff = frames.size === 0;
+    rows[0].height -= 400; // rows above shrink with no scroll: the card back in view at 200
+    rows[1].height -= 200;
+    seen(card, true);
+    const wokeCard = frames.size === 1;
+    tick();
+    rows[2].height += 100;
+    tick();
+    tick();
+    check(
+      "card hold: the frame loop pauses while the list is hidden or the card out of view, and holds again once they show",
+      pausedHidden && wokeShown && pausedOff && wokeCard && near(cardTop(), at),
+    );
+  } finally {
+    hold.stopScrollHold();
+    for (const k of globals) globalThis[k] = saved[k];
+    delete performance.now;
+  }
+}
+
+// The file list folded to one summary line: 340 files in 9 top folders, in the app's order (not by size)
+{
+  const { filesSummary, createFold, STRINGS } = mod;
+  const folders = [
+    ["agents", 5],
+    ["audits", 120],
+    ["docs", 64],
+    ["extensions", 40],
+    ["hooks", 22],
+    ["scripts", 9],
+    ["skills", 18],
+    ["tests", 14],
+    ["tools", 48],
+  ].map(([name, count]) => ({ name, count }));
+  const s = filesSummary(folders, 0, STRINGS);
+  check(
+    "files: 340 files in 9 folders, the three biggest named, the rest counted",
+    s.total === 340 &&
+      s.title === "340 files in 9 folders" &&
+      s.detail === "audits 120 · docs 64 · tools 48 · 6 more folders",
+  );
+  check(
+    "files: loose files count in the total; one folder, one more folder; equal folders keep the app's order",
+    filesSummary(folders.slice(0, 4), 3, STRINGS).title ===
+      "232 files in 4 folders" &&
+      filesSummary(folders.slice(0, 4), 0, STRINGS).detail ===
+        "audits 120 · docs 64 · extensions 40 · 1 more folder" &&
+      filesSummary([{ name: "src", count: 1 }], 0, STRINGS).title ===
+        "1 file in 1 folder" &&
+      filesSummary(
+        [
+          { name: "b", count: 2 },
+          { name: "a", count: 2 },
+        ],
+        0,
+        STRINGS,
+      ).detail === "b 2 · a 2",
+  );
+  check(
+    "files: only loose files read as a count, no folder words",
+    filesSummary([], 2, STRINGS).title === "2 files" &&
+      filesSummary([], 2, STRINGS).detail === "",
+  );
+  check(
+    "russian: the summary line",
+    ruMod.filesSummary(folders, 0, ruMod.STRINGS).title ===
+      "Файлов: 340, папок: 9" &&
+      ruMod.filesSummary(folders, 0, ruMod.STRINGS).detail ===
+        "audits 120 · docs 64 · tools 48 · ещё папок: 6",
+  );
+  // The fold state lives in storage: folded at first, and an opened list is still open on the next load
+  const store = new Map();
+  const storage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+  };
+  const first = createFold(storage, "agentsPanel.filesOpen");
+  const wasFolded = !first.isOpen();
+  first.toggle();
+  const reloaded = createFold(storage, "agentsPanel.filesOpen");
+  const openAfterLoad = reloaded.isOpen();
+  reloaded.toggle();
+  check(
+    "files: folded by default, the fold remembered across a reload",
+    wasFolded &&
+      openAfterLoad &&
+      !createFold(storage, "agentsPanel.filesOpen").isOpen() &&
+      store.get("agentsPanel.filesOpen") === "0",
+  );
+}
+
+// The commit box is pressed folded once per mount: a box opened later (by the app or the keyboard) stays open
+{
+  const fold = await import(
+    pathToFileURL(path.join(here, "src", "files-fold.js")).href +
+      `?t=${Date.now()}`
+  );
+  let open = true;
+  let clicks = 0;
+  const kids = [];
+  const left = {
+    click: () => {
+      clicks++;
+      open = !open;
+    },
+    querySelector: (sel) =>
+      sel === ":scope > .ap-commit"
+        ? (kids.find((k) => k.className === "ap-commit") ?? null)
+        : null,
+    get lastElementChild() {
+      return kids[kids.length - 1] ?? null;
+    },
+    append: (n) => kids.push(n),
+  };
+  const panel = {
+    dataset: {},
+    querySelector: (sel) =>
+      sel === ".git-operations-panel__header-left"
+        ? left
+        : sel === ":scope > .git-operations-panel__content"
+          ? open
+            ? {}
+            : null
+          : null,
+  };
+  const content = {
+    querySelector: (sel) => (sel === ".file-edits-sidebar__empty" ? {} : null),
+  };
+  const sidebar = {
+    dataset: {},
+    querySelector: (sel) =>
+      sel === ":scope > .git-operations-panel"
+        ? panel
+        : sel === ":scope > .files-edited-sidebar__content"
+          ? content
+          : null,
+  };
+  const saved = {
+    document: globalThis.document,
+    localStorage: globalThis.localStorage,
+  };
+  globalThis.document = {
+    querySelectorAll: () => [sidebar],
+    createElement: () => ({ className: "", textContent: "" }),
+  };
+  globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+  try {
+    fold.syncFiles(mod.STRINGS);
+    const foldedFirst = clicks === 1 && !open;
+    open = true; // opened by something other than a mouse click on the header
+    fold.syncFiles(mod.STRINGS);
+    fold.syncFiles(mod.STRINGS);
+    check(
+      "files: the commit box folded once per mount, a later open left open",
+      foldedFirst && clicks === 1 && open,
+    );
+  } finally {
+    globalThis.document = saved.document;
+    globalThis.localStorage = saved.localStorage;
+  }
+}
+
+// The app draws a tree of several folders inside a root folder node with no header; that root is not a folder with a
+// missing name (which dropped the whole fold and left every folder open), its folders are the top ones and its own
+// files the loose ones. A tree of one folder starts at that folder.
+{
+  const fold = await import(
+    pathToFileURL(path.join(here, "src", "files-fold.js")).href +
+      `?root=${Date.now()}`
+  );
+  class El {
+    constructor(className, kids = [], text = "") {
+      this.className = className;
+      this.textContent = text;
+      this.parentElement = null;
+      this.children = kids;
+      for (const k of kids) k.parentElement = this;
+    }
+    matches(sel) {
+      return sel
+        .split(".")
+        .filter(Boolean)
+        .every((c) => this.className.split(" ").includes(c));
+    }
+    closest(sel) {
+      for (let n = this; n; n = n.parentElement) if (n.matches(sel)) return n;
+      return null;
+    }
+    *walk() {
+      for (const k of this.children) {
+        yield k;
+        yield* k.walk();
+      }
+    }
+    querySelectorAll(sel) {
+      return [...this.walk()].filter((n) => n.matches(sel));
+    }
+    querySelector(sel) {
+      const scope = sel.startsWith(":scope > ");
+      const want = scope ? sel.slice(9) : sel;
+      return (
+        (scope ? this.children : [...this.walk()]).find((n) =>
+          n.matches(want),
+        ) ?? null
+      );
+    }
+  }
+  const file = (name) => new El("file-edits-sidebar__file", [], name);
+  const folder = (name, count, kids) =>
+    new El("file-edits-sidebar__directory-node", [
+      new El("file-edits-sidebar__directory-header", [
+        new El("file-edits-sidebar__directory-path", [], name),
+        new El("file-edits-sidebar__directory-count", [], String(count)),
+      ]),
+      new El("file-edits-sidebar__directory-children", kids),
+    ]);
+  const tree = new El("file-edits-sidebar__files", [
+    new El("file-edits-sidebar__root-checkbox"),
+    new El("file-edits-sidebar__directory-node", [
+      new El("", [
+        folder("docs", 3, [
+          folder("plans", 2, [file("a.md"), file("b.md")]),
+          file("c.md"),
+        ]),
+        folder("hooks", 1, [file("d.mjs")]),
+        file("README.md"),
+        file("package.json"),
+      ]),
+    ]),
+  ]);
+  const one = new El("file-edits-sidebar__files", [
+    folder("src/lib", 2, [file("a.js"), file("b.js")]),
+  ]);
+  const read =
+    typeof fold.readFolders === "function" ? fold.readFolders(tree) : null;
+  const single =
+    typeof fold.readFolders === "function" ? fold.readFolders(one) : null;
+  check(
+    "files: the app's header-less root folder is read through: its folders are the top ones, its files the loose ones",
+    read?.folders.map((f) => `${f.name} ${f.count}`).join() ===
+      "docs 3,hooks 1" &&
+      read.loose === 2 &&
+      single?.folders.map((f) => `${f.name} ${f.count}`).join() ===
+        "src/lib 2" &&
+      single.loose === 0,
+  );
+}
+
+// The chat's thinking line: the app's four kinds of words in ours, and the orb for each
+{
+  const { thinkingView, stageOf, STRINGS } = mod;
+  const view = (text, card = null, m = mod) =>
+    m.thinkingView(text, card, m.STRINGS, m.stageOf);
+  const is = (v, words, orb) => v && v.words === words && v.orb === orb;
+  check(
+    "thinking: the four word cases (no dots, no 'agents')",
+    is(view("Thinking..."), "Thinking", "breathing") &&
+      is(
+        view("Waiting on background task: Scan the chat logs"),
+        "Waiting on a background task: Scan the chat logs",
+        "connecting",
+      ) &&
+      is(
+        view("Waiting on 3 background tasks..."),
+        "Waiting on 3 background tasks",
+        "connecting",
+      ) &&
+      is(
+        view("Waiting for 2 agents to complete..."),
+        "Waiting for 2 helpers to finish",
+        "connecting",
+      ),
+  );
+  check(
+    "thinking: one helper, and a background task the app could not describe",
+    is(
+      view("Waiting for 1 agent to complete..."),
+      "Waiting for 1 helper to finish",
+      "connecting",
+    ) &&
+      is(
+        view("Waiting on background task: background task"),
+        "Waiting on a background task",
+        "connecting",
+      ),
+  );
+  check(
+    "thinking: while the newest tool card runs, its stage and words",
+    is(
+      view("Thinking...", { tool: "Grep", command: "" }),
+      "Searching files",
+      "searching",
+    ) &&
+      is(
+        view("Thinking...", { tool: "Edit", command: "" }),
+        "Editing a file",
+        "composing",
+      ) &&
+      is(
+        view("Thinking...", { tool: "Bash", command: "ls -la" }),
+        "Running a command",
+        "working",
+      ) &&
+      is(
+        view("Thinking...", { tool: "Bash", command: "npm test" }),
+        "Running a command",
+        "solving",
+      ) &&
+      is(
+        view("Thinking...", { tool: "Task", command: "" }),
+        "Waiting on a helper",
+        "connecting",
+      ) &&
+      is(
+        view("Thinking...", { tool: "TodoWrite", command: "" }),
+        "Thinking",
+        "shaping",
+      ),
+  );
+  check(
+    "thinking: words the app did not have are not guessed (null, the app's stay)",
+    view("Compacting...") === null &&
+      view("Waiting for 2 teammates to complete...") === null &&
+      view("") === null &&
+      typeof thinkingView === "function" &&
+      typeof stageOf === "function" &&
+      STRINGS.waitLine.thinking === "Thinking",
+  );
+  const pool = STRINGS.waitLine.playful;
+  // The 80 words of docs/research/2026-11-14-spinner-words.md "Final list for the build", in its order
+  const spinnerList =
+    `Pondering Tinkering Noodling Mulling Brewing Clauding Percolating Cogitating Puzzling Simmering
+    Ruminating Whirring Untangling Crafting Churning Hatching Wrangling Befuddling Boogieing Boondoggling Booping
+    Caramelizing Catapulting Combobulating Concocting Dilly-dallying Discombobulating Doodling Fiddle-faddling
+    Finagling Flambéing Flummoxing Frolicking Gallivanting Gesticulating Grooving Honking Hullaballooing Hyperspacing
+    Jitterbugging Julienning Kerfuffling Levitating Lollygagging Marinating Moonwalking Moseying Perambulating
+    Pontificating Pouncing Prestidigitating Puttering Quantumizing Razzle-dazzling Razzmatazzing Recombobulating
+    Reticulating Sautéing Scampering Schlepping Shenaniganing Shimmying Skedaddling Smooshing Sock-hopping Spelunking
+    Tomfoolering Topsy-turvying Transmogrifying Vibing Waddling Wibbling Zigzagging Architecting Bootstrapping
+    Cerebrating Crystallizing Deciphering Philosophizing Orchestrating`.split(
+      /\s+/,
+    );
+  check(
+    "thinking: plain Thinking has the spinner-words research's 80 words, no repeats, no Thinking",
+    spinnerList.length === 80 &&
+      Array.isArray(pool) &&
+      pool.join() === spinnerList.join() &&
+      !pool.includes("Thinking") &&
+      new Set(pool).size === pool.length,
+  );
+  {
+    // The app keeps one line element across turns. The chat is a virtual list: the user messages on the page come
+    // and go with scrolling, while the chat view's props hold every message (the turn's start is the newest user
+    // message's createdAt, as the app's own seconds)
+    const messages = [
+      { type: "user_message", createdAt: new Date(T0) },
+      { type: "assistant_message", createdAt: new Date(T0 + 5000) },
+    ];
+    let onPage = 1;
+    const view = {
+      __reactFiber$x: { memoizedProps: { messages }, return: null },
+    };
+    const line = {
+      dataset: {},
+      closest: (sel) => (sel === ".rich-transcript-view" ? view : null),
+      parentElement: {
+        querySelectorAll: () => ({ length: onPage }),
+      },
+    };
+    let picks = 0;
+    const random = () => {
+      picks++;
+      return 0.1;
+    };
+    const pass = () =>
+      mod.turnWord(line.dataset, mod.lineTurn(line), pool, random);
+    const first = pass();
+    onPage = 3; // scrolled up: more user messages on the page, the same turn
+    const scrolled = pass();
+    onPage = 0; // scrolled away from them all
+    const scrolledAway = pass();
+    messages.push({ type: "user_message", createdAt: new Date(T0 + 60000) });
+    onPage = 0; // the new turn starts with no user message on the page
+    const next = pass();
+    const again = pass();
+    check(
+      "thinking: the word is per turn from the chat's messages: scrolling (user messages on the page change) gives no new pick; two turns on one reused line give two picks, the second a new word",
+      picks === 2 &&
+        first === scrolled &&
+        first === scrolledAway &&
+        next !== first &&
+        next === again &&
+        pool.includes(first) &&
+        pool.includes(next) &&
+        mod.lineTurn(line) === String(T0 + 60000) &&
+        mod.lineTurn({ closest: () => null }) === null,
+    );
+  }
+  {
+    // An orb canvas we make has --orb-dark from <html>'s dark-theme class before it joins the page (first draw)
+    const before = globalThis.document;
+    const orbFor = (dark) => {
+      globalThis.document = {
+        documentElement: {
+          classList: { contains: (c) => dark && c === "dark-theme" },
+        },
+        createElement: () => {
+          const props = {};
+          return {
+            setAttribute() {},
+            isConnected: false,
+            style: {
+              getPropertyValue: (k) => props[k] ?? "",
+              setProperty: (k, v) => (props[k] = v),
+            },
+          };
+        },
+      };
+      return mod.needsOrb("ap-session-orb", "working", "18");
+    };
+    const dark = orbFor(true);
+    const light = orbFor(false);
+    globalThis.document = before;
+    check(
+      "orbs: a canvas we make carries --orb-dark (1 dark, 0 light) before it joins the page",
+      !dark.isConnected &&
+        dark.style.getPropertyValue("--orb-dark") === "1" &&
+        light.style.getPropertyValue("--orb-dark") === "0",
+    );
+  }
+  check(
+    "russian: the thinking line",
+    is(view("Thinking...", null, ruMod), "Думает", "breathing") &&
+      is(
+        view("Waiting on background task: Scan the chat logs", null, ruMod),
+        "Ждёт фоновую задачу: Scan the chat logs",
+        "connecting",
+      ) &&
+      is(
+        view("Waiting on 3 background tasks...", null, ruMod),
+        "Ждёт фоновые задачи: 3",
+        "connecting",
+      ) &&
+      is(
+        view("Waiting for 2 agents to complete...", null, ruMod),
+        "Ждёт помощников: 2",
+        "connecting",
+      ) &&
+      is(
+        view("Thinking...", { tool: "Read", command: "" }, ruMod),
+        "Читает файл",
+        "searching",
+      ),
+  );
+}
+
+// "Needs you": the open questions as the app finds them, the chat bar's words, the session row's words, the summary line
+{
+  const { openQuestions, needsWhat, sessionWords, countWords: count } = mod;
+  const ask = (id, qs, result) => ({
+    type: "tool_call",
+    toolCall: {
+      toolName: "AskUserQuestion",
+      providerToolCallId: id,
+      arguments: {
+        questions: qs.map((question) => ({
+          question,
+          header: "H",
+          options: [{ label: "a" }],
+        })),
+      },
+      ...(result ? { result } : {}),
+    },
+  });
+  const human = { type: "user_message", text: "go on" };
+  const answer = {
+    type: "user_message",
+    text: "[Resuming after answering a question] Picked a",
+    promptOrigin: "interactive-question",
+  };
+  const ids = (m) =>
+    openQuestions(m)
+      .map((c) => c.id)
+      .join();
+  check(
+    "needs: open questions are the unanswered question cards since the last human turn, oldest first",
+    ids([
+      ask("old", ["Before"]),
+      human,
+      ask("q1", ["Who should own the copy row?"]),
+      answer,
+      ask("q2", ["Which theme first?", "And the size?"]),
+    ]) === "q1,q2" &&
+      ids([ask("q1", ["A?"], "picked a"), ask("q2", ["B?"])]) === "q2" &&
+      ids([ask("q1", ["A?"]), human]) === "" &&
+      ids([
+        {
+          type: "tool_call",
+          toolCall: {
+            toolName: "mcp__nimbalyst__AskUserQuestion",
+            providerToolCallId: "m1",
+            arguments: { questions: [{ question: "Q?" }] },
+          },
+        },
+      ]) === "m1" &&
+      ids([
+        {
+          type: "tool_call",
+          toolCall: { toolName: "Bash", providerToolCallId: "b1" },
+        },
+      ]) === "",
+  );
+  const what = (cards) => needsWhat(cards, mod.STRINGS).what;
+  check(
+    "needs: the chat bar says what waits, the newest question first, a count from two",
+    what([{ id: "a", questions: ["Who should own the copy row?"] }]) ===
+      "1 question: Who should own the copy row?" &&
+      what([
+        { id: "a", questions: ["Older?"] },
+        { id: "b", questions: ["Which theme first?"] },
+      ]) === "2 questions: Which theme first? and 1 more" &&
+      what([{ id: "a", questions: ["One?", "Two?", "Three?"] }]) ===
+        "3 questions: One? and 2 more" &&
+      what([{ id: "a", questions: [] }]) === "1 question" &&
+      what([]) === null &&
+      needsWhat([{ id: "a", questions: ["x", "y"] }], mod.STRINGS).count === 2,
+  );
+  const words = (state, n, m = mod) =>
+    m
+      .sessionWords(state, n, m.STRINGS)
+      .map((p) => p.text)
+      .join(" · ");
+  check(
+    "needs: the session row's words lead its meta line, the count only from two, running for a running row",
+    words("needs", 0) === "Needs you" &&
+      words("needs", 1) === "Needs you" &&
+      words("needs", 2) === "Needs you · 2" &&
+      words("running", 0) === "running" &&
+      sessionWords("needs", 2, mod.STRINGS)[0].part === "needs",
+  );
+  check(
+    "needs: the summary line leads with Needs you (no number) and drops Nothing running",
+    count({ running: 2, failed: 1, stopped: 0, needs: true }).text ===
+      "Needs you · 2 running · 1 failed" &&
+      count({ running: 0, failed: 0, stopped: 0, needs: true }).text ===
+        "Needs you" &&
+      count({ running: 0, failed: 0, stopped: 0, needs: true }).parts[0]
+        .state === "needs" &&
+      count({ running: 1, failed: 0, stopped: 0, needs: false }).text ===
+        "1 running",
+  );
+  check(
+    "russian: the needs-you words",
+    words("needs", 3, ruMod) === "Ждёт вас · 3" &&
+      words("running", 0, ruMod) === "работает" &&
+      ruMod.needsWhat(
+        [
+          { id: "a", questions: ["X?"] },
+          { id: "b", questions: ["Y?"] },
+        ],
+        ruMod.STRINGS,
+      ).what === "Вопросов: 2. Y? и ещё 1",
+  );
+}
+
+// The helper card in the chat: its seven states from the app's card props, the run-log line and the agents-list task
+{
+  const { helperFacts, helperOpened, helperWhy, helperFirstLine, helperTasks } =
+    mod;
+  const NOW = 1793864638072;
+  const min = 60000;
+  const kid = (toolName, at) => ({
+    type: "tool_call",
+    createdAt: new Date(at),
+    toolCall: { toolName, result: "ok" },
+  });
+  const msg = ({
+    id = "t1",
+    started = NOW - 2 * min - 10000,
+    result,
+    background = false,
+    kids = [],
+    isError = false,
+    type = "worker-full",
+  } = {}) => ({
+    createdAt: new Date(started),
+    isError,
+    toolCall: {
+      toolName: "Task",
+      providerToolCallId: id,
+      arguments: {
+        prompt: "## Scan the logs\n\nThe brief.",
+        ...(background ? { run_in_background: true } : {}),
+      },
+      ...(result ? { result } : {}),
+    },
+    subagent: {
+      agentType: type,
+      isBackground: background,
+      model: "claude-opus-5-5",
+      reasoningEffort: "high",
+      childEvents: kids,
+    },
+  });
+  const view = (m, run = null, task = null, now = NOW, s = mod) =>
+    s.helperView(
+      s.helperFacts(m, run, task),
+      s.STRINGS.helperCard,
+      s.STRINGS.units,
+      s.stageOf,
+      now,
+    );
+  const line = (v) => v.parts.map((p) => p.text).join(" · ");
+  const fourteen = Array.from({ length: 14 }, (_, i) =>
+    kid(i === 13 ? "Grep" : "Read", NOW - (14 - i) * 5000),
+  );
+  const running = view(msg({ kids: fourteen }), {
+    description: "U3: chat column design",
+    type: "worker-full",
+  });
+  check(
+    "helper card: running, the stage orb and 'Helper searching files · 2m · 14 steps'",
+    running.state === "running" &&
+      running.mark === "orb" &&
+      running.orb === "searching" &&
+      !running.slow &&
+      line(running) === "Helper searching files · 2m · 14 steps" &&
+      running.parts[0].part === "state",
+  );
+  const quiet = view(
+    msg({ started: NOW - 8 * min, kids: [kid("Bash", NOW - 3 * min)] }),
+    { type: "reviewer" },
+  );
+  check(
+    "helper card: running with no step for over 2 minutes, the orb at half speed and the wait in words",
+    quiet.state === "running" &&
+      quiet.slow &&
+      line(quiet) === "Reviewer still running a command · last step 3m ago",
+  );
+  const bgTask = {
+    toolUseId: "t1",
+    status: "running",
+    startedAt: NOW - 4 * min - 5000,
+    lastToolName: "Read",
+  };
+  const bg = view(
+    msg({ background: true, result: "Async agent launched successfully." }),
+    null,
+    bgTask,
+  );
+  check(
+    "helper card: running in the background, 'Running in the background · 4m'; with no task only 'In the background'",
+    bg.state === "background" &&
+      bg.mark === "orb" &&
+      line(bg) === "Running in the background · 4m" &&
+      line(view(msg({ background: true, result: "launched" }))) ===
+        "In the background",
+  );
+  const done = view(msg({ type: "reviewer", result: "Two findings." }), {
+    type: "reviewer",
+    result: "success",
+    totalTokens: 125096,
+    totalDurationMs: 308565,
+    totalToolUseCount: 51,
+  });
+  check(
+    "helper card: done, a grey tick and 'Reviewer finished · 5m · 51 steps · 125k tokens'",
+    done.state === "done" &&
+      done.mark === "tick" &&
+      line(done) === "Reviewer finished · 5m · 51 steps · 125k tokens",
+  );
+  const bgDone = (tokenCount) =>
+    view(msg({ background: true, result: "launched" }), null, {
+      toolUseId: "t1",
+      status: "completed",
+      startedAt: NOW,
+      durationMs: 7 * min,
+      toolCount: 30,
+      tokenCount,
+    });
+  check(
+    "helper card: done in the background, 'tokens not reported' when the task has none, its tokens when it has",
+    bgDone(0).state === "done-background" &&
+      bgDone(0).mark === "tick" &&
+      line(bgDone(0)) ===
+        "Helper finished · 7m · 30 steps · tokens not reported" &&
+      line(bgDone(1234567)) === "Helper finished · 7m · 30 steps · 1.2M tokens",
+  );
+  const stopped = view(msg({ result: "Done: S1." }), {
+    result: "partial",
+    why: "What is left: 2 items left",
+    totalTokens: 61000,
+  });
+  check(
+    "helper card: stopped early, a grey dash and the report's reason in plain words; the turn limit named",
+    stopped.state === "stopped" &&
+      stopped.mark === "dash" &&
+      line(stopped) === "Stopped early · 2 items left · 61k tokens" &&
+      helperWhy(
+        "BLOCKED S3: expected a list, found none",
+        mod.STRINGS.helperCard,
+      ) === "expected a list, found none" &&
+      helperWhy("turn limit", mod.STRINGS.helperCard) === "hit its turn limit",
+  );
+  const failed = view(msg({ result: "error", isError: true }), {
+    result: "fail",
+    why: "error: npm test exited with code 1",
+  });
+  check(
+    "helper card: failed, the error dot and 'Failed · npm test exited with code 1'",
+    failed.state === "failed" &&
+      failed.mark === "dot" &&
+      line(failed) === "Failed · npm test exited with code 1",
+  );
+  const words = (model, effort) => mod.runWords({ model, effort });
+  const opened = helperOpened(
+    helperFacts(
+      msg({
+        started: Date.UTC(2026, 10, 13, 20, 9),
+        result: "## Helper card built\n\nThe rest.",
+      }),
+      { type: "worker-full", model: "opus", effort: "high", result: "success" },
+    ),
+    mod.STRINGS.helperCard,
+    words,
+  );
+  check(
+    "helper card: opened, the report's first line, then type, model and effort, and the start time",
+    opened.length === 2 &&
+      opened[0] === "Helper card built" &&
+      /^worker-full · Opus high · started \d{1,2}:09\s[ap]m$/.test(opened[1]) &&
+      helperOpened(
+        helperFacts(msg({ background: true, result: "launched" }), null, null),
+        mod.STRINGS.helperCard,
+        words,
+      ).length === 1,
+  );
+  check(
+    "helper card: the task words, from the log line, else the prompt's first line; no number is made up",
+    helperFacts(msg(), { description: "U3: chat column" }, null).description ===
+      "U3: chat column" &&
+      helperFirstLine(msg().toolCall.arguments.prompt) === "Scan the logs" &&
+      line(view(msg({ result: "ok" }), { result: "success" })) ===
+        "Helper finished · tokens not reported" &&
+      line(view(msg({ kids: [] }), null, null, NOW - 2 * min - 10000)) ===
+        "Helper running",
+  );
+  const row = (task) => ({
+    __reactFiber$t: { memoizedProps: { task }, return: null },
+  });
+  const tasks = helperTasks([
+    row({ startedAt: 1, toolUseId: "a" }),
+    row({ startedAt: 2 }),
+    row({ startedAt: 3, toolUseId: "b" }),
+  ]);
+  check(
+    "helper card: the agents list's tasks by tool id",
+    tasks.size === 2 &&
+      tasks.get("a").startedAt === 1 &&
+      tasks.get("b").startedAt === 3,
+  );
+  check(
+    "russian: the helper card's words",
+    line(view(msg({ kids: fourteen }), null, null, NOW, ruMod)) ===
+      "Помощник ищет по файлам · 2м · шагов: 14" &&
+      line(
+        view(
+          msg({ type: "reviewer", result: "x" }),
+          {
+            type: "reviewer",
+            result: "success",
+            totalTokens: 125096,
+            totalDurationMs: 308565,
+            totalToolUseCount: 51,
+          },
+          null,
+          NOW,
+          ruMod,
+        ),
+      ) === "Проверяющий: готово · 5м · шагов: 51 · токенов: 125 тыс.",
+  );
+}
+
+// The split between "Agents & commands" and the app's Trackers section: a handle on the Trackers section's top edge.
+// Ten tracker rows, some two lines high (the Ink theme wraps their titles), 2px apart. With nothing saved the app's
+// 200px list ends on its last whole row; dragged up 100px the list grows to its last whole row within 288px and the
+// agents block gives up the same; the split is saved and a new mount gets it back; arrow down moves it one row.
+{
+  const ROWS = [28, 48, 28, 28, 48, 28, 28, 28, 48, 28];
+  const edges = [];
+  let y = 0;
+  for (const h of ROWS) {
+    edges.push([y, y + h]);
+    y += h + 2;
+  }
+  const natural = y - 2 + 8;
+  const px = (v) => (v ? Number.parseFloat(v) : null);
+  const element = () => {
+    const on = {};
+    const attrs = {};
+    return {
+      dataset: {},
+      style: {},
+      on,
+      attrs,
+      setAttribute: (k, v) => {
+        attrs[k] = String(v);
+      },
+      addEventListener: (type, f) => {
+        on[type] = f;
+      },
+      setPointerCapture: () => {},
+      remove: () => {},
+    };
+  };
+  // One mount of the right panel, 1000px high: a 40px header, the file list (grows into what is left), the agents
+  // block 300px high, the Trackers section's 30px title over its list, the list as CSS would size it
+  const HEADER = 40;
+  const TITLE = 30;
+  const mount = () => {
+    const kids = [];
+    const sidebar = { dataset: {}, style: {}, clientHeight: 1000 };
+    const panel = {
+      style: { height: "" },
+      querySelector: (s) => (s === ".max-h-\\[200px\\]" ? {} : null),
+      getBoundingClientRect: () => ({ height: px(panel.style.height) ?? 300 }),
+    };
+    const list = {
+      style: { height: "", maxHeight: "" },
+      scrollTop: 0,
+      firstElementChild: {},
+      getBoundingClientRect: () => {
+        const cap =
+          list.style.maxHeight === "none"
+            ? Number.POSITIVE_INFINITY
+            : (px(list.style.maxHeight) ?? 200);
+        const h = Math.min(px(list.style.height) ?? natural, cap);
+        return { top: 500, bottom: 500 + h, height: h };
+      },
+      querySelectorAll: (s) =>
+        s === ".tracker-item-row"
+          ? edges.map(([top, bottom]) => ({
+              getBoundingClientRect: () => ({
+                top: 500 + top - list.scrollTop,
+                bottom: 500 + bottom - list.scrollTop,
+              }),
+            }))
+          : [],
+    };
+    const tracker = {
+      parentElement: sidebar,
+      querySelector: (s) =>
+        s === ":scope > .tracker-panel-content"
+          ? list
+          : s === ":scope > .ap-split"
+            ? (kids[0] ?? null)
+            : null,
+      prepend: (n) => {
+        kids.unshift(n);
+        n.parentElement = tracker;
+      },
+      getBoundingClientRect: () => ({
+        height: TITLE + list.getBoundingClientRect().height,
+      }),
+    };
+    const header = {
+      flexGrow: "0",
+      getBoundingClientRect: () => ({ height: HEADER }),
+    };
+    const files = {
+      flexGrow: "1",
+      getBoundingClientRect: () => ({
+        height: Math.max(
+          sidebar.clientHeight -
+            HEADER -
+            panel.getBoundingClientRect().height -
+            tracker.getBoundingClientRect().height,
+          0,
+        ),
+      }),
+    };
+    sidebar.children = [header, files, panel, tracker];
+    sidebar.querySelector = (s) =>
+      s === ":scope > .teammate-panel" ? panel : null;
+    return { sidebar, panel, list, tracker, handle: () => kids[0] };
+  };
+  const heights = (m) => ({
+    list: m.list.getBoundingClientRect().height,
+    panel: m.panel.getBoundingClientRect().height,
+  });
+  const store = new Map();
+  const saved = {
+    document: globalThis.document,
+    localStorage: globalThis.localStorage,
+    getComputedStyle: globalThis.getComputedStyle,
+  };
+  globalThis.getComputedStyle = (n) => ({ flexGrow: n.flexGrow ?? "0" });
+  let m = mount();
+  globalThis.document = {
+    querySelectorAll: (s) =>
+      s === ".files-edited-sidebar > .tracker-panel" ? [m.tracker] : [],
+    createElement: element,
+  };
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  const ev = (o) => ({
+    button: 0,
+    pointerId: 1,
+    preventDefault: () => {},
+    currentTarget: m.handle(),
+    ...o,
+  });
+  const r = {};
+  try {
+    mod.syncSplit();
+    const h = m.handle();
+    r.handle = h;
+    r.first = heights(m);
+    h.on.pointerdown(ev({ clientY: 400 }));
+    h.on.pointermove(ev({ clientY: 300 }));
+    h.on.pointerup(ev({ clientY: 300 }));
+    r.dragged = heights(m);
+    r.saved = store.has("agentsPanel.split");
+    m = mount(); // a restart: new elements, the split read back from storage
+    mod.syncSplit();
+    r.restored = heights(m);
+    m.handle().on.keydown(ev({ key: "ArrowDown" }));
+    r.key = heights(m);
+    // A split saved in a tall window (agents 600, Trackers 328: 928 of the 930px the two share), then the window
+    // gets shorter (400px, 330 to share), then tall again, then short and dragged up 30px
+    store.set(
+      "agentsPanel.split",
+      JSON.stringify({ agents: 600, trackers: 328 }),
+    );
+    const before = store.get("agentsPanel.split");
+    m = mount();
+    mod.syncSplit();
+    r.tall = heights(m);
+    m.sidebar.clientHeight = 400;
+    mod.syncSplit();
+    r.short = heights(m);
+    r.kept = store.get("agentsPanel.split") === before;
+    m.sidebar.clientHeight = 1000;
+    mod.syncSplit();
+    r.back = heights(m);
+    m.sidebar.clientHeight = 400;
+    mod.syncSplit();
+    m.handle().on.pointerdown(ev({ clientY: 300 }));
+    m.handle().on.pointermove(ev({ clientY: 270 }));
+    m.handle().on.pointerup(ev({ clientY: 270 }));
+    r.shortDrag = heights(m);
+    // Agents saved at its least: on the short panel it keeps 80px, Trackers takes the rest
+    store.set(
+      "agentsPanel.split",
+      JSON.stringify({ agents: 80, trackers: 358 }),
+    );
+    mod.syncSplit();
+    r.least = heights(m);
+  } catch (e) {
+    console.log(`split: ${e.message}`);
+    console.log(`split: ${e.message}`);
+  } finally {
+    globalThis.document = saved.document;
+    globalThis.localStorage = saved.localStorage;
+    globalThis.getComputedStyle = saved.getComputedStyle;
+  }
+  const whole = (h) => edges.some(([, bottom]) => bottom === h);
+  // Both blocks inside the 400px panel: header, agents block, Trackers title and list
+  const fits = (h) => h && HEADER + h.panel + TITLE + h.list <= 400;
+  check(
+    "split: a focusable separator (role, orientation, tab stop) on the Trackers section's top edge",
+    r.handle?.attrs.role === "separator" &&
+      r.handle.attrs["aria-orientation"] === "horizontal" &&
+      r.handle.tabIndex === 0 &&
+      ["pointerdown", "pointermove", "pointerup", "keydown"].every(
+        (t) => typeof r.handle.on[t] === "function",
+      ),
+  );
+  check(
+    "split: nothing saved, the app's 200px Trackers list ends on its last whole row, the agents block as it was",
+    r.first?.list === 188 && whole(r.first.list) && r.first.panel === 300,
+  );
+  check(
+    "split: dragged up 100px, Trackers grows to its last whole row (278) and the agents block shrinks the same, saved",
+    r.dragged?.list === 278 &&
+      whole(r.dragged.list) &&
+      r.dragged.panel === 210 &&
+      r.saved,
+  );
+  check(
+    "split: the saved split comes back on a new mount",
+    r.restored?.list === 278 && r.restored.panel === 210,
+  );
+  check(
+    "split: arrow down gives the agents block one Trackers row back",
+    r.key?.list === 248 && whole(r.key.list) && r.key.panel === 240,
+  );
+  check(
+    "split: a split saved in a tall window shrinks to fit a shorter one, both blocks inside, each above its least, the saved split untouched",
+    r.tall?.list === 328 &&
+      r.tall.panel === 600 &&
+      fits(r.short) &&
+      whole(r.short.list) &&
+      r.short.panel >= 80 &&
+      r.short.list < 328 &&
+      r.short.panel < 600 &&
+      r.kept,
+  );
+  check(
+    "split: the window tall again, the saved split comes back",
+    r.back?.list === 328 && r.back.panel === 600,
+  );
+  check(
+    "split: on the shorter window a drag up 30px still moves the handle, both blocks stay inside",
+    fits(r.shortDrag) &&
+      whole(r.shortDrag.list) &&
+      r.shortDrag.list > r.short.list &&
+      r.shortDrag.panel < r.short.panel,
+  );
+  check(
+    "split: on the shorter window the agents block keeps its 80px least (not its 60px share)",
+    fits(r.least) && r.least.panel >= 80 && r.least.list === 248,
+  );
+}
+
 const rawCss = fs.readFileSync(path.join(here, "dist", "style.css"), "utf8");
 const tokens = fs.readFileSync(
   path.join(here, "..", "shared", "tokens.css"),
@@ -515,14 +2041,516 @@ check("css: begins with tokens block", rawCss.startsWith(tokens));
 check("css: has --x-surface-1", rawCss.includes("--x-surface-1"));
 // A `font` shorthand without a family is invalid and the browser drops it
 const typeTokens = [
-  ...tokens.matchAll(/--x-(?:title|body|caption|micro|figure):([^;]+);/g),
+  ...tokens.matchAll(
+    /--x-(?:title|body|row-title|meta|heading|count|figure):([^;]+);/g,
+  ),
 ].map((m) => m[1].trim());
 check(
   "tokens: every type token is a full font shorthand",
-  typeTokens.length === 5 &&
+  typeTokens.length === 7 &&
     typeTokens.every((v) => v.endsWith("var(--x-font-ui)")),
 );
-check("css: has --x-micro", rawCss.includes("--x-micro"));
+{
+  // Our own rules (after the tokens block) are on the new type scale: no old caption/micro token, nothing under 12px
+  const own = rawCss.slice(tokens.length).replace(/\/\*[\s\S]*?\*\//g, "");
+  check(
+    "css: on the new type scale (no --x-micro or --x-caption, no size under 12px)",
+    !/--x-(?:micro|caption)/.test(own) &&
+      [...own.matchAll(/font-size:\s*(\d+)px/g)].every((m) => +m[1] >= 12) &&
+      own.includes("font: var(--x-row-title)") &&
+      own.includes("font: var(--x-meta)"),
+  );
+  check(
+    "css: one meta line, the time never dropped (fitMeta drops the model, then the kind); title on one line",
+    /\.teammate-panel \.ap-meta\s*{[^}]*white-space:\s*nowrap/.test(own) &&
+      /\.ap-meta > \[data-ap-part="doing"\]\s*{\s*font-weight:\s*500/.test(
+        own,
+      ) &&
+      /\.teammate-panel \.ap-title\s*{[^}]*white-space:\s*nowrap/.test(own),
+  );
+  // DESIGN.md: meta text is 400 or 500; the kind word ("Helper") was 600 (look-over: 13/600 in the right panel)
+  const metaWeights = [...own.matchAll(/\.ap-meta > [^{]*{([^}]*)}/g)].flatMap(
+    (m) => [...m[1].matchAll(/font-weight:\s*(\d+)/g)].map((w) => +w[1]),
+  );
+  check(
+    `css: the agents meta line is 400 or 500 (${metaWeights.join(", ")})`,
+    metaWeights.length > 0 && metaWeights.every((w) => w === 400 || w === 500),
+  );
+  check(
+    "css: no green, block at the bottom capped at 72%, the app's spinner hidden behind our mark",
+    !/success|#4ade80/.test(own) &&
+      /\.files-edited-sidebar > \.teammate-panel\s*{[^}]*margin-top:\s*auto[^}]*max-height:\s*72%/.test(
+        own,
+      ) &&
+      own.includes("[data-ap-mark] > div:first-child > :not(.ap-mark)"),
+  );
+  const dist = fs.readFileSync(path.join(here, "dist", "index.js"), "utf8");
+  check(
+    "build: stage.js and the orb mount inlined, the mount inside loadOrbs",
+    !/from ['"]\.\/stage\.js['"]/.test(dist) &&
+      dist.includes("function stageOf") &&
+      !dist.includes("ORBS-MOUNT") &&
+      dist.indexOf("thinking-orbs 0.3.2") > dist.indexOf("function loadOrbs"),
+  );
+  check(
+    "build: files-fold.js inlined, re-applied on every change, started and stopped with the panel",
+    !/from ['"]\.\/files-fold\.js['"]/.test(dist) &&
+      dist.includes("function syncFiles") &&
+      /function sync\(\)[\s\S]*?syncFiles\(STRINGS\)/.test(dist) &&
+      /function activate\(\)[\s\S]*?startFilesFold\(queue\)/.test(dist) &&
+      /function deactivate\(\)[\s\S]*?stopFilesFold\(\)/.test(dist),
+  );
+  check(
+    "build: chat-state.js inlined, re-applied on every change, given back at deactivate",
+    !/from ['"]\.\/chat-state\.js['"]/.test(dist) &&
+      dist.includes("function syncThinking") &&
+      /function sync\(\)[\s\S]*?syncThinking\(STRINGS, stageOf\)/.test(dist) &&
+      /function deactivate\(\)[\s\S]*?stopThinking\(\)/.test(dist),
+  );
+  check(
+    "build: the playful word keyed on the turn (lineTurn) and dropped when the line goes back to the app; row orbs drawn at 18px",
+    /let turn = lineTurn\(line\);[\s\S]*?turnWord\(line\.dataset, turn, strings\.waitLine\.playful\)/.test(
+      dist,
+    ) &&
+      /function unsyncLine[\s\S]*?delete line\.dataset\.apWord;\s*delete line\.dataset\.apTurn/.test(
+        dist,
+      ) &&
+      dist.includes('needsOrb("ap-session-orb", orbState, "18")') &&
+      /\.ap-session-orb\s*{\s*width:\s*18px;\s*height:\s*18px;\s*margin:\s*1px 0/.test(
+        own,
+      ),
+  );
+  check(
+    "build: every orb canvas we make gets --orb-dark before it joins the page; all of them again on each pass and theme switch",
+    /orb\.className = "ap-thinking-orb";[\s\S]*?orbTheme\(orb\);\s*}\s*if \(orb\.nextElementSibling !== dots\) dots\.before\(orb\)/.test(
+      dist,
+    ) &&
+      /function needsOrb[\s\S]*?return orbTheme\(c\);/.test(dist) &&
+      /if \(running\) orbTheme\(mark\);\s*slot\.append\(mark\)/.test(dist) &&
+      /function sync\(\)[\s\S]*?helperCards\(items\);[\s\S]*?querySelectorAll\(OUR_ORBS\)\) orbTheme\(orb\);\s*}\s*function helperCards\(items\) {\s*try {\s*helpers = syncHelpers\(/.test(
+        dist,
+      ) &&
+      // A card filled in before paint (the observer's callback) themes its orbs there too
+      /function changed\(records\) {\s*if \(addsHelper\(records\)\) {\s*helperCards\([\s\S]*?querySelectorAll\("canvas\.ap-helper-orb"\)\)\s*orbTheme\(orb\);/.test(
+        dist,
+      ) &&
+      dist.includes("canvas.ap-helper-orb") &&
+      /observer\.observe\(document\.documentElement, {\s*attributes: true,\s*attributeFilter: \["class"\]/.test(
+        dist,
+      ),
+  );
+  check(
+    "css: the app's dots hidden only while our orb is there; the line, our word and the app's time one size (reading 15/24), upright, muted, the time tabular",
+    /\.rich-transcript-waiting:has\(> \.ap-thinking-orb\) > \.rich-transcript-waiting-dots\s*{\s*display:\s*none/.test(
+      own,
+    ) &&
+      /\.rich-transcript-waiting > \.ap-thinking-orb\s*{[^}]*width:\s*var\(--x-orb-size\)/.test(
+        own,
+      ) &&
+      /\.rich-transcript-waiting:has\(> \.ap-thinking-orb\)\s*{\s*font:\s*var\(--x-reading\);\s*font-style:\s*normal/.test(
+        own,
+      ) &&
+      /\.rich-transcript-waiting \.ap-thinking-text\s*{\s*font:\s*var\(--x-reading\);\s*font-style:\s*normal;\s*color:\s*var\(--x-text-muted\)/.test(
+        own,
+      ) &&
+      /\.rich-transcript-waiting:has\(> \.ap-thinking-orb\) > \.rich-transcript-waiting-elapsed\s*{\s*font:\s*var\(--x-reading\);\s*font-style:\s*normal;\s*font-variant-numeric:\s*tabular-nums;\s*color:\s*var\(--x-text-muted\)/.test(
+        own,
+      ) &&
+      /--x-reading:\s*400 15px\/24px/.test(tokens) &&
+      /--x-orb-size:\s*24px/.test(tokens) &&
+      // Only our own elements are styled, plus these app selectors: the dots' hide rule and the helper card's own
+      // four (its tone, radius and no border; its button content and its description hidden while our head is there;
+      // the hairline over its opened part), each scoped to a card we marked
+      [...own.matchAll(/([^{}]*rich-transcript[^{}]*){/g)].every((m) =>
+        m[1]
+          .trim()
+          .split(/\s*,\s*/)
+          .every(
+            (sel) =>
+              /\.ap-(?:thinking-(?:orb|text)|helper-[a-z]+)\s*$/.test(sel) ||
+              /> \.rich-transcript-waiting-dots$/.test(sel) ||
+              [
+                ".rich-transcript-waiting:has(> .ap-thinking-orb)",
+                ".rich-transcript-waiting:has(> .ap-thinking-orb) > .rich-transcript-waiting-elapsed",
+                ".rich-transcript-tool-card.sub-agent[data-ap-helper]",
+                ".rich-transcript-tool-button:has(> .ap-helper) > :not(.ap-helper)",
+                ".rich-transcript-tool-card.sub-agent[data-ap-helper] > .rich-transcript-tool-expanded > .rich-transcript-tool-section:has(> .rich-transcript-tool-description)",
+                ".rich-transcript-tool-card.sub-agent[data-ap-helper] > .rich-transcript-tool-expanded",
+              ].includes(sel),
+          ),
+      ),
+  );
+  {
+    // The whole-app type design's levels: each text kind the agents panel owns and its token
+    const rule = (sel) => {
+      const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Every rule with exactly this selector, joined (a selector may have more than one rule)
+      return [
+        ...own.matchAll(new RegExp(`(?:^|[}\\s])${esc}\\s*{([^}]*)}`, "g")),
+      ]
+        .map((m) => m[1])
+        .join(";");
+    };
+    const kinds = [
+      [
+        "agents list row title",
+        ".teammate-panel .ap-title",
+        /font:\s*var\(--x-row-title\)/,
+      ],
+      [
+        "agents list stage line",
+        ".teammate-panel .ap-meta",
+        /font:\s*var\(--x-meta\)/,
+      ],
+      [
+        "agents list summary line",
+        ".teammate-panel .ap-count",
+        /font:\s*var\(--x-meta\)/,
+      ],
+      ["helper card name", ".ap-helper-task", /font:\s*var\(--x-row-title\)/],
+      [
+        "helper card stage and model line",
+        ".ap-helper-meta",
+        /font:\s*var\(--x-meta\)/,
+      ],
+      [
+        "files fold detail line",
+        ".files-edited-sidebar .ap-files-detail",
+        /font:\s*var\(--x-meta\)/,
+      ],
+      [
+        "Commit button: a quiet button (hairline, row-title type)",
+        ".git-operations-panel .ap-commit",
+        /border:\s*1px solid var\(--x-hairline\);[\s\S]*font:\s*var\(--x-row-title\)/,
+      ],
+      [
+        "Needs-you bar what waits",
+        ".ap-needs-banner",
+        /font:\s*var\(--x-body\)/,
+      ],
+      [
+        "Needs-you bar word",
+        ".ap-needs-banner .ap-needs-word",
+        /font:\s*var\(--x-row-title\);\s*font-weight:\s*600/,
+      ],
+    ];
+    const off = kinds.filter(([, sel, token]) => !token.test(rule(sel)));
+    check(
+      `css: every text kind on its type level (${off.map((k) => k[0]).join(", ") || "all"})`,
+      off.length === 0 &&
+        /\.teammate-panel \.ap-count > \[data-ap-part="needs"\]\s*{\s*font-weight:\s*600;\s*color:\s*var\(--x-state-needs\)/.test(
+          own,
+        ),
+    );
+    check(
+      "css: the Needs-you bar takes the chat box's side edges (16px in), 8px corners, 36px high, on the needs tint, no hairline",
+      /\[data-ap-needs="banner"\]\s*{\s*box-sizing:\s*border-box;\s*height:\s*36px;\s*margin:\s*0 var\(--x-space-4\) var\(--x-space-2\);\s*padding-block:\s*0;\s*border:\s*none;\s*border-radius:\s*var\(--x-radius-window\);\s*background:\s*linear-gradient\(var\(--x-state-needs-tint\)/.test(
+        own,
+      ) &&
+        /--x-space-4:\s*16px/.test(tokens) &&
+        /--x-radius-window:\s*8px/.test(tokens),
+    );
+  }
+  {
+    const { STRINGS } = mod;
+    // A 12-folder list on the narrowest panel (301px): the detail line keeps only folders that fit whole, then
+    // "+N more". The stand-in measure: 7.2px a character (13px Figtree averages under that)
+    const folders = [
+      ["agents", 5],
+      ["audits", 120],
+      ["docs", 64],
+      ["extensions", 40],
+      ["hooks", 22],
+      ["scripts", 9],
+      ["skills", 18],
+      ["tests", 14],
+      ["tools", 48],
+      ["rules", 11],
+      ["themes", 7],
+      ["workers", 6],
+    ].map(([name, count]) => ({ name, count }));
+    const summary = mod.filesSummary(folders, 0, STRINGS);
+    const room = 301 - 2 * 8 - 16 - 8 - 2 * 8; // panel minus the line's inset, icon, gap and padding
+    const fits = (text) => text.length * 7.2 <= room;
+    const narrow = mod.fitDetail(summary, STRINGS, fits);
+    const wide = mod.fitDetail(summary, STRINGS, () => true);
+    const tiny = mod.fitDetail(summary, STRINGS, () => false);
+    check(
+      `files: a 12-folder list at 301px shows whole folders then "+N more" ("${narrow}"); a wide panel the whole line`,
+      /^audits 120 · docs 64 · \+10 more$/.test(narrow) &&
+        fits(narrow) &&
+        wide === "audits 120 · docs 64 · tools 48 · 9 more folders" &&
+        tiny === "+12 more" &&
+        narrow
+          .split(" · ")
+          .every(
+            (part) => /^[a-z]+ \d+$/.test(part) || /^\+\d+ more$/.test(part),
+          ),
+    );
+  }
+  {
+    // The same 7.2px stand-in on the 301px panel's other lines: no word is cut
+    const joined = (parts) => parts.map((p) => p.text).join(" · ");
+    // fitMeta and fitParts hand `fits` the parts (fitsIn measures each at its weight), wordFit a string
+    const fitsTo = (room) => (text) =>
+      (typeof text === "string" ? text : joined(text)).length * 7.2 <= room;
+    // The header beside a one-line "Agents & commands": about 140px left
+    const reading = mod.countWords({
+      needs: true,
+      running: 8,
+      failed: 1,
+      stopped: 0,
+      completed: 1,
+    });
+    const head = joined(mod.fitParts(reading.parts, fitsTo(140)));
+    check(
+      `header count: at 301px whole parts then "+N more" ("${head}"), a wide panel the whole reading; the title one line`,
+      head === `${mod.STRINGS.needs.word} · +2 more` &&
+        mod.fitParts(reading.parts, () => true) === reading.parts &&
+        joined(mod.fitParts(reading.parts, (parts) => parts.length === 1)) ===
+          "+3 more" &&
+        mod.fitParts(reading.parts, () => false).length === 0 &&
+        /\.teammate-panel \.ap-count\s*{\s*flex:\s*1 1 0;\s*min-width:\s*0/.test(
+          own,
+        ),
+    );
+    // A running row's meta line: a row's text is about 237px wide at 301px
+    const now = Date.now();
+    const view = mod.rowView(
+      "Sub-agent · 1m 20s · 9 tools · Grep",
+      "running",
+      { startedAt: now - 80000, durationMs: 76000 },
+      now,
+      { model: "sonnet", effort: "medium" },
+    );
+    const doing = view.parts.find((p) => p.part === "doing");
+    const narrow = mod.fitMeta(view.parts, fitsTo(237));
+    const noModel = joined(view.parts.filter((p) => p.part !== "model"));
+    const less = mod.fitMeta(
+      view.parts,
+      (t) => joined(t).length <= noModel.length,
+    );
+    check(
+      `meta: at 301px the stage words stay whole, the model then the kind give way ("${joined(narrow)}")`,
+      fitsTo(237)(joined(narrow)) &&
+        narrow.find((p) => p.part === "doing")?.text === doing.text &&
+        !narrow.some((p) => p.part === "model") &&
+        joined(less) === noModel &&
+        mod.fitMeta(view.parts, () => true) === view.parts,
+    );
+    // Drop timing: a part goes only when the line, each part at its own weight, is wider than the room. 7.2px a
+    // character, 7.8px at 500 (kind, doing): the whole line at exactly its width keeps the model, 1px less drops it.
+    const wide = (parts) =>
+      parts.reduce(
+        (w, p, i) =>
+          w +
+          (i ? 3 * 7.2 : 0) +
+          p.text.length * (["kind", "doing"].includes(p.part) ? 7.8 : 7.2),
+        0,
+      );
+    const fitsWide = (room) => (t) =>
+      (typeof t === "string" ? t.length * 7.8 : wide(t)) <= room;
+    const fullW = wide(view.parts);
+    const ff = fs.readFileSync(path.join(here, "src", "files-fold.js"), "utf8");
+    check(
+      "meta drop timing: the model stays while the line fits to the pixel and goes 1px narrower; fitsIn measures each part at its own weight in the node's type longhands (Chromium's font shorthand is empty with tabular-nums, which measured in 16px type)",
+      mod.fitMeta(view.parts, fitsWide(fullW)) === view.parts &&
+        mod
+          .fitMeta(view.parts, fitsWide(fullW - 1))
+          .every((p) => p.part !== "model") &&
+        mod
+          .fitMeta(view.parts, fitsWide(fullW - 1))
+          .some((p) => p.part === "time") &&
+        !/probe\.style\.font\s*=|{\s*font\b[^}]*}\s*=\s*cs/.test(ff) &&
+        /"fontSize"[\s\S]*"fontFamily"[\s\S]*"fontVariantNumeric"/.test(ff) &&
+        /weightOf\?\.\(p\)/.test(ff),
+    );
+    // No clip: nothing in the sidebar holds it wider than the panel, and a part too long ends in "…", never cut
+    const stopped = mod.rowView(
+      "Sub-agent · 2m 10s · stopped",
+      "stopped",
+      null,
+      now,
+      null,
+    );
+    const short = mod.fitMeta(stopped.parts, fitsTo(140));
+    check(
+      `no clip: the agents title shrinks and wraps, the commit row wraps, the files header wraps; meta parts shrink to "…" but the kind and separators keep their width; a finished row's last part is cut at a word ("${joined(short)}")`,
+      /\.teammate-panel > div > button > \.text-xs\.font-medium\s*{\s*flex:\s*0 1 auto;\s*min-width:\s*0;\s*overflow-wrap:\s*break-word/.test(
+        own,
+      ) &&
+        !/\.text-xs\.font-medium\s*{[^}]*white-space:\s*nowrap/.test(own) &&
+        /\.git-operations-panel__header-left\s*{\s*flex-wrap:\s*wrap;\s*min-width:\s*0/.test(
+          own,
+        ) &&
+        /\.files-edited-sidebar__header > \*\s*{\s*min-width:\s*0/.test(own) &&
+        /\.ap-meta > span\s*{\s*flex:\s*0 1 auto;\s*min-width:\s*0;\s*overflow:\s*hidden;\s*text-overflow:\s*ellipsis/.test(
+          own,
+        ) &&
+        /\.ap-meta > \.ap-sep,\s*\.teammate-panel \.ap-meta > \[data-ap-part="kind"\],\s*\.teammate-panel \.ap-meta > \[data-ap-part="time"\]\s*{\s*flex:\s*none/.test(
+          own,
+        ) &&
+        fitsTo(140)(joined(short)) &&
+        short.at(-1).text.endsWith("…") &&
+        short.every((p) => p.part !== "kind"),
+    );
+    // The time never goes (user, 2026-11-14: "how long it's running for is the most important"): narrower, the model,
+    // then the kind, then the stage words' last words give way; at the narrowest only the time is left
+    const bg = mod.rowView(
+      "Command · 1m 4s",
+      "running",
+      { startedAt: now - 64000, durationMs: 0, isBackgrounded: true },
+      now,
+      null,
+    );
+    const bgTime = bg.parts.find((p) => p.part === "time").text;
+    const mid = mod.fitMeta(bg.parts, fitsTo(120));
+    const tiny = mod.fitMeta(bg.parts, fitsTo(40));
+    check(
+      `meta keeps the time: a background command at 120px ("${joined(mid)}") and at 40px ("${joined(tiny)}")`,
+      fitsTo(120)(joined(mid)) &&
+        mid.some((p) => p.part === "time" && p.text === bgTime) &&
+        !mid.some((p) => p.part === "kind") &&
+        joined(tiny) === bgTime,
+    );
+    // A long helper title is cut after a whole word, "~/.claude" is never split
+    const full =
+      "Lists the biggest loose files in ~/.claude, then waits (up to ~8 min)";
+    const title = mod.wordFit(full, fitsTo(237));
+    const stem = title.slice(0, -1);
+    check(
+      `title: at 301px a long title ends at a whole word then "…" ("${title}")`,
+      title.endsWith("…") &&
+        fitsTo(237)(title) &&
+        full.startsWith(stem) &&
+        /^[\s,;:.·–—-]*\s/.test(full.slice(stem.length)) &&
+        mod.wordFit(full, () => true) === full,
+    );
+  }
+  check(
+    "css: helper card on surface 1, radius 8, no border; task 14/500, meta 13/400 muted; state word at 500",
+    /\.rich-transcript-tool-card\.sub-agent\[data-ap-helper\]\s*{\s*border:\s*none;\s*border-radius:\s*var\(--x-radius-window\);\s*background:\s*var\(--x-surface-1\)/.test(
+      own,
+    ) &&
+      /\.ap-helper-task\s*{\s*font:\s*var\(--x-row-title\)/.test(own) &&
+      /\.ap-helper-meta\s*{\s*font:\s*var\(--x-meta\)[^}]*color:\s*var\(--x-text-muted\)/.test(
+        own,
+      ) &&
+      /\.ap-helper-meta > \[data-ap-part="state"\]\s*{\s*font-weight:\s*500/.test(
+        own,
+      ),
+  );
+  check(
+    "css: helper state tones: running in the accent text tone, failed in the error tone, done grey tick, stopped grey dash",
+    /\[data-ap-helper="running"\] \.ap-helper-meta > \[data-ap-part="state"\],\s*\[data-ap-helper="background"\] \.ap-helper-meta > \[data-ap-part="state"\]\s*{\s*color:\s*var\(--x-state-running\)/.test(
+      own,
+    ) &&
+      /\[data-ap-helper="failed"\] \.ap-helper-meta > \[data-ap-part="state"\]\s*{\s*color:\s*var\(--x-state-failed\)/.test(
+        own,
+      ) &&
+      /\.ap-helper-tick\s*{\s*stroke:\s*var\(--x-state-done\)/.test(own) &&
+      /\.ap-helper-dash\s*{[^}]*background:\s*var\(--x-state-stopped\)/.test(
+        own,
+      ) &&
+      /\.ap-helper-dot\s*{[^}]*background:\s*var\(--x-state-failed\)/.test(own),
+  );
+  check(
+    "css: the app's button content hidden only while our head is in it; its description only on a card we marked",
+    /\.rich-transcript-tool-button:has\(> \.ap-helper\) > :not\(\.ap-helper\),\s*\.rich-transcript-tool-card\.sub-agent\[data-ap-helper\] > \.rich-transcript-tool-expanded > \.rich-transcript-tool-section:has\(> \.rich-transcript-tool-description\)\s*{\s*display:\s*none/.test(
+      own,
+    ),
+  );
+  check(
+    "css: reduced motion: the tick drawn in 240ms (--x-motion-slow) without the draw, the chevron without its turn",
+    /\.ap-helper-draw path\s*{[^}]*animation:\s*ap-helper-draw var\(--x-motion-slow\)/.test(
+      own,
+    ) &&
+      /--x-motion-slow:\s*240ms/.test(tokens) &&
+      /@media \(prefers-reduced-motion: reduce\)\s*{\s*\.ap-helper-draw path\s*{\s*animation:\s*none;\s*stroke-dashoffset:\s*0;\s*}\s*\.ap-helper-chev\s*{\s*transition:\s*none/.test(
+        own,
+      ),
+  );
+  check(
+    "build: helper-card.js inlined, re-applied on every change, given back at deactivate",
+    !/from ['"]\.\/helper-card\.js['"]/.test(dist) &&
+      dist.includes("function syncHelpers") &&
+      /function sync\(\)[\s\S]*?syncHelpers\(\s*STRINGS\.helperCard/.test(
+        dist,
+      ) &&
+      /function deactivate\(\)[\s\S]*?stopHelpers\(\)/.test(dist),
+  );
+  check(
+    "build: needs-you marks re-applied after the thinking line, given back at deactivate",
+    dist.includes("function syncNeeds") &&
+      /function sync\(\)[\s\S]*?syncThinking\(STRINGS, stageOf\)[\s\S]*?syncNeeds\(STRINGS, chats\)/.test(
+        dist,
+      ) &&
+      /function deactivate\(\)[\s\S]*?stopNeeds\(\)/.test(dist) &&
+      /attributeFilter: \[[^\]]*"class"[^\]]*"data-state"/.test(dist),
+  );
+  check(
+    "css: needs you in the warning tone at 600 on its 12% tint (row, bar, card); running at 500 in the accent text tone",
+    /\.ap-needs-word,\s*\.teammate-panel \.ap-count > \[data-ap-part="needs"\]\s*{\s*font-weight:\s*600;\s*color:\s*var\(--x-state-needs\)/.test(
+      own,
+    ) &&
+      /\.ap-session-state\[data-ap-state="running"\] > \[data-ap-part\]\s*{\s*font-weight:\s*500;\s*color:\s*var\(--x-state-running\)/.test(
+        own,
+      ) &&
+      /\[data-ap-session="needs-you"\]:not\(\.active\):not\(\.selected\)\s*{\s*background:\s*var\(--x-state-needs-tint\)/.test(
+        own,
+      ) &&
+      /\[data-ap-needs="banner"\]\s*{[^}]*--x-state-needs-tint/.test(own) &&
+      /\[data-ap-needs="card"\] > :first-child\s*{[^}]*--x-state-needs-tint/.test(
+        own,
+      ),
+  );
+  check(
+    "css: the app's row icon hidden only while our orb stands in for it; the bar's words cut to one line",
+    /\.session-list-item-right:has\(> \.ap-session-orb\) > \.session-list-item-status\s*{\s*display:\s*none/.test(
+      own,
+    ) &&
+      /\.ap-needs-what\s*{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/.test(
+        own,
+      ) &&
+      /\.ap-session-orb,\s*\.ap-needs-orb\s*{[^}]*width:\s*var\(--x-orb-size\)/.test(
+        own,
+      ),
+  );
+  check(
+    "css: folded, the app's list and Expand all / Collapse all hidden, the list's box only the line high",
+    /\[data-ap-files="folded"\] \.file-edits-sidebar__files,\s*\.files-edited-sidebar\[data-ap-files="folded"\] \.files-edited-sidebar__control-btn\s*{\s*display:\s*none/.test(
+      own,
+    ) &&
+      /\[data-ap-files="folded"\] > \.files-edited-sidebar__content\s*{\s*flex:\s*none/.test(
+        own,
+      ) &&
+      /\.ap-files-title\s*{[^}]*font:\s*var\(--x-row-title\)/.test(own) &&
+      /\.ap-files-detail\s*{[^}]*font:\s*var\(--x-meta\)/.test(own) &&
+      /:has\(> \.git-operations-panel__content\) \.ap-commit\s*{\s*display:\s*none/.test(
+        own,
+      ),
+  );
+  check(
+    "css: opened, the file list leaves the agents block all its rows, and the block asks no more (no blank under a short list)",
+    /\.files-edited-sidebar\[data-ap-files="open"\] > \.teammate-panel:has\(\.max-h-\\\[200px\\\]\)\s*{\s*flex-shrink:\s*0;\s*}/.test(
+      own,
+    ) && !/\.teammate-panel[^{]*{[^}]*min-height:\s*\d+%/.test(own),
+  );
+  const rowTitleRule = (sel) =>
+    new RegExp(`${sel}[^{]*{\\s*font:\\s*var\\(--x-row-title\\)`).test(own);
+  check(
+    "css: the right panel's section headers (Agents & commands, Teammates, Trackers) as big as a helper row's title, like the commit line",
+    rowTitleRule(
+      String.raw`\.files-edited-sidebar \.teammate-panel > div > button > \.text-xs\.font-medium,\s*\.files-edited-sidebar \.tracker-panel-title`,
+    ) &&
+      /\.teammate-panel \.ap-title\s*{[^}]*font:\s*var\(--x-row-title\)/.test(
+        own,
+      ) &&
+      /\.git-operations-panel__branch\s*{[^}]*font:\s*var\(--x-row-title\)/.test(
+        own,
+      ),
+  );
+}
 check("css: has --x-motion-base", rawCss.includes("--x-motion-base"));
 
 const css = rawCss.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -548,12 +2576,73 @@ check(
   !css.includes("inset 3px") && !/transition:\s*all/.test(css),
 );
 check(
+  "css: a meta part longer than the row is cut with an ellipsis, not run past the edge",
+  /\.teammate-panel \.ap-meta > span\s*{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis/.test(
+    css,
+  ),
+);
+check(
   "css: commit panel shrinks",
   /\.git-operations-panel\s*{\s*min-width:\s*0/.test(css),
+);
+check(
+  "css: the split handle resizes rows, takes touch drags, shows keyboard focus; a moved split lifts the 72% cap",
+  /\.ap-split\s*{[^}]*cursor:\s*row-resize[^}]*touch-action:\s*none/.test(
+    css,
+  ) &&
+    css.includes(".ap-split:focus-visible::after") &&
+    /\[data-ap-split\] > \.teammate-panel:has\(\.max-h-\\\[200px\\\]\)\s*{[^}]*max-height:\s*none[^}]*flex-shrink:\s*1/.test(
+      css,
+    ),
+);
+check(
+  "css: a wheel scroll of the Trackers list stops with a whole row at its bottom edge",
+  /\.tracker-panel-content\s*{[^}]*scroll-snap-type:\s*y mandatory/.test(css) &&
+    /\.tracker-item-row\s*{[^}]*scroll-snap-align:\s*end/.test(css),
 );
 check(
   "css: commit switch wraps",
   css.includes('[data-testid="git-commit-mode-toggle"]'),
 );
+
+// The helper card head is redrawn on every pass; writing the same task text again is a DOM change our own
+// MutationObserver sees, so the pass re-queued itself every frame while a helper card showed (the lag, 2026-11-14)
+{
+  let writes = 0;
+  const task = {
+    _t: "Read files: the importer",
+    get textContent() {
+      return this._t;
+    },
+    set textContent(v) {
+      writes++;
+      this._t = v;
+    },
+  };
+  const meta = { dataset: { apText: "Helper · 4s" } };
+  const view = {
+    state: "running",
+    mark: "orb",
+    orb: "read",
+    slow: false,
+    parts: [
+      { part: "kind", text: "Helper" },
+      { part: "time", text: "4s" },
+    ],
+  };
+  const head = {
+    dataset: { apKey: "running|orb|read|false" },
+    querySelector: (s) => (s === ".ap-helper-task" ? task : meta),
+  };
+  const button = { querySelector: () => head };
+  mod.hcHead(button, view, "Read files: the importer", false);
+  mod.hcHead(button, view, "Read files: the importer", false);
+  const same = writes;
+  mod.hcHead(button, view, "Read files: the exporter", false);
+  check(
+    "helper card: an unchanged head writes nothing (no redraw loop), a new task text is written",
+    same === 0 && writes === 1 && task._t === "Read files: the exporter",
+  );
+}
 
 finish();

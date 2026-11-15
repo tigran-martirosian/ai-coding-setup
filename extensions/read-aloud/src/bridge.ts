@@ -23,8 +23,7 @@ export type BackendTool =
   | "stop"
   | "status"
   | "warmup"
-  | "shutdown_worker"
-  | "set_auto_read";
+  | "shutdown_worker";
 
 export async function callBackend<T>(
   tool: BackendTool,

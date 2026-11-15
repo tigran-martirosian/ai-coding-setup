@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
+import os from "node:os";
+import path from "node:path";
 // update-check: UserPromptSubmit hook. Every 12 hours it asks GitHub whether a newer version of this setup is
 // released (version.json on the main branch, with CHANGELOG.md beside it, same wait) and keeps the answer in
 // ~/.claude/update-check.json: the newest version, the changelog lines the user has missed and version.json's
@@ -37,14 +43,9 @@
 // It reads no hook input, so it does not use runHook. The answer stays in ~/.claude, next to setup-state.json
 // (SETUP_UPDATE_HOME moves both for the tests), not in hooks/state.
 // Fails open. UPDATE_CHECK=off disables it. SETUP_UPDATE_BASE points it at another address (tests).
+import { readChangelog, shownDate } from "./lib/changelog.mjs";
 import { crashLog } from "./lib/crash-log.mjs";
 import { readJson, writeJson } from "./lib/state.mjs";
-import { spawn } from "node:child_process";
-import fs from "node:fs";
-import http from "node:http";
-import https from "node:https";
-import os from "node:os";
-import path from "node:path";
 
 const HOME = process.env.SETUP_UPDATE_HOME || os.homedir();
 const CLAUDE = path.join(HOME, ".claude");
@@ -122,10 +123,18 @@ const headline = (r) =>
 
 // The stored answer of a check: the newest version, and what the user on `installed` has missed up to it
 function answer(latest, changelog, installed) {
-  // "- 1.0.84 (Nov 3, 2026): text" lines, newest first
-  const lines = [
-    ...changelog.matchAll(/^- (\d+(?:\.\d+)*) \(([^)]*)\): (.+?)\r?$/gm),
-  ].map(([, v, date, text]) => ({ v, date, text }));
+  // the changelog's releases, newest first; one it can't read is crash-logged and counts as not read
+  let lines = [];
+  if (changelog)
+    try {
+      lines = readChangelog(changelog).map(({ version, date, text }) => ({
+        v: version,
+        date,
+        text,
+      }));
+    } catch (e) {
+      crashLog("update-check", e);
+    }
   const inRange = (v) => newer(v, installed) && !newer(v, latest.version);
   const notes = lines.filter((l) => inRange(l.v));
   const releases = Object.fromEntries(
@@ -224,9 +233,9 @@ function greyLine(stored, installed, p) {
   const date = stored.installed === installed && stored.from;
   const oldest = p.notes.at(-1)?.date;
   const age = date
-    ? `Your setup is from ${date}.`
+    ? `Your setup is from ${shownDate(date)}.`
     : oldest
-      ? `Your setup is from before ${oldest}.`
+      ? `Your setup is from before ${shownDate(oldest)}.`
       : "Your setup is several releases behind.";
   const named = p.labels.filter((l) => l.important && headline(l)).slice(0, 3);
   const rest = p.labels.filter((l) => !named.includes(l));

@@ -7,16 +7,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  splitBlocks,
-  normal,
+  appendOwn,
+  carve,
   key,
   lead,
+  normal,
+  splitBlocks,
   unfit,
-  carve,
-  appendOwn,
 } from "../scripts/blocks.mjs";
-import { formKeys, missing } from "../scripts/rules-history.mjs";
 import { fitter } from "../scripts/repo.mjs";
+import { formKeys, missing } from "../scripts/rules-history.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 let fails = 0;

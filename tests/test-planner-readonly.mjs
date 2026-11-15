@@ -1,5 +1,6 @@
 // Tests for hooks/planner-readonly.mjs. Run: node tests/test-planner-readonly.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -47,6 +48,22 @@ allow("git diff HEAD~1 -- hooks/x.mjs");
 allow("git show HEAD:agents/planner.md");
 allow("git branch");
 allow("git branch -a");
+// Read-only branch and tag lists, and other read-only ref commands
+allow("git branch --show-current");
+allow('git branch --list "w26.2*" -v');
+allow("git branch --merged main");
+allow("git branch --no-merged origin/main -a");
+allow("git branch --contains abc123");
+allow('git branch -r --sort=-committerdate --format="%(refname:short)"');
+allow("git merge-base main HEAD");
+allow("git merge-base --is-ancestor main HEAD");
+allow("git tag");
+allow("git tag -l");
+allow('git tag -l "v1.*"');
+allow("git tag --sort=-v:refname");
+allow("git tag --list --contains HEAD");
+allow("git rev-list --count main..HEAD");
+allow("git for-each-ref --sort=-committerdate refs/heads/");
 allow("git remote -v");
 allow("git stash list");
 allow("git --no-pager log --format=%h -3");
@@ -58,6 +75,21 @@ allow("git status --short 2>&1");
 allow("git log --oneline -5 2>/dev/null");
 allow("git status --short && git log --oneline -3; git worktree list");
 allow("grep -n 'planner' agents/planner.md | head -20");
+// The harmless ones planners and reviewers kept being refused (2026-11-13)
+allow('cd "C:/Projects/my x" && git log --oneline -3');
+allow("echo === && ls; pwd");
+allow('R="C:/Projects/my folder/x"; ls "$R"; git -C "$R" status');
+allow("echo === && node tests/test-x.mjs", { agent: "reviewer" });
+deny("echo hi > f.txt");
+deny("echo $(rm x) && cd x");
+deny("PATH=/tmp/evil; ls");
+deny("GIT_DIR=/x; git status");
+deny("R=x rm f");
+deny("cd x && rm f");
+deny('R="--open-files-in-pager=vi"; git grep "$R" x'); // a flag hidden in a variable
+deny("R=-o; sort $R f a.txt");
+deny('R="a b"; uniq $R'); // unquoted, splits into an output file
+allow("R=C:/x; ls $R");
 allow("rg -n --glob '*.md' planner");
 allow("sort -u a.txt | uniq -c");
 allow("tail -n 20 HANDOFF.md");
@@ -180,6 +212,32 @@ deny("touch x");
 // More ways around it
 deny("git branch -D main");
 deny("git branch new-name");
+deny("git branch -a new-name");
+deny("git branch -d old");
+deny("git branch -m old new");
+deny("git branch -M main");
+deny("git branch -c a b");
+deny("git branch -C a b");
+deny("git branch --set-upstream-to=origin/main");
+deny("git branch --merged main new-name -f");
+deny("git tag v1");
+deny("git tag -a v1 -m x");
+deny("git tag -d v1");
+deny("git tag -f v1");
+deny("git tag --sort=-v:refname v2");
+// an option's value that looks like -l does not put git in list mode: these create
+deny("git branch --format -l evil");
+deny("git branch --sort -authoremail evil");
+deny("git tag --format -l v9");
+deny("git tag --sort -taggeremail v9");
+deny("git branch --list x -D y");
+deny("git tag -l v1 -d v1");
+deny("git branch -u origin/main");
+deny("git branch --unset-upstream");
+deny("git branch --edit-description");
+deny("git branch --force x");
+allow("git branch --merged main");
+allow('git branch --format "%(refname)" --list "w*"');
 deny("git worktree add ../x");
 deny("git remote add origin u");
 deny("git stash pop");
@@ -214,7 +272,9 @@ deny("tail --fol x");
 deny("rg --hostname-bin=sh x");
 deny("rg -z x");
 deny("rg --search-zip x");
+// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell command, not a template
 deny("ls ${x:='a'}${x@P}");
+// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell command, not a template
 deny('ls "${HOME}"');
 deny("./ls");
 deny("scripts/head x");

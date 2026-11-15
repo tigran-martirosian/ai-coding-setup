@@ -1,10 +1,10 @@
-import React from "react";
+import type React from "react";
 import { Composition, Folder } from "remotion";
-import { Promo } from "./Promo";
-import { Film } from "./film/Film";
 import { CHECKS_CLIP, clipFrames, FILM_FRAMES } from "./film";
-import { FPS as FILM_FPS, frames, SCRIPT } from "./film/script";
+import { Film } from "./film/Film";
 import { ShotView } from "./film/Shots";
+import { FPS as FILM_FPS, frames, SCRIPT } from "./film/script";
+import { Promo } from "./Promo";
 import { CLIPS, SCENES, totalFrames } from "./scenes";
 import { FPS, HEIGHT, WIDTH } from "./theme";
 

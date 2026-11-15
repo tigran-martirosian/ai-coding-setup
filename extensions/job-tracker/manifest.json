@@ -1,0 +1,14 @@
+{
+  "id": "com.local.jobtracker",
+  "name": "Job Tracker",
+  "version": "0.1.0",
+  "description": "One tracker page per project for the job in hand (any work over more than one session): its name and goal, the steps left with a bar, and four folds for what needs you, what is running, what is left and what is done. A step's file or session opens in one click.",
+  "author": "Local",
+  "main": "dist/index.js",
+  "apiVersion": "1.0.0",
+  "defaultEnabled": true,
+  "permissions": {
+    "filesystem": true
+  },
+  "styles": "dist/style.css"
+}

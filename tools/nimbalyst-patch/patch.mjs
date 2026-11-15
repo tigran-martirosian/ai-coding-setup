@@ -387,9 +387,11 @@ export function plan(asar, patches) {
             files.every((f) => !text(f).includes(e.anchor))),
       );
       if (done.every(Boolean)) res.state = "applied";
-      else if (done.some(Boolean))
+      else if (done.some(Boolean)) {
+        // usually the patch gained edits since it was applied: apply rebuilds from app.asar.orig
+        res.partly = true;
         res.reason = `partly applied (${done.filter(Boolean).length} of ${done.length} edits), anchors changed`;
-      else {
+      } else {
         const work = new Map(files.map((f) => [f, text(f)]));
         let failed = "";
         for (const e of p.edits) {
@@ -646,9 +648,24 @@ export async function status(P, patchesDir) {
 
 export async function apply(P, patchesDir, { dryRun = false } = {}) {
   guard(P, { write: !dryRun });
-  const asar = readAsar(P.asar),
-    version = asarVersion(asar);
-  const { results, changed } = plan(asar, await loadPatches(patchesDir));
+  let asar = readAsar(P.asar);
+  const version = asarVersion(asar),
+    patches = await loadPatches(patchesDir);
+  let { results, changed } = plan(asar, patches);
+  // A patch that gained edits since it was applied shows as partly applied on the patched app.asar:
+  // plan every patch again on the untouched original instead, so the new edits go in too.
+  const partly = results.filter((r) => r.partly).map((r) => r.id);
+  let rebuilt = false;
+  if (partly.length && fs.existsSync(P.orig)) {
+    const orig = readAsar(P.orig);
+    if (asarVersion(orig) !== version)
+      throw new Error(
+        `${P.orig} is from another Nimbalyst version than app.asar (${version}): remove or restore it first`,
+      );
+    asar = orig;
+    ({ results, changed } = plan(asar, patches));
+    rebuilt = true;
+  }
   const blocked = results.find((r) => r.requiredFirst && r.state === "skipped");
   if (blocked)
     throw new Refused(
@@ -656,6 +673,11 @@ export async function apply(P, patchesDir, { dryRun = false } = {}) {
     );
   const lines = [
     `Nimbalyst ${version} at ${P.res}`,
+    ...(rebuilt
+      ? [
+          `patch ${partly.join(", ")} was partly applied: every patch planned again on ${P.orig}`,
+        ]
+      : []),
     ...results.map(
       (r) =>
         `patch ${r.id}: ${dryRun ? describe(r) : describe(r).replace(/^would apply/, "applied now")}`,
@@ -672,7 +694,7 @@ export async function apply(P, patchesDir, { dryRun = false } = {}) {
     if (cur === markerText || (cur === null && !ids.length)) return;
     fs.writeFileSync(P.marker, markerText);
   };
-  if (!changed.size) {
+  if (!changed.size && !rebuilt) {
     lines.push(
       ids.length
         ? "already applied, app.asar left as it is"

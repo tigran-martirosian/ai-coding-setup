@@ -1,6 +1,7 @@
 // Tests for hooks/recheck-dates.mjs with a fake home folder and a made-up project folder (never the real ~/.claude).
 // Run: node tests/test-recheck-dates.mjs
 process.env.HOOK_ERRORS_LOG = "off";
+
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -117,7 +118,7 @@ check(
   "rules and memory notes are read",
   out.some((l) => l.startsWith(".claude/rules/tools.md:1  ")) &&
     out.some((l) =>
-      /^~\/\.claude\/projects\/[^/]+\/memory\/note\.md:4  2001-02-03  past  /.test(
+      /^~\/\.claude\/projects\/[^/]+\/memory\/note\.md:4 {2}2001-02-03 {2}past {2}/.test(
         l,
       ),
     ),

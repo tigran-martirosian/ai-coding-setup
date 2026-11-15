@@ -1,7 +1,9 @@
 // Tests for hooks/find-guard.mjs. Run: node tests/test-find-guard.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
 const hook = fileURLToPath(new URL("../hooks/find-guard.mjs", import.meta.url));
 const run = (ev, env = {}) =>
   spawnSync(process.execPath, [hook], {

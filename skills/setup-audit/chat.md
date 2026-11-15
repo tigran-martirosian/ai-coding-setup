@@ -67,7 +67,7 @@ cause is one of rule, hook, skill or note, as the table gives:
 | What was seen | Remedy |
 |---|---|
 | The user corrected the same thing more than once | One line in that project's `CLAUDE.md`, in the user's own terms. In `~/.claude/CLAUDE.md` only when it showed up in two or more projects |
-| A question whose options missed, or that asked what the notes already said | The answer goes into the project's `CLAUDE.md` or `DECISIONS.md` as a standing fact, so it is not asked again |
+| A question whose options missed, or that asked what the notes already said | The answer goes into the project's `CLAUDE.md` or its decision record (`DECISIONS.md` names the topic files) as a standing fact, so it is not asked again |
 | The same task asked for three or more times, done in the same steps | A small skill in that project's `.claude/skills/<name>/`, written from the steps that worked |
 | A kind of work nothing in the setup covers (a file format, a service, a kind of analysis) | A skill, plugin or tool that already exists: see step 4. A new one is written only if none fits |
 | "Never do X", said and meant | A hook in the project (a small script and its test) |
@@ -124,7 +124,7 @@ back or did not come up | chat label), then "seen, nothing to change".
 
 Reply short: what was set up and where, what was declined, and which of it needs a new chat (a rule
 in a `CLAUDE.md` is read when a chat starts; skills and hooks are picked up by running chats). Add
-one line to the setup project's `DECISIONS.md` per change. Reply in the language the user writes in.
+one line in the setup project's decision record (`DECISIONS.md` names the topic files) per change. Reply in the language the user writes in.
 
 Budget: about 30 tool calls. The scan and the `worker` subagents do the reading; you read only findings and the
 digest lines you check.

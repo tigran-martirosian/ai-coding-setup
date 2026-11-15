@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { runHook, inNimbalyst, emit } from "./lib/hook-io.mjs";
+import { emit, inNimbalyst, runHook } from "./lib/hook-io.mjs";
 import { WHAT_THIS_DOES } from "./lib/texts.mjs";
 
 const HOMES = ["quick-tasks"];

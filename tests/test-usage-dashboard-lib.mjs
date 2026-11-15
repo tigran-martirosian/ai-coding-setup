@@ -1,11 +1,12 @@
 // Tests for skills/setup-audit/scripts/usage-dashboard-lib.mjs (number logic of the usage
 // dashboard) and for the build writing usage-dashboard.json next to the page.
 // Run: node tests/test-usage-dashboard-lib.mjs
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPTS = fileURLToPath(
@@ -255,13 +256,64 @@ test("planFor sums days and clamps", () => {
     0,
   );
 });
-test("otherTokensFor hides the estimate when not shared, not ok or filtered", () => {
-  const P = { status: "ok", tokensPerPoint: 1000, days: { a: { other: 2 } } };
-  assert.equal(L.otherTokensFor(P, true, false, "a"), 2000);
-  assert.equal(L.otherTokensFor(P, false, false, "a"), 0);
-  assert.equal(L.otherTokensFor(P, true, true, "a"), 0);
-  assert.equal(L.otherTokensFor({ status: "none" }, true, false, "a"), 0);
-  assert.equal(L.otherTokensFor(P, true, false, "zz"), 0);
+test("dayBars: the day chart in % of the weekly limit, each day at its plan's scale", () => {
+  const at = (k) => new Date(k + "T00:00:00").getTime();
+  const P = {
+    status: "ok",
+    // two plans: 0.1 points per dollar from Nov 1, 0.05 from Nov 3; Nov 5 falls in a plan with no scale yet
+    eras: [
+      { after: at("2026-11-01"), perUnit: 0.1 },
+      { after: at("2026-11-03"), perUnit: 0.05 },
+      { after: at("2026-11-05"), perUnit: null },
+    ],
+    days: { "2026-11-02": { other: 2 }, "2026-11-04": { other: -1 } },
+  };
+  const rs = [
+    {
+      s: {
+        usd: {
+          "2026-10-30": 5,
+          "2026-11-02": 10,
+          "2026-11-04": 20,
+          "2026-11-05": 9,
+        },
+        dayTot: { "2026-11-02": 7e6 },
+        subagents: [
+          { usd: { "2026-11-04": 40 }, dayTot: { "2026-11-04": 3e6 } },
+        ],
+      },
+    },
+  ];
+  const days = ["2026-10-30", "2026-11-02", "2026-11-04", "2026-11-05"];
+  const b = L.dayBars(rs, days, P, true, false);
+  assert.equal(b.unit, "points");
+  assert.deepEqual(Object.fromEntries(b.per), {
+    "2026-10-30": { main: 0.5, sub: 0, other: 0 }, // before the log: the first plan's scale
+    "2026-11-02": { main: 1, sub: 0, other: 2 }, // other use stays in points, not tokens
+    "2026-11-04": { main: 1, sub: 2, other: 0 }, // a negative estimate is clamped
+    "2026-11-05": { main: 0, sub: 0, other: 0 }, // no scale: no points for this computer
+  });
+  // the estimate covers the whole account: left out when not shared or a filter is on
+  for (const [shared, filtered] of [
+    [false, false],
+    [true, true],
+  ])
+    assert.equal(
+      L.dayBars(rs, days, P, shared, filtered).per.get("2026-11-02").other,
+      0,
+    );
+  // before the plan has a scale the bars stay in tokens, with no other use
+  const c = L.dayBars(rs, days, { ...P, status: "calibrating" }, true, false);
+  assert.equal(c.unit, "tokens");
+  assert.deepEqual(c.per.get("2026-11-02"), { main: 7e6, sub: 0, other: 0 });
+  assert.deepEqual(c.per.get("2026-11-04"), { main: 0, sub: 3e6, other: 0 });
+  assert.throws(
+    () => L.dayBars(rs, days, { status: "ok", days: {} }, true, false),
+    /no per-plan scales/,
+  );
+  assert.equal(L.dayFig("points", 3.44), "3.4%");
+  assert.equal(L.dayFig("points", 12.4), "12%");
+  assert.equal(L.dayFig("tokens", 12_345_678), "12.3M");
 });
 
 // plan weeks fixture (ms times); Oct 22-26 and Oct 26-29 share the end of the old window
