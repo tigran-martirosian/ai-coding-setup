@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// map-prompt: UserPromptSubmit hook. The person's own message arrives with the project's Systems map how-to things and topics it asks
-// about ("do a web search" -> How to: web research), each as its name and its first files, so the main chat starts from those files
-// instead of searching blind or trying the wrong tool. Matching is by a thing's name or words only (skills/systems-map/map.mjs
-// promptFind), on the person's own words: pasted blocks and code fences are left out. A long message (dictation) is full of passing
-// words, so over LONG characters a thing needs two hits. Parts of the code are left to map-brief, which serves helpers.
+// map-prompt: UserPromptSubmit hook. The person's own message arrives with the parts of the project's Systems map it names, each as its
+// name and its first files, so the main chat starts from those files instead of searching blind. A part of the code counts by its name
+// only; a how-to thing or topic also by its words ("do a web search" -> How to: web research) (skills/systems-map/map.mjs promptFind),
+// on the person's own words: pasted blocks and code fences are left out. A long message (dictation) is full of passing words, so over
+// LONG characters a thing needs two hits. A thing whose first file the session holds from its start (a skill, rules file, CLAUDE.md,
+// agent, MEMORY.md: map.mjs heldAtStart) is left out and not remembered as shown, since the note would only repeat it.
 // Small on purpose: at most MAX_THINGS things and MAX_CHARS characters, and a thing already shown in this session is not shown again
 // (~/.claude/hooks/state/map-prompt/<session_id>.json, swept after 2 days; no session id, no memory). A file too big to read whole
 // (the big-read-gate limits) is marked "big: grep it", unless it is code (a script is run, not read). Silent when the project ($CLAUDE_PROJECT_DIR, else the event's cwd) has no map or
@@ -11,10 +12,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 import { loadMap } from "./lib/map-file.mjs";
 import { sessionKey } from "./lib/paths.mjs";
-import { stateFile, readJson, writeJson, sweep } from "./lib/state.mjs";
+import { readJson, stateFile, sweep, writeJson } from "./lib/state.mjs";
 
 export const MAX_CHARS = 600;
 export const MAX_THINGS = 3;
@@ -22,7 +23,7 @@ export const LONG = 1500;
 const BIG_LINES = 350; // big-read-gate refuses a whole read over these
 const BIG_BYTES = 80 * 1024;
 const HEAD =
-  "[map-prompt] How-to notes from this project's systems map that match words in this message (skip one that doesn't fit); start from these files:";
+  "[map-prompt] Parts of this project's systems map that this message names (skip one that doesn't fit); start from these files:";
 const MAP_JS = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -66,7 +67,7 @@ runHook("map-prompt", async (event) => {
   const seen = new Set(remember ? (readJson(file)?.shown ?? []) : []);
   const least = prompt.length > LONG ? 2 : 1;
   const fresh = promptFind(prompt, map, dir).filter(
-    (h) => h.score >= least && !seen.has(h.id),
+    (h) => h.score >= least && !h.held && !seen.has(h.id),
   );
   if (!fresh.length) return;
 
@@ -79,7 +80,10 @@ runHook("map-prompt", async (event) => {
     );
     // Fewer files when the line is too long, then the name alone, then nothing.
     const line = files
-      .map((_, i) => `\n- ${h.name}: ${files.slice(0, files.length - i).join(", ")}`)
+      .map(
+        (_, i) =>
+          `\n- ${h.name}: ${files.slice(0, files.length - i).join(", ")}`,
+      )
       .concat(`\n- ${h.name}`)
       .find((l) => text.length + l.length <= MAX_CHARS);
     if (!line) continue;

@@ -12,9 +12,10 @@
 // command-explain runs on the same call at the same time and also returns updatedInput, each from the command
 // Claude sent; Claude Code takes one whole input, so one rewrite would be lost. This hook therefore adds the same
 // stand-in "# WHAT THIS DOES:" line command-explain would add (same check, same text), unless COMMAND_EXPLAIN=off.
-import { runHook } from "./lib/hook-io.mjs";
-import { NOTE_LINE_RE, NO_NOTE, WHAT_THIS_DOES } from "./lib/texts.mjs";
+
 import { fileURLToPath } from "node:url";
+import { runHook } from "./lib/hook-io.mjs";
+import { NO_NOTE, NOTE_LINE_RE, WHAT_THIS_DOES } from "./lib/texts.mjs";
 
 const BIG = 50e6;
 const HEAD_MS = 3000;

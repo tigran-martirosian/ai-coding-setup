@@ -131,7 +131,7 @@ A sign-in that isn't finished now is noted for step 10. Nothing else waits on it
 
 ## 7. The Nimbalyst extensions
 
-For `usage-plan`, `commands` and `systems-map`, in `<repo>/extensions/<name>`: `npm install`, `npm run build`, `npm run install-ext`. The last one copies the build to `<extensions>` and prints `installed to` and the folder. For `agents-panel` and `board-tidy` (no npm needed): `node build.mjs --install` in each. For `ink-themes` (eleven colour themes; it only adds them to the theme list, the look changes when the user picks one): `npm run build`, `npm run install-ext`, no `npm install`. `read-aloud` is optional and Windows only: it needs a voice model and Python, see [its README](../extensions/read-aloud/README.md). Nimbalyst loads extensions when it starts; don't close it yourself, step 10 tells the user.
+For `usage-plan`, `commands` and `systems-map`, in `<repo>/extensions/<name>`: `npm install`, `npm run build`, `npm run install-ext`. The last one copies the build to `<extensions>` and prints `installed to` and the folder. For `agents-panel`, `board-tidy` and `job-tracker` (no npm needed): `node build.mjs --install` in each. For `ink-themes` (eleven colour themes; it only adds them to the theme list, the look changes when the user picks one): `npm run build`, `npm run install-ext`, no `npm install`. `read-aloud` is optional and Windows only: it needs a voice model and Python, see [its README](../extensions/read-aloud/README.md). Nimbalyst loads extensions when it starts; don't close it yourself, step 10 tells the user.
 
 ## 8. Nimbalyst settings
 

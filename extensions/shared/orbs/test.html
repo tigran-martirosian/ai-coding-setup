@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- Test page for orbs.js: the eight orb shapes the extensions use, at 24px with the shared tokens, each beside its
+     stage words, plus the slowed and still forms. It needs a theme's --nim-* colours: run
+     applyTheme(name, colors, isDark) (colors() of ink-themes/themes.mjs), e.g. as the script argument of a headless picture. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Thinking orbs: test page</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  body { margin: 0; background: var(--x-surface-0); color: var(--x-text); font: var(--x-body); }
+  .page { padding: var(--x-space-5); }
+  h1 { font: var(--x-title); margin: 0 0 var(--x-space-1); }
+  .lead { font: var(--x-meta); color: var(--x-text-muted); margin: 0 0 var(--x-space-4); }
+  .grid { display: grid; grid-template-columns: repeat(4, 200px); gap: var(--x-space-3) var(--x-space-4); }
+  .cell { display: grid; grid-template-columns: var(--x-orb-size) 1fr; gap: var(--x-space-2); align-items: center; }
+  .cell .state { font: var(--x-row-title); }
+  .cell .doing { font: var(--x-meta); color: var(--x-text-muted); }
+  .needs .state { color: var(--x-state-needs); font-weight: 600; }
+  h2 { font: var(--x-heading); margin: var(--x-space-4) 0 var(--x-space-2); padding-top: var(--x-space-4); border-top: 1px solid var(--x-hairline); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Thinking orbs</h1>
+  <p class="lead" id="theme-name">No theme yet: run applyTheme(name, colors, isDark).</p>
+  <div class="grid" id="moving"></div>
+  <h2>Slowed (no report for 2 minutes) and still</h2>
+  <div class="grid" id="other"></div>
+</div>
+<script>
+  /** The eight states the extensions use, with the stage each one shows (DESIGN.md, "Thinking orbs"). */
+  const USED = [
+    ["breathing", "thinking"], ["searching", "reading files"], ["composing", "editing files"], ["working", "running a command"],
+    ["shaping", "planning"], ["connecting", "gathering helpers"], ["solving", "running checks"], ["listening", "needs you"],
+  ];
+  const cell = ([state, doing], extra = "") =>
+    `<div class="cell${state === "listening" ? " needs" : ""}"><canvas data-orb="${state}" data-orb-px="24"${extra}></canvas>` +
+    `<div><div class="state">${state}</div><div class="doing">${doing}</div></div></div>`;
+  document.getElementById("moving").innerHTML = USED.map((u) => cell(u)).join("");
+  document.getElementById("other").innerHTML =
+    cell(USED[3], ' data-orb-speed="0.5"') + cell(USED[1], ' data-orb-speed="0.5"') + cell(USED[0], " data-orb-still") + cell(USED[7], " data-orb-still");
+
+  /** Puts one theme's colours on the page: `colors` is colors(theme) from ink-themes/themes.mjs. */
+  // biome-ignore lint/correctness/noUnusedVariables: called from outside the page, as a headless browser's script
+  function applyTheme(name, colors, isDark) {
+    for (const [k, v] of Object.entries(colors)) document.documentElement.style.setProperty(`--nim-${k}`, v);
+    document.documentElement.classList.toggle("dark-theme", isDark);
+    document.getElementById("theme-name").textContent = `${name} (${isDark ? "dark" : "light"})`;
+    return name;
+  }
+</script>
+<script src="orbs.js"></script>
+</body>
+</html>

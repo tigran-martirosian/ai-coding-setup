@@ -14,8 +14,8 @@ import {
   Wire,
 } from "./kit";
 import { accent, color, MARGIN, TOP, TYPE } from "./look";
-import { Shot } from "./script";
 import { need } from "./need";
+import type { Shot } from "./script";
 
 const ink = accent.Ask;
 
@@ -342,6 +342,7 @@ export const BlindReview: React.FC<{ shot: Shot }> = ({ shot }) => {
       {rings.map((ring, i) => {
         const ringInk = mix(color.bad, color.good, fix[i]);
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list drawn once per video frame; it never reorders and holds no state
           <React.Fragment key={i}>
             <div
               style={{

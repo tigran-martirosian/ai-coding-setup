@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import os from "node:os";
+import path from "node:path";
 // file-link-gate: Stop hook. Nimbalyst's chat panel opens a markdown link to a local file only when its
 // target is an absolute path with forward slashes (`/C:/x/y.md`, `C:/x/y.md`, `%20` or a raw space, a
 // `:10` line suffix). It does not open a relative target (`docs/y.md`), a backslash one (`C:\x\y.md`) or
@@ -20,11 +22,9 @@
 // Silent outside an app: links only matter in Nimbalyst, which runs Claude with CLAUDE_CODE_ENTRYPOINT
 // "sdk-..."; the terminal sets "cli", so a terminal user is never refused (same test as command-explain).
 // Silent when stop_hook_active is set (no loops). Fails open. FILE_LINK_GATE=off disables it.
-import { runHook, isMain, inNimbalyst, emit } from "./lib/hook-io.mjs";
+import { emit, inNimbalyst, isMain, runHook } from "./lib/hook-io.mjs";
 import { gitBashToNative, projectRoot as rootOf } from "./lib/paths.mjs";
 import { entries, tail } from "./lib/transcript.mjs";
-import os from "node:os";
-import path from "node:path";
 
 const TAIL_BYTES = 8 * 1024 * 1024;
 const MAX_LISTED = 12;

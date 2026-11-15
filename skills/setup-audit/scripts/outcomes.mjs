@@ -22,21 +22,21 @@ import {
   STOP_HOOK_FEEDBACK,
   VERIFY_GATE,
 } from "../../../hooks/lib/texts.mjs";
-import { opt } from "./lib/opt.mjs";
-import { daysWindow } from "./lib/days.mjs";
 import {
-  defaultRoot,
-  walkChats,
-  subagentMetas,
-  EDIT,
   AGENT,
-  SHELL,
-  QUESTION_TOOL as FORM,
   CAPPED,
+  defaultRoot,
+  EDIT,
+  editedFile,
+  QUESTION_TOOL as FORM,
+  SHELL,
+  subagentMetas,
   TOO_FEW,
   textOf,
-  editedFile,
+  walkChats,
 } from "./lib/chats.mjs";
+import { daysWindow } from "./lib/days.mjs";
+import { opt } from "./lib/opt.mjs";
 
 const root = opt("root", defaultRoot());
 const project = (opt("project", "") ?? "").toLowerCase();

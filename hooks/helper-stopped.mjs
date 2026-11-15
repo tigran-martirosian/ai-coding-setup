@@ -6,7 +6,7 @@
 // Only a foreground helper's result is a tool result. A background helper's end, and the end of a helper resumed by
 // SendMessage (whose own result is only "Resuming agent ..."), arrive as task notifications, which no hook sees.
 // The app's "[harness: ...]" lines in front of a report are not report. Main session only. HELPER_STOPPED=off disables it.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 import { TURN_LIMIT_RE } from "./lib/texts.mjs";
 
 const HELPER_STOPPED_NOTE =

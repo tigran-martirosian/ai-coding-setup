@@ -11,7 +11,11 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 let pass = 0,
   fail = 0;
 const check = (name, ok) => {
-  ok ? pass++ : (fail++, console.log(`FAIL  ${name}`));
+  if (ok) pass++;
+  else {
+    fail++;
+    console.log(`FAIL  ${name}`);
+  }
 };
 
 // The problems in one frontmatter block, strictly: one `key: value` per line, a value either quoted or a

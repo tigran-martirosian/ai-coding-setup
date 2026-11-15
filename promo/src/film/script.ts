@@ -1,5 +1,5 @@
 // Every word of the tour film, in order, and how long each shot lasts. The film follows one job through the setup,
-// from the ask to the checked result: you ask, helpers build, every claim is checked, you add notes as it works,
+// from the ask to the checked result: you ask, helpers build, every claim is checked, you follow it on one page,
 // and you see what it touched and what it cost. Each shot is one step, in one diagram, for about six seconds.
 // Lengths are set by hand: a shot lasts as long as its motion needs. `node check-reading.mjs` prints them.
 import { LINK } from "./credit.ts";
@@ -67,7 +67,8 @@ export type Body =
       check: string;
       howTo: string;
     }
-  | { kind: "btw"; work: string[]; note: string; picked: string }
+  /** A real picture of a Nimbalyst page, in a window frame, gliding down once. */
+  | { kind: "page"; label: string; picture: string }
   | { kind: "compare"; rows: { topic: string; alone: string; setup: string }[] }
   | { kind: "tiles"; tiles: Tile[] }
   /** Measured figures, strongest first: each counts up to `to`, then shows `suffix`. */
@@ -197,24 +198,15 @@ export const SCRIPT: Shot[] = [
     },
   },
   {
-    id: "btw",
+    id: "job",
     part: "Steer",
-    title: "Add a note without stopping it",
-    sub: "Type /btw, or press Note in Nimbalyst (a desktop app for Claude Code). The work goes on.",
+    title: "Follow a big job on one page",
+    sub: "In Nimbalyst, a desktop app for Claude Code: what needs you, what runs, what is left.",
     ticks: 144,
     body: {
-      kind: "btw",
-      work: [
-        "Read   src/routes.ts",
-        "Edit   src/limits.ts",
-        "Ran    npm test   9 passed",
-        "Edit   src/login.ts",
-        "Read   src/session.ts",
-        "Edit   tests/login.test.ts",
-        "Ran    npm test   12 passed",
-      ],
-      note: "also update the docs",
-      picked: "Edit   docs/limits.md   (your note)",
+      kind: "page",
+      label: "Nimbalyst · Job Tracker",
+      picture: "job-page.png",
     },
   },
   {
@@ -312,9 +304,9 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "tiles",
       tiles: [
-        { name: "50 hooks", note: "Small checks on each step" },
-        { name: "20 skills", note: "Commands like /lead" },
-        { name: "7 extensions", note: "Panels for the Nimbalyst app" },
+        { name: "51 hooks", note: "Small checks on each step" },
+        { name: "23 skills", note: "Commands like /lead" },
+        { name: "8 extensions", note: "Job Tracker, commands, side panels" },
         { name: "9 agents", note: "Planner, workers, reviewers" },
         { name: "Handoff", note: "Next session picks up where you stopped" },
         { name: "Board cleanup", note: "Tidies Nimbalyst's board of chats" },
@@ -363,10 +355,10 @@ export const SCRIPT: Shot[] = [
       kind: "install",
       code: "node install.mjs",
       output: [
-        "Copied 50 hooks",
-        "Copied 20 skills",
+        "Copied 51 hooks",
+        "Copied 23 skills",
         "Copied 9 agents",
-        "Added 7 extensions for Nimbalyst",
+        "Added 8 extensions for Nimbalyst",
         "Kept your own settings",
         "Done. Start Claude Code.",
       ],
@@ -457,8 +449,8 @@ export const blocks = (shot: Shot): string[] => {
       ];
     case "map":
       return [...head, ...b.parts, b.check, b.howTo];
-    case "btw":
-      return [...head, ...b.work, b.note, b.picked];
+    case "page":
+      return [...head, b.label];
     case "compare":
       return [
         ...head,

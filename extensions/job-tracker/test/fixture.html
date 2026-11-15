@@ -1,0 +1,542 @@
+<!doctype html>
+<!-- Picture fixture for the Job Tracker: a stand-in for Nimbalyst 0.83.0's tracker page (gutter, tracker sidebar,
+     the main pane with its toolbar and .tracker-table-container, the item view on the right) and a made-up release
+     with 27 steps: 17 done, 4 running, 3 to do and 3 for the user (each waiting on an open step), plus one dropped
+     step, one archived step and a step of an older release ("3.0", released on Fri 6 Nov as v3.0), which must not
+     count, and five open steps outside any release (the sidebar's "Not in a release"). The steps are in three stages:
+     "Part 1 · fixes" all 12 done, "Part 2 · design" 5 of 10 done with the 4 running (and the dropped step), "Part 3 ·
+     builds" 0 of 5 done. S22 has a `file` (its "Open <file>" link). The app's list shows the open steps only, as
+     its Open filter does; the page hides it and draws its own folds. The items are in the JSON
+     block below in the shape window.documentService.listTrackerItems gives; test.mjs reads the same block.
+     window.fxAddStep(item) stands in for the app adding a step later: the item joins the data, the watch listener
+     hears of it (unless quiet), and a row is added at the end of the app's list. window.electronAPI stands in for the session facts of
+     build proofs point 6: S18's session runs and last edited a file, S19's runs the tests, S20's is linked but not
+     running, S21 has none; a finished session is linked to the done S15. window.fxCalls records the open-file calls
+     and the open-session and open-item events. window.fxSessionTool(sessionId, toolCall) adds a tool call and tells the listener.
+     The right side holds the item view, built from the app's markup with stand-ins for the app's own styles:
+     window.fxItemView(true) draws a step with two linked sessions, fxItemView(false) one with none. With
+     ?frame=live an opened item stands in the item's row beside the list, as in the app, and its close button takes
+     it out; window.fxOpenDocument() adds the full-page item's chat panel and the top bar's panel menu.
+     dist/ must be built (node build.mjs). It loads ES modules, so it must be served over http, not opened as a
+     file: the page path is extensions/job-tracker/test/fixture.html, the theme is the hash (#ink-aurora,
+     #ink-bone), the window width the query (?w=1920 or ?w=2560). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../dist/style.css">
+<style>
+  @font-face { font-family: Figtree; src: url("../../ink-themes/fonts/Figtree.woff2") format("woff2"); }
+  @font-face { font-family: "JetBrains Mono"; src: url("../../ink-themes/fonts/JetBrainsMono.woff2") format("woff2"); }
+  :root { --ink-sans: Figtree, sans-serif; --ink-mono: "JetBrains Mono", monospace; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--nim-bg); color: var(--nim-text); font: var(--x-body); overflow: hidden; }
+  /* The app's own rule, seen live 2026-11-14: it greyed the job name */
+  header h1 { color: rgb(51, 51, 51); }
+  /* Stand-ins for the app's tracker page (only what frames the reading) */
+  .fx-app { display: grid; grid-template-columns: 72px auto minmax(0, 1fr) 420px; height: 100%; }
+  .fx-app.w2560 { grid-template-columns: 72px auto minmax(0, 1fr) 520px; }
+  /* ?frame=live: the live app's frame as measured (tracker chat design, section 1): rail and right gutter 118 px
+     together, the Sessions column 297 px, no item open */
+  .fx-app.fx-live { grid-template-columns: 72px auto minmax(0, 1fr) 46px; } .fx-live .fx-left { width: 297px; }
+  .fx-live > .fx-detail { display: none; }
+  /* ?wrap=app: the left column sits inside the tracker row, in the app's resizable panel (see the script) */
+  .fx-app.fx-wrap { grid-template-columns: 72px minmax(0, 1fr) 46px; }
+  .fx-panel { display: flex; flex-direction: row; flex: 1; min-width: 0; min-height: 0; }
+  .fx-panel > .fx-left { flex: none; }
+  .fx-panel-right { display: flex; flex: 1; min-width: 0; min-height: 0; }
+  /* The item's row as the app has it (TrackerDocumentView): the list region, then the item view's region with the
+     width the app gives it in its style attribute; the full-page item's right panel last */
+  .fx-view { display: flex; flex-direction: row; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+  .fx-view > .fx-detail { flex: none; box-sizing: border-box; }
+  .fx-view > [data-testid="tracker-document-right-panel"] { flex: none; width: 360px; border-left: 1px solid var(--x-hairline); }
+  /* The app's left column: its tabs and New item button above the tracker sidebar (only the sidebar is hidden) */
+  .fx-left { width: 248px; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; } .w2560 .fx-left { width: 280px; }
+  .fx-gutter, .fx-left { background: var(--nim-bg-secondary); }
+  .fx-tabs { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 12px; flex: none; font: var(--x-label); color: var(--nim-text-muted); }
+  .fx-tabs button { all: unset; margin-left: auto; padding: 4px 10px; border-radius: 6px; background: var(--x-surface-2); color: var(--nim-text); }
+  .fx-col { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .fx-session { padding: 6px 12px; font: var(--x-row-title); color: var(--nim-text); }
+  .fx-side { padding: 16px 12px; display: grid; align-content: start; gap: 4px; }
+  .fx-side > button { all: unset; padding: 6px 10px; border-radius: 6px; font: var(--x-row-title); color: var(--nim-text-muted); }
+  .fx-side > button[data-tracker-type="task"] { background: var(--x-surface-2); color: var(--nim-text); }
+  .fx-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+  /* The app's tracker row (a flex row in the page); the chat column goes in as its last child */
+  .tracker-mode { display: flex; flex-direction: row; flex: 1; min-height: 0; overflow: hidden; }
+  .fx-page { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+  /* The Sessions view's chat column in its grid home; its input box */
+  .agent-workstream-panel { display: grid; grid-template-rows: auto auto auto 1fr auto; height: 100%; }
+  .agent-workstream-session-area { display: flex; flex-direction: column; gap: 8px; padding: 12px; box-sizing: border-box; border-left: 1px solid var(--x-hairline); background: var(--nim-bg); }
+  .fx-chat-title { font: var(--x-title); color: var(--nim-text); }
+  .fx-chat-log { flex: 1; font: var(--x-body); color: var(--nim-text-muted); }
+  .agent-workstream-session-area textarea { font: var(--x-body); min-height: 64px; color: var(--nim-text); background: var(--x-surface-1); border: 1px solid var(--x-hairline); border-radius: 6px; padding: 8px; }
+  .fx-toolbar { display: flex; align-items: center; height: 56px; padding: 0 24px; flex: none; font: var(--x-meta); color: var(--nim-text-muted); }
+  .fx-toolbar b { color: var(--nim-text); font-weight: 500; }
+  .fx-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+  .tracker-table-container { display: block; padding: 0 12px; }
+  .tracker-table-row { display: flex; gap: 12px; padding: 8px 12px; border-radius: 6px; font: var(--x-row-title); }
+  .tracker-table-row-meta { margin-left: auto; font: var(--x-meta); color: var(--nim-text-muted); }
+  .fx-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid var(--x-hairline); }
+  /* Stand-ins for the app's styles the item view uses: Tailwind's base and the utilities on its markup, at the app's
+     sizes (so the test sees our style win over them), the field pill's frame, the editor's 46px/400px padding and the
+     drag handle. No icon font here: an icon is a box of its size with its name cut off. */
+  :where(.fx-detail) :where(*, ::before, ::after) { box-sizing: border-box; border: 0 solid var(--nim-border); }
+  :where(.fx-detail) :where(button, input, textarea) { font: inherit; color: inherit; margin: 0; padding: 0; background: transparent; }
+  :where(.fx-detail) :where(button) { cursor: pointer; }
+  :where(.fx-detail) :where(h4, p, label) { margin: 0; font-size: inherit; font-weight: inherit; }
+  .material-symbols-outlined { font-family: "Material Symbols Outlined"; font-weight: normal; display: inline-block; width: 1em; height: 1em; line-height: 1; overflow: hidden; white-space: nowrap; }
+  .flex { display: flex; } .inline-flex { display: inline-flex; } .grid { display: grid; } .block { display: block; } .inline-block { display: inline-block; }
+  .flex-col { flex-direction: column; } .flex-1 { flex: 1 1 0%; } .flex-wrap { flex-wrap: wrap; } .shrink-0 { flex-shrink: 0; }
+  .items-start { align-items: flex-start; } .items-center { align-items: center; } .items-baseline { align-items: baseline; } .justify-between { justify-content: space-between; }
+  .gap-0\.5 { gap: 2px; } .gap-1 { gap: 4px; } .gap-1\.5 { gap: 6px; } .gap-2 { gap: 8px; } .gap-x-3 { column-gap: 12px; }
+  .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .col-span-2 { grid-column: span 2 / span 2; }
+  .h-full { height: 100%; } .w-full { width: 100%; } .w-28 { width: 112px; } .w-4 { width: 16px; } .min-w-0 { min-width: 0; } .min-h-\[200px\] { min-height: 200px; }
+  .overflow-hidden { overflow: hidden; } .overflow-y-auto { overflow-y: auto; } .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .p-1 { padding: 4px; } .px-1 { padding-left: 4px; padding-right: 4px; } .px-1\.5 { padding-left: 6px; padding-right: 6px; } .px-2 { padding-left: 8px; padding-right: 8px; } .px-4 { padding-left: 16px; padding-right: 16px; }
+  .py-0\.5 { padding-top: 2px; padding-bottom: 2px; } .py-1 { padding-top: 4px; padding-bottom: 4px; } .py-1\.5 { padding-top: 6px; padding-bottom: 6px; } .py-3 { padding-top: 12px; padding-bottom: 12px; }
+  .pt-1 { padding-top: 4px; } .pt-4 { padding-top: 16px; } .pb-3 { padding-bottom: 12px; } .mt-1 { margin-top: 4px; } .mb-1 { margin-bottom: 4px; } .mb-1\.5 { margin-bottom: 6px; }
+  .space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 4px; } .space-y-2 > :not([hidden]) ~ :not([hidden]) { margin-top: 8px; } .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 16px; }
+  .border { border-width: 1px; } .border-b { border-bottom-width: 1px; } .border-t { border-top-width: 1px; } .border-nim { border-color: var(--nim-border); } .rounded { border-radius: 4px; }
+  .text-\[9px\] { font-size: 9px; } .text-\[10px\] { font-size: 10px; } .text-\[11px\] { font-size: 11px; } .text-\[12px\] { font-size: 12px; } .text-\[13px\] { font-size: 13px; }
+  .text-xs { font-size: 12px; line-height: 16px; } .text-sm { font-size: 14px; line-height: 20px; } .text-base { font-size: 16px; line-height: 24px; }
+  .font-medium { font-weight: 500; } .font-semibold { font-weight: 600; } .font-mono { font-family: ui-monospace, monospace; } .uppercase { text-transform: uppercase; }
+  .tracking-wide { letter-spacing: 0.025em; } .tracking-wider { letter-spacing: 0.05em; } .tracking-\[0\.5px\] { letter-spacing: 0.5px; }
+  .text-nim { color: var(--nim-text); } .text-nim-muted { color: var(--nim-text-muted); } .text-nim-faint { color: var(--nim-text-faint); }
+  .bg-nim { background: var(--nim-bg); } .bg-nim-secondary { background: var(--nim-bg-secondary); } .bg-nim-tertiary { background: var(--nim-bg-tertiary); }
+  .bg-nim-primary { background: var(--nim-primary); } .text-nim-on-primary { color: var(--nim-on-primary); } .relative { position: relative; } .resize-none { resize: none; }
+  .tracker-field-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tracker-field-pill { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border: 1px solid var(--nim-border); border-radius: 11px; font-size: 10px; color: var(--nim-text-muted); }
+  .tracker-field-pill-label { font-weight: 600; }
+  .ContentEditable__root { padding: 8px 46px 400px; outline: none; font-family: system-ui; font-size: 15px; line-height: 1.7; }
+  .nim-paragraph { margin: 0 0 8px; } .nim-text-bold { font-weight: 700; } .nim-text-code { font-family: Menlo, monospace; font-size: 14.1px; }
+  .draggable-block-menu { position: absolute; left: 4px; top: 10px; display: flex; gap: 2px; font-size: 16px; color: var(--nim-text-faint); }
+</style>
+<script type="application/json" id="items">
+[
+{"id":"rel-1","type":"release","updated":"2026-11-13T09:00:00","created":"2026-11-10T09:00:00","title":"3.1 · Settings refresh","status":"in-progress","archived":false,"description":"a clearer settings screen and its tests, ready for the next update","customFields":{"activity":[{"action":"created","timestamp":"2026-11-10T09:00:00"},{"action":"status_changed","oldValue":"planned","newValue":"in-progress","timestamp":"2026-11-13T09:00:00"}]}},
+{"id":"rel-0","type":"release","updated":"2026-11-06T16:00:00","title":"3.0 · First public version","status":"released","archived":false,"customFields":{"gitTag":"v3.0","releasedAt":"2026-11-06T16:00:00"}},
+{"id":"t-01","type":"task","updated":"2026-11-13T08:01:00","title":"Read how the settings screen is built","status":"done","archived":false,"customFields":{"step":"S1","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-02","type":"task","updated":"2026-11-13T08:02:00","title":"Fix the toggle that forgets its state","status":"done","archived":false,"customFields":{"step":"S2","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-03","type":"task","updated":"2026-11-13T08:03:00","title":"Fix the search box losing focus","status":"done","archived":false,"customFields":{"step":"S3","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-04","type":"task","updated":"2026-11-13T08:04:00","title":"Fix the slow first load","status":"done","archived":false,"customFields":{"step":"S4","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-05","type":"task","updated":"2026-11-13T08:05:00","title":"Fix the wrong date format","status":"done","archived":false,"customFields":{"step":"S5","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-06","type":"task","updated":"2026-11-13T08:06:00","title":"Fix the clipped labels","status":"done","archived":false,"customFields":{"step":"S6","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-07","type":"task","updated":"2026-11-13T08:07:00","title":"Fix the scroll jump","status":"done","archived":false,"customFields":{"step":"S7","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-08","type":"task","updated":"2026-11-13T08:08:00","title":"Fix the empty state text","status":"done","archived":false,"customFields":{"step":"S8","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-09","type":"task","updated":"2026-11-13T08:09:00","title":"Fix the keyboard order","status":"done","archived":false,"customFields":{"step":"S9","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-10","type":"task","updated":"2026-11-13T08:10:00","title":"Fix the dark mode contrast","status":"done","archived":false,"customFields":{"step":"S10","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-11","type":"task","updated":"2026-11-13T08:11:00","title":"Fix the lost draft on close","status":"done","archived":false,"customFields":{"step":"S11","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-12","type":"task","updated":"2026-11-13T08:12:00","title":"Fix the double save","status":"done","archived":false,"customFields":{"step":"S12","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-13","type":"task","updated":"2026-11-13T08:13:00","title":"Collect the facts about the settings data","status":"done","archived":false,"customFields":{"step":"S13","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-14","type":"task","updated":"2026-11-13T08:14:00","title":"Sketch the new layout","status":"done","archived":false,"customFields":{"step":"S14","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-15","type":"task","updated":"2026-11-13T08:15:00","title":"Pick the type sizes","status":"done","archived":false,"customFields":{"step":"S15","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-16","type":"task","updated":"2026-11-13T08:16:00","title":"Write the design file","status":"done","archived":false,"customFields":{"step":"S16","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-17","type":"task","updated":"2026-11-13T08:17:00","title":"Review the design file","status":"done","archived":false,"customFields":{"step":"S17","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-18","type":"task","updated":"2026-11-13T08:18:00","title":"The polish round on the two mock-ups","status":"in-progress","archived":false,"customFields":{"budget":40,"activity":[{"action":"status_changed","oldValue":"to-do","newValue":"in-progress","timestamp":"2026-11-13T17:20:00"}],"step":"S18","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-19","type":"task","updated":"2026-11-13T08:19:00","title":"Restyle the account mock-up","status":"in-progress","archived":false,"customFields":{"step":"S19","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-20","type":"task","updated":"2026-11-13T08:20:00","title":"Restyle the privacy mock-up","status":"in-progress","archived":false,"customFields":{"step":"S20","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-21","type":"task","updated":"2026-11-13T08:21:00","title":"Measure the text sizes on both mock-ups","status":"in-progress","archived":false,"customFields":{"step":"S21","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-22","type":"task","updated":"2026-11-13T08:22:00","title":"Your OK on the restyled mock-ups","status":"waits-for-you","archived":false,"customFields":{"file":"docs/mockups/settings-review.md","step":"S22","stage":"Part 2 · design","waitsOn":"S18, S19","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-23","type":"task","updated":"2026-11-13T08:23:00","title":"Build the new settings layout","status":"to-do","archived":false,"customFields":{"budget":25,"step":"S23","stage":"Part 3 · builds","waitsOn":"S22","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-24","type":"task","updated":"2026-11-13T08:24:00","title":"Build the account section","status":"to-do","archived":false,"customFields":{"step":"S24","stage":"Part 3 · builds","waitsOn":"S23","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-25","type":"task","updated":"2026-11-13T08:25:00","title":"Write the tests for the new screen","status":"to-do","archived":false,"customFields":{"step":"S25","stage":"Part 3 · builds","waitsOn":"S23","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-26","type":"task","updated":"2026-11-13T08:26:00","title":"Your look at the built screen","status":"waits-for-you","archived":false,"customFields":{"step":"S26","stage":"Part 3 · builds","waitsOn":"S23","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-27","type":"task","updated":"2026-11-13T08:27:00","title":"A restart time for the update","status":"waits-for-you","archived":false,"customFields":{"step":"S27","stage":"Part 3 · builds","waitsOn":"S25","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-28","type":"task","updated":"2026-11-13T08:28:00","title":"Move the settings into a popover","status":"wont-do","archived":false,"customFields":{"step":"S28","stage":"Part 2 · design","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-29","type":"task","updated":"2026-11-13T08:29:00","title":"An old test step","status":"to-do","archived":true,"customFields":{"step":"S29","stage":"Part 1 · fixes","collection":[{"itemId":"rel-1"}]}},
+{"id":"t-30","type":"task","updated":"2026-11-13T08:30:00","title":"Ship the first public version","status":"done","archived":false,"customFields":{"step":"P1","collection":[{"itemId":"rel-0"}]}},
+{"id":"t-31","type":"task","updated":"2026-11-13T08:31:00","title":"A step outside any release","status":"to-do","archived":false,"customFields":{}},
+{"id":"t-32","type":"task","updated":"2026-11-13T08:32:00","title":"Write the project READMEs","status":"to-do","archived":false,"customFields":{"step":"L1"}},
+{"id":"t-33","type":"task","updated":"2026-11-13T08:33:00","title":"Post the launch on LinkedIn","status":"waits-for-you","archived":false,"customFields":{"step":"L2"}},
+{"id":"t-34","type":"task","updated":"2026-11-13T08:34:00","title":"Set up the nightly backup","status":"in-progress","archived":false,"customFields":{"step":"L3"}},
+{"id":"t-35","type":"task","updated":"2026-11-13T08:35:00","title":"Sort the old screenshots","status":"to-do","archived":false,"customFields":{"collection":[]}}
+]
+</script>
+<!-- The job rules (model.js, test.mjs): a made-up project with six jobs; not drawn by this page -->
+<script type="application/json" id="jobs">
+[
+{"id":"j-trailer","type":"release","title":"Trailer","status":"in-progress","archived":false,"updated":"2026-11-02T10:00:00","customFields":{}},
+{"id":"a-1","type":"task","title":"Cut the first trailer","status":"done","archived":false,"updated":"2026-11-03T10:00:00","customFields":{"collection":[{"itemId":"j-trailer"}]}},
+{"id":"a-2","type":"task","title":"Add the music","status":"done","archived":false,"updated":"2026-11-05T12:00:00","customFields":{"collection":[{"itemId":"j-trailer"}]}},
+{"id":"a-3","type":"task","title":"Film a second take","status":"cancelled","archived":false,"updated":"2026-11-04T10:00:00","customFields":{"collection":[{"itemId":"j-trailer"}]}},
+{"id":"j-search","type":"release","title":"Rework the recipe search and its filters","status":"in-progress","archived":false,"updated":"2026-11-01T09:00:00","description":"a search that finds a recipe by what is in the fridge","customFields":{}},
+{"id":"b-1","type":"task","title":"Read the search design","status":"in-review","archived":false,"updated":"2026-11-12T09:00:00","customFields":{"step":"B1","file":"docs/search-design.md","collection":[{"itemId":"j-search"}]}},
+{"id":"b-2","type":"task","title":"Your OK on the filter list","status":"waits-for-you","archived":false,"updated":"2026-11-12T10:00:00","customFields":{"step":"B2","collection":[{"itemId":"j-search"}]}},
+{"id":"b-3","type":"task","title":"Build the filter panel","status":"in-progress","archived":false,"updated":"2026-11-13T09:00:00","customFields":{"step":"B3","collection":[{"itemId":"j-search"}]}},
+{"id":"b-4","type":"task","title":"Speed up the search index","status":"in-progress","archived":false,"updated":"2026-11-11T09:00:00","customFields":{"step":"B4","collection":[{"itemId":"j-search"}]}},
+{"id":"b-5","type":"task","title":"Write the search tests","status":"to-do","archived":false,"updated":"2026-11-10T09:00:00","customFields":{"step":"B5","collection":[{"itemId":"j-search"}]}},
+{"id":"b-6","type":"task","title":"Your word: ship the new search","status":"to-do","archived":false,"updated":"2026-11-10T09:00:00","customFields":{"step":"B6","collection":[{"itemId":"j-search"}]}},
+{"id":"b-7","type":"task","title":"Pick the default sort","status":"to-do","archived":false,"owner":"user","updated":"2026-11-10T09:00:00","customFields":{"step":"B7","collection":[{"itemId":"j-search"}]}},
+{"id":"b-8","type":"task","title":"Collect the search complaints","status":"done","archived":false,"updated":"2026-11-10T08:00:00","customFields":{"step":"B8","collection":[{"itemId":"j-search"}]}},
+{"id":"b-9","type":"task","title":"Sketch the filter panel","status":"done","archived":false,"updated":"2026-11-14T10:00:00","customFields":{"step":"B9","collection":[{"itemId":"j-search"}]}},
+{"id":"b-10","type":"task","title":"Move the search into a popover","status":"cancelled","archived":false,"updated":"2026-11-11T08:00:00","customFields":{"step":"B10","collection":[{"itemId":"j-search"}]}},
+{"id":"b-11","type":"task","title":"An old search step","status":"to-do","archived":true,"updated":"2026-11-14T11:00:00","customFields":{"step":"B11","collection":[{"itemId":"j-search"}]}},
+{"id":"bug-1","type":"bug","title":"The filter panel forgets its scroll","status":"to-do","archived":false,"updated":"2026-11-09T09:00:00","customFields":{"collection":[{"itemId":"j-search"}]}},
+{"id":"j-40","type":"release","title":"4.0","status":"in-progress","archived":false,"updated":"2026-11-12T08:00:00","customFields":{"version":"4.0"}},
+{"id":"c-1","type":"task","title":"Write the change list","status":"done","archived":false,"updated":"2026-11-12T07:00:00","customFields":{"collection":[{"itemId":"j-40"}]}},
+{"id":"c-2","type":"task","title":"Build the installer","status":"done","archived":false,"updated":"2026-11-11T07:00:00","customFields":{"collection":[{"itemId":"j-40"}]}},
+{"id":"j-39","type":"release","title":"3.9","status":"in-progress","archived":false,"updated":"2026-11-07T08:00:00","customFields":{"version":"3.9","gitTag":"v3.9"}},
+{"id":"d-1","type":"task","title":"Fix the login loop","status":"done","archived":false,"updated":"2026-11-09T12:00:00","customFields":{"collection":[{"itemId":"j-39"}]}},
+{"id":"j-guide","type":"release","title":"Guide","status":"planned","archived":false,"updated":"2026-11-13T12:00:00","customFields":{}},
+{"id":"j-menu","type":"release","title":"Spring menu","status":"cancelled","archived":false,"updated":"2026-11-08T08:00:00","customFields":{}},
+{"id":"e-1","type":"task","title":"List the spring dishes","status":"to-do","archived":false,"updated":"2026-11-06T08:00:00","customFields":{"collection":[{"itemId":"j-menu"}]}},
+{"id":"j-old","type":"release","title":"Old plan","status":"in-progress","archived":true,"updated":"2026-11-14T12:00:00","customFields":{}}
+]
+</script>
+<!-- A made-up project with plans and tasks but no job, whose task type has no waits-for-you status -->
+<script type="application/json" id="no-job">
+[
+{"id":"n-1","type":"plan","title":"Plan the level editor","status":"draft","archived":false,"updated":"2026-11-10T09:00:00","customFields":{}},
+{"id":"n-2","type":"plan","title":"Plan the save format","status":"in-development","archived":false,"updated":"2026-11-11T09:00:00","customFields":{}},
+{"id":"n-3","type":"task","title":"Check the tile sizes","status":"in-review","archived":false,"updated":"2026-11-12T09:00:00","customFields":{}},
+{"id":"n-4","type":"task","title":"Draw the first map","status":"to-do","archived":false,"updated":"2026-11-12T10:00:00","customFields":{}},
+{"id":"n-5","type":"task","title":"Load a map from a file","status":"in-progress","archived":false,"updated":"2026-11-13T09:00:00","customFields":{}},
+{"id":"n-6","type":"task","title":"Set up the project","status":"done","archived":false,"updated":"2026-11-09T09:00:00","customFields":{}},
+{"id":"n-7","type":"bug","title":"The map jumps on zoom","status":"to-do","archived":false,"updated":"2026-11-13T10:00:00","customFields":{"collection":[]}}
+]
+</script>
+</head>
+<body>
+<div class="fx-app" id="app">
+  <div class="fx-gutter"></div>
+  <div class="fx-left resizable-panel-left">
+   <div class="fx-col tracker-sidebar">
+    <div class="workspace-color-accent"></div>
+    <div class="fx-tabs workspace-summary-header" id="fx-tabs">Tracker <button type="button">New item</button></div>
+    <div class="fx-label">Trackers</div>
+    <nav class="fx-side">
+      <button class="tracker-nav-type-row" data-tracker-type="all">All</button>
+      <button class="tracker-nav-type-row" data-tracker-type="task" data-testid="tracker-type-button">Tasks</button>
+      <button class="tracker-nav-type-row" data-tracker-type="release" data-testid="tracker-type-button">Releases</button>
+    </nav>
+   </div>
+  </div>
+  <main class="fx-main" data-layout="tracker-mode-wrapper">
+   <div class="tracker-mode">
+    <div class="fx-view" id="fx-view">
+    <div class="fx-page" data-testid="tracker-list-region">
+    <div class="fx-toolbar"><b data-testid="tracker-view-title" title="Tasks">Tasks</b></div>
+    <div class="fx-body"><div class="tracker-table-container" id="rows"></div></div>
+    </div>
+    </div>
+   </div>
+  </main>
+  <aside class="fx-detail tracker-detail-region" data-testid="tracker-detail-region" id="detail"></aside>
+</div>
+<!-- Sessions mode, hidden as in the app while the tracker shows; ?sessions=none leaves its column out. Its chat
+     column (session tabs, transcript, input) sits in a grid with its own grid-area, as seen live; ?chat= picks it -->
+<div class="agent-mode" style="display: none">
+  <div class="resizable-panel-left">
+    <div class="fx-col" id="fx-sessions">
+      <div class="workspace-color-accent"></div>
+      <div class="fx-tabs workspace-summary-header">Sessions <button type="button">New session</button></div>
+      <div class="session-history-list">
+        <div class="fx-session session-list-item" data-testid="session-list-item" id="session-list-item-s-1" role="button" aria-current="page">Draw the first map</div>
+        <div class="fx-session session-list-item" data-testid="session-list-item" id="session-list-item-s-2" role="button">Set up the project</div>
+      </div>
+    </div>
+  </div>
+  <div class="agent-workstream-panel" id="fx-chat-home">
+    <div class="fx-tabs">Sessions tabs</div>
+    <div class="agent-workstream-session-area" style="grid-area: 4 / 1;" id="fx-chat">
+      <div class="fx-chat-title" id="fx-chat-title">Draw the first map</div>
+      <div class="fx-chat-log">Claude: the first map is drawn.</div>
+      <textarea data-testid="agent-mode-chat-input" aria-label="Message" rows="2"></textarea>
+    </div>
+    <div class="fx-tabs" id="fx-chat-next">Files changed</div>
+  </div>
+</div>
+<script type="module">
+  import { colors, THEMES } from "../../ink-themes/themes.mjs";
+  import { activate } from "../dist/index.js";
+
+  const theme = THEMES.find((t) => t.id === (location.hash.slice(1) || "ink-aurora"));
+  if (!theme) throw new Error(`unknown theme ${location.hash}`);
+  for (const [k, v] of Object.entries(colors(theme))) document.documentElement.style.setProperty(`--nim-${k}`, v);
+  document.documentElement.classList.toggle("dark-theme", theme.isDark);
+  const query = new URLSearchParams(location.search);
+  const w = query.get("w") || "1920";
+  document.getElementById("app").classList.toggle("w2560", w === "2560");
+
+  // ?data=jobs|no-job|empty picks the made-up project; ?name= renames the settings job (a short and a long headline);
+  // ?bad=<id> gives that step a status the app does not have (the page must say so and leave the app's list in view)
+  const data = query.get("data") || "items";
+  const items = data === "empty" ? [] : JSON.parse(document.getElementById(data).textContent);
+  const renamed = items.find((i) => i.id === "rel-1");
+  if (query.get("name")) renamed.title = query.get("name");
+  if (query.get("bad")) items.find((i) => i.id === query.get("bad")).status = "someday";
+  const rows = document.getElementById("rows");
+  const addRow = (it) => {
+    const row = document.createElement("div");
+    row.className = it.id === "t-19" ? "tracker-table-row bg-[var(--nim-bg-secondary)]" : "tracker-table-row";
+    row.dataset.testid = "tracker-table-row";
+    row.dataset.itemId = it.id;
+    row.dataset.itemTitle = it.title;
+    const code = (it.customFields && it.customFields.step) || "";
+    const title = document.createElement("div");
+    title.className = "tracker-table-cell title";
+    const key = document.createElement("span");
+    key.textContent = code;
+    const name = document.createElement("span");
+    name.textContent = it.title;
+    title.append(key, " ", name);
+    const meta = document.createElement("div");
+    meta.className = "tracker-table-row-meta";
+    for (const [col, text] of [["key", code], ["status", it.status], ["priority", "Medium"]]) {
+      const cell = document.createElement("div");
+      cell.dataset.columnId = col;
+      cell.textContent = text;
+      meta.append(cell);
+    }
+    const more = document.createElement("button");
+    more.className = "tracker-row-more-actions";
+    more.textContent = "…";
+    row.append(title, meta, more);
+    rows.append(row);
+  };
+  for (const it of items.filter((i) => i.type === "task" && !i.archived && i.status !== "done")) addRow(it);
+  let heard = null;
+  window.workspacePath = "/fixture-project";
+  window.documentService = {
+    listTrackerItems: async () => items.slice(),
+    watchTrackerItems: (listener) => {
+      heard = listener;
+      return () => { heard = null; };
+    },
+  };
+  // quiet: the row comes before the watch listener hears of the item (the script must read the data again itself)
+  // s-4, the finished step's session, is archived: sessions:list gives it only with { includeArchived: true }, as the
+  // app does (one-page proofs point 6)
+  const sessions = [
+    { id: "s-1", linkedTrackerItemIds: ["t-18"] },
+    { id: "s-2", linkedTrackerItemIds: ["t-19"] },
+    { id: "s-3", linkedTrackerItemIds: ["t-20"] },
+    { id: "s-4", title: "Pick the type sizes", archived: true, linkedTrackerItemIds: ["t-15"] },
+  ];
+  const running = ["s-1", "s-2"];
+  const tails = {
+    "s-1": [
+      { type: "tool_call", toolCall: { toolName: "Read", arguments: {} } },
+      { type: "assistant_message" },
+      { type: "tool_call", toolCall: { toolName: "Edit", arguments: {} } },
+    ],
+    "s-2": [{ type: "tool_call", toolCall: { toolName: "Bash", arguments: { command: "npm test", description: "Run the tests" } } }],
+    "s-3": [],
+  };
+  let sessionHeard = null;
+  // The clicks the page makes into the app: the open-file call and the open-session and open-item events
+  window.fxCalls = [];
+  for (const type of ["open-ai-session", "nimbalyst:navigate-tracker-item"])
+    window.addEventListener(type, (e) => window.fxCalls.push({ channel: type, ...e.detail }));
+  window.electronAPI = {
+    invoke: async (channel, ...args) => {
+      if (channel === "sessions:list")
+        return { success: true, sessions: args[1] && args[1].includeArchived ? sessions : sessions.filter((x) => !x.archived) };
+      if (channel === "transcript:get-tail-messages") return tails[args[0]].slice();
+      if (channel === "workspace:open-file") {
+        window.fxCalls.push({ channel, ...args[0] });
+        return { success: true };
+      }
+      throw new Error(`fixture: no channel ${channel}`);
+    },
+    sessionState: {
+      getRunningSessionIds: async () => ({ success: true, sessionIds: running }),
+      subscribe: async () => ({ success: true }),
+      onStateChange: (cb) => { sessionHeard = cb; },
+      removeStateChangeListener: () => { sessionHeard = null; },
+    },
+  };
+  window.fxSessionTool = (sessionId, toolCall) => {
+    tails[sessionId].push({ type: "tool_call", toolCall });
+    sessionHeard({ type: "session:activity", sessionId, workspacePath: "/fixture-project" });
+  };
+  window.fxAddStep = (it, quiet) => {
+    items.push(it);
+    if (!quiet) heard({ type: "added", item: it });
+    addRow(it);
+  };
+
+  // The item view, from the app's markup (TrackerItemDetail, TrackerFieldPill, TrackerLinksSection,
+  // TrackerCommentsSection, TypeTagsEditor of 0.83.0). linked: two linked sessions, "In Progress", waits-on and proof
+  // set, text with code; not linked: "No linked sessions", "Needs you", priority High, an empty text box.
+  const icon = (name, size) => `<span class="material-symbols-outlined" style="font-size: ${size}px;">${name}</span>`;
+  const pill = (field, label, value, { set = true, labeled = false, color = "" } = {}) =>
+    `<button type="button" class="tracker-field-pill ${set ? "tracker-field-pill-set" : "tracker-field-pill-empty"}${labeled ? " tracker-field-pill-labeled" : ""}"` +
+    ` aria-expanded="false" aria-haspopup="dialog" aria-label="${label}: ${set ? value : "Not set"}" title="${set ? `${label}: ${value}` : `Set ${label}`}"` +
+    ` data-testid="tracker-detail-field-pill-${field}" data-field="${field}" data-empty="${!set}">` +
+    `<span class="material-symbols-outlined tracker-field-pill-icon" style="font-size: 14px;${color ? ` color: ${color};` : ""}">label</span>` +
+    `${labeled ? `<span class="tracker-field-pill-label">${label}</span>` : ""}<span class="tracker-field-pill-value">${set ? value : label}</span></button>`;
+  const headerButton = (title, name, extra = "") =>
+    `<button class="p-1 rounded hover:bg-nim-tertiary text-nim-muted" title="${title}"${extra}>${icon(name, 18)}</button>`;
+  const sessionButton = (title) =>
+    `<button class="flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium rounded text-nim-muted hover:text-nim hover:bg-nim-tertiary transition-colors" title="${title}">`;
+  const linked2 = [["Look-over: quotes, wave 1", "7 mins ago"], ["Item view build: second round", "2 hours ago"]];
+  const sessionEntry = ([title, ago]) =>
+    `<button class="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-nim-tertiary transition-colors group" title="Open session: ${title}">` +
+    `<span class="shrink-0 flex items-center text-nim-muted"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="currentColor"/></svg></span>` +
+    `<span class="flex-1 text-xs text-nim truncate">${title}</span><span class="text-[10px] text-nim-faint shrink-0">${ago}</span></button>`;
+  const linksLine = (label, type, title) =>
+    `<div><div class="tracker-links-line flex items-baseline gap-2 rounded px-1.5 py-1 text-[13px] hover:bg-nim-hover cursor-pointer" role="button">` +
+    `<span class="text-[9px] text-nim-faint transition-transform ">▶</span><span class="text-nim-muted shrink-0 w-28 @md:w-36 truncate">${label}</span>` +
+    `<span class="text-[12px] text-nim-faint shrink-0 w-4">1</span><span class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">` +
+    `<button class="tracker-links-page inline-flex items-baseline gap-1 min-w-0 text-nim hover:underline"><span class="text-[11px] text-nim-faint">${type}</span>` +
+    `<span class="truncate">${title}</span></button></span></div></div>`;
+  // A long list as a release's "Includes" (live 2026-11-14): more than six targets, some finished (they fold), one
+  // title far wider than the panel (it must end in "…", not run under the scrollbar)
+  const linksMany = (label, titles) =>
+    `<div><div class="tracker-links-line flex items-baseline gap-2 rounded px-1.5 py-1 text-[13px] hover:bg-nim-hover cursor-pointer" role="button">` +
+    `<span class="text-[9px] text-nim-faint transition-transform ">▶</span><span class="text-nim-muted shrink-0 w-28 @md:w-36 truncate">${label}</span>` +
+    `<span class="text-[12px] text-nim-faint shrink-0 w-4">${titles.length}</span><span class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">` +
+    titles.map((t) => `<button class="tracker-links-page inline-flex items-baseline gap-1 min-w-0 text-nim hover:underline"><span class="text-[11px] text-nim-faint">Task</span>` +
+      `<span class="truncate">${t}</span></button>`).join("") +
+    `</span></div></div>`;
+  const includes = ["Build the new settings layout", "Look over the whole settings window again, live, after the restart, in both themes, at both widths and with every menu open",
+    "Write the tests for the new screen", "Fix the toggle that forgets its state", "Fix the search box losing focus", "Fix the slow first load",
+    "Fix the wrong date format", "Your look at the built screen"];
+  const label11 = (text) => `<label class="text-[11px] font-medium text-nim-muted uppercase tracking-[0.5px]">${text}</label>`;
+  const h4 = (text) => `<h4 class="text-xs font-medium text-nim-muted uppercase tracking-wide">${text}</h4>`;
+  window.fxItemView = (linked) => {
+    const status = linked ? pill("status", "Status", "In Progress", { color: "#eab308" }) : pill("status", "Status", "Needs you", { color: "#f59e0b" });
+    document.getElementById("detail").innerHTML =
+      `<div class="tracker-item-detail flex flex-col h-full bg-nim overflow-hidden" data-testid="tracker-item-detail">` +
+      `<div class="tracker-item-detail-header flex items-start gap-2 px-4 pt-4 pb-3 border-b border-nim shrink-0">` +
+      `<span class="mt-1 shrink-0" style="color: #2563eb;">${icon("task_alt", 20)}</span>` +
+      `<div class="flex-1 min-w-0"><textarea rows="1" class="w-full bg-transparent border-none outline-none text-base font-semibold text-nim placeholder:text-nim-faint p-0 m-0 resize-none overflow-hidden leading-snug break-words" placeholder="Item title..." data-testid="tracker-detail-title">${linked ? "Restyle the item view so it reads at a glance" : "Write the release notes for 3.1"}</textarea>` +
+      `<div class="flex items-center gap-2 mt-1 flex-wrap">` +
+      `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded" style="color: #2563eb; background-color: #2563eb20;">Task</span>` +
+      `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-0.5 bg-gray-500/[0.125] text-gray-400" title="Stored in database — not backed by a file" data-testid="tracker-source-db-badge">${icon("storage", 11)}Database</span>` +
+      `<span class="tracker-item-local-key text-[10px] text-nim-faint font-mono" title="A local key until the item is published" data-testid="tracker-item-local-key">${linked ? "CLS.74" : "CLS.75"}</span>` +
+      `<span class="tracker-publication-chip inline-flex items-center gap-1 px-[7px] py-[2px] rounded-[10px] text-[10px] font-semibold" data-publication="published" data-testid="tracker-publication-chip" title="Your team can see this item">${icon("group", 11)}Published</span>` +
+      `</div></div><div class="flex items-center gap-1 shrink-0">` +
+      headerButton("Archive", "archive") +
+      `<button class="p-1 rounded hover:bg-nim-tertiary text-nim-muted hover:text-[#ef4444]" title="Delete permanently">${icon("delete", 18)}</button>` +
+      headerButton("Focus content", "fullscreen", ' data-testid="tracker-content-focus-toggle"') +
+      headerButton("Close (Esc)", "close") +
+      `</div></div>` +
+      `<div class="flex-1 overflow-y-auto px-4 py-3 space-y-4">` +
+      `<div class="tracker-sessions-section"><div class="flex items-center justify-between mb-1.5">${label11(linked ? "Sessions (2)" : "Sessions")}<div class="flex items-center gap-1">` +
+      `${sessionButton("Link an existing AI session to this item")}${icon("link", 14)}Link Existing</button>` +
+      `${sessionButton("Launch a new AI session for this item")}${icon("add", 14)}Launch Session</button>` +
+      `${sessionButton("Launch a new isolated worktree session for this item")}${icon("account_tree", 14)}Launch Worktree</button></div></div>` +
+      (linked ? `<div class="space-y-1">${linked2.map(sessionEntry).join("")}</div>` : `<p class="text-[11px] text-nim-faint m-0">No linked sessions</p>`) +
+      `</div>` +
+      `<div class="tracker-detail-fields pt-1 border-t border-nim"><div class="tracker-field-pills tracker-detail-field-pills" data-testid="tracker-detail-field-pills">` +
+      status +
+      pill("priority", "Priority", linked ? "Medium" : "High") +
+      pill("owner", "Owner", "", { set: false }) +
+      pill("step", "Step", linked ? "pipe D2" : "T9") +
+      pill("stage", "Stage", linked ? "Part 5 · docs" : "Part 3 · builds") +
+      pill("budget", "Budget", linked ? "20" : "8") +
+      pill("dependsOn", "Depends On", "Collect the facts", { labeled: true }) +
+      pill("blocks", "Blocks", "", { set: false }) +
+      pill("collection", "Collection", "3.1 · Settings refresh", { labeled: true }) +
+      pill("goal", "Goal", "", { set: false }) +
+      (linked ? pill("waitsOn", "Waits On", "your OK") + pill("proof", "Proof", "pictures in both themes") : pill("waitsOn", "Waits On", "", { set: false }) + pill("proof", "Proof", "", { set: false })) +
+      `</div></div>` +
+      `<div class="tracker-detail-tags" data-testid="tracker-detail-tags"><div class="space-y-1"><div class="flex items-center">${label11("Tags")}</div>` +
+      `<div class="flex flex-wrap gap-1 items-center"><input class="flex-1 bg-transparent text-[12px] outline-none" placeholder="Add tag..."></div></div></div>` +
+      `<div class="tracker-type-tags-editor space-y-1"><div class="flex items-center gap-2"><span class="text-[10px] text-nim-faint font-medium uppercase tracking-wider">Type Tags</span>` +
+      `<button class="text-[10px] text-nim-muted hover:text-nim px-1 py-0.5 rounded hover:bg-nim-tertiary">+ Add</button></div></div>` +
+      `<div class="pt-1 border-t border-nim"><label class="text-[11px] font-medium text-nim-muted uppercase tracking-[0.5px] block mb-1">Content</label>` +
+      `<div class="tracker-content-editor relative bg-nim overflow-hidden min-h-[200px] border border-nim rounded" data-testid="tracker-detail-content-editor">` +
+      `<div class="ContentEditable__root" contenteditable="true" role="textbox">` +
+      (linked
+        ? `<p class="nim-paragraph" dir="ltr"><strong class="nim-text-bold" data-lexical-text="true">Serves:</strong><span data-lexical-text="true"> "a user will be overwhelmed" by the item view as it is.</span></p>` +
+          `<p class="nim-paragraph" dir="ltr"><strong class="nim-text-bold" data-lexical-text="true">Done when:</strong><span data-lexical-text="true"> the view shows one status line and one filled button, and </span><span class="nim-text-code" data-lexical-text="true">node test.mjs --pictures</span><span data-lexical-text="true"> passes.</span></p>`
+        : `<p class="nim-paragraph"><br></p>`) +
+      `</div><div class="draggable-block-menu"><span>+</span><span>⋮⋮</span></div></div></div>` +
+      `<div class="tracker-links-section @container space-y-1 select-text">${h4("Links")}${linksLine("In collection", "Release", "3.1 · Settings refresh")}${linksLine("Depends on", "Task", "Collect the facts about the settings data")}${linked ? linksMany("Includes", includes) : ""}</div>` +
+      `<div class="space-y-2"><div class="flex items-center justify-between">${h4("Comments")}</div><div class="tracker-comments-section space-y-2 select-text">` +
+      `<div class="tracker-comment-composer flex gap-1"><input type="text" aria-label="Comment" placeholder="Add a comment..." class="min-w-0 flex-1 bg-nim-secondary border border-nim rounded px-2 py-1 text-xs text-nim placeholder:text-nim-faint outline-none focus:border-nim-primary" data-testid="tracker-comment-input">` +
+      `<button disabled class="px-2 py-1 rounded text-xs bg-nim-primary text-nim-on-primary disabled:opacity-40 hover:opacity-90 transition-opacity">Post</button></div></div></div>` +
+      `<div class="space-y-2">${h4("Activity")}<div class="space-y-1">` +
+      [["Claude", "set Status to In Progress", "7 mins ago"], ["You", "linked a session", "20 mins ago"], ["Claude", "created this item", "50 mins ago"]]
+        .map(([who, what, ago]) => `<div class="flex items-start gap-2 text-[11px]"><span class="text-nim-muted shrink-0">${who}</span><span class="text-nim-faint">${what}</span><span class="text-nim-faint ml-auto shrink-0">${ago}</span></div>`)
+        .join("") +
+      `</div></div>` +
+      `<div class="pt-1 border-t border-nim"><div class="grid grid-cols-2 gap-2 text-[11px]">` +
+      `<div class="col-span-2 flex items-center gap-1.5"><span class="text-nim-faint shrink-0">Created by</span><span class="text-nim-muted">Claude</span><span class="text-[10px] text-nim-faint bg-nim-tertiary px-1 py-0.5 rounded">via AI</span></div>` +
+      `<div><span class="text-nim-faint">Created</span><div class="text-nim-muted">13 Nov 2026, 17:02</div></div>` +
+      `<div><span class="text-nim-faint">Updated</span><div class="text-nim-muted">14 Nov 2026, 09:40</div></div>` +
+      `<div><span class="text-nim-faint">Sync</span><div class="text-nim-muted"><span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium" style="background-color: #f59e0b20; color: #b45309;">pending</span></div></div>` +
+      `<div class="col-span-2"><span class="text-nim-faint">Source</span><div class="text-nim-muted truncate">Database (no file backing)</div></div>` +
+      `</div></div></div></div>`;
+    // The app sizes the title's box to its text
+    const title = document.querySelector('[data-testid="tracker-detail-title"]');
+    title.style.height = `${title.scrollHeight}px`;
+  };
+  window.fxItemView(true);
+  if (query.get("sessions") === "none") document.querySelector(".agent-mode").remove();
+  // ?chat=on shows the chat column on the page; none: no session open, so the app draws no column; missing: a
+  // session is open but its column is not where the page looks (a renamed app). With no ?chat the stored choice
+  // keeps the chat hidden, so the other states keep their measures. The kept chat width is forgotten too, unless
+  // ?keep is given (a reload that checks what was kept).
+  const chat = query.get("chat");
+  if (!query.has("keep")) {
+    if (chat === null) localStorage.setItem("job-tracker.chatShown", "false");
+    else localStorage.removeItem("job-tracker.chatShown");
+    localStorage.removeItem("job-tracker.chatWidth");
+  }
+  document.getElementById("app").classList.toggle("fx-live", query.get("frame") === "live");
+  // ?wrap=app: the tracker row as the live app builds it (TrackerMode): its one child is the app's resizable panel,
+  // the left column (sidebar, later the Sessions column) on its left and the page on its right
+  if (query.get("wrap") === "app") {
+    const panel = document.createElement("div");
+    panel.className = "fx-panel";
+    const right = document.createElement("div");
+    right.className = "fx-panel-right";
+    right.append(document.getElementById("fx-view"));
+    panel.append(document.querySelector(".fx-app > .fx-left"), right);
+    document.querySelector(".tracker-mode").append(panel);
+    document.getElementById("app").classList.add("fx-wrap");
+  }
+  const area = document.getElementById("fx-chat");
+  if (area && (chat === "none" || chat === "missing")) area.remove();
+  if (chat === "none")
+    for (const row of document.querySelectorAll('[data-testid="session-list-item"]')) row.removeAttribute("aria-current");
+  // A click on a Sessions row, as the app does it: the row becomes the open one and the chat column shows its
+  // session; with no session open before, the app draws the column in its home
+  for (const row of document.querySelectorAll('[data-testid="session-list-item"]'))
+    row.addEventListener("click", () => {
+      for (const r of document.querySelectorAll('[data-testid="session-list-item"]')) r.removeAttribute("aria-current");
+      row.setAttribute("aria-current", "page");
+      if (chat === "missing") return;
+      const home = document.getElementById("fx-chat-home");
+      if (!document.getElementById("fx-chat")) home.insertBefore(area, document.getElementById("fx-chat-next"));
+      document.getElementById("fx-chat-title").textContent = row.textContent;
+    });
+  // Leaving the tracker, as the app does it: its page gets the class "hidden"
+  window.fxLeave = () => document.querySelector('[data-layout="tracker-mode-wrapper"]').classList.add("hidden");
+  // ?frame=live: opening an item, as the app does it, puts its region in the item's row beside the list, 400 px wide
+  // (the app's default detailPanelWidth); its "Close (Esc)" button takes the region out again
+  if (query.get("frame") === "live") {
+    const detail = document.getElementById("detail");
+    window.addEventListener("nimbalyst:navigate-tracker-item", () => {
+      detail.style.width = "400px";
+      document.getElementById("fx-view").append(detail);
+    });
+    detail.addEventListener("click", (e) => {
+      if (e.target.closest('button[title="Close (Esc)"]')) detail.remove();
+    });
+  }
+  // A full-page item, as the app draws its parts: the right panel holding "Chat about this item" with its drag line
+  // before it, and the top bar's panel menu (opened) with that option and "Discussion"
+  window.fxOpenDocument = () => {
+    const view = document.getElementById("fx-view");
+    const drag = document.createElement("div");
+    drag.dataset.testid = "tracker-document-right-panel-resize";
+    drag.setAttribute("role", "separator");
+    const panel = document.createElement("div");
+    panel.dataset.testid = "tracker-document-right-panel";
+    panel.innerHTML = `<div class="tracker-document-panel" data-testid="tracker-document-panel" data-mode="chat">Chat about this item</div>`;
+    view.append(drag, panel);
+    const menu = document.createElement("div");
+    menu.dataset.testid = "window-top-bar-right-pane-menu";
+    menu.innerHTML = [["forum", "Chat about this item"], ["chat", "Discussion"]]
+      .map(([i, l]) => `<button type="button" role="menuitem">${icon(i, 17)}<span>${l}</span></button>`)
+      .join("");
+    document.body.append(menu);
+  };
+  activate();
+</script>
+</body>
+</html>

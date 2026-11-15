@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 // plan-ahead: what to expect from the Claude plan. Built from the samples saved by
 // ~/.claude/hooks/plan-usage-logger.mjs (the account-wide 5-hour and weekly percentages); every
 // number is a straight line drawn from what was recorded. Nothing is asked from Anthropic.
@@ -23,13 +24,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { isMain } from "../../../hooks/lib/hook-io.mjs";
 import { ARGS, opt } from "./lib/opt.mjs";
 import {
-  NEED_WEEK,
   cleanSamples,
+  NEED_WEEK,
   planUse,
   readSamples,
   rise,
@@ -141,7 +141,7 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
   const minute = (r) => Math.round(Date.parse(r ?? "") / MIN) * MIN; // the reported reset time jitters by under a second
   let reset = minute(last?.week.r),
     used = last?.week.u;
-  if (!last || isNaN(reset)) return { status: "none" };
+  if (!last || Number.isNaN(reset)) return { status: "none" };
   const res = { status: "ok", at: last.t, now: iso(now), tips: [] };
   // Per-model weekly limits and other limits from the logger, passed on for the Usage Plan panel
   if (last.models) res.models = last.models;
@@ -257,7 +257,8 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
     });
   }
 
-  // ---- what was recorded: weekly points per 5-hour point, and use per local hour of the day
+  // ---- what was recorded in the current plan: weekly points per 5-hour point, and use per local hour of the day
+  // (an earlier plan had its own scale and other use, so it would blur the hours)
   let sumW = 0,
     sumF = 0;
   const hours = Array.from({ length: 24 }, () => ({
@@ -265,16 +266,20 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
     total: 0,
     mine: 0,
   }));
+  // the plan starts where its first stretch does, as in planUse's eras
+  const firstNow = S.findIndex((s) => s.era === last.era);
+  const planStart = S[Math.max(0, firstNow - 1)].ms;
   for (let i = 1; i < S.length; i++) {
     const a = S[i - 1],
       b = S[i];
+    if (b.era !== last.era) continue;
     const [dW] = rise(a.week, b.week),
       [dF, wholeF] = rise(a.five, b.five);
-    if (wholeF && sameWindow(a.week, b.week) && b.era === last.era) {
+    if (wholeF && sameWindow(a.week, b.week)) {
       sumW += dW;
       sumF += dF;
-    } // the current plan only
-    for (let t = a.ms; t < b.ms;) {
+    }
+    for (let t = a.ms; t < b.ms; ) {
       const d = new Date(t);
       const end = Math.min(
         new Date(
@@ -291,12 +296,11 @@ export function planAhead(samples, cost, plan, config, now = Date.now()) {
       t = end;
     }
   }
-  // each minute at the scale of the plan it fell in
+  // each minute of the current plan at its scale (the stretch rule in planUse: a minute counts by its middle)
   for (const [min, units] of plan?.eras ? cost : []) {
-    const perUnit = plan.eras.findLast(
-      (e) => e.after < min * MIN + 30000,
-    )?.perUnit; // the stretch rule in planUse
-    if (perUnit && min * MIN >= S[0].ms && min * MIN < last.ms)
+    const mid = min * MIN + 30000;
+    const perUnit = plan.eras.findLast((e) => e.after < mid)?.perUnit;
+    if (perUnit && mid > planStart && mid <= last.ms)
       hours[new Date(min * MIN).getHours()].mine += perUnit * units;
   }
   // a full 5-hour window, in points of the week

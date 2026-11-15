@@ -1,5 +1,5 @@
 // Evaluated inside the Nimbalyst window via: node scripts/cdp.mjs --file test/ui-full.js
-// Exercises the real UI; restores hands-free to off at the end.
+// Exercises the real UI on the one Read aloud strip (the end of the last finished turn).
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const out = {};
@@ -14,13 +14,14 @@
   const seenVoices = [];
   const origInvoke = window.electronAPI.invoke;
   try {
-    window.electronAPI.invoke = function (channel, payload) {
+    window.electronAPI.invoke = function (...args) {
+      const [channel, payload] = args;
       if (
         channel === "extensions:ai-call-backend-tool" &&
         payload?.toolName === "readaloud.synthesize"
       )
         seenVoices.push(payload.args.voice);
-      return origInvoke.apply(this, arguments);
+      return origInvoke.apply(this, args);
     };
   } catch {
     /* frozen */
@@ -32,8 +33,8 @@
     );
   const state = (c) =>
     [...c.querySelectorAll("button,span[title]")]
-      .map((b) => b.title)
-      .filter((x) => x && !/hands-free/i.test(x))
+      .map((b) => b.querySelector(".readaloud-word")?.textContent || b.title)
+      .filter(Boolean)
       .join("|");
   const waitFor = async (c, pred, ms) => {
     const t0 = performance.now();
@@ -45,12 +46,14 @@
   };
 
   const cs = controls();
+  out.visibleStrips = cs.length; // expected: 1
   const A = cs[cs.length - 1];
-  const B = cs[cs.length - 2];
 
   // 1. Cold start (worker was stopped): click -> first audio.
-  A.querySelector('button[title="Read aloud"]').click();
-  out.coldStartMs = await waitFor(A, (s) => s.startsWith("Pause|Stop"), 20000);
+  [...A.querySelectorAll("button")]
+    .find((b) => b.textContent.endsWith("Read aloud"))
+    .click();
+  out.coldStartMs = await waitFor(A, (s) => s.startsWith("Pause|Next"), 20000);
   const st1 = await ipc("status");
   out.workerAfterFirst = {
     worker: st1.worker,
@@ -58,17 +61,9 @@
     loadMs: st1.loadMs,
   };
 
-  // 2. Only one plays: clicking B stops A.
-  B.querySelector('button[title="Read aloud"]').click();
-  await sleep(100);
-  out.aAfterClickingB = state(A);
-  out.warmStartMs = await waitFor(B, (s) => s.startsWith("Pause|Stop"), 20000);
-  const st2 = await ipc("status");
-  out.samePidAcrossRequests = st2.pid === st1.pid;
-  out.requestsServed = st2.requestsServed;
-  B.querySelector('button[title="Stop"]')?.click();
+  A.querySelector(".readaloud-close")?.click();
   await sleep(200);
-  out.bAfterStop = state(B);
+  out.afterClose = state(A);
 
   // 3. Voice actually requested by the player, and what the backend used.
   const probe = await ipc("synthesize", { text: "Voice probe." });
@@ -81,52 +76,6 @@
   } catch (e) {
     out.savedConfig = String(e);
   }
-
-  // 4. Hands-free: turn on via the headphones button, then simulate a finished turn + a question card.
-  const container = A.closest(".rich-transcript-messages");
-  const autoBtn = A.querySelector(".readaloud-auto");
-  autoBtn.click();
-  await sleep(300);
-  out.autoButtonOn = autoBtn.classList.contains("on");
-  const key = B.getAttribute("data-readaloud-key");
-  const fake = (idx, html, cls = "") => {
-    const d = document.createElement("div");
-    d.className = `rich-transcript-message ${cls}`;
-    d.setAttribute("data-message-index", String(idx));
-    d.setAttribute("data-readaloud-test", "1");
-    d.innerHTML = html;
-    container.appendChild(d);
-  };
-  fake(90001, `<span data-readaloud-key="${key}"></span>`, "assistant");
-  fake(90002, '<div class="rich-transcript-turn-elapsed">Finished in 1s</div>');
-  out.autoReplyStartMs = await waitFor(B, (s) => s.includes("Stop"), 20000);
-  B.querySelector('button[title="Stop"]')?.click();
-  await sleep(300);
-
-  fake(
-    90003,
-    '<div class="ask-user-question-widget"><span>Which voice should I use?</span><div>af_heart (recommended)</div><div>af_bella</div><button>Submit</button></div>',
-  );
-  // The question has no transcript control, so watch the backend for a new synthesize request.
-  const before = (await ipc("status")).requestsServed;
-  let questionSpoken = false;
-  for (let i = 0; i < 60 && !questionSpoken; i++) {
-    await sleep(250);
-    questionSpoken = (await ipc("status")).requestsServed > before;
-  }
-  out.questionSpoken = questionSpoken;
-  document.querySelectorAll("[data-readaloud-test]").forEach((e) => e.remove());
-
-  // 5. /voice path: agent-side toggle is picked up by the UI poll.
-  await ipc("set_auto_read", { enabled: false });
-  await sleep(4500);
-  out.uiAfterAgentOff = autoBtn.classList.contains("on") ? "on" : "off";
-  await ipc("set_auto_read", { enabled: true });
-  await sleep(4500);
-  out.uiAfterAgentOn = autoBtn.classList.contains("on") ? "on" : "off";
-  await ipc("set_auto_read", { enabled: false });
-  await sleep(4000);
-  out.finalHandsFree = autoBtn.classList.contains("on") ? "on" : "off";
 
   try {
     window.electronAPI.invoke = origInvoke;

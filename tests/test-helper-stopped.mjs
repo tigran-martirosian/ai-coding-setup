@@ -1,6 +1,7 @@
 // Tests for hooks/helper-stopped.mjs: the note after a helper cut at its turn limit or back with no report.
 // Run: node tests/test-helper-stopped.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 

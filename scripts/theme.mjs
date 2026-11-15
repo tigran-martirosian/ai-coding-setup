@@ -7,8 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fwd } from "./files.mjs";
 import {
-  pickedSincePending,
   PENDING_LINE,
+  pickedSincePending,
   setInkDefault,
   themeAction,
 } from "./ink-default.mjs";

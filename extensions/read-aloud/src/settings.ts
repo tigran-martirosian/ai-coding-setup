@@ -7,7 +7,6 @@ export interface ReadAloudSettings {
   skipCodeBlocks: boolean;
   skipTerminalOutput: boolean;
   ttsDirectory: string;
-  autoRead: boolean;
 }
 
 export const DEFAULTS: ReadAloudSettings = {
@@ -17,7 +16,6 @@ export const DEFAULTS: ReadAloudSettings = {
   skipCodeBlocks: true,
   skipTerminalOutput: true,
   ttsDirectory: "C:\\LocalTTS",
-  autoRead: false,
 };
 
 /** American English voices only; af_sky is the default. */

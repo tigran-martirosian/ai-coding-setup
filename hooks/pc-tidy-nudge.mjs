@@ -1,15 +1,15 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 // pc-tidy-nudge: UserPromptSubmit hook. It runs the chat archive (workers/disk-tidy.mjs --auto --archive-only) at
 // most once every 3 days, on every system, once the person has turned the archive on (~/.claude/disk-tidy.json). The
 // run is detached, so the prompt never waits; when it archived or deleted something, the next prompt shows its one
 // line. Silent for /commands. Fails open. PC_TIDY_NUDGE=off disables it.
 // It says nothing about how long Nimbalyst has been open: /pc-tidy's report says to restart it after a day open.
 import { runHook } from "./lib/hook-io.mjs";
-import { stateFile, readJson, writeJson, STATE_DIR } from "./lib/state.mjs";
-import { spawn } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { readJson, STATE_DIR, stateFile, writeJson } from "./lib/state.mjs";
 
 const HOUR = 60 * 60 * 1000;
 const ARCHIVE_EVERY = 3 * 24 * HOUR;

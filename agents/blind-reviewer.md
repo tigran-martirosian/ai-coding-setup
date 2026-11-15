@@ -1,6 +1,6 @@
 ---
 name: blind-reviewer
-description: A blind look at something a person will see, read or use, judged as a newcomer meeting it for the first time, with no code, plan or reasoning. Use for a mock-up, first screen or draft before the build; for the finished result beside the build reviewer, never seeing its findings; and once per release for the whole setup as the person works with it. Brief it with only the screenshots of every state with their scale, the text, or the command with its docs and output, plus a short word list; end the brief with `SYSTEMS MAP: none`. Changes no files. Not for code, plans or data (that is the reviewer).
+description: "A blind look at something a person will see, read or use, judged as a newcomer meeting it for the first time, with no code, plan or reasoning. Use for a mock-up, first screen or draft before the build; for the finished result beside the build reviewer, never seeing its findings; and once per release for the whole setup as the person works with it. Brief it with only the screenshots of every state with their scale, the text, or the command with its docs and output, plus a short word list; end the brief with `SYSTEMS MAP: none`. Changes no files. Not for code, plans or data (that is the reviewer)."
 model: fable
 effort: high
 tools: Read

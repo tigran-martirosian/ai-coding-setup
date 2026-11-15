@@ -1,5 +1,7 @@
 // Where each part sits on the map: a force layout (Fruchterman-Reingold) that runs to the end at once,
 // so the picture never moves while it is read. The same parts, links and seed give the same places.
+// With label widths, each part takes the room of its dot and its name under it, so no two names overlap,
+// and the result is spread to fill the box: the map opens fitted with every part named.
 
 export interface Place {
   x: number;
@@ -15,6 +17,9 @@ export interface LayoutOptions {
   groups?: string[];
   /** The radius of each id, in the order of `ids`: parts are kept this far apart, edge to edge, in the result. */
   radii?: number[];
+  /** The label width of each id, in the order of `ids` (labelWidth): each part then takes the room of its dot and
+   *  its name under it (labelBox), and no two rooms overlap when the box has space for them. */
+  labels?: number[];
 }
 
 /** A node's radius in the layout's own units: grows with the square root of its link count. */
@@ -36,7 +41,9 @@ export function random(seed: number): () => number {
 const ITERATIONS = 300;
 const GROUP_PULL = 0.3;
 const GAP = 4;
-const SEPARATE_PASSES = 40;
+const SEPARATE_PASSES = 200;
+/** Space kept between a label's box and the edge of the box. */
+const EDGE = 6;
 const OUTLIER_REACH = 1.15;
 
 /** Place for each id; every place lies inside the box minus `pad`. Links to unknown ids are ignored. */
@@ -77,6 +84,7 @@ export function layout(
   o.groups?.forEach((g, i) => {
     if (!g || i >= n) return;
     if (!groupIds.has(g)) groupIds.set(g, groupIds.size);
+    // biome-ignore lint/style/noNonNullAssertion: the line above sets it
     groupOf[i] = groupIds.get(g)!;
   });
   const gx = new Float64Array(groupIds.size);
@@ -146,7 +154,10 @@ export function layout(
   }
 
   // A part with few links drifts far out and would shrink everything else to fit it in: bring each part
-  // no further from the middle than a little past the 90th percentile of the others.
+  // no further from the middle than a little past the 90th percentile of the linked ones (parts with no link
+  // at all are often a fifth of a map, so counting them would leave them on the far rim).
+  const linked = new Uint8Array(n);
+  for (const [i, j] of edges) linked[i] = linked[j] = 1;
   if (n >= 10) {
     let mx = 0,
       my = 0;
@@ -159,8 +170,11 @@ export function layout(
     const dist = Array.from({ length: n }, (_, i) =>
       Math.hypot(x[i] - mx, y[i] - my),
     );
+    const near = dist.filter((_, i) => linked[i]);
+    const base = near.length >= 10 ? near : dist;
     const limit =
-      [...dist].sort((a, b) => a - b)[Math.floor(n * 0.9)] * OUTLIER_REACH;
+      [...base].sort((a, b) => a - b)[Math.floor(base.length * 0.9)] *
+      OUTLIER_REACH;
     for (let i = 0; i < n; i++) {
       if (dist[i] <= limit) continue;
       x[i] = mx + ((x[i] - mx) / dist[i]) * limit;
@@ -187,34 +201,146 @@ export function layout(
     y[i] = cy + (y[i] - (minY + maxY) / 2) * s;
   }
 
-  // Collision: parts that touch are pushed apart, half each, a few passes; the box is kept.
+  // Each part's room around its centre: its dot, and with a label the name's box under the dot.
   const rad = (i: number) => o.radii?.[i] ?? radius(0);
+  const half = new Float64Array(n);
+  const up = new Float64Array(n);
+  const down = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const lw = o.labels?.[i];
+    half[i] = lw === undefined ? rad(i) : Math.max(rad(i), lw / 2);
+    up[i] = rad(i);
+    down[i] = lw === undefined ? rad(i) : labelBox(0, 0, rad(i), lw)[3];
+  }
+  // Where a centre may go: the dot keeps `pad` from the edges, the label EDGE.
+  const lo = (i: number, axis: 0 | 1) =>
+    Math.max(o.pad, (axis ? up[i] : half[i]) + EDGE);
+  const hi = (i: number, axis: 0 | 1) =>
+    (axis ? o.height : o.width) -
+    Math.max(o.pad, (axis ? down[i] : half[i]) + EDGE);
+  const keep = (i: number) => {
+    x[i] = within(x[i], lo(i, 0), hi(i, 0));
+    y[i] = within(y[i], lo(i, 1), hi(i, 1));
+  };
+
+  // Collision: parts whose rooms overlap are pushed apart along the shorter overlap, half each, until none
+  // overlap or the passes run out; the box is kept.
   for (let pass = 0; pass < SEPARATE_PASSES; pass++) {
     let moved = false;
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
-        const ex = x[i] - x[j];
-        const ey = y[i] - y[j];
-        const want = rad(i) + rad(j) + GAP;
-        const d = Math.hypot(ex, ey);
-        if (d >= want) continue;
+        const ox =
+          Math.min(x[i] + half[i], x[j] + half[j]) -
+          Math.max(x[i] - half[i], x[j] - half[j]) +
+          GAP;
+        const oy =
+          Math.min(y[i] + down[i], y[j] + down[j]) -
+          Math.max(y[i] - up[i], y[j] - up[j]) +
+          GAP;
+        if (ox <= 0 || oy <= 0) continue;
         moved = true;
-        // Two parts on one spot are split along a fixed direction, so the result stays the same for a seed.
-        const ux = d > 0.01 ? ex / d : Math.cos(i + j);
-        const uy = d > 0.01 ? ey / d : Math.sin(i + j);
-        const push = (want - d) / 2;
-        x[i] += ux * push;
-        y[i] += uy * push;
-        x[j] -= ux * push;
-        y[j] -= uy * push;
+        // Split along the axis they are already further apart on, measured in room sizes, so the picture keeps
+        // its shape. Two parts on one spot are split along a fixed direction, so the result stays the same.
+        const fx = Math.abs(x[i] - x[j]) / (half[i] + half[j]);
+        const fy =
+          Math.abs(y[i] - y[j]) / ((up[i] + down[i] + up[j] + down[j]) / 2);
+        if (fx >= fy) {
+          const s =
+            x[i] !== x[j] ? Math.sign(x[i] - x[j]) : (i + j) % 2 ? 1 : -1;
+          x[i] += (s * ox) / 2;
+          x[j] -= (s * ox) / 2;
+        } else {
+          const s =
+            y[i] !== y[j] ? Math.sign(y[i] - y[j]) : (i + j) % 2 ? 1 : -1;
+          y[i] += (s * oy) / 2;
+          y[j] -= (s * oy) / 2;
+        }
       }
     }
-    for (let i = 0; i < n; i++) {
-      x[i] = Math.min(o.width - o.pad, Math.max(o.pad, x[i]));
-      y[i] = Math.min(o.height - o.pad, Math.max(o.pad, y[i]));
-    }
+    for (let i = 0; i < n; i++) keep(i);
     if (!moved) break;
   }
+
+  // Fill the box: move the drawing to the middle of its free room, then spread the centres apart as far as the
+  // room allows. Spreading never brings two rooms closer, so rooms that were apart stay apart.
+  for (const axis of [0, 1] as const) {
+    const v = axis ? y : x;
+    const mid = (axis ? o.height : o.width) / 2;
+    let before = Infinity;
+    let after = Infinity;
+    for (let i = 0; i < n; i++) {
+      before = Math.min(before, v[i] - lo(i, axis));
+      after = Math.min(after, hi(i, axis) - v[i]);
+    }
+    const shift = before >= 0 && after >= 0 ? (after - before) / 2 : 0;
+    let spread = Infinity;
+    for (let i = 0; i < n; i++) {
+      v[i] += shift;
+      const d = v[i] - mid;
+      if (d > 0.5) spread = Math.min(spread, (hi(i, axis) - mid) / d);
+      else if (d < -0.5) spread = Math.min(spread, (lo(i, axis) - mid) / d);
+    }
+    if (Number.isFinite(spread) && spread > 1)
+      for (let i = 0; i < n; i++) v[i] = mid + (v[i] - mid) * spread;
+  }
+  for (let i = 0; i < n; i++) keep(i);
   for (let i = 0; i < n; i++) out.set(ids[i], { x: x[i], y: y[i] });
   return out;
+}
+
+/** v kept between a and b; the middle of the two when there is no room between them. */
+const within = (v: number, a: number, b: number) =>
+  a > b ? (a + b) / 2 : Math.min(b, Math.max(a, v));
+
+// ---- labels ----
+
+/** The token the labels are drawn in (panel.css `.sm-label`) and measured at, so the two never differ. */
+export const LABEL_FONT = "--x-row-title";
+/** A label's box height: the 14 px text's ascent and descent (about 17 px) plus a pixel of air. */
+export const LABEL_HEIGHT = 18;
+/** Where the text's baseline sits, up from the bottom of its box: room for the descenders. */
+export const LABEL_BASELINE = 4;
+/** Free space left and right of the text inside its box. */
+export const LABEL_PAD = 3;
+/** Space between a dot and the top of its label's box. */
+export const LABEL_GAP = 2;
+
+/** A label's box as [left, top, right, bottom]: always centred under its dot, never above or beside it. */
+export const labelBox = (
+  x: number,
+  y: number,
+  r: number,
+  width: number,
+): [number, number, number, number] => [
+  x - width / 2,
+  y + r + LABEL_GAP,
+  x + width / 2,
+  y + r + LABEL_GAP + LABEL_HEIGHT,
+];
+
+/** A label's box width: the name as the font draws it, rounded up, plus the space on each side. */
+export const labelWidth = (name: string, measure: (text: string) => number) =>
+  Math.ceil(measure(name)) + 2 * LABEL_PAD;
+
+/**
+ * Measures text in the label font as the browser draws it. The font comes from the shared token, so a change of
+ * the type scale changes the boxes too; a missing token is an error, not a guess.
+ */
+export function labelMeasure(): (text: string) => number {
+  const font = getComputedStyle(document.documentElement)
+    .getPropertyValue(LABEL_FONT)
+    .trim();
+  if (!font)
+    throw new Error(
+      `${LABEL_FONT} is not set: the shared tokens did not load, so the map labels cannot be measured`,
+    );
+  const pen = document.createElement("canvas").getContext("2d");
+  if (!pen) throw new Error("no 2d canvas to measure the map labels with");
+  pen.font = font;
+  const widths = new Map<string, number>();
+  return (text) => {
+    let w = widths.get(text);
+    if (w === undefined) widths.set(text, (w = pen.measureText(text).width));
+    return w;
+  };
 }

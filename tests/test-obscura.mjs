@@ -1,11 +1,12 @@
 // scripts/obscura.mjs: the pinned Obscura goes into its folder only when the archive's SHA-256 matches, a
 // second run leaves it, a failed or wrong download says so and changes nothing, a system with no build is
 // named. A made-up archive stands in for the release: no network. Run: node tests/test-obscura.mjs
+
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { installObscura, PIN } from "../scripts/obscura.mjs";
 
 let failed = 0;

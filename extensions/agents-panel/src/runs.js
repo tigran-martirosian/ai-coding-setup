@@ -67,4 +67,4 @@ async function readRuns() {
   }
 }
 
-export { parseRuns, matchRun, readRuns };
+export { matchRun, parseRuns, readRuns };

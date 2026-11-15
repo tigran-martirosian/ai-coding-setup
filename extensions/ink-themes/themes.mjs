@@ -97,7 +97,7 @@ export const THEMES = [
     id: "ink-bone",
     name: "Ink Bone",
     isDark: false,
-    about: "Light: warm stone pages, a bone side bar and a bronze accent",
+    about: "Light: warm stone pages, a bone side bar and a terracotta accent",
     bg: "#f3f2f0",
     side: "#e8e6e2",
     raised: "#fdfdfd",
@@ -107,18 +107,18 @@ export const THEMES = [
     muted: "#54504a",
     faint: "#67625a",
     disabled: "#a39f97",
-    primary: "#77601a",
-    primaryHover: "#665114",
+    primary: "#a4482a",
+    primaryHover: "#8c3b20",
     onPrimary: "#ffffff",
-    focus: "#94791f",
-    link: "#6a5516",
-    linkHover: "#52410d",
+    focus: "#c0623f",
+    link: "#98401f",
+    linkHover: "#7a3218",
     tint: [60, 50, 30],
     thumb: "#cac6be",
     thumbHover: "#aea99f",
     success: "#2f7850",
     warning: "#8a600c",
-    error: "#ad3b3a",
+    error: "#a8323f",
     info: "#2f6396",
     purple: "#6c52a4",
   },
@@ -331,6 +331,15 @@ export const THEMES = [
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const rgba = (c, a) =>
   `rgba(${(Array.isArray(c) ? c : rgb(c)).join(", ")}, ${a})`;
+
+/** The themes as the Theme menu lists them: dark ones first, then light, each name marked "(dark)" or "(light)". */
+export const menuThemes = () =>
+  [...THEMES.filter((t) => t.isDark), ...THEMES.filter((t) => !t.isDark)].map(
+    (t) => ({
+      ...t,
+      name: `${t.name} (${t.isDark ? "dark" : "light"})`,
+    }),
+  );
 
 /** The full colour set for one theme, in the names Nimbalyst's manifest uses. */
 export function colors(t) {

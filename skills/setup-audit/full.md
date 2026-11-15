@@ -58,7 +58,7 @@ once-per-release look of the `lead` skill. It has only the Read tool, so its bri
 full path: `~/.claude/CLAUDE.md`, each file in `~/.claude/rules/`, and each digest of this run. Paste
 the `description:` line of every `~/.claude/skills/*/SKILL.md` (one Grep) as the list of skills. Ask:
 "Read these as the person who works with this setup each day: where does the way they work fight it?"
-Leave out `DECISIONS.md`, `HANDOFF.md`, design notes and every reason behind the setup. End the brief
+Leave out `DECISIONS.md`, `docs/decisions/`, `HANDOFF.md`, design notes and every reason behind the setup. End the brief
 with `SYSTEMS MAP: none`.
 
 ## 4. Health
@@ -104,7 +104,7 @@ numbers don't show a cause, write "cause not measured" instead of guessing one.
 
 Turn findings into options. **An option with no number from this review behind it is not offered.**
 Each one names: what was seen (the number), the change, what it should move and by about how much
-(a range, from the scanners), what it costs or risks, how to undo it. Grep `DECISIONS.md` for each
+(a range, from the scanners), what it costs or risks, how to undo it. Grep `DECISIONS.md` and `docs/decisions/` for each
 before offering it: a decision the user made stands unless the number behind it changed, and then the
 option says "decided on <date>, the number is now <x>". At most 12, the largest effect first.
 
@@ -148,7 +148,7 @@ again: list the options as text and change nothing.
 
 As `.claude/rules/changing-the-setup.md` says (the live file first, its test, fixed at the root), and a
 ticked change in another project's setup files is made directly. A program or plugin: ask before each
-install. Then fill the **Decided** table, add one line per decision to `DECISIONS.md`, rewrite
+install. Then fill the **Decided** table, add one line per decision in the setup project's decision record (`DECISIONS.md` names the topic files), rewrite
 `HANDOFF.md`.
 
 ## 10. Reply

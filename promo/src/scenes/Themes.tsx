@@ -1,7 +1,7 @@
-import React from "react";
+import type React from "react";
 import { interpolateColors, useCurrentFrame } from "remotion";
 import { Appear } from "../anim";
-import { Scene, SceneProps } from "../Scene";
+import { Scene, type SceneProps } from "../Scene";
 import { color, mono } from "../theme";
 
 // The colours of the themes, as in extensions/ink-themes/themes.mjs.

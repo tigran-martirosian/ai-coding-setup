@@ -2,16 +2,15 @@
  * Read Aloud backend module (Electron utility-process).
  *
  * Owns the persistent Kokoro Python worker. The renderer can only reach the
- * narrow tool methods below (synthesize, stop, status, warmup, shutdown_worker,
- * set_auto_read); there is no generic process execution. The worker binary and
- * script paths are derived from the configured TTS folder, never passed in.
+ * narrow tool methods below (synthesize, stop, status, warmup, shutdown_worker);
+ * there is no generic process execution. The worker binary and script paths
+ * are derived from the configured TTS folder, never passed in.
  *
  * Protocol with the worker: newline-delimited JSON over stdin/stdout, one
  * request in flight at a time (see worker/tts_worker.py).
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -154,6 +153,7 @@ class KokoroWorker {
       child.stderr?.on("data", (d: Buffer) => {
         this.stderrTail = (this.stderrTail + d.toString()).slice(-2000);
       });
+      // biome-ignore lint/style/noNonNullAssertion: spawn without a stdio option pipes stdout, so it is set
       createInterface({ input: child.stdout! }).on("line", (line) => {
         let msg: Record<string, unknown>;
         try {
@@ -328,7 +328,7 @@ const TOOLS = [
   {
     name: "status",
     panelOnly: true,
-    description: "Worker status and auto-read state.",
+    description: "Worker status.",
     inputSchema: { type: "object", properties: { dir: { type: "string" } } },
   },
   {
@@ -343,28 +343,11 @@ const TOOLS = [
     description: "Stop the Kokoro worker.",
     inputSchema: { type: "object", properties: {} },
   },
-  {
-    name: "set_auto_read",
-    description:
-      'Turn hands-free Read Aloud on or off in Nimbalyst. When on, each finished assistant reply and each question card is spoken aloud locally (Kokoro). Omit "enabled" to toggle. Use only when the user asks (e.g. the /voice command).',
-    inputSchema: {
-      type: "object",
-      properties: { enabled: { type: "boolean" } },
-    },
-  },
 ];
 
 export async function activate(ctx: ActivateCtx) {
   const { log, registerMcpTools } = ctx.services;
   const worker = new KokoroWorker(log);
-  // The renderer's saved setting is the source of truth for hands-free mode.
-  // This backend only relays the agent's /voice request: the renderer adopts
-  // it when it sees a new `seq` from this instance. There is one backend per
-  // open project, hence the instance id. `uiAutoRead` is the renderer's last
-  // reported state, so a bare toggle flips what the user actually sees.
-  const instanceId = randomUUID();
-  let uiAutoRead = false;
-  let autoRead = { enabled: false, seq: 0, at: 0, instanceId };
 
   await registerMcpTools(TOOLS);
 
@@ -403,11 +386,8 @@ export async function activate(ctx: ActivateCtx) {
         };
       },
       stop: async () => ({ cancelled: worker.cancelQueued() }),
-      status: async (params: { dir?: string; uiAutoRead?: boolean }) => {
-        if (typeof params?.uiAutoRead === "boolean")
-          uiAutoRead = params.uiAutoRead;
-        return { ...worker.status(cleanDir(params?.dir)), autoRead };
-      },
+      status: async (params: { dir?: string }) =>
+        worker.status(cleanDir(params?.dir)),
       warmup: async (params: { dir?: string }) => {
         const dir = cleanDir(params?.dir);
         try {
@@ -415,26 +395,11 @@ export async function activate(ctx: ActivateCtx) {
         } catch {
           /* reported via status */
         }
-        return { ...worker.status(dir), autoRead };
+        return worker.status(dir);
       },
       shutdown_worker: async () => {
         worker.kill("stopped by user");
         return { worker: worker.state };
-      },
-      set_auto_read: async (params: { enabled?: boolean }) => {
-        const enabled =
-          typeof params?.enabled === "boolean" ? params.enabled : !uiAutoRead;
-        autoRead = {
-          enabled,
-          seq: autoRead.seq + 1,
-          at: Date.now(),
-          instanceId,
-        };
-        uiAutoRead = enabled;
-        return {
-          autoRead: enabled,
-          message: `Read Aloud replies ${enabled ? "on" : "off"}.`,
-        };
       },
     },
     deactivate: () => {

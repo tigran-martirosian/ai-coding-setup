@@ -21,6 +21,7 @@ import { day as dayKey } from "./lib/days.mjs";
 const SAME = 5 * 60000; // the reported reset time jitters by under a second between replies
 export const NEED_WEEK = 4; // weekly points that must be on record before c is trusted
 const NEED_FIVE = 5; // 5-hour points this computer must have used in a window for it to count
+const QUIET = 15 * 60000; // how long this computer must have done nothing before a rise counts as other use while idle
 
 export function readSamples(file) {
   let text = "";
@@ -37,7 +38,7 @@ export function readSamples(file) {
         return null;
       }
     })
-    .filter((s) => s?.week && !isNaN(Date.parse(s.t)));
+    .filter((s) => s?.week && !Number.isNaN(Date.parse(s.t)));
 }
 
 // g tells apart two windows with the same reset time (cleanSamples sets it after an early reset)
@@ -109,7 +110,7 @@ export function cleanSamples(samples) {
     const hasFive = Boolean(s.five); // before a stale 5-hour reading is dropped below
     for (const k of ["five", "week"]) {
       const r = Date.parse(s[k]?.r ?? "");
-      if (isNaN(r)) continue;
+      if (Number.isNaN(r)) continue;
       const t = top[k],
         u = s[k].u;
       if (r < t.r - SAME)
@@ -164,7 +165,8 @@ export function planUse(samples, cost) {
     days: {},
   };
 
-  let ci = 0;
+  let ci = 0,
+    qi = 0;
   const stretches = [];
   for (let i = 1; i < S.length; i++) {
     const a = S[i - 1],
@@ -172,9 +174,13 @@ export function planUse(samples, cost) {
     const [dW] = rise(a.week, b.week),
       [dF, wholeF] = rise(a.five, b.five);
     const mins = [];
+    while (qi < cost.length && cost[qi][0] * 60000 + 30000 <= a.ms - QUIET)
+      qi++;
     while (ci < cost.length && cost[ci][0] * 60000 + 30000 <= a.ms) ci++;
+    const busyBefore = cost.slice(qi, ci).some((m) => m[1] > 0);
     for (; ci < cost.length && cost[ci][0] * 60000 + 30000 <= b.ms; ci++)
       mins.push(cost[ci]);
+    const units = mins.reduce((n, m) => n + m[1], 0);
     stretches.push({
       a,
       b,
@@ -183,8 +189,9 @@ export function planUse(samples, cost) {
       both: wholeF && sameWindow(a.week, b.week),
       wholeF,
       mins,
-      units: mins.reduce((n, m) => n + m[1], 0),
+      units,
       tokens: mins.reduce((n, m) => n + m[2], 0),
+      idle: !units && !busyBefore,
     });
   }
 
@@ -231,7 +238,9 @@ export function planUse(samples, cost) {
       const d = day(k);
       d.total += p;
       if (perUnit) d.other += p;
-      if (!x.units) d.idle += p; // this computer did nothing here, so this part is certain
+      // other use while this computer was idle: none of its plan weight in the stretch or the QUIET before it
+      // (the plan reports a rise minutes after the work, so a rise right after its own work is still its own)
+      if (x.idle) d.idle += p;
     });
   }
   for (const d of Object.values(res.days))
@@ -282,7 +291,7 @@ export function planUse(samples, cost) {
       const idle = stretches
         .filter(
           (x) =>
-            !x.units &&
+            x.idle &&
             x.b.ms >= w.first &&
             x.b.ms <= w.last &&
             x.b.week.g === w.g &&

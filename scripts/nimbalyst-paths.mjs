@@ -14,6 +14,7 @@ export const EXT_FOLDER = {
   "ink-themes": "inktheme",
   "agents-panel": "agentspanel",
   "board-tidy": "boardtidy",
+  "job-tracker": "jobtracker",
   "usage-plan": "usageplan",
   commands: "commandbuttons",
   "read-aloud": "readaloud",

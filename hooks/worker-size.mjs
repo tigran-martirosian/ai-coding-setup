@@ -16,12 +16,13 @@
 // compaction). Write/Edit/MultiEdit/NotebookEdit are exempt while context + the call's input stays under WORKER_SAVE_K
 // (190) thousand and use no grace (2026-11-07: helpers stopped here lost all unwritten work); every other tool is refused
 // after the grace: the report is its last message and needs no tool.
+
+import fs from "node:fs";
 import { emit, runHook } from "./lib/hook-io.mjs";
-import { WORKER_SIZE_NOTE } from "./lib/texts.mjs";
 import { sessionKey } from "./lib/paths.mjs";
 import { readJson, stateFile, sweep, writeJson } from "./lib/state.mjs";
+import { WORKER_SIZE_NOTE } from "./lib/texts.mjs";
 import { backEntries, lastUsage, subagentPath } from "./lib/transcript.mjs";
-import fs from "node:fs";
 
 const LIMIT_K = Number(process.env.WORKER_SIZE_K) || 150;
 const STOP_K = Number(process.env.WORKER_STOP_K) || 180;

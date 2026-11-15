@@ -15,19 +15,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { chatCounts } from "../../../hooks/lib/texts.mjs";
-import { opt } from "./lib/opt.mjs";
-import { daysWindow, day } from "./lib/days.mjs";
 import {
   defaultRoot,
-  walkChats,
-  MACHINE,
-  INTERRUPTED,
-  REFUSED,
   HOOK,
-  QUESTION_TOOL,
+  INTERRUPTED,
+  MACHINE,
   one,
+  QUESTION_TOOL,
+  REFUSED,
   textOf,
+  walkChats,
 } from "./lib/chats.mjs";
+import { day, daysWindow } from "./lib/days.mjs";
+import { opt } from "./lib/opt.mjs";
 import { reportDir, writeReport } from "./lib/reports.mjs";
 
 const root = opt("root", defaultRoot());

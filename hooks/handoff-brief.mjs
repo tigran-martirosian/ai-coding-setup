@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 // handoff-brief: writes a short brief of a Claude Code session so work can continue in a fresh
 // session (the /handoff skill). Reads only the transcript: the first and last user requests,
 // files edited, and Claude's last reply.
@@ -22,10 +26,6 @@ import {
   SYNTHETIC,
   userText,
 } from "./lib/transcript.mjs";
-import { createHash } from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const args = process.argv.slice(2);
 const hook = args.includes("--hook");
@@ -102,7 +102,7 @@ function findTranscript() {
       );
     const own = (dir) =>
       jsonl(dir).filter((f) => path.basename(f).startsWith(session));
-    let found = own(path.join(projectsDir, key));
+    const found = own(path.join(projectsDir, key));
     if (!found.length)
       for (const d of fs.existsSync(projectsDir)
         ? fs.readdirSync(projectsDir)
@@ -348,20 +348,26 @@ if (!hook) {
 
 // <folder>-latest.md = this brief + the other sessions of the last 2 days in this folder, so a
 // small side session that replied last doesn't hide the one the user means. Auto briefs older
-// than 7 days are deleted.
+// than 7 days are deleted, every folder's: a folder no session opens again would keep them forever.
+// The id is exactly 8 hex, so a /handoff brief (<name>-<stamp>-<id>.md) of a folder named "x-auto"
+// and the -latest files never match.
 function writeLatest() {
+  const autoBrief = /-auto-[0-9a-f]{8}\.md$/; // here: this runs before a module-level const below the call is set
   const now = Date.now();
   const others = [];
   for (const f of fs.readdirSync(outDir)) {
-    if (!f.startsWith(autoPrefix) || !f.endsWith(".md")) continue;
+    if (!autoBrief.test(f)) continue;
     const p = path.join(outDir, f);
-    const age = now - fs.statSync(p).mtimeMs;
+    const st = fs.statSync(p, { throwIfNoEntry: false });
+    if (!st) continue; // another session deleted it just now
+    const age = now - st.mtimeMs;
     if (age > 7 * 864e5) {
       try {
         fs.unlinkSync(p);
       } catch {}
       continue;
     }
+    if (!f.startsWith(autoPrefix)) continue;
     if (p === out || age > 2 * 864e5) continue;
     const text = fs.readFileSync(p, "utf8");
     const folder = folderOf(text);

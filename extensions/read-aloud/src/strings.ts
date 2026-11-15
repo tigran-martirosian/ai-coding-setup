@@ -9,22 +9,27 @@
 declare const __SETUP_LANGUAGE__: "english" | "russian" | undefined;
 
 const english = {
-  // transcript buttons
-  readSummary: "Read the short spoken summary",
+  // transcript buttons: the word on the button, then its tooltip where it says more
   readAloud: "Read aloud",
-  readFull: "Read the full reply",
   preparing: "Preparing speech",
   pause: "Pause",
   resume: "Resume",
-  skipAhead: "Skip ahead",
-  stop: "Stop",
+  next: "Next",
+  skipAhead: "Skip to the next part",
+  close: "Close",
+  closeTip: "Stop and close (Esc)",
   speedLabel: "Speech speed",
-  autoOnTip: "Hands-free reading is on, click to turn it off",
-  autoOffTip: "Turn on hands-free reading",
   dismiss: "Dismiss",
+  // the player box, line 1: the state word, then where it is ("Playing part 2 of 5")
   statePreparing: "Preparing",
   statePlaying: "Playing",
   statePaused: "Paused",
+  partOf: (n: number, total: number) => `part ${n} of ${total}`,
+  pausedAt: (n: number, total: number) => `at part ${n} of ${total}`,
+  // the docked player above the chat box, while the reply being read is scrolled away
+  dockLabel: "Read Aloud player",
+  showReply: "Show reply",
+  showReplyTip: "Scroll to the reply being read",
   // player and bridge messages
   nothingToRead: "Nothing to read in this message",
   hostUnreachable:
@@ -35,9 +40,6 @@ const english = {
   intro:
     "Reads agent replies aloud with Kokoro running on this computer. Nothing is sent over the network and there are no per-use costs.",
   enable: "Enable Read Aloud",
-  handsFree: "Hands-free (auto-read)",
-  handsFreeHint:
-    "Reads each finished reply and each question aloud, or use /voice in chat",
   voice: "Voice",
   defaultWord: "default",
   voiceHint: "American English",
@@ -80,21 +82,24 @@ const english = {
 type Strings = typeof english;
 
 const russian: Strings = {
-  readSummary: "Прочитать краткую озвучку",
   readAloud: "Прочитать вслух",
-  readFull: "Прочитать ответ целиком",
   preparing: "Готовлю озвучку",
   pause: "Пауза",
   resume: "Продолжить",
-  skipAhead: "Пропустить вперёд",
-  stop: "Остановить",
+  next: "Дальше",
+  skipAhead: "Перейти к следующей части",
+  close: "Закрыть",
+  closeTip: "Остановить и закрыть (Esc)",
   speedLabel: "Скорость речи",
-  autoOnTip: "Режим без рук включён, нажмите, чтобы выключить",
-  autoOffTip: "Включить режим без рук",
-  dismiss: "Закрыть",
+  dismiss: "Скрыть",
   statePreparing: "Готовлю",
   statePlaying: "Читаю",
   statePaused: "Пауза",
+  partOf: (n, total) => `часть ${n} из ${total}`,
+  pausedAt: (n, total) => `на части ${n} из ${total}`,
+  dockLabel: "Плеер Read Aloud",
+  showReply: "К ответу",
+  showReplyTip: "Прокрутить к ответу, который читается",
   nothingToRead: "В этом сообщении нечего читать",
   hostUnreachable:
     "Read Aloud не удалось связаться с Nimbalyst. Перезагрузите расширение.",
@@ -103,9 +108,6 @@ const russian: Strings = {
   intro:
     "Читает ответы агента вслух с помощью Kokoro, который работает на этом компьютере. Ничего не уходит по сети, платы за использование нет.",
   enable: "Включить Read Aloud",
-  handsFree: "Без рук (авточтение)",
-  handsFreeHint:
-    "Читает вслух каждый готовый ответ и каждый вопрос, или используйте /voice в чате",
   voice: "Голос",
   defaultWord: "по умолчанию",
   voiceHint: "американский английский",

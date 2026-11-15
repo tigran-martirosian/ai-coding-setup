@@ -6,10 +6,11 @@
  * dashboard's button, and the "Full dashboard" button in the popover clicks that hidden button.
  */
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { PanelHostProps } from "@nimbalyst/extension-sdk";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import "../../shared/tokens.css";
 import { buildDashboard, readDashboardFile } from "./command";
+import type { DashboardData } from "./dashboard-data";
 import {
   canStartBuild,
   initialState,
@@ -17,7 +18,6 @@ import {
   parseDashboard,
   reduce,
 } from "./dashboard-data";
-import type { DashboardData } from "./dashboard-data";
 import { DashboardView } from "./dashboard-view";
 import { failureLine } from "./format";
 import { t } from "./strings";

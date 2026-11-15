@@ -1,10 +1,11 @@
 // Sets up, checks, restarts and removes your own Telegram inbox bot.
 // Run: node setup.mjs --token <token> | --status | --restart | --remove
-import fs from "node:fs";
-import os from "node:os";
-import net from "node:net";
-import path from "node:path";
+
 import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 // opencli-readonly: a PreToolUse hook for Bash and PowerShell. OpenCLI drives the user's own
 // signed-in Chrome (Reddit, X, Facebook, Instagram, Amazon). The user allowed searching and reading
 // with their accounts, never posting, liking, following, deleting or logging in. OpenCLI tags every
@@ -6,8 +7,7 @@
 // only [read] commands through, so new commands are covered without a list here.
 // A site command it cannot verify (help failed or timed out, odd words) is denied; when OpenCLI is
 // not installed the call is let through, since it cannot act. OPENCLI_READONLY=off disables it.
-import { runHook, emit } from "./lib/hook-io.mjs";
-import { spawnSync } from "node:child_process";
+import { emit, runHook } from "./lib/hook-io.mjs";
 
 // Not site commands: they don't act on an account.
 const OWN = new Set([

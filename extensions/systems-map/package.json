@@ -7,7 +7,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "node test.mjs",
-    "install-ext": "node scripts/install.mjs"
+    "install-ext": "npm run build && node scripts/install.mjs"
   },
   "devDependencies": {
     "@nimbalyst/extension-sdk": "^0.6.0",

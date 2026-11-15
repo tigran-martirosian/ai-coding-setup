@@ -4,11 +4,12 @@
 // A new pin is a change to this file after reading that release's notes (v0.2.5 shipped a regression).
 // The render build without stealth, about 70 MB. --obscura no leaves it out (remembered); --home skips it
 // unless --obscura yes (the tests).
+
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { download } from "../workers/download.mjs";
 import { fwd } from "./files.mjs";
 

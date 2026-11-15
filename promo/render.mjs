@@ -42,7 +42,7 @@ const posterFrame = () =>
   toFrames(CLAIM_AT.fixed - 8);
 // The clip names are read from the source, so this list can't drift from the scenes.
 const index = fs.readFileSync("src/scenes/index.ts", "utf8");
-const clips = [...index.matchAll(/^  (\w+): \[/gm)].map((m) => m[1]);
+const clips = [...index.matchAll(/^ {2}(\w+): \[/gm)].map((m) => m[1]);
 // The checks clip plays at the film's rate; the older clips run at 30.
 const gif = (id) =>
   remotion(

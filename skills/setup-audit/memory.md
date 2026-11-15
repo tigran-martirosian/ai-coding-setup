@@ -19,7 +19,7 @@ project's path with `:`, `\` and `/` turned into `-` (`C:\Projects\app` is `C--P
 
 - `MEMORY.md` (the index) and every note in the folder, `archive/` left out.
 - The project's `docs/facts.md`, `CLAUDE.md` and `.claude/rules/*.md`, where they exist.
-- The newest 30 entries of the project's `DECISIONS.md`, if there is one.
+- The `DECISIONS.md` index and the job files of the newest date in `docs/decisions/` (the date in their names); with no `docs/decisions/`, the newest 30 entries of `DECISIONS.md`.
 - The dated lines: `node ~/.claude/hooks/recheck-dates.mjs --list "<project folder>"` prints each line of
   the notes and files above that ends with `(recheck YYYY-MM-DD)`, as `past` or `ok`.
 
@@ -29,10 +29,10 @@ A note is a **finding** when it is one of these, and every note is either a find
 
 | Kind | Test |
 |---|---|
-| contradicts | A newer `DECISIONS.md` entry or a line of `facts.md` says otherwise. Quote both, with dates |
+| contradicts | A newer entry of the decision files or a line of `facts.md` says otherwise. Quote both, with dates |
 | removed | It names a file, hook, skill, script or setting that no longer exists. Check with Glob or Grep before you say so |
 | fact | A fact about the machine, a tool or an account. It goes to `facts.md` |
-| restates | Another note, `facts.md`, `DECISIONS.md`, `CLAUDE.md` or a rule says the same. Name the one to keep |
+| restates | Another note, `facts.md`, the decision files, `CLAUDE.md` or a rule says the same. Name the one to keep |
 | orphan | It is in the folder but not in `MEMORY.md`, or `MEMORY.md` links a note that is not there |
 | leftover | It sends work to a dropped store (`graphify-out`, `~/.claude-mem`, a removed plugin's cache) or to child sessions. Also name such folders found on disk |
 | expired | Its `(recheck YYYY-MM-DD)` date has passed (`past` in the `--list` output): check the fact now (a file, a command or the web). Action: update the fact and the date, or delete the note |
@@ -63,7 +63,7 @@ the same items, then right after it an optional `editText` "Anything else?" (`mi
 
 A ticked note to retire is deleted, with no `archive/` folder (A1 of
 `~/.claude/skills/file-upkeep/standard.md`); the tick is the user's yes, and the tick list keeps its path and
-what was wrong. Keep `MEMORY.md` in step with each change. Add one line to the setup project's `DECISIONS.md`
+what was wrong. Keep `MEMORY.md` in step with each change. Add one line to the setup project's decision files
 for the run. Reply short: what was deleted or changed, what was declined. Reply in the language the user writes in.
 
 Budget: about 25 tool calls per project.

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { readFileSync, statSync } from "node:fs";
+import { delimiter, extname, join, resolve } from "node:path";
 // big-read-gate: a PreToolUse hook that blocks whole-file dumps of large text files.
 // Based on the "shunt" pattern from Spotify's portal-ai-plugins: hooks enforce, the model routes.
 // Covers Read, and cat/less/more/head/tail/type/Get-Content in Bash or PowerShell (also inside
@@ -11,13 +13,11 @@
 // A Read of a .docx, .pptx or .xlsx file is refused with the command that converts it to Markdown once (markitdown
 // through uvx), when uvx is on the PATH; without uvx it passes. PDFs are never refused for being a document.
 import { crashLog } from "./lib/crash-log.mjs";
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 import { gitBashToNative as native } from "./lib/paths.mjs";
 import { setting } from "./lib/settings-env.mjs";
+import { readJson, stateFile, writeJson } from "./lib/state.mjs";
 import { BIG_READ_GATE } from "./lib/texts.mjs";
-import { stateFile, readJson, writeJson } from "./lib/state.mjs";
-import { readFileSync, statSync } from "node:fs";
-import { resolve, extname, delimiter, join } from "node:path";
 
 const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
 // 80000 bytes (about 20k tokens): only a file of very long lines is too big under 350 lines. 20000 refused plan
@@ -181,14 +181,17 @@ function headings(path) {
   ];
 }
 
-function deny(path, m) {
+// limit: the line count a Read asked for with offset/limit, when it gave one (a range too big, not a whole-file read)
+function deny(path, m, limit) {
   if (takeAllowance(path)) return; // the user named this file in the prompt
   const kb = Math.round(m.bytes / 1024);
   // Lines of this file that fit under both limits (a file of long lines needs a shorter read than MAX_LINES)
   const perLine = m.bytes / m.lines;
   const fit = Math.min(MAX_LINES, Math.floor(MAX_BYTES / perLine));
   const reason = [
-    `${BIG_READ_GATE} ${path} is ${m.lines} lines (${kb} KB). Reading it whole would put all of it in context. Instead:`,
+    limit
+      ? `${BIG_READ_GATE} ${path} is ${m.lines} lines (${kb} KB). This Read asks for ${limit} lines, more than the ${fit} lines one read of this file may return. Read a smaller range, or Grep for the part you need. Instead:`
+      : `${BIG_READ_GATE} ${path} is ${m.lines} lines (${kb} KB). Reading it whole would put all of it in context. Instead:`,
     fit >= 1
       ? `1. Locate the part you need (Grep with line numbers), then Read with offset/limit, at most ${fit} lines.`
       : `1. Its lines are very long (about ${Math.round(perLine)} characters each): Grep with a narrow pattern (-o with some context), not a Read.`,
@@ -516,7 +519,8 @@ runHook("big-read-gate", (event) => {
     }
     const m = measure(path);
     const from = input.offset ? Math.max(0, input.offset - 1) : 0;
-    if (m && tooBig(returned(m, from, input.limit || READ_CAP))) deny(path, m);
+    if (m && tooBig(returned(m, from, input.limit || READ_CAP)))
+      deny(path, m, input.limit);
   } else if (
     ["Bash", "PowerShell"].includes(event.tool_name) &&
     input.command

@@ -2,11 +2,12 @@
 // made-up login. Nothing here touches a real login or a real log.
 // Run: node tests/test-plan-usage-logger.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
-import http from "node:http";
+
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const LOGGER = fileURLToPath(

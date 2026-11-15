@@ -23,7 +23,7 @@ happen here.
 - **`/setup-audit full` is the one review that ends in choices.** It runs the usage scanner, a second scanner (the kind of work per request, what another split between models would have cost, where the time of each turn went, failed tool calls, context size) and the chat reading together, writes a report to `audits/`, and asks once which of the measured options to carry out. Run it every week or two.
 - **Keep the old version first.** Before changing a file such as `~/.claude/settings.json` or `~/.claude/CLAUDE.md`
   by hand, commit it if its folder is a git repo, else copy it to `~/.claude/setup-logs/<YYYY-MM-DD>-<topic>/` (never next to itself).
-- **Change one thing, test it for real, write it down.** Every change gets one line in `DECISIONS.md`
+- **Change one thing, test it for real, write it down.** Every change gets one line in the decision record (`DECISIONS.md` names the topic files)
   here: what changed, why, the date.
 - **New files follow `~/.claude/skills/file-upkeep/standard.md`:** dated notes in `docs/`, `docs/research/`,
   `audits/`; scratch and test output in the temp folder, deleted after the run; no copies beside a file.

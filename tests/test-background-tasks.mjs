@@ -1,9 +1,10 @@
 // Test for ~/.claude/hooks/background-tasks.mjs: made-up small transcripts, hook run as a child process.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(
@@ -465,6 +466,32 @@ run(
   if (!ok) failed++;
   console.log(
     `${ok ? "PASS" : "FAIL"}  agent-refusal-says-parallel-foreground`,
+  );
+}
+// The nudge tells how to run an Agent in the foreground: leaving run_in_background out is what is refused
+{
+  const out = [
+    { tool_name: "Agent", tool_input: { description: "S2", prompt: "x" } },
+    {
+      tool_name: "Bash",
+      tool_input: { command: "npm test", run_in_background: true },
+    },
+  ]
+    .map(
+      (e) =>
+        spawnSync(process.execPath, [HOOK], {
+          input: J({ hook_event_name: "PreToolUse", ...e }),
+          encoding: "utf8",
+          env: { ...process.env, BACKGROUND_TASKS: "warn" },
+        }).stdout,
+    )
+    .join("\n");
+  const ok =
+    out.includes("Agent: pass `run_in_background: false`") &&
+    !out.includes("Agent: no `run_in_background`");
+  if (!ok) failed++;
+  console.log(
+    `${ok ? "PASS" : "FAIL"}  nudge-says-pass-run-in-background-false`,
   );
 }
 run(

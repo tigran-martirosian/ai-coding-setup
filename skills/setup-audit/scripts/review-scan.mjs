@@ -14,26 +14,26 @@
 //          --top N rows per list (default 8)   --root DIR (default ~/.claude/projects)
 import fs from "node:fs";
 import path from "node:path";
-import { opt } from "./lib/opt.mjs";
-import { daysWindow } from "./lib/days.mjs";
-import { FABLE_NOW, FAMILY, FAMILY_UNLISTED } from "./lib/prices.mjs";
 import {
-  defaultRoot,
-  walkChats,
-  subagentMetas,
-  EDIT,
   AGENT,
-  SHELL as RUN,
   QUESTION_TOOL as ASK,
   CAPPED,
-  MACHINE,
-  INTERRUPTED,
-  FILLER,
-  PUSH,
-  one,
-  textOf,
+  defaultRoot,
+  EDIT,
   editedFile,
+  FILLER,
+  INTERRUPTED,
+  MACHINE,
+  one,
+  PUSH,
+  SHELL as RUN,
+  subagentMetas,
+  textOf,
+  walkChats,
 } from "./lib/chats.mjs";
+import { daysWindow } from "./lib/days.mjs";
+import { opt } from "./lib/opt.mjs";
+import { FABLE_NOW, FAMILY, FAMILY_UNLISTED } from "./lib/prices.mjs";
 
 const root = opt("root", defaultRoot());
 const { days, since } = daysWindow();
@@ -156,7 +156,7 @@ function readChat(file) {
     seq++;
     if (l.cwd && !chat.cwd) chat.cwd = l.cwd;
     const t = Date.parse(l.timestamp);
-    if (isNaN(t)) continue;
+    if (Number.isNaN(t)) continue;
     const content = l.message?.content;
     if (
       l.type === "assistant" &&
@@ -355,7 +355,7 @@ for (const u of turns) {
   // look stretch: 3 or more "look" requests in a row. build stretch: 10 or more work requests in a row
   // (no talking, asking or delegating between them) with at least 3 edits.
   const stretch = (ok, min, mark, extra = () => true) => {
-    for (let i = 0; i < u.reqs.length;) {
+    for (let i = 0; i < u.reqs.length; ) {
       let j = i;
       while (j < u.reqs.length && ok(u.reqs[j])) j++;
       const part = u.reqs.slice(i, j);
@@ -481,15 +481,6 @@ p(
 );
 
 // Time
-const buckets = [
-  "model",
-  "shell",
-  "subagents",
-  "tools",
-  "you",
-  "background",
-  "paused",
-];
 const timeOf = (list, b) => sum(list, (u) => u.time[b] ?? 0);
 const active = sum(turns, (u) => u.active);
 const where = (u) =>

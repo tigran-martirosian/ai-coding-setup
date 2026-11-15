@@ -10,7 +10,8 @@
 // progress.md or HANDOFF.md (the State update). Only when a job is open: the session's folder or the commit's repository, each taken up to the
 // folder holding .git, has a docs/*plan*.md changed in the last OPEN_HOURS (48) hours that holds a row ("| S3 |",
 // "| BH1 |", "| 2 |") or an unticked "- [ ]", or a HANDOFF.md with an unticked "- [ ]". A one-piece job gets nothing.
-// PostToolUse (Bash, Nimbalyst commit tool): a piece tells Claude that, with steps of the job left, the next one starts
+// PostToolUse (Bash, Nimbalyst commit tool): a piece tells Claude to update the step's tracker item (linked to this
+// session; proof: the commit hash; status: done, or in-review when the user must see the result), and that, with steps of the job left, the next one starts
 // in a fresh session Claude opens itself (handoff skill, spawn_session with the prompt queued), so nothing waits on the
 // user and compaction stays the safety net inside one piece (user decision 2026-11-08). The piece is kept in state.
 // The claim: a session running a plan row writes "session <first 8 chars of its id>: S3, ends with commit + handoff"
@@ -27,28 +28,37 @@
 // stage commits in several).
 // Stop: once per piece, a turn ending with no hand-off since the piece (handoff Skill, spawn_session, steer.mjs moved)
 // is blocked with a reason to hand off now. stop_hook_active passes.
-// UserPromptSubmit: once per main session, while its folder has an open plan and it has no claim yet, tells it the
-// first 8 characters of its id (a session can't read its own id anywhere else), so it can write the claim.
+// UserPromptSubmit: once per main session (a slash-command prompt included, not an injected one), while its folder has
+// an open plan and it has no claim yet, tells it the first 8 characters of its id (a session can't read its own id
+// anywhere else), so it can write the claim, and to set the row's tracker step to in-progress linked to this session
+// (Nimbalyst shows a chat's Trackers section only when the chat is linked to an item).
 // Also: once a session's job is committed, the next ask often rides on a large context, so every call
 // costs several times what a fresh ~40k session costs. Adds context (does not block) when the context of the last
 // main-chain request is over JOB_DONE_K (100) thousand tokens AND the entries since the previous typed user message
 // hold a Bash `git commit`, `git tag`, `git push` or `repo-push.sh` call, or a Skill call of release-setup or deploy.
 // One commit nudges once. Silent for prompts starting with "/" and injected prompts (<task-notification>, [System: ...).
+// Commit subject (PreToolUse, also for subagents, every time): a Bash `git commit -m` (first -m, also a $(cat <<EOF)
+// heredoc) or the Nimbalyst commit tool's commitMessage is refused when its first line breaks lib/commit-subject.mjs:
+// over 72 characters, a word that is the id of an open row (as the plan writes it) of an open plan of the session's
+// folder or the commit's repository, "session <8 hex>" or the session's own id. Not checked: -F, an editor, a merge.
+// COMMIT_SUBJECT=off disables this check alone.
 // State for all events in ~/.claude/hooks/state/job-done/<session_id>.json (swept after 2 days). Silent for subagents
-// (agent_id). Sidechain entries are ignored. Fails open. JOB_DONE=off disables it.
-import { runHook, emit } from "./lib/hook-io.mjs";
-import { sessionKey, fileKey, gitBashToNative } from "./lib/paths.mjs";
-import { stateFile, readJson, writeJson, sweep } from "./lib/state.mjs";
-import {
-  backEntries,
-  lastUsage,
-  typedByUser,
-  userText,
-  INJECTED,
-} from "./lib/transcript.mjs";
+// (agent_id), but for the commit subject. Sidechain entries are ignored. Fails open. JOB_DONE=off disables it.
+
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { checkSubject } from "./lib/commit-subject.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
+import { fileKey, gitBashToNative, sessionKey } from "./lib/paths.mjs";
+import { readJson, stateFile, sweep, writeJson } from "./lib/state.mjs";
+import {
+  backEntries,
+  INJECTED,
+  lastUsage,
+  typedByUser,
+  userText,
+} from "./lib/transcript.mjs";
 
 const CONTEXT_K = Number(process.env.JOB_DONE_K) || 100;
 
@@ -97,8 +107,11 @@ const GIT_PIECE =
 const COMMIT_TOOL = "mcp__nimbalyst__developer_git_commit_proposal";
 const AGENT_TOOL = /^(Agent|Task)$/;
 const FRESH_MS = 2 * 60e3; // a HEAD this new was made by the call that just ran
+// The tracker link that puts the step in the session's Trackers section (Nimbalyst shows it only for a linked chat)
+const LINK_TEXT =
+  "set the row's tracker step (its `step` field names the row), if the project has one, to in-progress and link it to this session in one call: `tracker_update` with `status: \"in-progress\"` and `linkSession: true`. If the project has a tracker but no step for the row yet (the row is new) and the user OK'd that row (in the plan as OK'd, or as an addition since, with the user's words in its `Changed` line), create it now (`tracker_create`, type task, title the row's job in plain words with no codes (~/.claude/skills/where-are-we/tracker-texts.md), `step` the row, `collection` the open job, status in-progress) and link it with `tracker_link_session`; do not wait for a later sync. Otherwise make no step and say so in your reply. Work found mid-run is never a new step: it is one \"Found:\" sentence in the step's comment and the plan's notes, and a step only after the user OKs it as a plan row";
 const PIECE_TEXT =
-  "[job-done] A piece of work is committed. If steps of this job are left (job list, plan file or HANDOFF): bring the job list or plan up to date, run the handoff skill (it opens the fresh session with its prompt queued), then end this turn; this wins over a context-guard note to compact. If this was the job's last piece or a one-piece job, carry on with the report.";
+  "[job-done] A piece of work is committed. Update the step's tracker item, if it has one: `linkSession: true` (links it to this session), proof (the commit and session id), one comment of one to three plain sentences (what changed, what is left, what waits for the user; no ids, hashes, row codes or paths; ~/.claude/skills/where-are-we/tracker-texts.md), and status done only once the row's Done when check passed (in-review when the user must see the result). If steps of this job are left (job list, plan file or HANDOFF): bring the job list or plan up to date, run the handoff skill (it opens the fresh session with its prompt queued), then end this turn; this wins over a context-guard note to compact. If this was the job's last piece or a one-piece job, carry on with the report.";
 
 const OPEN_HOURS = Number(process.env.JOB_DONE_OPEN_HOURS) || 48;
 const ROW_LINE = /^\|\s*([A-Za-z]*\d+[a-z]?)\s*\|/; // a job-list row: "| S3 |", "| BH1 |", "| 2 |", "| S4b |"
@@ -124,6 +137,7 @@ const recordsOnly = (files) =>
       b === "progress.md" ||
       b === "DECISIONS.md" ||
       b === "decisions-archive.md" ||
+      /(^|[\\/])docs[\\/]decisions[\\/][^\\/]+\.md$/.test(f) ||
       PLAN_NAME.test(b) ||
       STATE_NAME.test(b)
     );
@@ -163,22 +177,21 @@ function openPlans(root) {
   const docs = path.join(root, "docs");
   if (!fs.existsSync(docs) || !fs.statSync(docs).isDirectory()) return [];
   const since = Date.now() - OPEN_HOURS * 3600e3;
-  return docsFiles(root, PLAN_NAME)
-    .filter((file) => {
-      if (fs.statSync(file).mtimeMs < since) return false;
-      const text = readText(file);
-      return (
-        text.split("\n").some((l) => ROW_LINE.test(l)) || UNTICKED.test(text)
-      );
-    });
+  return docsFiles(root, PLAN_NAME).filter((file) => {
+    if (fs.statSync(file).mtimeMs < since) return false;
+    const text = readText(file);
+    return (
+      text.split("\n").some((l) => ROW_LINE.test(l)) || UNTICKED.test(text)
+    );
+  });
 }
 const openJob = (root) =>
   UNTICKED.test(readText(path.join(root, "HANDOFF.md"))) ||
   openPlans(root).length > 0;
 
-// A plan's rows: Map(row -> done by its last cell)
-function rowsOf(text) {
-  const rows = new Map();
+// A plan's rows as written: [{ id, done }], done by the row's last cell
+function tableRows(text) {
+  const rows = [];
   for (const line of text.split("\n")) {
     const r = line.match(ROW_LINE);
     if (!r) continue;
@@ -186,10 +199,13 @@ function rowsOf(text) {
       .split("|")
       .map((c) => c.trim())
       .filter(Boolean);
-    rows.set(r[1].toUpperCase(), ROW_DONE.test(cells[cells.length - 1]));
+    rows.push({ id: r[1], done: ROW_DONE.test(cells[cells.length - 1]) });
   }
   return rows;
 }
+// A plan's rows: Map(row upper-cased -> done)
+const rowsOf = (text) =>
+  new Map(tableRows(text).map((r) => [r.id.toUpperCase(), r.done]));
 
 // The row this session claimed, in an open plan of one of the roots or in a lane state file (docs/*state*.md) beside
 // it: { plan, row, rows: Map(row -> done) } with the plan that holds the row, or null. A claim in a state file whose
@@ -255,7 +271,7 @@ function idNote(event, file) {
     (a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs,
   )[0];
   writeJson(file, { ...readJson(file, { missing: {} }), idNoted: true });
-  return `[job-done] This session's id starts with ${id}. If you run a row of ${path.relative(root, plan).replace(/\\/g, "/")}, first write \`session ${id}: <row>\` in that row's State cell or your lane's state file.`;
+  return `[job-done] This session's id starts with ${id}. If you run a row of ${path.relative(root, plan).replace(/\\/g, "/")}, first write \`session ${id}: <row>\` in that row's State cell or your lane's state file, then ${LINK_TEXT}.`;
 }
 const rowsLeft = (c) =>
   [...c.rows].some(([row, done]) => row !== c.row && !done);
@@ -275,6 +291,7 @@ function gitCall(command) {
   return {
     sub: m[4],
     at: m.index,
+    end: m.index + m[0].length,
     dashC,
     args: words(command.slice(m.index + m[0].length).split(/&&|;|\|\|?|\n/)[0]),
   };
@@ -305,14 +322,23 @@ const isCommitCall = (event) => {
   );
 };
 
-// Files a commit call is about to commit, or [] when not known: the Nimbalyst tool's list; for Bash the paths given to
-// git commit (after its options, or after "--"), else the paths of "git add" in the command plus what is staged
-// (unknown with -a or "git add -A/."). A merge has no paths of its own.
+// Files a commit call is about to commit, or [] when not known: the Nimbalyst tool's list (paths, or {path, status}
+// entries); for Bash the paths given to git commit (after its options, or after "--"), else the paths of "git add" in
+// the command plus what is staged (unknown with -a or "git add -A/."). A merge has no paths of its own.
 const VALUE_OPTION =
   /^(-[a-zA-Z]*[mFCct]|--(message|file|reuse-message|reedit-message|author|date|template|fixup|squash|trailer|cleanup))$/;
+const GIT_ADD =
+  /\bgit(?:\s+(?:-C\s+(?:"[^"]*"|'[^']*'|\S+)|-c\s+\S+|--[\w-]+))*\s+add\s+([^|;&\n]+)/g;
+const stagePath = (entry) => {
+  if (typeof entry === "string") return entry;
+  if (typeof entry?.path === "string") return entry.path;
+  throw new Error(
+    `job-done: a filesToStage entry is neither a path nor {path}: ${JSON.stringify(entry)}`,
+  );
+};
 function filesToCommit(event, root) {
   if (event.tool_name === COMMIT_TOOL)
-    return (event.tool_input?.filesToStage ?? []).map(String);
+    return (event.tool_input?.filesToStage ?? []).map(stagePath);
   const command = String(event.tool_input?.command ?? "");
   const call = gitCall(command);
   if (call.sub !== "commit") return [];
@@ -332,7 +358,7 @@ function filesToCommit(event, root) {
   if (paths.length) return paths;
   if (all) return [];
   const files = [];
-  for (const m of command.matchAll(/\bgit\b[^|;&\n]*?\sadd\s+([^|;&\n]+)/g)) {
+  for (const m of command.matchAll(GIT_ADD)) {
     const args = words(m[1]);
     if (args.some((a) => a.startsWith("-") || a === ".")) return [];
     files.push(...args);
@@ -484,17 +510,87 @@ function askNote(event, prompt, file) {
   return `[job-done] The job in this session is committed at ~${k}k tokens. If this message starts a new job rather than a question about the finished one, move it to a fresh session first (handoff skill): a fresh session starts at ~40k and every call there costs a third.`;
 }
 
+// The message a commit call gives, or null when it is not in the call (-F, -C, an editor, a merge, a $(...) other
+// than a cat heredoc): the Nimbalyst tool's commitMessage; for Bash the first -m / --message value of git commit
+function messageOf(event) {
+  if (event.tool_name === COMMIT_TOOL)
+    return String(event.tool_input?.commitMessage ?? "");
+  if (event.tool_name !== "Bash") return null;
+  const command = String(event.tool_input?.command ?? "");
+  const call = gitCall(command);
+  if (call?.sub !== "commit") return null;
+  // [, double-quoted, single-quoted, end of the git call, bare word]
+  const TOKEN =
+    /"((?:[^"\\]|\\[\s\S])*)"|'([^']*)'|(&&|\|\|?|;|\n)|([^\s"';&|]+)/g;
+  // A cat heredoc right after the flag, read from the raw text: a " in its body would end the quoted token early
+  // [, <<- dash, opening quote, delimiter word, body]
+  const HEREDOC =
+    /^\s*"?\$\(cat\s+<<(-?)\s*(['"]?)([^\s'"\\;&|()<>]+)\2[^\n]*\n([\s\S]*?)\n[ \t]*\3[ \t]*(?=\n|\)|$)/;
+  const raw = command.slice(call.end);
+  const tokens = [...raw.matchAll(TOKEN)];
+  for (let i = 0; i < tokens.length; i++) {
+    const [, , , stop, bare] = tokens[i];
+    if (stop) return null;
+    if (bare === undefined) continue;
+    let value;
+    if (/^--message=./.test(bare)) value = bare.slice(10);
+    else if (/^-[a-zA-Z]*m$|^--message=?$/.test(bare)) {
+      const doc = raw.slice(tokens[i].index + bare.length).match(HEREDOC);
+      if (doc) return doc[1] ? doc[4].replace(/^\t+/gm, "") : doc[4];
+      const v = tokens[i + 1];
+      if (!v || v[3]) return null;
+      value =
+        v[1] !== undefined
+          ? v[1].replace(/\\(["\\$`])/g, "$1")
+          : (v[2] ?? v[4]);
+    } else continue;
+    return value.includes("$(") || value.includes("`") ? null : value;
+  }
+  return null;
+}
+
+// Refuses a commit call whose subject breaks the rule (lib/commit-subject.mjs); true when it refused
+function subjectRefused(event) {
+  if (String(process.env.COMMIT_SUBJECT ?? "").toLowerCase() === "off")
+    return false;
+  const message = messageOf(event);
+  if (message === null) return false;
+  const subject = message.trim().split("\n")[0].trim();
+  const cwd = String(event.cwd || process.cwd());
+  const roots = new Set(
+    [repoRoot(cwd), repoRoot(commitDir(event))].filter(Boolean),
+  );
+  const ids = [...roots].flatMap((root) =>
+    openPlans(root).flatMap((plan) =>
+      tableRows(readText(plan))
+        .filter((r) => !r.done)
+        .map((r) => ({ id: r.id, plan: path.basename(plan) })),
+    ),
+  );
+  const reason = checkSubject(subject, {
+    ids,
+    sessionId: event.session_id ?? "",
+  });
+  if (!reason) return false;
+  emit.deny(
+    `[job-done] Commit refused: ${reason}. Write the subject as \`<type>: <what the person gains>\` (feat, fix, docs, test, ci, refactor, perf, build or chore), at most 72 characters, with no plan step or session ids, then commit again.`,
+  );
+  return true;
+}
+
 runHook("job-done", (event) => {
+  if (event.hook_event_name === "PreToolUse" && subjectRefused(event)) return;
   if (event.agent_id) return;
   if (event.hook_event_name === "PostToolUse") return pieceCommitted(event);
   if (event.hook_event_name === "PreToolUse") return holdNextPiece(event);
   if (event.hook_event_name === "Stop") return holdAtEnd(event);
   const prompt = String(event.prompt ?? "").trim();
-  if (prompt.startsWith("/") || INJECTED.test(prompt)) return;
+  if (INJECTED.test(prompt)) return;
   sweep("job-done", 2);
   const file = stateOf(event);
-  const notes = [idNote(event, file), askNote(event, prompt, file)].filter(
-    Boolean,
-  );
+  const notes = [
+    idNote(event, file), // also for /lead or /where-are-we, which start row work
+    prompt.startsWith("/") ? null : askNote(event, prompt, file),
+  ].filter(Boolean);
   if (notes.length) emit.context("UserPromptSubmit", notes.join("\n"));
 });

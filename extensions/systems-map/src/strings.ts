@@ -31,7 +31,10 @@ const english = {
     type ? `${type} → ${name}` : `to ${name}`,
   linkIn: (type: string, name: string) =>
     type ? `${type} ← ${name}` : `from ${name}`,
-  legend: "Groups",
+  legend: "Key",
+  noGroup: "No group",
+  sizeKey: "Bigger dot, more links",
+  driftKey: "Link whose code changed",
   refresh: "Refresh",
   reading: "Reading the map…",
   search: "Search parts",
@@ -99,7 +102,10 @@ const russian: Strings = {
     type ? `${RU_TYPES[type] ?? type} → ${name}` : `→ ${name}`,
   linkIn: (type, name) =>
     type ? `${RU_TYPES[type] ?? type} ← ${name}` : `← ${name}`,
-  legend: "Группы",
+  legend: "Обозначения",
+  noGroup: "Без группы",
+  sizeKey: "Крупнее точка — больше связей",
+  driftKey: "Связь, чей код изменился",
   refresh: "Обновить",
   reading: "Читаю карту…",
   search: "Поиск по частям",

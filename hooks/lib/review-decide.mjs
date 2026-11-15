@@ -2,8 +2,8 @@
 // Nothing here reads a file, the clock or the environment, so each rule can be tested on a made-up session.
 // The constants were fitted on 30 days of real sessions (the November 2026 tuning study): change them from new numbers only.
 import path from "node:path";
-import { fileKey } from "./paths.mjs";
 import { isCode, isSetup } from "./code-files.mjs";
+import { fileKey } from "./paths.mjs";
 
 export const MIN_FILES = 10; // different code files since the last review (CODE_REVIEW_MIN_FILES changes it)
 export const MIN_STEPS = 2; // helper steps that edited code: a job of several steps

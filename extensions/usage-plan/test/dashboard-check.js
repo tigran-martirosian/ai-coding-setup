@@ -21,6 +21,7 @@
   let full;
   for (let i = 0; i < 40 && !full; i++) {
     full = [...document.querySelectorAll("[data-usage-plan] button")].find(
+      // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
       (b) => /full dashboard/i.test(b.innerText),
     );
     if (!full) await wait(250);
@@ -37,6 +38,7 @@
   const extra = gutter().filter(visible);
   return [
     "dashboard in main area: " +
+      // biome-ignore lint/performance/useDomNodeTextContent: innerText is the text as shown, which is what this reads
       JSON.stringify(dash.innerText) +
       " at " +
       Math.round(r.left) +

@@ -4,20 +4,20 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  tail,
-  backEntries,
-  entries,
-  typedByUser,
-  userText,
+  agentLaunches,
+  agentType,
   assistantText,
+  backEntries,
   currentTurn,
+  entries,
+  INJECTED,
   lastReply,
   lastUsage,
   QUESTION_TOOLS,
   subagentPath,
-  agentType,
-  agentLaunches,
-  INJECTED,
+  tail,
+  typedByUser,
+  userText,
 } from "../hooks/lib/transcript.mjs";
 
 const dir = mkdtempSync(join(tmpdir(), "transcript-lib-"));

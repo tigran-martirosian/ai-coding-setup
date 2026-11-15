@@ -1,0 +1,40 @@
+# CI for a Python project. Copied to .github/workflows/ci.yml by /new-project or /update-project.
+# Job shape from GitHub's starter file ci/python-app.yml; actions pinned by commit SHA (Dependabot's
+# github-actions entry keeps the pins fresh).
+# The skill adjusts, before copying:
+# - a .python-version file exists: replace `python-version: "3.x"` with `python-version-file: .python-version`;
+#   else a pyproject.toml with requires-python: `python-version-file: pyproject.toml`
+# - no requirements.txt: replace the install line with `pip install -e .`
+# - systems: see the `os` list below (the new-project skill, step 2b, "CI systems")
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.x"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: pip install pytest
+      - run: pytest

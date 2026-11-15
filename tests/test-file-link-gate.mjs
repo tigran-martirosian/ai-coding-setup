@@ -1,10 +1,11 @@
 // Tests for hooks/file-link-gate.mjs. Run: node tests/test-file-link-gate.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import { fileURLToPath, pathToFileURL } from "node:url";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeChecker, UNDER_MS } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(
@@ -18,7 +19,6 @@ const SETTINGS = JSON.parse(
 );
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "file-link-gate-test-"));
 const CWD = "C:\\Projects\\my project";
-const HOME = os.homedir().replace(/\\/g, "/").replace(/ /g, "%20");
 const run = (input, env = {}) => {
   const t0 = Date.now();
   const r = spawnSync("node", [HOOK], {

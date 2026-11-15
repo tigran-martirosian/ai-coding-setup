@@ -1,11 +1,12 @@
 // Tests for hooks/handoff-brief.mjs. Run: node tests/test-handoff-brief.mjs
 // Uses a throwaway home folder, so the real ~/.claude/handoffs is never touched.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import { fileURLToPath } from "node:url";
+
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const SCRIPT =
   process.env.HANDOFF_BRIEF ||
@@ -152,6 +153,51 @@ check(
   "an old same-prefix brief from B is left out of A's list",
   !read("proj-latest.md").includes("dddddddd"),
 );
+
+// The 7-day delete takes every folder's auto briefs, never a -latest file or a /handoff brief (a folder named
+// "x-auto" too)
+const aged = (name, days) => {
+  const p = path.join(handoffs, name);
+  fs.writeFileSync(p, "# Handoff: other\n");
+  const t = new Date(Date.now() - days * 864e5);
+  fs.utimesSync(p, t, t);
+};
+aged("other-auto-11111111.md", 8);
+aged("other-auto-22222222.md", 6);
+aged("other-latest.md", 8);
+aged("x-auto-20261101-1200-33333333.md", 8);
+hook(tA2, projA);
+check(
+  "another folder's 8-day auto brief is deleted; its 6-day one, an 8-day -latest and a /handoff brief stay",
+  !names().includes("other-auto-11111111.md") &&
+    [
+      "other-auto-22222222.md",
+      "other-latest.md",
+      "x-auto-20261101-1200-33333333.md",
+    ].every((n) => names().includes(n)),
+  names().join(", "),
+);
+for (const n of [
+  "other-auto-22222222.md",
+  "other-latest.md",
+  "x-auto-20261101-1200-33333333.md",
+])
+  fs.rmSync(path.join(handoffs, n), { force: true }); // the manual-brief counts below see only their own
+
+// An auto brief another session deletes while this one reads the folder: a link to nothing stands in for it (the
+// folder lists it, its stat finds no file), and the reply's -latest file is still written
+{
+  const gone = path.join(handoffs, "other-auto-44444444.md");
+  fs.symlinkSync(path.join(tmp, "nowhere"), gone, "junction");
+  fs.rmSync(path.join(handoffs, "proj-latest.md"), { force: true });
+  hook(tA2, projA);
+  check(
+    "a brief deleted by another session mid-read: -latest still written",
+    read("proj-latest.md") !== null,
+    names().join(", "),
+  );
+  fs.rmSync(gone, { recursive: true, force: true });
+}
 
 // A manual brief needs the summary first: without one, or with a nearly empty one, nothing is written
 const briefs = () =>

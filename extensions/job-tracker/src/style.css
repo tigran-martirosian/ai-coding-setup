@@ -1,0 +1,1426 @@
+/* Job Tracker: the tracker page's top (tracker one-page design, second and third pass): the job's name as the
+   headline and the picker button, its goal, a state pill and one meta line; one progress line over a 10px bar; the
+   "All open" list; the no-job and empty states. The page is a full view, not a side panel, so it has its own size
+   ladder beyond the panel sizes (DESIGN.md "Tracker page"; user, 2026-11-14): the --rt-* shorthands below, built on
+   the shared family. Left-aligned from one 24px inset and capped at 1200px. Nothing under 12px. */
+.rt-root {
+  --rt-name: 600 30px/36px var(--x-font-ui);
+  --rt-progress: 600 26px/30px var(--x-font-ui);
+  --rt-progress-words: 400 17px/24px var(--x-font-ui);
+  --rt-progress-pct: 600 17px/24px var(--x-font-ui);
+  --rt-goal: 400 15px/22px var(--x-font-ui);
+  --rt-group: 600 16px/22px var(--x-font-ui);
+  --rt-row: 400 14px/20px var(--x-font-ui);
+  --rt-row-em: 500 14px/20px var(--x-font-ui);
+  --rt-small: 500 12px/16px var(--x-font-ui);
+  box-sizing: border-box;
+  flex: none;
+  /* The rows' two-line rule asks the page's width (container query below); the full width keeps it from
+     depending on the content */
+  width: 100%;
+  container: rt-page / inline-size;
+  max-width: calc(1200px + 2 * var(--x-space-5));
+  padding: 28px var(--x-space-5) var(--x-space-5);
+  color: var(--x-text);
+  font: var(--rt-row);
+  font-variant-numeric: tabular-nums;
+}
+.rt-root * {
+  box-sizing: border-box;
+}
+/* The page could not be drawn: one line saying what failed, over the app's own list (index.js showError) */
+.rt-root.rt-error {
+  padding-bottom: var(--x-space-3);
+  font: var(--rt-goal);
+  color: var(--x-state-failed);
+}
+.rt-root button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.rt-root button:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.rt-root [hidden] {
+  display: none;
+}
+
+/* The app's tracker sidebar is hidden while our page is on, and the Sessions column stands in its place; with no
+   Sessions column, only the part under its project header goes. The type rows stay in the page. Two classes, so a
+   one-class display rule of the app's own does not win */
+.tracker-sidebar.rt-left-hidden,
+.tracker-sidebar > .rt-left-hidden,
+.tracker-table-container.rt-table-hidden {
+  display: none;
+}
+
+/* The handle on the chat column's left edge (tracker chat design, section 2): 6px, a 1px hairline in its middle at
+   rest so the edge can be found, a 2px accent line on hover, while dragged and with the keyboard's focus. The
+   column's width is in its style attribute (chat.js) */
+.rt-chat-handle {
+  position: relative;
+  flex: 0 0 6px;
+  align-self: stretch;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.rt-chat-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: linear-gradient(to right, transparent 50%, var(--x-hairline) 50%);
+  transition: background var(--x-motion-fast) var(--x-ease);
+}
+.rt-chat-handle:hover::after,
+.rt-chat-handle:focus-visible::after,
+.rt-chat-handle.rt-chat-dragging::after {
+  background: var(--x-accent);
+}
+
+/* The app's floating Phase pill and prompts button float over the transcript's top right; in the app's wide view the
+   transcript is centred under them, but in the chat beside the page its rows run under them and are cut. Here they
+   get a band of their own: the surface, a hairline under it, the buttons on the right, and the transcript starts
+   under it */
+.tracker-mode > .agent-workstream-session-area .floating-transcript-actions {
+  top: 0;
+  left: 0;
+  right: 0;
+  justify-content: flex-end;
+  padding: 6px 12px;
+  background: var(--nim-bg);
+  border-bottom: 1px solid var(--x-hairline);
+}
+.tracker-mode > .agent-workstream-session-area :has(> .floating-transcript-actions) > .rich-transcript-view {
+  box-sizing: border-box;
+  padding-top: 49px;
+}
+
+/* With no session open, a quiet panel stands where the chat column goes (tracker chat design, section 8); its width
+   follows the chat's, in its style attribute (chat.js) */
+.rt-chat-empty {
+  box-sizing: border-box;
+  flex: 0 0 420px;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: var(--x-space-5);
+  border-left: 1px solid var(--x-hairline);
+  background: var(--x-surface-1);
+}
+.rt-chat-empty-title {
+  margin: 0 0 var(--x-space-1);
+  font: var(--x-title);
+  color: var(--x-text);
+}
+.rt-chat-empty-lead {
+  margin: 0;
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+}
+
+/* An opened item in the list's place (tracker chat design, section 6; chat.js placeItem): the item's row stacks our
+   Back line over the item view, which fills the row whatever width the app gave it; the list and the app's drag
+   line wait hidden. An element and a class, so the app's one-class flex rules do not win */
+div.rt-item-wide {
+  flex-direction: column;
+}
+div.rt-item-wide > :not([data-testid="tracker-detail-region"], .rt-item-back),
+div.rt-item-wide > [data-testid="tracker-detail-region"] > [role="separator"] {
+  display: none;
+}
+div.rt-item-wide > [data-testid="tracker-detail-region"] {
+  flex: 1 1 auto;
+  width: auto !important;
+  min-height: 0;
+}
+.rt-item-back {
+  flex: none;
+  padding: var(--x-space-2) var(--x-space-5);
+  border-bottom: 1px solid var(--x-hairline);
+  background: var(--x-surface-1);
+}
+.rt-item-back > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--x-radius-control);
+  background: none;
+  font: var(--x-meta);
+  color: var(--x-accent-text);
+  cursor: pointer;
+}
+.rt-item-back > button:hover {
+  background: var(--x-overlay-hover);
+}
+.rt-item-back > button:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.rt-item-back-icon {
+  font-size: 16px;
+  font-variation-settings: var(--x-icon-settings);
+}
+
+/* One chat on screen (tracker chat design, section 6): while our chat column stands on the page (its handle is there),
+   the full-page item's own chat panel and the room it held are not shown, nor the top bar's "Chat about this item"
+   option (chat.js marks it). Its Discussion panel stays */
+.tracker-mode:has(> .rt-chat-handle)
+  [data-testid="tracker-document-right-panel"]:has(> [data-testid="tracker-document-panel"][data-mode="chat"]),
+.tracker-mode:has(> .rt-chat-handle)
+  [data-testid="tracker-document-right-panel-resize"]:has(
+    + [data-testid="tracker-document-right-panel"] > [data-testid="tracker-document-panel"][data-mode="chat"]
+  ),
+body:has(.tracker-mode > .rt-chat-handle) [data-rt-item-chat] {
+  display: none;
+}
+
+/* Header: name leads, goal under it, the pill and meta on the right */
+.rt-head {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 32px;
+  align-items: start;
+}
+/* The app colours every "header h1" #333 (seen live 2026-11-14); two classes so the theme's text colour wins */
+.rt-root .rt-title {
+  grid-column: 1;
+  margin: 0;
+  min-width: 0;
+  font: var(--rt-name);
+  color: var(--nim-text);
+}
+.rt-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0 8px;
+  margin-left: -8px;
+  border-radius: var(--x-radius-control);
+  font: var(--rt-name);
+  letter-spacing: -0.02em;
+}
+.rt-root .rt-name:hover {
+  background: var(--x-overlay-hover);
+}
+.rt-name-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* A 16px chevron drawn by two borders; it turns while the picker is open */
+.rt-chev {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin: 0 6px 6px;
+  border-right: 1.5px solid var(--x-text-muted);
+  border-bottom: 1.5px solid var(--x-text-muted);
+  transform: rotate(45deg);
+  transition: transform var(--x-motion-fast) var(--x-ease);
+}
+.rt-name[aria-expanded="true"] .rt-chev {
+  transform: translate(0, 5px) rotate(225deg);
+}
+.rt-goal {
+  grid-column: 1;
+  margin: 0;
+  max-width: 64ch;
+  font: var(--rt-goal);
+  color: var(--x-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rt-goal.rt-goal-missing {
+  font: var(--x-meta);
+}
+.rt-head-side {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  padding-top: 6px;
+}
+.rt-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--x-hairline);
+  font: var(--rt-small);
+  color: var(--x-text-muted);
+}
+.rt-pill.rt-pill-done {
+  color: var(--x-state-done);
+}
+/* The state pill and the Chat button on one line */
+.rt-head-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--x-space-2);
+}
+/* The Chat button (tracker chat design, section 7): a quiet toggle, a 16px icon and the word; pressed while the
+   chat shows, in an accent tint so on and off read apart at a glance */
+.rt-root .rt-chat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  font: var(--x-label);
+  color: var(--x-text-muted);
+}
+.rt-root .rt-chat-toggle:hover {
+  background: var(--x-overlay-hover);
+  color: var(--x-text);
+}
+.rt-root .rt-chat-toggle[aria-pressed="true"] {
+  border-color: color-mix(in oklab, var(--x-accent) 55%, transparent);
+  background: color-mix(in oklab, var(--x-accent) 18%, transparent);
+  color: var(--x-text);
+}
+.rt-root .rt-chat-icon {
+  font-size: 16px;
+  font-variation-settings: var(--x-icon-settings);
+}
+.rt-head-meta {
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+  text-align: right;
+}
+
+/* The picker: a popover under the name (DESIGN "Popover and hover card", widened so a long name fits beside its bar) */
+.rt-picker {
+  position: absolute;
+  /* top: under the name, set by index.js (a long name wraps to two lines) */
+  left: -8px;
+  z-index: 10;
+  width: 380px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--x-surface-0);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-window);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+/* Only on opening: each redraw makes a new picker, and a redraw while it is open must not fade it in again */
+.rt-picker.rt-picker-fade {
+  animation: rt-rise var(--x-motion-base) var(--x-ease);
+}
+@keyframes rt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rt-root .rt-pk {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--x-radius-control);
+}
+.rt-root .rt-pk:hover {
+  background: var(--x-surface-1);
+}
+.rt-root .rt-pk[aria-selected="true"] {
+  background: var(--x-state-selected);
+}
+.rt-root .rt-pk:disabled {
+  cursor: default;
+  background: none;
+}
+.rt-pk-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: var(--rt-row-em);
+}
+.rt-pk-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+}
+.rt-pk-meta .rt-mini {
+  flex: 0 0 80px;
+}
+.rt-pk-done .rt-pk-name,
+.rt-pk:disabled .rt-pk-name {
+  font: var(--rt-row);
+  color: var(--x-text-muted);
+}
+.rt-pk-sep {
+  margin: 4px 0;
+  border-top: 1px solid var(--x-hairline);
+}
+.rt-pk-head {
+  padding: 8px 10px 2px;
+  font: var(--rt-small);
+  color: var(--x-text-muted);
+}
+.rt-root .rt-pk-more {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--x-radius-control);
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+}
+.rt-root .rt-pk-more:hover {
+  background: var(--x-surface-1);
+  color: var(--x-text);
+}
+.rt-needs-n {
+  font: var(--x-meta);
+  font-weight: 600;
+  color: var(--x-state-needs);
+}
+
+/* A 4px bar: done in the accent on the grey track */
+.rt-mini {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--x-surface-3);
+  overflow: hidden;
+}
+.rt-mini-done {
+  display: block;
+  height: 100%;
+  background: var(--x-accent);
+}
+
+/* The progress line over the bar: the one summary; the groups below carry the counts per state */
+.rt-progress {
+  margin: 32px 0 28px;
+}
+.rt-pg-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.rt-pg-fig {
+  font: var(--rt-progress);
+  letter-spacing: -0.02em;
+}
+.rt-pg-words {
+  font: var(--rt-progress-words);
+  color: var(--x-text-muted);
+}
+.rt-pg-pct {
+  font: var(--rt-progress-pct);
+}
+.rt-asof {
+  margin-left: auto;
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+}
+/* The bar: done in the accent, needs you in its tone (at least 8px), running as an accent outline, to do the track */
+.rt-bar {
+  position: relative;
+  display: flex;
+  height: 10px;
+  margin-top: 12px;
+  border-radius: 5px;
+  background: var(--x-surface-3);
+}
+.rt-part {
+  position: relative;
+  display: block;
+  height: 100%;
+  flex-basis: 0;
+}
+.rt-part:first-child {
+  border-radius: 5px 0 0 5px;
+}
+.rt-part:last-child {
+  border-radius: 0 5px 5px 0;
+}
+.rt-part:only-child {
+  border-radius: 5px;
+}
+.rt-done {
+  background: var(--x-accent);
+}
+.rt-needs {
+  min-width: 8px;
+  background: var(--x-state-needs);
+}
+.rt-running {
+  box-shadow: inset 0 0 0 1.5px var(--x-accent);
+}
+/* Each part's hover card: one reading */
+.rt-part[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  white-space: nowrap;
+  padding: 6px 10px;
+  font: var(--x-meta);
+  color: var(--x-text);
+  background: var(--x-surface-0);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+.rt-todo[data-tip]:hover::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+/* All open: one row per open job in one panel */
+.rt-jobs {
+  margin-top: 28px;
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-window);
+  overflow: hidden;
+}
+.rt-root .rt-job-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px 170px;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  padding: 14px 16px;
+  border-top: 1px solid var(--x-hairline);
+}
+.rt-root .rt-job-row:first-child {
+  border-top: 0;
+}
+.rt-root .rt-job-row:hover {
+  background: var(--x-overlay-hover);
+}
+.rt-job-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.rt-job-name {
+  font: var(--rt-row-em);
+}
+.rt-job-sub {
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rt-job-right {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+}
+
+/* An empty project: one headline and one reading line */
+.rt-empty-title {
+  margin: 0;
+  font: var(--rt-name);
+  letter-spacing: -0.02em;
+}
+.rt-lead {
+  max-width: 64ch;
+  margin: 8px 0 0;
+  font: var(--rt-goal);
+  color: var(--x-text-muted);
+}
+
+/* The four folds (groups.js; design 3.7, second and third pass): each its own panel with a hairline border and a
+   16/600 heading with its count; Needs you on the needs tint with a filled count pill; Done muted. The first panel
+   sits 28px under the bar, as in the mock-up: the progress block's 28px bottom margin, which the first panel's 16px
+   top margin folds into */
+.rt-fold {
+  margin-top: var(--x-space-4);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-window);
+  background: var(--x-surface-0);
+  overflow: hidden;
+}
+.rt-fold-title {
+  margin: 0;
+  font: var(--rt-group);
+}
+.rt-root .rt-fold-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  font: var(--rt-group);
+}
+.rt-root button.rt-fold-head:hover {
+  background: var(--x-overlay-hover);
+}
+.rt-fold-head .rt-chev {
+  margin: 0 4px 4px auto;
+}
+.rt-fold-head[aria-expanded="true"] .rt-chev {
+  transform: translate(0, 4px) rotate(225deg);
+}
+.rt-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--x-surface-2);
+  color: var(--x-text-muted);
+  font: var(--rt-small);
+  text-align: center;
+}
+.rt-fold-hint {
+  color: var(--x-text-muted);
+  font: var(--x-meta);
+}
+.rt-fold-needs {
+  border-color: color-mix(in oklab, var(--x-state-needs) 30%, transparent);
+  background: var(--x-state-needs-tint);
+}
+.rt-fold-needs .rt-fold-word {
+  color: var(--x-state-needs);
+}
+.rt-fold-needs .rt-count {
+  background: var(--x-state-needs);
+  color: var(--x-surface-0);
+}
+.rt-fold-done .rt-fold-word,
+.rt-fold-empty .rt-fold-word {
+  color: var(--x-text-muted);
+}
+
+/* A row (row.js; design 3.8, second pass): one line, the mark, the title left, chip and words right; a step with a
+   file has a second line with its small "Open <file>" button */
+.rt-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 16px;
+  border-top: 1px solid var(--x-hairline);
+  cursor: pointer;
+}
+.rt-row:hover {
+  background: var(--x-overlay-hover);
+}
+.rt-fold-needs .rt-row {
+  border-top-color: color-mix(in oklab, var(--x-state-needs) 30%, transparent);
+}
+.rt-row:has(.rt-file-line) {
+  align-items: start;
+}
+.rt-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--x-text-muted);
+}
+.rt-mark canvas {
+  width: 20px;
+  height: 20px;
+}
+.rt-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--x-state-needs);
+}
+.rt-ring {
+  position: relative;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--x-text-muted);
+  border-radius: 50%;
+  overflow: hidden;
+}
+.rt-ring.rt-half::after {
+  content: "";
+  position: absolute;
+  inset: 0 50% 0 0;
+  background: var(--x-text-muted);
+}
+/* A check mark (two borders turned 45deg) */
+.rt-tick {
+  width: 6px;
+  height: 11px;
+  margin-top: -3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.rt-row-main {
+  min-width: 0;
+}
+.rt-root .rt-row-title {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font: var(--rt-row);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rt-row-needs .rt-row-title {
+  font: var(--rt-row-em);
+  white-space: normal;
+}
+.rt-row-done .rt-row-title {
+  color: var(--x-text-muted);
+}
+.rt-row-dropped {
+  opacity: 0.7;
+}
+/* Fixed columns, the same on every row: chips, words, link */
+.rt-row-right {
+  display: grid;
+  grid-template-columns: 220px 240px 96px;
+  align-items: center;
+  gap: 16px;
+  white-space: nowrap;
+}
+.rt-chips {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.rt-root .rt-session {
+  justify-self: start;
+}
+.rt-chip {
+  padding: 2px 8px;
+  border-radius: var(--x-radius-inner);
+  background: var(--x-surface-2);
+  color: var(--x-text-muted);
+  font: var(--rt-small);
+}
+.rt-chip-bug {
+  color: var(--x-state-failed);
+}
+.rt-wait {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--x-text-muted);
+  font: var(--x-meta);
+  text-overflow: ellipsis;
+}
+.rt-wait-ready {
+  color: var(--x-text);
+}
+.rt-wait-running {
+  color: var(--x-state-running);
+}
+.rt-root .rt-session {
+  color: var(--x-accent-text);
+  font: var(--x-meta);
+}
+.rt-root .rt-session:hover {
+  text-decoration: underline;
+}
+/* A narrow page (the chat beside it, tracker chat design, section 1): the row's right part goes under the title as
+   a second line, so the title keeps the full width. The right part's fixed columns take 588px and the row's own
+   parts 80px, so one line needs 928px of page content to leave the title 260px. */
+@container rt-page (width < 928px) {
+  .rt-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+    row-gap: var(--x-space-1);
+    align-items: start;
+  }
+  .rt-row-right {
+    grid-column: 2;
+    display: flex;
+    gap: var(--x-space-3);
+    min-width: 0;
+  }
+  .rt-chips {
+    flex: none;
+  }
+  .rt-chips:empty,
+  .rt-session-slot {
+    display: none;
+  }
+  .rt-root .rt-session {
+    flex: none;
+  }
+}
+.rt-file-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.rt-root .rt-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: var(--x-surface-0);
+  color: var(--x-accent-text);
+  font: var(--x-meta);
+  text-decoration: underline;
+}
+.rt-root .rt-file:hover {
+  border-color: var(--x-accent-text);
+}
+/* A page with a folded corner, drawn by borders */
+.rt-file-icon {
+  flex: none;
+  width: 10px;
+  height: 13px;
+  border: 1.5px solid currentColor;
+  border-radius: 1px 4px 1px 1px;
+}
+.rt-file-note {
+  color: var(--x-text-muted);
+  font: var(--x-meta);
+}
+.rt-root .rt-more {
+  display: block;
+  width: 100%;
+  padding: 10px 16px 10px 50px;
+  border-top: 1px solid var(--x-hairline);
+  color: var(--x-text-muted);
+  font: var(--x-meta);
+}
+.rt-root .rt-more:hover {
+  background: var(--x-overlay-hover);
+  color: var(--x-text);
+}
+
+/* The item view (tracker design, "Item view, second round"; the numbers are its table's rows). It opens on the
+   step's state, one filled button and the step's text; empty fields, tags, history and who-made-it sit behind two
+   quiet lines that item-view.js adds. Below, D is [data-testid="tracker-item-detail"], H its header, B its scrolling
+   body, S the sessions group and P the field pills. The app gives its icons their size inline, so an icon's size
+   here needs !important; so do the type chip's inline colours. */
+
+/* Header (1-9): the title, one meta line "Task · CLS.74", and close; archive, full-screen and delete show while the
+   pointer or focus is in the header, their space kept so nothing moves */
+[data-testid="tracker-item-detail"] .border-nim {
+  border-color: var(--x-hairline);
+}
+.tracker-item-detail-header > span.mt-1 > .material-symbols-outlined {
+  font-size: 18px !important;
+}
+.tracker-item-detail-header > .flex-1 > div.flex {
+  gap: 0 6px;
+}
+.tracker-item-detail-header span.font-medium.px-1\.5:not([data-testid]) {
+  padding: 0;
+  font: var(--x-meta);
+  color: var(--x-text-muted) !important;
+  background: none !important;
+}
+.tracker-item-detail-header [data-testid="tracker-source-db-badge"],
+.tracker-item-detail-header [data-testid="tracker-publication-chip"] {
+  display: none;
+}
+.tracker-item-detail-header .tracker-item-local-key {
+  font: var(--x-code);
+  color: var(--x-text-muted);
+}
+.tracker-item-detail-header .tracker-item-local-key::before {
+  content: "·";
+  margin-right: 6px;
+  font: var(--x-meta);
+}
+.tracker-item-detail-header > div.shrink-0 > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--x-radius-control);
+  color: var(--x-text-muted);
+}
+.tracker-item-detail-header > div.shrink-0 > button:hover {
+  background: var(--x-overlay-hover);
+  color: var(--x-text);
+}
+.tracker-item-detail-header > div.shrink-0 > button[title="Delete permanently"]:hover {
+  color: var(--x-error);
+}
+.tracker-item-detail-header > div.shrink-0 > button:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.tracker-item-detail-header > div.shrink-0 > :is(button[title="Archive"], button[title="Unarchive"], button[title="Delete permanently"], [data-testid="tracker-content-focus-toggle"]) {
+  opacity: 0;
+}
+.tracker-item-detail-header:is(:hover, :focus-within) > div.shrink-0 > button {
+  opacity: 1;
+}
+
+/* Body (10): one column with 16 between groups, in the order status line, main button, text, links, comment, then
+   the two folds. The app's own margins between groups are reset. */
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--x-space-4);
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto > :not([hidden]) {
+  order: 3;
+  margin: 0;
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto > :is(.tracker-detail-fields, .tracker-detail-tags, .tracker-type-tags-editor, .tracker-detail-overflow-fields) {
+  order: 0;
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto > .tracker-sessions-section {
+  order: 1;
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto > :has(> .tracker-content-editor) {
+  order: 2;
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto > :has(> .tracker-comments-section) {
+  order: 4;
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto > .rt-history {
+  order: 5;
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto > [data-ink-part="activity"] {
+  order: 6;
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] > .overflow-y-auto > [data-ink-part="created"] {
+  order: 7;
+}
+[data-testid="tracker-item-detail"] .tracker-detail-fields {
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Sessions (11-15) and the one main button. The heading row wraps: "Sessions" and the quiet icon buttons on its
+   first line, a filled "Launch Session" alone on the next. THE SWITCH: item-view.js sets D[data-rt-main] from
+   OPEN_SESSION_IS_MAIN. "session": the first linked session's entry is the filled button, else "Launch Session".
+   "launch" (the design's fallback): "Launch Session" is filled in every state and the entries are quiet rows. */
+.tracker-sessions-section > div.flex:first-child {
+  flex-wrap: wrap;
+  gap: var(--x-space-2) var(--x-space-1);
+  margin-bottom: var(--x-space-2);
+}
+.tracker-sessions-section > div.flex:first-child > div.flex {
+  display: contents;
+}
+.tracker-sessions-section > div.flex:first-child > label {
+  margin-right: auto;
+  font: var(--x-heading);
+  color: var(--x-text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.tracker-sessions-section > p.text-nim-faint {
+  display: none;
+}
+.tracker-sessions-section button:is([title^="Link an existing"], [title^="Launch a new AI session"], [title^="Launch a new isolated"]) {
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--x-radius-control);
+  color: var(--x-text-muted);
+  font-size: 0;
+  opacity: 0;
+}
+.tracker-sessions-section button:is([title^="Link an existing"], [title^="Launch a new AI session"], [title^="Launch a new isolated"]) .material-symbols-outlined {
+  font-size: 18px !important;
+}
+.tracker-sessions-section:is(:hover, :focus-within) button:is([title^="Link an existing"], [title^="Launch a new AI session"], [title^="Launch a new isolated"]) {
+  opacity: 1;
+}
+.tracker-sessions-section .space-y-1 > button[title^="Open session: "] {
+  gap: var(--x-space-2);
+  padding: 6px 8px;
+  border-radius: var(--x-radius-control);
+}
+.tracker-sessions-section .space-y-1 > button[title^="Open session: "] > .flex-1 {
+  font: var(--x-row-title);
+  color: var(--x-text);
+}
+.tracker-sessions-section .space-y-1 > button[title^="Open session: "] > span:last-child {
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+}
+/* The filled button: accent fill, 32 high, radius 6, row-title type; an arrow before the session's title */
+[data-rt-main="session"] .tracker-sessions-section .space-y-1 > button[title^="Open session: "]:first-child,
+[data-rt-main="session"] .tracker-sessions-section:not(:has(button[title^="Open session: "])) button[title^="Launch a new AI session"],
+[data-rt-main="launch"] .tracker-sessions-section button[title^="Launch a new AI session"] {
+  order: 9;
+  flex: 1 0 100%;
+  justify-content: flex-start;
+  gap: var(--x-space-2);
+  width: 100%;
+  height: var(--x-control-height);
+  padding: 0 var(--x-space-3);
+  border-radius: var(--x-radius-control);
+  background: var(--x-accent);
+  color: var(--x-on-accent);
+  font: var(--x-row-title);
+  opacity: 1;
+}
+:is(
+    [data-rt-main="session"] .tracker-sessions-section .space-y-1 > button[title^="Open session: "]:first-child,
+    [data-rt-main="session"] .tracker-sessions-section:not(:has(button[title^="Open session: "])) button[title^="Launch a new AI session"],
+    [data-rt-main="launch"] .tracker-sessions-section button[title^="Launch a new AI session"]
+  ):hover {
+  background: var(--x-accent-hover);
+}
+:is(
+    [data-rt-main="session"] .tracker-sessions-section .space-y-1 > button[title^="Open session: "]:first-child,
+    [data-rt-main="session"] .tracker-sessions-section:not(:has(button[title^="Open session: "])) button[title^="Launch a new AI session"],
+    [data-rt-main="launch"] .tracker-sessions-section button[title^="Launch a new AI session"]
+  ):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--x-surface-0), 0 0 0 4px var(--x-accent);
+}
+[data-rt-main="session"] .tracker-sessions-section:not(:has(button[title^="Open session: "])) button[title^="Launch a new AI session"] .material-symbols-outlined,
+[data-rt-main="launch"] .tracker-sessions-section button[title^="Launch a new AI session"] .material-symbols-outlined {
+  font-size: 16px !important;
+}
+[data-rt-main="session"] .tracker-sessions-section .space-y-1 > button[title^="Open session: "]:first-child > span:first-child {
+  display: none;
+}
+[data-rt-main="session"] .tracker-sessions-section .space-y-1 > button[title^="Open session: "]:first-child::before {
+  content: "arrow_forward";
+  flex: none;
+  width: 16px;
+  overflow: hidden;
+  /* biome-ignore lint/a11y/useGenericFontNames: an icon font; a generic family would draw the icon names as words */
+  font-family: "Material Symbols Outlined";
+  font-size: 16px;
+  line-height: 1;
+  font-variation-settings: var(--x-icon-settings);
+}
+[data-rt-main="session"] .tracker-sessions-section .space-y-1 > button[title^="Open session: "]:first-child > span {
+  color: var(--x-on-accent);
+}
+.tracker-sessions-section .space-y-1 > button[title^="Open session: "]:not(:first-child):hover,
+[data-rt-main="launch"] .tracker-sessions-section .space-y-1 > button[title^="Open session: "]:hover {
+  background: var(--x-overlay-hover);
+}
+
+/* The status line (16-22): text, not pills. "To do · pipe D2 · Part 5 · docs" and the budget at the right end; a
+   second line with "Waits on: …" and the proof; then the quiet "More fields" pill. Behind it (while closed): the
+   empty fields, the set links (the Links group shows them in words), tags and type tags. The status keeps a 24px
+   box for its icon, the slot of the step's orb later. */
+[data-testid="tracker-detail-field-pills"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--x-space-1) var(--x-space-2);
+}
+[data-testid="tracker-detail-field-pills"]::after {
+  content: "";
+  order: 2;
+  flex-basis: 100%;
+}
+[data-testid="tracker-detail-field-pills"] > .tracker-field-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--x-space-1);
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--x-radius-inner);
+  background: none;
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+}
+[data-testid="tracker-detail-field-pills"] > .tracker-field-pill:hover {
+  color: var(--x-text);
+}
+[data-testid="tracker-detail-field-pills"] > .tracker-field-pill:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+[data-testid="tracker-detail-field-pills"] > .tracker-field-pill .tracker-field-pill-icon {
+  display: none;
+}
+[data-field="status"].tracker-field-pill {
+  order: -1;
+  align-self: center;
+  align-items: center;
+  font: var(--x-label);
+  color: var(--x-text);
+}
+[data-testid="tracker-detail-field-pills"] > [data-field="status"].tracker-field-pill .tracker-field-pill-icon {
+  display: inline-block;
+  width: 24px;
+  text-align: center;
+  color: currentColor !important;
+  font-size: 16px !important;
+}
+[data-field="status"].tracker-field-pill:is([title$=": In Progress"], [title$=": In Review"], [title$=": Changes Requested"], [title$=": Approved"]) {
+  color: var(--x-state-running);
+}
+[data-field="status"].tracker-field-pill:is([title$=": Done"], [title$=": Won't Do"], [title$=": Duplicate"]) {
+  color: var(--x-state-done);
+}
+[data-field="status"].tracker-field-pill[title$=": Needs you"] {
+  padding-right: 6px;
+  background: var(--x-state-needs-tint);
+  font: var(--x-heading);
+  color: var(--x-state-needs);
+}
+[data-field="priority"][title="Priority: Medium"] {
+  display: none;
+}
+/* A "·" only between the parts of the first line: none before the budget (alone at the right end) or before the
+   second line's parts, which carry their field names instead. The step code reads "step look LV1". */
+[data-testid="tracker-detail-field-pills"] > .tracker-field-pill-set:not([data-field="status"], [data-field="budget"], [data-field="waitsOn"], [data-field="proof"])::before {
+  content: "·";
+  margin-right: var(--x-space-1);
+}
+[data-testid="tracker-detail-field-pills"] > [data-field="step"].tracker-field-pill-set::before {
+  content: "· step";
+}
+[data-testid="tracker-detail-field-pills"] > [data-field="proof"].tracker-field-pill-set::before {
+  content: "Proof:";
+}
+[data-testid="tracker-detail-field-pills"] > [data-field="waitsOn"].tracker-field-pill-set ~ [data-field="proof"].tracker-field-pill-set::before {
+  content: "· Proof:";
+}
+[data-field="budget"].tracker-field-pill {
+  order: 1;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+[data-field="budget"].tracker-field-pill .tracker-field-pill-value::after {
+  content: " calls";
+}
+[data-testid="tracker-detail-field-pills"] > :is([data-field="waitsOn"], [data-field="proof"]).tracker-field-pill-set {
+  order: 3;
+}
+[data-testid="tracker-detail-field-pills"] > [data-field="waitsOn"].tracker-field-pill-set {
+  font: var(--x-label);
+  color: var(--x-text);
+}
+[data-testid="tracker-detail-field-pills"] > [data-field="waitsOn"].tracker-field-pill-set::before {
+  content: "Waits on:";
+  margin-right: 0;
+}
+[data-testid="tracker-detail-field-pills"] > .rt-more {
+  all: unset;
+  order: 4;
+  border-radius: var(--x-radius-inner);
+  font: var(--x-label);
+  color: var(--x-text-muted);
+  cursor: pointer;
+}
+[data-testid="tracker-detail-field-pills"] > .rt-more:hover {
+  color: var(--x-text);
+}
+[data-testid="tracker-detail-field-pills"] > .rt-more:focus-visible {
+  box-shadow: var(--x-focus-ring);
+}
+[data-testid="tracker-detail-field-pills"] > :is(.tracker-field-pill-empty, .tracker-field-pill-set.tracker-field-pill-labeled, [data-field="blocks"].tracker-field-pill-set, [data-field="goal"].tracker-field-pill-set) {
+  order: 5;
+}
+[data-testid="tracker-detail-field-pills"] > .tracker-field-pill-set.tracker-field-pill-labeled .tracker-field-pill-label {
+  font: var(--x-label);
+  color: var(--x-text);
+}
+[data-testid="tracker-detail-field-pills"] > .tracker-field-pill-empty {
+  font: var(--x-label);
+}
+[data-rt-more="closed"] [data-testid="tracker-detail-field-pills"] > :is(.tracker-field-pill-empty, .tracker-field-pill-set.tracker-field-pill-labeled, [data-field="blocks"].tracker-field-pill-set, [data-field="goal"].tracker-field-pill-set),
+[data-rt-more="closed"] .tracker-type-tags-editor,
+[data-rt-more="closed"] .tracker-detail-tags:not(:has(.flex-wrap > :not(input))) {
+  display: none;
+}
+/* Tags and type tags, when shown: headings in sentence case */
+[data-testid="tracker-item-detail"] :is(.tracker-detail-tags label, .tracker-type-tags-editor span.uppercase) {
+  font: var(--x-heading);
+  color: var(--x-text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* The app writes "Type Tags": its words at size 0, ours in their place */
+[data-testid="tracker-item-detail"] .tracker-type-tags-editor span.uppercase {
+  font-size: 0;
+}
+[data-testid="tracker-item-detail"] .tracker-type-tags-editor span.uppercase::before {
+  content: "Type tags";
+  font: var(--x-heading);
+}
+[data-testid="tracker-item-detail"] .tracker-detail-tags input {
+  font: var(--x-body);
+}
+[data-testid="tracker-item-detail"] .tracker-type-tags-editor button {
+  font: var(--x-label);
+  color: var(--x-text-muted);
+}
+
+/* The step's text (25-27): no "Content" heading; the box in the surface-1 tone, no border, its text 12px from the
+   edge in the reading type, one line high when empty; no drag handle (the box would cut it off) */
+[data-testid="tracker-item-detail"] :has(> .tracker-content-editor) > label {
+  display: none;
+}
+[data-testid="tracker-item-detail"] :has(> .tracker-content-editor) {
+  padding-top: 0;
+  border-top: 0;
+}
+/* Stronger than the theme's ".rounded" radius (6, live 2026-11-14); the editor's inner layers paint the panel
+   colour (--nim-bg) over the box's tone, so they are made clear */
+.tracker-item-detail[data-testid="tracker-item-detail"] .tracker-content-editor.rounded {
+  min-height: 0;
+  border: 0;
+  border-radius: var(--x-radius-window);
+  background: var(--x-surface-1);
+}
+.tracker-item-detail[data-testid="tracker-item-detail"] .tracker-content-editor :is(.nimbalyst-editor, .editor-container, .editor-scroller) {
+  background: transparent;
+}
+[data-testid="tracker-item-detail"] .tracker-content-editor .ContentEditable__root {
+  min-height: 48px;
+  padding: var(--x-space-3);
+  font: var(--x-reading);
+  color: var(--x-text);
+}
+[data-testid="tracker-item-detail"] .tracker-content-editor .ContentEditable__root :is(p, li, span) {
+  font-family: var(--x-font-ui);
+  font-size: 15px;
+  line-height: 24px;
+}
+[data-testid="tracker-item-detail"] .tracker-content-editor .ContentEditable__root p {
+  margin: 0 0 var(--x-space-2);
+}
+[data-testid="tracker-item-detail"] .tracker-content-editor .ContentEditable__root p:last-child {
+  margin-bottom: 0;
+}
+[data-testid="tracker-item-detail"] .tracker-content-editor :is(strong, .nim-text-bold) {
+  font-weight: 600;
+}
+[data-testid="tracker-item-detail"] .tracker-content-editor .ContentEditable__root .nim-text-code {
+  font: var(--x-code);
+}
+[data-testid="tracker-item-detail"] .tracker-content-editor .draggable-block-menu {
+  display: none;
+}
+
+/* Links (28): type only. Heading in sentence case, the lines in meta, the targets in body type, a chevron icon in
+   place of the 9px triangle */
+.tracker-links-section h4 {
+  font: var(--x-heading);
+  color: var(--x-text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.tracker-links-section .tracker-links-line {
+  font: var(--x-meta);
+}
+.tracker-links-section .tracker-links-line > span {
+  font: var(--x-meta);
+}
+.tracker-links-section .tracker-links-line > span.transition-transform {
+  flex: none;
+  width: 16px;
+  align-self: center;
+  font-size: 0;
+}
+.tracker-links-section .tracker-links-line > span.transition-transform::before {
+  content: "chevron_right";
+  display: block;
+  width: 16px;
+  overflow: hidden;
+  /* biome-ignore lint/a11y/useGenericFontNames: an icon font; a generic family would draw the icon names as words */
+  font-family: "Material Symbols Outlined";
+  font-size: 16px;
+  line-height: 1;
+  font-variation-settings: var(--x-icon-settings);
+}
+.tracker-links-section .tracker-links-page > span:first-child {
+  font: var(--x-meta);
+  color: var(--x-text-muted);
+}
+.tracker-links-section .tracker-links-page .truncate {
+  font: var(--x-body);
+  color: var(--x-text);
+}
+/* item-view.js marks: "In collection" toward a job reads "In job"; a "Task" type word is left out (most
+   targets are tasks; another type still shows) */
+.tracker-links-section .tracker-links-line[data-rt-label="job"] > .w-28 {
+  font-size: 0;
+}
+.tracker-links-section .tracker-links-line[data-rt-label="job"] > .w-28::before {
+  content: "In job";
+  font: var(--x-meta);
+}
+.tracker-links-section .tracker-links-page > span[data-rt-quiet] {
+  display: none;
+}
+/* A long list (a release's "Includes"): its targets one per line under the label, the finished ones behind one
+   quiet "N done" line (design: long lists fold their finished items) */
+.tracker-links-section .tracker-links-line[data-rt-fold] {
+  flex-wrap: wrap;
+}
+.tracker-links-section .tracker-links-line[data-rt-fold] > span:has(> .tracker-links-page) {
+  flex: 1 0 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  padding-left: calc(16px + var(--x-space-2));
+}
+/* Each target at most the list's width: the title has nowrap, so without the cap the row took its whole title's
+   width and ran under the scrollbar, cut mid-word. Capped, the title ends in "…". */
+.tracker-links-section .tracker-links-line[data-rt-fold] .tracker-links-page {
+  max-width: 100%;
+}
+.tracker-links-section .tracker-links-line[data-rt-fold="closed"] .tracker-links-page[data-rt-done] {
+  display: none;
+}
+.tracker-links-section .tracker-links-line[data-rt-fold="open"] .tracker-links-page[data-rt-done] .truncate {
+  color: var(--x-text-muted);
+}
+.tracker-links-section .rt-done-fold {
+  all: unset;
+  margin-left: calc(16px + var(--x-space-2));
+  border-radius: var(--x-radius-inner);
+  font: var(--x-label);
+  color: var(--x-text-muted);
+  cursor: pointer;
+}
+.tracker-links-section .rt-done-fold:hover {
+  color: var(--x-text);
+}
+.tracker-links-section .rt-done-fold:focus-visible {
+  box-shadow: var(--x-focus-ring);
+}
+
+/* The comment (29-31): no heading (the field's placeholder names it); a 32px field; "Post" quiet, and only while
+   the field has focus or text */
+[data-testid="tracker-item-detail"] :has(> .tracker-comments-section) > div:has(> h4) {
+  display: none;
+}
+.tracker-comment-composer {
+  gap: var(--x-space-2);
+}
+/* The comments on the area's sizes (the app has 11 and 12): author 13/500, time 13 muted, text 14 */
+.tracker-comments-section .tracker-comment > div:first-child {
+  font: var(--x-meta);
+}
+.tracker-comments-section .tracker-comment > div:first-child > .font-medium {
+  font: var(--x-label);
+}
+.tracker-comments-section .tracker-comment > p {
+  font: var(--x-body);
+}
+.tracker-comment-composer > [data-testid="tracker-comment-input"] {
+  box-sizing: border-box;
+  height: var(--x-control-height);
+  padding: 0 var(--x-space-3);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: none;
+  font: var(--x-body);
+  color: var(--x-text);
+}
+[data-testid="tracker-comment-input"]::placeholder {
+  color: var(--x-text-muted);
+}
+[data-testid="tracker-comment-input"]:focus {
+  border-color: var(--x-accent);
+}
+.tracker-comments-section .tracker-comment-composer > button {
+  display: none;
+  height: var(--x-control-height);
+  padding: 0 var(--x-space-3);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: none;
+  font: var(--x-row-title);
+  color: var(--x-text);
+}
+.tracker-comments-section .tracker-comment-composer:is(:focus-within, :has(input:not(:placeholder-shown))) > button {
+  display: inline-flex;
+  align-items: center;
+}
+.tracker-comments-section .tracker-comment-composer > button:hover:not(:disabled) {
+  background: var(--x-overlay-hover);
+}
+
+/* History and details (32-33): one quiet line, closed at first, over the activity and the "Created by" block */
+[data-testid="tracker-item-detail"] .rt-history {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: var(--x-space-1);
+  padding-top: var(--x-space-2);
+  border-top: 1px solid var(--x-hairline);
+  font: var(--x-heading);
+  color: var(--x-text-muted);
+  cursor: pointer;
+}
+[data-testid="tracker-item-detail"] .rt-history::before {
+  content: "chevron_right";
+  width: 16px;
+  overflow: hidden;
+  /* biome-ignore lint/a11y/useGenericFontNames: an icon font; a generic family would draw the icon names as words */
+  font-family: "Material Symbols Outlined";
+  font-size: 16px;
+  line-height: 1;
+  font-variation-settings: var(--x-icon-settings);
+  transition: transform var(--x-motion-fast);
+}
+[data-testid="tracker-item-detail"] .rt-history[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+[data-testid="tracker-item-detail"] .rt-history:hover {
+  color: var(--x-text);
+}
+[data-testid="tracker-item-detail"] .rt-history:focus-visible {
+  box-shadow: var(--x-focus-ring);
+}
+[data-rt-history="closed"] :is([data-ink-part="activity"], [data-ink-part="created"]) {
+  display: none;
+}
+[data-ink-part="activity"] h4 {
+  font: var(--x-heading);
+  color: var(--x-text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+[data-ink-part="activity"] > div > div,
+[data-ink-part="created"] > .grid {
+  font: var(--x-meta);
+}
+[data-ink-part="created"] {
+  padding-top: 0;
+  border-top: 0;
+}
+[data-ink-part="created"] .rounded {
+  padding: 0;
+  background: none !important;
+  font: var(--x-label);
+}
