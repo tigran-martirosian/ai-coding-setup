@@ -3,10 +3,11 @@
 // with the skill). Nothing here touches a real ~/.claude or opens a browser.
 // Run: node tests/test-usage-dashboard-hook.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(

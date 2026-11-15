@@ -137,6 +137,29 @@ ok(
   /extensions are not installed by this script.*npm run build/.test(dry.out),
 );
 ok("dry run changes nothing", fs.readdirSync(home), []);
+// install-ext copies dist/, so it builds first: a stale or missing dist/ is never what gets installed
+ok(
+  "every extension's install-ext builds before it copies dist/",
+  fs
+    .readdirSync(path.join(REPO, "extensions"))
+    .filter((d) =>
+      fs.existsSync(path.join(REPO, "extensions", d, "package.json")),
+    )
+    .map((d) => {
+      const s = JSON.parse(
+        fs.readFileSync(
+          path.join(REPO, "extensions", d, "package.json"),
+          "utf8",
+        ),
+      ).scripts;
+      return `${d}: ${
+        s["install-ext"] === "node build.mjs --install" ||
+        s["install-ext"] === "npm run build && node scripts/install.mjs"
+      }`;
+    })
+    .filter((x) => x.endsWith("false")),
+  [],
+);
 
 // ---- the real install
 const first = install(home);
@@ -1022,7 +1045,7 @@ ok(
   [
     fs.readFileSync(usedHook, "utf8"),
     onUsed.out.includes(`kept yours ${fwd(usedHook)}`),
-    /Kept as yours[^\n]*\n  hooks\/sql-guard\.mjs\n[^\n]*--replace <name>[^\n]*--replace-all/.test(
+    /Kept as yours[^\n]*\n {2}hooks\/sql-guard\.mjs\n[^\n]*--replace <name>[^\n]*--replace-all/.test(
       onUsed.out,
     ),
   ],
@@ -1095,7 +1118,7 @@ ok(
       .readFileSync(usedHook)
       .equals(fs.readFileSync(path.join(REPO, "hooks", "sql-guard.mjs"))),
     hookCopy && fs.readFileSync(hookCopy, "utf8"),
-    /Replaced[^\n]*\n  hooks\/sql-guard\.mjs\n/.test(oneTaken.out),
+    /Replaced[^\n]*\n {2}hooks\/sql-guard\.mjs\n/.test(oneTaken.out),
   ],
   [true, "// an older version\n", true],
 );
@@ -1388,6 +1411,41 @@ if (process.platform === "win32") {
     [true, true],
   );
   if (!hadPanelDist) fs.rmSync(panelDist, { recursive: true, force: true });
+  const trackerDist = path.join(REPO, "extensions", "job-tracker", "dist");
+  const hadTrackerDist = fs.existsSync(trackerDist);
+  const trackerRun = spawnSync(
+    process.execPath,
+    [INSTALL, "--home", path.join(tmp, "ext-home"), "--extensions", "yes"],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: emptyPath,
+        Path: emptyPath,
+        APPDATA: appData,
+        SETUP_EXTENSIONS: "job-tracker",
+      },
+    },
+  ).stdout;
+  ok(
+    "the job tracker is built and installed without npm",
+    [
+      trackerRun.includes("extension installed: job-tracker"),
+      fs.existsSync(
+        path.join(
+          appData,
+          "@nimbalyst",
+          "electron",
+          "extensions",
+          "jobtracker",
+          "dist",
+          "style.css",
+        ),
+      ),
+    ],
+    [true, true],
+  );
+  if (!hadTrackerDist) fs.rmSync(trackerDist, { recursive: true, force: true });
   ok(
     "--extensions no leaves the extensions out",
     install(path.join(tmp, "ext-home"), "--extensions", "no").out.includes(

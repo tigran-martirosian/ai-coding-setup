@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { Easing, interpolate, useCurrentFrame } from "remotion";
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;

@@ -3,8 +3,8 @@
 // write stays pending and is rethrown.
 import { EventEmitter } from "node:events";
 import path from "node:path";
-import vm from "node:vm";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import vm from "node:vm";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PATCH = path.join(

@@ -2,10 +2,11 @@
 // version and the dashboard build. Made-up samples in a temp folder; the real log is not touched.
 // Checks use fixed instants, so they hold in any time zone.
 // Run: node tests/test-plan-ahead.mjs
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SKILL = fileURLToPath(
@@ -59,7 +60,7 @@ check(
 );
 
 // ---- the week
-let A = planAhead(
+const A = planAhead(
   samples,
   [],
   { status: "calibrating" },
@@ -153,7 +154,6 @@ check(
     { from: "2026-10-05T07:00:00.000Z", to: "2026-10-05T16:00:00.000Z" },
   ],
 );
-const tip = (X, k) => X.tips.find((t) => t.k === k)?.text ?? null;
 check(
   "advice: the week, the budget and the 5-hour window, nothing about when to get on or off",
   A.tips.map((t) => t.k),
@@ -195,6 +195,45 @@ check(
     Math.round(A.hours.reduce((n, h) => n + (h.rate ?? 0) * h.seen, 0)),
   ],
   [24, 20],
+);
+// an old plan (with a 5-hour limit) where someone else used 40 points, then the current one (none) where this
+// computer did all 4: its 4 units are spread over every minute, so each hour's part fits its rise in any time zone
+const oldThenNow = [
+  s("2026-10-02T02:00:00Z", 20, 10, "2026-10-02T07:00:00+00:00"),
+  s("2026-10-02T06:00:00Z", 60, 50, "2026-10-02T07:00:00+00:00"),
+  s("2026-10-02T08:00:00Z", 60, null),
+  s("2026-10-02T09:00:00Z", 62, null),
+  s("2026-10-02T10:00:00Z", 64, null),
+];
+const m8 = Date.parse("2026-10-02T08:00:00Z") / 60000;
+const nowPlan = planAhead(
+  oldThenNow,
+  [
+    [m8 - 300, 10, 1000], // 03:00, in the old plan
+    ...Array.from({ length: 120 }, (_, k) => [m8 + k, 1 / 30, 100]),
+  ],
+  {
+    status: "ok",
+    perUnit: 1,
+    days: {},
+    eras: [
+      { after: Date.parse(oldThenNow[0].t), perUnit: 1 },
+      { after: Date.parse(oldThenNow[1].t), perUnit: 1 },
+    ],
+  },
+  hours,
+  at("2026-10-02T10:00:00Z"),
+);
+const sum = (k) =>
+  Math.round(nowPlan.hours.reduce((n, h) => n + (h[k] ?? 0) * h.seen, 0));
+check(
+  "hours of the day: only the current plan (4 hours on record, 4 points, all this computer's)",
+  [
+    Math.round(nowPlan.hours.reduce((n, h) => n + h.seen, 0)),
+    sum("rate"),
+    sum("mine"),
+  ],
+  [4, 4, 4],
 );
 
 // ---- after the weekly reset

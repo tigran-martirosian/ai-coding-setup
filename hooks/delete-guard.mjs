@@ -16,9 +16,10 @@
 // cleanup (workers/disk-tidy.mjs, file-check.mjs) deletes from Node, so it passes.
 // Helpers (agent_id set) get the same verdicts; their refusal says to report instead of asking.
 // Fails open. DELETE_GUARD=off disables it.
-import { emit, runHook } from "./lib/hook-io.mjs";
+
 import os from "node:os";
 import path from "node:path";
+import { emit, runHook } from "./lib/hook-io.mjs";
 
 // The texts, here and nowhere else
 const TAG = "[delete-guard]";

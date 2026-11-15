@@ -25,7 +25,6 @@ const alive = (pid) => {
 };
 
 assert.deepEqual(Object.keys(m).sort(), [
-  "set_auto_read",
   "shutdown_worker",
   "status",
   "stop",
@@ -33,12 +32,10 @@ assert.deepEqual(Object.keys(m).sort(), [
   "warmup",
 ]);
 assert.ok(
-  registered
-    .filter((t) => !t.panelOnly)
-    .every((t) => t.name === "set_auto_read"),
-  "only set_auto_read is agent-visible",
+  registered.every((t) => t.panelOnly),
+  "no tool is visible to agents",
 );
-console.log("ok - tools registered; only set_auto_read visible to agents");
+console.log("ok - tools registered; none visible to agents");
 
 let t0 = Date.now();
 const a = await m.synthesize({ text: "Result. Everything passed." });
@@ -96,20 +93,6 @@ await m.synthesize({ text: "Recovered after fixing the folder." });
 const s4 = await m.status({});
 assert.equal(s4.worker, "ready");
 console.log("ok - retry works once the folder is valid");
-
-const on = await m.set_auto_read({}); // UI reported off (default) -> toggle turns on
-const off = await m.set_auto_read({ enabled: false });
-assert.equal(on.autoRead, true);
-assert.equal(off.autoRead, false);
-await m.status({ uiAutoRead: true }); // renderer reports hands-free is on
-const toggled = await m.set_auto_read({});
-assert.equal(toggled.autoRead, false, "bare toggle flips what the UI shows");
-const req = (await m.status({})).autoRead;
-assert.equal(req.seq, 3);
-assert.ok(req.instanceId && req.at > 0);
-console.log(
-  `ok - set_auto_read relays on/off/toggle (seq ${req.seq}, instance ${req.instanceId.slice(0, 8)})`,
-);
 
 const pid = s4.pid;
 api.deactivate();

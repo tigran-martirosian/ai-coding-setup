@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 // context-guard: UserPromptSubmit, PreCompact, Stop and PostToolUse hook. Every tool call re-sends the
 // whole conversation, so in a big session a one-line edit costs as much as the context.
 // It only WARNS and never stops a session.
@@ -23,15 +24,14 @@
 import { crashLog } from "./lib/crash-log.mjs";
 import { runHook } from "./lib/hook-io.mjs";
 import { sessionKey } from "./lib/paths.mjs";
-import { stateFile, readJson, writeJson } from "./lib/state.mjs";
+import { readJson, stateFile, writeJson } from "./lib/state.mjs";
 import {
-  tail,
+  CONTEXT_K,
   entries,
   lastUsage,
+  tail,
   typedByUser,
-  CONTEXT_K,
 } from "./lib/transcript.mjs";
-import fs from "node:fs";
 
 const LIMIT_K = Number(process.env.CONTEXT_GUARD_K) || 150;
 const AUTO = process.env.CONTEXT_GUARD_AUTO !== "off";

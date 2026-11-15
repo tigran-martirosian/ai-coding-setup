@@ -5,8 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildDashboard, readDashboardFile } from "../src/command.ts";
+import type { DashboardData } from "../src/dashboard-data.ts";
 import {
-  REQUIRED_KEYS,
   canStartBuild,
   initialState,
   isDataStale,
@@ -14,9 +14,9 @@ import {
   needsBuildOnOpen,
   parseDashboard,
   progressFraction,
+  REQUIRED_KEYS,
   reduce,
 } from "../src/dashboard-data.ts";
-import type { DashboardData } from "../src/dashboard-data.ts";
 
 const now = Date.parse("2026-11-05T12:00:00.000Z");
 const file = (over: Record<string, unknown> = {}) => ({

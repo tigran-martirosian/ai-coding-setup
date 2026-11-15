@@ -1,20 +1,32 @@
 // node test.mjs  (Node 22.6+ with type stripping: 24 runs it as is, 22 needs --experimental-strip-types)
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
-  classify,
-  parseCheck,
-  checkLine,
+  LABEL_BASELINE,
+  LABEL_FONT,
+  LABEL_GAP,
+  LABEL_HEIGHT,
+  LABEL_PAD,
+  labelBox,
+  labelWidth,
+  layout,
+  radius,
+  random,
+} from "./src/layout.ts";
+import {
   absolute,
-  sizeLine,
-  projectName,
-  groupSlot,
-  legend,
+  checkLine,
+  classify,
   driftedLinks,
+  groupSlot,
   LINK_TYPES,
+  legend,
+  parseCheck,
+  projectName,
+  sizeLine,
 } from "./src/map.ts";
 import { find, search } from "./src/search.ts";
-import { layout, radius, random } from "./src/layout.ts";
-import { checkCommand, read, build } from "./src/store.ts";
+import { build, checkCommand, read } from "./src/store.ts";
 
 let passed = 0;
 const test = async (name, fn) => {
@@ -254,6 +266,79 @@ await test("layout: parts do not sit on top of each other, linked parts are near
   for (let i = 0; i < ids.length; i++)
     for (let j = i + 1; j < ids.length; j++, count++) all += d(ids[i], ids[j]);
   assert.ok(linked < (all / count) * 0.7, `linked ${linked} vs ${all / count}`);
+});
+
+// Shaped like a real map a look-over found mostly unnamed (63 parts, 65 links): one large cluster,
+// a cluster of 8, a chain of 3 and 7 parts with no link; names of 12 to 40 letters at about 7.5 px a letter.
+await test("layout: a 63-part map fills its canvas with every name in its own place under its dot", () => {
+  const n = 63;
+  const ids = Array.from({ length: n }, (_, i) => `p${i}`);
+  const links = [];
+  for (let i = 1; i < 45; i++)
+    links.push([`p${i}`, `p${Math.floor((i - 1) / 2)}`]);
+  for (let i = 0; i < 12; i++)
+    links.push([`p${(i * 7) % 45}`, `p${(i * 11 + 5) % 45}`]);
+  for (let i = 46; i < 53; i++) links.push([`p${i}`, "p45"]);
+  links.push(["p53", "p54"], ["p54", "p55"]);
+  const measure = (s) => s.length * 7.5;
+  const names = ids.map((_, i) => "x".repeat(12 + ((i * 17) % 29)));
+  const deg = ids.map((id) => links.filter((l) => l.includes(id)).length);
+  const radii = deg.map(radius);
+  const box = {
+    width: 2440,
+    height: 1200,
+    seed: 7,
+    pad: radius(Math.max(...deg)) + 6,
+  };
+  const places = layout(ids, links, {
+    ...box,
+    radii,
+    labels: names.map((s) => labelWidth(s, measure)),
+  });
+  // a part's room: its dot and its label box (labelBox: under the dot, centred)
+  const rooms = ids.map((id, i) => {
+    const p = places.get(id);
+    const l = labelBox(p.x, p.y, radii[i], labelWidth(names[i], measure));
+    assert.ok(
+      Math.abs(l[1] - (p.y + radii[i] + LABEL_GAP)) < 1e-9,
+      "label under its dot",
+    );
+    assert.ok(
+      Math.abs((l[0] + l[2]) / 2 - p.x) < 1e-9,
+      "label centred on its dot",
+    );
+    return [
+      Math.min(l[0], p.x - radii[i]),
+      p.y - radii[i],
+      Math.max(l[2], p.x + radii[i]),
+      l[3],
+    ];
+  });
+  for (let i = 0; i < n; i++) {
+    const a = rooms[i];
+    assert.ok(
+      a[0] >= 0 && a[1] >= 0 && a[2] <= box.width && a[3] <= box.height,
+      `p${i} leaves the box`,
+    );
+    for (let j = i + 1; j < n; j++) {
+      const b = rooms[j];
+      assert.ok(
+        !(a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]),
+        `p${i} and p${j} overlap`,
+      );
+    }
+  }
+  const span = (k) =>
+    Math.max(...rooms.map((r) => r[k + 2])) -
+    Math.min(...rooms.map((r) => r[k]));
+  assert.ok(
+    span(0) > box.width * 0.9,
+    `drawing ${span(0)} wide of ${box.width}`,
+  );
+  assert.ok(
+    span(1) > box.height * 0.9,
+    `drawing ${span(1)} high of ${box.height}`,
+  );
 });
 
 await test("layout: radius grows with links and is capped; random is seeded", () => {
@@ -584,7 +669,14 @@ await test("store: read picks the screen, the check runs only for a map", async 
 await test("store: build sends /systems-map and reports a refusal", async () => {
   let sent;
   assert.equal(
-    await build(async (c, a) => ((sent = [c, a]), {}), "Build a map", 50),
+    await build(
+      async (c, a) => {
+        sent = [c, a];
+        return {};
+      },
+      "Build a map",
+      50,
+    ),
     "",
   );
   assert.equal(sent[0], "extensions:ai-send-prompt");
@@ -598,6 +690,100 @@ await test("store: build sends /systems-map and reports a refusal", async () => 
     "No project open",
   );
   assert.equal(await build(() => new Promise(() => {}), "Build a map", 20), ""); // a session that runs for minutes counts as started
+});
+
+// ---- the panel's texts on the shared levels (whole-app type design, "systems map") ----
+
+const readText = (file) =>
+  fs
+    .readFileSync(new URL(file, import.meta.url), "utf8")
+    .replace(/\r\n/g, "\n");
+const panelCss = readText("./src/panel.css").replace(/\/\*[\s\S]*?\*\//g, "");
+// The part card is a sibling of the canvas inside .sm-main: the layout box and the fit follow .sm-main (full),
+// not the canvas (size), so opening or closing the card keeps the dots' places and the person's zoom.
+await test("card open keeps places and zoom: layout and fit follow .sm-main, not the canvas", () => {
+  const src = readText("./src/index.tsx");
+  assert.match(src, /mainWatcher\.observe\(main\)/);
+  assert.match(src, /Math\.round\(full\.w \/ WORLD_STEP\)/);
+  assert.match(src, /const measured = full\.w > 0 && full\.h > 0;/);
+  assert.match(
+    src,
+    /setView\(fitView\(full\.w, fitH, world\)\);\s*\}, \[full, places\]\);/,
+  );
+  assert.doesNotMatch(src, /\}, \[size, places\]\);/);
+  assert.match(panelCss, /\.sm-card \{\s*flex: none;/);
+});
+
+const rules = [...panelCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((r) => ({
+  sel: r[1].trim(),
+  body: r[2],
+}));
+const rule = (sel) => {
+  const found = rules.filter((r) => r.sel === sel);
+  assert.equal(found.length, 1, `one rule for ${sel}`);
+  return found[0].body;
+};
+const tokenSize = (token) => {
+  const value = readText("../shared/tokens.css")
+    .split("\n")
+    .find((l) => l.trim().startsWith(`${token}:`))
+    ?.match(/:\s*\d+ (\d+)px\/(\d+)px/);
+  assert.ok(value, `${token} in tokens.css`);
+  return { size: Number(value[1]), line: Number(value[2]) };
+};
+
+await test("each text of the panel uses its level: names row-title, legend meta, toolbar icons 18", () => {
+  assert.match(rule(".sm-label"), /font: var\(--x-row-title\);/);
+  assert.doesNotMatch(rule(".sm-label"), /font-weight|font-size/);
+  assert.match(rule(".sm-legend"), /font: var\(--x-meta\);/);
+  assert.match(rule(".sm-sym"), /font-size: 18px;/);
+  const allowed = ["title", "body", "row-title", "meta", "heading", "label"];
+  for (const f of panelCss.matchAll(/font: ([^;]+);/g))
+    assert.ok(
+      f[1] === "inherit" || allowed.some((a) => f[1] === `var(--x-${a})`),
+      `a font outside the levels: ${f[1]}`,
+    );
+  assert.doesNotMatch(panelCss, /font-weight|uppercase|text-transform/);
+  for (const size of panelCss.matchAll(/font-size: (\d+)px/g))
+    assert.ok(Number(size[1]) >= 12, `a text of ${size[1]} px`);
+});
+
+await test("a label's box is measured at 14 px in the label font, and its text stays inside (0 overflow)", () => {
+  assert.equal(
+    LABEL_FONT,
+    "--x-row-title",
+    "measured in the font it is drawn in",
+  );
+  const { size } = tokenSize(LABEL_FONT);
+  assert.equal(size, 14);
+  // a stand-in for the browser's measureText at that size: wide letters, so a long name is the hard case
+  const measure = (text) => text.length * size * 0.62;
+  const names = [
+    "Cart",
+    "Usage report and plan forecast",
+    "W",
+    "Commands button extension",
+    "i",
+  ];
+  let overflow = 0;
+  for (const name of names) {
+    const w = labelWidth(name, measure);
+    const text = measure(name);
+    assert.ok(Number.isInteger(w), `${name}: whole-pixel box`);
+    // the text is centred (textAnchor middle), so it fits when half its width fits in half the box
+    if (text / 2 > w / 2 - LABEL_PAD + 0.5) overflow++;
+  }
+  assert.equal(overflow, 0);
+  // the old box was 6.3 px a letter (12 px text); at 14 px the box grows with the text
+  assert.ok(
+    labelWidth("Usage report and plan forecast", measure) > 30 * 6.3 + 6,
+  );
+  // vertically: ascent about 0.95 em above the baseline, descent about 0.25 em below it
+  assert.ok(LABEL_BASELINE >= Math.ceil(size * 0.25), "descenders inside");
+  assert.ok(
+    LABEL_HEIGHT - LABEL_BASELINE >= Math.ceil(size * 0.95),
+    "capitals inside",
+  );
 });
 
 console.log(process.exitCode ? "FAILED" : `${passed} passed`);

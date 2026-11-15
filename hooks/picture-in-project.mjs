@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-// picture-in-project: a PreToolUse hook for Nimbalyst's display_to_user. The chat card loads the
-// picture from the path written in the call, every time it is drawn, so a file deleted or moved
-// later turns into "Failed to load image: File not found" (e.g. a scratch folder cleaned up after the picture was
-// shown). The enlarged view also loads the file itself, and Nimbalyst only hands out files inside the open project.
-// So a picture is shown only from <project>/shown/, a folder nothing cleans up: any other path is
-// denied, with the picture already copied there and the copy's path in the message, so the retry
-// is one call. Rewriting the call with updatedInput does not work: the tool gets the new path but
-// the card keeps the one Claude wrote. Same bytes, same copy. The folder ignores itself in git.
-// It fails open, so any error or odd input lets the call through. PICTURE_IN_PROJECT=off disables it.
-import { runHook, emit } from "./lib/hook-io.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
@@ -19,6 +9,16 @@ import {
   relative,
   resolve,
 } from "node:path";
+// picture-in-project: a PreToolUse hook for Nimbalyst's display_to_user. The chat card loads the
+// picture from the path written in the call, every time it is drawn, so a file deleted or moved
+// later turns into "Failed to load image: File not found" (e.g. a scratch folder cleaned up after the picture was
+// shown). The enlarged view also loads the file itself, and Nimbalyst only hands out files inside the open project.
+// So a picture is shown only from <project>/shown/, a folder nothing cleans up: any other path is
+// denied, with the picture already copied there and the copy's path in the message, so the retry
+// is one call. Rewriting the call with updatedInput does not work: the tool gets the new path but
+// the card keeps the one Claude wrote. Same bytes, same copy. The folder ignores itself in git.
+// It fails open, so any error or odd input lets the call through. PICTURE_IN_PROJECT=off disables it.
+import { emit, runHook } from "./lib/hook-io.mjs";
 
 const inside = (root, file) => {
   const rel = relative(resolve(root), resolve(file));

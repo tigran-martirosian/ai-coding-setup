@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 // plan-usage-logger (UserPromptSubmit, PostToolUse, Stop): at most once every 5 minutes,
 // saves the account-wide Claude plan percentages (5-hour and weekly, the numbers the
 // Nimbalyst dials show) to ~/.claude/usage-log/plan-usage.jsonl. The usage dashboard
@@ -12,11 +17,6 @@
 // For tests: PLAN_USAGE_DIR (log folder), PLAN_USAGE_CREDS (login file), PLAN_USAGE_URL
 // (endpoint; ignored unless PLAN_USAGE_CREDS is set too, so the real login can't go elsewhere).
 import { crashLog } from "./lib/crash-log.mjs";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 if ((process.env.PLAN_USAGE_LOGGER || "").toLowerCase() === "off")
   process.exit(0);

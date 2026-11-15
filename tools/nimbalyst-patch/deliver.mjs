@@ -267,7 +267,7 @@ function hashFile(file, algo, encoding) {
     fd = fs.openSync(file, "r"),
     buf = Buffer.alloc(8 * 1024 * 1024);
   try {
-    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;)
+    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0; )
       h.update(buf.subarray(0, n));
   } finally {
     fs.closeSync(fd);
@@ -864,7 +864,7 @@ async function main(argv) {
 }
 
 // for restart.mjs
-export { installDir, appState, running, downloadRunning };
+export { appState, downloadRunning, installDir, running };
 
 const real = (p) => {
   try {

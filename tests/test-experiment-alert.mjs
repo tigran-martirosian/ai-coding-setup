@@ -1,6 +1,7 @@
 // Tests for hooks/experiment-alert.mjs with a fake home folder and a fake ~/.claude.json (never the real one).
 // Run: node tests/test-experiment-alert.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // the broken-file case must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

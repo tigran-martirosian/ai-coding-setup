@@ -34,7 +34,9 @@ web-answer-gate hook blocks a reply that hedges without having checked one (`HED
      `npx -y defuddle@0.19.6 parse <url> --md > <file>.md` in the temp folder, then Grep/Read the file and
      delete it after reading; a page the user asked to keep goes to `docs/research/`.
   3. A GitHub repo: `gh repo view <o>/<r>`, `gh api repos/<o>/<r>/readme`, `gh release view -R <o>/<r>`.
-  4. A page built by script, a signed-in page, or one that refuses the steps above:
+  4. A page built by script (the saved file is near-empty, or holds `${...}` placeholders where the
+     values should be; r.jina.ai can miss them too), a signed-in page, or one that refuses the steps
+     above:
      `node <projects folder>/quick-tasks/tools/peek.mjs <url>...` (Nimbalyst's browser, its sign-ins
      shared; `--find "words"`; `--save <file>` writes the whole text and prints its length).
      `--engine obscura` reads with a headless browser fallback (Obscura), signed out; peek.mjs also

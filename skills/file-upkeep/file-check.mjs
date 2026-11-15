@@ -31,13 +31,13 @@ const stop = (why) => {
   if (stopNote) console.log(stopNote);
   process.exit(1);
 };
-const valueOf = (flag) => {
+const flagValue = (flag) => {
   const at = args.indexOf(flag);
   if (at === -1) return undefined;
   const v = args[at + 1];
   return v && !v.startsWith("--") ? v : null;
 };
-const homeArg = valueOf("--home");
+const homeArg = flagValue("--home");
 if (homeArg === null) stop("--home needs a folder.");
 const home = homeArg === undefined ? os.homedir() : path.resolve(homeArg);
 const HOMES = args.includes("--homes");
@@ -73,7 +73,6 @@ const minutesFor = (fix, ask, refFiles) =>
       )
     : 0;
 const OLD_DAYS = 90;
-const BIG_REF = 50 * 1024 * 1024; // over this, a file is name-checked only
 const BIG_TEXT = 1024 * 1024; // over this, a file is not searched or edited for references
 
 const git = (root, ...a) => {
@@ -236,6 +235,7 @@ const splitExt = (name) => {
 const words = (stem) =>
   stem
     .normalize("NFKD")
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: the range \x00-\x7f is all of ASCII; this drops every other character
     .replace(/[^\x00-\x7f]/g, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
@@ -544,9 +544,11 @@ function scan(root) {
   const found = [],
     notes = [];
   let ignoredCount = 0;
-  const live = p.files.filter((f) =>
-    ignoredBy(p.standard, f) ? (ignoredCount++, false) : true,
-  );
+  const live = p.files.filter((f) => {
+    if (!ignoredBy(p.standard, f)) return true;
+    ignoredCount++;
+    return false;
+  });
   const has = new Set(live);
   const add = (f) => found.push(f);
   const del = (rel, rules, why) =>
@@ -1152,7 +1154,7 @@ function checkLedger(l) {
   return { r, faults };
 }
 function check() {
-  const { faults } = checkLedger(loadLedger(valueOf("--check")));
+  const { faults } = checkLedger(loadLedger(flagValue("--check")));
   console.log(
     faults.length
       ? `check: ${faults.length} faults\n${faults.map((x) => `  ${x}`).join("\n")}`
@@ -1250,7 +1252,7 @@ function fixRefs(p, text, citing, citingNew, pairs) {
   return [out, edits.filter((e) => e.old !== e.new)];
 }
 function apply() {
-  const file = valueOf("--apply"),
+  const file = flagValue("--apply"),
     l = loadLedger(file);
   const { r, faults } = checkLedger(l);
   if (faults.length)
@@ -1514,7 +1516,7 @@ function apply() {
 
 // ---- undo
 function undo() {
-  let file = valueOf("--undo");
+  let file = flagValue("--undo");
   if (file === null || file === undefined) {
     const list = fs.existsSync(LOGS)
       ? fs
@@ -1593,7 +1595,8 @@ function undo() {
   for (const x of named) console.log(`  by hand: ${x}`);
 }
 
-export { dateIn, fixName, refSpans, breaks };
+export { breaks, dateIn, fixName, refSpans };
+
 const MODES = {
   "--report": report,
   "--status": status,

@@ -76,7 +76,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **The Nimbalyst extensions** are built from source. In the `usage-plan` and `commands` folders under
   `extensions`: `npm install`, `npm run build`, `npm run install-ext`, then restart Nimbalyst. You should
   see a new button in Nimbalyst's left gutter. The `ink-themes` extension needs only
-  `npm run build` and `npm run install-ext`, and `agents-panel` needs no npm (both below).
+  `npm run build` and `npm run install-ext`, and `agents-panel` needs no npm (both below), nor does
+  `job-tracker`: `npm run install-ext` in its folder.
 - **Colour themes.** The `ink-themes` extension adds eleven: eight dark ones (Ink Aurora, Ivy,
   Graphite, Tide, Ember, Noir, Cobalt, Neon) and three light ones (Ink Bone, Frost, Blossom).
   Press the **Theme** button at the bottom of the left gutter, press **Ink themes** to unfold the
@@ -106,14 +107,20 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **"Needs you" at the end of a reply.** That is your to-do list. Anything to type or paste comes in
   a copy box, with where it goes and what you should see afterwards.
 - **The Commands button** (a lightning bolt in Nimbalyst's left gutter, from the `commands`
-  extension). It opens a short list: board cleanup, next move, project scan, setup audit, usage
-  report, PC tidy, new project, update setup (and chat review and full review in the
-  `claude-settings` folder). Press one and a new chat starts in the open project with that command. You
+  extension). It opens a short list in four groups: lead, grill me, next move, where are we, board
+  cleanup; new project, update project, systems map, untangle; setup audit, update setup, backup;
+  PC tidy, disk tidy. Setup audit opens its checks in place (health, usage report, prompt audit,
+  project scan, and chat review and full review in the `claude-settings` folder). Press one and a new chat starts in the open project with that command. You
   should see the new chat in the sessions list.
 - **The Agents & commands list** (right sidebar, from the `agents-panel` extension) shows the helpers
   and background commands Claude has started. Each row is named after its job, for example
   `Web search: library sign-in steps`; hover a row to see the full command. Click "N finished" to
   open or fold the finished ones, and drag the list's bottom edge to make it taller.
+- **The job tracker** (Nimbalyst's tracker page, from the `job-tracker` extension) shows the job in
+  hand, meaning any work over more than one session: what needs you, what is running and what is left.
+  Click the job's name to switch to another. A step with a file to read opens it in one click. The
+  session you are in stays open on the right of the page, so you can keep working while you look. Ask
+  Claude `/where-are-we` to bring the steps up to date.
 - **Reading back while Claude works.** Scroll up in the chat and it stays there while new text
   arrives (also from the `agents-panel` extension). Scroll back to the end, press the round arrow at
   the bottom, or send a message, and it follows the newest text again.

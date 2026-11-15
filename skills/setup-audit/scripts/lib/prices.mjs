@@ -5,6 +5,10 @@
 
 // What one API message would cost at Anthropic's list prices (dollars per million tokens: input, output,
 // cache read; cache writes cost 1.25x input, 2x for the 1-hour cache). First matching model name wins.
+// An optional fifth item [tokens, input, output, cache read] gives the prices of a message whose prompt
+// (input, cache writes and cache reads together) is over that many tokens.
+// Checked 2026-11-14 at https://platform.claude.com/docs/en/about-claude/pricing: cache reads are 0.025x
+// input on Fable 5.1 and 5.2, 0.05x on Opus 5.5 and Sonnet 5.5, 0.1x on every other model.
 // A plan is not billed this way: usage-scan uses it as the plan weight of a message.
 export const PRICE = [
   [/opus-5-5/, 4, 20, 0.2],
@@ -13,7 +17,9 @@ export const PRICE = [
   [/fable-5-1|mythos-5-1/, 10, 50, 0.25],
   [/fable|mythos/, 10, 50, 1],
   [/sonnet-4/, 3, 15, 0.3],
+  [/sonnet-5-5/, 2, 10, 0.1],
   [/sonnet/, 2, 10, 0.2],
+  [/haiku-5-5/, 0.1, 0.5, 0.01, [100000, 0.5, 2.5, 0.05]],
   [/haiku/, 1, 5, 0.1],
 ];
 // A model that is not in PRICE is priced like Sonnet (usage-scan names it on stderr)

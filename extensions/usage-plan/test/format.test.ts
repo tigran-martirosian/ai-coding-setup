@@ -1,19 +1,19 @@
 // How the session pace is worked out, and how time spans are worded.
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import type { Pace, Plan } from "../src/format.ts";
 import {
-  WEEK_MS,
   elapsedPercent,
   extraLimits,
   failureLine,
   paceHours,
   sessionPace,
   span,
+  WEEK_MS,
   weekForecast,
   weekTone,
   when,
 } from "../src/format.ts";
-import type { Pace, Plan } from "../src/format.ts";
 
 const plan = (_: unknown[], average: Pace | null = null): Plan => ({
   status: "ok",
@@ -137,12 +137,14 @@ const cases: [string, () => void][] = [
       } as Plan;
       assert.equal(paceHours(base), 6);
       assert.equal(
+        // biome-ignore lint/style/noNonNullAssertion: base above has a week
         paceHours({ ...base, week: { ...base.week!, average: null } }),
         6,
       );
       assert.equal(
         paceHours({
           ...base,
+          // biome-ignore lint/style/noNonNullAssertion: base above has a week
           week: { ...base.week!, average: null, recent: null },
         }),
         null,

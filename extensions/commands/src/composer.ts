@@ -1,17 +1,19 @@
 // Puts a Note button next to the Send button of every chat composer in the page, and runs the wake
 // bridge. This reaches into the app's own markup (see find.ts), so an app update may break it; when
 // it does the button just does not appear, and the reason is in the console.
-import { pollOutbox, newState, POLL_MS } from "./bridge";
-import { findComposers, readFiles, removeFiles } from "./find";
-import type { El } from "./find";
-import { endMessage, homeDir, noteEnds, sendNote } from "./note";
-import type { Pending } from "./note";
+
 import type { Invoke } from "../../shared/host.ts";
-import { t } from "./strings";
+import { newState, POLL_MS, pollOutbox } from "./bridge.ts";
+import type { El } from "./find.ts";
+import { findComposers, readFiles, removeFiles } from "./find.ts";
+import type { Pending } from "./note.ts";
+import { endMessage, homeDir, noteEnds, sendNote } from "./note.ts";
+import { t } from "./strings.ts";
 
 const TAG = "[commandbuttons]";
 const WRAP = "data-note-wrap";
 const NOTE_POLL_MS = 2000;
+export const RESCAN_MS = 150;
 
 type Say = (kind: "ok" | "bad" | "busy" | "held", message: string) => void;
 /** One chat box's Note button, as the code outside it needs it. */
@@ -238,9 +240,13 @@ export function startNoteButtons(invoke: Invoke): () => void {
     }
   };
   let rescan: ReturnType<typeof setTimeout> | undefined;
+  // At most one scan per RESCAN_MS, never put off by new changes: a streaming reply changes the page
+  // every few ms, so a timer restarted on each change never fired and a running chat box had no Note
   const observer = new MutationObserver(() => {
-    clearTimeout(rescan);
-    rescan = setTimeout(scan, 150);
+    rescan ??= setTimeout(() => {
+      rescan = undefined;
+      scan();
+    }, RESCAN_MS);
   });
   observer.observe(document.body, { childList: true, subtree: true });
   scan();

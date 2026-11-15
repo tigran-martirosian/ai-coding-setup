@@ -1,9 +1,9 @@
 // Reads the map file and the path check. The panel calls `read` when it opens and every REFRESH_MS while it is open.
 
-import { hostError, readHostFile, startSession } from "../../shared/host.ts";
 import type { Invoke } from "../../shared/host.ts";
-import { MAP_REL, classify, parseCheck } from "./map.ts";
+import { hostError, readHostFile, startSession } from "../../shared/host.ts";
 import type { Check, Loaded } from "./map.ts";
+import { classify, MAP_REL, parseCheck } from "./map.ts";
 
 export interface ExecResult {
   success: boolean;

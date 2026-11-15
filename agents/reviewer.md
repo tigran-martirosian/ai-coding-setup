@@ -13,7 +13,7 @@ Read the request first and the code after it. Start from the files the brief nam
 
 Where to look besides the diff:
 - **Decisions:** the DECISIONS lines the brief quotes, then the project's `DECISIONS.md`: its first section `## What each thing is for` (the purpose record) and its newest dated section below it, plus a Grep of it for each thing the diff touches, never a whole read.
-- **What the change reaches:** `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>`, and whether each other end was checked.
+- **What the change reaches:** the SYSTEMS MAP lines in your brief name the parts it touches and their links; check that each other end was checked. Run `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>` only for a changed part those lines don't cover or whose links they cut, and not at all when the brief has no SYSTEMS MAP line.
 
 Check, in this order:
 

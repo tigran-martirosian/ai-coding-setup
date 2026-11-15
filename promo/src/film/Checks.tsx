@@ -7,21 +7,21 @@ import {
   glide,
   Head,
   mix,
-  sec,
   Stamp,
+  sec,
   useTick,
   Wire,
 } from "./kit";
 import { accent, color, MARGIN, TOP, TYPE } from "./look";
+import { need } from "./need";
 import {
   CLAIM_AT,
   LOG_LABEL,
   PASSED,
   REPLY_LABEL,
   SENT_BACK,
-  Shot,
+  type Shot,
 } from "./script";
-import { need } from "./need";
 
 // The two claim shots share one diagram: the agent's reply on the left, its session log on the right. A red wire
 // runs from the claim to the empty place in the log where the step should be, the reply is sent back, the agent
@@ -139,6 +139,7 @@ export const Claim: React.FC<{ shot: Shot }> = ({ shot }) => {
         const strike = changes ? ease(t, CLAIM_AT.sent + sec(0.3), FADE) : 0;
         const struck = strike > 0;
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list drawn once per video frame; it never reorders and holds no state
           <React.Fragment key={i}>
             <div
               style={{

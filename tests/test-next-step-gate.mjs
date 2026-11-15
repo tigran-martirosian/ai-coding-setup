@@ -1,10 +1,11 @@
 // Tests for hooks/next-step-gate.mjs (a reply that ends on Claude's own next step is sent back once).
 // Run: node tests/test-next-step-gate.mjs
 process.env.HOOK_ERRORS_LOG = "off";
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HOOK = fileURLToPath(
@@ -158,7 +159,7 @@ const run = (extra = {}, env = {}) =>
     env: { ...process.env, HOME: state, USERPROFILE: state, ...env },
   });
 let r = run();
-let out = r.stdout ? JSON.parse(r.stdout) : {};
+const out = r.stdout ? JSON.parse(r.stdout) : {};
 check(
   "hook: blocks with a reason",
   out.decision === "block" && /next-step-gate/.test(out.reason),

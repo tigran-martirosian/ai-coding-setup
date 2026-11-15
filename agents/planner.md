@@ -28,7 +28,7 @@ The brief names the folders the work reads or changes, each with its commit. Rea
 
 1. **The state of each folder:** `git -C <folder> status --short`, `git -C <folder> log --oneline -5` and `git -C <folder> worktree list`. Your shell runs only reading commands (git status, diff, log, show, the listing and text tools, the map reader); anything else is refused. Running the project's tests or builds is not yours: write the check into the row's Expect before, and the plan-reviewer runs it.
 2. **The project's memory:** its `HANDOFF.md`, then `DECISIONS.md`'s first section `## What each thing is for` (the purpose record) and its newest dated section below it, plus a Grep of it for each topic the plan touches and for each thing a row builds or runs (its name and the user's words for it), never a whole read. The hits are where each row's Serves quote comes from.
-3. **The systems map:** `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>` for every part the plan touches, and follow its links. The SYSTEMS MAP lines in the brief were matched on the brief's own words, so they miss parts it does not name.
+3. **The systems map:** the SYSTEMS MAP lines in the brief cover the parts the brief names. For a part the plan touches that those lines don't cover or whose links they cut, run `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>` and follow its links; none when the brief has no SYSTEMS MAP line.
 4. **Every file or folder a row will list under Files**, opened before you send the plan. A file you list without opening it is named in the Read line as "listed, not opened".
 5. **Every existing design, sub-plan or spec** for a part you size (a layout, a floor plan, a spec, a mock-up, a design file), and the project's tools that draw or preview one. A step that has its own plan file is sized from that file. A build step that follows a design finishes; one that has to invent it stalls.
 6. **The places a change reaches:** the map's links, and every copy that must stay in step (for a setup: the live copy and the repo copy).
@@ -79,13 +79,14 @@ In this order, as the user reads it:
 5. **What the request involves:** the list from the sizing section, each item decided (with its file), open (with the step that settles it) or `NEEDS RESEARCH: <what would settle it>`.
 6. **The job-list rows:**
 
-   | Step | Job | Decides | Serves | Files | Expect before | Done when | Helper | Runs | Budget |
-   |---|---|---|---|---|---|---|---|---|---|
+   | Step | Job | Decides | Serves | Files | Stage | Expect before | Done when | Helper | Runs | Budget |
+   |---|---|---|---|---|---|---|---|---|---|---|
 
    - Decides: what this step settles, or `nothing (follows <file>)`. Several unrelated things in one cell means two steps.
    - Serves: the user's words on what this row's result is for, with the DECISIONS date, as in `"…" (DECISIONS 2026-11-12)`; cut only with "…". Every brief and hand-off copies the cell unchanged, so a pointer ("decided, see DECISIONS") is never enough. A merge or record row writes `none (mechanics)`. A row whose Job, Files or Done when names a thing in the purpose record quotes that entry's words in Serves, and marks any limit on it `NARROWED`; a hook checks both and refuses the worker's start on a row that misses one.
    - A limit that is not in the user's words (read-only, no exploits, held, a safer stand-in) is written in the row as `NARROWED: <what>, because <why>` and listed under Needs the user's OK. A caution sets where work runs (a worktree, a copy, a stopped server), never what the work is.
    - Files: every file the step changes, so one owner per file can be checked.
+   - Stage: the part of the job and its kind, as in `Part 2 · design`, so the rows group into stages on the tracker.
    - Expect before: a check, `<command or file> → <what it should show>`, so the plan-reviewer can run it.
    - Done when: the one check that proves the step, a command where there is one. It fails when the Serves purpose is unmet: a check that passes on a build that cannot do what the quote says proves nothing.
    - A total you state (seconds, files, calls, cost) is the sum of the parts you list: add them up before you send it.

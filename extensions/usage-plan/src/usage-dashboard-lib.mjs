@@ -279,14 +279,54 @@ export function planFor(P, days, week) {
   t.mine = t.total - t.other;
   return t;
 }
-// The estimate covers the whole account, so it is hidden while a project, subagent or search filter is on
-export const otherTokensFor = (P, shared, filtered, d) =>
-  shared && P.status === "ok" && !filtered
-    ? Math.max(0, P.days[d]?.other ?? 0) * P.tokensPerPoint
-    : 0;
+// The scale of the plan a day fell in: weekly points per list-price dollar of this computer's use. plan-use.mjs fits
+// one per plan (P.eras); a day takes the plan in force at its local noon, a day before the log the first plan's, as
+// plan-use does. null: that plan has no scale yet.
+export function dayScale(P, d) {
+  if (!Array.isArray(P.eras))
+    throw new Error("plan data has no per-plan scales: rerun the usage build");
+  const t = new Date(d + "T12:00:00").getTime();
+  return P.eras.findLast((e, n) => n === 0 || e.after <= t)?.perUnit ?? null;
+}
+// The day chart's bars (days = day keys, rs = chatRows output). Once the plan has a scale they are plan points
+// (1 point = 1% of the weekly limit): this computer's main chats and subagents are their list-price dollars at the
+// day's scale, and other use is the estimate from plan-use. Before that they are tokens, with no other use.
+// The estimate covers the whole account, so it is left out while a project, subagent or search filter is on.
+export function dayBars(rs, days, P, shared, filtered) {
+  const points = P.status === "ok";
+  const scale = new Map(points ? days.map((d) => [d, dayScale(P, d)]) : []);
+  const per = new Map(
+    days.map((d) => [
+      d,
+      {
+        main: 0,
+        sub: 0,
+        other:
+          points && shared && !filtered
+            ? Math.max(0, P.days[d]?.other ?? 0)
+            : 0,
+      },
+    ]),
+  );
+  const add = (u, k) => {
+    if (points && !u.usd)
+      throw new Error("usage data has no per-day cost: rerun the usage scan");
+    const by = points ? u.usd : u.dayTot;
+    for (const d in by)
+      if (per.has(d))
+        per.get(d)[k] += points ? by[d] * (scale.get(d) ?? 0) : by[d];
+  };
+  for (const r of rs) {
+    add(r.s, "main");
+    for (const a of r.s.subagents) add(a, "sub");
+  }
+  return { unit: points ? "points" : "tokens", per };
+}
+// One figure of the day chart: "3.4%" of the weekly limit, or "12.3M" tokens
+export const dayFig = (unit, n) => (unit === "points" ? `${pts(n)}%` : fmt(n));
 
 export function niceMax(v) {
-  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const p = 10 ** Math.floor(Math.log10(v));
   const f = v / p;
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
 }

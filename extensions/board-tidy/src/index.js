@@ -311,4 +311,4 @@ function deactivate() {
   timers = [];
 }
 
-export { activate, deactivate, aiTools, STRINGS };
+export { activate, aiTools, deactivate, STRINGS };

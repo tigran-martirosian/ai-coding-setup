@@ -216,11 +216,11 @@
 
   <div class="cols2">
     <section class="panel"><div class="head"><h2>Projects</h2></div><div id="projects"></div></section>
-    <section class="panel"><div class="head"><h2>Models</h2><span class="note" title="Each model's share of what it costs the plan: tokens weighed at list prices, so a Fable token counts twice an Opus one">share of plan use</span></div><div id="models"></div></section>
+    <section class="panel"><div class="head"><h2>Models</h2><span class="note" title="Each model's share of the plan use of this computer only, not of the weekly limit: tokens weighed at list prices, so a Fable input or output token counts twice an Opus 5.5 one">share of this computer's plan use</span></div><div id="models"></div></section>
   </div>
 
   <section class="panel" id="daily-s">
-    <div class="head"><h2>Tokens per day</h2><div class="legend" id="legend"></div></div>
+    <div class="head"><h2 id="daily-h">Tokens per day</h2><div class="legend" id="legend"></div></div>
     <div id="daily"></div>
   </section>
 
@@ -259,10 +259,6 @@ const rows = (days, skip) => chatRows(D.sessions, days, { project: state.project
 const codexRuns = (rs, days) => codexRunsOf(rs, D.codex.sessions, days, query());
 const geminiRuns = (days) => geminiRunsOf(D.gemini.conversations, days, query());
 
-// Claude plan use recorded for the whole account, split into this computer and other use.
-// 1 point = 1% of the weekly limit. The split is an estimate (see plan-use.mjs).
-// The estimate covers the whole account, so it is hidden while a project, subagent or search filter is on
-const otherTokens = (d) => otherTokensFor(P, SHARED, !!(state.project || state.type || query()), d);
 
 
 function ranks(items, attr, picked) {
@@ -381,27 +377,26 @@ function renderAhead() {
       <div class="legend">${legend}</div></details>`;
 }
 
-// One bar says nothing, so the chart shows only when the range has two days or more
+// One bar says nothing, so the chart shows only when the range has two days or more.
+// In % of the weekly limit once the plan has a scale, in tokens before that (dayBars in the lib).
 function renderDaily() {
   const days = rangeDays();
   $("daily-s").hidden = days.length < 2;
   if (days.length < 2) return;
-  const per = new Map(days.map((d) => [d, { main: 0, sub: 0, other: otherTokens(d) }]));
+  const { unit, per } = dayBars(rows(new Set(days)), days, P, SHARED, !!(state.project || state.type || query()));
+  $("daily-h").textContent = unit === "points" ? "Plan use per day, % of the weekly limit" : "Tokens per day";
+  const said = (n) => unit === "points" ? `${pts(n)}% of the weekly limit` : `${fmt(n)} tokens`;
   const anyOther = [...per.values()].some((v) => v.other > 0);
   $("legend").innerHTML = `<span><i class="dot s1"></i>Main chat</span><span><i class="dot s2"></i>Subagents</span>${anyOther ? `<span><i class="dot s3"></i>Other use</span>` : ""}`;
-  for (const r of rows(new Set(days))) {
-    for (const d in r.s.dayTot) if (per.has(d)) per.get(d).main += r.s.dayTot[d];
-    for (const a of r.s.subagents) for (const d in a.dayTot) if (per.has(d)) per.get(d).sub += a.dayTot[d];
-  }
   const max = niceMax(Math.max(1, ...[...per.values()].map((v) => v.main + v.sub + v.other)));
   const step = Math.ceil(days.length / 10);
   const ticks = [0, 0.5, 1];
   $("daily").innerHTML = `<div class="chart">
-    <div class="yaxis">${ticks.map((t) => `<span style="bottom:${t * 100}%">${t ? fmt(max * t).replace(/\.0+(?=\D)/, "") : "0"}</span>`).join("")}</div>
+    <div class="yaxis">${ticks.map((t) => `<span style="bottom:${t * 100}%">${!t ? "0" : unit === "points" ? dayFig(unit, max * t) : fmt(max * t).replace(/\.0+(?=\D)/, "")}</span>`).join("")}</div>
     <div class="plot">${ticks.map((t) => `<i class="gridline${t ? "" : " base"}" style="bottom:${t * 100}%"></i>`).join("")}
       <div class="days${state.day ? " picked" : ""}">${days.map((d) => {
         const v = per.get(d);
-        return `<button class="day${state.day === d ? " on" : ""}" data-day="${d}" data-main="${v.main}" data-sub="${v.sub}" data-other="${Math.round(v.other)}" aria-pressed="${state.day === d}" aria-label="${fmtDay(d)}: ${fmt(v.main + v.sub)} tokens${v.other ? `, other use about ${fmt(v.other)}` : ""}"><span class="stack">${v.other ? `<i class="seg s3" style="height:${v.other / max * 100}%"></i>` : ""}${v.sub ? `<i class="seg s2" style="height:${v.sub / max * 100}%"></i>` : ""}${v.main ? `<i class="seg s1" style="height:${v.main / max * 100}%"></i>` : ""}</span></button>`;
+        return `<button class="day${state.day === d ? " on" : ""}" data-day="${d}" data-unit="${unit}" data-main="${v.main}" data-sub="${v.sub}" data-other="${v.other}" aria-pressed="${state.day === d}" aria-label="${fmtDay(d)}: this computer ${said(v.main + v.sub)}${v.other ? `, other use about ${said(v.other)}` : ""}"><span class="stack">${v.other ? `<i class="seg s3" style="height:${v.other / max * 100}%"></i>` : ""}${v.sub ? `<i class="seg s2" style="height:${v.sub / max * 100}%"></i>` : ""}${v.main ? `<i class="seg s1" style="height:${v.main / max * 100}%"></i>` : ""}</span></button>`;
       }).join("")}</div>
     </div>
     <div></div>
@@ -568,7 +563,8 @@ document.addEventListener("mousemove", (e) => {
   const c = e.target.closest?.(".day");
   if (!c) { tip.hidden = true; return; }
   const main = Number(c.dataset.main), sub = Number(c.dataset.sub), other = Number(c.dataset.other);
-  tip.innerHTML = `<div class="h">${fmtDay(c.dataset.day)}</div><div><span>This computer</span><b>${fmt(main + sub)}</b></div><div><span><i class="dot s1"></i>Main chat</span><span>${fmt(main)}</span></div><div><span><i class="dot s2"></i>Subagents</span><span>${fmt(sub)}</span></div>${other ? `<div><span><i class="dot s3"></i>Other use</span><span>≈ ${fmt(other)}</span></div>` : ""}`;
+  const f = (n) => dayFig(c.dataset.unit, n);
+  tip.innerHTML = `<div class="h">${fmtDay(c.dataset.day)}</div><div><span>This computer</span><b>${f(main + sub)}</b></div><div><span><i class="dot s1"></i>Main chat</span><span>${f(main)}</span></div><div><span><i class="dot s2"></i>Subagents</span><span>${f(sub)}</span></div>${other ? `<div><span><i class="dot s3"></i>Other use</span><span>≈ ${f(other)}</span></div>` : ""}`;
   tip.hidden = false;
   const w = tip.offsetWidth, h = tip.offsetHeight;
   tip.style.left = Math.min(e.clientX + 14, window.innerWidth - w - 8) + "px";

@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 // handoff-brief: writes a short brief of a Claude Code session so work can continue in a fresh
 // session (the /handoff skill). Reads only the transcript: the first and last user requests,
 // files edited, and Claude's last reply.
@@ -22,10 +26,6 @@ import {
   SYNTHETIC,
   userText,
 } from "./lib/transcript.mjs";
-import { createHash } from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const args = process.argv.slice(2);
 const hook = args.includes("--hook");
@@ -102,7 +102,7 @@ function findTranscript() {
       );
     const own = (dir) =>
       jsonl(dir).filter((f) => path.basename(f).startsWith(session));
-    let found = own(path.join(projectsDir, key));
+    const found = own(path.join(projectsDir, key));
     if (!found.length)
       for (const d of fs.existsSync(projectsDir)
         ? fs.readdirSync(projectsDir)

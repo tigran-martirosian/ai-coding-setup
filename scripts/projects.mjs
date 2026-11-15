@@ -3,16 +3,16 @@
 // notes files (CLAUDE.md, how-to.md) as a run last wrote them, for state.written.
 import fs from "node:fs";
 import path from "node:path";
+import {
+  appendOwn,
+  carve,
+  historyKeys,
+  key,
+  splitBlocks,
+  unfit,
+} from "./blocks.mjs";
 import { filesIn, fwd, read, sha } from "./files.mjs";
 import { retire, wire } from "./wiring.mjs";
-import {
-  splitBlocks,
-  key,
-  unfit,
-  carve,
-  appendOwn,
-  historyKeys,
-} from "./blocks.mjs";
 
 const NOTE = "## Workers on this computer";
 // The lines about a missing worker, as the last section of a folder's CLAUDE.md; none when nothing is missing

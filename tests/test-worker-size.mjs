@@ -1,10 +1,11 @@
 // Test for hooks/worker-size.mjs: made-up subagent transcripts, hook run as a child process.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import { fileURLToPath } from "node:url";
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/worker-size.mjs", import.meta.url),

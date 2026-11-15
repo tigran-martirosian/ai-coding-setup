@@ -1,11 +1,21 @@
 name: Tests
 
+# main gets one squash-merged pull request per release; tags start no run (the commit was tested as main).
+# A pull request title is read when the pull request is opened, reopened or pushed to: after an edit of the
+# title, push again (a re-run reads the old title).
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# A new push to a pull request stops its older run; runs on main always finish, one per release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -14,9 +24,12 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # The limit stops a hung job, not one waiting in the queue. When GitHub has no macOS runner free, the job
+    # ends red with "The job was not acquired by Runner"; that is not a test failure: re-run the failed job.
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
       # tests/test-watch.mjs draws a short video with ffmpeg, which the runners do not have.
@@ -25,8 +38,84 @@ jobs:
       # On a Mac the plain ffmpeg has no drawtext filter; skills/watch/watch.mjs finds ffmpeg-full by itself.
       - if: runner.os == 'macOS'
         run: brew install ffmpeg ffmpeg-full
-      # tests/test-versions.mjs asks the GitHub API; without a token the shared runner addresses hit its rate limit
       # --verbose: one file at a time with its full output, so a failure's whole log is in the run
       - run: node tests/run-all.mjs --verbose
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: biomejs/setup-biome@4c91541eaada48f67d7dbd7833600ce162b68f51 # v2.7.1
+        # The Biome of biome.json's $schema; a newer one can bring new rules that fail CI
+        with:
+          version: 2.6.7
+      - run: biome ci .
+
+  # One job, not a matrix, so the check is named "typecheck" (the release ruleset requires that name).
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            extensions/commands/package-lock.json
+            extensions/read-aloud/package-lock.json
+            extensions/systems-map/package-lock.json
+            extensions/usage-plan/package-lock.json
+      # Each folder in its own step, so a failure stops the job and the step name says which folder.
+      # The commands tests include copy-row, which bundles with the installed esbuild.
+      - name: commands
+        working-directory: extensions/commands
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+          npm test
+      - name: read-aloud
+        if: ${{ !cancelled() }}
+        working-directory: extensions/read-aloud
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+      - name: systems-map
+        if: ${{ !cancelled() }}
+        working-directory: extensions/systems-map
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+      - name: usage-plan
+        if: ${{ !cancelled() }}
+        working-directory: extensions/usage-plan
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+
+  # The private word list never leaves the PC (git ignores it), so CI checks the patterns only:
+  # home folder paths, email addresses, keys and tokens, credit lines, backup files, big files.
+  privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: node scripts/privacy-check.mjs .
+
+  # Type and length only; the ids of open plan rows are checked on the PC by the commit hook.
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: node scripts/check-pr-title.mjs "$TITLE"
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          TITLE: ${{ github.event.pull_request.title }}

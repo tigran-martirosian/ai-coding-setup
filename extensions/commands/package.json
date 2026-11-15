@@ -7,8 +7,8 @@
     "build": "vite build",
     "build:share": "vite build --mode share",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types test/commands.test.ts && node --experimental-strip-types test/note.test.ts && node --experimental-strip-types test/launcher.test.ts",
-    "install-ext": "node scripts/install.mjs"
+    "test": "node --experimental-strip-types test/commands.test.ts && node --experimental-strip-types test/note.test.ts && node --experimental-strip-types test/launcher.test.ts && node --experimental-strip-types test/copy-row.test.ts",
+    "install-ext": "npm run build && node scripts/install.mjs"
   },
   "devDependencies": {
     "@nimbalyst/extension-sdk": "^0.6.0",

@@ -1,11 +1,12 @@
 // Tests for hooks/handoff-brief.mjs. Run: node tests/test-handoff-brief.mjs
 // Uses a throwaway home folder, so the real ~/.claude/handoffs is never touched.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import { fileURLToPath } from "node:url";
+
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const SCRIPT =
   process.env.HANDOFF_BRIEF ||

@@ -4,16 +4,19 @@
  * usage-dashboard-lib; this file only filters, lays out and words it.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { progressFraction } from "./dashboard-data";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { DashboardData, DashboardState } from "./dashboard-data";
+import { progressFraction } from "./dashboard-data";
 import { DASHBOARD_CSS } from "./dashboard-styles";
 import { clock } from "./format";
 import { t } from "./strings";
 import {
   chatRows,
   codexRunsOf,
+  type DayBar,
+  dayBars,
+  dayFig,
   fmt,
   fmtDay,
   fmtTime,
@@ -23,7 +26,6 @@ import {
   leaf,
   modelName,
   niceMax,
-  otherTokensFor,
   pad,
   pct,
   planFor,
@@ -159,6 +161,8 @@ function Ranks({
         );
         return onPick && x.key != null ? (
           <button
+            type="button"
+            // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
             key={i}
             className={`ud-rank${picked === x.key ? " on" : ""}`}
             aria-pressed={picked === x.key}
@@ -167,6 +171,7 @@ function Ranks({
             {inner}
           </button>
         ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
           <div key={i} className="ud-rank">
             {inner}
           </div>
@@ -486,35 +491,28 @@ function Ahead({ A, shared }: { A: any; shared: boolean }) {
   );
 }
 
-// ---- tokens per day ----
+// ---- plan use per day (tokens until the plan has a scale) ----
 
-interface DayTip {
+interface DayTip extends DayBar {
   day: string;
-  main: number;
-  sub: number;
-  other: number;
+  unit: Unit;
   x: number;
   y: number;
 }
+type Unit = "points" | "tokens";
 
 function Daily(p: {
   days: string[];
-  rs: any[];
-  other: (d: string) => number;
+  unit: Unit;
+  per: Map<string, DayBar>;
   picked: string | null;
   onPick: (d: string) => void;
 }) {
   const [tip, setTip] = useState<DayTip | null>(null);
-  const per = new Map<string, { main: number; sub: number; other: number }>(
-    p.days.map((d) => [d, { main: 0, sub: 0, other: p.other(d) }]),
-  );
-  for (const r of p.rs) {
-    for (const d in r.s.dayTot)
-      if (per.has(d)) (per.get(d) as { main: number }).main += r.s.dayTot[d];
-    for (const a of r.s.subagents)
-      for (const d in a.dayTot)
-        if (per.has(d)) (per.get(d) as { sub: number }).sub += a.dayTot[d];
-  }
+  const { per, unit } = p;
+  // the screen-reader text of a bar: the figure with its unit
+  const said = (n: number) =>
+    unit === "points" ? t.ofWeekly(pts(n)) : t.tokensN(fmt(n));
   const values = [...per.values()];
   const anyOther = values.some((v) => v.other > 0);
   const max = niceMax(
@@ -544,7 +542,11 @@ function Daily(p: {
         <div className="yaxis">
           {ticks.map((k) => (
             <span key={k} style={{ bottom: `${k * 100}%` }}>
-              {k ? fmt(max * k).replace(/\.0+(?=\D)/, "") : "0"}
+              {k
+                ? unit === "points"
+                  ? dayFig(unit, max * k)
+                  : fmt(max * k).replace(/\.0+(?=\D)/, "")
+                : "0"}
             </span>
           ))}
         </div>
@@ -558,24 +560,21 @@ function Daily(p: {
           ))}
           <div className={`days${p.picked ? " picked" : ""}`}>
             {p.days.map((d) => {
-              const v = per.get(d) as {
-                main: number;
-                sub: number;
-                other: number;
-              };
+              const v = per.get(d) as DayBar;
               return (
                 <button
+                  type="button"
                   key={d}
                   className={`day${p.picked === d ? " on" : ""}`}
                   aria-pressed={p.picked === d}
                   aria-label={t.dayLabel(
                     fmtDay(d),
-                    fmt(v.main + v.sub),
-                    v.other ? fmt(v.other) : "",
+                    said(v.main + v.sub),
+                    v.other ? said(v.other) : "",
                   )}
                   onClick={() => p.onPick(d)}
                   onMouseMove={(e) =>
-                    setTip({ day: d, ...v, x: e.clientX, y: e.clientY })
+                    setTip({ day: d, unit, ...v, x: e.clientX, y: e.clientY })
                   }
                   onMouseLeave={() => setTip(null)}
                 >
@@ -627,21 +626,21 @@ function Tip({ tip }: { tip: DayTip }) {
       <div className="h">{fmtDay(tip.day)}</div>
       <div>
         <span>{t.thisComputer}</span>
-        <b>{fmt(tip.main + tip.sub)}</b>
+        <b>{dayFig(tip.unit, tip.main + tip.sub)}</b>
       </div>
       <div>
         <span>
           <Dot s="s1" />
           {t.mainChat}
         </span>
-        <span>{fmt(tip.main)}</span>
+        <span>{dayFig(tip.unit, tip.main)}</span>
       </div>
       <div>
         <span>
           <Dot s="s2" />
           {t.subagents}
         </span>
-        <span>{fmt(tip.sub)}</span>
+        <span>{dayFig(tip.unit, tip.sub)}</span>
       </div>
       {tip.other ? (
         <div>
@@ -649,7 +648,7 @@ function Tip({ tip }: { tip: DayTip }) {
             <Dot s="s3" />
             {t.otherUse}
           </span>
-          <span>≈ {fmt(tip.other)}</span>
+          <span>≈ {dayFig(tip.unit, tip.other)}</span>
         </div>
       ) : null}
     </div>
@@ -726,6 +725,7 @@ function ChatDetail({ r, days }: { r: any; days: Set<string> }) {
           </thead>
           <tbody>
             {parts.map((x, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
               <tr key={i}>
                 <td className="nowrap">
                   <Dot s={x.cls} />
@@ -754,6 +754,7 @@ function ChatDetail({ r, days }: { r: any; days: Set<string> }) {
             <h3>{t.workersFromChat}</h3>
             <ul>
               {ws.map((w, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
                 <li key={i}>
                   {name[w.worker] ?? w.worker}
                   {w.web ? ` (${t.webSearch})` : ""}
@@ -832,6 +833,7 @@ function Chats(p: { rs: any[]; days: Set<string> }) {
             <tr>
               {cols.map(([k, label, c], i) => (
                 <th
+                  // biome-ignore lint/suspicious/noArrayIndexKey: fixed column list; it never reorders
                   key={i}
                   className={c}
                   aria-sort={
@@ -844,6 +846,7 @@ function Chats(p: { rs: any[]; days: Set<string> }) {
                 >
                   {k ? (
                     <button
+                      type="button"
                       className={sort === k ? "on" : ""}
                       onClick={() => pick(k)}
                     >
@@ -904,7 +907,7 @@ function Chats(p: { rs: any[]; days: Set<string> }) {
         </table>
       </div>
       {rs.length > shown.length && (
-        <button className="ud-more" onClick={() => setAll(true)}>
+        <button type="button" className="ud-more" onClick={() => setAll(true)}>
           {t.showAllChats(rs.length)}
         </button>
       )}
@@ -977,6 +980,7 @@ function CodexBody({
           </thead>
           <tbody>
             {shown.map((x, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
               <tr key={i}>
                 <td className="nowrap ud-muted">{fmtTime(x.at)}</td>
                 <td>
@@ -1016,7 +1020,7 @@ function CodexBody({
         </table>
       </div>
       {cx.length > shown.length && (
-        <button className="ud-more" onClick={() => setAll(true)}>
+        <button type="button" className="ud-more" onClick={() => setAll(true)}>
           {t.showAllRuns(cx.length)}
         </button>
       )}
@@ -1058,6 +1062,7 @@ function GeminiBody({
           </thead>
           <tbody>
             {shown.map((g, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are rebuilt from the data on every render and hold no state of their own
               <tr key={i}>
                 <td className="nowrap ud-muted">{fmtTime(g.at)}</td>
                 <td>{g.title || t.untitled}</td>
@@ -1073,7 +1078,7 @@ function GeminiBody({
         </table>
       </div>
       {gm.length > shown.length && (
-        <button className="ud-more" onClick={() => setAll(true)}>
+        <button type="button" className="ud-more" onClick={() => setAll(true)}>
           {t.showAllConversations(gm.length)}
         </button>
       )}
@@ -1138,11 +1143,12 @@ function Body({ D }: { D: any }) {
     () => chatRows(sessions, new Set(rangeDays), { project, type, q: query }),
     [sessions, rangeDays, project, type, query],
   );
+  const filtered = !!(project || type || query);
+  const bars = dayBars(rsRange, rangeDays, P, shared, filtered);
   const cx = codexRunsOf(rs, D.codex.sessions, days, query);
   const gm = geminiRunsOf(D.gemini.conversations, days, query);
 
   const week = day ? undefined : weeks.find((w) => w.key === range)?.week;
-  const filtered = !!(project || type || query);
   const A = D.ahead ?? { status: "none" };
   const cost = sum(rs, (r: any) => r.usd);
 
@@ -1182,7 +1188,9 @@ function Body({ D }: { D: any }) {
   for (const r of rs) {
     for (const u of [r.s, ...r.s.subagents]) {
       if (!u.dayUsd)
-        throw new Error("usage data has no per-model cost: rerun the usage scan");
+        throw new Error(
+          "usage data has no per-model cost: rerun the usage scan",
+        );
       for (const [d, m] of Object.entries<Record<string, number>>(
         u.days || {},
       )) {
@@ -1195,13 +1203,18 @@ function Body({ D }: { D: any }) {
         if (!days.has(d)) continue;
         for (const [name, c] of Object.entries(m))
           if (c > 0)
-            useByModel[modelName(name)] = (useByModel[modelName(name)] ?? 0) + c;
+            useByModel[modelName(name)] =
+              (useByModel[modelName(name)] ?? 0) + c;
       }
     }
   }
   const modelTotal = Object.values(useByModel).reduce((a, b) => a + b, 0);
   const modelItems: RankItem[] = Object.entries(byModel)
-    .map(([label, n]) => ({ label, value: useByModel[label] ?? 0, shown: fmt(n) }))
+    .map(([label, n]) => ({
+      label,
+      value: useByModel[label] ?? 0,
+      shown: fmt(n),
+    }))
     .sort((a, b) => b.value - a.value)
     .map((x) => ({
       ...x,
@@ -1312,11 +1325,13 @@ function Body({ D }: { D: any }) {
       </Section>
 
       <div className="ud-controls">
+        {/* biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border and padding; the group role keeps the look */}
         <div className="ud-seg" role="group">
           {ranges.map((r) => {
             const on = range === r.key && !day;
             return (
               <button
+                type="button"
                 key={r.key}
                 className={on ? "on" : ""}
                 aria-pressed={on}
@@ -1350,6 +1365,7 @@ function Body({ D }: { D: any }) {
         <div className="ud-chips">
           {chips.map(([k, label]) => (
             <button
+              type="button"
               key={k}
               className="ud-chip"
               aria-label={t.removeFilter(label)}
@@ -1394,11 +1410,11 @@ function Body({ D }: { D: any }) {
       </div>
 
       {rangeDays.length >= 2 && (
-        <Section title={t.tokensPerDay}>
+        <Section title={bars.unit === "points" ? t.planPerDay : t.tokensPerDay}>
           <Daily
             days={rangeDays}
-            rs={rsRange}
-            other={(d) => otherTokensFor(P, shared, filtered, d)}
+            unit={bars.unit}
+            per={bars.per}
             picked={day}
             onPick={(d) => setDay(day === d ? null : d)}
           />
@@ -1527,7 +1543,12 @@ export function DashboardView({ state, onRefresh }: Props) {
               {t.rebuildingFor(Math.floor(elapsed / 1000))}
             </span>
           )}
-          <button className="ud-btn" onClick={onRefresh} disabled={rebuilding}>
+          <button
+            type="button"
+            className="ud-btn"
+            onClick={onRefresh}
+            disabled={rebuilding}
+          >
             {t.refresh}
           </button>
         </header>
@@ -1536,6 +1557,7 @@ export function DashboardView({ state, onRefresh }: Props) {
           <div className="ud-error" role="alert">
             <span>{error}</span>
             <button
+              type="button"
               className="ud-btn"
               onClick={onRefresh}
               disabled={rebuilding}

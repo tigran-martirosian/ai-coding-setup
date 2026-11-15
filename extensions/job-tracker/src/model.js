@@ -1,0 +1,261 @@
+// The data behind the tracker page (tracker one-page design, sections 1 and 2). A job is a `release` item (any name,
+// no kind word); its steps are the tasks, plans and bugs whose built-in `collection` link holds the job's id. Each
+// step falls in one of four folds:
+//   Needs you  waits-for-you (only where the project's patch adds it) and in-review: the user's move
+//   Running    started (in-progress and the like) with a session working on it now
+//   To do      to-do, and started with no session working on it ("started, no session on it")
+//   Done       done, newest first, then the dropped steps (cancelled, wont-do, duplicate), shown but never counted
+// A job is finished when every step is done or dropped; one that ships as a version (its `version` field is set)
+// also needs its `gitTag`. Works on plain items: { id, type, title, status, archived, owner, updated,
+// customFields: { step, stage, waitsOn, collection, file, version, gitTag } }, the shape
+// window.documentService.listTrackerItems gives (the app's rowToTrackerItem keeps owner and updated on the item).
+
+// Task, bug and plan statuses of Nimbalyst 0.83.0 (tracker facts) plus the added one, by category. "running" is the
+// category of a started step; it is in the Running fold only while a session works on it. "cancelled" is in the
+// live data (26.2 has three cancelled steps): a cancelled step is dropped like wont-do.
+const CATEGORY = {
+  cancelled: "dropped",
+  "to-do": "todo",
+  "in-progress": "running",
+  "in-review": "needs",
+  "changes-requested": "running",
+  approved: "running",
+  "waits-for-you": "needs",
+  done: "done",
+  "wont-do": "dropped",
+  duplicate: "dropped",
+  draft: "todo",
+  "ready-for-development": "todo",
+  "in-development": "running",
+  blocked: "running",
+  completed: "done",
+  rejected: "dropped",
+};
+
+/** The step's category; a clear error naming the step when its status is not in the list. */
+function categoryOf(step) {
+  const c = CATEGORY[step.status];
+  if (!c)
+    throw new Error(
+      `job-tracker: unknown step status "${step.status}" on "${step.title}"`,
+    );
+  return c;
+}
+
+// The item types that are a job's steps; a bug shows among them with its "Bug" tag (design, third pass)
+const STEP_TYPES = new Set(["task", "plan", "bug"]);
+
+// A job's stored status that closes it whatever its steps say
+const CLOSED_JOB = new Set(["released", "cancelled"]);
+
+/** True when the item's built-in `collection` link (an array of { itemId }) holds the release. */
+function inRelease(item, releaseId) {
+  const links = item.customFields && item.customFields.collection;
+  return Array.isArray(links) && links.some((l) => l && l.itemId === releaseId);
+}
+
+/** The job's steps (tasks, plans and bugs, not archived), in the order given. */
+function releaseSteps(items, releaseId) {
+  return items.filter(
+    (i) => STEP_TYPES.has(i.type) && !i.archived && inRelease(i, releaseId),
+  );
+}
+
+/** The steps not done and not dropped, in the order given. */
+function openSteps(steps) {
+  return steps.filter((s) => !["done", "dropped"].includes(categoryOf(s)));
+}
+
+const escaped = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The open steps `step` waits on, in the order of `open`: those its `dependsOn` links ([{ itemId }], the app's
+ * built-in link) point to, and those whose code (`step` field) its `waitsOn` text names. Codes hold spaces
+ * ("look W4"), so a code is matched whole, between the text's ends, spaces, commas or semicolons.
+ */
+function waitsOnSteps(step, open) {
+  const f = step.customFields || {};
+  const links = new Set(
+    (Array.isArray(f.dependsOn) ? f.dependsOn : [])
+      .map((l) => l && l.itemId)
+      .filter(Boolean),
+  );
+  const text = String(f.waitsOn || "");
+  const named = (code) =>
+    new RegExp(`(^|[\\s,;])${escaped(code)}(?=$|[\\s,;])`).test(text);
+  return open.filter((o) => {
+    if (o.id === step.id) return false;
+    const code = o.customFields && o.customFields.step;
+    return links.has(o.id) || (code ? named(String(code)) : false);
+  });
+}
+
+/** The item's last change in ms, from its `updated` (a Date, ms or an ISO text); a clear error when it has none. */
+function updatedOf(item) {
+  const u = item.updated;
+  const t =
+    u instanceof Date
+      ? u.getTime()
+      : typeof u === "number"
+        ? u
+        : Date.parse(String(u));
+  if (!Number.isFinite(t))
+    throw new Error(`job-tracker: item ${item.id} has no "updated" time`);
+  return t;
+}
+
+/** A custom field as trimmed text; "" when it is not set. */
+function fieldText(item, name) {
+  const v = item.customFields && item.customFields[name];
+  return v == null ? "" : String(v).trim();
+}
+
+// A step is the user's when its owner is "user" (what the sessions write on the user's steps, as in the live 26.2
+// data) or its title starts "Your OK" or "Your word" (the workflow's names for the user's steps)
+const YOUR_TITLE = /^your (ok|word)\b/i;
+
+function isForYou(step) {
+  return (
+    String(step.owner || "")
+      .trim()
+      .toLowerCase() === "user" || YOUR_TITLE.test(String(step.title).trim())
+  );
+}
+
+/**
+ * The ids of the items a session works on now: the tracker links (`linkedTrackerItemIds` of sessions:list) of the
+ * sessions that run (`getRunningSessionIds`).
+ */
+function workingItemIds(sessions, runningIds) {
+  const running = new Set(runningIds);
+  const out = new Set();
+  for (const s of sessions)
+    if (running.has(s.id))
+      for (const id of s.linkedTrackerItemIds || []) out.add(id);
+  return out;
+}
+
+/**
+ * One step's row: `fold` (needs, running, todo or done), `started` (in To do but marked in progress: "started, no
+ * session on it"), `dropped` (in Done, muted, never counted), `bug` (the row's "Bug" tag), `forYou` (a To do step
+ * that is the user's), `file` (the step's `file` field, a path, or null). `working` is a set of item ids.
+ */
+function rowOf(step, working) {
+  const cat = categoryOf(step);
+  const stalled = cat === "running" && !working.has(step.id);
+  let fold = cat;
+  if (stalled) fold = "todo";
+  else if (cat === "dropped") fold = "done";
+  return {
+    item: step,
+    fold,
+    started: stalled,
+    dropped: cat === "dropped",
+    bug: step.type === "bug",
+    forYou: fold === "todo" && isForYou(step),
+    file: fieldText(step, "file") || null,
+  };
+}
+
+/**
+ * The four folds of `steps` and their counts. Needs you, Running and To do keep the order given; Done holds the done
+ * steps newest first, then the dropped ones newest first. "of N" (`total`) counts every step not dropped.
+ */
+function foldsOf(steps, working) {
+  const rows = steps.map((s) => rowOf(s, working));
+  const of = (fold, dropped) =>
+    rows.filter((r) => r.fold === fold && r.dropped === dropped);
+  const newest = (a, b) => updatedOf(b.item) - updatedOf(a.item);
+  const done = of("done", false).sort(newest);
+  const dropped = of("done", true).sort(newest);
+  const folds = {
+    needs: of("needs", false),
+    running: of("running", false),
+    todo: of("todo", false),
+    done: [...done, ...dropped],
+  };
+  const total = rows.length - dropped.length;
+  const forYou = folds.todo.filter((r) => r.forYou).length;
+  return {
+    rows,
+    folds,
+    counts: {
+      total,
+      done: done.length,
+      needs: folds.needs.length,
+      running: folds.running.length,
+      todo: folds.todo.length,
+      forYou,
+      forClaude: folds.todo.length - forYou,
+      dropped: dropped.length,
+      percent: total ? Math.round((done.length / total) * 100) : 0,
+    },
+  };
+}
+
+/**
+ * A job: its steps, folds and counts; `version` and `tag` (null when not set); `finished`; `closedAs`, the stored
+ * status (released or cancelled) that finished it whatever its steps say, else null; `activity`, the newest `updated`
+ * of the job and its steps. A job whose stored status is released or cancelled is finished; so is one with steps
+ * that are all done or dropped, and, when it ships as a version, a `gitTag` set. A job with no steps yet is open.
+ */
+function jobOf(job, items, working) {
+  const steps = releaseSteps(items, job.id);
+  const { rows, folds, counts } = foldsOf(steps, working);
+  const version = fieldText(job, "version") || null;
+  const tag = fieldText(job, "gitTag") || null;
+  const stepsClosed = steps.length > 0 && counts.done === counts.total;
+  const closedAs = CLOSED_JOB.has(job.status) ? job.status : null;
+  return {
+    job,
+    steps,
+    rows,
+    folds,
+    counts,
+    version,
+    tag,
+    finished: !!closedAs || (stepsClosed && (!version || !!tag)),
+    closedAs,
+    activity: new Date(Math.max(updatedOf(job), ...steps.map(updatedOf))),
+  };
+}
+
+/** The picker: the open jobs, newest activity first, then the finished ones, newest first. Archived jobs are out. */
+function pickerJobs(items, working) {
+  const jobs = items
+    .filter((i) => i.type === "release" && !i.archived)
+    .map((j) => jobOf(j, items, working));
+  const newest = (a, b) => b.activity - a.activity;
+  return {
+    open: jobs.filter((j) => !j.finished).sort(newest),
+    finished: jobs.filter((j) => j.finished).sort(newest),
+  };
+}
+
+/** The tasks, plans and bugs (not archived) no job holds, in the order given: the "Not in a job" page. */
+function notInJob(items) {
+  const jobIds = items.filter((i) => i.type === "release").map((i) => i.id);
+  return items.filter(
+    (i) =>
+      STEP_TYPES.has(i.type) &&
+      !i.archived &&
+      !jobIds.some((id) => inRelease(i, id)),
+  );
+}
+
+export {
+  CATEGORY,
+  categoryOf,
+  foldsOf,
+  inRelease,
+  isForYou,
+  jobOf,
+  notInJob,
+  openSteps,
+  pickerJobs,
+  releaseSteps,
+  rowOf,
+  STEP_TYPES,
+  waitsOnSteps,
+  workingItemIds,
+};

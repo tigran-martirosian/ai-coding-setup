@@ -1,14 +1,15 @@
 // Tests for hooks/update-check.mjs against a small local server that stands in for GitHub.
 // Run: node tests/test-update-check.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { key } from "../scripts/blocks.mjs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { key } from "../scripts/blocks.mjs";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/update-check.mjs", import.meta.url),
@@ -142,7 +143,8 @@ check(
   /an older one/.test((await run(home("none"))).out),
 );
 
-// With the changelog: how far behind, and what came in since
+// With the changelog: how far behind, and what came in since. This one is in the old form, a line per version
+// ("- 1.0.4 (Nov 3, 2026): text", the changelog up to 26.1), which still reads
 released = { version: "1.0.5", summary: "Hotfix for one thing." };
 changelog = [
   "# Changelog",
@@ -202,6 +204,73 @@ check(
   ).every((l) => far.split(/\r?\n/).includes(l)),
 );
 
+// The changelog's form from 26.2 on: a heading per version, its bullets one note; the Unreleased section and the
+// "Before" section hold no version
+changelog = [
+  "# Changelog",
+  "",
+  "Versions are year.release.fix.",
+  "",
+  "## [Unreleased]",
+  "",
+  "- Not released yet, must not be counted.",
+  "",
+  "## [1.0.5] - 2026-11-04",
+  "",
+  "- Hotfix for one thing",
+  "- A second fix.",
+  "",
+  "## [1.0.4] - 2026-11-03",
+  "",
+  "Reviews cost half as much.",
+  "",
+  "## [1.0.3] - 2026-11-02",
+  "",
+  "- A new command that tidies the board.",
+  "",
+  "## [1.0.2] - 2026-11-01",
+  "",
+  "- Installed already.",
+  "",
+  "## Before 1.0.0 - 2026-10-02 to 2026-10-04",
+  "",
+  "the first public setup.",
+  "",
+].join("\n");
+released = { version: "1.0.5", summary: "Hotfix for one thing." };
+const headed = JSON.parse((await run(home("headed", "1.0.2"))).out || "{}");
+const headedCtx = (headed.hookSpecificOutput?.additionalContext || "").split(
+  /\r?\n/,
+);
+check(
+  "heading form: the grey line names the installed version's date in words",
+  headed.systemMessage ===
+    "Your setup is from Nov 1, 2026. New: 3 more releases. Type /update-setup.",
+);
+check(
+  "heading form: Claude gets each missed version's bullets as one note, and only those",
+  headedCtx.includes("  - 1.0.5: Hotfix for one thing. A second fix.") &&
+    headedCtx.includes("  - 1.0.4: Reviews cost half as much.") &&
+    headedCtx.includes("  - 1.0.3: A new command that tidies the board.") &&
+    !headedCtx.some((l) => /Not released|1\.0\.2:|first public/.test(l)),
+);
+// a heading the reader does not know: crash-logged, no notes, the update still named
+const unreadLog = path.join(tmp, "unreadable-changelog-crash.log");
+changelog = "# Changelog\n\n## [1.0.5] - Nov 4, 2026\n\n- Hotfix.\n";
+const unread = JSON.parse(
+  (await run(home("unreadable", "1.0.2"), { HOOK_ERRORS_LOG: unreadLog }))
+    .out || "{}",
+);
+check(
+  "a changelog with a heading it can't read: crash-logged with the line, no notes, the update still named",
+  unread.systemMessage ===
+    "Setup update ready: Hotfix for one thing. Type /update-setup; your files are kept." &&
+    !/1\.0\.5:/.test(unread.hookSpecificOutput?.additionalContext || "") &&
+    /line 3: the heading "## \[1\.0\.5\] - Nov 4, 2026"/.test(
+      fs.existsSync(unreadLog) ? fs.readFileSync(unreadLog, "utf8") : "",
+    ),
+);
+
 // ---- spec section 7: labels from version.json `releases`, how often, and the self-install of `files` releases
 const ago = (h) => new Date(Date.now() - h * 60 * 60 * 1000).toISOString();
 const stored = (h) => kept(h) || {};
@@ -210,14 +279,19 @@ const restore = (h, extra) =>
     path.join(h, ".claude", "update-check.json"),
     JSON.stringify({ ...stored(h), ...extra }),
   );
+// a changelog in the heading form: version 1.0.N is dated Nov N, 2026
 const log = (lines) =>
   [
     "# Changelog",
     "",
-    ...lines.map(
-      ([v, text]) => `- ${v} (Nov ${v.split(".")[2]}, 2026): ${text}`,
-    ),
+    "## [Unreleased]",
     "",
+    ...lines.flatMap(([v, text]) => [
+      `## [${v}] - 2026-11-${v.split(".")[2].padStart(2, "0")}`,
+      "",
+      `- ${text}`,
+      "",
+    ]),
   ].join("\n");
 changelog = log([
   ["1.0.5", "Reviews cost half as much on long builds."],
@@ -840,7 +914,7 @@ hang.closeAllConnections?.();
 hang.close();
 
 // A slow line: an answer that takes 1.2 seconds is missed at the short wait and heard on the try after a timeout
-const slowLine = http.createServer((req, res) =>
+const slowLine = http.createServer((_req, res) =>
   setTimeout(() => res.end(JSON.stringify({ version: "1.11.0" })), 1200),
 );
 await new Promise((r) => slowLine.listen(0, "127.0.0.1", r));
@@ -1053,10 +1127,10 @@ check(
   "26.1 installed and released: not newer, silent",
   (await run(home("v26-same", "26.1"))).out === "",
 );
+released = { version: "1.0.114" };
 check(
   "26.1 installed, 1.0.114 released: not newer, silent",
-  ((released = { version: "1.0.114" }),
-  (await run(home("v26-ahead", "26.1"))).out === ""),
+  (await run(home("v26-ahead", "26.1"))).out === "",
 );
 
 // ---- version.json `notice`: a heads-up about a release planned soon, said once per id
@@ -1155,7 +1229,9 @@ check(
   check(
     "a project folder behind the pass level: Claude is asked to offer the pass on a card, why it matters, with the skill and the skip commands",
     /set up before the current setup/.test(ctxOf(offer)) &&
-      /one question card .*Options: Yes \/ Not now \/ Never, in any folder\./.test(ctxOf(offer)) &&
+      /one question card .*Options: Yes \/ Not now \/ Never, in any folder\./.test(
+        ctxOf(offer),
+      ) &&
       /current rules, systems map and file layout/.test(ctxOf(offer)) &&
       ctxOf(offer).includes("update-project/SKILL.md") &&
       ctxOf(offer).includes(`--skip "${behind.folder}"`) &&
@@ -1222,9 +1298,13 @@ check(
     "a folder with no CLAUDE.md and no .git: Claude is asked to offer /new-project on a card, with the skill",
     /is not set up as a project/.test(setUp) &&
       setUp.includes(bare.folder) &&
-      /one question card .*\/new-project.*Options: Yes \/ Not now \/ Never here \/ Never in any folder\./.test(setUp) &&
+      /one question card .*\/new-project.*Options: Yes \/ Not now \/ Never here \/ Never in any folder\./.test(
+        setUp,
+      ) &&
       setUp.includes("new-project/SKILL.md") &&
-      setUp.includes(`On "never here": run node ~/.claude/skills/update-project/pass.mjs --skip "${bare.folder}"`) &&
+      setUp.includes(
+        `On "never here": run node ~/.claude/skills/update-project/pass.mjs --skip "${bare.folder}"`,
+      ) &&
       /On "never in any folder".*--skip-all/.test(setUp) &&
       !/set up before the current setup/.test(setUp),
   );
@@ -1295,7 +1375,9 @@ check(
   const bareNone = passHome("new-project-no-stamp", null, { claudeMd: false });
   check(
     "a folder with no CLAUDE.md and no .git, and no project-pass.json: /new-project is offered all the same",
-    /is not set up as a project/.test(ctxOf(await run(bareNone.h, bareNone.env))),
+    /is not set up as a project/.test(
+      ctxOf(await run(bareNone.h, bareNone.env)),
+    ),
   );
   const atHome = passHome("new-project-home", () => ({}), { claudeMd: false });
   check(

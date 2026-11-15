@@ -144,6 +144,7 @@ export function globMatch(glob, p, o) {
     .replace(/\*\*/g, "\u0000")
     .replace(/\*/g, "[^/]*")
     .replace(/\?/g, "[^/]")
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: \u0000 is a placeholder that cannot occur in a path
     .replace(/\u0000/g, ".*");
   return new RegExp(`^${g}(/.*)?$`).test(normPath(p, o));
 }
@@ -318,8 +319,6 @@ async function walk(dir, deadline) {
   // a folder's age is its newest file's; a folder's own time moves whenever something inside is added or removed
   return { bytes, newest: files ? newest : st.mtimeMs, capped, files };
 }
-const age = async (C, p) => await walk(p, Date.now() + C.CAP_MS);
-
 function onPath(name) {
   for (const d of String(process.env.PATH || "").split(path.delimiter)) {
     for (const ext of process.platform === "win32" ? [".exe", ""] : [""]) {
@@ -1675,7 +1674,7 @@ function keepForeverAdd(C, glob) {
   writeConfig(C, cfg);
   console.log(`Kept forever in the archive: ${cfg.keepForever.join(", ")}`);
 }
-function matchRows(C, rows, text) {
+function matchRows(_C, rows, text) {
   const t = text.toLowerCase();
   return rows.filter((r) =>
     [r.cwd, r.folder, r.title].some((x) =>

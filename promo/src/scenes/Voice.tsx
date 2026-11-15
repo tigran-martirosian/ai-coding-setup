@@ -1,7 +1,7 @@
-import React from "react";
+import type React from "react";
 import { useCurrentFrame } from "remotion";
 import { Appear, typed } from "../anim";
-import { Scene, SceneProps } from "../Scene";
+import { Scene, type SceneProps } from "../Scene";
 import { color, mono } from "../theme";
 import { Columns, Window } from "../ui";
 
@@ -65,6 +65,7 @@ export const Voice: React.FC<SceneProps> = ({ durationInFrames }) => {
                   : 0.1;
                 return (
                   <span
+                    // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list drawn once per video frame; it never reorders and holds no state
                     key={i}
                     style={{
                       width: 7,

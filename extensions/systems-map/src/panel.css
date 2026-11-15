@@ -58,7 +58,7 @@
 .sm-caption {
   display: flex;
   gap: var(--x-space-2);
-  font: var(--x-caption);
+  font: var(--x-meta);
   color: var(--x-text-muted);
 }
 /* Group colours: eight steps made from the theme colours, so a theme changes them with the rest. */
@@ -81,7 +81,7 @@
   margin: 0;
   padding: var(--x-space-2) var(--x-space-5);
   border-bottom: 1px solid var(--x-hairline);
-  font: var(--x-caption);
+  font: var(--x-meta);
   color: var(--x-error);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -283,8 +283,10 @@
   stroke: var(--x-accent);
   stroke-width: 2.5;
 }
+/* A part's name, the map's main text: the row-title level. layout.ts measures each label in this same token
+   (LABEL_FONT), so its box always fits the drawn name */
 .sm-label {
-  font: var(--x-caption);
+  font: var(--x-row-title);
   fill: var(--x-text);
   stroke: var(--x-surface-0);
   stroke-width: 3px;
@@ -315,7 +317,7 @@
   padding: var(--x-space-2) var(--x-space-3);
   border-radius: var(--x-radius-window);
   background: var(--x-surface-1);
-  font: var(--x-caption);
+  font: var(--x-meta);
   color: var(--x-text-muted);
   list-style: none;
 }
@@ -324,18 +326,41 @@
   align-items: center;
   gap: var(--x-space-2);
 }
+/* A swatch is drawn like a dot: grey unless a group slot (g1-g8) colours it */
 .sm-swatch {
   flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--x-text-muted);
+}
+/* The size row: the smallest and the largest dot side by side */
+.sm-sizes {
+  display: flex;
+  align-items: center;
+  gap: var(--x-space-1);
+}
+.sm-swatch.is-small {
+  width: 6px;
+  height: 6px;
+}
+.sm-swatch.is-big {
+  width: 14px;
+  height: 14px;
+}
+/* The changed-link row: a short line as the drawing draws it (.sm-edge.is-drift) */
+.sm-line-swatch {
+  flex: none;
+  width: 14px;
+  height: 0;
+  border-top: 2.5px solid var(--x-error);
 }
 .sm-nomatch {
   position: absolute;
   top: var(--x-space-4);
   left: 50%;
   transform: translateX(-50%);
-  font: var(--x-caption);
+  font: var(--x-meta);
   color: var(--x-text-muted);
 }
 
@@ -365,14 +390,11 @@
 /* .sm in front: the reset above (.sm h3) would otherwise take the margin away */
 .sm .sm-heading {
   margin: var(--x-space-5) 0 var(--x-space-2);
-  font: var(--x-micro);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--x-text-muted);
+  font: var(--x-heading);
+  color: var(--x-text);
 }
 .sm-quiet {
-  font: var(--x-caption);
+  font: var(--x-meta);
   color: var(--x-text-muted);
 }
 .sm-file {
@@ -401,12 +423,12 @@
   background: transparent;
 }
 .sm-path {
-  font: var(--x-caption);
+  font: var(--x-meta);
   overflow-wrap: break-word;
 }
 .sm-aside {
   flex: none;
-  font: var(--x-micro);
+  font: var(--x-meta);
 }
 .sm-link {
   padding: var(--x-space-1) 0;
@@ -434,7 +456,7 @@
   color: var(--x-text-muted);
 }
 .sm-says {
-  font: var(--x-caption);
+  font: var(--x-meta);
   color: var(--x-text-muted);
 }
 .sm-more {
@@ -443,7 +465,7 @@
   border: 0;
   border-radius: var(--x-radius-inner);
   background: transparent;
-  font: var(--x-micro);
+  font: var(--x-meta);
   color: var(--x-text-muted);
   cursor: pointer;
 }

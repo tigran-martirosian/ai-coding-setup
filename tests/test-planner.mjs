@@ -1,14 +1,17 @@
 // Test for the planner agent (agents/planner.md) and the rule that calls it (lead skill).
 // Run: node tests/test-planner.mjs
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 let pass = 0,
   fail = 0;
 const check = (name, ok) => {
-  ok ? pass++ : (fail++, console.log(`FAIL  ${name}`));
+  if (ok) pass++;
+  else {
+    fail++;
+    console.log(`FAIL  ${name}`);
+  }
 };
 
 const agent = fs.readFileSync(path.join(ROOT, "agents", "planner.md"), "utf8");
@@ -416,15 +419,25 @@ check(
 );
 check(
   "planner: reads the purpose record and the newest dated section; a row naming a recorded thing quotes its entry and marks limits NARROWED",
-  /`DECISIONS\.md`'s first section `## What each thing is for` \(the purpose record\) and its newest dated section below it/.test(body) &&
+  /`DECISIONS\.md`'s first section `## What each thing is for` \(the purpose record\) and its newest dated section below it/.test(
+    body,
+  ) &&
     !/the top section of `DECISIONS\.md`/.test(body) &&
-    /names a thing in the purpose record quotes that entry's words in Serves, and marks any limit on it `NARROWED`/.test(body),
+    /names a thing in the purpose record quotes that entry's words in Serves, and marks any limit on it `NARROWED`/.test(
+      body,
+    ),
 );
 check(
   "lead: writes a purpose record entry in the record's format and shows it; quotes the record and the newest dated section",
-  /\*\*The purpose record\.\*\* When the user says what a thing is for, write it into the first section of `DECISIONS\.md`, `## What each thing is for`/.test(leadRef) &&
-    leadRef.includes('`- **<thing>** (also: <name>, …): "<cleaned words>" · *<YYYY-MM-DD>* · from "<raw phrase>"`, and show the line to the user') &&
-    /the purpose record's entries for the things the job names, the newest dated section below it/.test(leadRef) &&
+  /\*\*The purpose record\.\*\* When the user says what a thing is for, write it into the first section of `DECISIONS\.md`, `## What each thing is for`/.test(
+    leadRef,
+  ) &&
+    leadRef.includes(
+      '`- **<thing>** (also: <name>, …): "<cleaned words>" · *<YYYY-MM-DD>* · from "<raw phrase>"`, and show the line to the user',
+    ) &&
+    /the purpose record's entries for the things the job names, the newest dated section below it/.test(
+      leadRef,
+    ) &&
     !/its top section plus a grep/.test(leadRef),
 );
 check(

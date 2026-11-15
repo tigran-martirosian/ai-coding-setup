@@ -6,9 +6,9 @@
 // extension (NoteBridge) hands it to ai:createQueuedPrompt, which waits until this session's turn
 // has ended, so /compact never lands in a busy session. Needs Nimbalyst restarted since the bridge
 // was installed. Fails with exit 1 and a clear message when the id or the text is missing.
-import fs from "fs";
-import path from "path";
-import os from "os";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const fail = (m) => {
   console.error(`compact-self: ${m}`);
@@ -58,7 +58,7 @@ if (!row?.id)
   );
 
 const now = Date.now();
-let keep = [];
+const keep = [];
 try {
   // A line that does not parse is skipped, so one bad line does not wipe the queued entries.
   for (const l of fs.readFileSync(OUTBOX, "utf8").split("\n").filter(Boolean)) {

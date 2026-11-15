@@ -4,11 +4,11 @@ Two tests run in November 2026, before version 26.1. The raw runs stay on my com
 
 ## The reviewer agent against a plain review
 
-**Result: as many planted bugs found, with 40% fewer tokens, at 16% lower cost and 22% faster.**
+**Result: as many known bugs found, with 40% fewer tokens and at 16% lower cost.**
 
 | | Reviewer agent | Plain "review this change" |
 |---|---|---|
-| Planted bugs found (8 changes) | 5 | 5 |
+| Known bugs found (8 changes) | 5 | 5 |
 | Cost per run | $1.13 | $1.34 |
 | Time per run | 2.1 min | 2.75 min |
 | Tokens per run | 214k | 357k |
