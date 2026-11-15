@@ -3,12 +3,11 @@ import { callBackend } from "./bridge";
 import { player, usePlayer } from "./player";
 import {
   DEFAULTS,
+  type ReadAloudSettings,
   updateSetting,
   useSettings,
   VOICES,
-  type ReadAloudSettings,
 } from "./settings";
-import { setAutoRead } from "./autoRead";
 import { formatSpeed, t } from "./strings";
 import { TRANSCRIPT_CSS } from "./transcript";
 
@@ -98,24 +97,10 @@ export function ReadAloudSettingsPanel() {
           role="switch"
           className="ra-switch"
           checked={s.enabled}
+          aria-checked={s.enabled}
           onChange={(e) => set("enabled", e.target.checked)}
         />
       </label>
-
-      <label className="ra-row">
-        <span className="ra-label">{t.handsFree}</span>
-        <input
-          type="checkbox"
-          role="switch"
-          className="ra-switch"
-          checked={s.autoRead}
-          onChange={(e) => {
-            set("autoRead", e.target.checked);
-            setAutoRead(e.target.checked);
-          }}
-        />
-      </label>
-      <p className="ra-hint ra-note">{t.handsFreeHint}</p>
 
       <div className="ra-row">
         <label className="ra-label" htmlFor="ra-voice">
@@ -171,6 +156,7 @@ export function ReadAloudSettingsPanel() {
           role="switch"
           className="ra-switch"
           checked={s.skipCodeBlocks}
+          aria-checked={s.skipCodeBlocks}
           onChange={(e) => set("skipCodeBlocks", e.target.checked)}
         />
       </label>
@@ -182,6 +168,7 @@ export function ReadAloudSettingsPanel() {
           role="switch"
           className="ra-switch"
           checked={s.skipTerminalOutput}
+          aria-checked={s.skipTerminalOutput}
           onChange={(e) => set("skipTerminalOutput", e.target.checked)}
         />
       </label>

@@ -7,17 +7,17 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { isCode, isSetup } from "./code-files.mjs";
 import { fileKey, sessionKey } from "./paths.mjs";
+import { EDIT_TOOLS, inWindow, MIN_FILES } from "./review-decide.mjs";
 import { readJson, stateFile, writeJson } from "./state.mjs";
 import {
-  entries as readEntries,
-  userText,
-  typedByUser,
-  currentTurn,
   agentLaunches,
+  currentTurn,
+  entries as readEntries,
+  typedByUser,
+  userText,
 } from "./transcript.mjs";
-import { EDIT_TOOLS, MIN_FILES, inWindow } from "./review-decide.mjs";
-import { isCode, isSetup } from "./code-files.mjs";
 
 // Per session: the once-per-turn marker (its time is the last block's), the work held over a question, the git
 // baseline and the cache of what other sessions edited

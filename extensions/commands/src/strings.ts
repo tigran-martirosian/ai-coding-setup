@@ -15,6 +15,8 @@ const english = {
   again: "Start again",
   cancel: "Cancel",
   startedHint: "The session is in the sessions list",
+  /** The closed pick row's tooltip: which of its options started. */
+  startedOption: (name: string, time: string) => `${name} started ${time}`,
   note: {
     button: "Note",
     hint: "Send the text to this session as a note it reads before its next step, without interrupting it",
@@ -41,6 +43,14 @@ const english = {
     untracked:
       "Note sent, but it cannot be followed to the end. Update the setup to see when it arrives",
   },
+  copy: {
+    button: "Copy",
+    done: "Copied",
+    hint: "Copy the whole reply as Markdown",
+    blocked: "Couldn't copy: clipboard blocked",
+    noText: "Couldn't copy: the reply's text is no longer loaded",
+    dismiss: "Dismiss",
+  },
   commands: {
     boardCleanup: {
       label: "Board cleanup",
@@ -56,11 +66,23 @@ const english = {
     },
     setupAudit: {
       label: "Setup audit",
-      note: "Full check of the global setup",
+      note: "Pick a check of the setup",
+    },
+    setupHealth: {
+      label: "Setup health",
+      note: "The whole setup checked, and compared with the last check",
     },
     usageReport: {
       label: "Usage report",
       note: "Where the tokens went, and the forecast",
+    },
+    promptAudit: {
+      label: "Prompt audit",
+      note: "Rules, skills and agent texts: what to cut or reword",
+    },
+    grillMe: {
+      label: "Grill me",
+      note: "Questions on your plan, one at a time, until we agree",
     },
     pcTidy: {
       label: "PC tidy",
@@ -69,10 +91,6 @@ const english = {
     diskTidy: {
       label: "Disk tidy",
       note: "What fills the disk, cleared item by item with your yes",
-    },
-    fileUpkeep: {
-      label: "File upkeep",
-      note: "Names and places of project files, by the standard",
     },
     chatReview: {
       label: "Chat review",
@@ -91,6 +109,26 @@ const english = {
       note: "Build or refresh the map of this project's parts",
     },
     newProject: { label: "New project", note: "Set this folder up for Claude" },
+    lead: {
+      label: "Lead",
+      note: "Big work: planned in steps, built by helpers, reviewed",
+    },
+    whereAreWe: {
+      label: "Where are we",
+      note: "How much of the release is left, from the tracker",
+    },
+    updateProject: {
+      label: "Update project",
+      note: "Bring this project up to the current setup",
+    },
+    backup: {
+      label: "Backup",
+      note: "Back up the setup and projects, or show the backup's state",
+    },
+    phone: {
+      label: "Phone inbox",
+      note: "What you sent from your phone",
+    },
     updateSetup: {
       label: "Update setup",
       note: "Install the newest version of the setup",
@@ -109,6 +147,7 @@ const russian: Strings = {
   again: "Запустить снова",
   cancel: "Отмена",
   startedHint: "Сессия в списке сессий",
+  startedOption: (name: string, time: string) => `${name}: запущено ${time}`,
   note: {
     button: "Заметка",
     hint: "Отправить текст в эту сессию как заметку, которую она прочтёт перед следующим шагом, не прерывая её",
@@ -132,6 +171,14 @@ const russian: Strings = {
     untracked:
       "Заметка отправлена, но проследить её до конца нельзя. Обновите настройку, чтобы видеть, когда она дойдёт",
   },
+  copy: {
+    button: "Копировать",
+    done: "Скопировано",
+    hint: "Скопировать весь ответ как Markdown",
+    blocked: "Не скопировано: буфер обмена заблокирован",
+    noText: "Не скопировано: текст ответа больше не загружен",
+    dismiss: "Закрыть",
+  },
   commands: {
     boardCleanup: {
       label: "Уборка доски",
@@ -147,11 +194,23 @@ const russian: Strings = {
     },
     setupAudit: {
       label: "Аудит настройки",
-      note: "Полная проверка глобальной настройки",
+      note: "Выбрать проверку настройки",
+    },
+    setupHealth: {
+      label: "Состояние настройки",
+      note: "Проверка всей настройки и сравнение с прошлой",
     },
     usageReport: {
       label: "Отчёт об использовании",
       note: "Куда ушли токены, и прогноз",
+    },
+    promptAudit: {
+      label: "Аудит промптов",
+      note: "Правила, навыки и тексты агентов: что убрать или переписать",
+    },
+    grillMe: {
+      label: "Допрос по плану",
+      note: "Вопросы о вашем плане по одному, пока мы не поймём друг друга",
     },
     pcTidy: {
       label: "Уборка ПК",
@@ -160,10 +219,6 @@ const russian: Strings = {
     diskTidy: {
       label: "Уборка диска",
       note: "Что занимает диск; чистка по одному пункту с вашего согласия",
-    },
-    fileUpkeep: {
-      label: "Порядок в файлах",
-      note: "Имена и места файлов проекта по стандарту",
     },
     chatReview: {
       label: "Разбор чатов",
@@ -188,6 +243,26 @@ const russian: Strings = {
     updateSetup: {
       label: "Обновить настройку",
       note: "Установить новейшую версию настройки",
+    },
+    lead: {
+      label: "Вести задачу",
+      note: "Большая работа: план по шагам, делают помощники, потом проверка",
+    },
+    whereAreWe: {
+      label: "Где мы сейчас",
+      note: "Сколько осталось до релиза, по трекеру",
+    },
+    updateProject: {
+      label: "Обновить проект",
+      note: "Привести этот проект к текущей настройке",
+    },
+    backup: {
+      label: "Резервная копия",
+      note: "Сделать резервную копию настройки и проектов или показать её состояние",
+    },
+    phone: {
+      label: "Входящие с телефона",
+      note: "Что вы отправили с телефона",
     },
   },
 };

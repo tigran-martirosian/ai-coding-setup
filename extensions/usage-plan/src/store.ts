@@ -2,8 +2,8 @@
 
 import { hostExec, hostInvoke } from "../../shared/host.ts";
 import { script } from "./command";
-import { failureLine } from "./format";
 import type { Plan } from "./format";
+import { failureLine } from "./format";
 import { t } from "./strings";
 
 interface ExecResult {

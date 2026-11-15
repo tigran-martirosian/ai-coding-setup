@@ -1,4 +1,5 @@
-import React from "react";
+import type React from "react";
+import { Img, staticFile } from "remotion";
 import {
   Count,
   ease,
@@ -8,13 +9,13 @@ import {
   Head,
   mix,
   sec,
-  Typed,
   useTick,
+  Window,
   Wire,
 } from "./kit";
 import { accent, color, FLOOR, MARGIN, TOP, TYPE } from "./look";
-import { Shot } from "./script";
 import { need } from "./need";
+import type { Shot } from "./script";
 
 const ink = accent.Steer;
 
@@ -42,7 +43,9 @@ export const SystemsMap: React.FC<{ shot: Shot }> = ({ shot }) => {
       `The map has ${parts.length} parts and ${PLACES.length} places.`,
     );
   if (!parts[changed])
-    throw new Error(`The map's changed part ${changed} is not one of its ${parts.length} parts.`);
+    throw new Error(
+      `The map's changed part ${changed} is not one of its ${parts.length} parts.`,
+    );
   const lightAt = sec(1);
   const wireAt = sec(1.6);
   const nextAt = sec(2);
@@ -62,6 +65,7 @@ export const SystemsMap: React.FC<{ shot: Shot }> = ({ shot }) => {
     <Field>
       <Head title={shot.title} sub={shot.sub} ink={ink} />
       {links.map(([a, b], i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list drawn once per video frame; it never reorders and holds no state
         <Wire key={i} a={out(a)} b={inn(b)} draw={1} ink={color.faint} />
       ))}
       {touched.map(([a, b], k) => (
@@ -144,181 +148,48 @@ export const SystemsMap: React.FC<{ shot: Shot }> = ({ shot }) => {
   );
 };
 
-const SESSION = { x: MARGIN, y: TOP, w: 1100, h: 700 };
-const NOTE = { x: 1240, y: TOP, w: 1920 - MARGIN - 1240, h: 200 };
-const LINE = 64;
-const FIRST = TOP + 62 + 30;
+/** The window around the page picture: the full width between the margins, from under the headline to the floor. */
+const PAGE = {
+  x: MARGIN,
+  y: TOP + 20,
+  w: 1920 - 2 * MARGIN,
+  h: FLOOR - TOP - 20,
+};
+/** Film px to a CSS px of the page, set by hand from public/job-page.png (the page column, 984 CSS px wide, taken at
+ * 2x from the fixture at a 1724 px wide window): the window's inner width over the column's width, about 1.8, so the
+ * page's 14 px rows show at about 25 px. */
+const PAGE_SCALE = (PAGE.w - 4) / 984;
+/** The picture's width in film px: the whole inner width of the window. */
+const PAGE_PICTURE_W = 984 * PAGE_SCALE;
+/** How far the picture glides up, in film px, set by hand from the same picture: the glide ends with the top of the
+ * Needs you group (204 CSS px down the picture) 14 px under the window's label bar; the end of the Running group then
+ * leaves the frame at the bottom. Take both again when the picture changes. */
+const PAGE_GLIDE = 204 * PAGE_SCALE - 14;
 
-/** The session keeps working, a line at a time. Beside it a note is typed and sent; it slides into the session
- * without stopping it, and the agent's next step is the note. */
-export const Btw: React.FC<{ shot: Shot }> = ({ shot }) => {
+/** A real picture of a Nimbalyst page in a window frame. It stands still on the page's top (the job's name, its
+ * progress line and bar), glides down once to show the groups, then stays. */
+export const JobPage: React.FC<{ shot: Shot }> = ({ shot }) => {
+  const { label, picture } = need(shot.body, "page");
   const t = useTick();
-  const { work, note, picked } = need(shot.body, "btw");
-  const lineAt = (i: number) => (i < 3 ? -1 : sec(0.8 + (i - 3) * 0.8));
-  const typedAt = sec(0.4);
-  const sendAt = typedAt + note.length / 0.8 + sec(0.3);
-  // The note drops down beside the session, then slides left into it, so it never crosses the lines being written.
-  const drop = glide(t, sendAt + sec(0.2), sec(0.5));
-  const slide = glide(t, sendAt + sec(0.7), sec(0.7));
-  const pickAt = lineAt(work.length - 1) + sec(0.9);
-  const picking = ease(t, pickAt, sec(0.5));
-  const strip = { x: SESSION.x + 28, y: SESSION.y + SESSION.h - 96 };
-  const card = {
-    x: NOTE.x + 28 + (strip.x - NOTE.x - 28) * slide,
-    y: NOTE.y + 84 + (strip.y - NOTE.y - 84) * drop,
-    w: NOTE.w - 56 + (SESSION.w - NOTE.w) * slide,
-  };
-  const rows = [...work, picked];
   return (
     <Field>
       <Head title={shot.title} sub={shot.sub} ink={ink} />
-      <div
-        style={{
-          position: "absolute",
-          left: SESSION.x,
-          top: SESSION.y,
-          width: SESSION.w,
-          height: SESSION.h,
-          border: `2px solid ${color.line}`,
-          borderRadius: 12,
-          background: color.window,
-        }}
+      <Window
+        label={label}
+        style={{ left: PAGE.x, top: PAGE.y, width: PAGE.w, height: PAGE.h }}
+        bodyStyle={{ padding: 0 }}
       >
-        <div
-          style={{
-            height: 62,
-            display: "flex",
-            alignItems: "center",
-            gap: 16,
-            padding: "0 30px",
-            fontSize: TYPE.sub,
-            color: color.soft,
-            borderBottom: `1px solid ${color.line}`,
-          }}
-        >
-          <span
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: 6,
-              background: color.good,
-            }}
-          />
-          Session: working
-        </div>
-      </div>
-      {rows.map((row, i) => {
-        const at = i === work.length ? pickAt : lineAt(i);
-        return (
-          <div
-            key={row}
-            style={{
-              position: "absolute",
-              left: SESSION.x + 30,
-              top: FIRST + i * LINE,
-              fontSize: 32,
-              whiteSpace: "pre",
-              opacity: at < 0 ? 1 : ease(t, at, FADE),
-            }}
-          >
-            <span style={{ color: color.dim }}>{row.slice(0, 7)}</span>
-            <span style={{ color: i === work.length ? ink : color.text }}>
-              {row.slice(7)}
-            </span>
-          </div>
-        );
-      })}
-
-      <div
-        style={{
-          position: "absolute",
-          left: NOTE.x,
-          top: NOTE.y,
-          width: NOTE.w,
-          height: NOTE.h,
-          border: `2px solid ${color.line}`,
-          borderRadius: 12,
-          background: color.window,
-        }}
-      >
-        <div
-          style={{
-            height: 62,
-            display: "flex",
-            alignItems: "center",
-            padding: "0 28px",
-            fontSize: TYPE.sub,
-            color: color.soft,
-            borderBottom: `1px solid ${color.line}`,
-          }}
-        >
-          Note, or /btw
-        </div>
-        <div
-          style={{
-            padding: "28px 28px",
-            fontSize: TYPE.body,
-            color: color.text,
-            opacity: t < sendAt + sec(0.2) ? 1 : 0,
-          }}
-        >
-          <Typed text={note} at={typedAt} speed={0.8} cursor />
-        </div>
-      </div>
-      <div
-        style={{
-          position: "absolute",
-          left: NOTE.x + NOTE.w - 220,
-          top: NOTE.y + NOTE.h + 24,
-          width: 220,
-          height: 70,
-          borderRadius: 8,
-          border: `2px solid ${mix(color.line, ink, ease(t, sendAt - sec(0.2), sec(0.3)) * (1 - ease(t, sendAt + sec(0.6), sec(0.5))))}`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 30,
-          color: color.text,
-        }}
-      >
-        Send
-      </div>
-      {t >= sendAt + sec(0.2) ? (
-        <div
+        <Img
+          src={staticFile(picture)}
           style={{
             position: "absolute",
-            left: card.x,
-            top: card.y,
-            width: card.w,
-            height: 70,
-            borderRadius: 8,
-            border: `2px solid ${mix(ink, color.line, picking)}`,
-            background: color.raised,
-            display: "flex",
-            alignItems: "center",
-            gap: 18,
-            padding: "0 22px",
-            fontSize: 32,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            color: color.text,
+            // Centred in the window's inner width (its 2 px outline on each side)
+            left: (PAGE.w - 4 - PAGE_PICTURE_W) / 2,
+            top: -PAGE_GLIDE * glide(t, 30, 84),
+            width: PAGE_PICTURE_W,
           }}
-        >
-          {note}
-          {t >= pickAt ? (
-            <span
-              style={{
-                marginLeft: "auto",
-                fontSize: TYPE.label,
-                color: color.good,
-                opacity: picking,
-              }}
-            >
-              picked up
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+        />
+      </Window>
     </Field>
   );
 };
@@ -339,7 +210,7 @@ export const Also: React.FC<{ shot: Shot }> = ({ shot }) => {
     <Field>
       <Head title={shot.title} sub={shot.sub} ink={accent.Overview} />
       {tiles.map((tile, i) => {
-        // A name that starts with a number, like "50 hooks", counts up to it while the shot fades in, so it lands by
+        // A name that starts with a number, like "51 hooks", counts up to it while the shot fades in, so it lands by
         // 0.5 s; any other name prints as it is.
         const counted = tile.name.match(/^(\d+) (.+)$/);
         return (

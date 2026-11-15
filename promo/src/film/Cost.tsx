@@ -1,8 +1,8 @@
 import React from "react";
 import { ease, FADE, Field, glide, Head, sec, useTick } from "./kit";
 import { accent, color, MARGIN, TYPE } from "./look";
-import { Shot } from "./script";
 import { need } from "./need";
+import type { Shot } from "./script";
 
 const ink = accent.Cost;
 const CHART = {
@@ -53,7 +53,11 @@ export const Usage: React.FC<{ shot: Shot }> = ({ shot }) => {
       {/* Each group of bars is named above the limit's row, with a thin rule spanning its columns. */}
       {[
         { text: axis, from: 0, to: used.length - 1 },
-        { text: aheadLabel, from: used.length, to: used.length + ahead.length - 1 },
+        {
+          text: aheadLabel,
+          from: used.length,
+          to: used.length + ahead.length - 1,
+        },
       ].map((group) => (
         <div
           key={group.text}

@@ -1,10 +1,11 @@
 // Tests for hooks/context-guard.mjs. Run: node tests/test-context-guard.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
-import { fileURLToPath } from "node:url";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/context-guard.mjs", import.meta.url),
@@ -128,13 +129,6 @@ const stop = (t, extra = {}, env = {}) =>
     { hook_event_name: "Stop", transcript_path: t, session_id: sid, ...extra },
     env,
   );
-const reason = (o) => {
-  try {
-    return JSON.parse(o).reason ?? "";
-  } catch {
-    return "";
-  }
-};
 // The Stop hook only warns now (systemMessage, no block)
 const warn = (o) => {
   try {
@@ -356,9 +350,9 @@ check(
       .systemMessage,
   ),
 );
+run({ prompt: "x", transcript_path: small, session_id: sid });
 check(
   "prompt back under the limit clears the warning, so the next cycle warns again",
-  (run({ prompt: "x", transcript_path: small, session_id: sid }),
   !fs.existsSync(
     path.join(
       os.homedir(),
@@ -368,7 +362,7 @@ check(
       "context-guard",
       `${sid}.json`,
     ),
-  )) && /~420k/.test(warn(stop(big))),
+  ) && /~420k/.test(warn(stop(big))),
 );
 clear();
 check("+100k later: warns again", /~530k/.test(warn(stop(bigger))));

@@ -1,7 +1,7 @@
-import React from "react";
+import type React from "react";
 import { useCurrentFrame } from "remotion";
 import { Appear, appear, move } from "../anim";
-import { Scene, SceneProps } from "../Scene";
+import { Scene, type SceneProps } from "../Scene";
 import { color, mono } from "../theme";
 import { Bar, Chip, Columns, Window } from "../ui";
 
@@ -88,18 +88,16 @@ const top = (slot: number): number =>
   HEADER + 12 + slot * (CARD_HEIGHT + CARD_GAP);
 
 const position = (card: Card, frame: number): { x: number; y: number } =>
-  card.stops
-    .slice(1)
-    .reduce(
-      (at, stop) => ({
-        x: move(frame, stop.at, at.x, left(stop.column)),
-        y: move(frame, stop.at, at.y, top(stop.slot)),
-      }),
-      {
-        x: left(card.stops[0].column),
-        y: top(card.stops[0].slot),
-      },
-    );
+  card.stops.slice(1).reduce(
+    (at, stop) => ({
+      x: move(frame, stop.at, at.x, left(stop.column)),
+      y: move(frame, stop.at, at.y, top(stop.slot)),
+    }),
+    {
+      x: left(card.stops[0].column),
+      y: top(card.stops[0].slot),
+    },
+  );
 
 const briefLine: React.CSSProperties = { fontSize: 24, lineHeight: 1.4 };
 

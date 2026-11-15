@@ -17,14 +17,14 @@ export function watchEndpoint() {
   return () => {};
 }
 
-export async function sessionStatus(projectPath, sessionId) {
+export async function sessionStatus(_projectPath, sessionId) {
   note({ fn: "sessionStatus", sessionId });
   const states = JSON.parse(process.env.STUB_NIM_STATES || '["idle"]');
   const state = states[Math.min(polls++, states.length - 1)];
   return { state, raw: {} };
 }
 
-export async function lastAnswer(projectPath, sessionId) {
+export async function lastAnswer(_projectPath, sessionId) {
   note({ fn: "lastAnswer", sessionId });
   const n = Number(process.env.STUB_NIM_ANSWER_LEN || 0);
   if (!n) return "The fix is done.";
@@ -32,12 +32,12 @@ export async function lastAnswer(projectPath, sessionId) {
   return line.repeat(Math.ceil(n / 50)).slice(0, n);
 }
 
-export async function waitingQuestion(projectPath, sessionId) {
+export async function waitingQuestion(_projectPath, sessionId) {
   note({ fn: "waitingQuestion", sessionId });
   return "Allow deleting the build folder?";
 }
 
-export async function pendingPrompt(projectPath, sessionId) {
+export async function pendingPrompt(_projectPath, sessionId) {
   note({ fn: "pendingPrompt", sessionId });
   return process.env.STUB_NIM_PENDING
     ? JSON.parse(process.env.STUB_NIM_PENDING)

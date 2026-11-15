@@ -28,7 +28,11 @@ When a command fails, it prints one `backup: ...` line. Give it to the user as i
 ## Setup
 
 1. **Get restic.** `$B get-restic`. It downloads restic 0.19.1 and checks it against the hash pinned in the worker. On `checksum mismatch`, stop and show the line; do not get restic from anywhere else.
-2. **Account.** Ask if the user has a Backblaze account. If not, tell them: "Make a free account at backblaze.com (B2 Cloud Storage). Then open *Application Keys* and click *Generate New Master Application Key*. It is shown only once, so leave that page open." Wait for "done".
+2. **Account and B2.** Ask if the user has a Backblaze account. A login made for Computer Backup (the personal backup app) has no B2: its pages ("View/Restore Files", "Overview") are the wrong product. Give the steps in this order, with these labels (Backblaze docs, checked 2026-11-14):
+   1. No account: make a free one at backblaze.com/sign-up/cloud-storage ("Get started for free", no card). Skip step 2.
+   2. Account exists but the left menu has no **B2 Cloud Storage** section: sign in, user menu (top right) > **My Settings** > **Enabled Products** > tick **B2 Cloud Storage** > accept the terms > **OK**. Direct link: https://secure.backblaze.com/account_settings.htm. If it asks to verify the email: **My Settings** > **Verify your Email** > **Send Code**. Inside a Backblaze Group, a group admin must turn B2 on first.
+   3. Left menu **B2 Cloud Storage** > **Application Keys** > **Master Application Key** > **Generate New Master Application Key** > **Yes! Generate Master Key**. The key shows once, so leave that page open. A new master key replaces the old one.
+   Open the settings link in the user's own browser for them (`cmd //c start "" "<url>"`), then wait for "done".
    If the user has no account yet, or wants to do it later, stop here and say: "Setup waits for your Backblaze account; `/backup` carries on from here."
 3. **Setup window.** `$B setup --window`. A window named "Claude backup" opens on the PC. Tell the user what happens there:
    - they paste the master key ID and the key (the typing is hidden);

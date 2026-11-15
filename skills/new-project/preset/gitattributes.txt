@@ -1,0 +1,18 @@
+# Copied to .gitattributes. Every text file is stored with LF line ends, so a clone on Windows
+# with core.autocrlf does not give shell scripts CRLF ends that break `sh`.
+* text=auto eol=lf
+
+# Windows scripts keep CRLF ends.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files: no line-end changes, no text diff.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.mp4 binary

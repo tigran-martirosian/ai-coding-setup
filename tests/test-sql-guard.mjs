@@ -1,10 +1,12 @@
 // Tests for hooks/sql-guard.mjs. Run: node test-sql-guard.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
 const hook = fileURLToPath(new URL("../hooks/sql-guard.mjs", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "sqlguard-"));
 writeFileSync(join(dir, "wipe.sql"), "-- nightly\nTRUNCATE TABLE sales;\n");

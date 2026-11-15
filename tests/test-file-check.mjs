@@ -146,6 +146,11 @@ gitRepo(rules, {
   ".claude/settings.json": "{}",
   "patches/superseded/a.md": "",
   "hooks/handoff-brief.mjs": "",
+  "docs/decisions/2026-11-14-x.md": "# 2026-11-14: x\n",
+  "docs/decisions/hooks.md": "# Hooks\n",
+  "docs/decisions/2026-11-13-handoff-fix.md": "# 2026-11-13: handoff fix\n",
+  "docs/decisions/2026-11-02-history-decisions.md":
+    "# 2026-11-02: history decisions\n",
 });
 const r1 = json(rules);
 const hit = (p, rule, target) => {
@@ -211,6 +216,14 @@ check(
 );
 noRule("docs/research/2026-01-01-handoff-study.md", "R1");
 clean("hooks/handoff-brief.mjs");
+// the decision files of a split record: dated or not, "handoff" or "decisions" in the name, none is a copy (R1)
+for (const p of [
+  "docs/decisions/2026-11-14-x.md",
+  "docs/decisions/hooks.md",
+  "docs/decisions/2026-11-13-handoff-fix.md",
+  "docs/decisions/2026-11-02-history-decisions.md",
+])
+  clean(p);
 hit("docs/decisions-archive-2026-11-02.md", "R2", "docs/decisions-archive.md");
 hit("docs/2025-01-01-old-plan.md", "R3");
 clean("docs/2025-01-02-linked-plan.md");
@@ -258,6 +271,7 @@ gitRepo(bake, {
     "const menu = '../docs/Menu_Ideas.md';\nconst built = path.join('docs', 'Menu_Ideas.md');\n",
   "docs/Menu_Ideas.md": "# Menu\n",
   "docs/2026-10-01-record.md": "Then the menu lived in docs/Menu_Ideas.md.\n",
+  "docs/decisions/menu.md": "# Menu\n\n- The menu lives in docs/Menu_Ideas.md.\n",
   "docs/prices.md": "1\n",
   "docs/prices.md.bak": "0\n",
   "docs/decisions-archive-2026-11-02.md": "- an old decision\n",
@@ -438,6 +452,12 @@ check(
 check(
   "a dated record keeps its old path",
   at("docs/2026-10-01-record.md").includes("docs/Menu_Ideas.md"),
+);
+check(
+  "a decision file in docs/decisions/ is a record: its old path is kept and not listed",
+  at("docs/decisions/menu.md").includes("docs/Menu_Ideas.md") &&
+    !applied.out.includes("docs/decisions/menu.md"),
+  applied.out,
 );
 check(
   "the dated decisions archive is merged",

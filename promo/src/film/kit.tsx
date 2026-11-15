@@ -1,7 +1,7 @@
-import React from "react";
+import type React from "react";
 import { AbsoluteFill, interpolateColors, useCurrentFrame } from "remotion";
 import { accent, color, FLOOR, MARGIN, mono, TYPE } from "./look";
-import { FPS, Part, PARTS, TICKS, timeline } from "./script";
+import { FPS, PARTS, type Part, TICKS, timeline } from "./script";
 
 // The calm kit. Every shot follows the same rules: the headline is there from the first frame in one place, one
 // thing moves at a time, an element lands within about a second and then stays put, nothing flashes, and the
@@ -18,12 +18,12 @@ export const clamp = (x: number, low = 0, high = 1): number =>
 
 /** Eases out over `len` ticks: quick at first, then settling. */
 export const ease = (t: number, at: number, len: number): number =>
-  1 - Math.pow(1 - clamp((t - at) / len), 3);
+  1 - (1 - clamp((t - at) / len)) ** 3;
 
 /** Eases in and out over `len` ticks, for something travelling from one place to the next. */
 export const glide = (t: number, at: number, len: number): number => {
   const x = clamp((t - at) / len);
-  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
 };
 
 /** One colour turning into another as `x` runs from 0 to 1. */
@@ -273,6 +273,7 @@ export const Wire: React.FC<{
   const d = `M ${a.x} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${b.x} ${b.y}`;
   return (
     <svg
+      aria-hidden="true"
       width={1920}
       height={1080}
       style={{
@@ -324,8 +325,10 @@ export const Rail: React.FC = () => {
     [...items].reverse().find((item) => item.from <= frame) ?? items[0];
   if (now.part === null) return null;
   const part = now.part;
+  // biome-ignore lint/style/noNonNullAssertion: the order check above proves every part has an item
   const start = (p: Part) => items.find((item) => item.part === p)!.from;
   const end = (p: Part) => {
+    // biome-ignore lint/style/noNonNullAssertion: the order check above proves every part has an item
     const last = [...items].reverse().find((item) => item.part === p)!;
     return last.from + last.frames;
   };

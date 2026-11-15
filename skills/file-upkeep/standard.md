@@ -30,17 +30,28 @@ each glob with its reason.
 
 ## Records and their lifetime
 
-| Kind | Name and place | Lifetime |
-|---|---|---|
-| Decisions in force | one `DECISIONS.md` at the root: `## What each thing is for` first, then dated sections, newest first | each line stays until a new decision replaces it |
-| Replaced decisions | one `docs/decisions-archive.md`, newest first, each with what replaced it | kept for good (ADR, Nygard and MADR: a reversed decision is kept, marked superseded) |
-| Handoff | one `HANDOFF.md` at the root, current state only | rewritten each session; older states live in git history |
-| Research notes | `docs/research/YYYY-MM-DD-topic.md` | kept while a decision, design or doc links to it |
-| Designs and plans | `docs/YYYY-MM-DD-topic-design.md`, `-plan.md` | a design stays (the why behind built code); a plan stays while linked |
-| Audits and run output | P4 | the `.md` record stays; a run folder stays while linked |
-| Changelog | one `CHANGELOG.md` at the root | kept for good (Keep a Changelog) |
+"Start" = read at every session start.
 
-R1 flags a handoff or decisions copy (`docs/history-handoff-2026-11-06.md`), R2 a dated decisions archive (merged into
+| Kind and place | Reader | Limit | Way out | Source |
+|---|---|---|---|---|
+| Decisions index, root `DECISIONS.md` | start (CLAUDE.md line); `serves.mjs` (purpose record) | 200 lines or 25,000 bytes | `decisions.mjs --split` moves its sections to `docs/decisions/`; the upkeep note runs it after a commit | Claude Code memory docs (MEMORY.md index: 200 lines / 25KB); using it here: own call |
+| Purpose record, `## What each thing is for` in the index | `serves-brief` on every helper start | inside the index limit | a newer entry for the same thing replaces the line (`lead/reference.md`) | own call |
+| Topic file, `docs/decisions/<topic>.md` | on demand, named by the index; hooks through `hooks/lib/decisions.mjs` | 16,000 bytes | a "Replaces" line moves the old entry to the archive (upkeep note); over the limit, `--check` D3 and `/update-project` P4 ask for a split by sub-topic with a ledger | memory tool docs (`view` cuts at 16,000 characters); own call for this use |
+| Job file, `docs/decisions/YYYY-MM-DD-<job>.md` | on demand: the job files of the newest date, or by grep; hooks as above | none | entries that bind later work move to a topic file (`--apply`); the rest stays as the job's history | common practice: on-demand stores have no cap; ADR keeps every record |
+| Replaced decisions, `docs/decisions-archive.md` | on demand; `serves.mjs` ("stale" backing) | none | none: kept for good, newest first, each with what replaced it | ADR (Nygard, MADR): keep, mark superseded |
+| Handoff, root `HANDOFF.md` | start | 120 lines or 12,000 bytes | upkeep note: trim; cut text in git or `docs/handoff-history.md` | own number (`upkeep-checks.mjs`); shape from Anthropic's harness post |
+| Handoff history, `docs/handoff-history.md` | on demand | none | none: kept | own call |
+| Automatic briefs, `~/.claude/handoffs/<folder>-auto-<id>.md` | the next session, when its prompt names one | none per file | deleted after 7 days, in every folder | `handoff-brief.mjs`, 7 days; own call |
+| `/handoff` briefs and `-latest` files, same folder | the session that is handed the path | none | none yet: no rule exists | own call: left as they are |
+| Research notes, `docs/research/YYYY-MM-DD-topic.md` | on demand | none | R3 note after 90 days with no link | standard R3 |
+| Designs and plans, `docs/YYYY-MM-DD-topic-design.md`, `-plan.md` | on demand; `job-done.mjs` reads open plan rows | none | a design stays; a plan gets the R3 note at 90 days with no link | standard R3 |
+| Audits, `audits/` | on demand | none | R3 note for run folders at 90 days | standard P4, R3 |
+| Changelog, root `CHANGELOG.md`; a public changelog has one heading per version with short plain bullets; a README has no dated "What's new" paragraphs; a public branch gets one squashed commit per release or hotfix | at a release | none | none: kept | Keep a Changelog |
+| Project `CLAUDE.md` | auto, every session | 200 lines (standard P6); `/new-project` aims for 60 | `/update-project` P2.length asks | Claude Code memory docs |
+| `MEMORY.md` and memory topic files | auto (index), on demand (topics) | 200 lines or 25 KB, Claude Code's own | Claude Code's own: "merge or drop stale entries" | Claude Code memory docs |
+| Hook state, `~/.claude/hooks/state/<hook>/` | the hook only | none | each hook's `sweep(hook, days)`, 1 to 90 days | `hooks/lib/state.mjs` |
+
+R1 flags a handoff or decisions copy (`docs/history-handoff-2026-11-06.md`; `docs/decisions/` files are not copies), R2 a dated decisions archive (merged into
 `docs/decisions-archive.md`), R3 a dated doc or audit run folder older than 90 days that nothing links to. R3 is a
 note: the person decides to keep or delete it; nothing is deleted without their yes.
 

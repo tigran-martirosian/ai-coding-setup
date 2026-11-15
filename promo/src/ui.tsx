@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { useCurrentFrame } from "remotion";
 import { color, mono } from "./theme";
 
@@ -135,6 +135,7 @@ export const StatusIcon: React.FC<{ status: Status; size?: number }> = ({
   if (status === "running") {
     return (
       <svg
+        aria-hidden="true"
         width={size}
         height={size}
         viewBox="0 0 24 24"
@@ -161,6 +162,7 @@ export const StatusIcon: React.FC<{ status: Status; size?: number }> = ({
   const ok = status === "ok";
   return (
     <svg
+      aria-hidden="true"
       width={size}
       height={size}
       viewBox="0 0 24 24"

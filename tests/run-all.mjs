@@ -134,7 +134,7 @@ const width = verbose
 const results = {};
 const started = Date.now();
 async function worker() {
-  for (let name; (name = queue.shift());) {
+  for (let name; (name = queue.shift()); ) {
     if (verbose) console.log(`\n== ${name}`);
     const r = (results[name] = await runFile(name));
     if (verbose) continue;

@@ -7,16 +7,16 @@
 // Returns marks (state.rules: the rules as this run wrote them; state.rulesLeftOut).
 import fs from "node:fs";
 import path from "node:path";
-import { fwd, sha } from "./files.mjs";
 import {
-  splitBlocks,
+  appendOwn,
+  carve,
+  historyKeys,
   key,
   lead,
+  splitBlocks,
   unfit,
-  carve,
-  appendOwn,
-  historyKeys,
 } from "./blocks.mjs";
+import { fwd, sha } from "./files.mjs";
 import { fableToOpus } from "./model.mjs";
 
 const HEADING = /^#{1,6}\s/;

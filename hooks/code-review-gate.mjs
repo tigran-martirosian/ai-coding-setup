@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
 // code-review-gate: asks for a `reviewer` agent when a session's change is big enough to need one. Three arms:
 // - Stop (no argument): blocks once per turn while a review is due: 2+ helper steps edited code, 10+ code files since the
 //   last review, or a change to hooks, rules, agents, skills, settings or CI. A reply ending in a question passes.
@@ -12,8 +14,6 @@ import { assess } from "./lib/review-decide.mjs";
 import { baseline, gatePaths, gather } from "./lib/review-evidence.mjs";
 import { setting } from "./lib/settings-env.mjs";
 import { readJson, writeJson } from "./lib/state.mjs";
-import fs from "node:fs";
-import path from "node:path";
 
 const nameList = (names) =>
   names.length > 6

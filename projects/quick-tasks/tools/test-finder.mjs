@@ -5,9 +5,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { key, notAnItemPage, isSaveLabel, linksIn } from "./links.mjs";
+import { problems, scan } from "../.claude/hooks/finder-link-gate.mjs";
 import { check } from "./limits.mjs";
-import { scan, problems } from "../.claude/hooks/finder-link-gate.mjs";
+import { isSaveLabel, key, linksIn, notAnItemPage } from "./links.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOOK = path.join(HERE, "..", ".claude", "hooks", "finder-link-gate.mjs");

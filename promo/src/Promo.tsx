@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { Series } from "remotion";
 import { scenesById } from "./scenes";
 

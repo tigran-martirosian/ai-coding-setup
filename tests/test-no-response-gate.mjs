@@ -1,8 +1,9 @@
 // Tests for hooks/no-response-gate.mjs. Run: node tests/test-no-response-gate.mjs
 // Each case writes a small transcript and runs the hook on it as a Stop or UserPromptSubmit event.
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -45,21 +45,22 @@
 // background agent made (foreground ones too); such an item is found in <session>/subagents/agent-<id>.jsonl and counts
 // as handled once that agent's own notification came. A "<task-notification>" without a task id (Stop hook feedback)
 // is not a task's.
-import { runHook, emit } from "./lib/hook-io.mjs";
+
+import fs from "node:fs";
+import path from "node:path";
+import { emit, runHook } from "./lib/hook-io.mjs";
+import { SETTLED_NOTE, STAND_IN_RE } from "./lib/texts.mjs";
 import {
   agentLaunches,
   currentTurn,
   entries,
   userText,
 } from "./lib/transcript.mjs";
-import { SETTLED_NOTE, STAND_IN_RE } from "./lib/texts.mjs";
-import fs from "node:fs";
-import path from "node:path";
 
 const SETTLED = /^\[System: background task\(s\)[^\n]*settled/;
-const ITEM_END = /" [a-z][a-z ()0-9-]{0,30}\n  Summary:/g;
+const ITEM_END = /" [a-z][a-z ()0-9-]{0,30}\n {2}Summary:/g;
 // A whole item header on one line with no Summary line under it: this parser can't check that item
-const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n  Summary:)/m;
+const BARE_ITEM = /^- "[^\n]*" [a-z][a-z ()0-9-]{0,30}$(?!\n {2}Summary:)/m;
 // A command that doesn't end by itself: dev server, game server, watcher, follow-mode log read, endless loop
 const SERVER =
   /\b(runServer|runClient|nodemon|http-server|live-server|webpack-dev-server|http\.server|uvicorn|gunicorn)\b|\bflask\s+run\b|\bmanage\.py\s+runserver\b|\bnode\s[^|;&\n]*server|\bnpx\s+(serve|vite)\b|\bserve\s+-s\b|\bdocker[ -]compose\s+up\b(?![^|;&\n]*\s-\w*d)|\b(npm|pnpm|yarn)\s+run\s+preview\b|\bstreamlit\s+run\b|\brails\s+(s|server)\b|--watch\b|\btsc\b[^|;&\n]*\s-w\b|-Wait\b|\btail\b[^|;&\n]*\s-\w*[fF]\b|(^|[\s;&|(])(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b|(^|[\s;&|(])(vite|next|nuxt|astro)(\s+dev)?\s*$|(^|[\s;&|(])watch\s|\bwhile\s+(true|:)/im;
@@ -96,7 +97,7 @@ const LONG_WAIT = (min) =>
 const OUTSIDE_WAIT =
   " A wait for something outside this session (a CI run, a deploy, another session) is the exception: send it in the background as a loop that checks it each round (until/while with a sleep of 60 s or less), or put a wait with nothing to check in ScheduleWakeup; then end your turn, so the user can reach you while it runs.";
 const NUDGE =
-  "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read, and a background helper can die when this turn ends. Run it in the foreground (several helpers side by side: several calls in one message) (Bash: `timeout` up to 600000 ms; Agent: no `run_in_background`) and read the result once." +
+  "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read, and a background helper can die when this turn ends. Run it in the foreground (several helpers side by side: several calls in one message) (Bash: `timeout` up to 600000 ms; Agent: pass `run_in_background: false`, since leaving it out runs the helper in the background) and read the result once." +
   OUTSIDE_WAIT +
   " When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer). A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
 const REFUSE_AGENT =
@@ -118,14 +119,14 @@ const DUPLICATE =
 // A reply that says a helper of this session runs now or will report back. Only claims count: a sentence that
 // starts with the helper doing something now, a first-person wait or promise, a "will notify" line. A
 // description ("the hook blocks when the task is finished", "reload once the build is done") does not match.
-const NOUN = String.raw`the (?:planner|agent|helper|worker|reviewer|subagent|build|job|task|command|tests?|run|search|script|scan|research)`;
-const HELPER = String.raw`(?:it|they|${NOUN})`;
+const NOUN = `the (?:planner|agent|helper|worker|reviewer|subagent|build|job|task|command|tests?|run|search|script|scan|research)`;
+const HELPER = `(?:it|they|${NOUN})`;
 const START = String.raw`(?:^|[.!:;]\s+|\n\s*(?:[-*]\s+)?)`;
 const DONE = String.raw`(?:once|when|after) ${HELPER}(?:'s| is| are| has)? (?:done|finished|finish|finishes|returns|reports|completes|comes back|ready)\b`;
 const WAITING = new RegExp(
   [
     String.raw`${START}${HELPER}(?:'s|'re| is| are)(?: still| now)* (?:running|working|busy|adding|writing|building|checking|reviewing|searching|reading|finishing|processing|planning)\b(?![^.!\n]*\?)`,
-    String.raw`${START}(?:I'm |I am |I'll be |still )?(?:waiting|standing by) (?:for|on) (?:it|them|its|their|${NOUN})`,
+    `${START}(?:I'm |I am |I'll be |still )?(?:waiting|standing by) (?:for|on) (?:it|them|its|their|${NOUN})`,
     String.raw`\bI(?:'ll| will)\b[^.!?\n]{0,100}${DONE}`,
     String.raw`\b${HELPER}(?: will|'ll) (?:notify|report back|let me know|come back|ping)\b`,
     String.raw`\b(?:was|is being|has been) resumed\b[^.!?\n]{0,60}\bwill notify\b`,

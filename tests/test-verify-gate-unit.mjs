@@ -1,6 +1,6 @@
 // Unit tests for the exports of hooks/verify-gate.mjs (unverified, runsEdited): running an edited script counts as its check; other commands do not. Run: node tests/test-verify-gate-unit.mjs
 import assert from "node:assert/strict";
-import { unverified, runsEdited } from "../hooks/verify-gate.mjs";
+import { runsEdited, unverified } from "../hooks/verify-gate.mjs";
 
 const edit = (id, p) => ({
   type: "assistant",

@@ -1,10 +1,11 @@
 // Test for skills/steer/compact-self.mjs: temp HOME and temp Nimbalyst database, never the real outbox.
-import { fileURLToPath } from "node:url";
+
 import { spawnSync } from "node:child_process";
-import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 
 const SCRIPT = fileURLToPath(
   new URL("../skills/steer/compact-self.mjs", import.meta.url),

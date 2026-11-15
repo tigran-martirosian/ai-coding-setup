@@ -48,7 +48,12 @@ export function extensions(ctx) {
         say(`extension unchanged: ${name}`);
         continue;
       }
-      const plain = ["ink-themes", "agents-panel", "board-tidy"].includes(name); // build with Node alone
+      const plain = [
+        "ink-themes",
+        "agents-panel",
+        "board-tidy",
+        "job-tracker",
+      ].includes(name); // build with Node alone
       if (!plain && !onPath("npm")) {
         say(
           `extension not built: ${name} (npm is not on the PATH; install Node.js with npm and run this again)`,
@@ -66,7 +71,7 @@ export function extensions(ctx) {
           ]
         : [
             ["npm", ["ci"]],
-            ["npm", ["run", "build"]],
+            // install-ext builds first, then copies dist/
             ["npm", ["run", "install-ext"]],
           ];
       let failed = "";

@@ -1,12 +1,13 @@
 // Tests for hooks/big-read-gate.mjs on made-up files in a temp folder. Run: node test-big-read-gate.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
+
 import { spawnSync } from "node:child_process";
 import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
   existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -359,7 +360,23 @@ const denyText = JSON.parse(
     }),
   }).stdout.toString(),
 ).hookSpecificOutput.permissionDecisionReason;
+// A ranged Read whose limit is over 350 lines: the text names the range, not a whole-file read
+const rangeText = JSON.parse(
+  spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({
+      tool_name: "Read",
+      tool_input: { file_path: B, offset: 100, limit: 600 },
+    }),
+  }).stdout.toString(),
+).hookSpecificOutput.permissionDecisionReason;
 for (const [name, ok] of [
+  [
+    "text: ranged Read over 350 lines says its limit is too big, not 'whole'",
+    /asks for 600 lines, more than the 350 lines/.test(rangeText) &&
+      /smaller range/.test(rangeText) &&
+      !/Reading it whole/.test(rangeText),
+  ],
+  ["text: whole Read still says whole", /Reading it whole/.test(denyText)],
   [
     "text: subagent_type worker on its own model (Opus), no sonnet",
     /subagent_type: "worker" \(Agent tool\)/.test(denyText) &&

@@ -10,7 +10,7 @@
 // Quoted text, heredoc and here-string bodies are not commands: `echo "find /"` passes. A search inside
 // `bash -c "..."`, `cmd /c "..."` or `powershell -Command "..."` is read as a command. Fails open. FIND_GUARD=off
 // disables it.
-import { runHook, emit } from "./lib/hook-io.mjs";
+import { emit, runHook } from "./lib/hook-io.mjs";
 
 const MAX_DEPTH = 3;
 // Words in front of the command itself
