@@ -9,12 +9,19 @@ import { fableToOpus } from "./model.mjs";
 // Add-ons: left out of a default install. --with name[,name,...] adds any of them; a copy already in
 // the target stays and keeps being updated by a plain run; --uninstall treats them like any other skill or extension.
 export const ADDONS = { "phone-bot": "skill", "read-aloud": "extension" };
+// Folders and files outside skills/ that an add-on skill needs: the phone app's PC program imports phone/shared
+// and reads its setup version from version.json three folders up (~/.claude/version.json when installed)
+const ADDON_PATHS = {
+  "phone-bot": [path.join("phone", "shared"), "version.json"],
+};
 // A file under an add-on skill is left out unless it was asked for with --with, or a copy is already there
 const addonSkip = ({ CLAUDE, withNames }, rel) =>
   Object.entries(ADDONS).some(
     ([name, kind]) =>
       kind === "skill" &&
-      fwd(rel).startsWith(fwd(path.join("skills", name)) + "/") &&
+      [path.join("skills", name), ...(ADDON_PATHS[name] || [])].some(
+        (d) => fwd(rel) === fwd(d) || fwd(rel).startsWith(fwd(d) + "/"),
+      ) &&
       !withNames.includes(name) &&
       !fs.existsSync(path.join(CLAUDE, "skills", name, "SKILL.md")),
   );

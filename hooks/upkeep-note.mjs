@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // PostToolUse hook: after a commit lands in the session's own project, or after the session edits that project's
 // HANDOFF.md, tells Claude of the cheap upkeep limits its records break, so Claude fixes them itself with no question
-// to the user and one "Upkeep:" line in its reply. Moves, renames, deletes and tools stay with /update-project.
+// to the user (the monthly package card excepted) and one "Upkeep:" line in its reply. Moves, renames, deletes and tools stay with /update-project.
 // The checks (hooks/lib/upkeep-checks.mjs, shared with skills/update-project/pass.mjs):
 //   - HANDOFF.md over 120 lines or 12 KB;
 //   - the root DECISIONS.md over 200 lines or 25 KB: the note gives the split command (skills/file-upkeep/
@@ -10,7 +10,10 @@
 //   - backticked paths in CLAUDE.md, HANDOFF.md, .claude/rules/*.md found neither from the project nor from ~;
 //   - "Replaces / replaced by" lines added to the decision files (DECISIONS.md, docs/decisions/) by the commit that
 //     just landed (git show HEAD, commit trigger only) or not yet committed (git diff HEAD). Lines already in the
-//     files are never told, nor lines the same diff removes elsewhere (a split moves them, word for word).
+//     files are never told, nor lines the same diff removes elsewhere (a split moves them, word for word);
+//   - packages: a project with a package lock or Python package file (its top folder or one folder down) gets the
+//     package upkeep of skills/update-project/packages.md once every 30 days, on a commit (silent small updates,
+//     one question for big ones). State field packagesDay.
 // Paths and decision lines: at most once per project folder per local day; each told once, 5 of each per note at
 // most (the rest wait for a later day). HANDOFF.md and DECISIONS.md over the limit: once per session, every session
 // (many sessions a day each add to them, and each one reads them whole at its start).
@@ -18,7 +21,7 @@
 // Silent for helpers (agent_id), linked worktrees, the home folder, a commit in another repository, an old HEAD and
 // --amend. Wired once: PostToolUse "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal|Edit|MultiEdit|Write".
 // State: ~/.claude/hooks/state/upkeep-note/<key>.json, {root, day, paths, decisions, handoffSessions,
-// decisionsSessions}.
+// decisionsSessions, packagesDay}.
 // Off switch: UPKEEP_NOTE=off.
 // Fails open; a git failure drops only the decision part. Test: tests/test-upkeep-note.mjs.
 import { spawnSync } from "node:child_process";
@@ -53,6 +56,16 @@ const SHELL_TOOL = /^(Bash|PowerShell)$/;
 const FRESH_MS = 2 * 60e3; // a HEAD this new was made by the call that just ran
 const MAX_EACH = 5; // paths, decision lines per note
 const KEEP = 300; // told paths, told decision lines kept in the state
+const PACKAGES_DAYS = 30; // package upkeep at most this often per project
+const PACKAGE_FILES = [
+  "package-lock.json",
+  "uv.lock",
+  "pyproject.toml",
+  "requirements.txt",
+];
+const PACKAGES_DOC = fileURLToPath(
+  new URL("../skills/update-project/packages.md", import.meta.url),
+);
 
 const localDay = (d = new Date()) =>
   new Date(d.getTime() - d.getTimezoneOffset() * 6e4)
@@ -202,7 +215,33 @@ function decisionsSize(root, repo) {
   return over;
 }
 
-function note(root, today, handoff, paths, decisions, size = null) {
+// the project's package folders ("." or one folder down) holding a package lock or Python package file
+function packageFolders(root) {
+  const has = (dir) =>
+    PACKAGE_FILES.some((n) => fs.existsSync(path.join(dir, n)));
+  const found = has(root) ? ["."] : [];
+  for (const d of fs.readdirSync(root, { withFileTypes: true }))
+    if (
+      d.isDirectory() &&
+      !d.name.startsWith(".") &&
+      d.name !== "node_modules" &&
+      has(path.join(root, d.name))
+    )
+      found.push(d.name);
+  return found;
+}
+const daysSince = (day, today) =>
+  day ? (Date.parse(today) - Date.parse(day)) / 864e5 : Infinity;
+
+function note(
+  root,
+  today,
+  handoff,
+  paths,
+  decisions,
+  size = null,
+  packages = [],
+) {
   const parts = [];
   if (handoff)
     parts.push(
@@ -234,12 +273,16 @@ For each line:
 3. The line holding "Replaces" or "replaced by" stays where it is, unchanged, and so does every entry the line does not name.
 4. No match, several matches, a match with no earlier date, or a line that names something other than a decision entry: leave both files as they are, and say "decision left as it was" in the Upkeep line.`,
     );
-  return `Upkeep for this project (${noQm(path.resolve(root))}): its records broke a limit. Fix the items below yourself, before a hand-off or the end of this turn, whichever comes first. First finish what the user asked for; then do this. It is routine upkeep the user already agreed to: do it without asking them anything, and keep their attention on their own work.
+  if (packages.length)
+    parts.push(
+      `Packages (monthly): update the packages of ${packages.map((p) => `"${noQm(p)}"`).join(", ")} as ${noQm(PACKAGES_DOC)} says: small updates silently, kept only when the project's tests pass; big ones on one question card (the only question upkeep asks); a security problem told at once.`,
+    );
+  return `Upkeep for this project (${noQm(path.resolve(root))}): its records broke a limit or a monthly job is due. Fix the items below yourself, before a hand-off or the end of this turn, whichever comes first. First finish what the user asked for; then do this. It is routine upkeep the user already agreed to: do it without asking them anything (the package card is the one exception), and keep their attention on their own work.
 
 ${parts.join("\n\n")}
 
 When done, add exactly one line to your reply, starting with "Upkeep:" and naming what you did, for example:
-Upkeep: HANDOFF.md trimmed from 240 to 95 lines; DECISIONS.md split into docs/decisions/, 73 sections moved, 0 lost; 1 path fixed; 1 replaced decision moved to docs/decisions-archive.md.
+Upkeep: HANDOFF.md trimmed from 240 to 95 lines; DECISIONS.md split into docs/decisions/, 73 sections moved, 0 lost; 1 path fixed; 1 replaced decision moved to docs/decisions-archive.md; 4 packages updated, tests green.
 An item you left as it was goes in the same line ("1 path left as it was").`;
 }
 
@@ -343,7 +386,19 @@ runHook("upkeep-note", (event) => {
   const decisions = added
     .filter((d) => !toldDecisions.has(d.id))
     .slice(0, MAX_EACH);
-  if (!handoff && !size && !paths.length && !decisions.length) return;
+  const packages =
+    trigger === "commit" &&
+    daysSince(state.packagesDay, today) >= PACKAGES_DAYS
+      ? packageFolders(root)
+      : [];
+  if (
+    !handoff &&
+    !size &&
+    !paths.length &&
+    !decisions.length &&
+    !packages.length
+  )
+    return;
 
   // the day stamp is on disk before the note goes out; a hook beside this one that claimed the day meanwhile wins
   if (stateNow().day === today) return;
@@ -354,9 +409,10 @@ runHook("upkeep-note", (event) => {
     decisions: [...toldDecisions, ...decisions.map((d) => d.id)].slice(-KEEP),
     handoffSessions: told(toldSessions, handoff),
     decisionsSessions: told(toldSizeSessions, size),
+    packagesDay: packages.length ? today : state.packagesDay,
   });
   emit.context(
     "PostToolUse",
-    note(root, today, handoff, paths, decisions, size),
+    note(root, today, handoff, paths, decisions, size, packages),
   );
 });

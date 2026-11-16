@@ -1,0 +1,54 @@
+name: Phone relay deploy
+
+# Deploys the phone app's relay Worker and its page (phone/README.md) from a release tag, and from nothing else.
+# The four secrets live in the phone-relay environment, whose rule admits only v* tags, so no branch, pull request
+# or other workflow can read them. The deploy itself is phone/relay/deploy.mjs, the same code as the owner's test
+# deploy, with its one pinned Wrangler version.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+# Two tags pushed close together deploy one after the other, never at once.
+concurrency:
+  group: phone-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: phone-relay
+    steps:
+      # Full history, so the next step can see main.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: The tagged commit is on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::$GITHUB_REF_NAME is not on main; only a released commit is deployed"
+            exit 1
+          }
+      # The PCs trust only the page of their own version (skills/phone-bot/pc/page-hashes.json).
+      - name: The tag is the version in version.json
+        run: |
+          node -e '
+            const v = JSON.parse(require("node:fs").readFileSync("version.json", "utf8")).version;
+            if (`v${v}` !== process.env.GITHUB_REF_NAME) {
+              console.error(`::error::tag ${process.env.GITHUB_REF_NAME} is not v${v} from version.json`);
+              process.exit(1);
+            }'
+      - name: Deploy the relay and its page, point the bot at it
+        run: node phone/relay/deploy.mjs --name phone-relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PHONE_BOT_TOKEN: ${{ secrets.PHONE_BOT_TOKEN }}
+          PHONE_OWNER_TG_ID: ${{ secrets.PHONE_OWNER_TG_ID }}

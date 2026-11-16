@@ -291,14 +291,34 @@ check(
 check(
   "config: a missing file means no other use, and the split stays on",
   readConfig(path.join(tmp, "none.json")),
-  { showSplit: true, otherUse: [] },
+  { showSplit: true, samePlanResets: [], otherUse: [] },
 );
 const solo = path.join(tmp, "solo.json");
 fs.writeFileSync(solo, JSON.stringify({ showSplit: false }));
 check('config: "showSplit": false is read', readConfig(solo), {
   showSplit: false,
+  samePlanResets: [],
   otherUse: [],
 });
+const free = path.join(tmp, "free.json");
+fs.writeFileSync(free, JSON.stringify({ samePlanResets: ["2026-11-14"] }));
+check(
+  "config: samePlanResets is read",
+  readConfig(free).samePlanResets,
+  ["2026-11-14"],
+);
+fs.writeFileSync(free, JSON.stringify({ samePlanResets: ["Nov 14"] }));
+let freeErr = "";
+try {
+  readConfig(free);
+} catch (e) {
+  freeErr = e.message;
+}
+check(
+  "config: a samePlanResets entry that is not a day stops with a clear error",
+  freeErr.includes("samePlanResets must be a list of days"),
+  true,
+);
 
 // ---- text version and dashboard build
 const log = path.join(tmp, "plan-usage.jsonl"),

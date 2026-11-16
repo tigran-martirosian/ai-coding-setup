@@ -52,7 +52,6 @@ each as its own question (not a tick-list):
 | `.gitattributes` | Git kinds: a copy of `preset/gitattributes.txt` (LF line ends, CRLF for Windows scripts, binaries marked), so a Windows clone does not break shell scripts. |
 | `.github/pull_request_template.md` | GitHub kinds: a copy of `preset/pull_request_template.md` (What changes, Why, How it was checked). |
 | `.github/workflows/ci.yml` | GitHub public: the stack's CI template (step 2b, "CI"). GitHub private: offered, because each run spends the account's included minutes. |
-| `.github/dependabot.yml` | GitHub public: a copy of `preset/dependabot.yml` with the stack's entry turned on. GitHub private: offered, off by default, because each update pull request runs CI on the included minutes. |
 | `CHANGELOG.md` | Offered in git kinds, because many projects (a script, a site) never publish versions: a copy of `preset/CHANGELOG.md`; each release gets a `## [<version>] - YYYY-MM-DD` heading and an annotated tag `v<version>` (step 2b, "Releases"). |
 
 `preset/` is the folder next to this file; its files are stored without a leading dot so they do not
@@ -74,7 +73,6 @@ why it is not possible. `/update-project` checks the same items (P13-P23 in its 
 | Branch flow: `main` holds merged work, one branch `<type>/<topic>` per change | `main` only: with no remote there is nothing to review on | set | set |
 | Pull-request template; merge settings (squash only, title as subject, branch deleted after merge) | - pull requests live on GitHub | set | set |
 | CI workflow and its `Checks` merge line | - Actions runs only on GitHub; `Checks` names the local test command | offered | set |
-| Dependabot file | - runs only on GitHub | offered, off by default | set |
 | Protected `main` (ruleset) | - no GitHub repo | - GitHub Free has no rulesets or protection on private repos; the flow is a written rule and Claude checks CI before a merge | set |
 | Security settings | - no GitHub repo | Dependabot alerts and security updates (secret scanning and CodeQL on a private repo are not in Free) | secret scanning with push protection, Dependabot alerts and security updates, CodeQL default setup, private vulnerability reporting |
 | Release part: `CHANGELOG.md`, annotated tags | offered | offered, plus a GitHub Release | offered, plus a GitHub Release |
@@ -139,8 +137,8 @@ setup step of GitHub's matching starter file (https://github.com/actions/starter
 pinned by commit SHA. With no test command known, CI is not offered, and the reply says why: a workflow
 with nothing to run always passes and proves nothing. Each template says in its header what to adjust
 before copying it to `.github/workflows/ci.yml`. Every template keeps its pinned SHAs, `permissions:
-contents: read`, `concurrency` and the 15-minute limit; Dependabot's `github-actions` entry keeps the pins
-fresh. For Dependabot, turn on the stack's commented entry (`npm` or `pip`) in the copy of `preset/dependabot.yml`.
+contents: read`, `concurrency` and the 15-minute limit. No Dependabot file: its version pull requests are noise for a
+small team; the monthly package upkeep (`skills/update-project/packages.md`) keeps the packages fresh.
 
 **CI systems** (the `os` list of the template): public repos run on every system the project's
 `CLAUDE.md` names as a target (`ubuntu-latest`, `windows-latest`, `macos-latest`), which costs nothing.

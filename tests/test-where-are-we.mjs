@@ -144,6 +144,24 @@ check(
     body,
   ),
 );
+// A finished build is not one more "Needs you" line: it is done and named on the job's next user check;
+// a user step waits as to-do until its step is done; an act that already happened closes
+check(
+  "a build the user will try goes to done, named on the next user check, not one Needs-you line per build",
+  /A build whose Done when check passed goes to done, also when he will try it: his try belongs to the job's next user check/.test(
+    body,
+  ) && /one look covers many builds/.test(body),
+);
+check(
+  "a user step is to-do until its waitsOn step is done, then waits-for-you",
+  /status to-do while the step it waits for is open and waits-for-you once that step is done/.test(
+    body,
+  ) && /A user step in to-do whose `waitsOn` step is now done moves to waits-for-you/.test(body),
+);
+check(
+  "a user step whose act already happened (recorded, or a standing go) goes to done",
+  /A user step whose act already happened \(a comment, `HANDOFF\.md` or `DECISIONS\.md` records it, or a standing go covers it\) goes to done/.test(body),
+);
 check(
   "it never deletes, archives, restarts or redoes without the user's yes",
   /never deletes or archives an item, and never restarts or redoes a step, without the user's yes/.test(

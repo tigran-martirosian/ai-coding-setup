@@ -51,7 +51,7 @@ Folder: the one the user names, else the current one. `PASS` below is
 - **Listed in the reply, no tick needed:** only the base files and folders P1 creates (a `fix` line,
   such as a missing `docs/` folder), and the stamp `pass.mjs` writes in `~/.claude/project-pass.json`.
 - **A tick:** every item the check prints as `ask`, a new file among them (the preset files of P15
-  and P17-P19), every edit to an existing file, every move or rename, every `.gitignore` line, every
+  and P17-P18), every edit to an existing file, every move or rename, every `.gitignore` line, every
   decision archive move, and every `decisions.mjs --split` or `--apply`.
 - **A tick per item, its command shown:** every `git init` (only through P13) and every GitHub setting
   (P16 rename, P20-P22). A setting is read back with a `GET` after it is set, and the reply shows
@@ -61,6 +61,8 @@ Folder: the one the user names, else the current one. `PASS` below is
   hook has Claude trim a `HANDOFF.md` over 120 lines (P3), fix or drop dead paths (P8), and archive
   the older decision entry (in `DECISIONS.md` or `docs/decisions/`) that a newly added line says it replaces (P4, that entry only). In a
   pass the same changes still need a tick, and older "Replaces" lines are archived only here.
+  Once every 30 days, on a commit, it also has Claude update the packages as [`packages.md`](packages.md)
+  says: small updates silently when the tests pass, big ones on one card, security problems at once.
 - **Outside a pass:** a git commit or push (only when the user asks), a change outside the folder
   (its memory folder under `~/.claude/projects/` and the stamp are the exceptions), a plugin turned
   on in every folder.
