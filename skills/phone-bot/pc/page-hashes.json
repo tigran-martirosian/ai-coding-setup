@@ -1,5 +1,5 @@
 {
-  "version": "26.3",
+  "version": "26.3.1",
   "files": {
     "/": "a4bd3d3d1edf06f966c0c88c2ba104332af260f08819c7185d0e1653bcaaf4e3",
     "/extensions/job-tracker/src/model.js": "d7ce0b2054d8e886aacca2ea511cd7e0f45420ff4f45dfc6c66ac9382d9c3b45",
@@ -11,7 +11,7 @@
     "/page/frame/screens.js": "7d829edfe65257959d7b58ee60fb046763b8ebe69f8cf85d449a51bc097e5eb3",
     "/page/frame/telegram.js": "86e777a6e8aaab192b696bfc3aa264040d4434fce4311762d3843946dc358d03",
     "/page/page.css": "82f6b896065329e1c3f36be43fa2d17dddb25237a48521981ac9bf5f62498513",
-    "/page/screens.generated.js": "8a53bb247d581f46ba38166a70cfa35af92628e96fcb14728c25e3bfd6711c71",
+    "/page/screens.generated.js": "440cb5454d9f4b517971735e4d9ba5ca5bcbf7f69cfad933cbadb72c35c2b36c",
     "/page/screens/device-join.js": "57624309628df024c70d8a97e37a52e7de543ff75db3d594f7fdf77035271fdf",
     "/page/screens/home-jobs.js": "7165e666905ea169551320ba80535b96a98afc27e7e07f7713c7496503d8d3a8",
     "/page/screens/home-sessions.js": "9b5628c727b04c9c881570f06f0b746c9fccc0e0321b573d014e565b662c5617",
@@ -31,6 +31,6 @@
     "/page/telegram-web-app.js": "baa788a6f686f4238db1b82ce8e76470930af7411b18b521ebb95a2c1480a267",
     "/shared/seal.mjs": "c96bfb9963117191430488378b47382fe7838893ac6986801b57a110133bffe0",
     "/shared/tokens.css": "3fc780da9f2d1471cdd53d5ce46cb567616015775cfb9cdac0d4b069e4793954",
-    "/version.json": "06f1d5fdccb62a5e270742b63538364ee50fd3954639d5ad1f9683d72d60642e"
+    "/version.json": "ff5c1b74a1954422605c3c50e4c77e1d9b6096fe6a870ebb34fcde4a0d0c0321"
   }
 }

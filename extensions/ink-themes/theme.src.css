@@ -233,7 +233,8 @@ __S__ {
   &.ink-shell [data-testid="agent-sessions-bubble"][data-state="orange"]::after { content: ""; position: absolute; top: -4px; right: -10px; width: 60px; height: 68px; border-radius: var(--x-radius-control); }
 
   .nav-button > .material-symbols-outlined { font-size: 28px !important; width: 28px; height: 28px; font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24 !important; }
-  [data-testid="gutter-user-button"] > span:first-child { width: 28px !important; height: 28px !important; font: var(--x-row-title) !important; font-weight: 600 !important; }
+  /* The letter circle only: signed out, the first span is the app's "no_accounts"/"person" icon, which this font would draw as its name */
+  [data-testid="gutter-user-button"] > span:first-child:not(.material-symbols-outlined) { width: 28px !important; height: 28px !important; font: var(--x-row-title) !important; font-weight: 600 !important; }
   /* Rail tiles: initials at 14/600 on every tile. A project's count is only the sessions that finished there since the
      user last looked (user, 2026-11-14: "when this session is done … it pops up with a 1"; never "50 sessions … from
      three weeks ago"). The app's badge counts all unread sessions ever, so it is hidden and shell.js adds .ink-rail-count.
@@ -285,7 +286,7 @@ __S__ {
   /* The long hint in an empty chat box stays on one line and ends in an ellipsis instead of a half-cut second line */
   .ai-chat-input-field::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .org-switcher-button { background-image: none !important; background-color: var(--x-surface-3) !important; color: var(--x-text) !important; box-shadow: none !important; }
-  [data-testid="gutter-user-button"] > span:first-child { background: var(--x-surface-3) !important; color: var(--x-text) !important; }
+  [data-testid="gutter-user-button"] > span:first-child:not(.material-symbols-outlined) { background: var(--x-surface-3) !important; color: var(--x-text) !important; }
 
   /* Message box: one box with a hairline, no shadow */
   .ai-chat-input { margin: 0 var(--x-space-4) var(--x-space-4); padding: var(--x-space-3) !important; border: 1px solid var(--x-hairline) !important; border-radius: var(--x-radius-window);

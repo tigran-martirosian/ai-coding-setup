@@ -1,9 +1,9 @@
 {
-  "version": "26.3",
+  "version": "26.3.1",
   "claudeCodeMin": "2.1.321",
   "projectPass": 3,
   "date": "2026-11-16",
-  "summary": "A phone app in Telegram to follow and drive your Nimbalyst sessions, monthly package upkeep, and tracker notes that reach the work.",
+  "summary": "Setup panels stay English beside English Nimbalyst; fixes for a blank thinking line and the signed-out Account button",
   "releases": {
     "26.3": {
       "kind": "setup",
@@ -49,6 +49,11 @@
       "kind": "files",
       "important": false,
       "headline": "Disk tidy, file checks and version checks work on every system and temp folder"
+    },
+    "26.3.1": {
+      "kind": "setup",
+      "important": false,
+      "headline": "Panels stay English beside Nimbalyst; blank thinking line and Account icon fixed"
     }
   }
 }
