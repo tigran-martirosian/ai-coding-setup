@@ -68,14 +68,25 @@ const clock = (zone) => {
 
 export function readConfig(file) {
   let list = [],
-    showSplit = true;
+    showSplit = true,
+    same = [];
   try {
     const json = JSON.parse(fs.readFileSync(file, "utf8"));
     list = json.otherUse ?? [];
     showSplit = json.showSplit !== false;
+    same = json.samePlanResets ?? [];
   } catch {}
+  // days ("YYYY-MM-DD", local) of early weekly resets that kept the plan: a free reset, not an upgrade
+  if (
+    !Array.isArray(same) ||
+    same.some((d) => typeof d !== "string" || !/^\d{4}-\d\d-\d\d$/.test(d))
+  )
+    throw new Error(
+      `${file}: samePlanResets must be a list of days like "2026-11-14"`,
+    );
   return {
     showSplit,
+    samePlanResets: same,
     otherUse: (Array.isArray(list) ? list : []).filter((o) => {
       if (typeof o?.from !== "number" || typeof o?.to !== "number")
         return false;
@@ -136,7 +147,7 @@ const span = (ms) => {
 
 // `plan` is planUse's result for the same samples (its scale gives this computer's part)
 export function planAhead(samples, cost, plan, config, now = Date.now()) {
-  const S = cleanSamples(samples);
+  const S = cleanSamples(samples, config?.samePlanResets ?? []);
   const last = S.at(-1);
   const minute = (r) => Math.round(Date.parse(r ?? "") / MIN) * MIN; // the reported reset time jitters by under a second
   let reset = minute(last?.week.r),
@@ -425,11 +436,12 @@ if (isMain(import.meta.url)) {
   }
   const samples = readSamples(opt("plan", path.join(log, "plan-usage.jsonl")));
   const now = opt("now") ? Date.parse(opt("now")) : Date.now();
+  const config = readConfig(opt("config", path.join(log, "plan-hours.json")));
   const A = planAhead(
     samples,
     cost,
-    withCost ? planUse(samples, cost) : null,
-    readConfig(opt("config", path.join(log, "plan-hours.json"))),
+    withCost ? planUse(samples, cost, config.samePlanResets) : null,
+    config,
     now,
   );
   if (ARGS.includes("--json")) console.log(JSON.stringify(A, null, 2));

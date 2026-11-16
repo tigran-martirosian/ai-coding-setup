@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>Nimbalyst</title>
+    <script src="page/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="shared/tokens.css" />
+    <link rel="stylesheet" href="page/page.css" />
+    <script type="module" src="page/frame/app.js"></script>
+  </head>
+  <body>
+    <div id="fatal" class="fatal" role="alert" hidden></div>
+    <div id="app" class="app">
+      <main id="content" class="content"></main>
+      <div id="bottom" class="bottom" hidden>
+        <div id="bottom-extra"></div>
+        <button id="main-btn" class="btn-main" type="button" hidden></button>
+      </div>
+      <nav id="tabbar" class="tabbar" aria-label="Tabs" hidden></nav>
+    </div>
+  </body>
+</html>

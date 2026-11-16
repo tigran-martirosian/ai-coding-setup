@@ -84,6 +84,35 @@ const procs = [
     "java -cp x org.gradle.launcher.daemon.bootstrap.GradleDaemon",
   ),
   p(108, 50, "tail.exe", 30, "tail -f b.log", GIT + "tail.exe"), // starter number reused below
+  p(
+    109,
+    9008,
+    "node.exe",
+    4,
+    "node.exe C:\\Users\\someone\\AppData\\Local\\Temp\\build\\server.mjs",
+  ), // an ordinary node program from Temp
+  // the phone app's PC program, 4 hours old, starter closed: never stopped, never listed
+  p(
+    211,
+    9111,
+    "node.exe",
+    4,
+    '"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\someone\\.claude\\skills\\phone-bot\\pc\\keep.mjs"',
+  ),
+  p(
+    212,
+    9112,
+    "node.exe",
+    4,
+    '"C:\\Program Files\\nodejs\\node.exe" C:\\Users\\someone\\.claude\\skills\\phone-bot\\pc\\main.mjs',
+  ),
+  p(
+    213,
+    9113,
+    "node.exe",
+    4,
+    "node C:/Users/someone/AppData/Local/Temp/wt/skills/phone-bot/pc/main.mjs",
+  ),
   p(50, 10, "notepad.exe", 1),
   // keep
   p(201, 9101, "tail.exe", 1, "tail -f c.log", GIT + "tail.exe"), // orphan but young
@@ -167,7 +196,7 @@ const check = (name, ok) => {
 };
 
 check("runs without errors", r.status === 0 && !r.stderr.trim());
-for (const id of [101, 102, 103, 104, 105, 106, 107, 108])
+for (const id of [101, 102, 103, 104, 105, 106, 107, 108, 109])
   check(
     `leftover ${id} (${procs.find((x) => x.ProcessId === id).Name}) is listed`,
     listed.has(id),
@@ -183,10 +212,15 @@ check(
     /\(command-line tool\)/.test(out) &&
     /\(script from Claude or Temp\)/.test(out),
 );
-check("count line matches", /LEFTOVERS\s+8,/.test(out));
+check("count line matches", /LEFTOVERS\s+9,/.test(out));
 for (const id of [209, 210])
   check(
     `${id} (the Nimbalyst delivery) is neither a leftover nor maybe wanted`,
+    !listed.has(id) && !maybe.has(id),
+  );
+for (const id of [211, 212, 213])
+  check(
+    `${id} (the phone app's PC program) is neither a leftover nor maybe wanted`,
     !listed.has(id) && !maybe.has(id),
   );
 for (const id of [206, 301, 302])
