@@ -1,0 +1,16 @@
+// The relay Worker on Cloudflare (pipe design, section 10). No Worker name and no account here: the deploy passes
+// --name (phone-relay or phone-relay-test) and the account comes from CLOUDFLARE_ACCOUNT_ID. Deploy only with
+// phone/relay/deploy-test.mjs or the release workflow; both first write the page into ./dist with its _headers.
+{
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-04-07",
+  // The page files are static assets, served before the Worker runs; any other path reaches worker.mjs.
+  "assets": {
+    "directory": "./dist"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "HUB", "class_name": "Hub" }]
+  },
+  // SQLite-backed: the only kind the free plan has, and the one that offers ctx.storage.kv.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }]
+}

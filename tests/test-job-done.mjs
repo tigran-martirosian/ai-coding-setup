@@ -505,11 +505,14 @@ hook(
   },
   "note",
   [
-    "Update the step's tracker item",
+    "First read the step's comments (`tracker_get`)",
+    "a comment by the user is their note on the step: act on it, or say in your reply why not",
+    "update the step's tracker item",
     "`linkSession: true`",
     "proof (the commit and session id)",
     "done only once the row's Done when check passed",
-    "in-review",
+    "in-review only when the user must OK it",
+    "a build he will try goes to done",
   ],
 );
 {
@@ -849,6 +852,8 @@ hook("id-note-names-prefix-and-plan", ask(s, path.join(CLAIM, "docs")), "ask", [
   "link it with `tracker_link_session`",
   "Otherwise make no step and say so in your reply.",
   "`collection` the open job, status in-progress",
+  "When the step exists, read its comments (`tracker_get`)",
+  "a comment by the user is their note on the step: act on it, or say in your reply why not",
 ]);
 hook("id-note-second-prompt-silent", ask(s, CLAIM), "");
 // Fixture run: every way a session starts on a release step (the handoff prompt, /lead, /where-are-we, the user's own

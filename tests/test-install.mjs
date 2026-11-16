@@ -1643,6 +1643,36 @@ ok(
       fs.readFileSync(path.join(REPO, "skills", "phone-bot", "SKILL.md")),
     ),
 );
+// the phone app's PC program imports ../../../../phone/shared/seal.mjs, so that folder goes with the add-on
+const phoneIn = (home, ...p) =>
+  fs.existsSync(path.join(home, ".claude", "phone", ...p));
+ok(
+  "phone-bot brings phone/shared and nothing else of phone/; a default install has no phone folder",
+  [
+    fs
+      .readFileSync(
+        path.join(addonWith, ".claude", "phone", "shared", "seal.mjs"),
+      )
+      .equals(fs.readFileSync(path.join(REPO, "phone", "shared", "seal.mjs"))),
+    phoneIn(addonWith, "page"),
+    phoneIn(addonWith, "relay"),
+    phoneIn(addonWith, "README.md"),
+    phoneIn(addonDefault),
+  ],
+  [true, false, false, false, false],
+);
+// the PC program reads its setup version from ~/.claude/version.json, so that file goes with the add-on only
+const versionIn = (home) => path.join(home, ".claude", "version.json");
+const repoVersion = fs.readFileSync(path.join(REPO, "version.json"));
+ok(
+  "phone-bot brings version.json, the same as the repo's; a default install has none",
+  [
+    fs.existsSync(versionIn(addonWith)) &&
+      fs.readFileSync(versionIn(addonWith)).equals(repoVersion),
+    fs.existsSync(versionIn(addonDefault)),
+  ],
+  [true, false],
+);
 // an older copy of the add-on, on record as the setup's own, which a plain run has to overwrite
 const recordAs = (home, file, text) => {
   const statePath = path.join(home, ".claude", "setup-state.json");
@@ -1660,14 +1690,28 @@ const addonFile = path.join(
   "SKILL.md",
 );
 recordAs(addonWith, addonFile, "an older version");
+recordAs(addonWith, versionIn(addonWith), '{ "version": "0.0" }');
 install(addonWith); // a plain run, no --with
 ok(
-  "a plain run keeps updating an add-on that is already there",
-  fs
-    .readFileSync(addonFile)
-    .equals(
-      fs.readFileSync(path.join(REPO, "skills", "phone-bot", "SKILL.md")),
-    ),
+  "a plain run keeps updating an add-on that is already there, and its version.json",
+  [
+    fs
+      .readFileSync(addonFile)
+      .equals(
+        fs.readFileSync(path.join(REPO, "skills", "phone-bot", "SKILL.md")),
+      ),
+    fs.readFileSync(versionIn(addonWith)).equals(repoVersion),
+  ],
+  [true, true],
+);
+ok(
+  "a plain run keeps phone/shared too, and --uninstall takes it and version.json out",
+  [
+    phoneIn(addonWith, "shared", "seal.mjs"),
+    (install(addonWith, "--uninstall"), phoneIn(addonWith)),
+    fs.existsSync(versionIn(addonWith)),
+  ],
+  [true, false, false],
 );
 ok(
   "--with and no name fails, naming the add-ons",

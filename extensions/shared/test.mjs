@@ -305,9 +305,16 @@ check(
 {
   const errors = [];
   let observe;
+  let inView;
+  let frame;
   const ctx2d = new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => {}) });
   ctx2d.getImageData = () => ({ data: [200, 100, 50, 255] });
-  const html = { tagName: "HTML", className: "dark-theme" };
+  const html = {
+    tagName: "HTML",
+    className: "dark-theme",
+    contains: () => true,
+  };
+  // Each canvas counts its drawings (draw asks for the 2d context once per drawing) and style reads
   const orb = (id) => ({
     id,
     tagName: "CANVAS",
@@ -315,12 +322,18 @@ check(
     style: {},
     isConnected: true,
     offsetParent: {},
+    draws: 0,
+    reads: 0,
     setAttribute() {},
     hasAttribute: () => false,
-    getContext: () => ctx2d,
+    getContext() {
+      this.draws++;
+      return ctx2d;
+    },
   });
   const kept = orb("kept");
   const left = orb("left");
+  const far = orb("far");
   const sandbox = {
     console: { error: (...a) => errors.push(a.join(" ")) },
     document: {
@@ -328,10 +341,13 @@ check(
       visibilityState: "visible",
       documentElement: html,
       createElement: () => ({ getContext: () => ctx2d }),
-      querySelectorAll: () => [kept, left].filter((c) => c.isConnected),
+      querySelectorAll: () => [kept, left, far].filter((c) => c.isConnected),
     },
     getComputedStyle: (el) => ({
-      color: el.isConnected ? "rgb(200, 100, 50)" : "",
+      color:
+        (el.reads = (el.reads || 0) + 1) && el.isConnected
+          ? "rgb(200, 100, 50)"
+          : "",
       getPropertyValue: (n) =>
         el.isConnected && n === "--orb-dark"
           ? html.className === "dark-theme"
@@ -346,7 +362,16 @@ check(
       }
       observe() {}
     },
-    requestAnimationFrame() {},
+    IntersectionObserver: class {
+      constructor(cb) {
+        inView = cb;
+      }
+      observe() {}
+      unobserve() {}
+    },
+    requestAnimationFrame(cb) {
+      frame = cb;
+    },
     performance,
     devicePixelRatio: 1,
   };
@@ -362,6 +387,40 @@ check(
     "orbs: a theme switch skips a canvas that left the page" +
       (errors.length ? ` (${errors.join("; ")})` : ""),
     errors.length === 0 && kept.__orb.dark === false && !left.__orb.bad,
+  );
+  // A class change on an element that holds no orb re-reads no orb's style; one around an orb re-reads only that one
+  const row = { tagName: "DIV", contains: (c) => c === kept };
+  const other = { tagName: "DIV", contains: () => false };
+  const reads = () => [kept.reads, far.reads];
+  const before = reads();
+  observe([{ type: "attributes", target: other, attributeName: "class" }]);
+  const afterOther = reads();
+  observe([{ type: "attributes", target: row, attributeName: "class" }]);
+  const afterRow = reads();
+  check(
+    "orbs: a class change re-reads only the orbs inside the changed element",
+    afterOther[0] === before[0] &&
+      afterOther[1] === before[1] &&
+      afterRow[0] > afterOther[0] &&
+      afterRow[1] === afterOther[1],
+  );
+  // An orb scrolled out of view is not drawn; frames closer than 1/60 s apart draw nothing
+  inView([{ target: far, isIntersecting: false }]);
+  const drawn = () => [kept.draws, far.draws];
+  const d0 = drawn();
+  frame(1000);
+  const d1 = drawn();
+  frame(1004);
+  const d2 = drawn();
+  frame(1020);
+  const d3 = drawn();
+  check(
+    "orbs: an orb out of view is not drawn, and the loop draws at most 60 times a second",
+    d1[0] === d0[0] + 1 &&
+      d1[1] === d0[1] &&
+      d2[0] === d1[0] &&
+      d3[0] === d2[0] + 1 &&
+      d3[1] === d0[1],
   );
 }
 

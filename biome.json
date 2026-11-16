@@ -11,6 +11,7 @@
       "!**/package-lock.json",
       "!**/*.md",
       "!extensions/shared/orbs/orbs.js",
+      "!phone/page/telegram-web-app.js",
       "!.claude/systems-map.json",
       "!extensions/agents-panel/test/fixture.html",
       "!extensions/job-tracker/test/fixture.html",

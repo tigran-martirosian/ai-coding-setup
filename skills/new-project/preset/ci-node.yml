@@ -1,6 +1,6 @@
 # CI for a Node project. Copied to .github/workflows/ci.yml by /new-project or /update-project.
-# Job shape from GitHub's starter file ci/node.js.yml; actions pinned by commit SHA (Dependabot's
-# github-actions entry keeps the pins fresh).
+# Job shape from GitHub's starter file ci/node.js.yml; actions pinned by commit SHA (move a pin to
+# the action's newest release when the workflow is changed).
 # The skill adjusts, before copying:
 # - a .nvmrc file exists: replace `node-version: lts/*` with `node-version-file: .nvmrc`
 # - no package-lock.json: drop the `cache: npm` line and use `npm install` in place of `npm ci`

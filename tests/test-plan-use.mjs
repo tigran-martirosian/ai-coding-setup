@@ -315,6 +315,47 @@ check(
     0,
   ],
 ); // true: the log starts days after the week began
+// an early reset whose next plan has no scale yet: the busy minute between the old window's last reading
+// (min 460) and the new one's first (min 480) belongs to the old window, at the old plan's scale (0.2)
+const cut = planUse(
+  inWeek([...samples, s(480, 30, B, 0), s(500, 30, B, 0), s(520, 30, B, 0)]),
+  [...cost, [m0 + 470, 5, 500]],
+);
+check(
+  "an early reset into a plan with no scale yet keeps the old window's split",
+  cut.weeks.map(wk),
+  [
+    [1, 0, null, null, 0, false],
+    [0, 19, 7, 12, 1, true],
+  ],
+);
+// the same reset listed as a free one (samePlanResets): one plan, so the new window is split at its scale too
+// (the 5-hour readings rise with this computer's use at the truth's 2 points per unit, so the fit stays 0.2)
+const freeReset = planUse(
+  inWeek([...samples, s(480, 40, B, 0), s(500, 40, B, 0), s(520, 60, B, 2)]),
+  [...cost, [m0 + 470, 5, 500], [m0 + 510, 10, 1000]],
+  [day],
+);
+check(
+  "a free reset (its day in samePlanResets) keeps one plan and splits the new window at the old scale",
+  [freeReset.eras.length, freeReset.weeks.map(wk)],
+  [
+    1,
+    [
+      [1, 2, 2, 0, 0, false],
+      [0, 19, 7, 12, 1, true],
+    ],
+  ],
+);
+check(
+  "an early reset on a day not listed still starts a new plan",
+  planUse(
+    inWeek([...samples, s(480, 30, B, 0), s(500, 30, B, 0), s(520, 30, B, 2)]),
+    cost,
+    ["2026-01-01"],
+  ).eras.length,
+  2,
+);
 check(
   "an early reset splits a window in two (g 0 and 1, same end); no fitted scale gives null for mine and other",
   [

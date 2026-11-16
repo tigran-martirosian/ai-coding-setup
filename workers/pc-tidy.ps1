@@ -7,7 +7,8 @@
 #     shells of a closed Claude session, Git's command-line tools (tail, grep, sleep ... from a watcher),
 #     headless browsers, and node or python run from .claude, Temp or npx.
 #   Other orphaned node or python (a bot, a global tool's daemon) is listed as MAYBE WANTED and never stopped.
-# It never stops Nimbalyst, the setup's Nimbalyst delivery (anything run from tools/nimbalyst-patch), a terminal window, ssh or gpg agents, a browser you see, or anything whose
+# It never stops Nimbalyst, the setup's Nimbalyst delivery (anything run from tools/nimbalyst-patch), the phone app's
+# PC program (main.mjs or keep.mjs in skills/phone-bot/pc, installed or a build), a terminal window, ssh or gpg agents, a browser you see, or anything whose
 # starter is still running, so run -Go when no build or test is running.
 # It also names listening ports still held by a program that has closed (they block a restart on that port).
 # Tests: -ProcessFile <json> and -PortFile <json> read a made-up process and port list instead of the real ones.
@@ -52,10 +53,12 @@ $kinds = @(
 $scripts = 'node.exe', 'python.exe', 'pythonw.exe', 'bun.exe', 'deno.exe'
 # The Nimbalyst delivery waits for Nimbalyst to close, then swaps its files: stopping it leaves a half-done update
 $delivery = 'tools[\\/]nimbalyst-patch[\\/]'
+# The phone app's PC program is meant to run all the time: keep.mjs starts it at log-on and outlives its starter
+$phonePc = 'skills[\\/]phone-bot[\\/]pc[\\/](main|keep)\.mjs'
 $left = [System.Collections.Generic.List[object]]::new()
 $maybe = [System.Collections.Generic.List[object]]::new()
 foreach ($p in $all) {
-  if ($p.Name -eq 'Nimbalyst.exe' -or "$($p.CommandLine)" -match $delivery -or -not (& $old $p)) { continue }
+  if ($p.Name -eq 'Nimbalyst.exe' -or "$($p.CommandLine)" -match $delivery -or "$($p.CommandLine)" -match $phonePc -or -not (& $old $p)) { continue }
   if ($p.Name -like 'java*' -and $p.CommandLine -match 'GradleDaemon|GradleWorkerMain') { $left.Add([pscustomobject]@{ P = $p; Why = 'Gradle daemon' }); continue }
   if (-not (& $orphan $p)) { continue }
   $hit = $null; foreach ($k in $kinds) { if (& $k.Test $p) { $hit = $k.Why; break } }

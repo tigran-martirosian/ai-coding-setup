@@ -6,9 +6,9 @@ It's in use at work by people in finance, data engineering and government IT.
 
 On 16 real code changes, my reviewer agent found 5 of 8 known bugs, matching a plain "review this change" prompt, with 40% fewer tokens. Replayed on real past sessions and made-up cases, the hooks ran 12,000+ times without a crash.
 
-https://github.com/user-attachments/assets/0a9d10c1-cbab-4075-8d61-964b8a894c07
+https://github.com/user-attachments/assets/95705585-1526-4cd4-8db3-65d7c13bb9ea
 
-If the video doesn't load (the GitHub app sometimes won't play it), [watch it here](https://github.com/user-attachments/assets/0a9d10c1-cbab-4075-8d61-964b8a894c07).
+If the video doesn't load (the GitHub app sometimes won't play it), [watch it here](https://github.com/user-attachments/assets/95705585-1526-4cd4-8db3-65d7c13bb9ea).
 
 ## Test results
 
@@ -152,7 +152,7 @@ Claude Code sends your work to Anthropic either way. On top of that, this setup 
 | A small release (hook, skill, agent or worker files), installed in the background; files you changed stay yours | GitHub | When one comes out | `AUTO_UPDATE=off` |
 | Your project's files, read by the systems map's background worker (a Claude helper, about 50 tool calls per build or refresh) | Anthropic, like any Claude work | In a project with 100+ code files: up to three tries a week apart, then at most a weekly refresh | `MAP_NUDGE=off` |
 | Project and package names, when the agent looks up a version | endoflife.date, GitHub, npm, PyPI, crates.io, Docker Hub, Maven Central, NuGet | When it checks a version | None |
-| Messages to and from your sessions | Telegram | Only if you add `/phone-bot` and run it | Don't run it |
+| Your sessions, sealed so the relay cannot read them (alert lines with a project name and session title pass unsealed) | Telegram and a relay on Cloudflare | Only if you add the phone app (`install.mjs --with phone-bot`) and join it | `node ~/.claude/skills/phone-bot/pc/setup.mjs remove` |
 | Your Claude folder and picked project folders, encrypted with a password only you have | Your own Backblaze B2 storage | Only if you set up `/backup`: when you ask, or daily or weekly | `/backup off` stops the schedule |
 
 The installer also adds rules that stop Claude Code from reading saved sign-ins for Claude, Codex and Gemini, or your SSH keys, through its own tools, and makes it ask before opening a `.env` file. A script that reaches a file without naming it won't be stopped.
@@ -166,7 +166,7 @@ The installer also adds rules that stop Claude Code from reading saved sign-ins 
 
 ## Everything else
 
-Starter projects, the planner, helpers, reviewers, a stuck advisor, web pages and videos (`/watch`), backups, a phone bot, voice typing, Read Aloud and themes are in [docs/features.md](docs/features.md). Each version's changes are in [CHANGELOG.md](CHANGELOG.md).
+Starter projects, the planner, helpers, reviewers, a stuck advisor, web pages and videos (`/watch`), backups, a phone app in Telegram, voice typing, Read Aloud and themes are in [docs/features.md](docs/features.md). Each version's changes are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tests
 
