@@ -29,7 +29,7 @@ Then one form, up to five questions (in Nimbalyst `mcp__nimbalyst__PromptForUser
 |---|---|
 | Do you have a paid **ChatGPT** subscription? | **Codex**, for the generated pictures. |
 | Where should the projects folder go? | Two small project folders are made in it, `claude-settings` and `quick-tasks`. The default is `Projects` in the home folder; any folder works. |
-| Which **language**: English or Русский? | With Русский, Claude answers in Russian in every chat and the setup's Nimbalyst extensions show Russian text. |
+| Which **language**: English or Русский? | With Русский, Claude answers in Russian in every chat; Nimbalyst and the setup's extensions stay in English. |
 | Do you want **voice typing**? Yes / No | **Handy**: hold a key, speak, and the words are typed. Installed in step 2, set up in step 9; it keeps itself up to date. |
 | **Back up your Claude setup to the cloud, encrypted?** Yes, set it up / No | The backup, set up by `/backup` after the install (step 12). |
 

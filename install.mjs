@@ -60,10 +60,10 @@
 //                               stays and keeps being updated by a plain run
 //   --done chat-steps           only put on record that a chat carried out the steps named at the end
 //                               (no longer needed: only the first install names them)
-//   --language english|russian  the language Claude answers in and the extensions show (also en, ru,
+//   --language english|russian  the language Claude answers in (also en, ru,
 //                               русский; kept for later runs, so an update keeps it; with russian,
-//                               "language": "russian" goes into settings.json, and the extensions are built
-//                               with SETUP_LANGUAGE=russian)
+//                               "language": "russian" goes into settings.json; the extensions are
+//                               always built in English, as Nimbalyst is)
 //   --keep-model                an older install (before 1.0.74) has "model": "sonnet" from the old installer; an
 //                               update moves it to opus at medium effort. This keeps sonnet (and, after a
 //                               move, puts sonnet back); the choice is kept for later runs

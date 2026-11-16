@@ -87,6 +87,19 @@ check(
   r.status !== 0 && /english/.test(r.stdout) && /russian/.test(r.stdout),
 );
 
+// The extensions stay English beside English Nimbalyst, whatever Claude answers in (user, 2026-11-16: "Always
+// English"; a Russian panel there read as half-translated and its thinking line went blank)
+const extSrc = fs.readFileSync(
+  path.join(REPO, "scripts", "extensions.mjs"),
+  "utf8",
+);
+check(
+  "the extensions are built in English for every answer language",
+  /const EXT_LANG = "english";/.test(extSrc) &&
+    /SETUP_LANGUAGE: EXT_LANG/.test(extSrc) &&
+    !/\bLANG\b(?!UAGE)/.test(extSrc.replace(/EXT_LANG/g, "")),
+);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

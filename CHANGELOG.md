@@ -4,6 +4,12 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.3.1] - 2026-11-16
+
+- The setup's Nimbalyst panels now stay in English, like Nimbalyst itself, whatever language Claude answers you in; with Russian answers they used to come out half-translated.
+- With Russian answers, the chat's thinking line no longer goes blank while Claude works.
+- Signed out of Nimbalyst, the Account button in the side bar shows its icon again instead of the word "no_accounts".
+
 ## [26.3] - 2026-11-16
 
 - 26.3 (Nov 16, 2026): A phone app in Telegram to follow and drive your Nimbalyst sessions (answer questions, stop, queue, pin, attach files, voice), monthly package upkeep without pull requests, tracker notes that reach the work, and wakeups that reach a busy session.

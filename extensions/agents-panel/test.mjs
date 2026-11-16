@@ -54,14 +54,22 @@ build("english");
 const enMod = await import(
   pathToFileURL(path.join(here, "src", "index.js")).href
 );
-const keys = (o) => Object.keys(o).sort().join();
+// Every key path at every depth, with each value's kind (a list, a word): a Russian object missing a nested key (26.3
+// lacked waitLine.playful, so the thinking line went blank) or holding a word where a list belongs fails here
+const keyPaths = (o, at = "") =>
+  Object.entries(o)
+    .flatMap(([k, v]) =>
+      v && typeof v === "object" && !Array.isArray(v)
+        ? keyPaths(v, `${at}${k}.`)
+        : [
+            `${at}${k}:${Array.isArray(v) ? (v.length ? "list" : "empty") : typeof v}`,
+          ],
+    )
+    .sort()
+    .join();
 check(
-  "russian: same keys as english",
-  keys(ruMod.STRINGS) === keys(enMod.STRINGS) &&
-    keys(ruMod.STRINGS.now) === keys(enMod.STRINGS.now) &&
-    keys(ruMod.STRINGS.helperCard) === keys(enMod.STRINGS.helperCard) &&
-    keys(ruMod.STRINGS.helperCard.doing) ===
-      keys(enMod.STRINGS.helperCard.doing),
+  "russian: same keys as english, at every depth",
+  keyPaths(ruMod.STRINGS) === keyPaths(enMod.STRINGS),
 );
 // Model names are product names and stay as they are in Russian; a string of placeholders only ("{role} {doing}")
 // has no words to translate

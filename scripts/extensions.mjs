@@ -15,16 +15,17 @@ export const sourceText = (dir) =>
 
 // read-aloud needs a speech program of its own, so it is only built with --with read-aloud or where it is installed already.
 export function extensions(ctx) {
-  const { REPO, DRY, LANG, state, nextState, say, onPath, withNames, extHome } =
-    ctx;
+  const { REPO, DRY, state, nextState, say, onPath, withNames, extHome } = ctx;
   const extDir = path.join(REPO, "extensions");
   const names = fs.existsSync(extDir)
     ? fs
         .readdirSync(extDir)
         .filter((n) => fs.existsSync(path.join(extDir, n, "package.json")))
     : [];
-  // The extensions are built in the language (SETUP_LANGUAGE), so it is part of what is compared
-  const EXT_LANG = LANG || "english";
+  // The extensions are built in English whatever language Claude answers in: Nimbalyst itself is English, and a
+  // Russian panel beside it read as half-translated (user, 2026-11-16: "Always English"). The language stays in the
+  // print, so an install built in Russian before rebuilds once in English.
+  const EXT_LANG = "english";
   const printOf = (dir) => sha(sourceText(dir) + `\nlanguage:${EXT_LANG}`);
   const builtExt = { ...(state.extensions || {}) };
   if (names.length && ctx.wantExt && ctx.appData && fs.existsSync(extHome)) {

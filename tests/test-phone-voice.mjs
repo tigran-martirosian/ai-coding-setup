@@ -313,7 +313,8 @@ try {
     dry.status === 0 &&
       /speech model "small" \(about 480 MB\)/.test(dryOut) &&
       dryOut.includes("would run:") &&
-      dryOut.includes("transcribe-server.py --download") &&
+      // A folder name with a space puts the script path in quotes
+      /transcribe-server\.py"? --download/.test(dryOut) &&
       dryOut.includes("--with faster-whisper") &&
       !fs.existsSync(voice.markerPath()),
     dryOut,
