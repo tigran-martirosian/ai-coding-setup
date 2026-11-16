@@ -147,8 +147,16 @@ export function moveOldCopies({ home, dirs, DRY, say }) {
   }
   return moved;
 }
-// The folders under ~/.claude that hold the setup's own files, each from the repo folder of the same name
-export const OWN_FOLDERS = ["hooks", "agents", "skills", "workers", "tools"];
+// The folders under ~/.claude that hold the setup's own files, each from the repo folder of the same name.
+// phone/shared is the sealing code the phone-bot add-on's PC program imports; the rest of phone/ stays in the repo.
+export const OWN_FOLDERS = [
+  "hooks",
+  "agents",
+  "skills",
+  "workers",
+  "tools",
+  path.join("phone", "shared"),
+];
 // The script paths a hook command starts: "<path>" or a bare <path> ending in a script extension
 export const SCRIPT_PATHS =
   /"([^"]+\.(?:mjs|cjs|js|sh|py|ps1))"|(\S+\.(?:mjs|cjs|js|sh|py|ps1))(?=\s|$)/g;

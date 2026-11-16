@@ -25,10 +25,11 @@ export function repoSources(REPO) {
       .readdirSync(path.join(REPO, "projects"), { withFileTypes: true })
       .filter((e) => e.isDirectory() && e.name !== "shared")
       .map((e) => e.name),
-    // Every file in these repo folders goes to the folder of the same name under ~/.claude.
+    // Every file in these repo folders goes to the folder of the same name under ~/.claude; version.json goes
+    // with the phone-bot add-on only (scripts/claude-files.mjs), for its PC program.
     files: OWN_FOLDERS.flatMap((d) =>
       filesIn(path.join(REPO, d)).map((f) => path.join(d, f)),
-    ),
+    ).concat("version.json"),
     // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
     shared: path.join(REPO, "projects", "shared"),
   };

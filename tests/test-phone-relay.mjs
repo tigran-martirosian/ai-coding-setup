@@ -1,0 +1,1046 @@
+// Tests the phone relay's Hub through the local relay (phone/relay/local/server.mjs), with Node's own WebSocket
+// client as the phone pages and the PC programs. The sealed blobs are AES-GCM under a key only the test holds,
+// so the Hub sees what it sees on Cloudflare: bytes it cannot open. Telegram's initData key is a key pair the
+// test makes. Checks: pipe design section 12, row B1.   node tests/test-phone-relay.mjs
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { startLocalRelay } from "../phone/relay/local/server.mjs";
+import { pcIdOf, toB64url } from "../phone/relay/src/hub.mjs";
+import * as seal from "../phone/shared/seal.mjs";
+
+const subtle = globalThis.crypto.subtle;
+const enc = new TextEncoder();
+const random = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+let passed = 0;
+let failed = 0;
+function check(name, ok, detail = "") {
+  if (ok) passed += 1;
+  else failed += 1;
+  console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : `\n     ${detail}`}`);
+}
+const same = (name, got, want) =>
+  check(
+    name,
+    JSON.stringify(got) === JSON.stringify(want),
+    `got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`,
+  );
+
+const BOT_ID = 4242;
+const OWNER = 1001;
+const FRIEND = 2002;
+const THIRD = 3003;
+const STRANGER = 9009;
+// Plain text that travels only inside sealed blobs; the Hub's store and log must never hold it.
+const MARKER = `plain-marker-${toB64url(random(9))}`;
+const POLICY =
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; " +
+  "media-src 'self' blob:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; " +
+  "frame-ancestors https://web.telegram.org";
+const MINUTE = 60_000;
+
+let clock = Date.UTC(2026, 10, 14, 12, 0, 0);
+const logLines = [];
+const telegramCalls = [];
+let tgMessageId = 700;
+let refuseTelegram = null;
+const tgKey = await subtle.generateKey({ name: "Ed25519" }, true, [
+  "sign",
+  "verify",
+]);
+const otherKey = await subtle.generateKey({ name: "Ed25519" }, true, [
+  "sign",
+  "verify",
+]);
+const tgKeyHex = Buffer.from(
+  await subtle.exportKey("raw", tgKey.publicKey),
+).toString("hex");
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "phone-relay-"));
+fs.writeFileSync(path.join(tmp, "index.html"), "<!doctype html><p>page</p>");
+fs.writeFileSync(path.join(tmp, "version.json"), '{"version":"0.0.0"}');
+
+const relay = await startLocalRelay({
+  port: 0,
+  pageDir: tmp,
+  botId: BOT_ID,
+  ownerTgId: OWNER,
+  telegramKey: tgKeyHex,
+  // Like Telegram: a sent message has an id; the method named in `refuseTelegram` fails as Telegram refuses it.
+  telegram: async (method, params) => {
+    telegramCalls.push({ method, params });
+    if (method === refuseTelegram)
+      throw new Error(
+        `telegram ${method}: Bad Request: message can't be deleted`,
+      );
+    return method === "sendMessage" ? { message_id: ++tgMessageId } : {};
+  },
+  download: async () => {
+    throw new Error("this test downloads nothing");
+  },
+  now: () => clock,
+  log: (line) => logLines.push(line),
+  bot: null,
+});
+const dump = () => JSON.stringify([...relay.map]);
+
+// The invite list is the bot's to fill (row B5); here the test writes it as the bot would.
+for (const id of [FRIEND, THIRD]) {
+  relay.map.set(`user:${id}`, {
+    invitedAt: clock,
+    firstName: "Tester",
+    pcId: null,
+  });
+}
+
+// ---- helpers ----
+
+async function initData(tgId, { key = tgKey, ageMs = 0 } = {}) {
+  const fields = {
+    auth_date: String(Math.floor((clock - ageMs) / 1000)),
+    query_id: "AAqTest",
+    user: JSON.stringify({ id: tgId, first_name: "Tester" }),
+  };
+  const lines = Object.entries(fields)
+    .map(([k, v]) => `${k}=${v}`)
+    .sort();
+  const data = enc.encode(`${BOT_ID}:WebAppData\n${lines.join("\n")}`);
+  const sig = await subtle.sign({ name: "Ed25519" }, key.privateKey, data);
+  const params = new URLSearchParams(fields);
+  params.set("hash", "00");
+  params.set("signature", toB64url(new Uint8Array(sig)));
+  return params.toString();
+}
+
+// Lets the frames cross the socket, then waits until the Hub has handled them.
+async function settle() {
+  await new Promise((done) => setTimeout(done, 40));
+  await relay.idle();
+  await new Promise((done) => setTimeout(done, 20));
+}
+
+async function connect() {
+  const ws = new WebSocket(`${relay.url.replace("http", "ws")}/ws`);
+  const c = { ws, inbox: [], closedWith: null };
+  ws.addEventListener("message", (e) => c.inbox.push(e.data));
+  ws.addEventListener("close", (e) => {
+    c.closedWith = { code: e.code, reason: e.reason };
+  });
+  await new Promise((done, failure) => {
+    ws.addEventListener("open", done);
+    ws.addEventListener("error", failure);
+  });
+  c.send = (frame) =>
+    ws.send(typeof frame === "string" ? frame : JSON.stringify(frame));
+  c.take = () => c.inbox.splice(0);
+  c.takeJson = () => c.take().map((t) => JSON.parse(t));
+  await settle();
+  return c;
+}
+
+async function phone(tgId) {
+  const c = await connect();
+  c.send({ v: 1, t: "auth", initData: await initData(tgId) });
+  await settle();
+  return c;
+}
+
+async function newPc() {
+  const token = random(32);
+  const pc = await connect();
+  pc.token = toB64url(token);
+  pc.pcId = await pcIdOf(token);
+  pc.send({
+    v: 1,
+    t: "pc-join",
+    pcId: pc.pcId,
+    token: pc.token,
+    inboxPub: toB64url(random(32)),
+    pcVersion: "26.3",
+  });
+  await settle();
+  return pc;
+}
+
+async function pair(phoneSocket, tgId, pc) {
+  phoneSocket.send({
+    v: 1,
+    t: "pair",
+    pcId: pc.pcId,
+    DP: toB64url(random(32)),
+    initData: await initData(tgId),
+    mac1: toB64url(random(32)),
+  });
+  await settle();
+  const seen = pc.take();
+  pc.send({
+    v: 1,
+    t: "pair-ok",
+    PCP: toB64url(random(32)),
+    mac2: toB64url(random(32)),
+  });
+  await settle();
+  const back = phoneSocket.take();
+  pc.send({ v: 1, t: "paired", tgId });
+  await settle();
+  return { seen, back, answer: pc.takeJson() };
+}
+
+// A sealed app frame: the body is AES-GCM under a key only the two test ends hold.
+const channelKey = await subtle.generateKey(
+  { name: "AES-GCM", length: 256 },
+  true,
+  ["encrypt", "decrypt"],
+);
+async function sealedFrame(dev, n, body) {
+  const iv = new Uint8Array(12);
+  new DataView(iv.buffer).setUint32(8, n);
+  const head = { v: 1, t: "app", dev, sid: "s1", n };
+  const sealed = await subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: enc.encode(JSON.stringify(head)) },
+    channelKey,
+    enc.encode(JSON.stringify(body)),
+  );
+  return JSON.stringify({ ...head, c: toB64url(new Uint8Array(sealed)) });
+}
+async function openFrame(text) {
+  const { v, t, dev, sid, n, c } = JSON.parse(text);
+  const iv = new Uint8Array(12);
+  new DataView(iv.buffer).setUint32(8, n);
+  const bytes = Buffer.from(c, "base64url");
+  const plain = await subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: enc.encode(JSON.stringify({ v, t, dev, sid, n })),
+    },
+    channelKey,
+    bytes,
+  );
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+// ---- page files carry the content policy (section 6) ----
+
+for (const file of ["/", "/version.json"]) {
+  const res = await fetch(relay.url + file);
+  same(
+    `${file} carries the content policy, nosniff and no-referrer`,
+    [
+      res.status,
+      res.headers.get("content-security-policy"),
+      res.headers.get("x-content-type-options"),
+      res.headers.get("referrer-policy"),
+    ],
+    [200, POLICY, "nosniff", "no-referrer"],
+  );
+}
+
+// ---- signing in (section 3) ----
+
+{
+  const c = await connect();
+  c.send({
+    v: 1,
+    t: "auth",
+    initData: await initData(OWNER, { key: otherKey }),
+  });
+  await settle();
+  same("initData signed by another key: closed 4401 bad-sign", c.closedWith, {
+    code: 4401,
+    reason: "bad-sign",
+  });
+}
+{
+  const c = await connect();
+  const good = await initData(FRIEND);
+  c.send({ v: 1, t: "auth", initData: good.replace("Tester", "Tester2") });
+  await settle();
+  same("initData changed after signing: closed 4401 bad-sign", c.closedWith, {
+    code: 4401,
+    reason: "bad-sign",
+  });
+}
+{
+  const c = await connect();
+  const old = await initData(FRIEND, { ageMs: 24 * 60 * MINUTE + 1000 });
+  c.send({ v: 1, t: "auth", initData: old });
+  await settle();
+  same("initData older than 24 hours: closed 4401 bad-sign", c.closedWith, {
+    code: 4401,
+    reason: "bad-sign",
+  });
+}
+{
+  const c = await connect();
+  const before = dump();
+  c.send({ v: 1, t: "auth", initData: await initData(STRANGER) });
+  await settle();
+  same("an uninvited id: closed 4401 not-invited", c.closedWith, {
+    code: 4401,
+    reason: "not-invited",
+  });
+  check("an uninvited id writes nothing to the store", dump() === before);
+}
+{
+  const c = await connect();
+  c.send({ v: 1, t: "app", dev: "d", sid: "s", n: 0, c: "AA" });
+  await settle();
+  same("a first frame that is not a sign-in: closed 4400", c.closedWith, {
+    code: 4400,
+    reason: "auth-first",
+  });
+}
+
+const owner = await phone(OWNER);
+check(
+  "the owner is let in without an invite, and gets a user record",
+  owner.closedWith === null && relay.map.has(`user:${OWNER}`),
+);
+owner.send('{"t":"ping"}');
+await settle();
+same("ping is answered with pong", owner.take(), ['{"t":"pong"}']);
+owner.send({ v: 2, t: "app" });
+await settle();
+same("an unknown protocol version is refused", owner.takeJson(), [
+  { v: 1, t: "error", e: "protocol" },
+]);
+
+// ---- PC join (section 3) ----
+
+const pc1 = await newPc();
+same("pc-join answers ok with the bot id", pc1.takeJson(), [
+  { v: 1, t: "pc-join", ok: true, botId: BOT_ID },
+]);
+{
+  const record = JSON.stringify(relay.map.get(`pc:${pc1.pcId}`));
+  const c = await connect();
+  c.send({
+    v: 1,
+    t: "pc-join",
+    pcId: pc1.pcId,
+    token: pc1.token,
+    inboxPub: toB64url(random(32)),
+    pcVersion: "26.9",
+  });
+  await settle();
+  same("pc-join of an existing pcId: closed 4409 pc-exists", c.closedWith, {
+    code: 4409,
+    reason: "pc-exists",
+  });
+  check(
+    "the existing record is unchanged",
+    JSON.stringify(relay.map.get(`pc:${pc1.pcId}`)) === record,
+  );
+  const d = await connect();
+  d.send({
+    v: 1,
+    t: "pc-join",
+    pcId: await pcIdOf(random(32)),
+    token: toB64url(random(32)),
+    inboxPub: toB64url(random(32)),
+    pcVersion: "26.3",
+  });
+  await settle();
+  same(
+    "pc-join whose pcId is not its token's: closed 4409 pc-id",
+    d.closedWith,
+    {
+      code: 4409,
+      reason: "pc-id",
+    },
+  );
+}
+{
+  const c = await connect();
+  c.send({ v: 1, t: "pc-auth", pcId: pc1.pcId, token: toB64url(random(32)) });
+  await settle();
+  same("pc-auth with a wrong token: closed 4401", c.closedWith, {
+    code: 4401,
+    reason: "bad-token",
+  });
+}
+
+// ---- alerts from an unpaired PC (section 5) ----
+
+pc1.send({
+  v: 1,
+  t: "alert",
+  text: "demo: needs you",
+  silent: false,
+  open: "h1",
+});
+await settle();
+same(
+  "an alert from an unpaired PC is refused with not-paired",
+  pc1.takeJson(),
+  [{ v: 1, t: "error", e: "not-paired" }],
+);
+check("and the fake Telegram records no call", telegramCalls.length === 0);
+relay.map.set(`alert:${FRIEND}:h1`, { msg: 1, at: clock });
+pc1.send({ v: 1, t: "alert-done", open: "h1" });
+await settle();
+same(
+  "a delete request from an unpaired PC is refused with not-paired",
+  [pc1.takeJson(), telegramCalls.length, relay.map.has(`alert:${FRIEND}:h1`)],
+  [[{ v: 1, t: "error", e: "not-paired" }], 0, true],
+);
+relay.map.delete(`alert:${FRIEND}:h1`);
+
+// ---- pairing (section 2) ----
+
+const friend = await phone(FRIEND);
+{
+  const r = await pair(friend, FRIEND, pc1);
+  check(
+    "pair reaches the PC as sent; pair-ok reaches the phone",
+    r.seen.length === 1 &&
+      JSON.parse(r.seen[0]).t === "pair" &&
+      r.back.length === 1 &&
+      JSON.parse(r.back[0]).t === "pair-ok",
+  );
+  same("paired is accepted", r.answer, [{ v: 1, t: "paired", ok: true }]);
+  same(
+    "the store links the user and the PC",
+    [
+      relay.map.get(`user:${FRIEND}`).pcId,
+      relay.map.get(`pc:${pc1.pcId}`).tgId,
+    ],
+    [pc1.pcId, FRIEND],
+  );
+}
+{
+  const pc = await newPc();
+  pc.take();
+  pc.send({ v: 1, t: "paired", tgId: THIRD });
+  await settle();
+  same("paired with no pair seen is refused", pc.takeJson(), [
+    { v: 1, t: "error", e: "no-pair" },
+  ]);
+  pc.ws.close();
+}
+
+// ---- sealed frames pass unchanged (sections 3 and 4) ----
+
+const DEV = toB64url(random(16));
+{
+  const frame = await sealedFrame(DEV, 0, {
+    k: "req",
+    id: "r-1",
+    a: "x",
+    d: MARKER,
+  });
+  friend.send(frame);
+  await settle();
+  const got = pc1.take();
+  check(
+    "a sealed frame from the phone reaches its PC byte for byte",
+    got[0] === frame,
+  );
+  const body = got.length === 1 ? await openFrame(got[0]) : null;
+  check("and the PC opens it", body && body.d === MARKER);
+  const answer = await sealedFrame(DEV, 0, {
+    k: "res",
+    id: "r-1",
+    ok: true,
+    d: MARKER,
+  });
+  pc1.send(answer);
+  await settle();
+  same(
+    "the PC's sealed answer reaches that phone byte for byte",
+    friend.take(),
+    [answer],
+  );
+}
+
+const third = await phone(THIRD);
+const pc2 = await newPc();
+pc2.take();
+await pair(third, THIRD, pc2);
+third.send(await sealedFrame(toB64url(random(16)), 0, { k: "req", d: "x" }));
+await settle();
+check(
+  "a third user's frame goes to his own PC, never to the friend's",
+  pc1.take().length === 0 && pc2.take().length === 1,
+);
+pc2.send(await sealedFrame(DEV, 0, { k: "res", d: "x" }));
+await settle();
+check(
+  "his PC cannot reach the friend's phone, even by naming its device",
+  friend.take().length === 0 && third.take().length === 0,
+);
+same("his PC is told that device is offline", pc2.takeJson(), [
+  { v: 1, t: "offline", dev: DEV },
+]);
+{
+  const record = JSON.stringify(relay.map.get(`pc:${pc1.pcId}`));
+  const r = await pair(third, THIRD, pc1);
+  same(
+    "paired for a PC paired to another id is refused with pc-taken",
+    r.answer,
+    [{ v: 1, t: "error", e: "pc-taken" }],
+  );
+  check(
+    "and its record is unchanged",
+    JSON.stringify(relay.map.get(`pc:${pc1.pcId}`)) === record,
+  );
+}
+
+// ---- alerts from a paired PC (section 5) ----
+
+for (const [what, open] of [
+  ["17 characters", "a".repeat(17)],
+  ["a ?", "a?b"],
+  ["a /", "a/b"],
+]) {
+  pc1.send({ v: 1, t: "alert", text: "demo: needs you", silent: false, open });
+  await settle();
+  same(`an alert whose open handle has ${what} is refused`, pc1.takeJson(), [
+    { v: 1, t: "error", e: "alert-open" },
+  ]);
+}
+pc1.send({
+  v: 1,
+  t: "alert",
+  text: `demo: ${MARKER}`,
+  silent: false,
+  open: "h1",
+});
+await settle();
+same("an alert with other text is refused", pc1.takeJson(), [
+  { v: 1, t: "error", e: "alert-text" },
+]);
+for (const [what, text] of [
+  ["an ending other than the three", "demo · Release notes draft: done"],
+  ["a cut ending", "demo · Release notes draft: handed off"],
+  ["an empty title", "demo · : finished"],
+  ["a title of 61 characters", `demo · ${"x".repeat(61)}: finished`],
+  ["a / in the title", "demo · a/b: finished"],
+  ["a new line after the ending", "demo · Notes: finished\n"],
+  ["a title with no project", "· Notes: finished"],
+]) {
+  pc1.send({ v: 1, t: "alert", text, silent: false, open: "h1" });
+  await settle();
+  same(`an alert with ${what} is refused`, pc1.takeJson(), [
+    { v: 1, t: "error", e: "alert-text" },
+  ]);
+}
+check(
+  "none of the refused alerts reached Telegram",
+  telegramCalls.length === 0,
+);
+pc1.send({
+  v: 1,
+  t: "alert",
+  text: "demo: needs you",
+  silent: true,
+  open: "h1",
+});
+await settle();
+same(
+  "a good alert goes to the paired user's chat, silent, with its Open button",
+  telegramCalls.map((c) => [
+    c.method,
+    c.params.chat_id,
+    c.params.text,
+    c.params.disable_notification,
+    c.params.reply_markup.inline_keyboard[0][0].web_app.url,
+  ]),
+  [["sendMessage", FRIEND, "demo: needs you", true, `${relay.url}/?o=h1`]],
+);
+// A titled alert takes each of the three endings; the title may hold letters of any script.
+const TITLED = [
+  "demo · Release notes draft: finished",
+  "demo · Release notes draft: handed off, continuing",
+  "demo · Заметки 2.0_x-y: needs you",
+];
+for (const text of TITLED)
+  pc1.send({ v: 1, t: "alert", text, silent: false, open: "h1" });
+await settle();
+same(
+  "a titled alert with each of the three endings goes to the chat",
+  [pc1.takeJson(), telegramCalls.slice(1).map((c) => c.params.text)],
+  [[], TITLED],
+);
+// 1 + 3 alerts went out this hour; 26 more reach the limit of 30.
+for (let i = 0; i < 26; i++)
+  pc1.send({
+    v: 1,
+    t: "alert",
+    text: "demo: finished",
+    silent: false,
+    open: "h1",
+  });
+await settle();
+pc1.take();
+pc1.send({
+  v: 1,
+  t: "alert",
+  text: "demo: finished",
+  silent: false,
+  open: "h1",
+});
+await settle();
+same("the 31st alert in an hour is refused", pc1.takeJson(), [
+  { v: 1, t: "error", e: "alert-rate" },
+]);
+
+// ---- alerts leave the chat: the PC's alert-done deletes the kept message ----
+
+const keptAlerts = () => [...relay.map].filter(([k]) => k.startsWith("alert:"));
+const lastSent = telegramCalls.filter((c) => c.method === "sendMessage").length;
+same(
+  "the relay keeps each alert's message id under its chat and handle, and no text",
+  [
+    keptAlerts(),
+    ["demo", "finished", "needs you", "Release notes", "Заметки"].filter((w) =>
+      JSON.stringify(keptAlerts()).includes(w),
+    ),
+  ],
+  [[[`alert:${FRIEND}:h1`, { msg: 700 + lastSent, at: clock }]], []],
+);
+let before = telegramCalls.length;
+pc1.send({ v: 1, t: "alert-done", open: "h1" });
+await settle();
+same(
+  "alert-done from the paired PC deletes that message in its user's chat and forgets it",
+  [pc1.takeJson(), telegramCalls.slice(before), keptAlerts()],
+  [
+    [],
+    [
+      {
+        method: "deleteMessage",
+        params: { chat_id: FRIEND, message_id: 700 + lastSent },
+      },
+    ],
+    [],
+  ],
+);
+before = telegramCalls.length;
+pc1.send({ v: 1, t: "alert-done", open: "h1" });
+await settle();
+same(
+  "alert-done for a handle no longer kept calls Telegram for nothing",
+  [pc1.takeJson(), telegramCalls.length - before],
+  [[], 0],
+);
+relay.map.set(`alert:${FRIEND}:h2`, { msg: 42, at: clock });
+refuseTelegram = "deleteMessage";
+pc1.send({ v: 1, t: "alert-done", open: "h2" });
+await settle();
+await settle();
+refuseTelegram = null;
+same(
+  "a delete Telegram refuses is tried once, logged, and the handle is forgotten",
+  [
+    telegramCalls.slice(before).map((c) => c.method),
+    keptAlerts(),
+    logLines.filter((l) => l.startsWith("alert delete refused")).length,
+  ],
+  [["deleteMessage"], [], 1],
+);
+relay.map.set(`alert:${FRIEND}:h3`, { msg: 43, at: clock - 48 * 3600_000 });
+const sweeper = await connect();
+await settle();
+sweeper.ws.close();
+await settle();
+same(
+  "a kept alert 48 hours old is dropped: Telegram no longer deletes it",
+  keptAlerts(),
+  [],
+);
+
+// ---- PC off (section 9) ----
+
+pc1.ws.close();
+await settle();
+friend.send(await sealedFrame(DEV, 1, { k: "req", d: MARKER }));
+await settle();
+same(
+  "with the PC off the phone is told offline since when",
+  friend.takeJson(),
+  [{ v: 1, t: "offline", lastSeen: clock }],
+);
+{
+  const back = await connect();
+  back.send({ v: 1, t: "pc-auth", pcId: pc1.pcId, token: pc1.token });
+  await settle();
+  same("the PC signs in again with its token", back.takeJson(), [
+    { v: 1, t: "pc-auth", ok: true, botId: BOT_ID, paired: true },
+  ]);
+  back.ws.close();
+}
+
+// ---- limits (sections 3 and 9) ----
+
+{
+  const dayKey = `day:${new Date(clock).toISOString().slice(0, 10)}`;
+  const day = relay.map.get(dayKey);
+  relay.map.set(dayKey, { ...day, joins: 50 });
+  const c = await newPc();
+  same("pc-join beyond 50 a day: closed 4429 join-limit", c.closedWith, {
+    code: 4429,
+    reason: "join-limit",
+  });
+  check("and no record is made", !relay.map.has(`pc:${c.pcId}`));
+  relay.map.set(dayKey, { ...relay.map.get(dayKey), joins: day.joins });
+
+  relay.map.set(dayKey, { ...relay.map.get(dayKey), requests: 89_999 });
+  const d = await connect();
+  const limit = d.takeJson();
+  check(
+    "from 90,000 requests a day a new socket gets limit and is closed",
+    limit.length === 1 &&
+      limit[0].t === "limit" &&
+      limit[0].resetAt === Date.UTC(2026, 10, 15) &&
+      d.closedWith?.code === 4429,
+    JSON.stringify([limit, d.closedWith]),
+  );
+  relay.map.set(dayKey, { ...relay.map.get(dayKey), requests: day.requests });
+}
+
+// ---- an unpaired record lives 15 minutes (section 3) ----
+
+{
+  const pc = await newPc();
+  pc.take();
+  clock += 14 * MINUTE;
+  (await connect()).ws.close();
+  check(
+    "after 14 minutes the unpaired record and its socket are still there",
+    relay.map.has(`pc:${pc.pcId}`) && pc.closedWith === null,
+  );
+  clock += MINUTE;
+  friend.send({
+    v: 1,
+    t: "pair",
+    pcId: pc.pcId,
+    DP: "AA",
+    initData: await initData(FRIEND),
+    mac1: "AA",
+  });
+  await settle();
+  same(
+    "a pair after its 15 minutes does not reach it",
+    [friend.takeJson(), pc.take()],
+    [[{ v: 1, t: "error", e: "no-pc" }], []],
+  );
+  await connect();
+  same("at the next request its socket is closed 4408", pc.closedWith, {
+    code: 4408,
+    reason: "pair-timeout",
+  });
+  check("and its record is gone", !relay.map.has(`pc:${pc.pcId}`));
+}
+
+// ---- a further device joins by an OK (section 15, checks 1 to 5) ----
+
+const JOIN_LINE = (words) =>
+  `A new device joined your PC: ${words}. Not you? Remove it in the app, Settings › Devices.`;
+const joinSecrets = []; // every key, box and nonce of the joins below, for the leak check
+{
+  const ownerA = await phone(OWNER); // the paired device
+  // The pair's kind, on a PC of its own so its pair attempts do not count below.
+  const pcK = await newPc();
+  pcK.take();
+  for (const kind of ["toaster", "iphone"])
+    ownerA.send({
+      v: 1,
+      t: "pair",
+      pcId: pcK.pcId,
+      DP: toB64url(random(32)),
+      initData: await initData(OWNER),
+      mac1: toB64url(random(32)),
+      kind,
+    });
+  await settle();
+  same(
+    "a pair whose kind is off the list is refused; one on the list reaches the PC with its kind",
+    [ownerA.takeJson(), pcK.takeJson().map((f) => f.kind)],
+    [[{ v: 1, t: "error", e: "bad-kind" }], ["iphone"]],
+  );
+  pcK.ws.close();
+  const pcJ = await newPc();
+  pcJ.take();
+  // The pair helper sends no kind, as a page before DV4 does: it still passes.
+  const r = await pair(ownerA, OWNER, pcJ);
+  same("a pair with no kind still passes and is recorded", r.answer, [
+    { v: 1, t: "paired", ok: true },
+  ]);
+  const calls = telegramCalls.length;
+  pcJ.send({ v: 1, t: "joined", tgId: OWNER, kind: "iphone" });
+  await settle();
+  same(
+    "joined after a pair of this id in the pairing window sends the fixed line, with sound",
+    [
+      pcJ.takeJson(),
+      telegramCalls
+        .slice(calls)
+        .map((c) => [
+          c.params.chat_id,
+          c.params.text,
+          c.params.disable_notification,
+        ]),
+    ],
+    [[], [[OWNER, JOIN_LINE("iPhone"), false]]],
+  );
+  pcJ.send({ v: 1, t: "joined", tgId: OWNER, kind: "iphone" });
+  await settle();
+  same(
+    "joined with neither a join-ask nor an unused pair is refused (check 5)",
+    [pcJ.takeJson(), telegramCalls.length],
+    [[{ v: 1, t: "error", e: "no-join" }], calls + 1],
+  );
+
+  // Check 1: no PC, or a PC paired to another id.
+  relay.map.set("user:4004", { invitedAt: clock, firstName: "T", pcId: null });
+  relay.map.set("user:5005", {
+    invitedAt: clock,
+    firstName: "T",
+    pcId: pcJ.pcId,
+  });
+  const dN = await seal.newX25519();
+  const askOf = async (dev, tgId = OWNER, kind = "desktop") => {
+    const Nn = random(16);
+    const commit = await seal.joinCommit(dev, dN.publicRaw, Nn);
+    joinSecrets.push(Nn, commit);
+    return {
+      Nn,
+      frame: {
+        v: 1,
+        t: "join-ask",
+        dev,
+        DN: toB64url(dN.publicRaw),
+        kind,
+        commit: toB64url(commit),
+        initData: await initData(tgId),
+      },
+    };
+  };
+  for (const id of [4004, 5005]) {
+    const s = await phone(id);
+    const dev = toB64url(random(16));
+    s.send((await askOf(dev, id)).frame);
+    await settle();
+    same(
+      `a join-ask from ${id === 4004 ? "an id with no PC" : "an id whose PC is paired to another id"} gets not-paired; the PC gets nothing`,
+      [s.takeJson(), pcJ.take()],
+      [[{ v: 1, t: "join-fail", dev, reason: "not-paired" }], []],
+    );
+    s.ws.close();
+  }
+
+  // Check 5: a kind off the list is refused at join-ask.
+  const N = await phone(OWNER); // the new device
+  const N2 = await phone(OWNER); // another socket of the same id
+  {
+    const bad = await askOf(toB64url(random(16)), OWNER, "toaster");
+    N.send(bad.frame);
+    await settle();
+    same(
+      "a join-ask whose kind is off the list is refused; the PC gets nothing",
+      [N.takeJson(), pcJ.take()],
+      [[{ v: 1, t: "error", e: "bad-kind" }], []],
+    );
+  }
+
+  // Check 2: a full join through the Hub, with a known Kn.
+  const devN = toB64url(random(16));
+  const ask = await askOf(devN);
+  const askText = JSON.stringify(ask.frame);
+  N.send(askText);
+  await settle();
+  same(
+    "a join-ask from the owner reaches the owner's PC unchanged",
+    pcJ.take(),
+    [askText],
+  );
+  const Npc = random(16);
+  joinSecrets.push(Npc, dN.publicRaw);
+  const toN = async (frame) => {
+    pcJ.send(frame);
+    await settle();
+    return [N.takeJson(), N2.take(), ownerA.take()];
+  };
+  const wait = {
+    v: 1,
+    t: "join-wait",
+    dev: devN,
+    pcId: pcJ.pcId,
+    PCP: toB64url(random(32)),
+    Npc: toB64url(Npc),
+    open: 1,
+  };
+  same("join-wait goes only to the socket that asked", await toN(wait), [
+    [wait],
+    [],
+    [],
+  ]);
+  N2.send({ v: 1, t: "join-reveal", dev: devN, Nn: toB64url(ask.Nn) });
+  await settle();
+  same(
+    "a join-reveal from another socket of the same id is dropped",
+    pcJ.take(),
+    [],
+  );
+  const revealText = JSON.stringify({
+    v: 1,
+    t: "join-reveal",
+    dev: devN,
+    Nn: toB64url(ask.Nn),
+  });
+  N.send(revealText);
+  await settle();
+  same("the asking socket's join-reveal reaches the PC", pcJ.take(), [
+    revealText,
+  ]);
+  const Kn = random(32);
+  const box = await seal.sealBox(dN.publicRaw, Kn);
+  const mac3 = random(32);
+  joinSecrets.push(Kn, box, mac3);
+  const ok = {
+    v: 1,
+    t: "join-ok",
+    dev: devN,
+    box: toB64url(box),
+    mac3: toB64url(mac3),
+  };
+  same("join-ok goes only to the socket that asked", await toN(ok), [
+    [ok],
+    [],
+    [],
+  ]);
+  const failFrame = { v: 1, t: "join-fail", dev: devN, reason: "expired" };
+  same("join-fail goes only to the socket that asked", await toN(failFrame), [
+    [failFrame],
+    [],
+    [],
+  ]);
+  pcJ.send({ v: 1, t: "joined", tgId: OWNER, kind: "toaster" });
+  await settle();
+  same("joined with a kind off the list is refused", pcJ.takeJson(), [
+    { v: 1, t: "error", e: "bad-kind" },
+  ]);
+  pcJ.send({ v: 1, t: "joined", tgId: OWNER, kind: "desktop" });
+  await settle();
+  same(
+    "joined after the join-ask sends the fixed line with the kind's words",
+    [pcJ.takeJson(), telegramCalls.at(-1).params.text],
+    [[], JOIN_LINE("Telegram Desktop")],
+  );
+
+  // Check 4: past 4 minutes the frames are dropped; the sixth ask in an hour is refused.
+  const devL = toB64url(random(16));
+  const late = await askOf(devL);
+  N.send(late.frame);
+  await settle();
+  pcJ.take();
+  clock += 4 * MINUTE;
+  N.send({ v: 1, t: "join-reveal", dev: devL, Nn: toB64url(late.Nn) });
+  await settle();
+  same("a join-reveal after 4 minutes is dropped", pcJ.take(), []);
+  pcJ.send({ ...ok, dev: devL });
+  await settle();
+  same("a join-ok after 4 minutes is dropped", N.take(), []);
+  pcJ.send({ v: 1, t: "joined", tgId: OWNER, kind: "desktop" });
+  await settle();
+  same(
+    "joined after 4 minutes with no new join-ask is refused",
+    pcJ.takeJson(),
+    [{ v: 1, t: "error", e: "no-join" }],
+  );
+  // Two asks so far this hour; three more reach the 5.
+  for (let i = 0; i < 3; i++) N.send((await askOf(toB64url(random(16)))).frame);
+  await settle();
+  const passedAsks = pcJ.take().length;
+  const sixth = await askOf(toB64url(random(16)));
+  N.send(sixth.frame);
+  await settle();
+  same(
+    "the sixth join-ask in an hour is refused and does not reach the PC",
+    [passedAsks, N.takeJson(), pcJ.take()],
+    [
+      3,
+      [{ v: 1, t: "join-fail", dev: sixth.frame.dev, reason: "too-many-asks" }],
+      [],
+    ],
+  );
+
+  // A removed device's hello is answered app-fail outside the seal, to that device's sockets only.
+  const devR = toB64url(random(16));
+  N.send(await sealedFrame(devR, 0, { k: "hello" }));
+  await settle();
+  pcJ.take();
+  pcJ.send({ v: 1, t: "app-fail", dev: devR, reason: "unknown-device" });
+  await settle();
+  same(
+    "app-fail reaches the device it names and no other socket",
+    [N.takeJson(), N2.take(), ownerA.take()],
+    [[{ v: 1, t: "app-fail", dev: devR, reason: "unknown-device" }], [], []],
+  );
+
+  // Check 3: the store and the log hold none of the join's keys, boxes or nonces, nor a device id in the log.
+  await settle();
+  const storeText = dump();
+  const logText = logLines.join("\n");
+  const forms = (b) => [
+    toB64url(b),
+    Buffer.from(b).toString("hex"),
+    Buffer.from(b).toString("latin1"),
+  ];
+  check(
+    "the store holds none of Kn in base64url, hex or raw bytes",
+    !forms(Kn).some((f) => storeText.includes(f)),
+  );
+  check(
+    "the log holds none of Kn, DN, the box, mac3, a nonce or a commit",
+    !joinSecrets.flatMap(forms).some((f) => logText.includes(f)),
+  );
+  check(
+    "the log names no device id of the joins",
+    ![devN, devL, devR].some((d) => logText.includes(d)),
+  );
+  check(
+    "the log names the join frames and outcomes",
+    [
+      "join ask",
+      "join ok",
+      "join line sent",
+      "join refused: too-many-asks",
+    ].every((w) => logText.includes(w)),
+    logText,
+  );
+  for (const s of [ownerA, N, N2]) s.ws.close();
+  pcJ.ws.close();
+}
+
+// ---- what the Hub kept (sections 1 and 6) ----
+
+await settle();
+const store = dump();
+check("the store holds none of the plain marker text", !store.includes(MARKER));
+check(
+  "the log holds none of the plain marker text",
+  !logLines.join("\n").includes(MARKER),
+);
+check(
+  "every store key is one of the design's",
+  [...relay.map.keys()].every((k) =>
+    /^(user:\d+|invite:[0-9a-f]+|pc:[A-Z2-7]{26}|held:.+|file:.+|tg:last-update|day:\d{4}-\d{2}-\d{2})$/.test(
+      k,
+    ),
+  ),
+  [...relay.map.keys()].join(" "),
+);
+check(
+  "the Hub logged no error",
+  !logLines.some((l) => l.startsWith("hub error")),
+  logLines.join("\n"),
+);
+
+await relay.close();
+fs.rmSync(tmp, { recursive: true, force: true });
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exit(failed ? 1 : 0);

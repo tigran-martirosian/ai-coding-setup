@@ -154,7 +154,10 @@ function helperView(f, s, units, stage, now) {
       tokens(task.tokenCount) || p(s.noTokens, "tokens"),
     ]);
   }
-  if (!f.hasResult) {
+  // The app hands a helper's result to its card only when the whole turn ends (0.83.0: toolCall.result stays empty
+  // and subagent.status "running" till then), so a run-log line with a result also ends the card: without it every
+  // helper of a long turn kept its orb and clock running, one more each time (2026-11-15)
+  if (!f.hasResult && !f.result) {
     const doing = Object.hasOwn(s.doing, f.lastTool)
       ? s.doing[f.lastTool]
       : s.running;

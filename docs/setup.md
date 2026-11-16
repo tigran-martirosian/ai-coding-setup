@@ -101,7 +101,7 @@ Written rules were sometimes skipped: a large file was read whole, or a search s
 | When I send a message | `map-nudge` | A project with 100 or more code files and no systems map gets one built by a background worker |
 | Before an edit | `map-generated` | A hand edit of a file a script writes is refused, with the script to change and rerun (`MAP_GENERATED=off`) |
 | After an edit | `map-drift` | An edit that removes the code a map link rests on is named, so the agent checks that link (`MAP_DRIFT=off`) |
-| After a commit or a `HANDOFF.md` edit | `upkeep-note` | Once a day per folder, the agent fixes the project's records without asking: a `HANDOFF.md` over 120 lines trimmed, dead paths in the notes fixed or dropped, a decision a new entry replaces moved to the archive; one "Upkeep:" line in its reply (`UPKEEP_NOTE=off`) |
+| After a commit or a `HANDOFF.md` edit | `upkeep-note` | Once a day per folder, the agent fixes the project's records without asking: a `HANDOFF.md` over 120 lines trimmed, dead paths in the notes fixed or dropped, a decision a new entry replaces moved to the archive; once a month the packages updated (small ones silently when the tests pass, big ones on one card, security problems told at once); one "Upkeep:" line in its reply (`UPKEEP_NOTE=off`) |
 
 The uncapped search subagents are now stopped by the settings, not a hook: the installer puts `Agent(Explore)` and `Agent(general-purpose)` in `permissions.deny`. The scanner counts how often `big-read-gate` stopped a whole-file read. I use the scanner's counts to decide which rule needs a hook next. The wiring is in [settings.example.json](../settings.example.json).
 

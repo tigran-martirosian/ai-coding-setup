@@ -579,7 +579,7 @@ try {
   const real = await loadPatches(path.join(path.dirname(PATCHER), "patches"));
   const ids = real.map((p) => p.id).sort();
   check(
-    "real patches: updater-block, 1558, 1758, 1792, 1836, 1867, 1944, ask-line, files-and-agents, right-panel-menu, settings-batch, settled-repeat, tool-rows-stay, files-chat-follows load with the right shape",
+    "real patches: updater-block, 1558, 1758, 1792, 1836, 1867, 1944, ask-line, files-and-agents, right-panel-menu, settings-batch, settled-repeat, tool-rows-stay, files-chat-follows, wakeup-note load with the right shape",
     [
       "updater-block",
       "1558",
@@ -595,6 +595,7 @@ try {
       "settled-repeat",
       "tool-rows-stay",
       "files-chat-follows",
+      "wakeup-note",
     ].every((id) => ids.includes(id)),
     ids.join(", "),
   );
@@ -655,6 +656,7 @@ try {
     "settled-repeat": "out/main/index.js",
     "tool-rows-stay": "out/renderer/assets/registerExtensionSystem-D6mrEjei.js",
     "files-chat-follows": "out/renderer/assets/index-BIbaJj7C.js",
+    "wakeup-note": "out/main/index.js",
   };
   const missed = Object.entries(byPath)
     .filter(([id, p]) => !real.find((x) => x.id === id)?.files.test(p))

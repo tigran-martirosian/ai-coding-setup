@@ -4,6 +4,19 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.3] - 2026-11-16
+
+- 26.3 (Nov 16, 2026): A phone app in Telegram to follow and drive your Nimbalyst sessions (answer questions, stop, queue, pin, attach files, voice), monthly package upkeep without pull requests, tracker notes that reach the work, and wakeups that reach a busy session.
+- The phone app replaces the old Telegram inbox bot: a page in Telegram shows your Nimbalyst sessions and lets you follow and drive them from the phone, through a relay that cannot read what the page and the PC send each other. Alerts are the exception: their text (project name and session title) passes the relay unsealed. The `phone-bot` skill now joins your PC with an invite from the bot's owner and pairs the phone with a QR code; it is an add-on, `install.mjs --with phone-bot` adds it. The old bot, its Haiku chat and its `/phone` skill are gone, and joining removes the old bot's start entries.
+- The PC tidy-up never stops the phone app's PC program, which is meant to run all the time.
+- On the phone, a question card can be folded to its top line (Hide, then Show) so you can read the chat behind it, and an open card never covers more than about 60% of the screen.
+- The phone's Home leaves off sessions that have waited on you for over two days; they still show inside their project.
+- With the setup's Nimbalyst patch, the phone can answer forms, stop a running turn, remove a queued message and pin sessions (restart Nimbalyst after the update).
+- New GitHub projects no longer get a Dependabot file, and the project check stops asking for one: its weekly version pull requests (one per package) are noise for a small team; Claude bumps packages as part of the work.
+- Your projects keep their packages fresh without pull requests: once a month, after a commit, Claude updates the small versions silently (kept only when the tests pass), asks once about big version jumps, and tells you about security problems right away.
+- Notes you type on a tracker step now reach the work: when a session starts a step or finishes a piece of it, Claude first reads that step's comments and acts on yours (or says why not), without any session watching the tracker in between.
+- A wakeup a session scheduled for itself (schedule_wakeup) that fires while the session is still working now reaches it as a note at its next step, the way the Note button does, instead of waiting in the queue until the turn ends. An idle session still gets it as a new message. Takes effect after the next Nimbalyst restart.
+
 ## [26.2] - 2026-11-15
 
 - 26.2 (Nov 15, 2026): A new Job Tracker page shows each job's steps with the session you are in open beside it; new `writing`, `grill-me` and `/where-are-we` skills; your project's records tidy themselves; new projects get a git and GitHub preset (pass level 3); and smoother Nimbalyst: no chat lag or jumps when helpers start, question cards stay put, Files mode shows your session, and Read Aloud reads the whole last turn.

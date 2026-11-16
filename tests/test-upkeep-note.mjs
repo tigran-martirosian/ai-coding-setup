@@ -635,6 +635,54 @@ try {
     silent(r) && !r.ctx.includes("Decision files"),
     r.ctx || r.err,
   );
+  // packages: monthly, on a commit, for a lock or Python package file at the top or one folder down
+  const p36 = folder({
+    "HANDOFF.md": "short\n",
+    "web/package-lock.json": "{}\n",
+    "node_modules/x/package-lock.json": "{}\n",
+  });
+  commit(p36);
+  r = onCommit(p36);
+  const first36 = r.ctx;
+  const told36 =
+    first36.includes('Packages (monthly): update the packages of "web" as') &&
+    first36.includes("packages.md") &&
+    !first36.includes('"node_modules"');
+  toYesterday(p36);
+  write(p36, { "a.txt": "a\n" });
+  commit(p36);
+  let quiet36 = silent(onCommit(p36));
+  const st29 = stateOf(p36);
+  st29.s.day = "2000-01-01";
+  st29.s.packagesDay = localDay(new Date(Date.now() - 29 * 86400000));
+  fs.writeFileSync(st29.file, JSON.stringify(st29.s));
+  write(p36, { "c.txt": "c\n" });
+  commit(p36);
+  quiet36 = quiet36 && silent(onCommit(p36));
+  const st36 = stateOf(p36);
+  st36.s.day = "2000-01-01";
+  st36.s.packagesDay = localDay(new Date(Date.now() - 31 * 86400000));
+  fs.writeFileSync(st36.file, JSON.stringify(st36.s));
+  write(p36, { "b.txt": "b\n" });
+  commit(p36);
+  r = onCommit(p36);
+  ok(
+    "36 package upkeep is told on a commit, not again for 30 days, then again",
+    told36 && quiet36 && r.ctx.includes("Packages (monthly)"),
+    `${first36}\n---\n${r.ctx}`,
+  );
+  const p37 = folder({ "HANDOFF.md": "short\n", "pyproject.toml": "" });
+  commit(p37);
+  ok(
+    "37 a HANDOFF.md edit never brings the package part",
+    silent(onEdit(p37, path.join(p37, "HANDOFF.md"))),
+  );
+  r = onCommit(p37);
+  ok(
+    '38 a Python project at the top folder is told as "."',
+    r.ctx.includes('update the packages of "." as'),
+    r.ctx,
+  );
 } finally {
   fs.rmSync(base, { recursive: true, force: true });
 }
