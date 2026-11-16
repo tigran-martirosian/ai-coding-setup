@@ -95,7 +95,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 ## While you work
 
 - **Just describe the task.** You rarely have to name a skill: Claude picks the matching one by
-  itself. Two run only when you type them: `/btw` and `/phone-bot`.
+  itself. One runs only when you type it: `/btw`.
 - **Permission popups.** Every command Claude wants to run ends with a line that starts with
   `# WHAT THIS DOES:` and says in plain words what it does and what it changes. Read that line, then
   click Allow. If it describes something you did not ask for, click Deny and tell Claude why.
@@ -198,19 +198,18 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 
 ## From your phone
 
-- **`/phone-bot`: your own Telegram bot on your computer.** An add-on: `node install.mjs --with phone-bot` adds it. Claude walks you through making the bot
-  in Telegram (@BotFather) and starts it here. It starts again at log-on. Only the first person who
-  writes to it becomes its owner; everyone else is ignored.
-- **What you can send:** photos, files, links, notes, albums and voice notes. Each is saved in
-  `~/phone-inbox`, with one line per item in `index.md`. Voice notes become text when `uv` is installed.
-- **Commands in the bot:** `/help`, `/last [n]` (the latest items), `/undo` (remove the last one),
-  `/new` (the chat starts afresh) and `/chat on|off` (off means save only).
-- **Plain text is a chat.** Claude Haiku answers on your own subscription. It can hand a request to
-  a Nimbalyst session, but only after you tap Send.
-- **Questions from a session** (a choice or a permission prompt) appear as buttons in Telegram. A form
-  still has to be answered at the computer.
-- **`/phone`:** in any session, looks at what you sent from the phone and carries on with it.
-- **To stop:** `node ~/.claude/skills/phone-bot/setup.mjs --remove`. Your inbox folder stays.
+- **The phone app: your Nimbalyst sessions in Telegram.** A page in Telegram shows your sessions on this
+  PC and lets you follow and drive them from the phone. It talks to a small program on your PC
+  through a relay; the page and the PC seal what they send, so the relay cannot read it. Alerts are the
+  exception: their text (project name and session title) passes the relay unsealed. Windows only.
+- **To join:** an add-on, `node install.mjs --with phone-bot` adds it. You need an invite link from the
+  bot's owner. Open it on your phone, tap Start, and paste the line the bot sends into a session on your
+  PC: the `phone-bot` skill joins the PC, shows a QR code, and you scan it from the app's pairing screen.
+- **It keeps running:** the PC program starts at log-on and starts again when it ends.
+- **To stop:** `node ~/.claude/skills/phone-bot/pc/setup.mjs remove`. The keys stay, so `start-logon`
+  then `start` bring it back without a new pairing.
+- **The bot's owner** deploys the relay and the bot ([phone/README.md](../phone/README.md)) and invites
+  people with `/invite`.
 
 ## How much of the plan is used
 

@@ -285,8 +285,8 @@ const usageLog = path.join(os.homedir(), ".claude", "usage-log");
 const samples = readSamples(
   opt("plan", path.join(usageLog, "plan-usage.jsonl")),
 );
-const plan = planUse(samples, report.cost ?? []);
 const config = readConfig(opt("ahead", path.join(usageLog, "plan-hours.json")));
+const plan = planUse(samples, report.cost ?? [], config.samePlanResets);
 
 // The page, its lib and the Nimbalyst panel read the split as "shared" and "others" (the same names everywhere),
 // so the config's showSplit / otherUse are renamed here.

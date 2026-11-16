@@ -397,3 +397,64 @@ floating layer (popover, menu): `0 8px 24px rgba(0, 0, 0, 0.24)` plus a hairline
 - No coloured stripe on the edge of a row, menu item, card, note or banner (a left or right border, an inset box-shadow or a `::before` bar): it reads as AI-made. A state shows by fill, orb, mark and word.
 - No card around every group, no row of identical KPI tiles, no uppercase labels.
 - No browser-only features in a panel (no "Open in browser" link inside Nimbalyst).
+
+## Phone app
+
+The phone app's page (`phone/page/`, a Telegram Mini App) uses this file's tokens and rules on a phone. It runs inside Telegram, so Telegram's theme fills the `--nim-*` slots, and it has its own size ladder. The page's styles are in `phone/page/page.css`; its colour mapping block is the only place there with a colour value.
+
+### Type ladder
+
+`--p-*` shorthands in `page.css`, on the system font. Nothing under 12 px; the large title is the one 700.
+
+| Token | Size/weight | Used for |
+|---|---|---|
+| `--p-large-title` | 30/36, 700, -0.01em | The screen title (Home, Pair your PC) |
+| `--p-head` | 17/22, 600 | The PC line, a group heading on Home, the main button, step titles |
+| `--p-body` | 16/22, 400 | Row names (at 500), explanations, the empty lines |
+| `--p-sub-text` | 14/19, 400 | A row's meta line, the version line, "as of", plain notes under a block |
+| `--p-section-text` | 13/18, 500 | Small headings, the "finished today" link, the newer-version words |
+| `--p-caption` | 12/16, 500 | Tab words, small labels |
+| `--p-mono` | 14/21, 500 | The pairing code |
+
+Numbers that change (times, counts, ages) are tabular. Sentence case everywhere; only the pairing screen's small headings are upper case.
+
+### Telegram's theme in the tokens
+
+Telegram's script writes every theme field as a `--tg-theme-*` variable and keeps them current. `page.css` maps them into the slots `tokens.css` reads, so every `--x-*` token works unchanged. The page sets `html.dark-theme` when Telegram's colour scheme is dark.
+
+| Slot | Telegram field | When Telegram gives none |
+|---|---|---|
+| `--nim-bg` (the page) | `secondary_bg_color` | `bg_color` |
+| `--p-section` (a group's block) | `section_bg_color` | `bg_color` |
+| `--nim-text` | `text_color` | the page stops with an error |
+| `--nim-text-muted` | `hint_color` | the page stops with an error |
+| `--nim-primary`, `--nim-on-primary` | `button_color`, `button_text_color` | the page stops with an error |
+| `--nim-link` | `link_color` | `button_color` |
+| `--nim-accent-text` | `accent_text_color` | `--nim-link` |
+| `--nim-error` | `destructive_text_color` | the app's own red per scheme |
+| `--nim-warning` (needs you) | none: ours, `#f2b440` dark, `#d48a00` light | |
+| `--p-section-head` | `section_header_text_color` | `--nim-text-muted` |
+| `--p-sub` | `subtitle_text_color` | `--nim-text-muted` |
+| `--p-sep` (lines between rows) | `section_separator_color` | `--x-hairline` |
+| `--p-tabbar` | `bottom_bar_bg_color` | `bg_color` |
+
+`--p-fill` (tiles, step numbers) is the text at 8%, so it lifts from the section on both schemes; `--x-surface-2` would sink into Telegram's black dark page.
+
+### State tones
+
+The extensions' state tokens, always beside their word:
+
+- **Needs you:** `--x-state-needs` (amber; on a light page darkened toward the text by `tokens.css`, so it reads 4.5:1), the kind word at 600, the listening orb, and the block on the section mixed 12% toward amber.
+- **Working:** `--x-state-running` (the accent text), the doing word at 500, the thinking orb.
+- **Failed:** `--x-state-failed`, on the PC tile when Nimbalyst did not start.
+- **Last known** (PC off, Nimbalyst closed): the muted text for the name and a grey orb at 70%; these rows open nothing.
+- The PC tile carries the state of the link: tinted 14% in the working tone (all is well), the needs tint (Nimbalyst closed or starting), the failed tone (could not start or read), grey (PC off).
+
+The orbs are still stand-ins (a dot with a ring) until the extensions' orb library comes to the page.
+
+### Taps and shapes
+
+- Every tap target is at least 44 px high: the main button 50, a quiet button 44, the "finished today" link row 44, the version line 44, a session row 60, the tab bar's buttons the full bar height.
+- Blocks and the main button have a radius of 12; side inset 16; 24 between groups on Home.
+- Lines between rows start at the text, not the edge, so the mark column stays clean.
+- A row that opens something has a chevron at the right; a row without one opens nothing.

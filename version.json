@@ -1,10 +1,15 @@
 {
-  "version": "26.2",
+  "version": "26.3",
   "claudeCodeMin": "2.1.321",
   "projectPass": 3,
-  "date": "2026-11-15",
-  "summary": "A Job Tracker page with your session beside it, new writing, grill-me and where-are-we skills, self-tidying project records, and a smoother Nimbalyst.",
+  "date": "2026-11-16",
+  "summary": "A phone app in Telegram to follow and drive your Nimbalyst sessions, monthly package upkeep, and tracker notes that reach the work.",
   "releases": {
+    "26.3": {
+      "kind": "setup",
+      "important": true,
+      "headline": "A phone app in Telegram to follow and drive your sessions; wakeups reach busy sessions"
+    },
     "26.2": {
       "kind": "setup",
       "important": true,

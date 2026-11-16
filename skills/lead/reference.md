@@ -16,7 +16,7 @@ Keep out of the brief: your own idea of the solution (even as a suggestion), you
 
 ## A worker's brief
 
-**A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`). A `worktree` row whose files are in another repository gets its worktree from you before the call, `git -C <repo> worktree add <path> -b <branch> main`, and the brief's FILES name that path; its Agent call carries no `isolation`, which would branch the session's own folder, the wrong repository. Parallel rows in the session's own folder may still use `isolation: "worktree"`. A `worker`, model `fable` row passes `model: "fable"`; a `worker-code` or `worker-refactor` row passes that `subagent_type` and no model; a Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
+**A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`). A `worktree` row whose files are in another repository gets its worktree from you before the call, `git -C <repo> worktree add <path> -b <branch> main`, and the brief's FILES name that path; its Agent call carries no `isolation`, which would branch the session's own folder, the wrong repository. Parallel rows in the session's own folder may still use `isolation: "worktree"`. Every worktree brief says: never `git stash`; a repository has one stash list, so workers side by side take each other's entries; commit unfinished work on the worktree's branch instead. A `worker`, model `fable` row passes `model: "fable"`; a `worker-code` or `worker-refactor` row passes that `subagent_type` and no model; a Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
 
 ```
 JOB GOAL: the whole job, one sentence

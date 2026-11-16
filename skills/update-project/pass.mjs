@@ -534,7 +534,7 @@ function checkFacts(dir, add) {
   }
 }
 
-// ---- P13-P19, P23: git and the preset files, local reads only (the preset: new-project step 2b and its preset/
+// ---- P13-P18, P23: git and the preset files, local reads only (the preset: new-project step 2b and its preset/
 // folder). The kind: not in a git repo -> no git; in a repo with no github.com remote -> local git; a github.com
 // remote -> GitHub. A folder inside a bigger repo (a package with its own CLAUDE.md) is a git folder: the repo-wide
 // files (.gitattributes, .github/) are read at the repo's top folder.
@@ -739,7 +739,8 @@ function checkGit(dir, add, since) {
       "CLAUDE.md",
       `the Git: line names no branch flow (main, a branch per change, a pull request): make it \`${githubLine("<private|public>")}\``,
     );
-  // P17-P19: the pull-request template, a CI workflow on pull requests, the Dependabot file
+  // P17-P18: the pull-request template, a CI workflow on pull requests (no Dependabot file: its version pull
+  // requests are noise for a small team; Claude bumps the packages as part of the work)
   const dotGh = atTop(".github");
   const ghNames = isDir(dotGh) ? fs.readdirSync(dotGh) : [];
   if (
@@ -790,16 +791,6 @@ function checkGit(dir, add, since) {
         `${what}: copy ${PRESET}/${stack} with the test command filled in, and add the Checks merge line${cost}`,
       );
   }
-  const dep = ["dependabot.yml", "dependabot.yaml"]
-    .map((n) => path.join(dotGh, n))
-    .find(isFile);
-  if (!dep || !/package-ecosystem:\s*["']?github-actions/.test(read(dep)))
-    add(
-      "P19",
-      "ask",
-      topRel(".github/dependabot.yml"),
-      `${dep ? "no github-actions entry" : "missing"}: copy ${PRESET}/dependabot.yml and turn on the stack's entry (npm or pip) on a public repo; weekly, commit-message prefix build`,
-    );
   return { gh, line, has, branch };
 }
 
