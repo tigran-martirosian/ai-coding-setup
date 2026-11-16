@@ -1,0 +1,3146 @@
+/* The page's look (DS1 sections 1 and 2). The token mapping below is the only place with colours: every other
+   rule uses the --nim-*, --x-* (shared/tokens.css) and --p-* names. Telegram's script writes --tg-theme-*; the
+   frame refuses to start when a required one is missing, so the fallbacks here only cover the optional fields. */
+
+/* ---- token mapping */
+:root {
+  --nim-bg: var(--tg-theme-secondary-bg-color, var(--tg-theme-bg-color));
+  --nim-text: var(--tg-theme-text-color);
+  --nim-text-muted: var(--tg-theme-hint-color);
+  --nim-primary: var(--tg-theme-button-color);
+  --nim-primary-hover: var(--tg-theme-button-color);
+  --nim-on-primary: var(--tg-theme-button-text-color);
+  --nim-link: var(--tg-theme-link-color, var(--tg-theme-button-color));
+  --nim-accent-text: var(--tg-theme-accent-text-color, var(--nim-link));
+  --nim-error: var(--tg-theme-destructive-text-color, #e5484d);
+  --nim-success: #3fb950;
+  --nim-warning: #d48a00;
+  --p-section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color));
+  --p-section-head: var(--tg-theme-section-header-text-color, var(--nim-text-muted));
+  --p-sub: var(--tg-theme-subtitle-text-color, var(--nim-text-muted));
+  --p-sep: var(--tg-theme-section-separator-color, var(--x-hairline));
+  --p-tabbar: var(--tg-theme-bottom-bar-bg-color, var(--tg-theme-bg-color));
+  --p-fill: color-mix(in oklab, var(--nim-text) 8%, transparent);
+  --p-warn-tint: color-mix(in oklab, var(--nim-warning) 14%, transparent);
+  /* The lift under a chosen segment (Buzz · Silent · Off) */
+  --p-lift: 0 1px 3px rgba(0, 0, 0, 0.18);
+  /* The veil behind a sheet: dark in both themes, so the sheet stands out on a light page too */
+  --p-shade: rgba(0, 0, 0, 0.4);
+  /* What a dialog or a bottom sheet is drawn on, and its edge: in the light theme the section colour on the grey
+     page; in the dark theme a lighter surface and a hairline, as black on near-black shows no edge */
+  --p-raised: var(--p-section);
+  --p-raised-edge: transparent;
+  /* The space every bottom-docked part keeps clear of the screen corners and home bar: the larger of the
+     browser's safe area and Telegram's (an in-Telegram webview may give it only through --tg-safe-area-inset-*),
+     plus what Telegram's own controls cover. Telegram writes its two variables only once it has sent them, so
+     before that they count as none. */
+  --p-safe-bottom: calc(
+    max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)) +
+      var(--tg-content-safe-area-inset-bottom, 0px)
+  );
+}
+:root.dark-theme {
+  --p-raised: color-mix(in oklab, var(--p-section) 88%, white);
+  --p-raised-edge: color-mix(in oklab, white 14%, transparent);
+  --nim-warning: #f2b440;
+  --nim-error: var(--tg-theme-destructive-text-color, #ff6b6b);
+}
+
+/* ---- type ladder (nothing under 12 px) */
+:root {
+  --p-font: -apple-system, system-ui, "Segoe UI", sans-serif;
+  --p-large-title: 700 30px/36px var(--p-font);
+  --p-head: 600 17px/22px var(--p-font);
+  --p-body: 400 16px/22px var(--p-font);
+  --p-sub-text: 400 14px/19px var(--p-font);
+  --p-section-text: 500 13px/18px var(--p-font);
+  --p-caption: 500 12px/16px var(--p-font);
+  --p-mono: 500 14px/21px var(--x-font-mono);
+  --p-figure: 600 22px/28px var(--p-font);
+  --p-hero: 600 34px/40px var(--p-font);
+  --p-gap: 16px;
+  --p-radius: 12px;
+}
+
+/* ---- frame */
+* {
+  box-sizing: border-box;
+}
+/* The page itself never scrolls: Telegram's iPhone header darkens as the page scrolls (WebAppController.swift,
+   platform facts section 12). The app takes the visible height and #content is the one scroll box of every screen. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  margin: 0;
+  background: var(--nim-bg);
+  color: var(--nim-text);
+  font: var(--p-body);
+  -webkit-text-size-adjust: 100%;
+}
+[hidden] {
+  display: none !important;
+}
+/* Telegram on iPhone sends the visible height less the keyboard at once (the web view's own frame follows 0.4 s
+   later), so the dock stays above the keyboard with the page's scroll at 0; outside Telegram the window's height.
+   Never taller than the window, so the page has nothing to scroll. */
+.app {
+  height: min(var(--tg-viewport-height, 100dvh), 100dvh);
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px var(--p-gap) 24px;
+  padding-left: max(var(--p-gap), env(safe-area-inset-left));
+  padding-right: max(var(--p-gap), env(safe-area-inset-right));
+}
+.fatal {
+  padding: 48px 24px;
+  font: var(--p-body);
+  color: var(--nim-text);
+  text-align: center;
+}
+.large-title {
+  font: var(--p-large-title);
+  margin: 12px 0 8px;
+  letter-spacing: -0.01em;
+}
+.lead {
+  font: var(--p-sub-text);
+  color: var(--p-sub);
+  margin: 0 0 20px;
+}
+.frame-line {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  margin: 0 0 16px;
+}
+.frame-line.warn {
+  color: var(--nim-text);
+  background: var(--p-warn-tint);
+  border-radius: var(--p-radius);
+  padding: 10px 12px;
+}
+.greyed {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ---- groups and blocks */
+.group {
+  margin: 0 0 20px;
+}
+/* One group heading on every screen, as the Home mock-up: sentence case, text colour, the count muted */
+.g-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: 600 15px/20px var(--p-font);
+  color: var(--nim-text);
+  margin: 0 16px 8px;
+}
+.g-head .n {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.g-sub {
+  font: var(--p-caption);
+  color: var(--nim-text-muted);
+  margin: -4px 16px 8px;
+}
+.block {
+  background: var(--p-section);
+  border-radius: var(--p-radius);
+  padding: 14px 16px;
+  margin: 0 0 20px;
+}
+.pc {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.pc-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--p-fill);
+  color: var(--nim-text-muted);
+  display: grid;
+  place-items: center;
+  flex: none;
+  font: var(--p-head);
+}
+.pc-icon.warn {
+  background: var(--p-warn-tint);
+  color: var(--nim-warning);
+}
+.pc-title {
+  font: var(--p-head);
+}
+.pc-meta {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+}
+.err {
+  font: var(--p-sub-text);
+  color: var(--p-sub);
+  margin: 10px 0 0;
+}
+
+/* ---- pairing */
+.steps {
+  padding: 4px 16px;
+}
+.step {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+}
+.step + .step {
+  border-top: 1px solid var(--p-sep);
+}
+.num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--nim-primary);
+  color: var(--nim-on-primary);
+  font: var(--p-section-text);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.step .t {
+  font: var(--p-head);
+}
+.step .d {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+}
+.code-field {
+  width: 100%;
+  font: var(--p-mono);
+  color: var(--nim-text);
+  background: var(--p-section);
+  border: 1px solid var(--p-sep);
+  border-radius: var(--p-radius);
+  padding: 12px 14px;
+  outline: none;
+}
+.code-field:focus {
+  border-color: var(--nim-primary);
+}
+.field-error {
+  font: var(--p-sub-text);
+  color: var(--nim-error);
+  margin: 8px 4px 0;
+}
+.field-hint {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  margin: 6px 4px 0;
+}
+.pair-btn {
+  margin-top: 12px;
+}
+/* Not a step: who the PC stays with, under the steps */
+.pair-note {
+  font: var(--p-sub-text);
+  color: var(--p-sub);
+  margin: -8px 4px 20px;
+}
+
+/* ---- Home (screens/home.js, screens/home-sessions.js) */
+.home .group {
+  margin: 0 0 24px;
+}
+.home .block {
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+/* A group's one-line note under its heading, lined up with the heading */
+.home .g-sub {
+  font: var(--p-sub-text);
+  margin: -4px 16px 8px;
+}
+.home .g-foot {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  padding: 8px 16px 0;
+}
+.home .g-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0 16px;
+  font: var(--p-section-text);
+  color: var(--x-accent-text);
+  cursor: pointer;
+}
+.home .pc {
+  padding: 14px 16px;
+}
+.home .pc-icon {
+  width: 40px;
+  height: 40px;
+  color: var(--nim-text);
+}
+.pc-icon.ok {
+  color: var(--x-state-running);
+  background: color-mix(in oklab, var(--x-state-running) 14%, transparent);
+}
+.home .pc-icon.warn {
+  color: var(--x-state-needs);
+  background: var(--x-state-needs-tint);
+}
+.pc-icon.bad {
+  color: var(--x-state-failed);
+  background: color-mix(in oklab, var(--x-state-failed) 14%, transparent);
+}
+.home .pc-meta {
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.home .err {
+  margin: 0;
+  padding: 0 16px 12px;
+}
+.pc-action {
+  padding: 0 16px 16px;
+}
+.pc-action > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+}
+/* Too long for one line, the newer version goes under the current one, never splitting "Nimbalyst 0.83.0". */
+.version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 8px;
+  min-height: 44px;
+  /* The same 24 px before the next group as between Home's other groups */
+  margin: -16px 0 24px;
+  padding: 0 16px;
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.version-new {
+  font: var(--p-section-text);
+  color: var(--nim-text);
+  white-space: nowrap;
+}
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 60px;
+  padding: 10px 16px;
+}
+.row[role="button"] {
+  cursor: pointer;
+}
+.row + .row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 52px;
+  right: 0;
+  height: 1px;
+  background: var(--p-sep);
+}
+.row-text {
+  min-width: 0;
+}
+.row .name {
+  font: var(--p-body);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row .meta {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row .right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.row.needs .w {
+  color: var(--x-state-needs);
+  font-weight: 600;
+}
+.row.running .w {
+  color: var(--x-state-running);
+  font-weight: 500;
+}
+.row.muted .name {
+  color: var(--nim-text-muted);
+}
+.block.needs-block {
+  background: color-mix(in oklab, var(--p-section), var(--nim-warning) 12%);
+}
+.block.needs-block .row + .row::before {
+  background: color-mix(in oklab, var(--x-state-needs) 30%, transparent);
+}
+.chev {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-top: 2px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.6;
+  margin: 0 2px 0 4px;
+}
+.empty {
+  padding: 16px;
+  font: var(--p-body);
+  color: var(--nim-text-muted);
+}
+/* Still stand-ins for the extensions' orbs: listening (needs you), thinking (working), grey when last known */
+.orb {
+  width: 12px;
+  height: 12px;
+  margin: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in oklab, currentColor 25%, transparent);
+}
+.orb.listen {
+  color: var(--x-state-needs);
+}
+.orb.think {
+  color: var(--x-state-running);
+}
+.orb.was {
+  color: var(--nim-text-muted);
+  opacity: 0.7;
+}
+.orb.on-accent {
+  color: var(--nim-on-primary);
+  margin: 0;
+}
+
+/* ---- Settings (screens/settings.js) */
+.settings .group {
+  margin: 0 0 24px;
+}
+.settings .block {
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+.settings .g-foot {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  padding: 8px 4px 0;
+}
+.settings .err {
+  margin: 0;
+  padding: 0 16px 12px;
+}
+.settings .block > .err:only-child {
+  padding: 14px 16px;
+}
+.set {
+  position: relative;
+  padding: 12px 16px 14px;
+}
+.set + .set::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 0;
+  height: 1px;
+  background: var(--p-sep);
+}
+.set .err {
+  padding: 8px 0 0;
+}
+.set-name {
+  font: var(--p-body);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set-meta {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  margin-top: 2px;
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 16px;
+}
+.set-row .pc-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+/* Buzz / Silent / Off: 44 px high (the hit area is the drawn shape), dividers between the unchosen parts */
+.seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  height: 44px;
+  margin-top: 10px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--p-fill);
+}
+.seg button {
+  position: relative;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--nim-text);
+  font: var(--p-section-text);
+  cursor: pointer;
+}
+.seg button + button::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 25%;
+  height: 50%;
+  width: 1px;
+  background: color-mix(in oklab, var(--nim-text) 16%, transparent);
+}
+.seg button[aria-checked="true"]::before,
+.seg button[aria-checked="true"] + button::before {
+  display: none;
+}
+.seg button[aria-checked="true"] {
+  background: var(--p-section);
+  box-shadow: var(--p-lift);
+  font-weight: 600;
+  cursor: default;
+}
+:root.dark-theme .seg button[aria-checked="true"] {
+  background: color-mix(in oklab, var(--p-section), var(--nim-text) 22%);
+}
+.seg button:disabled {
+  opacity: 0.6;
+}
+.account-tile {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--p-fill);
+  color: var(--nim-text);
+  font: var(--p-head);
+}
+/* The PC connection block: one row per paired device, Remove asking in one line, and Unpair in the destructive tone */
+.dev,
+.set-row.unpair,
+.settings .block > .dev-wait {
+  position: relative;
+}
+.dev::before,
+.set-row.unpair::before,
+.settings .block > .dev-wait::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 0;
+  height: 1px;
+  background: var(--p-sep);
+}
+.settings .block > .dev-wait {
+  margin: 0;
+  padding: 14px 16px;
+}
+.dev-row {
+  min-height: 56px;
+}
+.dev-this {
+  margin-left: 8px;
+  font: var(--p-sub-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+}
+/* 44 px tall: the smallest tap target on an iPhone; .dev-ask keeps 8 px between Cancel and Remove */
+.dev-remove,
+.dev-cancel {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--p-fill);
+  color: var(--nim-error);
+  font: var(--p-section-text);
+  cursor: pointer;
+}
+.dev-cancel {
+  color: var(--nim-text);
+}
+.dev-remove.dev-yes {
+  background: var(--nim-error);
+  color: var(--nim-on-primary);
+}
+.dev-remove:disabled,
+.dev-cancel:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.dev-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+.dev-ask-text {
+  flex: 1;
+  min-width: 0;
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+}
+.set-row.unpair {
+  width: 100%;
+  min-height: 50px;
+  border: 0;
+  background: none;
+  color: var(--nim-error);
+  font: var(--p-body);
+  text-align: left;
+  cursor: pointer;
+}
+.set-row.unpair:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---- Home's jobs and usage, and a job's page (screens/home-jobs.js, job.js, home-usage.js): the job tracker's
+   bar and folds made small. Bar tracks use --p-fill, as --x-surface-3 mixes from the page and reads sunk. */
+.job {
+  position: relative;
+  padding: 12px 16px 14px;
+}
+.job[role="button"] {
+  cursor: pointer;
+}
+.job + .job::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 0;
+  height: 1px;
+  background: var(--p-sep);
+}
+.job-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.home .job-top .name {
+  flex: 1;
+  min-width: 0;
+  font: var(--p-body);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-top .of {
+  display: flex;
+  align-items: center;
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Done in the accent, needs you amber, working the accent at 40% (a solid lighter fill: an outline on a 6 px bar
+   reads as a drawing fault), to do the track; 2 px gaps */
+.jbar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  margin: 10px 0 8px;
+  border-radius: 3px;
+  background: var(--p-fill);
+  overflow: hidden;
+}
+.jbar i {
+  display: block;
+  height: 100%;
+  flex: 0 1 0;
+}
+.jbar .d {
+  background: var(--x-accent);
+}
+.home .jbar .n {
+  min-width: 6px;
+  background: var(--x-state-needs);
+}
+.jbar .r {
+  background: color-mix(in oklab, var(--x-accent) 40%, var(--p-section));
+}
+.job-meta {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.job-meta .w-needs {
+  color: var(--x-state-needs);
+  font-weight: 600;
+}
+.job-meta .w-run {
+  color: var(--x-state-running);
+  font-weight: 500;
+}
+.home .block.job-sum {
+  padding: 14px 16px;
+}
+.job-sum .job-top .name {
+  font: var(--p-head);
+}
+.home .fold .g-head .n {
+  min-width: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--p-fill);
+  font: var(--p-caption);
+  line-height: 20px;
+  text-align: center;
+}
+.home .fold-needs .g-head {
+  color: var(--x-state-needs);
+}
+.home .fold-needs .g-head .n {
+  background: var(--x-state-needs);
+  color: var(--p-section);
+}
+.home .fold-done .g-link-row {
+  margin-top: -8px;
+}
+.row.step {
+  min-height: 52px;
+}
+.row.step .name {
+  white-space: normal;
+}
+.row.step.done .name,
+.row.step.dropped .name {
+  color: var(--nim-text-muted);
+}
+.row.step.dropped {
+  opacity: 0.7;
+}
+.row.step.todo .meta {
+  white-space: normal;
+}
+/* The rows keep the row's inset line, not the pairing steps' full-width one */
+.row.step + .row.step {
+  border-top: 0;
+}
+/* The tracker's marks: a ring (to do, half filled when started), a tick (done), a dash (dropped) */
+.mk {
+  justify-self: center;
+  color: var(--nim-text-muted);
+}
+.mk.ring {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.mk.ring.half::after {
+  content: "";
+  position: absolute;
+  inset: 0 50% 0 0;
+  background: currentColor;
+}
+.mk.tick {
+  width: 6px;
+  height: 11px;
+  margin-top: -3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.mk.dash {
+  width: 12px;
+  height: 1.5px;
+  background: currentColor;
+}
+.chip {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--p-fill);
+  font: var(--p-caption);
+}
+.chip.bug {
+  color: var(--x-state-failed);
+}
+/* Usage: the hero figure and the bar with its "now" tick (the extensions' signature) */
+.usage {
+  padding: 14px 16px 16px;
+}
+.u-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.u-hero {
+  font: var(--p-hero);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.u-hero small {
+  margin-left: 6px;
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  letter-spacing: 0;
+}
+.u-today {
+  text-align: right;
+}
+.u-fig {
+  font: var(--p-figure);
+  font-variant-numeric: tabular-nums;
+}
+.u-cap {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ubar {
+  position: relative;
+  height: 8px;
+  margin: 26px 0 10px;
+  border-radius: 4px;
+  background: var(--p-fill);
+}
+.ubar .fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: var(--x-accent);
+}
+.ubar .tick {
+  position: absolute;
+  top: -6px;
+  width: 2px;
+  height: 20px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--nim-text);
+}
+.ubar .tick span {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font: var(--p-caption);
+  color: var(--nim-text);
+  white-space: nowrap;
+}
+.u-hero.warn {
+  color: var(--x-state-needs);
+}
+.ubar .fill.warn {
+  background: var(--x-state-needs);
+}
+.u-warn {
+  margin-top: 4px;
+  font: var(--p-sub-text);
+  font-weight: 600;
+  color: var(--x-state-needs);
+}
+
+/* ---- bottom area, buttons and tab bar: both sit under the scroll box */
+.bottom {
+  flex: none;
+  background: var(--nim-bg);
+  padding: 8px var(--p-gap);
+  padding-bottom: max(8px, var(--p-safe-bottom));
+}
+.btn-main {
+  width: 100%;
+  min-height: 50px;
+  border: 0;
+  border-radius: var(--p-radius);
+  background: var(--nim-primary);
+  color: var(--nim-on-primary);
+  font: var(--p-head);
+  margin-top: 4px;
+  cursor: pointer;
+}
+/* Greyed, not a paler blue: a button that can't act yet must not look like one that can */
+.btn-main:disabled {
+  background: var(--p-fill);
+  color: var(--nim-text-muted);
+  cursor: default;
+}
+.btn-quiet {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: var(--nim-link);
+  font: var(--p-body);
+  cursor: pointer;
+}
+.tabbar {
+  flex: none;
+  display: flex;
+  background: var(--p-tabbar);
+  border-top: 1px solid var(--p-sep);
+  padding-bottom: var(--p-safe-bottom);
+}
+.tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0 4px;
+  border: 0;
+  background: none;
+  color: var(--nim-text-muted);
+  font: var(--p-caption);
+  cursor: pointer;
+}
+.tab svg {
+  box-sizing: content-box;
+  padding: 2px 16px;
+  border-radius: 14px;
+}
+/* The current tab: its colour, and a tinted pill behind the icon with a heavier word for whoever can't tell the colour */
+.tab[aria-current="page"] {
+  color: var(--nim-primary);
+  font-weight: 600;
+}
+.tab[aria-current="page"] svg {
+  background: color-mix(in oklab, var(--nim-primary) 16%, transparent);
+}
+
+/* ---- Projects (screens/projects.js): the tab's list and a project's sessions */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  margin: 0 0 20px;
+  border-radius: var(--p-radius);
+  background: var(--p-fill);
+  color: var(--nim-text-muted);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--nim-text);
+  font: var(--p-body);
+  padding: 10px 0;
+}
+.projects .block,
+.project .block.list-block {
+  padding: 0;
+}
+.row.proj {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+}
+.row.proj + .row.proj::before {
+  left: 64px;
+}
+/* Rows open a hold menu: the phone's own long-press menu and text selection stay away */
+.projects .row[role="button"],
+.project .row[role="button"] {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+/* The hold menu sits under the held row, inside its block */
+.hold-menu {
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--p-sep);
+}
+.hold-acts {
+  display: flex;
+  gap: 8px;
+}
+.hold-acts button {
+  flex: 1;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--p-radius);
+  background: var(--p-fill);
+  color: var(--nim-link);
+  font: var(--p-body);
+  font-weight: 600;
+}
+.hold-acts .hold-cancel {
+  color: var(--nim-text-muted);
+  font-weight: 500;
+}
+.hold-acts button:disabled {
+  color: var(--nim-text-muted);
+  opacity: 0.55;
+}
+.hold-why {
+  font: var(--p-caption);
+  color: var(--nim-text-muted);
+  margin-top: 6px;
+}
+.projects .pin-note,
+.project .pin-note {
+  color: var(--nim-error);
+}
+.tile {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--p-fill);
+  color: var(--nim-text);
+  font: var(--p-section-text);
+  font-weight: 600;
+}
+.w-needs {
+  color: var(--x-state-needs);
+  font-weight: 600;
+}
+.w-run {
+  color: var(--x-state-running);
+  font-weight: 500;
+}
+.projects .g-foot,
+.project .g-foot {
+  font: var(--p-caption);
+  color: var(--nim-text-muted);
+  margin: 6px 4px 0;
+}
+.new-session {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 20px;
+}
+.empty-hero {
+  text-align: center;
+  padding: 28px 20px;
+}
+.hero-icon {
+  color: var(--nim-text-muted);
+  margin-bottom: 8px;
+}
+.hero-title {
+  font: var(--p-head);
+  margin-bottom: 4px;
+}
+.hero-text {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+}
+/* A finished session: a small tick in the muted colour */
+.done-mark {
+  width: 12px;
+  height: 7px;
+  margin: 0 6px 4px;
+  border-left: 2px solid var(--x-state-done);
+  border-bottom: 2px solid var(--x-state-done);
+  transform: rotate(-45deg);
+}
+
+/* ---- Session view (screens/session.js, screens/session-cards.js, frame/markdown.js) */
+/* The session bar takes the large title's place; the dock takes the tab bar's. */
+.content:has(.session-view) {
+  padding-top: 0;
+}
+.content:has(.session-view) .large-title,
+.app:has(.session-view) .tabbar {
+  display: none;
+}
+.app:has(.session-view) .bottom {
+  background: var(--p-section);
+  border-top: 1px solid var(--p-sep);
+  padding: 8px 12px;
+  padding-bottom: max(8px, var(--p-safe-bottom));
+}
+/* The message box keeps 12 px under it (above the keyboard when it is up) */
+.app:has(.session-view) .bottom:has(.compose) {
+  padding-bottom: max(12px, var(--p-safe-bottom));
+}
+/* A docked card keeps a gap under it, so its rounded corners stay off the screen's */
+.app:has(.session-view) .bottom:has(.qcard, .pc-card) {
+  padding-bottom: calc(var(--p-safe-bottom) + 12px);
+}
+/* Sticks to the top of the scroll box */
+.s-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 calc(-1 * var(--p-gap));
+  padding: 10px 8px 10px var(--p-gap);
+  background: var(--nim-bg);
+  border-bottom: 1px solid var(--p-sep);
+}
+.s-bar .who {
+  flex: 1;
+  min-width: 0;
+}
+.s-name {
+  font: var(--p-head);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.s-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.s-line .orb {
+  width: 8px;
+  height: 8px;
+  margin: 0 6px 0 2px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, currentColor 25%, transparent);
+}
+.s-line .done-mark {
+  margin: 0 4px 3px 0;
+}
+/* The project's name in the session line opens the project; the padding makes a taller tap area. */
+.s-proj {
+  border: 0;
+  background: none;
+  color: var(--nim-link);
+  font: inherit;
+  padding: 10px 8px 10px 0;
+  margin: -10px 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.s-word.needs {
+  color: var(--x-state-needs);
+  font-weight: 600;
+}
+.s-word.run {
+  color: var(--x-state-running);
+  font-weight: 500;
+}
+.s-err {
+  font: var(--p-caption);
+  color: var(--nim-error);
+  margin-top: 2px;
+}
+.stop {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--p-fill);
+  color: var(--nim-text);
+  font: var(--p-sub-text);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.stop .sq {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--x-state-failed);
+}
+
+/* Conversation: your messages right-aligned on the section colour, replies as plain reading text */
+.convo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0;
+}
+.convo > * {
+  flex-shrink: 0;
+}
+.you {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--p-section);
+  font: var(--p-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.you.held {
+  border: 1px dashed var(--p-sep);
+  background: none;
+}
+.you-tag {
+  display: block;
+  font: var(--p-caption);
+  color: var(--x-accent-text);
+  margin-bottom: 2px;
+}
+.reply {
+  font: var(--p-body);
+  line-height: 25px;
+  overflow-wrap: anywhere;
+}
+.convo-note {
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+  margin: 0;
+}
+.convo-note.bad {
+  color: var(--nim-error);
+}
+.older {
+  min-height: 44px;
+}
+.newhint {
+  margin: 24px 0 0;
+  font: var(--p-body);
+  color: var(--nim-text-muted);
+}
+.newhint b {
+  display: block;
+  font: var(--p-head);
+  color: var(--nim-text);
+  margin-bottom: 6px;
+}
+
+/* Work: a run of tool steps as one quiet line ("5 steps: read 2 files, ran 1 command") that opens the list */
+.work {
+  border-radius: var(--p-radius);
+  background: var(--p-fill);
+  color: var(--nim-text);
+  font: var(--p-section-text);
+  font-weight: 400;
+}
+.work-line,
+.work-sum {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.work-sum {
+  cursor: pointer;
+}
+.work-sum .sum {
+  flex: 1;
+  min-width: 0;
+}
+.work-sum .chev {
+  flex: none;
+  transform: rotate(135deg);
+  margin: 0 4px 4px;
+}
+.work-sum[aria-expanded="true"] .chev {
+  transform: rotate(-45deg);
+  margin: 4px 4px 0;
+}
+.work-list {
+  margin: 0;
+  padding: 0 12px 10px 32px;
+}
+.work-list li {
+  padding: 2px 0;
+}
+
+/* Markdown (frame/markdown.js) */
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md-list,
+.md-quote,
+.md-table {
+  margin: 0 0 10px;
+}
+.md-h {
+  font: var(--p-head);
+  margin: 14px 0 6px;
+}
+.md-list {
+  padding-left: 22px;
+}
+.md-quote {
+  padding-left: 12px;
+  border-left: 3px solid var(--p-sep);
+  color: var(--nim-text-muted);
+}
+.md-code {
+  font: var(--p-caption);
+  font-family: var(--x-font-mono);
+  font-size: 13px;
+  background: var(--p-fill);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.md-pre {
+  font: var(--p-caption);
+  font-family: var(--x-font-mono);
+  font-size: 13px;
+  line-height: 20px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: var(--p-section);
+  border: 1px solid var(--p-sep);
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.md-a {
+  color: var(--nim-link);
+  text-underline-offset: 3px;
+}
+.md-hr {
+  border: 0;
+  border-top: 1px solid var(--p-sep);
+  margin: 14px 0;
+}
+.md-table {
+  overflow-x: auto;
+}
+.md-table table {
+  border-collapse: collapse;
+  font: var(--p-sub-text);
+}
+.md-table th,
+.md-table td {
+  border: 1px solid var(--p-sep);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+/* Dock: the typing box, or the card of what the session waits on in its place */
+.dock-line {
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+  margin: 4px 4px 0;
+}
+.dock-line.bad {
+  color: var(--nim-error);
+}
+.compose-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font: var(--p-section-text);
+  color: var(--nim-text-muted);
+}
+.compose-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The message box, copied from Nimbalyst's (design "The message box"): its 12 px padding is the one padding on
+   all sides, the field has none of its own, so the text lines up with the buttons. Empty, the field and the
+   buttons share one row; with text the field takes its own line and the buttons sit under it on the right. */
+.compose-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--p-sep);
+  border-radius: 8px;
+  background: var(--p-section);
+}
+.compose-box:focus-within {
+  border-color: var(--nim-primary);
+}
+.compose-in {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.compose-in:has(> .field[hidden]) {
+  display: none;
+}
+/* 16 px: iOS zooms into a focused field under that. The page sets --lines, whole 22 px lines up to 9; past
+   that the field scrolls inside itself, so the page and the conversation stay still. No text-transform here:
+   iOS dictation fails in a field that has one. */
+.compose .field {
+  flex: 1 0 100%;
+  display: block;
+  min-width: 0;
+  height: calc(var(--lines, 1) * 22px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: none;
+  color: var(--nim-text);
+  font: var(--p-body);
+}
+/* The hint is one line that ends in "…" when it does not fit */
+.compose .field::placeholder {
+  color: var(--nim-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The edges fade only where there is more text past them */
+.compose .field.more-down {
+  -webkit-mask-image: linear-gradient(var(--nim-text) calc(100% - 22px), transparent);
+  mask-image: linear-gradient(var(--nim-text) calc(100% - 22px), transparent);
+}
+.compose .field.more-up {
+  -webkit-mask-image: linear-gradient(transparent, var(--nim-text) 22px);
+  mask-image: linear-gradient(transparent, var(--nim-text) 22px);
+}
+.compose .field.more-up.more-down {
+  -webkit-mask-image: linear-gradient(
+    transparent,
+    var(--nim-text) 22px,
+    var(--nim-text) calc(100% - 22px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    transparent,
+    var(--nim-text) 22px,
+    var(--nim-text) calc(100% - 22px),
+    transparent
+  );
+}
+/* Empty: Nimbalyst's one row of field, record, Note and the main button; the hint stays on one line and ends in "…" */
+.compose-in:has(> .field:placeholder-shown) {
+  flex-wrap: nowrap;
+}
+.compose-in:has(> .field:placeholder-shown) > .field {
+  flex: 1 1 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.compose-in:has(> .field:placeholder-shown) .sp {
+  display: none;
+}
+/* The hidden copy the field's height is measured from: the field's width (the box less its padding) and type */
+.field-copy {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  visibility: hidden;
+  pointer-events: none;
+  font: var(--p-body);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.compose .btnrow {
+  flex: 1 0 auto;
+  min-height: 0;
+}
+.compose-in:has(> .field:placeholder-shown) .btnrow {
+  flex: none;
+}
+/* Every control 44 px high on one centre line, radius 6 */
+.compose .btnrow > button {
+  flex: none;
+  height: 44px;
+  margin: 0;
+  border-radius: 6px;
+}
+.compose .note {
+  min-width: 58px;
+  padding: 0 12px;
+  border: 1px solid var(--p-sep);
+  background: none;
+  color: var(--nim-text);
+  font: 500 14px/20px var(--p-font);
+}
+.compose .send {
+  min-width: 70px;
+  padding: 0 14px;
+  font: 500 14px/20px var(--p-font);
+}
+.compose .send.icon-only {
+  min-width: 44px;
+  width: 44px;
+  padding: 0;
+}
+.compose .note:disabled {
+  background: var(--p-fill);
+  color: var(--nim-text-muted);
+}
+/* Light theme: the record and Note outlines at 48 % text, 3:1 against the box as a control's edge needs.
+   Dark theme: the box's resting outline and theirs at 18 % text; the hairline was nearly invisible on black. */
+:root:not(.dark-theme) .compose .mic,
+:root:not(.dark-theme) .compose .note {
+  border-color: color-mix(in oklab, var(--nim-text) 48%, transparent);
+}
+:root.dark-theme .compose-box:not(:focus-within),
+:root.dark-theme .compose .mic,
+:root.dark-theme .compose .note {
+  border-color: color-mix(in oklab, var(--nim-text) 18%, transparent);
+}
+.btnrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+}
+.sp {
+  flex: 1;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--p-fill);
+  color: var(--x-accent-text);
+  font: var(--p-body);
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn.fill {
+  height: 50px;
+  border-radius: var(--p-radius);
+  background: var(--nim-primary);
+  color: var(--nim-on-primary);
+}
+.btn.wide {
+  width: 100%;
+  height: 50px;
+  margin-top: 10px;
+}
+.btn:disabled {
+  background: var(--p-fill);
+  color: var(--nim-text-muted);
+  cursor: default;
+}
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--x-accent-text);
+  font: var(--p-body);
+  cursor: pointer;
+}
+
+/* Question cards: on the needs tint; the answer-on-the-PC card is grey and has no input */
+.qcard,
+.pc-card {
+  border-radius: var(--p-radius);
+  padding: 12px;
+  /* At most 60 % of the screen, scrolling inside, so some of the chat above always shows */
+  max-height: calc(var(--tg-viewport-stable-height, 100vh) * 0.6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* Folded with the head's Hide: only the head row, and a waiting Undo or send line, stay */
+.qcard.folded > :not(.qhead, .undo),
+.pc-card.folded > :not(.qhead, .undo) {
+  display: none;
+}
+.folded > .qhead {
+  margin-bottom: 0;
+}
+.qfold {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -12px -8px -12px auto;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--x-accent-text);
+  font: var(--p-body);
+  cursor: pointer;
+}
+.qhead .of + .qfold {
+  margin-left: 0;
+}
+.qcard {
+  background: var(--x-state-needs-tint);
+  border: 1px solid color-mix(in oklab, var(--nim-warning) 30%, transparent);
+}
+.pc-card {
+  background: var(--p-fill);
+}
+.qhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font: var(--p-section-text);
+  font-weight: 600;
+  color: var(--x-state-needs);
+}
+.qhead .orb {
+  width: 8px;
+  height: 8px;
+  margin: 0 2px;
+}
+.qhead .of {
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--nim-text-muted);
+}
+.qtext {
+  font: var(--p-head);
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+/* A card with several questions (FQ1): they scroll inside the card, its head and Send stay in view. The card's own
+   height cap (Telegram's script sets the stable viewport height, also in the half-height sheet) bounds the list. */
+.qform {
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+}
+.qform > * {
+  flex: none;
+}
+.qform > .qlist {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.qitem + .qitem {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--p-sep);
+}
+.qitem .qtext {
+  margin-bottom: 2px;
+}
+.qhint {
+  font: var(--p-section-text);
+  color: var(--nim-text-muted);
+}
+.pc-card p {
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+  margin: 0 0 8px;
+}
+.pc-fields {
+  font: var(--p-sub-text);
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+.opt {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--p-sep);
+  border-radius: 10px;
+  background: var(--p-section);
+  color: var(--nim-text);
+  text-align: left;
+  cursor: pointer;
+}
+.opt.sel {
+  border-color: var(--nim-primary);
+  box-shadow: 0 0 0 1px var(--nim-primary);
+}
+.opt:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.opt-text {
+  min-width: 0;
+}
+.opt .l {
+  display: block;
+  font: var(--p-body);
+  font-weight: 500;
+}
+.opt .d {
+  display: block;
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+}
+.box {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1.5px solid color-mix(in oklab, var(--nim-text) 40%, transparent);
+  border-radius: 6px;
+}
+.box.on {
+  border-color: var(--nim-primary);
+  background: var(--nim-primary);
+  box-shadow: inset 0 0 0 4px var(--p-section);
+}
+.rec-tag {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--x-accent-text) 14%, transparent);
+  color: var(--x-accent-text);
+  font: var(--p-caption);
+  font-weight: 600;
+  vertical-align: 1px;
+}
+.qfoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.qitem .qfoot {
+  margin-top: 4px;
+}
+.undo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 0 4px 0 12px;
+  border-radius: 10px;
+  background: var(--p-section);
+  font: var(--p-sub-text);
+}
+.undo.bad {
+  color: var(--nim-error);
+}
+.cmd {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--p-section);
+  font: var(--p-caption);
+  font-family: var(--x-font-mono);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.cmdmeta {
+  margin: 6px 0 2px;
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+}
+.cmdmeta.bad {
+  color: var(--nim-error);
+}
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+.pair .btn {
+  width: 100%;
+  height: 50px;
+  border-radius: var(--p-radius);
+}
+.pair .btn:not(.fill) {
+  color: var(--nim-text);
+}
+.plan {
+  position: relative;
+  max-height: 132px;
+  overflow: hidden;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--p-section);
+  font: var(--p-sub-text);
+}
+.plan.whole {
+  max-height: none;
+}
+.plan:not(.whole)::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 40px;
+  background: linear-gradient(transparent, var(--p-section));
+}
+
+/* ---- Session view, live part (screens/session-live.js, screens/session-form.js) */
+/* Shaped small buttons: 44 x 44 at least, a fill so the finger sees the target */
+.sb {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--p-fill);
+  color: var(--x-accent-text);
+  font: var(--p-sub-text);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sb.danger {
+  color: var(--x-state-failed);
+}
+.sb:disabled {
+  color: var(--nim-text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Context use: a thin bar on the session bar's bottom edge; grey while the PC is not known, warning from 80 % */
+progress.ctxbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  width: 100%;
+  height: 2px;
+  border: 0;
+  appearance: none;
+  background: var(--p-sep);
+  color: var(--x-accent-text);
+}
+progress.ctxbar::-webkit-progress-bar {
+  background: var(--p-sep);
+}
+progress.ctxbar::-webkit-progress-value {
+  background: var(--x-accent-text);
+}
+progress.ctxbar::-moz-progress-bar {
+  background: var(--x-accent-text);
+}
+progress.ctxbar.was::-webkit-progress-value {
+  background: var(--nim-text-muted);
+}
+progress.ctxbar.was::-moz-progress-bar {
+  background: var(--nim-text-muted);
+}
+progress.ctxbar.loud::-webkit-progress-value {
+  background: var(--nim-warning);
+}
+progress.ctxbar.loud::-moz-progress-bar {
+  background: var(--nim-warning);
+}
+.s-ctx {
+  color: var(--nim-warning);
+  font-weight: 600;
+}
+/* The project's name keeps its tall tap area but not its gap on the right when the context words follow it */
+.s-line:has(.s-ctx) .s-proj {
+  padding-right: 0;
+}
+.s-note {
+  font: var(--p-caption);
+  color: var(--nim-text-muted);
+  margin-top: 2px;
+}
+
+/* Work rows: tool steps and thinking, the last few shown, the earlier ones folded into one row */
+.wsteps {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--p-radius);
+  background: var(--p-section);
+  overflow: hidden;
+}
+.wstep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--nim-text-muted);
+  font: var(--p-section-text);
+  font-weight: 400;
+  text-align: left;
+}
+.wstep + .wstep {
+  border-top: 1px solid var(--p-sep);
+}
+.wstep > svg {
+  flex: none;
+}
+.wstep .orb {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 5px;
+}
+.wstep .verb {
+  flex: none;
+  font: var(--p-section-text);
+  color: var(--nim-text);
+}
+.wstep .obj {
+  flex: 1;
+  min-width: 0;
+  font: var(--p-mono);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wstep .t {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.wstep.fold {
+  cursor: pointer;
+}
+.wstep.fold .obj {
+  font: var(--p-section-text);
+  font-weight: 400;
+}
+.wstep.live .verb {
+  color: var(--x-state-running);
+}
+.wstep.think .verb {
+  color: var(--nim-text-muted);
+}
+.wstep.bad .verb,
+.wstep.bad .t {
+  color: var(--x-state-failed);
+}
+/* A Thought row with text: a chevron that turns down, and the text in place under the row */
+.wthink + .wstep,
+.wstep + .wthink,
+.wthink + .wthink {
+  border-top: 1px solid var(--p-sep);
+}
+.wstep.has-text {
+  cursor: pointer;
+}
+.wstep.has-text > svg:last-child {
+  flex: none;
+  transition: transform 0.15s;
+}
+.wstep.has-text.open > svg:last-child {
+  transform: rotate(90deg);
+}
+.wthink-text {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 0 12px 12px 40px;
+  color: var(--nim-text-muted);
+  font: var(--p-section-text);
+  font-weight: 400;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.wthink-cut {
+  font-style: italic;
+}
+/* The turn's running time after Working on the session bar, counted with the work rows */
+.s-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Helpers: one line above the dock that opens a read-only sheet of the helpers */
+.helpers {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--p-fill);
+  color: var(--nim-text-muted);
+  font: var(--p-section-text);
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.helpers .orb {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 5px;
+}
+.helpers .hw {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--nim-text);
+}
+.helpers > svg {
+  flex: none;
+}
+.hrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px var(--p-gap);
+  border-top: 1px solid var(--p-sep);
+}
+.secth + .hrow {
+  border-top: 0;
+}
+.hrow > svg {
+  flex: none;
+  color: var(--x-state-done);
+}
+.hrow.failed > svg,
+.hrow.stopped > svg {
+  color: var(--x-state-failed);
+}
+.hrow .orb {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 5px;
+}
+.hrow .w {
+  flex: 1;
+  min-width: 0;
+}
+.hrow .n {
+  font: var(--p-body);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hrow .m {
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+  overflow-wrap: anywhere;
+}
+.hrow.done .n {
+  color: var(--nim-text-muted);
+}
+.secth {
+  padding: 16px var(--p-gap) 6px;
+  font: var(--p-section-text);
+  color: var(--p-section-head);
+  text-transform: uppercase;
+}
+
+/* Sheets: the form and the helpers cover the whole screen, a head with Close on top. They sit in the bottom area,
+   whose sticky place makes its own layer: that layer goes over the session bar while a sheet is open. */
+.app:has(.fsheet, .hsheet) .bottom {
+  z-index: 2;
+}
+.fsheet,
+.hsheet {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--nim-bg);
+  color: var(--nim-text);
+  padding-top: env(safe-area-inset-top);
+}
+.formhead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--p-gap) 8px 8px;
+  border-bottom: 1px solid var(--p-sep);
+}
+.ft {
+  flex: 1;
+  min-width: 0;
+  font: var(--p-head);
+  overflow-wrap: anywhere;
+}
+.ft small {
+  display: block;
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+}
+.hbody,
+.fbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.hbody {
+  padding-bottom: var(--p-safe-bottom);
+}
+.fbody {
+  padding: 4px var(--p-gap);
+}
+.fintro {
+  flex: none;
+  margin: 0;
+  padding: 12px var(--p-gap) 0;
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+}
+
+/* The form card in the dock, and the form's questions */
+.qmeta {
+  margin-bottom: 4px;
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+}
+.fq {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--p-sep);
+}
+.fq:last-child {
+  border-bottom: 0;
+}
+.lab {
+  font: var(--p-body);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+/* .lab .num, as the pairing steps' .num is a filled circle */
+.lab .num {
+  display: inline;
+  width: auto;
+  height: auto;
+  margin-right: 6px;
+  border-radius: 0;
+  background: none;
+  font: var(--p-caption);
+  font-size: 13px;
+  color: var(--nim-text-muted);
+}
+.help {
+  margin-bottom: 8px;
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+}
+.help + .help {
+  margin-top: -6px;
+}
+.ol {
+  flex: 1;
+  min-width: 0;
+}
+.radio {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1.5px solid color-mix(in oklab, var(--nim-text) 40%, transparent);
+  border-radius: 50%;
+}
+.radio.on {
+  border: 7px solid var(--nim-primary);
+}
+.box {
+  display: grid;
+  place-items: center;
+}
+.fsheet .box.on {
+  box-shadow: none;
+  color: var(--nim-on-primary);
+}
+.ord {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  margin-top: 6px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--p-sep);
+  border-radius: 10px;
+  background: var(--p-section);
+}
+.ord .k {
+  flex: none;
+  width: 16px;
+  font: var(--p-caption);
+  font-size: 13px;
+  color: var(--nim-text-muted);
+}
+.ord .l {
+  flex: 1;
+  min-width: 0;
+  font: var(--p-body);
+}
+.seg2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.seg2 .btn {
+  height: 50px;
+  border-radius: var(--p-radius);
+}
+.seg2 .btn:not(.fill) {
+  color: var(--nim-text);
+}
+/* 16 px in the form's typing box too: iOS zooms into anything smaller */
+.ffield {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--p-sep);
+  border-radius: 14px;
+  outline: none;
+  resize: vertical;
+  background: var(--p-section);
+  color: var(--nim-text);
+  font: var(--p-body);
+}
+.ffield:focus {
+  border-color: var(--nim-primary);
+  box-shadow: 0 0 0 1px var(--nim-primary);
+}
+.ffield::placeholder {
+  color: var(--nim-text-muted);
+}
+.fsend {
+  flex: none;
+  padding: 8px var(--p-gap);
+  padding-bottom: max(8px, var(--p-safe-bottom));
+  border-top: 1px solid var(--p-sep);
+  background: var(--p-section);
+}
+.fmeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--nim-text-muted);
+  text-align: center;
+}
+.fmeta .link {
+  font: var(--p-section-text);
+  padding: 0 4px;
+}
+.fsend .btn.wide {
+  margin-top: 4px;
+}
+
+/* Queued messages: a dashed row above the typing box; several fold into one row that opens them */
+.queued {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  margin-bottom: 8px;
+  padding: 6px 6px 6px 12px;
+  border: 1px dashed color-mix(in oklab, var(--nim-text) 30%, transparent);
+  border-radius: 10px;
+  background: none;
+  color: var(--nim-text);
+  font: var(--p-sub-text);
+  text-align: left;
+}
+.queued.many {
+  padding-right: 12px;
+  cursor: pointer;
+}
+.queued .q {
+  flex: none;
+  font: var(--p-section-text);
+  color: var(--x-state-running);
+}
+.queued .tx {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.queued > svg {
+  flex: none;
+  color: var(--nim-text-muted);
+}
+
+/* ---- Checks screen (test build only) */
+.check {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  font: var(--p-sub-text);
+}
+.check + .check {
+  border-top: 1px solid var(--p-sep);
+}
+.check .ok {
+  color: var(--nim-success);
+}
+.check .bad {
+  color: var(--nim-error);
+}
+
+/* ---- Voice in the typing box (screens/session-voice.js) */
+/* The record button: Nimbalyst's, at 44 px, just before Note: radius 6, a 1 px outline, the icon in the text
+   colour (muted read as off); the page's fill in the dark theme, none in the light one */
+.mic {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--p-sep);
+  border-radius: 6px;
+  background: var(--nim-bg);
+  color: var(--nim-text);
+  cursor: pointer;
+}
+:root:not(.dark-theme) .mic {
+  background: none;
+}
+.mic:disabled {
+  color: var(--nim-text-muted);
+  cursor: default;
+}
+/* Recording: a red dot, the time and the live level bars in place of the button row */
+.rec {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+}
+.rec-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--x-state-failed);
+}
+.rec-time {
+  font: var(--p-head);
+  font-variant-numeric: tabular-nums;
+  color: var(--nim-text);
+}
+.rec-bars {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  height: 28px;
+  overflow: hidden;
+}
+/* --level: the sound's level, 0 to 1, set by the page */
+.rec-bars i {
+  flex: none;
+  width: 3px;
+  height: calc(4px + var(--level, 0) * 24px);
+  border-radius: 2px;
+  background: var(--nim-text-muted);
+}
+/* Above the field: the sending and turning line, a failure with Try again, or "From voice" with Play */
+.voice-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  margin-bottom: 8px;
+  font: var(--p-section-text);
+  color: var(--nim-text-muted);
+}
+.voice-chip .orb {
+  margin: 0 0 0 4px;
+}
+.voice-from {
+  font: var(--p-section-text);
+  color: var(--nim-text);
+}
+.voice-error {
+  flex-basis: 100%;
+  margin: 0 4px;
+  color: var(--nim-error);
+}
+.voice-btns {
+  flex-basis: 100%;
+  display: flex;
+  gap: 12px;
+}
+.btn.sb {
+  padding: 0 12px;
+  font: var(--p-sub-text);
+  font-weight: 500;
+}
+.btn.sb.main {
+  background: var(--nim-primary);
+  color: var(--nim-on-primary);
+}
+.btn.bad {
+  color: var(--nim-error);
+}
+/* Throw away a long recording, or replace the voice text: asked in the dock */
+.voice-confirm {
+  padding: 4px 4px 0;
+}
+.voice-confirm h3 {
+  margin: 8px 0 4px;
+  font: var(--p-head);
+  color: var(--nim-text);
+}
+.voice-confirm p {
+  margin: 0 0 4px;
+  font: var(--p-sub-text);
+  color: var(--nim-text-muted);
+}
+
+/* The dictation probe: B is styled as the message box, A the same but at a fixed height */
+.probe-label {
+  font: var(--p-sub-text);
+  color: var(--nim-text);
+  margin: 14px 4px 6px;
+}
+.probe-field {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  max-height: 160px;
+  padding: 10px 14px;
+  border: 1px solid var(--p-sep);
+  border-radius: 14px;
+  outline: none;
+  resize: none;
+  background: var(--nim-bg);
+  color: var(--nim-text);
+  font: var(--p-body);
+}
+.probe-field.fixed {
+  height: 120px;
+}
+.probe-field:focus {
+  border-color: var(--nim-primary);
+}
+.probe-pick {
+  font: var(--p-sub-text);
+  color: var(--nim-text);
+}
+
+/* ---- files: previews and diffs (files design, "Sheets" and "States"). The diff tones follow GitHub Primer: the
+   line text keeps the text colour, the tone is only in the background, stronger in the number column. */
+:root {
+  --p-soft: var(--nim-text-muted);
+  --p-add-line: color-mix(in oklab, var(--nim-success) 14%, transparent);
+  --p-add-num: color-mix(in oklab, var(--nim-success) 28%, transparent);
+  --p-del-line: color-mix(in oklab, var(--nim-error) 14%, transparent);
+  --p-del-num: color-mix(in oklab, var(--nim-error) 28%, transparent);
+}
+:root:not(.dark-theme) {
+  /* plain hint grey reads 3.3:1 on white: 25 % toward the text colour */
+  --p-soft: color-mix(in oklab, var(--nim-text-muted) 75%, var(--nim-text));
+  --p-add-line: color-mix(in oklab, var(--nim-success) 10%, transparent);
+  --p-add-num: color-mix(in oklab, var(--nim-success) 20%, transparent);
+  --p-del-line: color-mix(in oklab, var(--nim-error) 10%, transparent);
+  --p-del-num: color-mix(in oklab, var(--nim-error) 20%, transparent);
+}
+.app:has(.xwrap) .bottom {
+  visibility: hidden;
+}
+.xwrap {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.xshade {
+  position: absolute;
+  inset: 0;
+  background: var(--p-shade);
+}
+.xsheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--nim-bg);
+  color: var(--nim-text);
+  padding-top: env(safe-area-inset-top);
+  animation: xup 240ms ease-out;
+}
+.xsheet.short {
+  height: auto;
+  max-height: 100%;
+  border-radius: var(--p-radius) var(--p-radius) 0 0;
+  padding-top: 0;
+  background: var(--p-raised);
+  box-shadow: 0 0 0 1px var(--p-raised-edge);
+}
+@keyframes xup {
+  from {
+    transform: translateY(40px);
+    opacity: 0.4;
+  }
+}
+.xhead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--p-gap) 8px 8px;
+  border-bottom: 1px solid var(--p-sep);
+}
+.xtitle {
+  flex: 1;
+  min-width: 0;
+}
+.xname {
+  font: var(--p-head);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xmeta {
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--p-soft);
+  overflow-wrap: anywhere;
+}
+.xbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: var(--p-safe-bottom);
+}
+.xsheet.short .xbody {
+  flex: initial;
+}
+/* a diff and a code preview: number, sign, text that wraps at its own indent */
+.xdiff,
+.xcode {
+  font: var(--x-code);
+}
+.xl {
+  display: grid;
+  grid-template-columns: 5ch 2ch 1fr;
+}
+.xl.add {
+  background: var(--p-add-line);
+}
+.xl.del {
+  background: var(--p-del-line);
+}
+.xn {
+  position: relative;
+  padding-right: 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--p-soft);
+}
+/* "↪" on each extra row of a wrapped line (files design, "Diff"): a column of marks under the number, cut off at
+   the line's own height, so only the wrapped rows show one */
+.xn::after {
+  content: "↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪";
+  position: absolute;
+  top: 1lh;
+  right: 6px;
+  bottom: 0;
+  overflow: hidden;
+  white-space: pre;
+}
+.xl.add .xn,
+.xl.add .xs {
+  background: var(--p-add-num);
+}
+.xl.del .xn,
+.xl.del .xs {
+  background: var(--p-del-num);
+}
+.xs {
+  text-align: center;
+  font-weight: 600;
+}
+.xl.add .xs {
+  color: var(--nim-success);
+}
+.xl.del .xs {
+  color: var(--nim-error);
+}
+.xt {
+  min-width: 0;
+  padding: 0 8px 0 calc(var(--i, 0) * 1ch);
+  text-indent: calc(var(--i, 0) * -1ch);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.xcode .xl {
+  grid-template-columns: 5ch 3px 1fr;
+}
+.xl.read .xs {
+  background: var(--x-accent-text);
+}
+.xhunk {
+  padding: 4px var(--p-gap);
+  font: var(--p-section-text);
+  color: var(--p-soft);
+  background: color-mix(in oklab, var(--x-accent-text) 10%, transparent);
+}
+.xedit {
+  padding: 12px var(--p-gap) 6px;
+  font: var(--p-section-text);
+  color: var(--p-section-head);
+}
+.xband {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: var(--p-fill);
+  color: var(--x-accent-text);
+  font: var(--p-sub-text);
+  cursor: pointer;
+}
+.xlast,
+.xgetting {
+  margin: 0;
+  padding: 12px var(--p-gap);
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--p-soft);
+}
+.xbar {
+  height: 2px;
+  background: linear-gradient(90deg, var(--x-accent-text) 40%, var(--p-sep) 40%);
+}
+.xgrey {
+  height: 12px;
+  margin: 12px var(--p-gap);
+  border-radius: 6px;
+  background: var(--p-fill);
+}
+/* output: the command on the fill, then the output as plain mono text */
+.xcmd,
+.xout {
+  margin: 0;
+  padding: 12px var(--p-gap);
+  font: var(--x-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.xcmd {
+  margin: 12px var(--p-gap) 0;
+  border-radius: 10px;
+  background: var(--p-fill);
+}
+.xcmd.fold {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+.xall {
+  margin: 4px var(--p-gap) 0;
+}
+.xbad {
+  margin: 12px var(--p-gap) 0;
+  font: var(--p-sub-text);
+  color: var(--nim-error);
+}
+/* the preview of a Markdown file and of a picture */
+.xmd {
+  padding: 4px var(--p-gap);
+  font: 400 16px/25px var(--p-font);
+}
+.xmd .md-pre,
+.xmd .md-code {
+  font: var(--x-code);
+  font-weight: 400;
+  background: var(--p-fill);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.xpicbox {
+  background: var(--p-section);
+}
+.xpic {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+/* a file link in a reply: a link in the reading text */
+button.md-file {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--nim-link);
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* states: an icon, a title, one or two sentences */
+.xstate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 20px var(--p-gap) 24px;
+}
+.xstate > svg {
+  color: var(--p-soft);
+}
+.xst {
+  font: var(--p-head);
+}
+.xsay,
+.xsoft {
+  margin: 0;
+  font: var(--p-sub-text);
+  font-size: 15px;
+}
+.xsoft {
+  color: var(--p-soft);
+}
+.xtry {
+  min-height: 44px;
+  margin-top: 8px;
+}
+/* counts beside a row, and the changed-files rows */
+.xcounts {
+  flex: none;
+  font: var(--p-section-text);
+  font-variant-numeric: tabular-nums;
+}
+.xadd {
+  color: var(--nim-success);
+}
+.xdel {
+  color: var(--nim-error);
+}
+.wstep.opens,
+.work-step {
+  cursor: pointer;
+}
+.work-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.work-step .sum {
+  flex: 1;
+}
+.xchanged-box .wsteps {
+  margin-top: 8px;
+}
+.xchanged .obj {
+  font: var(--p-section-text);
+  color: var(--nim-text);
+}
+.xfile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 8px var(--p-gap);
+  border: 0;
+  border-bottom: 1px solid var(--p-sep);
+  background: var(--p-section);
+  color: var(--nim-text);
+  text-align: left;
+  cursor: pointer;
+}
+.xfile.locked {
+  cursor: default;
+}
+.xfile > svg {
+  flex: none;
+  color: var(--p-soft);
+}
+.xfw {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.xfn {
+  font: var(--p-body);
+  overflow-wrap: anywhere;
+}
+.xfm {
+  font: var(--p-section-text);
+  font-weight: 400;
+  color: var(--p-soft);
+}
+.xfile .xcounts {
+  min-width: 7ch;
+  text-align: right;
+}
+.xnoarrow {
+  width: 16px;
+}
+.xhint {
+  padding: 12px var(--p-gap);
+}
+
+/* ---- device join (screens/device-join.js, the request card from frame/app.js; pipe design, section 15) */
+.join-choice .btn-quiet {
+  margin-top: 4px;
+}
+.join-box {
+  text-align: center;
+  padding: 20px var(--p-gap);
+}
+.join-head {
+  margin: 0 0 12px;
+  font: var(--p-head);
+}
+/* The check number: two groups of three digits, large and in figures of one width, so the two screens compare */
+.join-word {
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  margin: 8px 0;
+}
+.join-hint {
+  margin: 8px 0 0;
+  color: var(--p-sub);
+  font: var(--p-body);
+}
+.join-error {
+  margin: 8px 0 0;
+}
+/* The request covers the screen on a paired device; the card docks at the bottom, clear of the safe-bottom line */
+.join-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--p-shade);
+}
+.join-layer[hidden] {
+  display: none;
+}
+.join-card {
+  background: var(--p-raised);
+  box-shadow: 0 0 0 1px var(--p-raised-edge);
+  color: var(--nim-text);
+  border-radius: var(--p-radius) var(--p-radius) 0 0;
+  padding: 20px var(--p-gap);
+  padding-bottom: calc(var(--p-safe-bottom) + 12px);
+  text-align: center;
+}
+.join-card + .join-card {
+  margin-top: 8px;
+}
+.join-card-title {
+  font: var(--p-head);
+}
+.join-card-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.join-card-buttons > button {
+  flex: 1;
+  min-height: 50px;
+  margin-top: 0;
+}
+.join-card-buttons .btn-quiet {
+  background: var(--p-fill);
+  border-radius: var(--p-radius);
+}
+
+/* ---- Attach in the typing box (screens/session-attach.js; design "Attach", mock-up shots 23-31) */
+/* The paperclip: the record button's look, first in the row */
+.clip {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--p-sep);
+  border-radius: 6px;
+  background: var(--nim-bg);
+  color: var(--nim-text);
+  cursor: pointer;
+}
+:root:not(.dark-theme) .clip {
+  background: none;
+}
+/* Empty and no files: one row of attach, field, record, Note and the main button. The button row gives its
+   buttons to the box's row, and the paperclip goes before the field. */
+.compose-in:not(.has-files):has(> .field:placeholder-shown) > .btnrow {
+  display: contents;
+}
+.compose-in:not(.has-files):has(> .field:placeholder-shown) .clip {
+  order: -1;
+}
+/* With files the field takes its own line even when empty; attach at the left of the row under it */
+.compose-box .compose-in.has-files {
+  flex-wrap: wrap;
+}
+.compose-box .compose-in.has-files > .field {
+  flex: 1 0 100%;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.compose-box .compose-in.has-files .sp {
+  display: block;
+}
+.compose-box .compose-in.has-files .btnrow {
+  flex: 1 0 auto;
+}
+:root:not(.dark-theme) .compose .clip {
+  border-color: color-mix(in oklab, var(--nim-text) 48%, transparent);
+}
+:root.dark-theme .compose .clip {
+  border-color: color-mix(in oklab, var(--nim-text) 18%, transparent);
+}
+/* The chips: 44 px, one grows to its whole name; with two or more each is at most half the row, so two always
+   show whole. From the third the row scrolls sideways, 4 px of room after the last X; scrolled, its start fades. */
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.chips::-webkit-scrollbar {
+  display: none;
+}
+.chips::after {
+  content: "";
+  flex: none;
+  width: 4px;
+}
+.chips.end {
+  -webkit-mask-image: linear-gradient(90deg, transparent, var(--nim-text) 24px);
+  mask-image: linear-gradient(90deg, transparent, var(--nim-text) 24px);
+}
+.chip {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 44px;
+  max-width: calc((100% - 8px) / 2);
+  padding: 0 0 0 6px;
+  border: 1px solid color-mix(in oklab, var(--nim-text) 18%, transparent);
+  border-radius: 6px;
+  background: var(--x-surface-2);
+  overflow: hidden;
+}
+:root:not(.dark-theme) .chip {
+  border-color: color-mix(in oklab, var(--nim-text) 48%, transparent);
+}
+.chip:only-of-type {
+  max-width: 100%;
+}
+.chip .th {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  object-fit: cover;
+  color: var(--nim-text-muted);
+  background: var(--x-surface-1);
+}
+:root.dark-theme .chip .th.doc {
+  background: color-mix(in oklab, var(--nim-text) 14%, transparent);
+}
+.chip .nm {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* The name cut in the middle: the start gives way with "…", the last 10 characters never shrink */
+.chip .nm b {
+  display: flex;
+  min-width: 0;
+  font: 500 13px/18px var(--p-font);
+  color: var(--nim-text);
+}
+.chip .nm .a {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip .nm .z {
+  flex: none;
+  white-space: pre;
+}
+.chip .nm small {
+  font: 400 12px/16px var(--p-font);
+  color: var(--nim-text-muted);
+  white-space: nowrap;
+}
+:root:not(.dark-theme) .chip .nm small {
+  color: color-mix(in oklab, var(--nim-text) 72%, var(--x-surface-2));
+}
+/* The X's 40 px tap area overlaps the last 10 px of the name's room */
+.chip .rm {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 44px;
+  margin: 0 0 0 -10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nim-text-muted);
+  cursor: pointer;
+}
+/* The upload's 2 px accent bar along the chip's bottom edge; --sent is 0 to 1 */
+.chip .bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: calc(var(--sent, 0) * 100%);
+  height: 2px;
+  background: var(--nim-primary);
+}
+.chip.bad,
+:root:not(.dark-theme) .chip.bad {
+  border-color: var(--nim-error);
+}
+.chip.bad .nm small,
+:root:not(.dark-theme) .chip.bad .nm small {
+  color: var(--nim-error);
+  font-weight: 600;
+}
+/* Under the chips: why Send waits, in the text colour; one line per failed file in the error colour, with its
+   own Retry at the right end, apart from the chip's X */
+.chiplines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chipline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  font: 400 13px/18px var(--p-font);
+  color: var(--nim-error);
+}
+.chipline span {
+  flex: 1;
+  min-width: 0;
+}
+.chipline.wait {
+  min-height: 0;
+  color: var(--nim-text);
+}
+.chipline .retry {
+  flex: none;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: none;
+  color: var(--nim-error);
+  font: 600 14px/20px var(--p-font);
+  cursor: pointer;
+}

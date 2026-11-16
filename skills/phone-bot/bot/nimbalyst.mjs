@@ -197,7 +197,7 @@ async function callTool(projectPath, tool, args, caller) {
     params: {
       protocolVersion: "2024-11-05",
       capabilities: {},
-      clientInfo: { name: "telegram-inbox-bot", version: "1" },
+      clientInfo: { name: "phone-app", version: "1" },
     },
   });
   if (init.status !== 200)

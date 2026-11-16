@@ -9,6 +9,7 @@
 //   2. mine   = this computer's plan weight in that stretch x (weekly points per unit of weight).
 //   3. other  = total - mine.
 // Each plan (cut at an early weekly reset, or where a 5-hour limit is dropped or added) gets its own scale for step 2.
+// An early reset on a day listed in samePlanResets (a free reset that kept the plan) keeps the plan and its scale.
 // With a 5-hour limit it is fitted in two parts, because the weekly number moves too slowly to fit directly:
 //   k5 = 5-hour points per unit, taken from the 5-hour windows where this computer's share was
 //        highest (in those, nobody else was using the account, or hardly);
@@ -80,7 +81,8 @@ const spread = (from, to, pts, add) => {
 // number, with every later reading of the window under the old top up to one RESET_HOLD on, starts
 // a new window there. After that, a reading back at the old top counts only when it holds as well.
 const RESET_HOLD = 15 * 60000;
-export function cleanSamples(samples) {
+// samePlanResets: local days ("YYYY-MM-DD") whose early weekly reset kept the plan (a free reset)
+export function cleanSamples(samples, samePlanResets = []) {
   const S = samples
     .map((s) => ({ ...s, ms: Date.parse(s.t) }))
     .sort((a, b) => a.ms - b.ms);
@@ -118,7 +120,7 @@ export function cleanSamples(samples) {
       else if (r > t.r + SAME) top[k] = { r, u, g: 0 };
       else if (u < t.u && held(i, k, r, (v) => v < t.u)) {
         top[k] = { r, u, g: t.g + 1, old: Math.max(t.u, t.old ?? 0) };
-        if (k === "week") era++;
+        if (k === "week" && !samePlanResets.includes(dayKey(s.ms))) era++;
       } else if (
         t.old != null &&
         u >= t.old &&
@@ -142,8 +144,8 @@ export function cleanSamples(samples) {
   }).filter((s) => s.week);
 }
 
-export function planUse(samples, cost) {
-  const S = cleanSamples(samples);
+export function planUse(samples, cost, samePlanResets = []) {
+  const S = cleanSamples(samples, samePlanResets);
   if (!S.length) return { status: "none" };
   const last = S.at(-1);
   const res = {
@@ -269,18 +271,22 @@ export function planUse(samples, cost) {
     w.era = s.era;
   }
   const list = [...wins.values()];
+  const eraKeys = [...fits.keys()]; // res.eras[n] is the plan eraKeys[n]
   res.weeks = list
     .map((w, i) => {
       const next = list[i + 1];
       const start = w.g ? w.first : w.end - WEEK;
       const to = next && next.end === w.end ? next.first : w.end; // where this window really stops
       // each minute at the scale of the plan it fell in (a plan can change mid-week); no scale for a busy minute, no split
+      // never a later plan's: minutes between the last reading before an early reset and the first after it
+      // belong to this window, though the next plan's "after" (the last reading before it) lies before them
+      const own = res.eras.slice(0, eraKeys.indexOf(w.era) + 1);
       let mine = fits.get(w.era)?.perUnit ? 0 : null,
         other = null;
       for (const [min, u] of mine === null ? [] : cost) {
         const t = min * 60000 + 30000;
         if (t < start || t >= to || !u) continue;
-        const p = res.eras.findLast((e, n) => n === 0 || e.after <= t).perUnit;
+        const p = own.findLast((e, n) => n === 0 || e.after <= t).perUnit;
         if (!p) {
           mine = null;
           break;

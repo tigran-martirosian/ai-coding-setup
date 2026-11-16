@@ -318,12 +318,11 @@
     {
       "id": "phone-bot",
       "name": "Phone bot",
-      "what": "A chat-app bot that takes requests and voice notes and starts sessions through Nimbalyst.",
+      "what": "The phone app's PC program and its join skill: a Telegram Mini App drives Nimbalyst sessions through a relay.",
       "files": [
         "skills/phone-bot/SKILL.md",
-        "skills/phone-bot/setup.mjs",
-        "skills/phone-bot/bot/inbox-bot.mjs",
-        "skills/phone-bot/bot/assistant.mjs",
+        "skills/phone-bot/pc/setup.mjs",
+        "skills/phone-bot/pc/main.mjs",
         "skills/phone-bot/bot/nimbalyst.mjs"
       ],
       "group": "skills",
@@ -453,7 +452,7 @@
     {
       "id": "nimbalyst-patcher",
       "name": "Nimbalyst patcher",
-      "what": "Puts fixes into Nimbalyst's app.asar and takes them out again: status, apply, skip on a changed anchor, retire, restore. Tests point it at other program folders with NIMBALYST_PATCH_PROGRAM_DIRS. patches/updater-block.mjs turns Nimbalyst's own updater off: requiredFirst (applied before all others; without it no patch is applied), upstream: null (never retires), and a quit listener that reads staged.json from the delivery's data folder, logs to quit-hook.log and answers the quit word --ai-coding-setup-quit. patches/1944.mjs requires 1558; its upstream marker is `function answersPushedMessage(`. patches/settled-repeat.mjs requires 1944: a closed-process settled prompt leaves out results a transcript proves Claude already read (helper reads count; any doubt sends all), and the background test reads only a tool result's first line. patches/ask-line.mjs rewrites the question block of Nimbalyst's built-in system prompt (a card only for a quick yes/no or pick-one; never retires). pin.json pins the Nimbalyst version the setup delivers and its patch list; deliver.mjs (Windows) downloads, checks, installs and patches the pinned version, with --off/--on and NIMBALYST_FOLLOW=off; restart.mjs closes Nimbalyst, installs, patches and reopens it.",
+      "what": "Puts fixes into Nimbalyst's app.asar and takes them out again: status, apply, skip on a changed anchor, retire, restore. Tests point it at other program folders with NIMBALYST_PATCH_PROGRAM_DIRS. patches/updater-block.mjs turns Nimbalyst's own updater off: requiredFirst (applied before all others; without it no patch is applied), upstream: null (never retires), and a quit listener that reads staged.json from the delivery's data folder, logs to quit-hook.log and answers the quit word --ai-coding-setup-quit. patches/1944.mjs requires 1558; its upstream marker is `function answersPushedMessage(`. patches/settled-repeat.mjs requires 1944: a closed-process settled prompt leaves out results a transcript proves Claude already read (helper reads count; any doubt sends all), and the background test reads only a tool result's first line. patches/ask-line.mjs rewrites the question block of Nimbalyst's built-in system prompt (a card only for a quick yes/no or pick-one; never retires). patches/wakeup-note.mjs: a schedule_wakeup that fires while its session is mid-turn goes in as a note through skills/steer/steer.mjs send (the Note button's path); when steer does not take it, or the session is idle, it is queued as before. pin.json pins the Nimbalyst version the setup delivers and its patch list; deliver.mjs (Windows) downloads, checks, installs and patches the pinned version, with --off/--on and NIMBALYST_FOLLOW=off; restart.mjs closes Nimbalyst, installs, patches and reopens it.",
       "files": [
         "tools/nimbalyst-patch/patch.mjs",
         "tools/nimbalyst-patch/patches/updater-block.mjs",
@@ -466,10 +465,12 @@
         "tools/nimbalyst-patch/patches/1944.mjs",
         "tools/nimbalyst-patch/patches/ask-line.mjs",
         "tools/nimbalyst-patch/patches/settled-repeat.mjs",
+        "tools/nimbalyst-patch/patches/wakeup-note.mjs",
         "tools/nimbalyst-patch/pin.json",
         "tools/nimbalyst-patch/deliver.mjs",
         "tools/nimbalyst-patch/restart.mjs",
         "tests/test-nimbalyst-patch.mjs",
+        "tests/test-nimbalyst-wakeup-note.mjs",
         "tests/test-nimbalyst-deliver.mjs",
         "tests/test-nimbalyst-restart.mjs"
       ],
@@ -1096,6 +1097,18 @@
         {
           "file": "settings.example.json",
           "token": "steer.mjs"
+        }
+      ]
+    },
+    {
+      "from": "nimbalyst-patcher",
+      "to": "steer",
+      "type": "uses",
+      "says": "The wakeup-note patch sends a wakeup that fires mid-turn with `steer.mjs send --to <id> - --nowait`, the text on stdin: exit 0 is a note, any other end queues the wakeup.",
+      "evidence": [
+        {
+          "file": "tools/nimbalyst-patch/patches/wakeup-note.mjs",
+          "token": "\"send\", \"--to\""
         }
       ]
     },

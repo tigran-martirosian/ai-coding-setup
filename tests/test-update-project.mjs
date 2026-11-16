@@ -305,7 +305,9 @@ if (a === R + "/code-scanning/default-setup") out({ state: on ? "configured" : "
 fail("fake gh has no answer for: " + a);
 `,
 );
-const NEW = Array.from({ length: 11 }, (_, i) => `P${i + 13}`);
+const NEW = Array.from({ length: 11 }, (_, i) => `P${i + 13}`).filter(
+  (i) => i !== "P19",
+); // P19 (Dependabot file) removed
 const gitIds = (out) =>
   out
     .trim()
@@ -339,7 +341,7 @@ write(
 const hubOff = runEnv({ PASS_GH: fakeGh, FAKE_GH: "off" }, "--check", hub);
 const offIds = gitIds(hubOff.out);
 check(
-  "a GitHub folder with no preset and GitHub settings off prints every id P13 to P23, each as ask",
+  "a GitHub folder with no preset and GitHub settings off prints every id P13 to P23 but the removed P19, each as ask",
   hubOff.code === 0 &&
     NEW.every((i) => offIds.some(([id]) => id === i)) &&
     offIds.every(([, kind]) => kind === "ask") &&
@@ -357,7 +359,6 @@ write(
   preset("pull_request_template.md"),
 );
 write(path.join(hub, ".github", "workflows", "ci.yml"), preset("ci-node.yml"));
-write(path.join(hub, ".github", "dependabot.yml"), preset("dependabot.yml"));
 write(path.join(hub, "CHANGELOG.md"), preset("CHANGELOG.md"));
 spawnSync("git", [
   "-C",

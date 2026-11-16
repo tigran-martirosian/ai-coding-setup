@@ -310,7 +310,7 @@ export const SCRIPT: Shot[] = [
         { name: "9 agents", note: "Planner, workers, reviewers" },
         { name: "Handoff", note: "Next session picks up where you stopped" },
         { name: "Board cleanup", note: "Tidies Nimbalyst's board of chats" },
-        { name: "Phone inbox", note: "Send work from your phone" },
+        { name: "Phone app", note: "Drive your sessions from Telegram" },
         { name: "Ink themes", note: "11 colour themes for Nimbalyst" },
       ],
     },

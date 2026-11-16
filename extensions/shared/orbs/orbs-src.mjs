@@ -145,8 +145,19 @@ if (window.Orbs) {
   // if it comes back
   function gone(o) {
     if (o.canvas.isConnected) return false;
-    orbs.delete(o);
+    drop(o);
     return true;
+  }
+
+  // Which orbs are on screen: one scrolled out of the chat stops drawing (a chat of many helper cards kept every
+  // orb drawing every frame, 2026-11-15)
+  const seen = new IntersectionObserver((entries) => {
+    for (const e of entries)
+      if (e.target.__orb) e.target.__orb.inView = e.isIntersecting;
+  });
+  function drop(o) {
+    orbs.delete(o);
+    seen.unobserve(o.canvas);
   }
 
   const redo = (o) => {
@@ -169,11 +180,13 @@ if (window.Orbs) {
       canvas.__orb = o;
     }
     orbs.add(o);
+    o.inView = true;
+    seen.observe(canvas);
     redo(o);
   }
 
   function scan(root = document) {
-    for (const o of orbs) if (!o.canvas.isConnected) orbs.delete(o);
+    for (const o of orbs) if (!o.canvas.isConnected) drop(o);
     root.querySelectorAll("canvas[data-orb]").forEach(mount);
   }
 
@@ -181,11 +194,17 @@ if (window.Orbs) {
     for (const o of orbs) redo(o);
   }
 
+  // At most 60 drawings a second: a fast screen ran the loop at its own rate (227 a second measured, 2026-11-15)
+  const FRAME_MS = 1000 / 60;
+  let lastFrame = 0;
   function loop(now) {
+    requestAnimationFrame(loop);
+    if (now - lastFrame < FRAME_MS - 1) return;
+    lastFrame = now;
     if (document.visibilityState !== "hidden" && !motion.matches)
       for (const o of orbs)
-        if (!o.still && o.canvas.offsetParent !== null) draw(o, now);
-    requestAnimationFrame(loop);
+        if (!o.still && o.inView && o.canvas.offsetParent !== null)
+          draw(o, now);
   }
 
   // A move to a screen of another pixel density redraws every orb at the new density
@@ -203,8 +222,8 @@ if (window.Orbs) {
   function start() {
     scan();
     new MutationObserver((ms) => {
-      let restyle = false,
-        added = false;
+      const restyled = new Set();
+      let added = false;
       for (const m of ms) {
         if (m.type === "childList") {
           if (m.addedNodes.length) added = true;
@@ -214,10 +233,18 @@ if (window.Orbs) {
         // The canvas's own size and style are written by setup, so they only re-read its look
         if (orb && m.attributeName.startsWith("data-orb")) redo(orb);
         else if (orb) relook(orb);
-        else if (m.target.tagName !== "CANVAS") restyle = true;
+        else if (m.target.tagName !== "CANVAS") restyled.add(m.target);
       }
       if (added) scan();
-      if (restyle) for (const o of orbs) relook(o);
+      // Only orbs inside a changed element can take a new look (a theme switch on <html> holds them all): every
+      // class change in a streaming chat used to re-read every orb's style
+      if (restyled.size)
+        for (const o of orbs)
+          for (const el of restyled)
+            if (el.contains(o.canvas)) {
+              relook(o);
+              break;
+            }
     }).observe(document.documentElement, {
       subtree: true,
       childList: true,

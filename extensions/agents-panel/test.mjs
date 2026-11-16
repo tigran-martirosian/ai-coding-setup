@@ -1675,6 +1675,20 @@ check(
       done.mark === "tick" &&
       line(done) === "Reviewer finished · 5m · 51 steps · 125k tokens",
   );
+  // Mid-turn the app's card has no result yet (it comes when the turn ends): the run log's line ends the card
+  const logDone = view(msg({ kids: fourteen }), {
+    type: "worker",
+    result: "success",
+    totalTokens: 8110,
+    totalDurationMs: 6821,
+    totalToolUseCount: 1,
+  });
+  check(
+    "helper card: no result on the card yet but the run log has one, so done with a tick, not running",
+    logDone.state === "done" &&
+      logDone.mark === "tick" &&
+      line(logDone) === "Helper finished · 6s · 1 step · 8k tokens",
+  );
   const bgDone = (tokenCount) =>
     view(msg({ background: true, result: "launched" }), null, {
       toolUseId: "t1",
