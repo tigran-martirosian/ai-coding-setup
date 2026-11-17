@@ -4,6 +4,10 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.3.3] - 2026-11-17
+
+- The job hook no longer asks you to hand off after every commit once your plan row is done: it counts only the rows of the plan's job table, not a list of your own checks or an old reference table, and a session note written in another row is no longer read as that session claiming the row.
+
 ## [26.3.2] - 2026-11-16
 
 - The phone app holds its connection through a workday: the PC program and the page notice a dead link within seconds (the phone sleeping, a Wi-Fi drop, a switch to mobile data) and reconnect on their own, the relay closes links that went silent, and after a reconnect the page gets only what it missed.

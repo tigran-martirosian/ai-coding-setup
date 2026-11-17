@@ -21,7 +21,8 @@
 // State cell that drops the claim) doesn't end the hold. The holds below act only for a session with a claim in an
 // open plan, or a state file beside one, of its folder (or the commit's repository), after its piece landed, and only
 // while another row of that plan is still open (State cell not done/merged/dropped/skipped): the claimed row being the
-// last open row is silent.
+// last open row is silent. Rows are those of a table with a State column (a user-steps or reference table holds none),
+// and a claim in a plan counts only in the State cell of the row it names.
 // PreToolUse (Bash, Agent, Nimbalyst commit tool): the next commit in the piece's repository, or an Agent call whose
 // description names another row of the plan, is refused once per session; a re-send passes. A commit of records only
 // (paths given to git commit, git add paths and staged files) passes, and so does a commit in another repository (a
@@ -189,17 +190,41 @@ const openJob = (root) =>
   UNTICKED.test(readText(path.join(root, "HANDOFF.md"))) ||
   openPlans(root).length > 0;
 
-// A plan's rows as written: [{ id, done }], done by the row's last cell
+// A table line's cells, the outer pipes dropped (an escaped \| stays inside its cell)
+const cellsOf = (line) =>
+  line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/(?<!\\)\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((c) => c.trim());
+const SEPARATOR = /^\s*\|(\s*:?-{3,}:?\s*\|)+\s*$/;
+// A plan's job rows as written: [{ id, state, done }]. Only rows of a table whose header has a State column count, read
+// from that column: a user-steps table ("Opens when") or a reference table ("Done when") holds no session row.
 function tableRows(text) {
   const rows = [];
-  for (const line of text.split("\n")) {
+  const lines = text.split("\n");
+  let stateAt = -1; // the State column of the table being read, -1 outside one with a State column
+  let width = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim().startsWith("|")) {
+      stateAt = -1;
+      continue;
+    }
+    if (SEPARATOR.test(lines[i + 1] ?? "")) {
+      const head = cellsOf(line);
+      stateAt = head.findIndex((c) => /^state$/i.test(c));
+      width = head.length;
+      continue;
+    }
     const r = line.match(ROW_LINE);
-    if (!r) continue;
-    const cells = line
-      .split("|")
-      .map((c) => c.trim())
-      .filter(Boolean);
-    rows.push({ id: r[1], done: ROW_DONE.test(cells[cells.length - 1]) });
+    if (!r || stateAt < 0) continue;
+    const cells = cellsOf(line);
+    // State as the last column: the last cell, so a stray pipe inside an earlier cell doesn't shift it
+    const state =
+      (stateAt === width - 1 ? cells[cells.length - 1] : cells[stateAt]) ?? "";
+    rows.push({ id: r[1], state, done: ROW_DONE.test(state) });
   }
   return rows;
 }
@@ -217,14 +242,25 @@ function claimOf(roots, sessionId) {
     `\\bsession\\s+${id}\\s*:\\s*([A-Za-z]*\\d+[a-z]?)\\b`,
     "i",
   );
+  // In a plan, a claim counts only in the State cell of the row it names: the same words in another row's cell are a
+  // note about that row. In a lane state file, anywhere.
+  const claimIn = (file, isPlan) => {
+    const text = readText(file);
+    if (!isPlan) return text.match(mark)?.[1];
+    for (const r of tableRows(text)) {
+      const m = r.state.match(mark);
+      if (m && m[1].toUpperCase() === r.id.toUpperCase()) return m[1];
+    }
+    return undefined;
+  };
   for (const root of roots) {
     const plans = openPlans(root);
     if (!plans.length) continue;
     const states = docsFiles(root, STATE_NAME);
     for (const file of [...plans, ...states]) {
-      const m = readText(file).match(mark);
-      if (!m) continue;
-      const row = m[1].toUpperCase();
+      const found = claimIn(file, plans.includes(file));
+      if (!found) continue;
+      const row = found.toUpperCase();
       const tables = plans.map((plan) => ({
         plan,
         rows: rowsOf(readText(plan)),

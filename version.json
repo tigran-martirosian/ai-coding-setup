@@ -1,10 +1,15 @@
 {
-  "version": "26.3.2",
+  "version": "26.3.3",
   "claudeCodeMin": "2.1.321",
   "projectPass": 4,
-  "date": "2026-11-16",
-  "summary": "The phone app stays connected through a workday; Done buttons in the Job Tracker; quiet background updates",
+  "date": "2026-11-17",
+  "summary": "The job hook no longer asks for a hand-off after a plan's last session row is done",
   "releases": {
+    "26.3.3": {
+      "kind": "files",
+      "important": false,
+      "headline": "The job hook stops asking for a hand-off once a plan has no session rows left"
+    },
     "26.3.2": {
       "kind": "setup",
       "important": true,

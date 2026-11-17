@@ -774,7 +774,6 @@ hook(
   }),
   "",
 );
-
 // Stop (design option A cases 2-4, for a session with a claim): a turn that ends after the piece with no hand-off is
 // blocked once; stop_hook_active passes; a hand-off call after the piece passes; a linked worktree's commit is no piece
 // The turn's entries are dated after the piece is recorded (a minute ahead, so the runs before them don't overtake it)
@@ -812,6 +811,54 @@ const stop = (s, cwd, active, transcript = "stop.jsonl") =>
     stop_hook_active: active,
     transcript_path: path.join(dir, transcript),
   });
+// Only rows of a table with a State column are the job's rows, read from that column: a user-steps table ("Opens when")
+// and an old reference table ("Done when") below the job table hold no open session row, so a done claimed row is silent
+const USERSTEPS = project(
+  "usersteps",
+  {
+    "docs/2026-11-12-x-plan.md":
+      CLAIM_PLAN("done 2026-11-12 1a2b3c4").replace(
+        "session abcd1234: S3, ends",
+        "done 9f9f9f9, session abcd1234: S3, ends",
+      ) +
+      "\n**The user's steps**\n\n| Step | The ask | Opens when |\n|---|---|---|\n| U1 | Restart, click Done | after S3 |\n" +
+      "\n## Old rows\n\n| # | Lane | What | Done when |\n|---|---|---|---|\n| 1 | fix | the hall | tests pass |\n",
+  },
+  30,
+);
+s = claimSession();
+landed("claim-6-user-steps-piece-notes", s, USERSTEPS);
+hook(
+  "claim-6-user-step-and-reference-rows-are-no-open-rows-stop-silent",
+  stop(s, USERSTEPS, false),
+  "",
+);
+hook(
+  "claim-6-user-step-and-reference-rows-are-no-open-rows-commit-silent",
+  bashPre(s, 'git commit -q -m "more"', USERSTEPS),
+  "",
+);
+// A claim counts only in the State cell of the row it names: "session abcd1234: S4's check" written in S2's cell is a
+// note, not a claim on S4, so the real claim (S3) is held and S4 stays the next row
+const NOTED = project(
+  "noted",
+  {
+    "docs/2026-11-12-x-plan.md": CLAIM_PLAN("open").replace(
+      "|---|---|---|\n",
+      "|---|---|---|\n| S2 | the door | done 1a1a1a1; session abcd1234: S4's check passed |\n",
+    ),
+  },
+  30,
+);
+s = claimSession();
+landed("claim-7-note-in-other-cell-piece-notes", s, NOTED);
+hook(
+  "claim-7-note-in-other-rows-cell-is-no-claim-agent-denied",
+  agent(s, "S4: build the cards", NOTED),
+  "deny",
+  [...HELD, "Starting S4"],
+);
+
 s = claimSession();
 landed("stop-2-piece-landed-notes", s);
 hook("stop-2-no-handoff-blocked", stop(s, CLAIM, false), "block", [
