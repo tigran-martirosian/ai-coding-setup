@@ -325,8 +325,11 @@ const files = await import("../skills/phone-bot/pc/core/files.mjs");
 const registry = createRegistry();
 await registry.load(path.join(PC, "actions"));
 let n = 0;
-const ask = async (a, d, page = "ok") =>
-  registry.handle({ k: "req", id: `r${++n}`, a, d }, { device: "dev-a", page });
+const ask = async (a, d) =>
+  registry.handle(
+    { k: "req", id: `r${++n}`, a, d },
+    { device: "dev-a", page: "ok" },
+  );
 const ok = (r) => (r.ok ? r.d : { failed: r });
 
 try {
@@ -773,16 +776,7 @@ try {
     console.log("skip a junction to a network share: this PC cannot make one");
   for (const [o, k, f] of wrapped) o[k] = f;
 
-  // ---- page check and bad inputs
-  for (const [a, d] of [
-    ["step.detail", { session: S1, step: "e1", at: at("e1") }],
-    ["session.changes", { session: S1, at: at("e1") }],
-    ["file.open", { session: S1, file: r1.file, offset: 0 }],
-  ])
-    check(
-      `${a}: an unchecked page gets page-unverified`,
-      (await ask(a, d, "unverified")).err === "page-unverified",
-    );
+  // ---- bad inputs
   for (const [what, more] of [
     ["offset past the size", { offset: 10 ** 9 }],
     ["line 0", { line: 0, count: 5 }],

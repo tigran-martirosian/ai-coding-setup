@@ -357,7 +357,7 @@ fs.writeFileSync(
 const ENDPOINT = path.join(NIM, "mcp-endpoint.json");
 const WORKSPACES = Object.entries(P).map(([name, p]) => ({ name, path: p }));
 const doorState = new Map(); // session -> { status, pendingPrompt, clearOnAnswer }
-const queues = new Map(); // session -> [{ id, prompt, createdAt }]
+const queues = new Map(); // session -> [{ id, prompt, createdAt, status? }] (status "pending" when not set)
 const madeOnCreate = new Map(); // project path -> how many sessions create_session leaves
 let qn = 0;
 const st = (id) => {
@@ -414,7 +414,7 @@ function handle(name, a, call) {
       // As Nimbalyst answers: a 300-character preview, the whole text only on includePromptText.
       const prompts = queueOf(a.sessionId).map((q) => ({
         id: q.id,
-        status: "pending",
+        status: q.status ?? "pending",
         createdAt: q.createdAt,
         promptPreview:
           q.prompt.length > 300 ? `${q.prompt.slice(0, 300)}...` : q.prompt,
@@ -1313,6 +1313,31 @@ try {
       longRm: longRm.d?.text?.slice(-40),
     }),
   );
+  // Nimbalyst also lists a message it already handed to the session (status executing): the phone must not.
+  queueOf(S.busyQueue).push(
+    {
+      id: "queued-sent",
+      prompt: "already sent",
+      createdAt: Date.now(),
+      status: "executing",
+    },
+    { id: "queued-wait", prompt: "still waiting", createdAt: Date.now() },
+  );
+  const sentList = await ask("queue.list", { session: S.busyQueue });
+  const sentRm = await ask("queue.remove", {
+    session: S.busyQueue,
+    queueId: "queued-sent",
+  });
+  check(
+    "a message already handed to the session must leave the phone queue: queue.list shows only the pending one and queue.remove of the executing one answers no-queued",
+    sentList.ok &&
+      sentList.d.length === 1 &&
+      sentList.d[0].queueId === "queued-wait" &&
+      sentRm.err === "no-queued" &&
+      queueOf(S.busyQueue).length === 2,
+    show({ sentList, sentRm }),
+  );
+  queueOf(S.busyQueue).length = 0;
   const note2Send = await ask("session.note", { session: idle, text: "y" });
   const lastNote = callsOf("send_prompt").pop();
   check(

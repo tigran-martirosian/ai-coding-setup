@@ -384,6 +384,7 @@ const isoTime = (v) =>
 // The session's waiting messages, oldest first: [{ queueId, text, createdAt }], text at most 300 characters.
 // With `whole` each row also has `whole`: the message's whole text as the user typed it (the note sendPrompt
 // added is taken off), which a queued message's Edit puts back in the typing box.
+// Only `pending` rows wait: Nimbalyst also lists `executing` ones, already handed to the session.
 export async function listQueued(projectPath, sessionId, { whole } = {}) {
   const r = await callJson(projectPath, "list_queued_prompts", {
     sessionId,
@@ -391,7 +392,10 @@ export async function listQueued(projectPath, sessionId, { whole } = {}) {
   });
   if (!Array.isArray(r.prompts))
     throw doorError("list_queued_prompts: no prompts list in the answer");
-  return r.prompts.map((p) => {
+  if (r.prompts.some((p) => typeof p.status !== "string"))
+    throw doorError("list_queued_prompts: a row has no status");
+  const waiting = r.prompts.filter((p) => p.status === "pending");
+  return waiting.map((p) => {
     const text = p.promptPreview ?? p.prompt;
     if (typeof p.id !== "string" || typeof text !== "string")
       throw doorError("list_queued_prompts: a row has no id or text");

@@ -96,6 +96,9 @@ const ENDED = {
 
 // Watches v.params.session while `view` is shown. hooks.apply(d) gets the watch's first state (rows: []) and every
 // live event; hooks.off(words) runs when the watch could not start or ended; hooks.tick() runs every second.
+// After a reconnect the watch goes on from `at`, the last transcript position the PC said its rows reached (phone
+// steady design, section 5), so only the missed rows come; without one (an older PC), or when the PC cannot go on
+// from there, the frame draws the view afresh with session.open.
 export function watchLive(v, view, hooks) {
   const me = {};
   holder = me;
@@ -103,29 +106,47 @@ export function watchLive(v, view, hooks) {
   let renew = null;
   let look = null;
   let first = true;
+  let at = null;
+  let resumed = false;
   const quit = () => {
     clearTimeout(renew);
     clearInterval(look);
+    look = null;
+  };
+  const keep = (d) => {
+    if (Number.isInteger(d?.at)) at = d.at;
   };
   async function watch() {
+    const from = resumed ? at : first ? v.live.from : null;
     let r;
     try {
-      // The first ask goes on from session.open's end (v.live.from); a renewal keeps the PC's place.
+      // The first ask goes on from session.open's end (v.live.from), a resume from `at`; a renewal keeps the
+      // PC's place.
       r = await v.ctx.ask(
         "session.watch",
-        first && Number.isInteger(v.live.from)
-          ? { ...s, start: v.live.from }
-          : s,
+        Number.isInteger(from) ? { ...s, start: from } : s,
       );
       first = false;
     } catch (e) {
       r = e;
     }
     if (!view.isConnected || holder !== me) return;
+    // The link went while asking: the watch goes on when it is back (the frame calls the resume below).
+    if (!r?.ok && !v.ctx.connected) return quit();
+    if (
+      !r?.ok &&
+      resumed &&
+      (r?.err === "bad-input" || r?.err === "transcript-gone")
+    ) {
+      quit();
+      return v.ctx.redraw();
+    }
+    resumed = false;
     if (!r?.ok) {
       quit();
       return hooks.off(`Live updates are off: ${v.why(r)}.`);
     }
+    keep(r.d);
     hooks.apply({
       session: s.session,
       rows: [],
@@ -149,11 +170,19 @@ export function watchLive(v, view, hooks) {
   v.ctx.onEvent((body) => {
     if (body.e !== "live" || body.d.session !== s.session || holder !== me)
       return;
+    keep(body.d);
     if (!body.d.ended) return hooks.apply(body.d);
     quit();
     hooks.off(
       `Live updates stopped: ${ENDED[body.d.ended] ?? `the PC said "${body.d.ended}"`}.`,
     );
+  });
+  v.ctx.onResume?.(() => {
+    if (at === null || holder !== me || !view.isConnected) return false;
+    quit();
+    resumed = true;
+    watch();
+    return true;
   });
   watch();
 }

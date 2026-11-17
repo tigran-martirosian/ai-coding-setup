@@ -851,6 +851,44 @@ ${LONG}` &&
       byClass(k.view, "think").filter((n) => n.tagName === "div").length === 1,
     show(texts(k.view, "wstep")),
   );
+  // ---- a message sent from the phone shows once: the live row replaces its waiting bubble, on the right
+  const kBox = byTag(k.dock, "textarea")[0];
+  kBox.value = "Check the logs too";
+  kBox.fire("input");
+  button(k.dock, (b) => b.textContent === "Note")?.click();
+  await until(() => callsOf("send_prompt", S.think)[0], 4000);
+  const yours = () =>
+    byClass(k.view, "you").filter((n) =>
+      n.textContent.includes("Check the logs too"),
+    );
+  await until(() => yours().length === 1, 4000);
+  append(THINK_T, {
+    type: "user",
+    timestamp: new Date().toISOString(),
+    message: { content: "Check the logs too\n\n(Sent from the phone.)" },
+  });
+  await until(
+    () => byClass(byClass(k.view, "live-rows")[0], "you").length === 1,
+    4000,
+  );
+  await sleep(300);
+  check(
+    "a sent message shows once after the PC's live row brings it, inside the live rows (laid out right like the others)",
+    yours().length === 1 &&
+      byClass(byClass(k.view, "live-rows")[0], "you")[0] === yours()[0] &&
+      !hasClass(yours()[0], "held"),
+    show({
+      yours: yours().map((n) => n.className),
+      rows: texts(k.view, "you"),
+    }),
+  );
+  const pageCss = fs.readFileSync(path.join(PAGE, "page.css"), "utf8");
+  check(
+    "the live rows lay out as a column with the conversation's gap, so your message there sits right",
+    /\.live-rows \{\s*display: flex;\s*flex-direction: column;\s*gap: 12px;/.test(
+      pageCss,
+    ),
+  );
   gone(k);
   check(
     "the views that are gone stop their watches",

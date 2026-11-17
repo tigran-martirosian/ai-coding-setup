@@ -239,6 +239,9 @@ function world(name, { version = "0.83.0", blocked = false } = {}) {
     NIMBALYST_DELIVER_RUN_WITH: process.execPath,
     NIMBALYST_DELIVER_RUNNING: w.runningFile,
     NIMBALYST_PATCH_PROGRAM_DIRS: "",
+    // the panels (ext-swap.mjs): Nimbalyst's own folder in the world, running while the running file exists
+    APPDATA: path.join(root, "appdata"),
+    SETUP_NIMBALYST_OPEN_FILE: w.runningFile,
     NIMBALYST_RESTART_LAUNCH: LAUNCHER,
     NIMBALYST_RESTART_QUIT_WAIT_MS: "5000",
     NIMBALYST_RESTART_TRAY_WAIT_MS: "20000",
@@ -576,6 +579,62 @@ try {
       w.log().includes("Nimbalyst is not running"),
     `${r.code}\n${w.log()}`,
   );
+
+  // 7b. a marker job (panels only, no version) is not refused: the panels go in, nothing is installed
+  w = world("marker", { version: "0.84.0", blocked: true });
+  const panelData = path.join(w.root, "appdata", "@nimbalyst", "electron");
+  write(path.join(panelData, "extensions-pending", "demo", "new.txt"), "new");
+  write(path.join(panelData, "extensions", "demo", "old.txt"), "old");
+  write(
+    path.join(w.data, "staged.json"),
+    JSON.stringify({
+      extensions: true,
+      installer: null,
+      node: process.execPath,
+      deliver: DELIVER,
+      at: new Date().toISOString(),
+      atClose: true,
+    }),
+  );
+  r = w.restart(["--run"]);
+  check(
+    "marker job: not refused, the panel swapped in, marker gone, no status.json, nothing installed, opened",
+    r.code === 0 &&
+      fs.existsSync(path.join(panelData, "extensions", "demo", "new.txt")) &&
+      !fs.existsSync(path.join(panelData, "extensions", "demo", "old.txt")) &&
+      !fs.existsSync(path.join(panelData, "extensions-pending", "demo")) &&
+      !w.staged() &&
+      !w.status() &&
+      !fs.existsSync(w.installerLog) &&
+      openedRight(w),
+    `${r.code}\n${w.log()}`,
+  );
+
+  // 7c. a marker job whose close times out: exit 1, the error in the log only, no status.json
+  w = world("marker-stuck", { version: "0.84.0", blocked: true });
+  await w.start("ignore");
+  write(
+    path.join(w.data, "staged.json"),
+    JSON.stringify({
+      extensions: true,
+      installer: null,
+      node: process.execPath,
+      deliver: DELIVER,
+      at: new Date().toISOString(),
+      atClose: true,
+    }),
+  );
+  r = w.restart(["--run"], { NIMBALYST_RESTART_QUIT_WAIT_MS: "1500" });
+  check(
+    "marker job stuck: exit 1, no status.json, the error in restart.log, the marker kept",
+    r.code === 1 &&
+      !w.status() &&
+      w.log().includes("failed (marker job, no status.json)") &&
+      w.staged()?.extensions === true,
+    `${r.code} ${JSON.stringify(w.status())}\n${w.log()}`,
+  );
+  w.app.kill();
+  await w.appEnded();
 
   // 8. the plain start: starts itself again detached with --run, says one line, returns at once
   w = world("plain", { blocked: true });

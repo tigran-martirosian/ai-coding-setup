@@ -21,8 +21,12 @@ import path from "node:path";
 //     the "env" of ~/.claude/settings.json (that env may not reach hook processes, so the file is read), stops it.
 //     The prompt that says a self-install worked also starts tools/nimbalyst-patch/deliver.mjs --stage detached,
 //     which brings Nimbalyst to the pinned version (NIMBALYST_FOLLOW=off, read the same way, stops that).
+//   - every missed release is `files`, `nimbalyst` or `quiet` (asks the person nothing, may rebuild the panels) and
+//     one is `quiet`: the same, with update.mjs --quiet (the full installer, unseen). Its grey line also says where
+//     the panels stand (`auto.panels`) and names a panel whose build failed. It counts as dead after 45 minutes,
+//     the --files-only run after 15.
 // Nimbalyst's delivery is said in grey lines too, from deliver.mjs's data folder (below): the result of an install
-// once, and a version waiting for a restart once.
+// once, and a version waiting for a restart (or for Nimbalyst to close) once.
 // The grey lines name no version numbers (they make every release look like a hotfix): one behind gives the
 // release's headline, two or more the date of the installed version and the newest important headlines.
 // A heads-up about a release planned soon: version.json's optional `notice` ({id, text, issues?, version?}) is kept
@@ -62,6 +66,8 @@ const NOTICE_IMPORTANT = 8 * HOUR; // grey line while an important release is pe
 const NOTICE_SMALL = 24 * HOUR; // grey line when only unimportant ones are
 const SECTION = 24 * HOUR; // Claude's section, important releases only
 const AUTO_STALE = 15 * 60 * 1000; // a self-install started longer ago than this is taken as dead
+const QUIET_STALE = 45 * 60 * 1000; // the same for a --quiet one, which builds the panels too
+const staleAfter = (mode) => (mode === "quiet" ? QUIET_STALE : AUTO_STALE);
 const NOTES_LIMIT = 12000; // characters of release notes for Claude before unimportant lines shrink
 const WAIT = 700; // ms a prompt may wait for GitHub
 const WAIT_SLOW = 2500; // the same, when the last try ran out of time
@@ -115,7 +121,15 @@ const get = (url, ms, hops = 5) =>
 // What a release brings, from version.json's `releases`; a release with no entry counts as setup and important
 const label = (releases, v) =>
   releases?.[v] || { kind: "setup", important: true };
-const SELF_KINDS = ["files", "nimbalyst"]; // releases that install themselves
+const SELF_KINDS = ["files", "nimbalyst"]; // releases that install themselves with --files-only
+const QUIET_KINDS = [...SELF_KINDS, "quiet"]; // and with --quiet, when one of them is `quiet`
+// The grey line's sentence for update.mjs --quiet's `auto.panels` (null: no panel changed, no sentence)
+const PANELS = {
+  in: "The panels change the next time Nimbalyst starts.",
+  "at-close": "The panels change the next time Nimbalyst starts.",
+  waiting:
+    "New panels are waiting: type /update-setup to put them in (Nimbalyst restarts).",
+};
 const headline = (r) =>
   String(r.headline || "")
     .trim()
@@ -205,18 +219,25 @@ function pending(stored, installed) {
     .filter((v) => newer(v, installed) && !newer(v, stored.latest))
     .sort((a, b) => (newer(a, b) ? -1 : 1));
   const labels = versions.map((v) => ({ v, ...label(stored.releases, v) }));
+  const known =
+    stored.complete &&
+    stored.installed === installed &&
+    installed !== "0" &&
+    labels.length > 0;
+  const every = (kinds) => labels.every((l) => kinds.includes(l.kind));
   return {
     versions,
     labels,
     notes,
     important: labels.some((l) => l.important),
-    // every missed release known, and each only files
-    files:
-      stored.complete &&
-      stored.installed === installed &&
-      installed !== "0" &&
-      labels.length > 0 &&
-      labels.every((l) => SELF_KINDS.includes(l.kind)),
+    // every missed release known, and each installs itself: the update.mjs mode that takes them, else null
+    self: !known
+      ? null
+      : every(SELF_KINDS)
+        ? "files-only"
+        : every(QUIET_KINDS)
+          ? "quiet"
+          : null,
   };
 }
 
@@ -296,24 +317,30 @@ function settingOff(name) {
 }
 
 // The lock of a self-install: made only if it is not there (two prompts at once start one update.mjs, not two), freed
-// by update.mjs when it ends; one older than AUTO_STALE is left from a run that died and is taken over
+// by update.mjs when it ends. It holds the mode of its run ("quiet"; an empty one is --files-only); one older than
+// that mode's limit is left from a run that died and is taken over
 const LOCK = path.join(CLAUDE, "update-auto.lock");
-function lock() {
+function lock(mode) {
   for (let i = 0; i < 2; i++) {
     try {
-      fs.closeSync(fs.openSync(LOCK, "wx"));
+      const fd = fs.openSync(LOCK, "wx");
+      if (mode === "quiet") fs.writeSync(fd, mode);
+      fs.closeSync(fd);
       return true;
     } catch (err) {
       if (err.code !== "EEXIST") throw err;
-      if (Date.now() - fs.statSync(LOCK).mtimeMs < AUTO_STALE) return false;
+      const held = fs.readFileSync(LOCK, "utf8").trim();
+      if (Date.now() - fs.statSync(LOCK).mtimeMs < staleAfter(held))
+        return false;
       fs.rmSync(LOCK, { force: true });
     }
   }
   return false;
 }
 
-// Starts update.mjs --files-only on its own, without waiting for it; null when another one is under way
-function startSelfInstall(version, installed) {
+// Starts update.mjs --files-only or --quiet (`mode`) on its own, without waiting for it; null when another one is
+// under way
+function startSelfInstall(version, installed, mode) {
   const script = path.join(CLAUDE, "skills", "update-setup", "update.mjs");
   if (!fs.existsSync(script))
     return {
@@ -325,10 +352,10 @@ function startSelfInstall(version, installed) {
         error: `${script} is missing`,
       },
     };
-  if (!lock()) return null;
+  if (!lock(mode)) return null;
   const args = [
     script,
-    "--files-only",
+    `--${mode}`,
     ...(process.env.SETUP_UPDATE_HOME ? ["--home", HOME] : []),
   ];
   spawn(process.execPath, args, {
@@ -338,7 +365,12 @@ function startSelfInstall(version, installed) {
   }).unref();
   // update.mjs replaces this with `auto`, its result
   return {
-    autoRun: { version, from: installed, startedAt: new Date().toISOString() },
+    autoRun: {
+      version,
+      from: installed,
+      mode,
+      startedAt: new Date().toISOString(),
+    },
   };
 }
 
@@ -405,11 +437,14 @@ function nimbalystLines(next, now) {
       );
     }
   }
+  // a marker job (panels waiting for the close listener) has no version and gives no line
   const staged = json(path.join(DATA, "staged.json"));
   if (staged.version && staged.version !== seen.readySaid) {
     nb.readySaid = staged.version;
     lines.push(
-      `Nimbalyst ${staged.version} is ready: /update-setup restarts it to finish.`,
+      staged.atClose === true
+        ? `Nimbalyst ${staged.version} is ready: it goes in the next time you close Nimbalyst.`
+        : `Nimbalyst ${staged.version} is ready: /update-setup restarts it to finish.`,
     );
   }
   return { next: { ...next, nimbalyst: nb }, lines };
@@ -645,8 +680,9 @@ if ((process.env.UPDATE_CHECK || "").toLowerCase() !== "off") {
       }
     }
     let say = null;
-    // A self-install that never wrote its result within AUTO_STALE died part way: a failure like any other
-    if (next.autoRun && !within(next.autoRun.startedAt, AUTO_STALE)) {
+    // A self-install that never wrote its result within its mode's limit died part way: a failure like any other
+    const limit = next.autoRun && staleAfter(next.autoRun.mode);
+    if (next.autoRun && !within(next.autoRun.startedAt, limit)) {
       const { autoRun, ...rest } = next;
       next = {
         ...rest,
@@ -655,20 +691,40 @@ if ((process.env.UPDATE_CHECK || "").toLowerCase() !== "off") {
           from: autoRun.from,
           at: new Date(now).toISOString(),
           ok: false,
-          error: `it did not finish within ${AUTO_STALE / 60000} minutes`,
+          error: `it did not finish within ${limit / 60000} minutes`,
         },
       };
       fs.rmSync(LOCK, { force: true });
     }
-    // A self-install that ended: said once, in a grey line, with the count of the user's changed files it left alone
+    // A self-install that ended: said once, in a grey line, with the count of the user's changed files it left alone;
+    // a --quiet one also with the panels whose build failed and where the built ones stand
     if (next.auto && !next.auto.told) {
-      const { version, headline: what, ok, error, kept = [] } = next.auto;
+      const {
+        version,
+        headline: what,
+        ok,
+        error,
+        kept = [],
+        extFailed = [],
+        panels,
+      } = next.auto;
       const yours = kept.length
         ? ` ${kept.length} file${kept.length === 1 ? "" : "s"} you changed stayed as yours; /update-setup can take the new version of ${kept.length === 1 ? "it" : "them"}.`
         : "";
+      const one = extFailed.length === 1;
+      const failed = extFailed.length
+        ? ` Panel${one ? "" : "s"} ${extFailed.join(", ")} could not be updated; the old one${one ? "" : "s"} still work${one ? "s" : ""}, and /update-setup tries again.`
+        : "";
+      const known = Object.hasOwn(PANELS, String(panels));
+      if (panels != null && !known)
+        crashLog(
+          "update-check",
+          new Error(`auto.panels is "${panels}", not in, at-close or waiting`),
+        );
+      const where = known ? ` ${PANELS[panels]}` : "";
       say = {
         systemMessage: ok
-          ? `Setup updated itself to ${version}${what ? `: ${what}` : ""}.${yours}`
+          ? `Setup updated itself to ${version}${what ? `: ${what}` : ""}.${where}${failed}${yours}`
           : `Setup could not update itself to ${version}: ${error}. Type /update-setup to install it.`,
       };
       next = {
@@ -676,7 +732,8 @@ if ((process.env.UPDATE_CHECK || "").toLowerCase() !== "off") {
         auto: { ...next.auto, told: true },
         noticeAt: new Date(now).toISOString(),
       };
-      // the new pin is in place now: Nimbalyst's delivery starts (a failure here is logged; the line above stands)
+      // the new pin is in place now: Nimbalyst's delivery starts (a failure here is logged; the line above stands).
+      // After --quiet too: it stages by itself only when panels wait, and a `nimbalyst` release needs the stage
       if (ok) {
         try {
           const stageStarted = startStage();
@@ -698,7 +755,7 @@ if ((process.env.UPDATE_CHECK || "").toLowerCase() !== "off") {
         stored.important ? NOTICE_IMPORTANT : NOTICE_SMALL,
       );
       const section = stored.important && !within(next.sectionAt, SECTION);
-      const canAuto = stored.files && next.auto?.version !== next.latest; // a failed self-install is not tried again for the same version
+      const canAuto = stored.self && next.auto?.version !== next.latest; // a failed self-install is not tried again for the same version
       if (grey || section || canAuto) {
         const installed = installedNow(); // read only now: the user may have updated since the check
         const p = pending(next, installed);
@@ -713,8 +770,8 @@ if ((process.env.UPDATE_CHECK || "").toLowerCase() !== "off") {
         };
         if (!p.versions.length)
           next = { ...next, installed }; // updated since: nothing pending until the next check
-        else if (p.files && canAuto && !off()) {
-          const started = startSelfInstall(next.latest, installed);
+        else if (p.self && canAuto && !off()) {
+          const started = startSelfInstall(next.latest, installed, p.self);
           if (started) next = { ...next, ...started };
         } else if (grey || section) {
           const yours = installed === "0" ? "an older one" : installed;

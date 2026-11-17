@@ -2,9 +2,9 @@
 // person picked stays. Nimbalyst rewrites its settings file from memory, so the file is written only while it
 // is closed; while it runs, the run names the one pick to make. --app-settings <file> is another settings file
 // (the tests), written as it is. What changes goes into ctx.nextState.
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { nimbalystRunning } from "../tools/nimbalyst-patch/ext-swap.mjs";
 import { fwd } from "./files.mjs";
 import {
   PENDING_LINE,
@@ -20,11 +20,12 @@ export function theme(ctx) {
     opt("app-settings") !== null
       ? path.resolve(opt("app-settings"))
       : path.join(extHome, "app-settings.json");
+  // installed, or built and waiting for Nimbalyst to close (scripts/extensions.mjs)
   const inkThere =
     opt("app-settings") !== null ||
     (ctx.wantExt &&
-      fs.existsSync(
-        path.join(extHome, "extensions", EXT_FOLDER["ink-themes"]),
+      ["extensions", "extensions-pending"].some((d) =>
+        fs.existsSync(path.join(extHome, d, EXT_FOLDER["ink-themes"])),
       ));
   if (ctx.args.includes("--no-theme") || process.env.SETUP_THEME === "off")
     return say("theme: left as it is (--no-theme or SETUP_THEME=off)");
@@ -54,19 +55,12 @@ export function theme(ctx) {
     }
     return;
   }
-  // SETUP_NIMBALYST_OPEN=yes|no: the tests say whether Nimbalyst runs
-  const running = process.env.SETUP_NIMBALYST_OPEN
-    ? process.env.SETUP_NIMBALYST_OPEN === "yes"
-    : opt("app-settings") === null &&
-      (process.platform === "win32"
-        ? /Nimbalyst\.exe/i.test(
-            spawnSync(
-              "tasklist",
-              ["/FI", "IMAGENAME eq Nimbalyst.exe", "/NH"],
-              { encoding: "utf8" },
-            ).stdout || "",
-          )
-        : spawnSync("pgrep", ["-x", "Nimbalyst"]).status === 0);
+  // SETUP_NIMBALYST_OPEN=yes|no: the tests say whether Nimbalyst runs; another settings file is never Nimbalyst's own
+  const running =
+    (process.env.SETUP_NIMBALYST_OPEN ||
+      process.env.SETUP_NIMBALYST_OPEN_FILE ||
+      opt("app-settings") === null) &&
+    nimbalystRunning();
   if (running) {
     // The file can't be written; /update-setup sets the theme through Nimbalyst itself (skills/update-setup/SKILL.md)
     // and then runs update.mjs --theme-done. Until then it stays pending and update.mjs names it again.

@@ -451,8 +451,9 @@ function render(ctx) {
       return;
     }
     if (!v.info) return fill(convo);
+    // A sent message leaves the waiting bubbles once the transcript or the live rows hold it.
     const said = new Set(
-      v.info.items
+      [...v.info.items, ...v.live.rows.filter((r) => r.kind === "text")]
         .filter((t) => t.role === "user" && !t.system)
         .map((t) => t.text.trim()),
     );
@@ -965,8 +966,12 @@ function render(ctx) {
       v.sign = null;
     } else if (d.rows.some((r) => !(r.pos < v.live.read))) {
       const toEnd = nearEnd();
-      v.live.rows.push(...d.rows.filter((r) => !(r.pos < v.live.read)));
-      drawLive(toEnd);
+      const fresh = d.rows.filter((r) => !(r.pos < v.live.read));
+      v.live.rows.push(...fresh);
+      // A user message among them can be one still shown as sent: the whole conversation is drawn again.
+      if (fresh.some((r) => r.kind === "text" && r.role === "user"))
+        drawConvo(toEnd);
+      else drawLive(toEnd);
     }
     // Stop's line belongs to the stopped turn: a session that works again has moved past it.
     if (d.state === "running") v.stopped = false;

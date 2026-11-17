@@ -5,7 +5,7 @@ description: Join this Windows PC to the phone app (a Telegram Mini App that sho
 
 # Phone app: join and pair
 
-The phone app is a page in Telegram. It talks to a small program on this PC through the bot owner's relay. The page and the PC seal what they send each other, so the relay cannot read it. Alerts are the exception: their text (the project name and the session title) passes the relay unsealed. A person joins with an invite link from the bot owner. Windows only.
+The phone app is a page in Telegram. It talks to a small program on this PC through the bot owner's relay. The page and the PC seal what they send each other, so the relay cannot read it (the relay also serves the page, so its owner is trusted). Alerts are the exception: their text (the project name and the session title) passes the relay unsealed. A person joins with an invite link from the bot owner. Windows only.
 
 Below, `setup.mjs` means `node ~/.claude/skills/phone-bot/pc/setup.mjs`. If a command fails, give its message as it is and stop.
 
@@ -20,6 +20,7 @@ Below, `setup.mjs` means `node ~/.claude/skills/phone-bot/pc/setup.mjs`. If a co
 9. **Reply**, short:
    - the app shows your Nimbalyst sessions and works while Nimbalyst is open on this PC;
    - the program starts at log-on and starts again when it ends, so nothing has to be started by hand;
+   - the link mends itself: after a short drop, a network switch, sleep or a restart of this PC's program, the phone connects again within seconds (after a long outage, within 30 seconds of the internet coming back), and the app says the PC is off only after 20 seconds of no PC;
    - another phone or tablet: tap OK on a paired device when it asks, or run `setup.mjs pair` for a new code (up to 4 devices);
    - to stop it and remove the start at log-on: `setup.mjs remove`. The keys stay, so it comes back without a new pairing: `setup.mjs start-logon`, then `setup.mjs start`;
    - to leave the app for good: `setup.mjs remove`, and ask the bot owner to remove you.
