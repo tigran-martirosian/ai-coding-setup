@@ -13,7 +13,6 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PC = path.join(ROOT, "skills", "phone-bot", "pc");
 const MAIN = path.join(PC, "main.mjs");
 const SETUP = path.join(PC, "setup.mjs");
-const HASHES = path.join(PC, "page-hashes.json");
 const VERSION = JSON.parse(
   fs.readFileSync(path.join(ROOT, "version.json"), "utf8"),
 ).version;
@@ -111,9 +110,7 @@ Object.assign(process.env, {
   LOCALAPPDATA: path.join(home, "AppData", "Local"),
 });
 const seal = await import("../phone/shared/seal.mjs");
-const { buildPage, writePage, hashesText } = await import(
-  "../phone/page/build.mjs"
-);
+const { buildPage, writePage } = await import("../phone/page/build.mjs");
 const { startLocalRelay } = await import("../phone/relay/local/server.mjs");
 const channel = await import("../phone/page/frame/channel.js");
 
@@ -206,6 +203,9 @@ async function askToJoin(url, initData) {
 }
 
 let relay = null;
+// The step a crash happened in, named in the failure (a timeout's stack shows only the channel's timer).
+let step = "the steps before Unpair";
+let stepAt = Date.now();
 let pc = null;
 const botLines = [];
 try {
@@ -216,11 +216,6 @@ try {
     "two builds give the same files, byte for byte",
     JSON.stringify(a.files.map(([p, t]) => [p, seal.toHex(t)])) ===
       JSON.stringify(b.files.map(([p, t]) => [p, seal.toHex(t)])),
-  );
-  check(
-    "the committed page-hashes.json matches a fresh build",
-    fs.readFileSync(HASHES, "utf8") === hashesText(a.hashes),
-    "run: node phone/page/build.mjs",
   );
   const served = a.files.map(([p]) => p);
   check(
@@ -271,7 +266,6 @@ try {
         ? `\\\\.\\pipe\\phone-app-pc-test-${nodeRandom(6).toString("hex")}`
         : path.join(tmp, "pc.sock"),
     PHONE_PC_TG_KEY: tgPubHex,
-    PHONE_PC_PAGE_HASHES: HASHES,
     NIMBALYST_ENDPOINT_FILE: path.join(tmp, "no-endpoint.json"),
   };
   const join = spawnSync(process.execPath, [SETUP, "join", relay.url], {
@@ -285,8 +279,8 @@ try {
 
   pc = startPc(pcEnv);
   check(
-    "the PC program connects and passes the page check on the built page",
-    await until(() => logText().includes("page-check ok"), 10000),
+    "the PC program connects to the relay",
+    await until(() => /connect pc-/.test(logText()), 10000),
     pc.out + logText(),
   );
 
@@ -335,7 +329,7 @@ try {
   {
     const { link: l, s } = await session(relay.url, initData, paired);
     check(
-      "hello: the PC calls the page verified",
+      'hello: the PC says page "ok"',
       s.hello.page === "ok",
       JSON.stringify(s.hello),
     );
@@ -571,19 +565,18 @@ try {
   }
 
   // A session the restarted PC no longer knows: checked after the restart below.
+  step = "opening a session after Unpair";
   const lost = await session(relay.url, initData, paired);
 
-  // ---- a changed page: the PC calls it unverified and answers status only
+  // ---- a changed page: the PC no longer checks the page, so its hello says "ok" (pages before 26.3.2 grey
+  // out otherwise) and an action that changes the PC still runs
   await stopPc(pc);
   const appFile = path.join(pageDir, "page", "frame", "app.js");
   fs.appendFileSync(appFile, "\n// changed\n");
   fs.writeFileSync(logFile, "");
   pc = startPc(pcEnv);
-  check(
-    "the PC program sees the changed page",
-    await until(() => /page-check/.test(logText()), 10000),
-    pc.out + logText(),
-  );
+  step = "opening a session on the restarted PC";
+  stepAt = Date.now();
   {
     let opened = null;
     for (const end = Date.now() + 10000; !opened && Date.now() < end; ) {
@@ -595,39 +588,46 @@ try {
     }
     const { link: l, s } = opened;
     check(
-      "hello: the PC calls the changed page unverified",
-      s.hello.page === "unverified",
+      'a changed page: the hello still says page "ok", so older pages do not grey out',
+      s.hello.page === "ok",
       JSON.stringify(s.hello),
     );
-    const st = await s.ask("pc.status", {});
-    check("pc.status still works when unverified", st.ok === true);
     const start = await s.ask("nimbalyst.start", {});
     check(
-      "nimbalyst.start is refused with page-unverified",
-      start.ok === false && start.err === "page-unverified",
+      "a changed page: a write action (nimbalyst.start, dry) still runs",
+      start.ok === true && start.d?.state === "starting",
       JSON.stringify(start),
     );
     await s.bye();
     l.close();
   }
 
-  // The PC drops the old session's frames without a word; the unanswered ask ends the session, so the app
-  // says hello again instead of timing out on every action.
+  // The restarted PC no longer knows the old session; the relay's pc-online ends it, so the app says hello
+  // again instead of timing out on every action.
   {
+    const ended = await Promise.race([lost.s.ended, sleep(1000)]);
     const err = await lost.s.ask("pc.status", {}, 2000).then(
       () => null,
       (e) => e,
     );
-    const ended = await Promise.race([lost.s.ended, sleep(1000)]);
     check(
-      "an ask the restarted PC drops times out and ends the session",
-      err?.code === "timeout" && ended?.code === "timeout",
+      "a session the restarted PC no longer knows must end on its pc-online, and an ask on it must fail at once",
+      ended?.code === "pc-online" && err?.code === "pc-online",
       `${err?.code} / ${ended?.code}`,
     );
     lost.link.close();
   }
 } catch (e) {
-  check("the run finished", false, e.stack);
+  check(
+    `the run finished (failed while ${step})`,
+    false,
+    `${e.stack}\n${((Date.now() - stepAt) / 1000).toFixed(1)} s into the step\nPC program output (last 1500 characters):\n${pc?.out?.slice(-1500) ?? "(no PC program)"}\npc.log (last 2500 characters):\n${(() => {
+      const f = path.join(home, ".phone-app", "pc.log");
+      return fs.existsSync(f)
+        ? fs.readFileSync(f, "utf8").slice(-2500)
+        : "(none)";
+    })()}`,
+  );
 } finally {
   if (pc) await stopPc(pc);
   if (relay) await relay.close();

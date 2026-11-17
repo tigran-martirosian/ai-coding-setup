@@ -90,6 +90,54 @@ export function toTurn(line) {
   return null;
 }
 
+// The texts steer.mjs may have put notes in, by the way it delivered them: after a tool call (a hook's added context,
+// an attachment line), as the session was finishing (Stop hook feedback, a user line) or by holding a tool call (the
+// call's refused result).
+function steerTexts(line) {
+  if (line?.isSidechain) return [];
+  const a = line?.attachment;
+  if (line?.type === "attachment")
+    return a?.type === "hook_additional_context"
+      ? [a.content].flat().filter((p) => typeof p === "string")
+      : [];
+  const c = line?.message?.content;
+  if (line?.type !== "user" || line.isMeta) return [];
+  if (typeof c === "string") return /^Stop hook feedback:/.test(c) ? [c] : [];
+  if (!Array.isArray(c)) return [];
+  return c
+    .filter((p) => p?.type === "tool_result")
+    .flatMap((p) => [p.content].flat())
+    .map((p) => (typeof p === "string" ? p : p?.text))
+    .filter((p) => typeof p === "string");
+}
+
+// What steer writes after the last note: a report, a typed message, its own remarks, what to do next.
+const AFTER_NOTES =
+  /\n(?:\[[a-z]+\] |Now decide about the held call|Deal with it now, then finish)/;
+
+// The notes steer.mjs handed the session (a Note from the desktop button or the phone, /btw):
+// "[btw] <rules>\n- [note <id>] <text>", one "- [note" line per note, before what AFTER_NOTES names. Each note is a
+// user turn marked `note: true`, without the line the phone adds, so the page finds its own words again.
+export function notesOf(line) {
+  const out = [];
+  for (const part of steerTexts(line)) {
+    const from = part.indexOf("[btw] ");
+    if (from < 0) continue;
+    const body = part.slice(from + 6).split(AFTER_NOTES)[0];
+    for (const piece of body.split(/\n- \[note [a-z0-9]+\] /).slice(1)) {
+      const text = withoutNote(piece.trim());
+      if (text)
+        out.push({
+          role: "user",
+          note: true,
+          text,
+          at: line.timestamp ?? null,
+        });
+    }
+  }
+  return out;
+}
+
 // The transcript's lines that end before byte `stop`, newest first, each as { at, line } with its byte offset and
 // its parsed JSON. A line that does not parse (one still being written) is skipped.
 function* linesBackward(fd, stop) {
@@ -395,6 +443,8 @@ export function readTurns(file, end, count, place) {
           if (t.text) t.links = linksOf(t.text, place, place.base);
         }
         if (t) turns.push({ ...t, pos: at });
+        // newest first here: a line's later note goes in first
+        for (const n of notesOf(line).reverse()) turns.push({ ...n, pos: at });
         if (turns.length >= count) break;
       }
     turns.reverse();

@@ -449,6 +449,9 @@ export const hasHost = () => true;
 export const haptic = () => {};
 export const setMainButton = () => {};
 export const setBackButton = (_tg, onBack) => { f.back = onBack; };`,
+  [pageUrl("frame/zoom.js")]: `const f = globalThis.frameFake;
+export const setZoom = (on) => { f.zoom = on; };
+export const lockGestures = () => { f.gesturesLocked = true; };`,
   [pageUrl("frame/keystore.js")]:
     `export const loadPairing = async () => ({ K: "key", pcId: "pc", dev: "dev" });
 export const restorePairing = async () => null;
@@ -459,12 +462,28 @@ export class ChannelError extends Error {
   constructor(code, extra = {}) { super(code); this.code = code; this.extra = extra; }
 }
 export const socketUrl = () => "wss://relay.test/";
-export const openLink = async () => ({ listen() {}, close() {} });
+// f.linkFail (a code) fails the socket's opening, f.helloFail ({ code, extra }) the hello; f.link is the last
+// link (its listeners get relay frames), f.end(code) ends the session up now. f.opens counts the sockets asked
+// for; f.linkWait (a promise) holds each opening until it settles; f.helloPage is the page word in the hello.
+export const openLink = async () => {
+  f.opens = (f.opens ?? 0) + 1;
+  if (f.linkWait) await f.linkWait;
+  if (f.linkFail) throw new ChannelError(f.linkFail);
+  const link = { listeners: new Set(), closed: null, listen(fn) { link.listeners.add(fn); },
+    close() { link.closed = {}; }, drop() { link.closed = {}; } };
+  f.link = link;
+  return link;
+};
 export const pair = async () => { throw new Error("no pairing in this test"); };
 export const join = async () => { throw new Error("no device join in this test"); };
-export const openSession = async () => ({ hello: { page: "ok" }, ended: new Promise(() => {}),
-  bye: async () => {}, ask: (a, d) => f.pc(a, d),
-  sendStream: async () => { throw new Error("no recordings in this test"); } });`,
+export const openSession = async () => {
+  if (f.helloFail) throw new ChannelError(f.helloFail.code, f.helloFail.extra);
+  let end;
+  const ended = new Promise((r) => { end = r; });
+  f.end = (code) => end(new ChannelError(code));
+  return { hello: { page: f.helloPage ?? "ok" }, ended, bye: async () => {}, ask: (a, d) => f.pc(a, d),
+    sendStream: async () => { throw new Error("no recordings in this test"); } };
+};`,
 };
 registerHooks({
   resolve(specifier, context, next) {
@@ -520,6 +539,11 @@ async function startFrame() {
     },
     addEventListener: () => {},
   });
+  // The window's events: "online" and "pageshow" reconnect at once.
+  frameFake.win = {};
+  globalThis.addEventListener = (type, fn) => {
+    frameFake.win[type] = fn;
+  };
   globalThis.location = new URL("https://page.test/");
   globalThis.IntersectionObserver = FakeObserver;
   FakeNode.changed = () => {
@@ -580,15 +604,16 @@ try {
   const version = byClass(live.root, "version")[0]?.textContent ?? "";
   check(
     "the version line shows the version the PC is on and the newer one available",
-    version.includes("You're on setup 26.1") &&
+    version.includes("PC program: setup 26.1") &&
       version.includes("Nimbalyst 0.83.0") &&
-      version.includes("Setup 26.2 available"),
+      version.includes("PC program update: setup 26.2") &&
+      version.includes("run /update-setup"),
     version,
   );
   check(
     "order: PC status, version line, Needs you, Working",
-    at("PC on") < at("You're on") &&
-      at("You're on") < at("Needs you") &&
+    at("PC on") < at("PC program:") &&
+      at("PC program:") < at("Needs you") &&
       at("Needs you") < at("Working"),
     text,
   );
@@ -626,8 +651,8 @@ try {
   });
   const v2 = byClass(current.root, "version")[0]?.textContent ?? "";
   check(
-    'no "available" when the PC is on the newest version',
-    v2.includes("You're on setup 26.1") && !v2.includes("available"),
+    "no update line when the PC is on the newest version",
+    v2.includes("PC program: setup 26.1") && !v2.includes("update"),
     v2,
   );
 
@@ -661,7 +686,7 @@ try {
   check(
     "with the PC out of reach: no question asked, the version line and last known sessions stay",
     off.asked.length === 0 &&
-      off.root.textContent.includes("You're on setup") &&
+      off.root.textContent.includes("PC program: setup") &&
       off.root.textContent.includes("Last known") &&
       off.root.textContent.includes("Answers and new sessions need the PC on."),
     off.root.textContent,
@@ -707,12 +732,27 @@ try {
     return r ? rowTop(r) : null;
   };
   const near = (p) => p !== null && Math.abs(p - placeBefore) <= 2;
+  const zoomInList = frameFake.zoom;
   row55.click();
   await tick();
+  const zoomInChat = frameFake.zoom;
   let from = frameFake.asked.length;
   frameFake.back();
   const atOnce = { rows: shownRows().length, place: placeNow() };
   await tick();
+  check(
+    "pinch zoom: locked on a project's list, open on the session's chat, locked again after Back (FAIL: a screen besides the chat zooms, or the chat doesn't)",
+    frameFake.gesturesLocked === true &&
+      zoomInList === false &&
+      zoomInChat === true &&
+      frameFake.zoom === false,
+    show({
+      locked: frameFake.gesturesLocked,
+      zoomInList,
+      zoomInChat,
+      afterBack: frameFake.zoom,
+    }),
+  );
   const afterBack = {
     rows: shownRows().length,
     place: placeNow(),
@@ -958,6 +998,241 @@ try {
     show(offAtFirst) === show([true, true]) &&
       joinButtons().every((n) => n.disabled === false),
     show({ offAtFirst, after: joinButtons().map((n) => n.disabled) }),
+  );
+
+  // ---- the connecting view (phone steady design, section 4): one calm state while the link is down. The clock
+  // is moved by hand; "online" (a network change) makes each attempt at once.
+  const realNow = Date.now;
+  let shift = 0;
+  Date.now = () => realNow() + shift;
+  const seen = [];
+  const linkNow = () => {
+    const w = `${byClass(els.content, "connect-view")[0]?.textContent ?? ""}${byClass(els.content, "link-state")[0]?.textContent ?? ""}`;
+    const s = w.includes("PC off")
+      ? "PC off"
+      : w.includes("Connecting")
+        ? "Connecting"
+        : w
+          ? w
+          : "screen";
+    if (seen.at(-1) !== s) seen.push(s);
+    return s;
+  };
+  const attempt = async (ms, fail = {}) => {
+    shift += ms;
+    frameFake.linkFail = fail.link ?? null;
+    frameFake.helloFail = fail.hello ?? null;
+    frameFake.win.online();
+    for (let i = 0; i < 4; i++) await tick();
+    return linkNow();
+  };
+  const offline = {
+    hello: {
+      code: "pc-offline",
+      extra: { lastSeen: new Date(realNow() - 3600_000).toISOString() },
+    },
+  };
+  linkNow();
+  frameFake.linkFail = "unreachable";
+  frameFake.end("closed");
+  for (let i = 0; i < 3; i++) await tick();
+  const quiet = linkNow();
+  const steps = [
+    await attempt(2500, { link: "unreachable" }), // past the quiet 2 s
+    await attempt(1000, offline), // the relay's first offline answer
+    await attempt(8000, offline),
+    await attempt(1000, { link: "closed" }), // a plain drop between the offline answers
+    await attempt(8000, offline), // held 17 s
+  ];
+  const keptView = els.content.childNodes[0];
+  const offAt = await attempt(4000, offline); // held 21 s
+  const offKept = els.content.childNodes[0] === keptView;
+  const afterOff = [
+    await attempt(1000, { link: "closed" }),
+    await attempt(60_000, { link: "unreachable" }),
+    await attempt(1000, { hello: { code: "timeout" } }),
+  ];
+  const back = await attempt(1000);
+  check(
+    "the status never flips between Connecting and PC off: quiet first, then Connecting, then PC off once the relay said offline for 20 s, kept through drops until a good hello",
+    quiet === "screen" &&
+      show(seen) === show(["screen", "Connecting", "PC off", "screen"]) &&
+      steps.every((s) => s === "Connecting") &&
+      offAt === "PC off" &&
+      afterOff.every((s) => s === "PC off") &&
+      back === "screen",
+    show({ quiet, steps, offAt, afterOff, back, seen }),
+  );
+  check(
+    'from Connecting to "PC off" the kept screen stays as it was: only the card on top changes',
+    offKept,
+    show({ offKept }),
+  );
+
+  seen.length = 0;
+  frameFake.linkFail = "unreachable";
+  frameFake.end("closed");
+  for (let i = 0; i < 3; i++) await tick();
+  const noWord = [];
+  for (const fail of [
+    { link: "unreachable" },
+    { link: "closed" },
+    { hello: { code: "timeout" } },
+    { hello: { code: "closed" } },
+    { link: "unreachable" },
+    { link: "unreachable" },
+    { link: "unreachable" },
+  ])
+    noWord.push(await attempt(15_000, fail));
+  const longLine = byClass(els.content, "link-state")[0]?.textContent ?? "";
+  check(
+    '"PC off" shows only on the relay\'s offline word: 105 s of failed sockets, closes and hello timeouts stay Connecting',
+    noWord.every((s) => s === "Connecting") && !seen.includes("PC off"),
+    show({ noWord, seen }),
+  );
+  check(
+    "connecting 30 s without reaching the relay names both causes: the phone's internet or the connection service",
+    longLine.includes(
+      "This phone's internet or the connection service may be down.",
+    ),
+    longLine,
+  );
+
+  // ---- Try again under the long line: one new attempt at once, "Trying…" and off while it runs, so a second tap
+  // asks for nothing more; afterwards it can be tapped again.
+  const tryBtn = () =>
+    walk(els.content).find(
+      (n) => n.tagName === "button" && /Try again|Trying/.test(n.textContent),
+    );
+  let letGo;
+  frameFake.linkWait = new Promise((r) => {
+    letGo = r;
+  });
+  const opensBefore = frameFake.opens;
+  tryBtn()?.click();
+  await tick();
+  tryBtn()?.click();
+  await tick();
+  const during = {
+    opens: frameFake.opens - opensBefore,
+    text: tryBtn()?.textContent,
+    disabled: tryBtn()?.disabled,
+  };
+  frameFake.linkWait = null;
+  letGo();
+  shift += 2500;
+  await new Promise((r) => setTimeout(r, 1100)); // the frame's 1 s status tick
+  const after = { text: tryBtn()?.textContent, disabled: tryBtn()?.disabled };
+  check(
+    "Try again starts one attempt and is busy while it runs: a second tap does nothing extra",
+    during.opens === 1 &&
+      during.text === "Trying…" &&
+      during.disabled === true &&
+      after.text === "Try again" &&
+      !after.disabled,
+    show({ during, after }),
+  );
+
+  // ---- against a 26.3 PC (its hello calls the page unverified): the screen at full strength under the read-only
+  // line, only its controls that act are off
+  frameFake.helloPage = "unverified";
+  await attempt(1000);
+  walk(els.tabbar)
+    .find((n) => n.tagName === "button" && n.textContent === "Projects")
+    .click();
+  await tick();
+  const view = els.content.childNodes[0];
+  const screenBody = view.childNodes.at(-1);
+  const readOnlyCss = css.match(/\.read-only\s+:is\(([^)]*)\)\s*\{([^}]*)\}/);
+  check(
+    "read-only: the list is not dimmed (no kept or dimmed look on the screen) while its controls that act are off",
+    screenBody.className === "read-only" &&
+      els["bottom-extra"].className === "read-only" &&
+      shownRows().length > 0 &&
+      view.textContent.includes("You can look, not act") &&
+      /button/.test(readOnlyCss?.[1] ?? "") &&
+      /\[data-action\]/.test(readOnlyCss?.[1] ?? "") &&
+      /pointer-events:\s*none/.test(readOnlyCss?.[2] ?? "") &&
+      !/^\.read-only\s*\{/m.test(css),
+    show({ cls: screenBody.className, rule: readOnlyCss?.[0] }),
+  );
+  frameFake.helloPage = null;
+  await attempt(1000);
+  Date.now = realNow;
+
+  // ---- The zoom lock itself (frame/zoom.js) on a stand-in document, and the page's own start state
+  const zoom = await import(pageUrl("frame/zoom.js"));
+  const zoomDoc = {
+    tag: { content: "" },
+    classes: new Set(),
+    listeners: {},
+  };
+  zoomDoc.tag.setAttribute = (k, v) => {
+    zoomDoc.tag[k] = v;
+  };
+  const pageDoc = globalThis.document;
+  globalThis.document = {
+    querySelector: (q) => (q === 'meta[name="viewport"]' ? zoomDoc.tag : null),
+    documentElement: {
+      classList: {
+        toggle: (c, on) =>
+          on ? zoomDoc.classes.add(c) : zoomDoc.classes.delete(c),
+      },
+    },
+    addEventListener: (type, fn, opts) => {
+      zoomDoc.listeners[type] = { fn, passive: opts?.passive };
+    },
+  };
+  zoom.lockGestures();
+  const pinch = (type, touches) => {
+    let stopped = false;
+    zoomDoc.listeners[type].fn({
+      touches: { length: touches },
+      preventDefault: () => {
+        stopped = true;
+      },
+    });
+    return stopped;
+  };
+  zoom.setZoom(false);
+  const locked = {
+    content: zoomDoc.tag.content,
+    zoomable: zoomDoc.classes.has("zoomable"),
+    pinch: pinch("gesturestart", 2),
+    twoFingers: pinch("touchmove", 2),
+    oneFinger: pinch("touchmove", 1),
+  };
+  zoom.setZoom(true);
+  const opened = {
+    content: zoomDoc.tag.content,
+    zoomable: zoomDoc.classes.has("zoomable"),
+    pinch: pinch("gesturestart", 2),
+    twoFingers: pinch("touchmove", 2),
+  };
+  globalThis.document = pageDoc;
+  check(
+    "zoom lock: locked = scale 1, no user scaling, pinch and two-finger moves cancelled, one-finger scroll kept; open = scale up to 5, nothing cancelled (FAIL: pages can be pinched or the chat can't)",
+    locked.content.includes("maximum-scale=1") &&
+      locked.content.includes("user-scalable=no") &&
+      !locked.zoomable &&
+      locked.pinch &&
+      locked.twoFingers &&
+      !locked.oneFinger &&
+      opened.content.includes("maximum-scale=5") &&
+      !opened.content.includes("user-scalable=no") &&
+      opened.zoomable &&
+      !opened.pinch &&
+      !opened.twoFingers &&
+      zoomDoc.listeners.touchmove.passive === false,
+    show({ locked, opened }),
+  );
+  const indexHtml = fs.readFileSync(path.join(PAGE, "index.html"), "utf8");
+  const pageCss = fs.readFileSync(path.join(PAGE, "page.css"), "utf8");
+  check(
+    "the page starts locked: index.html's viewport tag is zoom.js's LOCKED, page.css stops pinch outside html.zoomable (FAIL: the page zooms before the frame runs)",
+    indexHtml.includes(`content="${zoom.LOCKED}"`) &&
+      /html \{\s*touch-action: pan-x pan-y;/.test(pageCss) &&
+      /html\.zoomable \{\s*touch-action: auto;/.test(pageCss),
   );
 } catch (e) {
   failure = e;

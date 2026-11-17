@@ -4,8 +4,8 @@
 //   node phone/relay/deploy-test.mjs [--dry-run] [--checks] [--secrets <file>]
 //   node phone/relay/deploy-test.mjs --setup [--secrets <file>]
 // --dry-run: checks the file and the page, then shows each step without writing, deploying or calling anyone.
-// --checks: deploys the test build with the Checks screen (build.mjs --checks) for a probe on the phone; every
-// PC marks that page unverified, so run a plain deploy once the probe is done.
+// --checks: deploys the test build with the Checks screen (build.mjs --checks) for a probe on the phone; run a
+// plain deploy once the probe is done.
 // --setup: asks for the Cloudflare token and account id as hidden input and writes them into the secrets file,
 // keeping its other keys; the file's access list is then this Windows user only.
 // --secrets: another secrets file than ~/.phone-app/owner-secrets.json (the tests use one in a temp folder).

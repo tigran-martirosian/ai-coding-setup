@@ -166,7 +166,8 @@ setInterval(() => {
 }, 50);
 `,
 );
-// launcher: <kind> <cwd> <program> <args...>; logs each start; quit writes the quit file; self starts the program detached
+// launcher: <kind> <cwd> <program> <args...>; logs each start; quit writes the quit file (with FAKE_QUIT_GATE, only once
+// that file exists, 20 s at most, so the run is held at its quit request); self starts the program detached
 const LAUNCHER = path.join(T, "launcher.mjs");
 write(
   LAUNCHER,
@@ -177,6 +178,9 @@ const [kind, cwd, program, ...args] = process.argv.slice(2);
 const stagedThere = fs.existsSync(path.join(process.env.NIMBALYST_DELIVER_DATA, "staged.json"));
 fs.appendFileSync(process.env.FAKE_LAUNCH_LOG, JSON.stringify({ kind, cwd, program, args, stagedThere }) + "\\n");
 if (kind === "open" && process.env.FAKE_OPEN_FAILS) { console.error("the program would not start"); process.exit(5); }
+const gate = process.env.FAKE_QUIT_GATE, gateEnd = Date.now() + 20000;
+if (kind === "quit" && gate)
+  while (!fs.existsSync(gate) && Date.now() < gateEnd) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
 if (kind === "quit") fs.writeFileSync(process.env.FAKE_QUIT_FILE, "quit");
 if (kind === "self") spawn(program, args, { cwd, detached: true, stdio: "ignore", windowsHide: true }).unref();
 `,
@@ -239,6 +243,9 @@ function world(name, { version = "0.83.0", blocked = false } = {}) {
     NIMBALYST_DELIVER_RUN_WITH: process.execPath,
     NIMBALYST_DELIVER_RUNNING: w.runningFile,
     NIMBALYST_PATCH_PROGRAM_DIRS: "",
+    // the panels (ext-swap.mjs): Nimbalyst's own folder in the world, running while the running file exists
+    APPDATA: path.join(root, "appdata"),
+    SETUP_NIMBALYST_OPEN_FILE: w.runningFile,
     NIMBALYST_RESTART_LAUNCH: LAUNCHER,
     NIMBALYST_RESTART_QUIT_WAIT_MS: "5000",
     NIMBALYST_RESTART_TRAY_WAIT_MS: "20000",
@@ -256,16 +263,11 @@ function world(name, { version = "0.83.0", blocked = false } = {}) {
       env: w.env(extra),
     });
   w.restart = (args, extra) => {
-    const t = Date.now(),
-      r = spawnSync(process.execPath, [RESTART, ...args], {
-        encoding: "utf8",
-        env: w.env(extra),
-      });
-    return {
-      code: r.status,
-      out: (r.stdout + r.stderr).trim(),
-      ms: Date.now() - t,
-    };
+    const r = spawnSync(process.execPath, [RESTART, ...args], {
+      encoding: "utf8",
+      env: w.env(extra),
+    });
+    return { code: r.status, out: (r.stdout + r.stderr).trim() };
   };
   // the stand-in app; resolves once it is "running"
   w.start = async (mode = "obey") => {
@@ -374,7 +376,6 @@ try {
   await w.start();
   w.deliver("--stage");
   w.deliver("--wait");
-  const t2 = Date.now();
   const run2 = spawn(process.execPath, [RESTART, "--run"], {
     stdio: "ignore",
     env: w.env(),
@@ -390,6 +391,7 @@ try {
       w.log().includes("waiting up to 20 s for a Quit from its tray icon"),
     `${JSON.stringify(w.launches())}\n${w.log()}`,
   );
+  const quitAt = Date.now();
   write(w.quitFile, "tray quit");
   const code2 = await done2;
   check(
@@ -399,9 +401,18 @@ try {
       patchedText(w.asar) &&
       ok(w) &&
       openedRight(w) &&
-      w.launches().every((l) => l.kind !== "quit") &&
-      Date.now() - t2 < 15000,
+      w.launches().every((l) => l.kind !== "quit"),
     `${code2}\n${w.log()}`,
+  );
+  // It goes on when the app has quit, not at the end of its 20 s wait: the close is seen within half the wait of the
+  // Quit. Timed from the Quit to the run's own log line, so the install and node starts a busy computer slows are out.
+  const endedAt = Date.parse(
+    w.log().match(/^(\S+) \[\d+\] every Nimbalyst process has ended$/m)?.[1],
+  );
+  check(
+    "unpatched: it goes on soon after the tray Quit, not at the end of its 20 s wait",
+    endedAt - quitAt < 10000,
+    `${endedAt - quitAt} ms from the Quit to the close seen\n${w.log()}`,
   );
 
   // 3. nothing staged: refuses with one line, starts nothing
@@ -577,12 +588,70 @@ try {
     `${r.code}\n${w.log()}`,
   );
 
+  // 7b. a marker job (panels only, no version) is not refused: the panels go in, nothing is installed
+  w = world("marker", { version: "0.84.0", blocked: true });
+  const panelData = path.join(w.root, "appdata", "@nimbalyst", "electron");
+  write(path.join(panelData, "extensions-pending", "demo", "new.txt"), "new");
+  write(path.join(panelData, "extensions", "demo", "old.txt"), "old");
+  write(
+    path.join(w.data, "staged.json"),
+    JSON.stringify({
+      extensions: true,
+      installer: null,
+      node: process.execPath,
+      deliver: DELIVER,
+      at: new Date().toISOString(),
+      atClose: true,
+    }),
+  );
+  r = w.restart(["--run"]);
+  check(
+    "marker job: not refused, the panel swapped in, marker gone, no status.json, nothing installed, opened",
+    r.code === 0 &&
+      fs.existsSync(path.join(panelData, "extensions", "demo", "new.txt")) &&
+      !fs.existsSync(path.join(panelData, "extensions", "demo", "old.txt")) &&
+      !fs.existsSync(path.join(panelData, "extensions-pending", "demo")) &&
+      !w.staged() &&
+      !w.status() &&
+      !fs.existsSync(w.installerLog) &&
+      openedRight(w),
+    `${r.code}\n${w.log()}`,
+  );
+
+  // 7c. a marker job whose close times out: exit 1, the error in the log only, no status.json
+  w = world("marker-stuck", { version: "0.84.0", blocked: true });
+  await w.start("ignore");
+  write(
+    path.join(w.data, "staged.json"),
+    JSON.stringify({
+      extensions: true,
+      installer: null,
+      node: process.execPath,
+      deliver: DELIVER,
+      at: new Date().toISOString(),
+      atClose: true,
+    }),
+  );
+  r = w.restart(["--run"], { NIMBALYST_RESTART_QUIT_WAIT_MS: "1500" });
+  check(
+    "marker job stuck: exit 1, no status.json, the error in restart.log, the marker kept",
+    r.code === 1 &&
+      !w.status() &&
+      w.log().includes("failed (marker job, no status.json)") &&
+      w.staged()?.extensions === true,
+    `${r.code} ${JSON.stringify(w.status())}\n${w.log()}`,
+  );
+  w.app.kill();
+  await w.appEnded();
+
   // 8. the plain start: starts itself again detached with --run, says one line, returns at once
   w = world("plain", { blocked: true });
   await w.start();
   w.deliver("--stage");
   w.deliver("--wait");
-  r = w.restart([]);
+  // the run is held at its quit request until the gate file is written, so it can't be done when the plain start returns
+  const gate = path.join(w.root, "quit-gate");
+  r = w.restart([], { FAKE_QUIT_GATE: gate });
   const self = w.launches()[0];
   check(
     "plain start: one line, exit 0",
@@ -600,11 +669,13 @@ try {
       self.args.length === 2,
     JSON.stringify(w.launches()),
   );
+  // a plain start that waited for the run would return only after the gate's 20 s, with the app closed and opened
   check(
-    "plain start: returned before the run did its work",
-    r.ms < 5000 && !opened(w).length,
-    `${r.ms} ms`,
+    "plain start: returns at once, while its run is still held at the quit request (does not wait for the run)",
+    !opened(w).length && !w.log().includes("every Nimbalyst process has ended"),
+    w.log(),
   );
+  write(gate, "");
   for (let i = 0; i < 200 && !w.log().includes("again\n"); i++)
     await sleep(100);
   check(

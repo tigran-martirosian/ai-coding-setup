@@ -22,8 +22,8 @@ Folder: the one the user names, else the current one. `PASS` below is
    A project with plan files (`docs/*-plan.md`), or one `lead` is about to make its first job in, whose tracker `task` type lacks the step fields (`file` among them) or
    the waits-for-you status (`tracker_list_types`) gets one more item: the task-type patch, as
    new-project's tools table gives it (row "has a plan and multiple steps").
-   P20-P22 read GitHub through a signed-in `gh` account: the remote's owner when that is one of them,
-   else (an organisation's repo) the first one that can read the repo. When they print "not checked",
+   P20-P22 and P26 (CI speed) read GitHub through a signed-in `gh` account: the remote's owner when that
+   is one of them, else (an organisation's repo) the first one that can read the repo. When they print "not checked",
    say what the note names (no account signed in: `gh auth login`; no account can read the repo: one
    of the accounts tried needs access to it) and keep them out of the list. A `GitHub` note means
    GitHub answered an error (a revoked token, a deleted repo): show it and the checks it names as

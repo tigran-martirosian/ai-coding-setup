@@ -7,6 +7,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { nodeStarts, UNDER_STARTS } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/no-response-gate.mjs", import.meta.url),
@@ -72,9 +73,13 @@ const refused = () =>
   );
 
 let n = 0;
-const run = (entries, { input = {}, env = {} } = {}) => {
+const transcriptOf = (entries) => {
   const file = join(dir, `t${++n}.jsonl`);
   writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  return file;
+};
+const run = (entries, opts) => runOn(transcriptOf(entries), opts);
+const runOn = (file, { input = {}, env = {} } = {}) => {
   const event = {
     session_id: `s${n}`,
     transcript_path: file,
@@ -103,6 +108,7 @@ const reminds = (out) =>
 const BTW_Q = "Also the scaling should be higher. What is this?";
 // A long session: 12 MB of older turns before the last one (only the file's end is read)
 const OLD = Array.from({ length: 1200 }, () => say("x".repeat(10000)));
+let long; // its file, written by the first case that uses it
 // The user's stop (Nimbalyst's stop button; an app restart writes the same result)
 const STOP =
   "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown. Check whether it took effect before relying on it or running it again.]";
@@ -127,19 +133,29 @@ const denies = (out) =>
 
 const cases = [
   [
-    "12 MB transcript: the last turn is still judged (blocked), in under 3 s",
-    () => {
-      const t0 = Date.now();
-      return (
-        blocksEmpty(
-          run([
+    "12 MB transcript: the last turn is still judged (blocked)",
+    () =>
+      blocksEmpty(
+        runOn(
+          (long ??= transcriptOf([
             typed("hi"),
             ...OLD,
             typed("what's the build status?"),
             say(NRR),
-          ]),
-        ) && Date.now() - t0 < 3000
+          ])),
+        ),
+      ),
+  ],
+  // The Stop hook a person waits on stays quick on a long session: timed in bare node starts, so a busy computer
+  // (CI runs every core at once) slows both sides alike
+  [
+    `12 MB transcript: judged within ${UNDER_STARTS} bare node starts`,
+    () => {
+      const t = nodeStarts(3, () => runOn(long));
+      console.log(
+        `      best of three: ${t.ms} ms = ${t.starts} starts of ${t.startMs} ms`,
       );
+      return t.starts < UNDER_STARTS;
     },
   ],
   // Check 1: a typed message, no visible answer

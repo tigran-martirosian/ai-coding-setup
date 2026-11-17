@@ -45,8 +45,15 @@ export function readTokens() {
   return fs.readFileSync(file, "utf8");
 }
 
-/** The folder of one extension in Nimbalyst's user extensions folder. The folder name must equal the manifest id's last part. */
+/**
+ * The folder an extension is installed into: in Nimbalyst's user extensions folder, or under SETUP_EXT_STAGE when
+ * that is set. The folder name must equal the manifest id's last part.
+ */
 export function extensionTarget(folder) {
+  // The installer (scripts/extensions.mjs) builds into a side folder: a running Nimbalyst reads its own one
+  // mid-session, so tools/nimbalyst-patch/ext-swap.mjs swaps the build in while Nimbalyst is closed
+  if (process.env.SETUP_EXT_STAGE)
+    return path.join(process.env.SETUP_EXT_STAGE, folder);
   // On a Mac Nimbalyst keeps its settings under Application Support
   const appData =
     process.platform === "darwin"
@@ -61,8 +68,8 @@ export function extensionTarget(folder) {
 }
 
 /**
- * Checks ./dist with the SDK's validator, then replaces the installed copy of the extension in
- * Nimbalyst's folder with `items` (relative to the current folder) and a package.json.
+ * Checks ./dist with the SDK's validator, then replaces the extension's folder at extensionTarget with
+ * `items` (relative to the current folder) and a package.json.
  */
 export async function installBuilt(
   folder,

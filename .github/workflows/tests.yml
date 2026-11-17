@@ -1,6 +1,6 @@
 name: Tests
 
-# main gets one squash-merged pull request per release; tags start no run (the commit was tested as main).
+# main gets one squash-merged pull request per release; tags start no run (the commit was checked as main).
 # A pull request title is read when the pull request is opened, reopened or pushed to: after an edit of the
 # title, push again (a re-run reads the old title).
 on:
@@ -18,28 +18,83 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  # Tests run once per release, on its pull request (the ruleset requires them there); the push to main that the
+  # squash merge makes holds the same files, so it gets lint, typecheck and privacy only. A manual run tests too.
+  # Each system runs the suite in two jobs side by side, split by tests/run-all-timings.json (run-all.mjs --shard):
+  # together they run every test file once. Part 1 holds the files that need ffmpeg and installs it; its install
+  # time counts in the split. The ruleset requires "test (windows-latest)" and "test (macos-latest)": the small
+  # jobs of those names below are green only when both parts of their system passed.
+  # The limit stops a hung job, not one waiting in the queue. When GitHub has no macOS runner free, the job ends
+  # red with "The job was not acquired by Runner"; that is not a test failure: re-run the failed job.
+  # The checkout fetches the tags too, each with its own commit only: tests/test-phone-steady.mjs takes the released
+  # v26.3.1 phone program from git tag v26.3.1 to run it with the new one, and leaves those checks out without it.
+  test-windows-parts:
+    if: github.event_name != 'push'
+    name: test (windows-latest, part ${{ matrix.part }}/2)
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    # The limit stops a hung job, not one waiting in the queue. When GitHub has no macOS runner free, the job
-    # ends red with "The job was not acquired by Runner"; that is not a test failure: re-run the failed job.
+        part: [1, 2]
+    runs-on: windows-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-tags: true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      # tests/test-watch.mjs draws a short video with ffmpeg, which the runners do not have.
-      - if: runner.os == 'Windows'
+      # tests/test-watch.mjs and tests/test-picture-gate.mjs draw with ffmpeg, which the runners do not have.
+      - if: matrix.part == 1
         run: choco install ffmpeg -y --no-progress
+      # Files side by side; on a failure the failed files run again one at a time with their full output, so the
+      # whole log is in the run. The step stays red even when the rerun passes: a flaky test is still a failure.
+      - shell: bash
+        run: node tests/run-all.mjs --shard ${{ matrix.part }}/2 || { node tests/run-all.mjs --failed --verbose; exit 1; }
+
+  test-windows:
+    if: always() && github.event_name != 'push'
+    name: test (windows-latest)
+    needs: test-windows-parts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: test "$PARTS" = success || { echo "a Windows test part ended $PARTS"; exit 1; }
+        env:
+          PARTS: ${{ needs.test-windows-parts.result }}
+
+  test-macos-parts:
+    if: github.event_name != 'push'
+    name: test (macos-latest, part ${{ matrix.part }}/2)
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-tags: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       # On a Mac the plain ffmpeg has no drawtext filter; skills/watch/watch.mjs finds ffmpeg-full by itself.
-      - if: runner.os == 'macOS'
+      - if: matrix.part == 1
         run: brew install ffmpeg ffmpeg-full
-      # --verbose: one file at a time with its full output, so a failure's whole log is in the run
-      - run: node tests/run-all.mjs --verbose
+      - shell: bash
+        run: node tests/run-all.mjs --shard ${{ matrix.part }}/2 || { node tests/run-all.mjs --failed --verbose; exit 1; }
+
+  test-macos:
+    if: always() && github.event_name != 'push'
+    name: test (macos-latest)
+    needs: test-macos-parts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: test "$PARTS" = success || { echo "a macOS test part ended $PARTS"; exit 1; }
+        env:
+          PARTS: ${{ needs.test-macos-parts.result }}
 
   lint:
     runs-on: ubuntu-latest

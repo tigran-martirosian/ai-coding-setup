@@ -4,6 +4,27 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.3.2] - 2026-11-16
+
+- The phone app holds its connection through a workday: the PC program and the page notice a dead link within seconds (the phone sleeping, a Wi-Fi drop, a switch to mobile data) and reconnect on their own, the relay closes links that went silent, and after a reconnect the page gets only what it missed.
+- While the phone reconnects, the page stays on one calm connecting screen and says the PC is off only once the relay says so, instead of flipping between "Reconnecting" and "PC off". When the PC program restarts, an open phone is back within seconds, and a newer page shows "Update ready".
+- The PC no longer checks the page it is talking to, so a page update can no longer turn the phone read-only. One time only: a PC still on 26.3 or 26.3.1 shows the phone read-only until it runs `/update-setup`.
+- A message you sent from the phone no longer stays in the session's queue after Nimbalyst has handed it over.
+- A message you send from the phone shows once in the chat, in its place, instead of a second grey copy and a waiting bubble stuck at the bottom.
+- The phone app's screens stay put under your fingers: no pinch zoom, double-tap zoom or dragging the page around, except in a session's chat, which you can still zoom into.
+- `setup.mjs join` and `remove` stop the phone app's PC program whichever copy of it is running, and an error that stops the program at start-up is written to `pc.log`.
+- In Nimbalyst's Job Tracker, each Needs you row has a Done button that closes the step in one click; a failed write keeps the row and says so.
+- Jobs released or cancelled more than 3 days ago archive themselves and leave the job picker.
+- Each step row in the Job Tracker shows its session's state (waiting on you, no change since a time, session ended), and "waits on" names the step by its title.
+- `/where-are-we` never lists a helper's review under Needs you, and titles each step that waits on you as the exact thing to do.
+- Claude sorts each request first: a fix with a clear cause is built straight away, new behaviour or an unclear cause gets a one-page approach for your OK first, and only a big job goes to the planner.
+- The planner writes a one-page approach first, starting from the plainest way that works, and writes the job list only after your OK.
+- A handoff to a new session keeps your own chores out of its questions.
+- Every new test names the behaviour it guards in its failure message, and the helper that writes it breaks that code once to see the test fail.
+- Claude Code saves each command you approve with "don't ask again" in `.claude/settings.local.json`, word for word, so a token typed into one ends up in that file. New projects now list it in `.gitignore`, and `/update-project` points out any project where it is missing or already committed, with how to clean it up (pass level 4).
+- Every update that asks you nothing now installs itself in the background, Nimbalyst panel rebuilds included; changed panels show the next time Nimbalyst starts (on a Mac, once you type `/update-setup` when the grey line asks), and a panel whose build fails stays queued for the next try. Only an update with a question for you waits for `/update-setup`.
+- `/update-project` offers a CI speed pass when a GitHub project's CI takes over 5 minutes at the median: it times each step first, fixes the slowest, and never makes CI faster by hiding failures (the full suite still runs before main; no retries, longer timeouts or skipped tests). New projects name two test commands: a quick one for what changed while you work and the full suite at the end.
+
 ## [26.3.1] - 2026-11-16
 
 - The setup's Nimbalyst panels now stay in English, like Nimbalyst itself, whatever language Claude answers you in; with Russian answers they used to come out half-translated.

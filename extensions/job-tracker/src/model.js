@@ -1,9 +1,11 @@
 // The data behind the tracker page (tracker one-page design, sections 1 and 2). A job is a `release` item (any name,
 // no kind word); its steps are the tasks, plans and bugs whose built-in `collection` link holds the job's id. Each
 // step falls in one of four folds:
-//   Needs you  waits-for-you (only where the project's patch adds it) and in-review: the user's move
+//   Needs you  what the user can do now: waits-for-you (only where the project's patch adds it) and in-review, when
+//              no open step comes first; and a started step whose session waits on the user (close approach review)
 //   Running    started (in-progress and the like) with a session working on it now
-//   To do      to-do, and started with no session working on it ("started, no session on it")
+//   To do      to-do; started with no session working on it ("started, no session on it"); and a step for the user
+//              that waits on an open step ("your turn after …")
 //   Done       done, newest first, then the dropped steps (cancelled, wont-do, duplicate), shown but never counted
 // A job is finished when every step is done or dropped; one that ships as a version (its `version` field is set)
 // also needs its `gitTag`. Works on plain items: { id, type, title, status, archived, owner, updated,
@@ -44,6 +46,19 @@ function categoryOf(step) {
 
 // The item types that are a job's steps; a bug shows among them with its "Bug" tag (design, third pass)
 const STEP_TYPES = new Set(["task", "plan", "bug"]);
+
+// Each step type's own done status (tracker facts): a plan is done as "completed", a task or bug as "done"
+const DONE_STATUS = { task: "done", bug: "done", plan: "completed" };
+
+/** The status that marks the step done for its type; a clear error for a type that is not a step. */
+function doneStatusOf(step) {
+  const s = DONE_STATUS[step.type];
+  if (!s)
+    throw new Error(
+      `job-tracker: no done status for type "${step.type}" of "${step.title}"`,
+    );
+  return s;
+}
 
 // A job's stored status that closes it whatever its steps say
 const CLOSED_JOB = new Set(["released", "cancelled"]);
@@ -137,32 +152,42 @@ function workingItemIds(sessions, runningIds) {
 
 /**
  * One step's row: `fold` (needs, running, todo or done), `started` (in To do but marked in progress: "started, no
- * session on it"), `dropped` (in Done, muted, never counted), `bug` (the row's "Bug" tag), `forYou` (a To do step
- * that is the user's), `file` (the step's `file` field, a path, or null). `working` is a set of item ids.
+ * session on it"), `asks` (in Needs you: a started step whose session waits on the user), `blocked` (in To do: a step
+ * for the user that waits on an open step, "your turn after …"), `dropped` (in Done, muted, never counted), `bug` (the
+ * row's "Bug" tag), `forYou` (a To do step that is the user's), `file` (the step's `file` field, a path, or null).
+ * `working` and `waiting` are sets of item ids: a session works on it now, a session waits on the user about it.
+ * `open` holds the open steps it may wait on (openSteps).
  */
-function rowOf(step, working) {
+function rowOf(step, working, waiting, open) {
   const cat = categoryOf(step);
-  const stalled = cat === "running" && !working.has(step.id);
+  const asks = cat === "running" && waiting.has(step.id);
+  const stalled = cat === "running" && !asks && !working.has(step.id);
+  const blocked = cat === "needs" && waitsOnSteps(step, open).length > 0;
   let fold = cat;
-  if (stalled) fold = "todo";
+  if (asks) fold = "needs";
+  else if (stalled || blocked) fold = "todo";
   else if (cat === "dropped") fold = "done";
   return {
     item: step,
     fold,
     started: stalled,
+    asks,
+    blocked,
     dropped: cat === "dropped",
     bug: step.type === "bug",
-    forYou: fold === "todo" && isForYou(step),
+    forYou: fold === "todo" && (blocked || isForYou(step)),
     file: fieldText(step, "file") || null,
   };
 }
 
 /**
  * The four folds of `steps` and their counts. Needs you, Running and To do keep the order given; Done holds the done
- * steps newest first, then the dropped ones newest first. "of N" (`total`) counts every step not dropped.
+ * steps newest first, then the dropped ones newest first. "of N" (`total`) counts every step not dropped. `working`
+ * and `waiting` as rowOf takes them (index.js readSessions; none waiting when left out).
  */
-function foldsOf(steps, working) {
-  const rows = steps.map((s) => rowOf(s, working));
+function foldsOf(steps, working, waiting = new Set()) {
+  const open = openSteps(steps);
+  const rows = steps.map((s) => rowOf(s, working, waiting, open));
   const of = (fold, dropped) =>
     rows.filter((r) => r.fold === fold && r.dropped === dropped);
   const newest = (a, b) => updatedOf(b.item) - updatedOf(a.item);
@@ -199,9 +224,9 @@ function foldsOf(steps, working) {
  * of the job and its steps. A job whose stored status is released or cancelled is finished; so is one with steps
  * that are all done or dropped, and, when it ships as a version, a `gitTag` set. A job with no steps yet is open.
  */
-function jobOf(job, items, working) {
+function jobOf(job, items, working, waiting = new Set()) {
   const steps = releaseSteps(items, job.id);
-  const { rows, folds, counts } = foldsOf(steps, working);
+  const { rows, folds, counts } = foldsOf(steps, working, waiting);
   const version = fieldText(job, "version") || null;
   const tag = fieldText(job, "gitTag") || null;
   const stepsClosed = steps.length > 0 && counts.done === counts.total;
@@ -220,11 +245,40 @@ function jobOf(job, items, working) {
   };
 }
 
+// A released or cancelled job stays in the picker this long, then the page archives it (close approach, point 2: "a
+// few days"); Nimbalyst's own tracker can bring it back
+const CLOSED_KEPT_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * When the job got its stored status: the activity line that set it, else its last change (`updated`). The app stamps
+ * an activity line with Date.now() (ms); an ISO text is read too.
+ */
+function closedAt(job) {
+  const activity = job.customFields && job.customFields.activity;
+  const set = (Array.isArray(activity) ? activity : []).filter(
+    (a) => a && a.action === "status_changed" && a.newValue === job.status,
+  );
+  const last = set[set.length - 1];
+  const t = last && last.timestamp ? new Date(last.timestamp).getTime() : NaN;
+  return Number.isFinite(t) ? t : updatedOf(job);
+}
+
+/** The jobs (not archived) released or cancelled at least CLOSED_KEPT_MS before `now` (ms): the page archives them. */
+function oldClosedJobs(items, now) {
+  return items.filter(
+    (i) =>
+      i.type === "release" &&
+      !i.archived &&
+      CLOSED_JOB.has(i.status) &&
+      now - closedAt(i) >= CLOSED_KEPT_MS,
+  );
+}
+
 /** The picker: the open jobs, newest activity first, then the finished ones, newest first. Archived jobs are out. */
-function pickerJobs(items, working) {
+function pickerJobs(items, working, waiting = new Set()) {
   const jobs = items
     .filter((i) => i.type === "release" && !i.archived)
-    .map((j) => jobOf(j, items, working));
+    .map((j) => jobOf(j, items, working, waiting));
   const newest = (a, b) => b.activity - a.activity;
   return {
     open: jobs.filter((j) => !j.finished).sort(newest),
@@ -232,25 +286,36 @@ function pickerJobs(items, working) {
   };
 }
 
-/** The tasks, plans and bugs (not archived) no job holds, in the order given: the "Not in a job" page. */
+/**
+ * The tasks, plans and bugs (not archived) no job holds, in the order given: the "Not in a job" page. A step of an
+ * archived job is here too while it is open: the page archives a released or cancelled job (oldClosedJobs), and its
+ * open steps must stay in view; its done and dropped steps leave with it.
+ */
 function notInJob(items) {
-  const jobIds = items.filter((i) => i.type === "release").map((i) => i.id);
+  const jobs = items.filter((i) => i.type === "release");
+  const live = jobs.filter((j) => !j.archived).map((j) => j.id);
+  const gone = jobs.filter((j) => j.archived).map((j) => j.id);
   return items.filter(
     (i) =>
       STEP_TYPES.has(i.type) &&
       !i.archived &&
-      !jobIds.some((id) => inRelease(i, id)),
+      !live.some((id) => inRelease(i, id)) &&
+      (!gone.some((id) => inRelease(i, id)) ||
+        !["done", "dropped"].includes(categoryOf(i))),
   );
 }
 
 export {
   CATEGORY,
+  CLOSED_KEPT_MS,
   categoryOf,
+  doneStatusOf,
   foldsOf,
   inRelease,
   isForYou,
   jobOf,
   notInJob,
+  oldClosedJobs,
   openSteps,
   pickerJobs,
   releaseSteps,

@@ -6,7 +6,12 @@ import path from "node:path";
 
 const PLUGINS = [["claude-hud@claude-hud", "jarrodwatts/claude-hud"]];
 const cli = (line, ms = 300000) => {
-  const r = spawnSync(line, { shell: true, encoding: "utf8", timeout: ms });
+  const r = spawnSync(line, {
+    shell: true,
+    encoding: "utf8",
+    timeout: ms,
+    windowsHide: true,
+  });
   return {
     ok: r.status === 0,
     out:

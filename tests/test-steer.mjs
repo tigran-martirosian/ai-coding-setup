@@ -1710,13 +1710,75 @@ ok(
   "the Note button, outside a session, is never refused",
   r.code === 0 && r.out.startsWith("Queued for"),
 );
-const started = Date.now();
-r = run(["send", "--to", "dddddddd", "--nowait", "do not wait"], {
-  env: { STEER_WAIT: "5" },
+// --nowait never reads the receipt. The send runs with a 600 s receipt wait while the test marks every note in
+// the inbox delivered: a send that waits sees that receipt and says "Delivered to", one that does not says
+// "Queued for". The 60 s kill only ends a hung send; it never makes the check pass.
+r = await new Promise((done) => {
+  const c = spawn(
+    process.execPath,
+    [STEER, "send", "--to", "dddddddd", "--nowait", "do not wait"],
+    {
+      cwd: work,
+      env: {
+        ...process.env,
+        USERPROFILE: home,
+        HOME: home,
+        CLAUDE_CODE_SESSION_ID: "",
+        STEER_WAIT: "600",
+        STEER_NIMBALYST_DB: path.join(home, "no-nimbalyst.sqlite"),
+      },
+    },
+  );
+  const receiptsFile = path.join(inboxDir, "receipts.json");
+  const deliver = setInterval(() => {
+    let all = [];
+    try {
+      all = JSON.parse(fs.readFileSync(receiptsFile, "utf8"));
+    } catch {}
+    // The send may not have written its note yet
+    if (!fs.existsSync(inbox)) return;
+    const ids = fs
+      .readFileSync(inbox, "utf8")
+      .split("\n")
+      .flatMap((l) => {
+        try {
+          return [JSON.parse(l).id];
+        } catch {
+          return [];
+        }
+      })
+      .filter((id) => id && !all.some((e) => e.id === id));
+    if (!ids.length) return;
+    const tmp = `${receiptsFile}.test.tmp`;
+    fs.writeFileSync(
+      tmp,
+      JSON.stringify([
+        ...all,
+        ...ids.map((id) => ({ id, state: "delivered" })),
+      ]),
+    );
+    fs.renameSync(tmp, receiptsFile);
+  }, 20);
+  let hung = false;
+  const kill = setTimeout(() => {
+    hung = true;
+    c.kill();
+  }, 60000);
+  let out = "";
+  c.stdout.on("data", (d) => (out += d));
+  c.on("close", (code) => {
+    clearInterval(deliver);
+    clearTimeout(kill);
+    done({ out: out.trim(), code, hung });
+  });
 });
 ok(
-  "--nowait answers at once with the note's id",
-  r.code === 0 && Date.now() - started < 4000 && /^Note id: \w+$/m.test(r.out),
+  `--nowait does not wait for the receipt: it says "Queued for" and gives the note's id, not "Delivered to" (exit ${r.code}${r.hung ? ", killed after 60 s" : ""}: ${r.out.split("\n")[0]})`,
+  r.code === 0 &&
+    !r.hung &&
+    r.out.startsWith("Queued for") &&
+    !r.out.includes("Delivered to") &&
+    /^Note id: \w+$/m.test(r.out),
 );
 r = run(["send", "--to", "dddddddd", "-", "--nowait"], { input: "from stdin" });
 ok(
@@ -1796,9 +1858,12 @@ ok("STEER_MAX_K lowers the limit", r.code === 4);
     });
     return { code: r.status, err: r.stderr };
   };
-  const later = (ms, fn) =>
+  const later = (ms, fn, more = {}) =>
     new Promise((done) => {
-      const c = spawn(process.execPath, [STEER, "--watch"], { cwd: work, env });
+      const c = spawn(process.execPath, [STEER, "--watch"], {
+        cwd: work,
+        env: { ...env, ...more },
+      });
       const t0 = Date.now();
       let err = "";
       c.stderr.on("data", (d) => (err += d));
@@ -1871,12 +1936,43 @@ ok("STEER_MAX_K lowers the limit", r.code === 4);
       !left()[0].seen,
   );
   fs.rmSync(inbox, { force: true });
-  let g = await later(150, () =>
-    fs.appendFileSync(tp, line({ type: "user", message: { content: "next" } })),
+  // A new turn ends the watch. Its time limit is 600 s and its session is a do-nothing process the test keeps
+  // alive, so only the new turn can end it. A broken watch would run on: after 60 s the test kills that process,
+  // which ends the watch too, and the check fails. The turn line is written again every 0.1 s, not once: the
+  // watch takes the transcript's size when it starts, and under load one early write lands before that and
+  // never counts.
+  const session = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => {}, 1e9)"],
+    {
+      stdio: "ignore",
+    },
   );
+  let killed = false;
+  const stopSession = setTimeout(() => {
+    killed = true;
+    session.kill();
+  }, 60000);
+  let turns;
+  let g = await later(
+    150,
+    () =>
+      (turns = setInterval(
+        () =>
+          fs.appendFileSync(
+            tp,
+            line({ type: "user", message: { content: "next" } }),
+          ),
+        100,
+      )),
+    { STEER_WATCH_MAX: "600", CLAUDE_PID: String(session.pid) },
+  );
+  clearInterval(turns);
+  clearTimeout(stopSession);
+  session.kill();
   ok(
-    "watch: a new turn ends it, since --hook takes over",
-    g.code === 0 && g.ms < 900,
+    `watch: a new turn ends it, since --hook takes over (exit ${g.code} after ${g.ms} ms${killed ? "; it ended only when the test killed its session after 60 s" : ""})`,
+    g.code === 0 && !killed,
   );
   g = await later(150, () => {
     fs.appendFileSync(

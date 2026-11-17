@@ -5,12 +5,12 @@ Detail for `SKILL.md`, used at one step each; `SKILL.md` says when to read each 
 ## The planner's brief
 
 Its brief gives context and leaves the approach open; save it in the plan file's head as **Brief**, so a later planner can start from it:
-- **The request, in the user's own words.** Quoted, not paraphrased.
+- **The request, in the user's own words.** Quoted, not paraphrased, the outcome the person wants first (what their day looks like when it works), since the planner plans toward it.
 - **The folders.** Every folder the work reads or changes, each with its commit (`git -C <folder> rev-parse --short HEAD`) and whether it has uncommitted changes, so it reads the copies the workers will change.
-- **The situation.** What exists today, which files matter, what was already tried and how it went.
+- **The situation.** What exists today, which files matter, what was already tried and how it went. What you found goes in as plain observations (what the log or the code shows), and the planner draws its own conclusions.
 - **Decisions the user has made.** Only real ones (an explicit go, as the lead skill defines it), each with its reason and the user's words in quotes; what they said against a proposal comes first; what has no quote goes under "Proposed by Claude, not confirmed". Name the path of `DECISIONS.md` and quote the lines the job touches (the purpose record's entries for the things the job names, the topic files and the job files of the newest date in `docs/decisions/` (in a project not yet split, the newest dated section), and a grep of `DECISIONS.md` and `docs/decisions/` for the topic).
-- **What is still open.** The things nobody has decided yet.
-- **What to send back.** The folders and commits it read, the job-list rows with each step's helper, the review call, the alternatives it weighed, and anything in the request it would push back on.
+- **What is still open.** The user's choices nobody has made yet (scope, money, people, timing). Design questions stay with the planner: a question that names a part ("how do A and B coexist") tells it to keep that part.
+- **Which pass.** The first brief asks for the approach page (pass 1, no rows). The job list (pass 2) is asked for only with the user's OK on that page, quoted, plus any change they asked for.
 
 Keep out of the brief: your own idea of the solution (even as a suggestion), your guesses dressed up as constraints, step lists and "do X, not Y" rules, and leading questions ("should we use A for this?").
 
@@ -83,6 +83,7 @@ Reference for `SKILL.md`, read when a default is questioned. Not steps. Sources 
 - **Late follow-up.** Once the cache has expired, the whole context is paid for again, so a follow-up long after a worker stopped goes to a fresh worker with a written brief.
 - **No agent teams.** Experimental, more tokens, no nesting, and they change how ordinary helpers start.
 - **The stages.** They are the user's own order (DECISIONS 2026-11-09). The plan review is the new one: the rules had none, and the first single plan review found 6 Important faults. Research comes first when facts are missing, because a form built from guesses sends the user options with nothing behind them.
+- **Lanes.** "Yes, three lanes" (user, 2026-11-16; `docs/2026-11-16-pipeline-redesign.md`): every outside tool draws a size line and lets obvious fixes skip planning, and the phone hotfix went to the planner although the rules already said a fix with a clear cause skips it. Naming the lane in one line makes that routing call visible, so the user can overrule it. Research is its own step before the planner, not a planner that browses: the planner reads the file, and the user sees the facts before the options.
 - **When a job is big.** The triggers (2 or more helper steps; a hook, rule, agent, skill, settings or CI change) are the code-review-gate's own, so the plan review and the build review fire on the same jobs. The decision is made from the plan, because the request is often one loose line and the row count is a fact. A one-step plan skips the plan review: it has no ownership, ordering or sizing conflicts between steps, three of the four kinds of fault plan reviews find ("Reviews can add a lot of value, but they are also a dangerous trap of overhead", Google design-doc practice).
 - **Fixes go to the same planner.** Its context holds the reading, which is what makes the fix round cheap; a subagent can be resumed after it stops. `fixed` / `kept` per finding is the rule's "each Important finding is fixed or answered". A `kept` you disagree with goes to the user, as any difference between you and the planner does.
 - **What the user sees of the review.** Counts and the kept findings only: the user decides on the plan, and the fixed findings are in the plan file's Review section.

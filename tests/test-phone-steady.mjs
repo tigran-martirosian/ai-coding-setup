@@ -1,0 +1,989 @@
+// Stress test of the phone link end to end (phone steady design, section 7). The built page is served by the local
+// relay; the real PC program runs against it; the page is the real frame (frame/app.js with frame/channel.js) on a
+// DOM stand-in in Node. The page and the PC each reach the relay through a TCP proxy the test can cut or hold
+// (tests/phone-bot/cut-proxy.mjs). Each case breaks the link one way and checks that the page has a working session
+// again within a few seconds, with no reconnect loop: the page's sockets and the PC's connects are counted.
+// Short timers: the page's and the relay's clock run 10 times as fast (the page's timers and Date, the relay's
+// `now`), and the PC program gets its link's waits 10 times as short (core/link.mjs TIMING). Every time in a message
+// is on that scaled clock: "within 5 s" is half a second of real time. The PC program's own start-up is not scaled.
+// The old-with-new pairs use the released 26.3.1 page channel and PC program from the git tag v26.3.1; a clone
+// without that tag (a shallow CI checkout) says so on a "skip" line and leaves those pairs out.
+//   node tests/test-phone-steady.mjs
+import { spawn, spawnSync } from "node:child_process";
+import { randomBytes as nodeRandom } from "node:crypto";
+import fs from "node:fs";
+import { registerHooks } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const SELF = fileURLToPath(import.meta.url);
+const PAGE = path.join(ROOT, "phone", "page");
+const SETUP = path.join(ROOT, "skills", "phone-bot", "pc", "setup.mjs");
+const VERSION = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "version.json"), "utf8"),
+).version;
+const OLD_TAG = "v26.3.1";
+const BOT_ID = 7000001;
+const OWNER = 111;
+// The scale: the page's and the relay's clock run this many times as fast; the PC's link waits are this many times
+// as short.
+const K = 10;
+
+let pass = 0;
+let failed = 0;
+const check = (name, ok, extra = "") => {
+  ok ? pass++ : failed++;
+  console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : ` ${extra}`}`);
+};
+const timings = [];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Real milliseconds as seconds of the scaled clock, one decimal.
+const secs = (ms) => Math.round((ms * K) / 100) / 10;
+// Waits up to `s` seconds of the scaled clock for fn() to give something true; the time it took in real ms, or null.
+async function within(fn, s) {
+  const start = Date.now();
+  const end = start + (s * 1000) / K;
+  for (;;) {
+    if (fn()) return Date.now() - start;
+    if (Date.now() > end) return null;
+    await sleep(5);
+  }
+}
+// Sleeps `s` seconds of the scaled clock.
+const wait = (s) => sleep((s * 1000) / K);
+
+// ---- the scaled clock of the page and the relay
+const T0 = Date.now();
+const scaledNow = () => T0 + (Date.now() - T0) * K;
+class ScaledDate extends Date {
+  constructor(...a) {
+    if (a.length) super(...a);
+    else super(scaledNow());
+  }
+  static now() {
+    return scaledNow();
+  }
+}
+// The page's modules get these in place of the globals (the load hook below puts SCALED_PREFIX on top of them).
+globalThis.steadyClock = {
+  setTimeout: (fn, ms = 0, ...a) => setTimeout(fn, ms / K, ...a),
+  setInterval: (fn, ms = 0, ...a) => setInterval(fn, ms / K, ...a),
+  Date: ScaledDate,
+};
+const SCALED_PREFIX =
+  "const { setTimeout, setInterval, Date } = globalThis.steadyClock;\n";
+
+// ---- the PC program, as keep.mjs starts it, with its link's waits scaled (`node test-phone-steady.mjs --pc`)
+async function runPc() {
+  const { TIMING } = await import("../skills/phone-bot/pc/core/link.mjs");
+  for (const k of Object.keys(TIMING)) if (k.endsWith("Ms")) TIMING[k] /= K;
+  await import("../skills/phone-bot/pc/main.mjs");
+}
+
+// ---- a DOM stand-in with what frame/app.js and frame/dom.js use
+class FakeNode {
+  constructor() {
+    this.childNodes = [];
+  }
+  append(...kids) {
+    for (const k of kids)
+      this.childNodes.push(k instanceof FakeNode ? k : new FakeText(String(k)));
+  }
+  replaceChildren(...kids) {
+    this.childNodes = [];
+    this.append(...kids);
+  }
+  get childElementCount() {
+    return this.childNodes.filter((c) => c instanceof FakeElement).length;
+  }
+  get textContent() {
+    return this.childNodes.map((c) => c.textContent).join("");
+  }
+}
+class FakeText extends FakeNode {
+  constructor(text) {
+    super();
+    this.data = text;
+  }
+  get textContent() {
+    return this.data;
+  }
+}
+class FakeElement extends FakeNode {
+  constructor(tag) {
+    super();
+    this.tagName = tag;
+    this.className = "";
+    this.attrs = {};
+    this.listeners = {};
+    this.hidden = false;
+    this.disabled = false;
+    this.scrollTop = 0;
+  }
+  setAttribute(k, v) {
+    this.attrs[k] = v;
+  }
+  addEventListener(type, fn) {
+    (this.listeners[type] ||= []).push(fn);
+  }
+}
+const walk = (n, out = []) => {
+  out.push(n);
+  for (const c of n.childNodes) walk(c, out);
+  return out;
+};
+const byClass = (root, c) =>
+  walk(root).filter((n) => n.className?.split(" ").includes(c));
+
+// What the page's stand-ins read and record: its address, Telegram's signed initData, its pairing, the screen's
+// context (ctx.connected is true while a session is up, ctx.ask asks the PC through it), window events and reloads.
+const page = {
+  url: null,
+  initData: null,
+  pairing: null,
+  ctx: null,
+  win: {},
+  tgEvents: {},
+  reloads: 0,
+};
+globalThis.steadyPage = page;
+const els = Object.fromEntries(
+  [
+    "app",
+    "fatal",
+    "content",
+    "bottom",
+    "bottom-extra",
+    "tabbar",
+    "main-btn",
+  ].map((id) => [id, new FakeElement("div")]),
+);
+const pageStore = new Map();
+
+// Every socket the frame opens, with when (real ms) it was made, opened and closed: the reconnect count.
+const RealSocket = globalThis.WebSocket;
+const pageSockets = [];
+class CountingSocket extends RealSocket {
+  constructor(url) {
+    super(url);
+    const s = { at: Date.now(), url: String(url), openAt: null, closeAt: null };
+    pageSockets.push(s);
+    this.addEventListener("open", () => {
+      s.openAt = Date.now();
+    });
+    this.addEventListener("close", () => {
+      s.closeAt = Date.now();
+    });
+  }
+}
+
+const viewportTag = { setAttribute: () => {} };
+
+function setPageGlobals() {
+  globalThis.Node = FakeNode;
+  globalThis.document = {
+    hidden: false,
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: (_ns, tag) => new FakeElement(tag),
+    createTextNode: (text) => new FakeText(text),
+    getElementById: (id) => {
+      if (!els[id]) throw new Error(`the test page has no #${id}`);
+      return els[id];
+    },
+    addEventListener: (type, fn) => {
+      page.win[`document ${type}`] = fn;
+    },
+    // The real index.html's viewport tag and <html>, which the zoom lock (frame/zoom.js) sets on every screen.
+    querySelector: (q) => (q === 'meta[name="viewport"]' ? viewportTag : null),
+    documentElement: { classList: { toggle: () => {} } },
+  };
+  globalThis.addEventListener = (type, fn) => {
+    page.win[type] = fn;
+  };
+  globalThis.location = {
+    get href() {
+      return page.url;
+    },
+    search: "",
+    reload: () => {
+      page.reloads++;
+    },
+  };
+  globalThis.sessionStorage = {
+    getItem: (k) => pageStore.get(k) ?? null,
+    setItem: (k, v) => pageStore.set(k, String(v)),
+  };
+  globalThis.WebSocket = CountingSocket;
+}
+
+// The page's view of the link, from what the frame drew.
+const pageView = () => ({
+  up: Boolean(page.ctx?.connected),
+  off: byClass(els.content, "off-line").length > 0,
+  long:
+    byClass(els.content, "link-bar-line").length > 0 ||
+    walk(els.content).some((n) => n.data?.startsWith?.("No connection")),
+  readOnly: byClass(els.content, "warn").length > 0,
+  cards: byClass(els.app, "join-card").length,
+});
+const pageUp = () => pageView().up;
+const pageAsk = (action = "pc.status") =>
+  page.ctx
+    .ask(action, {})
+    .catch((e) => ({ ok: false, err: e.code ?? e.message }));
+
+// What the page showed since the last reset, sampled every 10 ms: "PC off", the long line.
+const seen = { off: false, long: false };
+setInterval(() => {
+  const v = pageView();
+  seen.off ||= v.off;
+  seen.long ||= v.long;
+}, 10).unref();
+const resetSeen = () => {
+  seen.off = false;
+  seen.long = false;
+};
+
+// ---- loading the page: the frame's Telegram, key store and generated version are stand-ins; the frame and the
+// channel run on the scaled clock
+const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
+const APP_URL = pageUrl("frame/app.js");
+const STAND_INS = {
+  [pageUrl("screens.generated.js")]:
+    `export const PAGE_VERSION = ${JSON.stringify(VERSION)};`,
+  [pageUrl("frame/telegram.js")]: `const p = globalThis.steadyPage;
+export const startTelegram = () => ({ initData: p.initData, platform: "ios", isVersionAtLeast: () => true,
+  onEvent: (name, fn) => { p.tgEvents[name] = fn; } });
+export const hasHost = () => true;
+export const haptic = () => {};
+export const setMainButton = () => {};
+export const setBackButton = () => {};`,
+  [pageUrl("frame/keystore.js")]: `const p = globalThis.steadyPage;
+export const loadPairing = async () => p.pairing;
+export const restorePairing = async () => null;
+export const savePairing = async () => "test";
+export const forgetPairing = async () => {};`,
+};
+const SCALED = new Set([APP_URL, pageUrl("frame/channel.js")]);
+function hookPage() {
+  registerHooks({
+    resolve(specifier, context, next) {
+      const code =
+        context.parentURL === APP_URL &&
+        STAND_INS[new URL(specifier, APP_URL).href];
+      if (code)
+        return {
+          url: `data:text/javascript,${encodeURIComponent(code)}`,
+          shortCircuit: true,
+        };
+      return next(specifier, context);
+    },
+    load(url, context, next) {
+      // The page's files are modules with no package.json saying so.
+      const page = url.startsWith(pageUrl("")) || SCALED.has(url);
+      if (!page) return next(url, context);
+      const r = next(url, { ...context, format: "module" });
+      if (!SCALED.has(url)) return r;
+      const text =
+        typeof r.source === "string"
+          ? r.source
+          : Buffer.from(r.source).toString("utf8");
+      return { ...r, format: "module", source: SCALED_PREFIX + text };
+    },
+  });
+}
+
+// ---- the world: relay, proxies, PC program, paired devices
+const w = {};
+
+// Telegram's stand-in signs initData with the test's own Ed25519 key; relay and PC get its public key.
+async function initDataFor(userId) {
+  const fields = {
+    auth_date: String(Math.floor(Date.now() / 1000)),
+    query_id: "q1",
+    user: JSON.stringify({ id: userId, first_name: "Test" }),
+  };
+  const lines = Object.entries(fields)
+    .map(([k, v]) => `${k}=${v}`)
+    .sort();
+  const sig = await crypto.subtle.sign(
+    "Ed25519",
+    w.tg.privateKey,
+    w.seal.utf8(`${BOT_ID}:WebAppData\n${lines.join("\n")}`),
+  );
+  const p = new URLSearchParams(fields);
+  p.set("signature", w.seal.toB64u(new Uint8Array(sig)));
+  return p.toString();
+}
+
+// The env of a PC program with its own home and control pipe.
+function pcEnvFor(home) {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: path.join(home, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(home, "AppData", "Local"),
+    PHONE_PC_DRY: "1",
+    PHONE_PC_TEST: "1",
+    PHONE_PC_PLATFORM: "win32",
+    PHONE_PC_PIPE:
+      process.platform === "win32"
+        ? `\\\\.\\pipe\\phone-app-pc-steady-${nodeRandom(6).toString("hex")}`
+        : path.join(home, "pc.sock"),
+    PHONE_PC_TG_KEY: w.tgPubHex,
+    NIMBALYST_ENDPOINT_FILE: path.join(w.tmp, "no-endpoint.json"),
+  };
+}
+
+function startProgram(args, env) {
+  const child = spawn(process.execPath, args, {
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.out = "";
+  child.stdout.on("data", (d) => (child.out += d));
+  child.stderr.on("data", (d) => (child.out += d));
+  return child;
+}
+async function stopProgram(child) {
+  if (!child || child.exitCode !== null) return;
+  const gone = new Promise((r) => child.on("exit", r));
+  child.kill();
+  await gone;
+}
+
+const logText = (home) => {
+  const file = path.join(home, ".phone-app", "pc.log");
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+};
+const count = (text, re) => (text.match(re) || []).length;
+// The PC program's connects (each new socket that opened) and its own dead-link finds.
+const pcConnects = () => count(logText(w.home), / connect pc-/g);
+const pcLost = () => count(logText(w.home), / lost no pong/g);
+
+function setupRun(setup, args, env) {
+  const r = spawnSync(process.execPath, [setup, ...args], {
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+  if (r.status !== 0)
+    throw new Error(`setup ${args[0]} failed:\n${r.stdout}${r.stderr}`);
+  return r.stdout;
+}
+
+// A new device paired with a code from the running PC program.
+async function pairDevice(kind) {
+  const out = setupRun(SETUP, ["pair"], w.pcEnv);
+  const m = /Pairing code[^\n]*\n\s*([A-Z2-7 .]+)/.exec(out);
+  if (!m) throw new Error(`setup pair gave no code:\n${out}`);
+  // Right after its join the PC program connects again: a pair that finds it offline never reached it, so the
+  // one-use code is still good.
+  for (const end = Date.now() + 5000; ; await sleep(50)) {
+    const link = await w.channel.openLink({
+      url: w.channel.socketUrl(w.relay.url),
+      initData: w.initData,
+      WebSocket: RealSocket,
+    });
+    const paired = await w.channel
+      .pair(link, { code: m[1].trim(), initData: w.initData, kind })
+      .catch((e) => {
+        if (e.code !== "pc-offline" || Date.now() > end) throw e;
+        return null;
+      });
+    link.close();
+    if (paired) return paired;
+  }
+}
+
+// A device's session through the page's channel code (`ch`: this page's or the old one), straight to the relay.
+async function deviceSession(ch, p, onEvent = () => {}) {
+  const link = await ch.openLink({
+    url: ch.socketUrl(w.relay.url),
+    initData: w.initData,
+    WebSocket: RealSocket,
+  });
+  const s = await ch.openSession(link, {
+    K: p.K,
+    dev: p.dev,
+    pageVersion: VERSION,
+    onEvent,
+  });
+  return { link, s };
+}
+
+// A phone socket of the owner that only listens: it records when the relay says pc-online.
+async function openWatcher() {
+  const link = await w.channel.openLink({
+    url: w.channel.socketUrl(w.relay.url),
+    initData: w.initData,
+    WebSocket: RealSocket,
+  });
+  link.listen((f) => f.t === "pc-online" && w.pcOnline.push(Date.now()));
+  return link;
+}
+
+// The released 26.3.1 PC program and page channel in `dir`, or false when this clone has no tag v26.3.1. The old
+// PC pings once a minute: that wait is scaled like the others.
+function extractOld(dir) {
+  const has = spawnSync(
+    "git",
+    ["-C", ROOT, "rev-parse", "--verify", "--quiet", `${OLD_TAG}^{commit}`],
+    { encoding: "utf8" },
+  );
+  if (has.status !== 0) return false;
+  const tar = spawnSync(
+    "git",
+    [
+      "-C",
+      ROOT,
+      "archive",
+      OLD_TAG,
+      "skills/phone-bot",
+      "phone/shared",
+      "phone/page/frame/channel.js",
+      "version.json",
+    ],
+    { maxBuffer: 1 << 28 },
+  );
+  if (tar.status !== 0)
+    throw new Error(`git archive ${OLD_TAG} failed: ${tar.stderr}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const x = spawnSync("tar", ["-x", "-C", dir], { input: tar.stdout });
+  if (x.status !== 0) throw new Error(`tar failed: ${x.stderr}`);
+  fs.writeFileSync(path.join(dir, "package.json"), '{"type":"module"}\n');
+  const link = path.join(dir, "skills", "phone-bot", "pc", "core", "link.mjs");
+  const text = fs.readFileSync(link, "utf8");
+  const PING = "const PING_MS = 60_000;";
+  if (!text.includes(PING))
+    throw new Error(`the ${OLD_TAG} link.mjs has no "${PING}" to scale`);
+  fs.writeFileSync(link, text.replace(PING, `const PING_MS = ${60_000 / K};`));
+  return true;
+}
+
+async function startWorld() {
+  w.tmp = fs.mkdtempSync(path.join(os.tmpdir(), "phone-steady-"));
+  w.home = path.join(w.tmp, "home");
+  fs.mkdirSync(w.home);
+  Object.assign(process.env, {
+    HOME: w.home,
+    USERPROFILE: w.home,
+    APPDATA: path.join(w.home, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(w.home, "AppData", "Local"),
+  });
+  hookPage();
+  w.seal = await import("../phone/shared/seal.mjs");
+  const { buildPage, writePage } = await import("../phone/page/build.mjs");
+  const { startLocalRelay } = await import("../phone/relay/local/server.mjs");
+  const { startCutProxy } = await import("./phone-bot/cut-proxy.mjs");
+  w.channel = await import(pageUrl("frame/channel.js"));
+  w.tg = await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+    "sign",
+    "verify",
+  ]);
+  w.tgPubHex = w.seal.toHex(
+    new Uint8Array(await crypto.subtle.exportKey("raw", w.tg.publicKey)),
+  );
+  w.initData = await initDataFor(OWNER);
+
+  w.pageDir = path.join(w.tmp, "page");
+  writePage(w.pageDir, buildPage());
+  w.relayLog = [];
+  w.relayOpts = {
+    port: 0,
+    pageDir: w.pageDir,
+    storeFile: path.join(w.tmp, "relay-store.bin"),
+    botId: BOT_ID,
+    ownerTgId: OWNER,
+    telegramKey: w.tgPubHex,
+    telegram: async () => {
+      throw new Error("the test relay does not reach Telegram");
+    },
+    download: async () => {
+      throw new Error("the test relay downloads nothing");
+    },
+    now: scaledNow,
+    log: (line) => w.relayLog.push(line),
+    bot: null,
+  };
+  w.startRelay = startLocalRelay;
+  w.relay = await startLocalRelay(w.relayOpts);
+  w.relayOpts.port = Number(new URL(w.relay.url).port);
+  // The page's way to the relay, a second way (another network), and the PC's way.
+  w.pageProxy = await startCutProxy({ port: w.relayOpts.port });
+  w.pageProxy2 = await startCutProxy({ port: w.relayOpts.port });
+  w.pcProxy = await startCutProxy({ port: w.relayOpts.port });
+
+  w.pcEnv = pcEnvFor(w.home);
+  setupRun(SETUP, ["join", w.pcProxy.url], w.pcEnv);
+  w.pc = startProgram([SELF, "--pc"], w.pcEnv);
+  // Accepted once the relay keeps a record of it (its first link is a pc-join).
+  const known = () => [...w.relay.map.keys()].some((k) => k.startsWith("pc:"));
+  if ((await within(known, 100)) === null)
+    throw new Error(`the PC program did not join the relay:\n${w.pc.out}`);
+  await w.relay.idle();
+  w.A = await pairDevice("iphone");
+  w.B = await pairDevice("android");
+  w.O = await pairDevice("iphone");
+  w.pcOnline = [];
+  w.watcher = await openWatcher();
+}
+
+// The frame starts on a stand-in Home tab whose actions need the full set (a Read-only page would grey it); each
+// render with a session up counts as one session drawn.
+async function startPage() {
+  setPageGlobals();
+  page.url = `${w.pageProxy.url}/`;
+  page.initData = w.initData;
+  page.pairing = w.A;
+  page.sessions = 0;
+  const screens = await import(pageUrl("frame/screens.js"));
+  screens.registerScreen({
+    id: "steady-home",
+    tab: "home",
+    title: "Home",
+    actions: ["pc.status", "sessions.list"],
+    render: (c) => {
+      page.ctx = c;
+      if (c.connected) page.sessions++;
+      return new FakeElement("div");
+    },
+  });
+  await import(APP_URL);
+  if ((await within(pageUp, 20)) === null)
+    throw new Error(
+      `the page did not connect: ${els.fatal.textContent} ${els.content.textContent}`,
+    );
+}
+
+// After a case: 6 s with no new page socket and no new PC connect, the page's session up.
+async function steady(what) {
+  const p = pageSockets.length;
+  const c = pcConnects();
+  await wait(6);
+  const dp = pageSockets.length - p;
+  const dc = pcConnects() - c;
+  check(
+    `after ${what} the link must stay up with no further connects (no reconnect loop)`,
+    dp === 0 && dc === 0 && pageUp(),
+    `page sockets +${dp}, PC connects +${dc}, up ${pageUp()}`,
+  );
+}
+
+async function askWorks(what) {
+  const r = await pageAsk();
+  check(
+    `after ${what} the page's session must answer pc.status`,
+    r?.ok === true,
+    JSON.stringify(r)?.slice(0, 200),
+  );
+}
+
+// Gaps between the page's connect attempts since index `from`, in scaled seconds.
+const gaps = (from) =>
+  pageSockets
+    .slice(from)
+    .map((s, i, a) => (i ? secs(s.at - a[i - 1].at) : null))
+    .slice(1);
+
+async function caseShortDrop() {
+  resetSeen();
+  const from = pageSockets.length;
+  const t0 = Date.now();
+  w.pageProxy.cut();
+  await within(() => !pageUp(), 5);
+  await sleep(Math.max(0, 1000 / K - (Date.now() - t0)));
+  w.pageProxy.heal();
+  const back = await within(pageUp, 5);
+  const tries = pageSockets.length - from;
+  check(
+    "the phone must reconnect within 5 s after a 1 s drop",
+    back !== null,
+    `page sockets +${tries}`,
+  );
+  check(
+    "a 1 s drop must cost at most 3 connect attempts",
+    tries >= 1 && tries <= 3,
+    `${tries} attempts`,
+  );
+  check('a 1 s drop must not show "PC off"', !seen.off);
+  await askWorks("a 1 s drop");
+  timings.push(
+    `1 s drop: back ${secs(back)} s after the heal, ${tries} page attempts`,
+  );
+  await steady("a 1 s drop");
+}
+
+async function caseLongOutage() {
+  resetSeen();
+  const from = pageSockets.length;
+  w.pageProxy.cut();
+  await wait(40);
+  const tries = pageSockets.length - from;
+  const g = gaps(from);
+  check(
+    "during a 40 s outage the page must say there is no connection yet (the long line after 30 s)",
+    seen.long,
+  );
+  check('a long outage of the page alone must not show "PC off"', !seen.off);
+  check(
+    "during a 40 s outage the page's waits must grow (at most 12 attempts, none closer than 0.25 s)",
+    tries >= 2 && tries <= 12 && g.every((x) => x >= 0.2),
+    `${tries} attempts, gaps ${g.join(" ")}`,
+  );
+  w.pageProxy.heal();
+  const back = await within(pageUp, 35);
+  check(
+    "the phone must reconnect within one capped wait (30 s) after a long outage",
+    back !== null,
+  );
+  await askWorks("a long outage");
+  timings.push(
+    `long outage (40 s): ${tries} attempts, gaps ${g.join(" ")} s; back ${secs(back)} s after the heal`,
+  );
+  await steady("a long outage");
+}
+
+// The page's socket is held only once its first ping (20 s after it opened) had its pong, so the dead link is found
+// at the second ping, 50 s after the open: the session ended after more than the page's 30 s (UP_RESET_MS), and the
+// retry waits the long outage grew start over (the first wait at most 1 s). Held earlier, the drop came 30 s after
+// the open, the session's up time a few ms either side of 30 s, and on a slow machine the grown waits (up to 30 s)
+// stayed.
+async function caseHalfOpenPage() {
+  resetSeen();
+  const from = pageSockets.length;
+  const opened = pageSockets.at(-1).openAt;
+  if (!opened) throw new Error("the page's socket never opened");
+  await sleep(Math.max(0, (28 * 1000) / K - (Date.now() - opened)));
+  w.pageProxy.hold();
+  const dropped = await within(() => !pageUp(), 32);
+  w.pageProxy.heal();
+  check(
+    "the page must drop a half-open link within 30 s (ping 20 s + pong wait 10 s)",
+    dropped !== null,
+  );
+  const back = await within(pageUp, 10);
+  check(
+    "after a session up over 30 s the phone must reconnect within 10 s once it dropped a half-open link (its retry waits start over)",
+    back !== null,
+    `page sockets +${pageSockets.length - from}`,
+  );
+  check(
+    "a half-open link must not make the page reload",
+    page.reloads === 0,
+    `${page.reloads} reloads`,
+  );
+  await askWorks("a half-open page link");
+  timings.push(
+    `half-open, page side: dropped after ${secs(dropped)} s, back ${secs(back)} s later, ${pageSockets.length - from} page attempts`,
+  );
+  await steady("a half-open page link");
+}
+
+async function caseHalfOpenPc() {
+  resetSeen();
+  const drawn = page.sessions;
+  const lost = pcLost();
+  const connects = pcConnects();
+  const t0 = Date.now();
+  w.pcProxy.hold();
+  const dropped = await within(() => pcLost() > lost, 32);
+  check(
+    "the PC must drop a half-open link within 30 s (ping 20 s + pong wait 10 s)",
+    dropped !== null,
+  );
+  // The relay's own sweep: a PC silent 2 x 20 s + 10 s is closed at the next wake-up (here a phone's hello).
+  await sleep(Math.max(0, (55 * 1000) / K - (Date.now() - t0)));
+  const probe = await deviceSession(w.channel, w.B).then(
+    (x) => {
+      x.link.close();
+      return "session";
+    },
+    (e) => e.code,
+  );
+  check(
+    "the relay must close a silent PC after 50 s and then answer offline",
+    probe === "pc-offline" &&
+      w.relayLog.some((l) => l === "pc closed: dead-link"),
+    `probe ${probe}, relay log ${w.relayLog.slice(-5).join(" | ")}`,
+  );
+  const healed = Date.now();
+  w.pcProxy.heal();
+  const back = await within(() => w.pcOnline.some((t) => t > healed), 65);
+  check(
+    "the PC must be back within one capped wait (60 s) after a half-open link heals",
+    back !== null,
+    `PC connects +${pcConnects() - connects}`,
+  );
+  // The page's session from before the PC came back is ended by the relay's pc-online, which may reach the page
+  // after the watcher: a session drawn since is the new one.
+  await within(() => page.sessions > drawn && pageUp(), 5);
+  await askWorks("a half-open PC link");
+  timings.push(
+    `half-open, PC side: PC dropped after ${secs(dropped)} s, relay closed it by 55 s, PC back ${secs(back)} s after the heal (${pcConnects() - connects} PC connects)`,
+  );
+  await steady("a half-open PC link");
+}
+
+// The phone's network changes: the old socket goes silent, `online` fires, the page comes from a new address.
+async function caseNetworkSwitch() {
+  const from = pageSockets.length;
+  const old = pageSockets.at(-1);
+  w.pageProxy.hold();
+  page.url = `${w.pageProxy2.url}/`;
+  page.win.online();
+  const back = await within(pageUp, 5);
+  const fresh = pageSockets.slice(from);
+  check(
+    "after a network switch the page must open one new socket at once, on the new address",
+    back !== null &&
+      fresh.length === 1 &&
+      fresh[0].url.includes(`:${w.pageProxy2.port}/`),
+    fresh.map((s) => s.url).join(" "),
+  );
+  await askWorks("a network switch");
+  w.pageProxy.heal();
+  check(
+    "after a network switch the old socket must be closed",
+    (await within(() => old.closeAt !== null, 5)) !== null,
+  );
+  timings.push(
+    `network switch: back ${secs(back)} s after "online", ${fresh.length} new socket`,
+  );
+  await steady("a network switch");
+}
+
+// A second device opens its session mid-session, then a third asks to join: both open devices get the ask.
+async function caseSecondDevice() {
+  const from = pageSockets.length;
+  const drawn = page.sessions;
+  const events = [];
+  const b = await deviceSession(w.channel, w.B, (e) => events.push(e));
+  const st = await b.s.ask("pc.status", {});
+  check(
+    "a second device must get its own session (pc.status) while the first is open",
+    st.ok === true,
+    JSON.stringify(st).slice(0, 200),
+  );
+  check(
+    "a second device joining must leave the first page's session untouched",
+    pageSockets.length === from && page.sessions === drawn && pageUp(),
+    `page sockets +${pageSockets.length - from}, sessions +${page.sessions - drawn}`,
+  );
+  await askWorks("a second device joined");
+  const nl = await w.channel.openLink({
+    url: w.channel.socketUrl(w.relay.url),
+    initData: w.initData,
+    WebSocket: RealSocket,
+  });
+  const j = await w.channel.join(nl, { kind: "desktop", initData: w.initData });
+  j.done.catch(() => {});
+  const both = await within(
+    () => pageView().cards > 0 && events.some((e) => e.e === "device.ask"),
+    5,
+  );
+  check(
+    "a device asking to join must reach both open devices (a card on the page, an event on the second)",
+    both !== null,
+    `cards ${pageView().cards}, events ${events.map((e) => e.e).join(" ")}`,
+  );
+  j.cancel();
+  nl.close();
+  await b.s.bye();
+  b.link.close();
+  await steady("a second device joined");
+}
+
+// A newer page is put on the relay while the page is open.
+async function casePageUpdate() {
+  const from = pageSockets.length;
+  const drawn = page.sessions;
+  const file = path.join(w.pageDir, "page", "frame", "app.js");
+  fs.appendFileSync(file, "\n// steady: a newer page\n");
+  const served = await (await fetch(`${w.relay.url}/page/frame/app.js`)).text();
+  check(
+    "after a page update a new open must get the new file",
+    served.endsWith("// steady: a newer page\n"),
+  );
+  await askWorks("a page update");
+  check(
+    "a page update must leave the open page's session as it was, not Read-only",
+    pageSockets.length === from &&
+      page.sessions === drawn &&
+      !pageView().readOnly,
+    `page sockets +${pageSockets.length - from}, read-only ${pageView().readOnly}`,
+  );
+  const b = await deviceSession(w.channel, w.B);
+  check(
+    'a page opened after an update must get hello page "ok" (not Read-only)',
+    b.s.hello.page === "ok",
+    JSON.stringify(b.s.hello),
+  );
+  await b.s.bye();
+  b.link.close();
+}
+
+async function casePcRestart() {
+  resetSeen();
+  const drawn = page.sessions;
+  const from = pageSockets.length;
+  const t0 = Date.now();
+  await stopProgram(w.pc);
+  w.pc = startProgram([SELF, "--pc"], w.pcEnv);
+  const pcBack = await within(() => w.pcOnline.some((t) => t > t0), 200);
+  check(
+    "the PC program must be back after a restart",
+    pcBack !== null,
+    w.pc.out,
+  );
+  const back = await within(() => page.sessions > drawn && pageUp(), 5);
+  check(
+    "after a PC program restart the page must say hello again within 5 s of the PC being back (pc-online)",
+    back !== null,
+    `sessions +${page.sessions - drawn}, page sockets +${pageSockets.length - from}`,
+  );
+  await askWorks("a PC program restart");
+  if (secs(pcBack) < 20)
+    check('a PC program back within 20 s must not show "PC off"', !seen.off);
+  timings.push(
+    `PC restart: PC back ${secs(pcBack)} s after the stop (start-up not scaled), page session ${secs(back)} s later`,
+  );
+  await steady("a PC program restart");
+}
+
+async function caseRelayRestart() {
+  resetSeen();
+  const drawn = page.sessions;
+  const connects = pcConnects();
+  await w.relay.close();
+  w.relay = await w.startRelay(w.relayOpts);
+  const back = await within(() => page.sessions > drawn && pageUp(), 10);
+  check(
+    "after a relay restart the page must have a session again within 10 s",
+    back !== null,
+    `PC connects +${pcConnects() - connects}`,
+  );
+  check(
+    "after a relay restart the PC must connect again",
+    pcConnects() > connects,
+  );
+  check(
+    'a relay restart must not show "PC off" while the PC is on its first retry',
+    !seen.off,
+  );
+  await askWorks("a relay restart");
+  timings.push(
+    `relay restart: page session ${secs(back)} s after the relay was back, PC connects +${pcConnects() - connects}`,
+  );
+  await steady("a relay restart");
+}
+
+// ---- old with new (design section 6): the released 26.3.1 page channel and PC program
+async function startOld() {
+  const dir = path.join(w.tmp, "old");
+  if (!extractOld(dir)) {
+    console.log(
+      `skip old-with-new pairs: this clone has no tag ${OLD_TAG} (a shallow checkout)`,
+    );
+    return null;
+  }
+  const old = {};
+  const oldChannel = pathToFileURL(
+    path.join(dir, "phone", "page", "frame", "channel.js"),
+  ).href;
+  SCALED.add(oldChannel);
+  old.channel = await import(oldChannel);
+  old.page = await deviceSession(old.channel, w.O);
+  old.openedAt = Date.now();
+  check(
+    'old page / new PC: the hello must say page "ok", so the old page does not grey',
+    old.page.s.hello.page === "ok",
+    JSON.stringify(old.page.s.hello),
+  );
+  const st = await old.page.s.ask("pc.status", {});
+  check(
+    "old page / new PC: pc.status must answer",
+    st.ok === true,
+    JSON.stringify(st).slice(0, 200),
+  );
+  // An old PC joins the same relay with its own keys (unpaired: one PC per Telegram user).
+  old.home = path.join(w.tmp, "old-home");
+  fs.mkdirSync(old.home);
+  old.env = pcEnvFor(old.home);
+  const oldPc = path.join(dir, "skills", "phone-bot", "pc");
+  setupRun(path.join(oldPc, "setup.mjs"), ["join", w.relay.url], old.env);
+  old.pc = startProgram([path.join(oldPc, "main.mjs")], old.env);
+  if (
+    (await within(() => / connect pc-/.test(logText(old.home)), 100)) === null
+  )
+    throw new Error(`the old PC program did not connect:\n${old.pc.out}`);
+  old.pcAt = Date.now();
+  return old;
+}
+
+// Checked once 135 s (more than the relay's 130 s for a socket that does not say `ping`) have passed.
+async function checkOld(old) {
+  const need = (135 * 1000) / K;
+  await sleep(
+    Math.max(0, need - (Date.now() - Math.min(old.openedAt, old.pcAt))),
+  );
+  // A phone socket opening wakes the relay, which then sweeps.
+  (await openWatcher()).close();
+  check(
+    "old page / new relay: a page that never pings must not be closed (and pc-online did not upset it)",
+    !old.page.link.closed,
+    JSON.stringify(old.page.link.closed),
+  );
+  const st = await old.page.s.ask("pc.status", {}).catch((e) => e);
+  check(
+    "old page / new relay: after 135 s and a PC reconnect, its session must still answer",
+    st?.ok === true,
+    String(st?.code ?? JSON.stringify(st)).slice(0, 200),
+  );
+  const text = logText(old.home);
+  check(
+    "old PC / new relay: a PC that pings once a minute with no ping field must stay connected (one connect, no close)",
+    count(text, / connect pc-/g) === 1 && count(text, / closed /g) === 0,
+    text.slice(-600),
+  );
+  timings.push(
+    `old pairs: old page idle ${secs(Date.now() - old.openedAt)} s, old PC ${secs(Date.now() - old.pcAt)} s, neither closed`,
+  );
+  old.page.link.close();
+}
+
+async function runAll() {
+  let old = null;
+  try {
+    await startWorld();
+    await startPage();
+    old = await startOld();
+    await caseShortDrop();
+    await caseLongOutage();
+    await caseHalfOpenPage();
+    await caseHalfOpenPc();
+    await caseNetworkSwitch();
+    await caseSecondDevice();
+    await casePageUpdate();
+    if (old) await checkOld(old);
+    await casePcRestart();
+    await caseRelayRestart();
+  } catch (e) {
+    check("the run finished", false, e.stack);
+  } finally {
+    await stopProgram(w.pc);
+    await stopProgram(old?.pc);
+    for (const p of [w.pageProxy, w.pageProxy2, w.pcProxy]) await p?.close();
+    await w.relay?.close();
+    if (w.tmp)
+      fs.rmSync(w.tmp, { recursive: true, force: true, maxRetries: 5 });
+  }
+  console.log(`\nTimes on the scaled clock (1 s = ${1000 / K} ms real):`);
+  for (const t of timings) console.log(`  ${t}`);
+  console.log(`\n${pass} passed, ${failed} failed`);
+  process.exit(failed ? 1 : 0);
+}
+
+if (process.argv[2] === "--pc") await runPc();
+else await runAll();

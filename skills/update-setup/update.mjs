@@ -21,7 +21,18 @@
 //                                    the two project folders, into setup-logs), asks nothing, writes its result to ~/.claude/update-check.json
 //                                    `auto` ({version, from, headline, at, ok, error, kept: the files left as the
 //                                    user's}) and frees the hook's lock, ~/.claude/update-auto.lock
-//   --backup yes|no                  only put the answer to the backup question on record (setup-state.json `backup`),
+//   --quiet                          the self-install for releases that ask the person nothing: every missed one must be
+//                                    `kind: files`, `nimbalyst` or `quiet`. Runs the tag's full install.mjs unseen (output
+//                                    captured as --files-only does; extensions built aside, scripts/extensions.mjs, and
+//                                    swapped in only while Nimbalyst is closed). Claude Code is only checked against
+//                                    claudeCodeMin (its own update fails while Claude runs); below it nothing is
+//                                    installed. No pending question is asked and no offer follows. With panels waiting
+//                                    it runs deliver.mjs --stage, then --wait, so staged.json is final. `auto` as above
+//                                    plus extFailed (the extensions whose build failed) and panels: null (no panel
+//                                    changed), "in" (in now), "at-close" (waiting, staged.json has atClose: true, so
+//                                    Nimbalyst's close puts them in) or "waiting" (until /update-setup)
+//   --extensions yes|no              with --quiet: passed on to install.mjs (tests)
+//   --backup yes|no                 only put the answer to the backup question on record (setup-state.json `backup`),
 //                                    so it is not asked again; nothing else runs
 //   --home <folder>                  work on <folder>/.claude instead of the home folder's (tests)
 // The opt-ins, after a foreground run (not --check, not --files-only): Handy is never asked here; with no answer on
@@ -77,7 +88,10 @@ const home = homeAt === -1 ? os.homedir() : path.resolve(args[homeAt + 1]);
 const CLAUDE = path.join(home, ".claude");
 const fwd = (p) => p.replace(/\\/g, "/");
 const FILES_ONLY = args.includes("--files-only");
-// --files-only: the result goes to update-check.json `auto`, where the hook says it once; the hook's own
+const QUIET = args.includes("--quiet");
+// the two self-installs the hook starts: nobody watches them
+const UNSEEN = FILES_ONLY || QUIET;
+// --files-only and --quiet: the result goes to update-check.json `auto`, where the hook says it once; the hook's own
 // `autoRun` (a self-install under way) goes
 const auto = { version: null, from: null, headline: "" };
 function recordAuto(result) {
@@ -107,13 +121,13 @@ function recordAuto(result) {
 }
 const stop = (why) => {
   console.log(`Update stopped: ${why}`);
-  if (FILES_ONLY && fs.existsSync(CLAUDE))
+  if (UNSEEN && fs.existsSync(CLAUDE))
     recordAuto({ ok: false, error: why });
   process.exit(1);
 };
-// --files-only runs unseen: anything thrown outside stop() (a locked folder, a broken setup-state.json) still goes on
-// record with its own message, instead of the hook's "did not finish" a quarter of an hour later
-if (FILES_ONLY) {
+// --files-only and --quiet run unseen: anything thrown outside stop() (a locked folder, a broken setup-state.json)
+// still goes on record with its own message, instead of the hook's "did not finish" much later
+if (UNSEEN) {
   const crashed = (e) => {
     try {
       stop(`${e?.code ? `${e.code} ` : ""}${e?.message || e}`);
@@ -127,6 +141,13 @@ if (FILES_ONLY) {
   process.on("uncaughtException", crashed);
   process.on("unhandledRejection", crashed);
 }
+if (FILES_ONLY && QUIET) stop("--files-only and --quiet: give one of them.");
+const extAt = args.indexOf("--extensions");
+const extAnswer = extAt === -1 ? null : args[extAt + 1] || "";
+if (extAt !== -1 && (!QUIET || !["yes", "no"].includes(extAnswer)))
+  stop(
+    `--extensions ${extAnswer}: it goes with --quiet, and the answer is yes or no.`,
+  );
 const newer = (a, b) => {
   const [x, y] = [a, b].map((v) =>
     String(v || "0")
@@ -368,6 +389,82 @@ function passOffer(old) {
 // `nimbalyst:` status line is passed on as it is. `stage: "always"` stages after an install; `stage: "retry"` (on
 // the newest version) stages only when the line says nothing is staged or the last attempt failed.
 const DELIVER = path.join(CLAUDE, "tools", "nimbalyst-patch", "deliver.mjs");
+// Starts deliver.mjs --stage unless NIMBALYST_FOLLOW=off; returns whether it ran
+function runStage() {
+  const file = path.join(CLAUDE, "settings.json");
+  const offIn = (v) => String(v || "").toLowerCase() === "off";
+  let off;
+  try {
+    off =
+      offIn(process.env.NIMBALYST_FOLLOW) ||
+      (fs.existsSync(file) &&
+        offIn(JSON.parse(fs.readFileSync(file, "utf8")).env?.NIMBALYST_FOLLOW));
+  } catch (e) {
+    console.log(
+      `Nimbalyst update not started: ${fwd(file)} could not be read (${e.message}).`,
+    );
+    return false;
+  }
+  if (off) return false;
+  // its failures go to its status.json, which the line below says; a start that fails is said here
+  const r = spawnSync(process.execPath, [DELIVER, "--stage"], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 120 * 1000,
+  });
+  if (r.error)
+    console.log(
+      `Nimbalyst update not started: deliver.mjs --stage ${r.error.code === "ETIMEDOUT" ? "did not return within 2 minutes" : `could not run (${r.error.message})`}.`,
+    );
+  return true;
+}
+// --quiet: where the panels the run built stand. null: no panel changed; "in": in now (Nimbalyst was closed);
+// "at-close": waiting, and staged.json has atClose: true, so Nimbalyst's close listener puts them in; "waiting":
+// until /update-setup. Waiting panels get deliver.mjs --stage (it keeps a marker job when the close listener is
+// there) and then --wait, which returns once a --stage-work it handed off has ended, so staged.json is final when
+// read. Its folder is deliver.mjs's dataDir(): NIMBALYST_DELIVER_DATA, else %LOCALAPPDATA%\ai-coding-setup\nimbalyst
+// (Windows only; elsewhere nothing is staged).
+function panelsState({ installed, waiting }) {
+  if (!waiting.length) return installed.length ? "in" : null;
+  if (!fs.existsSync(DELIVER)) {
+    console.log(
+      `panels: not staged (${fwd(DELIVER)} is missing; the installer puts it there)`,
+    );
+    return "waiting";
+  }
+  if (process.platform !== "win32") {
+    console.log(
+      "panels: waiting for /update-setup (the close listener and deliver.mjs are Windows-only)",
+    );
+    return "waiting";
+  }
+  if (!runStage()) return "waiting";
+  const w = spawnSync(process.execPath, [DELIVER, "--wait"], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 11 * 60 * 1000,
+  });
+  if (w.status !== 0) {
+    console.log(
+      `panels: deliver.mjs --wait ${w.error ? `could not run (${w.error.message})` : `ended with exit ${w.status}`}, so the staged job is not known`,
+    );
+    return "waiting";
+  }
+  const data = process.env.NIMBALYST_DELIVER_DATA
+    ? path.resolve(process.env.NIMBALYST_DELIVER_DATA)
+    : process.env.LOCALAPPDATA &&
+      path.join(process.env.LOCALAPPDATA, "ai-coding-setup", "nimbalyst");
+  const file = data && path.join(data, "staged.json");
+  if (!file || !fs.existsSync(file)) return "waiting";
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8")).atClose === true
+      ? "at-close"
+      : "waiting";
+  } catch (e) {
+    console.log(`panels: ${fwd(file)} could not be read (${e.message})`);
+    return "waiting";
+  }
+}
 function nimbalyst({ stage }) {
   if (!fs.existsSync(DELIVER)) {
     console.log(
@@ -388,36 +485,6 @@ function nimbalyst({ stage }) {
       line ||
       `nimbalyst: the status check stopped: ${(r.stderr || r.stdout || "").trim().split(/\r?\n/).at(-1) || `exit ${r.status}`}`
     );
-  };
-  const runStage = () => {
-    const file = path.join(CLAUDE, "settings.json");
-    const offIn = (v) => String(v || "").toLowerCase() === "off";
-    let off;
-    try {
-      off =
-        offIn(process.env.NIMBALYST_FOLLOW) ||
-        (fs.existsSync(file) &&
-          offIn(
-            JSON.parse(fs.readFileSync(file, "utf8")).env?.NIMBALYST_FOLLOW,
-          ));
-    } catch (e) {
-      console.log(
-        `Nimbalyst update not started: ${fwd(file)} could not be read (${e.message}).`,
-      );
-      return false;
-    }
-    if (off) return false;
-    // its failures go to its status.json, which the line below says; a start that fails is said here
-    const r = spawnSync(process.execPath, [DELIVER, "--stage"], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 120 * 1000,
-    });
-    if (r.error)
-      console.log(
-        `Nimbalyst update not started: deliver.mjs --stage ${r.error.code === "ETIMEDOUT" ? "did not return within 2 minutes" : `could not run (${r.error.message})`}.`,
-      );
-    return true;
   };
   let line = null;
   if (stage === "always") runStage();
@@ -442,37 +509,78 @@ const passed = args.flatMap((a, i) =>
       ? [a, args[i + 1]]
       : [],
 );
+// --files-only and --quiet return what the run did: { kept, installed, waiting, failed } (extensions by repo name)
 function install(folder) {
-  const flags = FILES_ONLY ? ["--files-only"] : [...passed];
+  const flags = FILES_ONLY
+    ? ["--files-only"]
+    : QUIET
+      ? extAt === -1
+        ? []
+        : ["--extensions", extAnswer]
+      : [...passed];
   if (homeAt !== -1) flags.push("--home", home);
-  if (FILES_ONLY) {
-    // no one watches it: the installer's last line is the error the hook passes on
+  if (UNSEEN) {
+    // no one watches it: the installer's last line is the error the hook passes on. --quiet has checked Claude Code
+    // against the minimum already, so the installer does not try to update it (SETUP_CC_CHECK=done)
     const r = spawnSync(
       process.execPath,
       [path.join(folder, "install.mjs"), ...flags],
-      { encoding: "utf8", windowsHide: true },
+      {
+        encoding: "utf8",
+        windowsHide: true,
+        env: QUIET ? { ...process.env, SETUP_CC_CHECK: "done" } : process.env,
+      },
     );
-    process.stdout.write(r.stdout || "");
+    const out = r.stdout || "";
+    process.stdout.write(out);
     const lastLine =
-      `${r.stdout || ""}${r.stderr || ""}`.trim().split("\n").at(-1) ||
+      `${out}${r.stderr || ""}`.trim().split("\n").at(-1) ||
       String(r.error || "no output");
     if (r.status !== 0)
       stop(
-        `install.mjs --files-only in ${fwd(folder)} ended with an error: ${lastLine.trim()}`,
+        `install.mjs${FILES_ONLY ? " --files-only" : ""} in ${fwd(folder)} ended with an error: ${lastLine.trim()}`,
       );
-    // the files the user changed, which stayed theirs (the installer's "Kept as yours ...: a, b" line)
-    const yours = (r.stdout || "").match(
-      /^Kept as yours \([^)]*\): (.+?)\r?$/m,
-    );
-    return yours ? yours[1].split(", ") : [];
+    const lines = out.split(/\r?\n/);
+    // the files the user changed, which stayed theirs: --files-only prints "Kept as yours (...): a, b"; the full
+    // installer (scripts/report.mjs) "Kept as yours, because ...:" and then one indented line per file
+    const yours = out.match(/^Kept as yours \([^)]*\): (.+?)\r?$/m);
+    const listAt = lines.findIndex((l) => /^Kept as yours, /.test(l));
+    const list = listAt === -1 ? [] : lines.slice(listAt + 1);
+    const listEnd = list.findIndex((l) => !/^ {2}\S/.test(l));
+    const kept = yours
+      ? yours[1].split(", ")
+      : list.slice(0, listEnd === -1 ? list.length : listEnd).map((l) => l.trim());
+    // the extension lines of scripts/extensions.mjs, by the name before the first space or bracket
+    const named = (lead) =>
+      lines
+        .filter((l) => l.startsWith(lead))
+        .map((l) => l.slice(lead.length).match(/^[^\s(]+/)[0]);
+    return {
+      kept,
+      installed: named("extension installed: "),
+      waiting: [...new Set(named("extension waiting: "))],
+      failed: named("extension failed: "),
+    };
   }
+  // its output is passed on as it is, and read for the panels that failed (a retry keeps only those on record)
   const r = spawnSync(
     process.execPath,
     [path.join(folder, "install.mjs"), ...flags],
-    { stdio: "inherit", windowsHide: true },
+    {
+      stdio: ["inherit", "pipe", "inherit"],
+      encoding: "utf8",
+      windowsHide: true,
+    },
   );
+  process.stdout.write(r.stdout || "");
   if (r.status !== 0)
     stop(`install.mjs in ${fwd(folder)} ended with an error (see above).`);
+  return {
+    failed: (r.stdout || "")
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("extension failed: "))
+      .map((l) => l.slice("extension failed: ".length).match(/^[^\s(]+/)[0]),
+  };
 }
 
 let latest;
@@ -490,7 +598,7 @@ auto.headline = String(latest.releases?.[latest.version]?.headline || "")
   .trim()
   .replace(/\.$/, "");
 
-if (FILES_ONLY && !newer(latest.version, installed)) {
+if (UNSEEN && !newer(latest.version, installed)) {
   // updated some other way since the hook started this
   console.log(`Already on the newest version (${installed}).`);
   recordAuto(null);
@@ -540,12 +648,35 @@ if (!newer(latest.version, installed)) {
       console.log(`theme: left as it is (${app.theme})`);
     } else console.log(PENDING_LINE);
   }
-  if (passed.length && !args.includes("--check")) {
+  // panels the last quiet run (of this version) could not build: the installer runs again to build them
+  const checkFile = path.join(CLAUDE, "update-check.json");
+  const lastAuto = fs.existsSync(checkFile)
+    ? JSON.parse(fs.readFileSync(checkFile, "utf8")).auto
+    : null;
+  const retryPanels =
+    lastAuto?.version === installed && lastAuto.extFailed?.length
+      ? lastAuto.extFailed
+      : [];
+  if ((passed.length || retryPanels.length) && !args.includes("--check")) {
     if (!state.repo || !fs.existsSync(path.join(state.repo, "install.mjs")))
       stop(
         `the setup's folder (${state.repo}) is gone, so its installer can't run again.`,
       );
-    install(state.repo); // install.mjs checks Claude Code itself
+    if (retryPanels.length)
+      console.log(
+        `The installer runs again: the last update could not build ${retryPanels.length === 1 ? "the panel" : "the panels"} ${retryPanels.join(", ")}.`,
+      );
+    const ran = install(state.repo); // install.mjs checks Claude Code itself
+    if (retryPanels.length) {
+      // tried again: only the panels that failed again stay on record, so the next /update-setup retries them
+      const kept = JSON.parse(fs.readFileSync(checkFile, "utf8"));
+      kept.auto = {
+        ...kept.auto,
+        extFailed: retryPanels.filter((n) => ran.failed.includes(n)),
+      };
+      fs.writeFileSync(`${checkFile}.part`, JSON.stringify(kept));
+      fs.renameSync(`${checkFile}.part`, checkFile);
+    }
   } else {
     // nothing else runs the installer here, so Claude Code is checked now (once per run; a newer version's install.mjs does it on the other path)
     const mod =
@@ -651,8 +782,9 @@ fs.renameSync(part, target);
 console.log(`Downloaded to ${fwd(target)}`);
 
 // --files-only: every release from the installed one up to this, as its changelog lists them, must be `kind: files`
-// or `kind: nimbalyst` (one with no entry counts as setup)
-if (FILES_ONLY) {
+// or `kind: nimbalyst`; --quiet takes `kind: quiet` too (one with no entry counts as setup)
+const SELF_KINDS = QUIET ? ["files", "nimbalyst", "quiet"] : ["files", "nimbalyst"];
+if (UNSEEN) {
   const log = fs.readFileSync(path.join(target, "CHANGELOG.md"), "utf8");
   let listed;
   try {
@@ -668,12 +800,28 @@ if (FILES_ONLY) {
       `the changelog of ${latest.version} has no line for it, so what it changes can't be told.`,
     );
   const notFiles = missed.filter(
-    (v) => !["files", "nimbalyst"].includes(latest.releases?.[v]?.kind),
+    (v) => !SELF_KINDS.includes(latest.releases?.[v]?.kind),
   );
   if (notFiles.length)
     stop(
-      `${notFiles.join(", ")} ${notFiles.length === 1 ? "is not a release" : "are not releases"} of files only; /update-setup installs ${notFiles.length === 1 ? "it" : "them"}.`,
+      `${notFiles.join(", ")} ${notFiles.length === 1 ? "is not a release" : "are not releases"} ${QUIET ? "that installs itself" : "of files only"}; /update-setup installs ${notFiles.length === 1 ? "it" : "them"}.`,
     );
+}
+// --quiet: Claude Code only against the new version's minimum; below it nothing is installed
+if (QUIET) {
+  const { checkClaudeCode } = await setupModule(
+    target,
+    "claude-code-version.mjs",
+  );
+  const min = JSON.parse(
+    fs.readFileSync(path.join(target, "version.json"), "utf8"),
+  ).claudeCodeMin;
+  if (!/^\d+\.\d+\.\d+$/.test(String(min)))
+    stop(
+      `the version.json of ${latest.version} has no claudeCodeMin, so Claude Code can't be checked.`,
+    );
+  const { stop: tooOld } = checkClaudeCode({ min, minOnly: true });
+  if (tooOld) stop(tooOld);
 }
 
 // ---- which editor extensions changed: they are built from source, which the installer doesn't do
@@ -697,7 +845,7 @@ if (FILES_ONLY && changed.length)
   );
 
 const passBefore = passLevelNow();
-const keptYours = install(target);
+const ran = install(target);
 
 // The folders of earlier updates go; the folder the setup was first installed from is left alone
 for (const name of fs.readdirSync(sources)) {
@@ -708,11 +856,18 @@ for (const name of changed)
   console.log(
     `extension changed: ${name} (source in ${fwd(path.join(extDir, name))})`,
   );
-if (FILES_ONLY) recordAuto({ ok: true, kept: keptYours });
+if (FILES_ONLY) recordAuto({ ok: true, kept: ran.kept });
+if (QUIET)
+  recordAuto({
+    ok: true,
+    kept: ran.kept,
+    extFailed: ran.failed,
+    panels: panelsState(ran),
+  });
 console.log(
   `Updated to version ${latest.version}. The full list of changes: ${fwd(path.join(target, "CHANGELOG.md"))}`,
 );
-if (!FILES_ONLY) {
+if (!UNSEEN) {
   nimbalyst({ stage: "always" });
   diskTidy();
   filesOffer();

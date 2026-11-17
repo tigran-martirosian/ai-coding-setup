@@ -33,12 +33,19 @@
 //            the place, a pushed row keeps the end: scroll-<home|project>-<scheme>.png, bar-<top|scrolled>-<scheme>.png
 //   join     a device join with a 34 px bottom inset: the new device's "Waiting for OK" (join-wait-<scheme>.png) and
 //            the request card over Home on a paired device (join-card-<scheme>.png)
+//   connect  each state of the connecting view (phone steady design, section 4), at 390 and 320 px: Home connected
+//            for comparison (connect-home), the first open (connect-first), the relay not reached for 30 s
+//            (connect-long), Home kept under the "Connecting to your PC…" strip (connect-kept), the strip once the
+//            relay was not reached for 30 s (connect-kept-long), the relay's offline answers held 20 s (connect-off),
+//            the first open with the PC off and nothing kept (connect-first-off), a newer app over the kept Home
+//            (connect-update) and Projects against a 26.3 PC that calls the page unverified (connect-readonly):
+//            connect-<state>-<scheme>.png at 390 px, connect-<state>-320-<scheme>.png at 320 px
 // It builds the page into a temp folder, serves it with the local relay and takes each picture with Playwright's
 // headless Chromium shell (no npm package; the browser must be installed, e.g. by
 // `npx playwright install chromium-headless-shell`, or named in PHONE_PAGE_BROWSER). For Home the temp build
 // swaps in a fake Telegram host, a stored pairing and a channel that answers from the fixtures below; the
 // frame, the screens and the styles are the real ones. For Settings the fake host also taps the Settings tab.
-//   node phone/page/pictures.mjs [pairing] [home] [job] [settings] [projects] [pins] [files] [session] [live] [chat] [form] [voice] [attach] [edges] [scroll]   (no word: all)
+//   node phone/page/pictures.mjs [pairing] [home] [job] [settings] [projects] [pins] [files] [session] [live] [chat] [form] [voice] [attach] [edges] [scroll] [join] [connect]   (no word: all)
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -169,7 +176,12 @@ export async function loadPairing() {
 `;
 
 // A PC that answers Home's actions. pictureState in the address hash: "open"; "closed" (open first, then
-// Nimbalyst closes, so Home keeps the last sessions); "pc-off" (open first, then the PC drops off).
+// Nimbalyst closes, so Home keeps the last sessions); "pc-off" (open first, then the PC drops off); the connect
+// states: "connect-first" (no hello answer ever), "connect-long" (the relay never reached), "connect-kept" (open
+// first, then the link drops and no hello answers), "connect-kept-long" (open first, then the relay is not reached
+// again), "connect-first-off" (the relay says offline from the first hello), "connect-update" (open first, then the
+// relay says protocol), "connect-readonly" (a 26.3 PC that calls the page unverified); any other connect state is
+// the plain open Home.
 const FAKE_CHANNEL = `import { ChannelError } from "./channel-real.js";
 export * from "./channel-real.js";
 const STATE = new URLSearchParams(location.hash.slice(1)).get("pictureState");
@@ -639,13 +651,18 @@ let opened = 0;
 let push = null;
 export const socketUrl = () => "ws://pictures.invalid/";
 export async function openLink() {
-  return { listen() {}, close() {} };
+  if (STATE === "connect-long" || (STATE === "connect-kept-long" && opened)) throw new ChannelError("unreachable");
+  const link = { closed: null, listen() {}, close() { link.closed = {}; }, drop() { link.closed = {}; } };
+  return link;
 }
 // A device join (pictureState "join-wait"): the PC waits for an OK that never comes.
 export async function join() {
   return { dev: "new", pcId: "pc", word: "482913", open: 1, done: new Promise(() => {}), cancel() {} };
 }
 export async function openSession(_link, { onEvent }) {
+  if (STATE === "connect-update" && opened) throw new ChannelError("protocol");
+  if (STATE === "connect-first-off") throw new ChannelError("pc-offline", { lastSeen: ago(150) });
+  if (STATE === "connect-first" || (STATE === "connect-kept" && opened)) return new Promise(() => {});
   if (opened++) throw new ChannelError("pc-offline", { lastSeen: new Date().toISOString() });
   push = onEvent;
   let end;
@@ -658,10 +675,12 @@ export async function openSession(_link, { onEvent }) {
       Object.assign(status, { nimbalyst: "closed", sessionsOpen: null, update: null });
       onEvent({ e: "status" });
     }, 500);
-  if (STATE === "pc-off")
+  if (STATE === "pc-off" || STATE === "connect-off")
     setTimeout(() => end(new ChannelError("pc-offline", { lastSeen: new Date().toISOString() })), 500);
+  if (STATE === "connect-kept" || STATE === "connect-kept-long") setTimeout(() => end(new ChannelError("closed")), 500);
+  if (STATE === "connect-update") setTimeout(() => end(new ChannelError("protocol")), 500);
   return {
-    hello: { pcVersion: status.setupVersion, page: "ok" },
+    hello: { pcVersion: status.setupVersion, page: STATE === "connect-readonly" ? "unverified" : "ok" },
     ask: async (action, data) => {
       if (!ANSWERS[action]) throw new ChannelError("unknown-action");
       return { ok: true, d: ANSWERS[action](data) };
@@ -981,6 +1000,7 @@ const SETS = [
   "edges",
   "scroll",
   "join",
+  "connect",
 ];
 
 // Types into the message box as the keyboard does (the value, then an input event); `middle` then scrolls the
@@ -1145,7 +1165,43 @@ try {
           size: TALL,
           theme,
           extra: { pictureState: state },
+          // "PC off" shows once the relay's offline answers held 20 s; they come every 3-7 s.
+          ...(state === "pc-off" ? { settleMs: 30_000 } : {}),
         })),
+      ),
+    );
+  }
+  // The connecting view's states at 390 and 320 px; each waits as long as its state takes to show.
+  if (sets.includes("connect")) {
+    const pageDir = path.join(tmp, "connect-page");
+    writePage(pageDir, buildPage());
+    writeHomeStandIns(pageDir);
+    // The four runs (two widths, two schemes) go side by side, as the long states wait over 30 s each.
+    const states = [
+      ["home", 3000, {}],
+      ["first", 3000, {}],
+      ["long", 33_000, {}],
+      ["kept", 4500, {}],
+      ["kept-long", 35_000, {}],
+      ["off", 30_000, {}],
+      ["first-off", 32_000, {}],
+      ["update", 4500, {}],
+      ["readonly", 3000, { pictureTab: "Projects" }],
+    ];
+    await Promise.all(
+      [390, 320].flatMap((width) =>
+        Object.entries(THEMES).map(([scheme, theme]) =>
+          shoot(
+            pageDir,
+            states.map(([state, settleMs, taps]) => ({
+              name: `connect-${state}${width === 390 ? "" : `-${width}`}-${scheme}`,
+              size: { ...SIZES[0], width },
+              theme,
+              settleMs,
+              extra: { pictureState: `connect-${state}`, ...taps },
+            })),
+          ),
+        ),
       ),
     );
   }

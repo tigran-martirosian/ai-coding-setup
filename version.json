@@ -1,10 +1,15 @@
 {
-  "version": "26.3.1",
+  "version": "26.3.2",
   "claudeCodeMin": "2.1.321",
-  "projectPass": 3,
+  "projectPass": 4,
   "date": "2026-11-16",
-  "summary": "Setup panels stay English beside English Nimbalyst; fixes for a blank thinking line and the signed-out Account button",
+  "summary": "The phone app stays connected through a workday; Done buttons in the Job Tracker; quiet background updates",
   "releases": {
+    "26.3.2": {
+      "kind": "setup",
+      "important": true,
+      "headline": "Phone app stays connected all day, Job Tracker Done buttons, updates install quietly"
+    },
     "26.3": {
       "kind": "setup",
       "important": true,

@@ -22,6 +22,9 @@
   --p-tabbar: var(--tg-theme-bottom-bar-bg-color, var(--tg-theme-bg-color));
   --p-fill: color-mix(in oklab, var(--nim-text) 8%, transparent);
   --p-warn-tint: color-mix(in oklab, var(--nim-warning) 14%, transparent);
+  /* A kept screen's secondary words (drawn darker, as the screen is dimmed) and the connecting ring */
+  --p-kept-muted: color-mix(in oklab, var(--tg-theme-hint-color) 55%, var(--nim-text));
+  --p-ring: color-mix(in oklab, var(--tg-theme-hint-color) 90%, var(--nim-text));
   /* The lift under a chosen segment (Buzz · Silent · Off) */
   --p-lift: 0 1px 3px rgba(0, 0, 0, 0.18);
   /* The veil behind a sheet: dark in both themes, so the sheet stands out on a light page too */
@@ -79,6 +82,13 @@ body {
   font: var(--p-body);
   -webkit-text-size-adjust: 100%;
 }
+/* No pinch or double-tap zoom but on the session's chat (frame/zoom.js sets html.zoomable there). */
+html {
+  touch-action: pan-x pan-y;
+}
+html.zoomable {
+  touch-action: auto;
+}
 [hidden] {
   display: none !important;
 }
@@ -128,9 +138,128 @@ body {
   border-radius: var(--p-radius);
   padding: 10px 12px;
 }
-.greyed {
-  opacity: 0.45;
+/* A screen kept while the link is down: a little dimmed, its colours quieter, taking no taps. Its secondary words
+   are drawn darker first, so after the dimming they still read at about 4.5:1. */
+.kept {
+  --nim-text-muted: var(--p-kept-muted);
+  --p-sub: var(--p-kept-muted);
+  --p-section-head: var(--p-kept-muted);
+  opacity: 0.75;
+  filter: saturate(0.5);
   pointer-events: none;
+}
+/* Kept under the connecting strip, Home's PC card says what it last saw; the strip carries the "as of" time */
+.pc-was,
+.kept .pc-asof {
+  display: none;
+}
+.kept .pc-was {
+  display: inline;
+}
+/* PC off or an app update: the frame's card stands in place of Home's PC card */
+.kept-off .home-pc {
+  display: none;
+}
+/* Against a 26.3 PC (read-only): the screen at full strength, only the controls that act are off */
+.read-only :is(button, input, textarea, select, [data-action]) {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ---- the link's state (phone steady design, section 4): the first-open view, the strip over a kept screen */
+.connect-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 30vh 16px 0;
+}
+.connect-title {
+  font: var(--p-body);
+  font-weight: 600;
+  color: var(--nim-text);
+  margin: 16px 0 8px;
+}
+.connect-view .frame-line {
+  max-width: 300px;
+}
+.connect-view .try-btn {
+  margin-top: 4px;
+}
+/* A flat strip across the screen's top, the page's own colour with a hairline under it: a status, not a field */
+.link-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 calc(-1 * var(--p-gap)) 12px;
+  padding: 10px var(--p-gap);
+  background: var(--nim-bg);
+  border-bottom: 1px solid var(--p-sep);
+  color: var(--nim-text);
+  font: var(--p-sub-text);
+}
+.link-bar-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.link-bar-title {
+  flex: 1;
+  font-weight: 600;
+}
+.link-bar-asof {
+  font-variant-numeric: tabular-nums;
+}
+.link-bar-line {
+  margin: 6px 0 0 24px;
+  color: var(--p-sub);
+}
+.link-bar .try-btn {
+  margin: 8px 0 0 24px;
+  height: 36px;
+  font: var(--p-sub-text);
+  font-weight: 600;
+}
+.off-line {
+  color: var(--nim-text-muted);
+}
+.frame-state .off-line {
+  margin: 10px 0 0;
+}
+.frame-state .as-of {
+  margin: 4px 0 0;
+  color: var(--nim-text);
+}
+.frame-state .reload-btn {
+  margin-top: 12px;
+}
+.frame-state .pc-icon {
+  color: var(--nim-text);
+}
+/* The ring reads at about 3:1 on the page: the hint colour taken a little towards the text */
+.spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--p-ring);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: link-spin 1.1s linear infinite;
+}
+.spinner.big {
+  width: 28px;
+  height: 28px;
+  border-width: 2.5px;
+}
+@keyframes link-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
 }
 
 /* ---- groups and blocks */
@@ -344,6 +473,10 @@ body {
   font: var(--p-section-text);
   color: var(--nim-text);
   white-space: nowrap;
+}
+/* How to get the newer version, on its own line under it */
+.version-how {
+  flex-basis: 100%;
 }
 .row {
   position: relative;
@@ -1210,6 +1343,15 @@ body {
 }
 .convo > * {
   flex-shrink: 0;
+}
+/* The live rows sit inside the conversation and lay out like it: your messages right, gaps between rows */
+.live-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.live-rows:empty {
+  display: none;
 }
 .you {
   align-self: flex-end;

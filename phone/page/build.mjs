@@ -1,27 +1,18 @@
 // The page build (PC program design, section 2; pipe design, section 6). Copies the page's files as they are with
 // LF line ends, writes page/screens.generated.js (one import per file in screens/, sorted, plus the page's
-// version) and version.json, and the PC's list of every served file's SHA-256 (skills/phone-bot/pc/page-hashes.json).
+// version) and version.json.
 // Byte-for-byte repeatable: no time stamp, sorted lists, the version read from version.json.
 //   node phone/page/build.mjs [--out <dir>] [--checks]
 // The served folder mirrors phone/: index.html at the top, page/** and shared/ beside it, so the page's
 // relative import of ../../shared/seal.mjs works in the repo (for Node tests) and on the relay alike.
 // --out: where the served page goes; phone/page/dist when not given (git ignores dist/).
-// --checks: the test build for the phone check. It adds the Checks screen and writes no page-hashes.json, so a
-// PC never trusts a test build.
-import { createHash } from "node:crypto";
+// --checks: the test build for the phone check. It adds the Checks screen.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PAGE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(PAGE, "..", "..");
-export const HASHES_FILE = path.join(
-  ROOT,
-  "skills",
-  "phone-bot",
-  "pc",
-  "page-hashes.json",
-);
 
 // Served path -> source file. Folders are listed whole; anything else in phone/page (this script, the README,
 // the picture script, dist/) is not served. The job tracker's model.js is copied unchanged to the path that the
@@ -41,7 +32,6 @@ const FIXED = [
 const FOLDERS = ["frame", "screens"];
 const SCREEN_FILE = /^[a-z][a-z0-9-]*\.js$/;
 
-const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const lf = (text) => Buffer.from(text.replace(/\r\n/g, "\n"), "utf8");
 
 function readText(file) {
@@ -78,7 +68,7 @@ function generated(screens, version) {
   return lines.join("\n");
 }
 
-// Returns { version, files: [[servedPath, bytes]] sorted by path, hashes: { version, files } }.
+// Returns { version, files: [[servedPath, bytes]] sorted by path }.
 export function buildPage({ checks = false } = {}) {
   const version = setupVersion();
   const files = new Map();
@@ -106,17 +96,8 @@ export function buildPage({ checks = false } = {}) {
   files.set("/page/screens.generated.js", lf(generated(imports, version)));
   files.set("/version.json", lf(`${JSON.stringify({ version })}\n`));
   const sorted = [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return {
-    version,
-    files: sorted,
-    hashes: {
-      version,
-      files: Object.fromEntries(sorted.map(([p, b]) => [p, sha(b)])),
-    },
-  };
+  return { version, files: sorted };
 }
-
-export const hashesText = (hashes) => `${JSON.stringify(hashes, null, 2)}\n`;
 
 // A served path to its place in the output folder: "/" is index.html.
 const outPath = (out, at) =>
@@ -156,8 +137,4 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   console.log(
     `page ${build.version}${checks ? " (test build with Checks)" : ""}: ${build.files.length} files in ${out}`,
   );
-  if (!checks) {
-    fs.writeFileSync(HASHES_FILE, hashesText(build.hashes));
-    console.log(`page hashes: ${HASHES_FILE}`);
-  }
 }
