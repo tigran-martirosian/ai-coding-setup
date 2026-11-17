@@ -41,7 +41,8 @@ export function usageView(d, now = Date.now()) {
     if (used > 0 && at < reset)
       runsOut = `At this pace it runs out ${dayTime(at)}`;
   }
-  const pace = percent <= gone ? "on pace" : "above pace";
+  // One unit at a line end: "on pace" never leaves "pace" alone on the next line
+  const pace = percent <= gone ? "on pace" : "above pace";
   return {
     percent,
     today: d.today,

@@ -137,6 +137,13 @@ export function upgrade(req, socket, head, { onMessage, onClose }) {
     conn.closed = true;
     end(1006, "");
   });
+  // The far end went away without a close frame (a killed program on macOS or Linux sends a FIN, Windows a
+  // reset). Node's HTTP server keeps upgraded sockets half-open, so "close" would never come: end it here.
+  socket.on("end", () => {
+    conn.closed = true;
+    socket.end();
+    end(1006, "");
+  });
   socket.on("error", () => socket.destroy());
   // The caller gets the connection before the first message arrives.
   process.nextTick(read);

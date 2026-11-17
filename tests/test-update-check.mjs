@@ -26,7 +26,10 @@ const check = (name, ok) => {
 let released = { version: "1.2.0", summary: "A new thing." };
 let asked = 0;
 let changelog = null; // null: no CHANGELOG.md (404), as an old release had
+let tarball = null; // T7: the archive served as /v<version>.tar.gz, as update.mjs asks for it
 const server = http.createServer((req, res) => {
+  if (tarball && req.url === `/${path.basename(tarball)}`)
+    return res.end(fs.readFileSync(tarball));
   if (req.url === "/CHANGELOG.md") {
     if (changelog === null) {
       res.statusCode = 404;
@@ -413,7 +416,8 @@ check(
 );
 
 // 5 and 9: the self-install. A stand-in for update.mjs in the home writes what it was started with and then, after a
-// while, its result as update.mjs --files-only does (STUB_RESULT: ok or the error)
+// while, its result as update.mjs --files-only does (STUB_RESULT: ok or the error). While a file named `hold` is in
+// the home's .claude it waits for the test to delete it (30 s at most), so a check can know it still runs.
 const stubHome = (name, version) => {
   const h = home(name, version);
   const stub = path.join(h, ".claude", "skills", "update-setup", "update.mjs");
@@ -424,7 +428,11 @@ const stubHome = (name, version) => {
 import path from "node:path";
 const claude = path.join(process.argv[process.argv.indexOf("--home") + 1], ".claude");
 fs.writeFileSync(path.join(claude, "started.json"), JSON.stringify(process.argv.slice(2)));
-setTimeout(() => {
+process.on("exit", () => fs.writeFileSync(path.join(claude, "exited"), ""));
+const hold = path.join(claude, "hold");
+const holdEnd = Date.now() + 30000;
+const held = () => fs.existsSync(hold) && Date.now() < holdEnd ? setTimeout(held, 50) : finish();
+const finish = () => {
   const file = path.join(claude, "update-check.json");
   const kept = JSON.parse(fs.readFileSync(file, "utf8"));
   const ok = process.env.STUB_RESULT === "ok";
@@ -433,7 +441,8 @@ setTimeout(() => {
   fs.writeFileSync(file, JSON.stringify(kept));
   if (ok) fs.writeFileSync(path.join(claude, "setup-state.json"), JSON.stringify({ version: kept.auto.version }));
   fs.writeFileSync(path.join(claude, "ended"), "");
-}, 1500);
+};
+fs.existsSync(hold) ? held() : setTimeout(finish, 1500);
 `,
   );
   return h;
@@ -463,12 +472,13 @@ const filesOnly = {
 };
 released = { version: "1.0.7", releases: filesOnly };
 const autoOk = stubHome("auto-ok", "1.0.5");
-const autoStart = Date.now();
+// The prompt must not wait for the self-install: the stand-in is held until the test lets it go, so a prompt
+// that waited for it would come back only after the stand-in has exited
+fs.writeFileSync(at(autoOk, "hold"), "");
 const started = await run(autoOk, { STUB_RESULT: "ok" });
-const startMs = Date.now() - autoStart;
 check(
-  `9. all missed releases are files: the prompt is not held up (${startMs} ms) and says nothing yet`,
-  started.out === "" && !fs.existsSync(at(autoOk, "ended")) && startMs < 1500,
+  "9. all missed releases are files: the prompt returns while update.mjs still runs (not held up) and says nothing yet",
+  started.out === "" && !fs.existsSync(at(autoOk, "exited")),
 );
 check(
   "9. update.mjs --files-only was started on its own",
@@ -483,6 +493,7 @@ check(
   "9. while it runs, a prompt is silent and starts no second one",
   during.out === "" && !fs.existsSync(at(autoOk, "started.json")),
 );
+fs.rmSync(at(autoOk, "hold"));
 await waitFor(at(autoOk, "ended"), 5000);
 const doneSaid = JSON.parse((await run(autoOk)).out || "{}");
 check(
@@ -809,6 +820,189 @@ check(
 );
 check("NB4. the error is said once", (await nbSay()) === "");
 
+// ---- T5: `quiet` releases (plan 2026-11-15-quiet-updates). The stand-in update.mjs above writes what it was started
+// with; one missed release or two, as the changelog lists them
+const quietKinds = (...kinds) => {
+  const vs = kinds.length === 1 ? ["1.0.7"] : ["1.0.7", "1.0.6"];
+  changelog = log([
+    ...vs.map((v) => [v, `Release ${v}.`]),
+    ["1.0.5", "Installed already."],
+  ]);
+  released = {
+    version: "1.0.7",
+    releases: Object.fromEntries(
+      vs.map((v, i) => [
+        v,
+        { kind: kinds[i], important: false, headline: `Release ${v}` },
+      ]),
+    ),
+  };
+};
+const argsOf = (h) =>
+  JSON.parse(fs.readFileSync(at(h, "started.json"), "utf8"));
+quietKinds("quiet");
+const q1 = await noStart("quiet-one", {});
+const q1Home = path.join(tmp, "quiet-one");
+check(
+  "T5. [quiet]: update.mjs --quiet is started, not --files-only",
+  q1.started &&
+    argsOf(q1Home).includes("--quiet") &&
+    !argsOf(q1Home).includes("--files-only") &&
+    stored(q1Home).autoRun?.mode === "quiet",
+);
+quietKinds("quiet", "files");
+const q2 = await noStart("quiet-files", {});
+check(
+  "T5. [files, quiet]: update.mjs --quiet is started",
+  q2.started && argsOf(path.join(tmp, "quiet-files")).includes("--quiet"),
+);
+quietKinds("quiet", "setup");
+const q3 = await noStart("quiet-setup", {});
+check(
+  "T5. [quiet, setup]: nothing started, the reminder instead",
+  !q3.started && /^Your setup is from/.test(q3.out.systemMessage || ""),
+);
+quietKinds("quiet", "files");
+const q4 = await noStart("quiet-off", { AUTO_UPDATE: "off" });
+check(
+  "T5. [files, quiet] with AUTO_UPDATE=off: nothing started, the reminder instead",
+  !q4.started && /^Your setup is from/.test(q4.out.systemMessage || ""),
+);
+quietKinds("later-kind");
+const q5 = await noStart("quiet-unknown", {});
+check(
+  "T5. an unknown kind: nothing started, it reminds",
+  !q5.started && /^Setup update ready/.test(q5.out.systemMessage || ""),
+);
+// a quiet run under way: alive at 16 minutes, dead at 46
+const minsAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
+quietKinds("quiet");
+const qAlive = stubHome("quiet-alive", "1.0.5");
+await run(qAlive, { AUTO_UPDATE: "off" });
+restore(qAlive, {
+  autoRun: {
+    version: "1.0.7",
+    from: "1.0.5",
+    mode: "quiet",
+    startedAt: minsAgo(16),
+  },
+});
+const aliveOut = await run(qAlive);
+check(
+  "T5. a quiet run started 16 minutes ago is alive: silent, still under way",
+  aliveOut.out === "" && stored(qAlive).autoRun?.mode === "quiet",
+);
+restore(qAlive, {
+  autoRun: { ...stored(qAlive).autoRun, startedAt: minsAgo(46) },
+});
+check(
+  "T5. a quiet run started 46 minutes ago is dead: said once as not finished within 45 minutes",
+  /^Setup could not update itself to 1\.0\.7: it did not finish within 45 minutes\./.test(
+    JSON.parse((await run(qAlive)).out || "{}").systemMessage || "",
+  ) && !stored(qAlive).autoRun,
+);
+const qLock = stubHome("quiet-lock", "1.0.5");
+fs.writeFileSync(at(qLock, "update-auto.lock"), "quiet");
+const lockAt = new Date(Date.now() - 20 * 60000);
+fs.utimesSync(at(qLock, "update-auto.lock"), lockAt, lockAt);
+await run(qLock);
+await new Promise((r) => setTimeout(r, 700));
+check(
+  "T5. a quiet run's lock 20 minutes old is still held: nothing started",
+  !fs.existsSync(at(qLock, "started.json")),
+);
+
+// ---- T6: the grey line of a quiet run from update.mjs's `auto`, and the Nimbalyst line from staged.json
+const quietSaid = async (name, extra) => {
+  const h = stubHome(name, "1.0.5");
+  await run(h, { AUTO_UPDATE: "off" });
+  restore(h, {
+    auto: {
+      version: "1.0.7",
+      from: "1.0.5",
+      headline: "The job tracker says more",
+      at: ago(0),
+      ok: true,
+      kept: [],
+      extFailed: [],
+      ...extra,
+    },
+  });
+  return JSON.parse((await run(h, { AUTO_UPDATE: "off" })).out || "{}")
+    .systemMessage;
+};
+const QUIET_LINE = "Setup updated itself to 1.0.7: The job tracker says more.";
+const startsNext = "The panels change the next time Nimbalyst starts.";
+check(
+  'T6. panels "in": the panels change at the next start',
+  (await quietSaid("t6-in", { panels: "in" })) ===
+    `${QUIET_LINE} ${startsNext}`,
+);
+check(
+  'T6. panels "at-close": the same sentence',
+  (await quietSaid("t6-at-close", { panels: "at-close" })) ===
+    `${QUIET_LINE} ${startsNext}`,
+);
+check(
+  'T6. panels "waiting": /update-setup puts them in',
+  (await quietSaid("t6-waiting", { panels: "waiting" })) ===
+    `${QUIET_LINE} New panels are waiting: type /update-setup to put them in (Nimbalyst restarts).`,
+);
+check(
+  "T6. panels null: no panel sentence",
+  (await quietSaid("t6-null", { panels: null })) === QUIET_LINE,
+);
+check(
+  "T6. a panel whose build failed is named after the others' sentence, with the retry",
+  (await quietSaid("t6-failed", {
+    panels: "in",
+    extFailed: ["job-tracker"],
+  })) ===
+    `${QUIET_LINE} ${startsNext} Panel job-tracker could not be updated; the old one still works, and /update-setup tries again.`,
+);
+check(
+  "T6. two failed panels: the plural sentence",
+  (await quietSaid("t6-failed-two", {
+    panels: "in",
+    extFailed: ["job-tracker", "sessions"],
+  })) ===
+    `${QUIET_LINE} ${startsNext} Panels job-tracker, sessions could not be updated; the old ones still work, and /update-setup tries again.`,
+);
+check(
+  "T6. a quiet run's kept files are counted as the files-only line does",
+  (await quietSaid("t6-kept", {
+    panels: null,
+    kept: ["hooks/link-gate.mjs"],
+  })) ===
+    `${QUIET_LINE} 1 file you changed stayed as yours; /update-setup can take the new version of it.`,
+);
+const atCloseHome = home("t6-nb-at-close", "1.0.7");
+fs.mkdirSync(dataOf(atCloseHome), { recursive: true });
+fs.writeFileSync(
+  path.join(dataOf(atCloseHome), "staged.json"),
+  JSON.stringify({ version: "0.86.0", installer: null, atClose: true }),
+);
+check(
+  "T6. a staged Nimbalyst with atClose: it goes in the next time Nimbalyst is closed",
+  JSON.parse((await run(atCloseHome)).out || "{}").systemMessage ===
+    "Nimbalyst 0.86.0 is ready: it goes in the next time you close Nimbalyst.",
+);
+const markerHome = home("t6-nb-marker", "1.0.7");
+fs.mkdirSync(dataOf(markerHome), { recursive: true });
+fs.writeFileSync(
+  path.join(dataOf(markerHome), "staged.json"),
+  JSON.stringify({
+    extensions: true,
+    installer: null,
+    at: ago(0),
+    atClose: true,
+  }),
+);
+check(
+  "T6. a marker job (no version): no Nimbalyst line",
+  (await run(markerHome)).out === "",
+);
+
 changelog = null;
 released = { version: "1.10.0" };
 
@@ -861,32 +1055,45 @@ check(
 );
 
 // An address that never answers (a dropped connection, as with no network): a prompt must not wait long
-let hung = 0;
+let hung = 0,
+  hangAsked = 0;
 const hang = http.createServer((req) => {
+  hangAsked++;
   if (req.url === "/version.json") hung++;
 }); // the changelog is asked beside it
 await new Promise((r) => hang.listen(0, "127.0.0.1", r));
 const HANG = `http://127.0.0.1:${hang.address().port}`;
+// The first prompt gives up on GitHub in under a second: this one answers a newer version 1 s after each request,
+// so a prompt that waited a second or more would hear it and announce it. Timed by the two clocks of the wait
+// itself, not by the prompt's run, which a busy computer stretches with node's start.
+const lateLine = http.createServer((req, res) =>
+  setTimeout(() => {
+    if (req.url !== "/version.json") res.statusCode = 404;
+    res.end(req.url === "/version.json" ? '{"version":"1.10.0"}' : "");
+  }, 1000),
+);
+await new Promise((r) => lateLine.listen(0, "127.0.0.1", r));
 const stuck = home("stuck", "1.0.0");
-let t0 = Date.now();
-const slow = await run(stuck, { SETUP_UPDATE_BASE: HANG });
-const firstMs = Date.now() - t0;
+const slow = await run(stuck, {
+  SETUP_UPDATE_BASE: `http://127.0.0.1:${lateLine.address().port}`,
+});
 check(
-  `no answer: the first prompt waits under a second (${firstMs} ms), silent, exit 0`,
-  firstMs < 1000 && slow.out === "" && slow.code === 0,
+  "no answer within a second: the first prompt gives up before it (does not hear the late 1.10.0), silent, exit 0",
+  slow.out === "" && slow.code === 0 && !kept(stuck)?.latest,
 );
 check(
   "no answer: the reason is kept",
   /no answer in time/.test(kept(stuck)?.error || ""),
 );
-const hungBefore = hung;
-t0 = Date.now();
+lateLine.closeAllConnections?.();
+lateLine.close();
+// The next prompts cost a file read, not a wait on the network: they ask nothing at all
 const again = await run(stuck, { SETUP_UPDATE_BASE: HANG });
-const againMs = Date.now() - t0;
 check(
-  `the next prompts do not ask again for an hour (${againMs} ms, no request)`,
-  again.out === "" && hung === hungBefore && againMs < 500,
+  "the next prompts do not ask again for an hour (no request of any kind, so no wait on the network)",
+  again.out === "" && hangAsked === 0,
 );
+const hungBefore = hung;
 fs.writeFileSync(
   path.join(stuck, ".claude", "update-check.json"),
   JSON.stringify({
@@ -1404,6 +1611,162 @@ check(
     "and the folder is noted, so the next prompt is silent",
     (await run(broken.h, broken.env)).out === "",
   );
+}
+
+// ---- T7: the whole chain with no stand-in: the hook starts the installed update.mjs --quiet, which downloads a
+// `quiet` release from this server and runs its full installer; the next prompt says it. The release changes a hook
+// and the plain extension job-tracker. Nimbalyst's folder is inside the test home (APPDATA, HOME), Nimbalyst counts
+// as closed through a file that does not exist, NIMBALYST_FOLLOW=off keeps deliver.mjs still, and Claude Code is not
+// checked, so nothing touches this computer's setup
+{
+  const REPO = fileURLToPath(new URL("..", import.meta.url));
+  const repoMeta = JSON.parse(
+    fs.readFileSync(path.join(REPO, "version.json"), "utf8"),
+  );
+  const thisVersion = repoMeta.version;
+  const QV = "99.9.12";
+  const SKIP = [".git", "node_modules", "promo", "dist", "img"];
+  const copyRepo = (to) =>
+    fs.cpSync(REPO, to, {
+      recursive: true,
+      filter: (src) => !SKIP.includes(path.basename(src)),
+    });
+  const pack = path.join(tmp, "t7-pack", `ai-coding-setup-${QV}`);
+  copyRepo(pack);
+  const meta = {
+    version: QV,
+    projectPass: repoMeta.projectPass,
+    claudeCodeMin: repoMeta.claudeCodeMin,
+  };
+  fs.writeFileSync(path.join(pack, "version.json"), JSON.stringify(meta));
+  const packLog = fs
+    .readFileSync(path.join(pack, "CHANGELOG.md"), "utf8")
+    .replace(
+      /^## \[\d/m,
+      (head) =>
+        `## [${QV}] - 2026-11-16\n\n- The job tracker says more.\n\n${head}`,
+    );
+  fs.writeFileSync(path.join(pack, "CHANGELOG.md"), packLog);
+  fs.appendFileSync(
+    path.join(pack, "hooks", "sql-guard.mjs"),
+    "\n// quiet release\n",
+  );
+  fs.appendFileSync(
+    path.join(pack, "extensions", "job-tracker", "src", "index.js"),
+    "\n// quiet release\n",
+  );
+  const winTar = path.join(
+    process.env.SystemRoot || "C:\\Windows",
+    "System32",
+    "tar.exe",
+  );
+  const tar =
+    process.platform === "win32" && fs.existsSync(winTar) ? winTar : "tar";
+  fs.mkdirSync(path.join(tmp, "t7-served"));
+  const packed = spawnSync(
+    tar,
+    [
+      "-czf",
+      path.join("..", "t7-served", `v${QV}.tar.gz`),
+      `ai-coding-setup-${QV}`,
+    ],
+    { cwd: path.join(tmp, "t7-pack"), encoding: "utf8" },
+  );
+  tarball = path.join(tmp, "t7-served", `v${QV}.tar.gz`);
+  check("T7. the test archive was made", packed.status === 0);
+
+  // this version installed from a copy, with job-tracker in the test Nimbalyst folder
+  const h = path.join(tmp, "t7-home");
+  const darwin = process.platform === "darwin";
+  const nbData = darwin
+    ? path.join(h, "Library", "Application Support", "@nimbalyst", "electron")
+    : path.join(h, "AppData", "Roaming", "@nimbalyst", "electron");
+  fs.mkdirSync(nbData, { recursive: true });
+  const live = path.join(nbData, "extensions", "jobtracker");
+  const safe = {
+    HOME: h,
+    ...(darwin ? {} : { APPDATA: path.join(h, "AppData", "Roaming") }),
+    SETUP_EXTENSIONS: "job-tracker",
+    SETUP_NIMBALYST_OPEN: "no",
+    SETUP_NIMBALYST_OPEN_FILE: path.join(h, "nimbalyst-runs"),
+    SETUP_CC_CHECK: "off",
+    NIMBALYST_FOLLOW: "off",
+    NIMBALYST_DELIVER_DATA: dataOf(h),
+  };
+  const base = path.join(tmp, "t7-base");
+  copyRepo(base);
+  const baseRun = spawnSync(
+    process.execPath,
+    [
+      path.join(base, "install.mjs"),
+      "--home",
+      h,
+      "--codex",
+      "no",
+      "--extensions",
+      "yes",
+    ],
+    { encoding: "utf8", env: { ...process.env, ...safe } },
+  );
+  const liveIndex = () =>
+    fs.existsSync(path.join(live, "dist", "index.js"))
+      ? fs.readFileSync(path.join(live, "dist", "index.js"), "utf8")
+      : "";
+  check(
+    "T7. this version installs with job-tracker in the test Nimbalyst folder",
+    baseRun.status === 0 &&
+      liveIndex() !== "" &&
+      !liveIndex().includes("quiet release"),
+  );
+
+  changelog = packLog;
+  released = {
+    ...meta,
+    releases: {
+      [QV]: {
+        kind: "quiet",
+        important: false,
+        headline: "The job tracker says more.",
+      },
+    },
+  };
+  const started = await run(h, safe);
+  check(
+    "T7. the hook says nothing yet and records a quiet run under way",
+    started.out === "" && stored(h).autoRun?.mode === "quiet",
+  );
+  // the run builds a panel: allow it a few minutes
+  for (
+    const end = Date.now() + 5 * 60000;
+    Date.now() < end && !stored(h).auto;
+    await new Promise((r) => setTimeout(r, 500))
+  );
+  // The hook passes --home here (SETUP_UPDATE_HOME) and no --extensions, and install.mjs builds no panels into
+  // another home unless told to: the run is --quiet (its own `panels` and `extFailed` are on record) and leaves the
+  // panel as it was, so the line has no panel sentence. The panel half is T1 in test-update.mjs and T6 above.
+  const result = stored(h).auto;
+  const said = JSON.parse((await run(h, safe)).out || "{}").systemMessage;
+  check(
+    `T7. the next prompt says the quiet update (${JSON.stringify(result)})`,
+    said === `Setup updated itself to ${QV}: The job tracker says more.` &&
+      result.ok === true &&
+      result.from === thisVersion &&
+      result.panels === null &&
+      Array.isArray(result.extFailed),
+  );
+  const state = JSON.parse(fs.readFileSync(at(h, "setup-state.json"), "utf8"));
+  check(
+    "T7. the release is installed from the download: the version, the hook, the lock freed, the panel left as it was",
+    state.version === QV &&
+      fs
+        .readFileSync(at(h, path.join("hooks", "sql-guard.mjs")), "utf8")
+        .includes("// quiet release") &&
+      fs.existsSync(at(h, path.join("setup-source", `v${QV}`))) &&
+      !fs.existsSync(at(h, "update-auto.lock")) &&
+      liveIndex() !== "" &&
+      !liveIndex().includes("quiet release"),
+  );
+  check("T7. said once", (await run(h, safe)).out === "");
 }
 server.close();
 fs.rmSync(tmp, { recursive: true, force: true });

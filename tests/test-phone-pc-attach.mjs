@@ -458,6 +458,26 @@ try {
     show({ made, spawned }),
   );
 
+  // A Note carries the picked files as Send does (the user, 2026-11-16: files and photos go with a note too).
+  const nt = await put(withHead(PNG_HEAD, 1000), "note-shot.png", {
+    session: S.alpha,
+  });
+  const m6 = door.calls.length;
+  const noted = await ask("session.note", {
+    session: S.alpha,
+    text: "See this",
+    attachments: [nt.d.id],
+  });
+  const notePrompt = callsOf("send_prompt", m6)[0]?.args.prompt ?? "";
+  check(
+    "session.note sends the block with the note, so a photo picked for a Note reaches the session",
+    noted.ok === true &&
+      /^See this\n\nAttached files \(open each with your read tool\):\n- \d{8}-\d{6}-\d+_note-shot\.png: /.test(
+        notePrompt,
+      ),
+    show({ noted, notePrompt }),
+  );
+
   // ---- attach.drop deletes the file; 8 unused files per device at most
   const d1 = await put(text("drop me\n"), "drop-me.txt");
   const dropped = await ask("attach.drop", { id: d1.d.id });

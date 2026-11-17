@@ -59,7 +59,10 @@ export function loadKeys() {
   try {
     keys = JSON.parse(fs.readFileSync(real, "utf8"));
   } catch (e) {
-    throw new Error(`${keyFilePath()} is not valid JSON: ${e.message}`);
+    // The parse error can quote the file's text (the token and private keys), and this message reaches pc.log.
+    throw new Error(
+      `${keyFilePath()} is not valid JSON (${e instanceof SyntaxError ? "bad JSON" : e.code || "read failed"})`,
+    );
   }
   for (const f of ["relay", "pcId", "token", "identity", "inbox", "devices"])
     if (keys[f] === undefined)

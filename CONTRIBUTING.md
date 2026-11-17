@@ -29,7 +29,7 @@ You need Node.js 18 or newer.
 node tests/run-all.mjs
 ```
 
-`--only a,b` runs just those test files, `--failed` reruns what failed last time, and `--verbose` runs one file at a time with full output. The README's Tests section says what the tests cover and what CI runs.
+`--only a,b` runs just those test files, `--failed` reruns what failed last time, `--changed` runs the tests of what you changed (the full suite when no test names it), and `--verbose` runs one file at a time with full output. The README's Tests section says what the tests cover and what CI runs.
 
 ### Lint and format
 

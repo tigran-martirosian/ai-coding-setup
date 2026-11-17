@@ -851,6 +851,61 @@ ${LONG}` &&
       byClass(k.view, "think").filter((n) => n.tagName === "div").length === 1,
     show(texts(k.view, "wstep")),
   );
+  // ---- a message sent from the phone shows once: the live row replaces its waiting bubble, on the right
+  const kBox = byTag(k.dock, "textarea")[0];
+  kBox.value = "Check the logs too";
+  kBox.fire("input");
+  button(k.dock, (b) => b.textContent === "Note")?.click();
+  const yours = () =>
+    byClass(k.view, "you").filter((n) =>
+      n.textContent.includes("Check the logs too"),
+    );
+  const heldNote = await until(
+    () => yours().find((n) => hasClass(n, "held")),
+    8000,
+  );
+  check(
+    "a Note to a working session goes through steer.mjs (as the desktop Note button), not into Nimbalyst's queue",
+    Boolean(heldNote) && !callsOf("send_prompt", S.think).length,
+    show({ yours: yours().map((n) => n.className), dock: k.dock.textContent }),
+  );
+  // steer.mjs hands the note over as a hook's added context, as it did with the desktop Note button.
+  append(THINK_T, {
+    type: "attachment",
+    timestamp: new Date().toISOString(),
+    attachment: {
+      type: "hook_additional_context",
+      content: [
+        "[btw] The user sent this while you were working. It is an addition.\n- [note abc123] Check the logs too\n\n(Sent from the phone.)",
+      ],
+    },
+  });
+  await until(
+    () => yours().length === 1 && !hasClass(yours()[0], "held"),
+    4000,
+  );
+  await sleep(300);
+  const landed = yours()[0];
+  // No waiting bubble is left anywhere in the view.
+  const all = walk(k.view);
+  check(
+    "a delivered Note shows once, where it landed in the chat with its Note tag, and its waiting bubble is gone",
+    yours().length === 1 &&
+      !hasClass(landed, "held") &&
+      !all.some((n) => hasClass(n, "held")) &&
+      byClass(landed, "you-tag")[0]?.textContent === "Note",
+    show({
+      yours: yours().map((n) => n.className),
+      rows: texts(k.view, "you"),
+    }),
+  );
+  const pageCss = fs.readFileSync(path.join(PAGE, "page.css"), "utf8");
+  check(
+    "the live rows lay out as a column with the conversation's gap, so your message there sits right",
+    /\.live-rows \{\s*display: flex;\s*flex-direction: column;\s*gap: 12px;/.test(
+      pageCss,
+    ),
+  );
   gone(k);
   check(
     "the views that are gone stop their watches",

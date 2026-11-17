@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeChecker, UNDER_MS } from "./lib/kit.mjs";
+import { makeChecker, nodeStarts, UNDER_STARTS } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(new URL("../hooks/map-nudge.mjs", import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "map-nudge-test-"));
@@ -50,9 +50,8 @@ const project = (name, n, { git = true, map = null } = {}) => {
     ),
   };
 };
-const run = (p, prompt = "fix the login bug", env = {}) => {
-  const t = Date.now();
-  const r = spawnSync("node", [HOOK], {
+const run = (p, prompt = "fix the login bug", env = {}) =>
+  spawnSync("node", [HOOK], {
     input: env.RAW ?? JSON.stringify({ prompt }),
     encoding: "utf8",
     env: {
@@ -64,8 +63,6 @@ const run = (p, prompt = "fix the login bug", env = {}) => {
       ...env,
     },
   });
-  return { ...r, ms: Date.now() - t };
-};
 const context = (r) => {
   try {
     return JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
@@ -349,21 +346,24 @@ check(
   run(slight).stdout === "",
 );
 
-// ---- speed on a big repository: 3,000 code files. The best of five runs, since other sessions share this computer.
+// ---- speed on a big repository: 3,000 code files. The prompt waits on the count, so it has a budget, timed in bare
+// node starts: other sessions share this computer and CI runs every core at once, which slows both sides alike.
 const bigp = project("big", 3000);
-const best = (n, f) => Math.min(...Array.from({ length: n }, f));
-const counting = best(5, () => {
+const counting = nodeStarts(5, () => {
   fs.rmSync(bigp.state, { recursive: true, force: true });
-  return run(bigp).ms;
+  run(bigp);
 });
 check(
-  `3,000 code files, no map, the count runs: under ${UNDER_MS / 1000} s (best of five ${counting} ms)`,
-  counting < UNDER_MS,
+  `3,000 code files, no map, the count runs within ${UNDER_STARTS} bare node starts (best of five: ${counting.ms} ms = ${counting.starts} starts of ${counting.startMs} ms)`,
+  counting.starts < UNDER_STARTS,
 );
-const fast = best(5, () => run(bigp).ms);
+// Nudged before: the prompt returns before the count, which would stamp a new checkedAt first
+const stamped = state(bigp).checkedAt;
+const skipped = run(bigp);
 check(
-  `a project nudged before skips the count: under ${UNDER_MS / 1000} s (best of five ${fast} ms)`,
-  fast < UNDER_MS,
+  "a project nudged before skips the count (silent, its checkedAt not stamped again)",
+  skipped.stdout === "" && !!stamped && state(bigp).checkedAt === stamped,
+  JSON.stringify(state(bigp)),
 );
 
 // ---- every run above kept its own state: the real map-nudge state has none of this run's folders

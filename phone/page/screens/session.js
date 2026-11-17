@@ -80,6 +80,9 @@ const SAY = {
 };
 export const why = (r) => {
   const w = errWord(r);
+  // A Note the session could not take carries the note sender's reason.
+  if (w === "note-failed")
+    return `the note did not reach the session: ${r.why}`;
   const extra = r?.extra?.message ? ` (${r.extra.message})` : "";
   return SAY[w] ?? `the PC answered "${w}"${extra}`;
 };
@@ -199,6 +202,10 @@ function workGroup(work, files) {
   return box;
 }
 
+// A message the user wrote; a note the session got mid-turn carries the Note tag.
+export const youRow = (t) =>
+  el("div.you", t.note ? el("span.you-tag", "Note") : null, t.text);
+
 // The conversation's elements from the turns, oldest first; tool calls of turns in a row share one group. With
 // `files` (session-files.js) steps and file links open their sheets, and a finished answer that changed files ends
 // in its changed-files line; `open` is true while the newest answer still runs.
@@ -218,12 +225,10 @@ export function turnsView(items, files = null, open = false) {
   };
   for (const t of items) {
     if (t.role === "user") {
-      if (!t.system) {
-        endAnswer(false);
-        work = null;
-      }
-      work = null;
-      out.push(t.system ? systemRow(t) : el("div.you", t.text));
+      // A note reaches the session mid-answer: the answer goes on after it.
+      if (!t.system && !t.note) endAnswer(false);
+      if (!t.system) work = null;
+      out.push(t.system ? systemRow(t) : youRow(t));
       continue;
     }
     answer.push(t);
@@ -451,8 +456,9 @@ function render(ctx) {
       return;
     }
     if (!v.info) return fill(convo);
+    // A sent message leaves the waiting bubbles once the transcript or the live rows hold it.
     const said = new Set(
-      v.info.items
+      [...v.info.items, ...v.live.rows.filter((r) => r.kind === "text")]
         .filter((t) => t.role === "user" && !t.system)
         .map((t) => t.text.trim()),
     );
@@ -736,7 +742,7 @@ function render(ctx) {
       const empty = !field.value.trim();
       const a = action();
       note.hidden = Boolean(ti) || isNew() || !ctx.offered("session.note");
-      note.disabled = empty || sending;
+      note.disabled = empty || sending || (!ti && attach.waits());
       // A card's box sends words only: the files wait for the message box.
       attach.update(Boolean(ti));
       compIn.className = `compose-in${!ti && attach.has() ? " has-files" : ""}`;
@@ -764,15 +770,11 @@ function render(ctx) {
     async function submit(which) {
       const text = field.value.trim();
       const ti = v.typeInstead;
-      if (!text || sending || (which === "main" && !ti && attach.waits()))
-        return;
+      if (!text || sending || (!ti && attach.waits())) return;
       ctx.haptic("impact");
       const a = which === "note" ? "session.note" : action();
-      // The picked files go with Send, Queue and a new session; a Note is words only.
-      const files =
-        !ti && a !== "session.note" && attach.has()
-          ? { attachments: attach.ids() }
-          : {};
+      // The picked files go with Send, Queue, Note and a new session.
+      const files = !ti && attach.has() ? { attachments: attach.ids() } : {};
       sending = true;
       line = null;
       update();
@@ -965,8 +967,12 @@ function render(ctx) {
       v.sign = null;
     } else if (d.rows.some((r) => !(r.pos < v.live.read))) {
       const toEnd = nearEnd();
-      v.live.rows.push(...d.rows.filter((r) => !(r.pos < v.live.read)));
-      drawLive(toEnd);
+      const fresh = d.rows.filter((r) => !(r.pos < v.live.read));
+      v.live.rows.push(...fresh);
+      // A user message among them can be one still shown as sent: the whole conversation is drawn again.
+      if (fresh.some((r) => r.kind === "text" && r.role === "user"))
+        drawConvo(toEnd);
+      else drawLive(toEnd);
     }
     // Stop's line belongs to the stopped turn: a session that works again has moved past it.
     if (d.state === "running") v.stopped = false;

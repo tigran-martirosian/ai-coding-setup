@@ -504,7 +504,12 @@ const describe = (f) => {
 const NIMBALYST_DB =
   process.env.STEER_NIMBALYST_DB ||
   path.join(
-    process.env.APPDATA || path.join(HOME, "AppData", "Roaming"),
+    // Where Nimbalyst keeps its data on each system (as the phone program finds it).
+    process.platform === "win32"
+      ? process.env.APPDATA || path.join(HOME, "AppData", "Roaming")
+      : process.platform === "darwin"
+        ? path.join(HOME, "Library", "Application Support")
+        : path.join(HOME, ".config"),
     "@nimbalyst",
     "electron",
     "sqlite-db",

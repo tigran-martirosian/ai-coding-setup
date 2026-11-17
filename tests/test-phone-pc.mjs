@@ -577,19 +577,12 @@ try {
     );
 
     const r = createRegistry();
-    r.add({ name: "a.look", readOnly: true, run: () => "seen" });
     r.add({
       name: "a.write",
       input: { text: { type: "string", min: 1, max: 5 } },
       run: (d) => d.text,
     });
     const ok = { page: "ok" };
-    const un = { page: "unverified" };
-    const a1 = await r.handle(
-      { k: "req", id: "1", a: "a.write", d: { text: "hi" } },
-      un,
-    );
-    const a2 = await r.handle({ k: "req", id: "2", a: "a.look" }, un);
     const a3 = await r.handle(
       { k: "req", id: "3", a: "a.write", d: { text: "toolong" } },
       ok,
@@ -597,14 +590,6 @@ try {
     const a4 = await r.handle(
       { k: "req", id: "4", a: "a.write", d: { text: "hi" } },
       ok,
-    );
-    check(
-      "an unverified page gets page-unverified for a writing action",
-      a1.err === "page-unverified",
-    );
-    check(
-      "an unverified page still gets the read-only action",
-      a2.ok && a2.d === "seen",
     );
     check(
       "a wrong field answers bad-input naming it",
@@ -649,7 +634,7 @@ try {
       confirmed: true,
     });
     function world(devices) {
-      const w = { out: [], saves: 0, page: "ok" };
+      const w = { out: [], saves: 0 };
       w.keys = {
         pcId,
         identity,
@@ -663,7 +648,7 @@ try {
         keys: w.keys,
         send: (f) => w.out.push(f),
         registry,
-        context: () => ({ page: w.page, setupVersion: VERSION }),
+        context: () => ({ page: "ok", setupVersion: VERSION }),
         pcVersion: VERSION,
         onHello: (dev) => w.join.onHello(dev),
       });
@@ -934,6 +919,58 @@ try {
           bj.length === 1 &&
           (await n.events("device.joined")).length === 0,
       );
+      // The page's own channel code (frame/channel.js) says hello as A: the relay hands it the PC's answer and the
+      // device.joined right behind it together, before the page has made its session keys.
+      {
+        const page = await import("../phone/page/frame/channel.js");
+        const listeners = new Set();
+        let sid = null;
+        const flush = () => {
+          for (const f of takeOut(w, (x) => x.t === "app" && x.sid === sid))
+            setImmediate(() => {
+              for (const fn of [...listeners]) fn(f);
+            });
+        };
+        const link = {
+          send(f) {
+            sid ??= f.sid;
+            w.channel.onApp(f).then(() => setTimeout(flush, 20));
+          },
+          listen(fn) {
+            listeners.add(fn);
+            return () => listeners.delete(fn);
+          },
+          next(match, ms) {
+            return new Promise((resolve, reject) => {
+              const timer = setTimeout(() => {
+                off();
+                reject(new Error("no answer"));
+              }, ms);
+              const off = link.listen((f) => {
+                if (!match(f)) return;
+                clearTimeout(timer);
+                off();
+                resolve(f);
+              });
+            });
+          },
+          onClose: () => () => {},
+          buffered: 0,
+        };
+        const events = [];
+        const s = await page.openSession(link, {
+          K: seal.fromB64u(A.K),
+          dev: A.device,
+          pageVersion: VERSION,
+          onEvent: (b) => events.push(b.e),
+        });
+        const r = await s.ask("no.such.action", {}, 2000).catch((e) => e);
+        check(
+          "join: the page's session takes the device.joined that comes right behind the hello, then its first answer",
+          events.includes("device.joined") && r?.k === "res",
+          `events ${JSON.stringify(events)}, answer ${r?.code ?? JSON.stringify(r)}`,
+        );
+      }
       const a2 = await device(w, A.device, A.K);
       check(
         "join: device.joined again at the next hello",
@@ -967,20 +1004,6 @@ try {
       await P.ask();
       await P.reveal();
       const [card] = await a.events("device.ask");
-      w.page = "unverified";
-      const savesBefore = w.saves;
-      const un = await a.ask("device.answer", { rid: card.d.rid, ok: true });
-      const unSeen = await a.ask("device.seen", { dev: newDev() });
-      check(
-        "join: device.answer and device.seen from an unverified page get page-unverified; the request stays open",
-        un?.err === "page-unverified" &&
-          unSeen?.err === "page-unverified" &&
-          w.saves === savesBefore &&
-          w.keys.devices.length === 1 &&
-          reason(await (await newcomer(w)).ask()) === "busy",
-        JSON.stringify([un, unSeen]),
-      );
-      w.page = "ok";
       const no = await a.ask("device.answer", { rid: card.d.rid, ok: false });
       const refusedFrame = takeOut(w, (f) => f.dev === P.dev).at(-1);
       check(
@@ -1220,6 +1243,8 @@ try {
       "keep.mjs",
       path.join("actions", "pc.mjs"),
       path.join("actions", "voice.mjs"),
+      // a phone Note runs steer.mjs as the desktop Note button does: node, fixed arguments, no shell
+      path.join("core", "steer-note.mjs"),
     ]);
     const bad = [];
     const walk = (d) => {
@@ -1435,17 +1460,6 @@ try {
 
   // ---- the program against the stand-in relay
   const relay = await startRelay();
-  const hashes = path.join(tmp, "page-hashes.json");
-  const sha = (t) => createHash("sha256").update(t).digest("hex");
-  fs.writeFileSync(
-    hashes,
-    JSON.stringify({
-      version: VERSION,
-      files: Object.fromEntries(
-        Object.entries(PAGE_FILES).map(([p, t]) => [p, sha(t)]),
-      ),
-    }),
-  );
   const pcEnv = {
     ...dryEnv,
     PHONE_PC_PIPE:
@@ -1453,7 +1467,6 @@ try {
         ? `\\\\.\\pipe\\phone-app-pc-test-${nodeRandom(6).toString("hex")}`
         : path.join(tmp, "pc.sock"),
     PHONE_PC_TG_KEY: tgPubHex,
-    PHONE_PC_PAGE_HASHES: hashes,
     NIMBALYST_ENDPOINT_FILE: path.join(tmp, "no-endpoint.json"),
   };
   const join = run(SETUP, ["join", relay.url], pcEnv);
@@ -1486,12 +1499,8 @@ try {
   };
   try {
     check(
-      "the program dials out with pc-join and passes the page check",
-      await until(
-        () =>
-          relay.firsts[0] === "pc-join" && logText().includes("page-check ok"),
-        8000,
-      ),
+      "the program dials out with pc-join",
+      await until(() => relay.firsts[0] === "pc-join", 8000),
       mainOut + logText(),
     );
     const second = spawn(process.execPath, [MAIN], {

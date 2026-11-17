@@ -6,6 +6,7 @@ import {
   hasTool,
   listQueued,
   PROJECT_INPUT,
+  phoneNote,
   projectByHandle,
   recentSessionIds,
   SESSION_INPUT,
@@ -17,6 +18,7 @@ import {
 } from "../core/door.mjs";
 import { sessionPlace } from "../core/files.mjs";
 import { ActionError } from "../core/registry.mjs";
+import { steerNote } from "../core/steer-note.mjs";
 import { readTurns, transcriptPath } from "../core/transcripts.mjs";
 import { sessionOpened } from "./alerts.mjs";
 import { ATTACHMENTS_INPUT, sendWithAttachments } from "./attach.mjs";
@@ -138,13 +140,36 @@ export function register(registry) {
 
   registry.add({
     name: "session.note",
-    input: { session: SESSION_INPUT, text: TEXT_INPUT },
-    run: async (d) => {
+    input: {
+      session: SESSION_INPUT,
+      text: TEXT_INPUT,
+      attachments: ATTACHMENTS_INPUT,
+    },
+    // The same path as the desktop Note button: steer.mjs puts the note where the busy session reads it before
+    // its next step. A session that is not busy (steer's exit 3) gets it as a normal message, which starts it.
+    // Picked files go with it as with Send: the note ends in the block naming each saved file.
+    run: async (d, ctx) => {
       const { project } = knownSession(d.session);
-      await sendPrompt(project.path, d.session, d.text, {
-        messageKind: "status",
-      });
-      return { held: true };
+      return sendWithAttachments(
+        d.attachments,
+        ctx.device,
+        project.path,
+        d.text,
+        async (text) => {
+          const r = await steerNote(
+            d.session,
+            `${text}\n\n${await phoneNote()}`,
+          );
+          if (r.code === 0) return { held: true };
+          if (r.code === 3) {
+            const s = await sendPrompt(project.path, d.session, text);
+            return { started: s.processingTriggered === true };
+          }
+          throw new ActionError("note-failed", {
+            why: r.words || `steer.mjs exited with ${r.code}`,
+          });
+        },
+      );
     },
   });
 

@@ -205,9 +205,9 @@ try {
   const c = run(full, ["--dry-run", "--checks"]);
   const cText = `${c.stdout}${c.stderr}`;
   check(
-    "a --checks dry run names the untrusted test build and holds one file more",
+    "a --checks dry run names the test build and holds one file more",
     c.status === 0 &&
-      cText.includes("every PC marks this page unverified") &&
+      cText.includes("test build with the Checks screen") &&
       Number(cText.match(/page \S+ \((\d+) files/)?.[1]) ===
         Number(text.match(/page \S+ \((\d+) files/)?.[1]) + 1,
     cText,

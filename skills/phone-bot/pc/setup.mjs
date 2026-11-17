@@ -117,9 +117,21 @@ function removeLogon() {
   run("schtasks", ["/delete", "/tn", OLD_TASK, "/f"], { mayFail: true });
 }
 
-// Stops this copy's keep.mjs first (so it does not start the program again), then the program, by command line.
-function stopProgram() {
+// Stops the running program wherever it was started from (the installed copy or a work copy): it holds the pipe,
+// so it is asked through it and ends with its keep.mjs. Then this copy's keep.mjs (so it does not start the program
+// again) and program by command line: a program before 26.3.2 does not know "stop", and a keep.mjs may be waiting
+// to start one again.
+async function stopProgram() {
   needWindows("Stopping the program");
+  if (DRY) console.log("would ask the running PC program to stop");
+  else if ((await askOnce("stop"))?.stopping === true) {
+    const until = Date.now() + ASK_WAIT_MS;
+    while (await askOnce("status")) {
+      if (Date.now() > until)
+        fail("The PC program was asked to stop but still runs.");
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
   const has = (p) => `$_.CommandLine.Contains('${p.replace(/'/g, "''")}')`;
   const ps = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and (${has(KEEP)} -or ${has(MAIN)}) } | Sort-Object { -not ${has(KEEP)} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
   run("powershell", ["-NoProfile", "-Command", ps]);
@@ -244,7 +256,7 @@ async function cmdJoin(address) {
     );
   if (PLATFORM === "win32") {
     removeOldBot();
-    stopProgram();
+    await stopProgram();
   }
   await createKeys(u.origin);
   lockKeyFile();
@@ -285,10 +297,10 @@ async function cmdStatus() {
   );
 }
 
-function cmdRemove() {
+async function cmdRemove() {
   removeOldBot();
   removeLogon();
-  stopProgram();
+  await stopProgram();
   console.log(
     `Program stopped and start at log-on removed. The keys stay in ${keyFilePath()}.`,
   );
@@ -330,6 +342,6 @@ else if (cmd === "pair") await cmdPair();
 else if (cmd === "status") await cmdStatus();
 else if (cmd === "start-logon") startLogon();
 else if (cmd === "start") startProgram();
-else if (cmd === "remove") cmdRemove();
+else if (cmd === "remove") await cmdRemove();
 else if (cmd === "voice") cmdVoice();
 else console.log(USAGE);
