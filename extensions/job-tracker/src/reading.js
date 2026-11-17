@@ -118,10 +118,11 @@ const needsWords = (S, n) =>
 /**
  * The words and numbers of the page top. `items` are the project's tracker items, `working` the ids of the items a
  * session works on now (model.js workingItemIds), `pick` what the user picked (a job id, "all", "none" or null),
- * `now` the time the data was read, `project` the project folder's name.
+ * `now` the time the data was read, `project` the project folder's name, `waiting` the ids of the items a session
+ * waits on the user about (none when left out).
  */
-function pageView(S, items, working, pick, now, project) {
-  const picker = pickerJobs(items, working);
+function pageView(S, items, working, pick, now, project, waiting = new Set()) {
+  const picker = pickerJobs(items, working, waiting);
   const loose = notInJob(items);
   const looseOpen = loose.filter(
     (i) => !["done", "dropped"].includes(categoryOf(i)),
@@ -188,7 +189,12 @@ function pageView(S, items, working, pick, now, project) {
       state: null,
       meta: project,
     };
-    progress = progressOf(S, foldsOf(loose, working).counts, items1, now);
+    progress = progressOf(
+      S,
+      foldsOf(loose, working, waiting).counts,
+      items1,
+      now,
+    );
   } else if (kind === "all") {
     head = {
       name: S.allOpenTitle,

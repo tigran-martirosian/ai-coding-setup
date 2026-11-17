@@ -10,7 +10,7 @@
 //   node pass.mjs --skip-all                       "never, for any folder": no offer until the level rises
 //   node pass.mjs --status                         the stamp file, in short
 //   --home <folder>                                work as if <folder> were the home folder (tests)
-//   env PASS_GH=<file>                             the gh that P20-P22 run (GETs only); a fake one in tests
+//   env PASS_GH=<file>                             the gh that P20-P22 and P26 run (GETs only); a fake one in tests
 // The stamp is ~/.claude/project-pass.json: {level, folders: {<folder>: {done, date, kept}}, declined: {<folder>: level},
 // declinedAll, mode: "on-open"|"off"}. Nothing is written into a project, which may be a shared repo.
 import { spawnSync } from "node:child_process";
@@ -36,7 +36,7 @@ import {
 
 // The pass level this file's checks implement. It goes up only with a release that changes what a project folder
 // should hold (the new-project base table, the file standard, checks.md); version.json's projectPass equals it.
-export const LEVEL = 3;
+export const LEVEL = 4;
 
 const args = process.argv.slice(2);
 const stop = (why) => {
@@ -534,7 +534,7 @@ function checkFacts(dir, add) {
   }
 }
 
-// ---- P13-P18, P23: git and the preset files, local reads only (the preset: new-project step 2b and its preset/
+// ---- P13-P18, P23, P25: git and the preset files, local reads only (the preset: new-project step 2b and its preset/
 // folder). The kind: not in a git repo -> no git; in a repo with no github.com remote -> local git; a github.com
 // remote -> GitHub. A folder inside a bigger repo (a package with its own CLAUDE.md) is a git folder: the repo-wide
 // files (.gitattributes, .github/) are read at the repo's top folder.
@@ -658,6 +658,93 @@ function checkGit(dir, add, since) {
       topRel(".gitattributes"),
       `no text=auto rule: add the rules of ${PRESET}/gitattributes.txt; a second tick runs git add --renormalize ., committed on its own`,
     );
+  // P25: the "don't ask again" list. Claude Code writes each approved command word for word into
+  // .claude/settings.local.json, a typed token too, and hides the file only through this computer's own git
+  // excludes, which a clone elsewhere does not have. So a .gitignore the repo carries must ignore it, and git
+  // must not track it.
+  const LOCAL_SETTINGS = ".claude/settings.local.json";
+  const rel = path.relative(top, dir);
+  const relFile = fwd(path.join(rel, LOCAL_SETTINGS));
+  const ruleOf = (r, where) => {
+    if (r.status !== 0 && r.status !== 1)
+      throw new Error(
+        `git check-ignore failed in ${where}: ${r.stderr.trim()}`,
+      );
+    // "<source>:<line>:<pattern>\t<path>"
+    const m = r.status === 0 ? r.stdout.match(/^(.*?):\d+:(.*)\t/) : null;
+    return m ? { source: fwd(m[1]), pattern: m[2] } : null;
+  };
+  // Only the .gitignore files the repo carries, from its top down to the folder's .claude/, copied in place into a
+  // scratch repo with no excludes: this computer's own excludes (global, .git/info/exclude) can then neither stand
+  // in for them nor mask them (a ".claude/" line there would be the rule git names, the repo's line unseen).
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pass-p25-"));
+  let carried;
+  try {
+    const parts = path.join(rel, ".claude").split(path.sep).filter(Boolean);
+    for (let i = 0; i <= parts.length; i++) {
+      const sub = parts.slice(0, i).join(path.sep);
+      const src = path.join(top, sub, ".gitignore");
+      if (!isFile(src)) continue;
+      fs.mkdirSync(path.join(scratch, sub), { recursive: true });
+      fs.copyFileSync(src, path.join(scratch, sub, ".gitignore"));
+    }
+    const init = spawnSync("git", ["init", "-q", scratch], {
+      encoding: "utf8",
+    });
+    if (init.status !== 0)
+      throw new Error(
+        `git init in ${fwd(scratch)} failed: ${init.stderr.trim()}`,
+      );
+    const none = path.join(scratch, ".git", "no-excludes");
+    fs.writeFileSync(none, "");
+    fs.writeFileSync(path.join(scratch, ".git", "info", "exclude"), "");
+    carried = ruleOf(
+      spawnSync(
+        "git",
+        [
+          "-C",
+          scratch,
+          "-c",
+          `core.excludesFile=${fwd(none)}`,
+          "check-ignore",
+          "-v",
+          "--no-index",
+          relFile,
+        ],
+        { encoding: "utf8" },
+      ),
+      `a scratch copy of ${fwd(top)}'s .gitignore files`,
+    );
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+  if (!carried || carried.pattern.startsWith("!")) {
+    const here = ruleOf(
+      gitRead(dir, "check-ignore", "-v", "--no-index", LOCAL_SETTINGS),
+      fwd(dir),
+    );
+    const why = carried
+      ? ` (the line \`${carried.pattern}\` in ${carried.source} un-ignores it)`
+      : here && !here.pattern.startsWith("!")
+        ? ` (only ${here.source} on this computer ignores it, and a clone elsewhere does not have that)`
+        : "";
+    add(
+      "P25.ignore",
+      "ask",
+      ".gitignore",
+      `${LOCAL_SETTINGS} is not ignored by a .gitignore the repo carries${why}: add the line \`${LOCAL_SETTINGS}\`, because the "don't ask again" list keeps each approved command word for word, a typed token or password too`,
+    );
+  }
+  const ls = gitRead(dir, "ls-files", "--", LOCAL_SETTINGS);
+  if (ls.status !== 0)
+    throw new Error(`git ls-files failed in ${fwd(dir)}: ${ls.stderr.trim()}`);
+  if (ls.stdout.trim())
+    add(
+      "P25.tracked",
+      "ask",
+      LOCAL_SETTINGS,
+      `git tracks ${LOCAL_SETTINGS}: run git rm --cached ${LOCAL_SETTINGS}, then commit on the person's word without naming that file (a commit that names it takes the copy on disk and tracks it again); read git log -p -- ${LOCAL_SETTINGS} and rotate at its provider any token or password in it, because the history keeps it`,
+    );
   // P23: the changelog's headings and plain tags (only in a folder with a CHANGELOG.md or a tag)
   if (isFile(at("CHANGELOG.md"))) {
     const heads = lines(at("CHANGELOG.md"))
@@ -706,7 +793,25 @@ function checkGit(dir, add, since) {
       "refs/tags",
       `plain (not annotated) tags${since ? ` made after ${since}` : ""}: ${plain.slice(0, 8).join(", ")}${plain.length > 8 ? ` +${plain.length - 8} more` : ""}; old tags stay as they are, new tags are made with git tag -a v<version>`,
     );
-  if (!gh) return { gh: null };
+  // P26 reads the run times of every workflow that runs on pull requests
+  const wfTop = atTop(".github/workflows");
+  const ciFlows = (isDir(wfTop) ? fs.readdirSync(wfTop) : [])
+    .filter(
+      (n) =>
+        /\.ya?ml$/.test(n) &&
+        /\bpull_request\b(?!_)/.test(read(path.join(wfTop, n))),
+    )
+    .sort();
+  if (!gh) {
+    if (ciFlows.length)
+      add(
+        "P26",
+        "note",
+        `${topRel(".github/workflows")}/`,
+        "CI speed not checked: no github.com remote, so there are no CI runs to read",
+      );
+    return { gh: null };
+  }
   // P16: the default branch as the clone knows it, and the branch flow in the Git: line
   const sr = gitRead(
     dir,
@@ -791,13 +896,15 @@ function checkGit(dir, add, since) {
         `${what}: copy ${PRESET}/${stack} with the test command filled in, and add the Checks merge line${cost}`,
       );
   }
-  return { gh, line, has, branch };
+  return { gh, line, has, branch, ciFlows };
 }
 
 // ---- P20-P22: the GitHub settings, read with GETs. The token: the owner's, when the owner is a signed-in gh account
 // (names compare case-insensitively); else (an organisation's repo) the first signed-in account whose token can read
 // the repo. No gh, no account that can read it, or GitHub not reachable: each prints a note and nothing else.
 // A GitHub HTTP error after that throws an error with .notRun (the checks that did not run) for check() to print.
+// P26 (CI speed) reads with the same token, and needs no admin.
+const CI_SLOW_SECONDS = 300;
 function checkGitHub(add, g) {
   const { owner, repo } = g.gh,
     slug = `${owner}/${repo}`,
@@ -807,8 +914,11 @@ function checkGitHub(add, g) {
     /\.m?js$/.test(bin)
       ? spawnSync(process.execPath, [bin, ...a], { encoding: "utf8", env })
       : spawnSync(bin, a, { encoding: "utf8", env });
-  const skipped = (why) => {
-    for (const id of ["P20", "P21", "P22"])
+  const settings = ["P20", "P21", "P22"],
+    all = g.ciFlows.length ? [...settings, "P26"] : settings;
+  // adminOnly: the account can read the repo, so P26 still runs
+  const skipped = (why, adminOnly = false) => {
+    for (const id of adminOnly ? settings : all)
       add(id, "note", where, `not checked: ${why}`);
     if (!g.branch)
       add(
@@ -844,7 +954,7 @@ function checkGitHub(add, g) {
     };
   };
   // the checks still to run, named when a GitHub error stops them
-  let pending = ["P20", "P21", "P22"];
+  let pending = [...all];
   if (!g.branch) pending.unshift("P16 (the default branch)");
   if (g.has === "github") pending.unshift("P13 (the visibility)");
   const fail = (p, r) => {
@@ -852,6 +962,71 @@ function checkGitHub(add, g) {
       where,
       notRun: pending,
     });
+  };
+  // P26: CI speed. For each workflow on pull requests, its last 20 completed runs; only runs that did the work count
+  // (success, failure, timed_out), so cancelled, skipped, action_required, startup_failure and the like are left out.
+  // The slowest workflow by median, over CI_SLOW_SECONDS: a CI speed pass is offered.
+  const ciSpeed = (tok) => {
+    if (!g.ciFlows.length) return;
+    pending = ["P26"];
+    const timed = [],
+      untimed = [];
+    for (const file of g.ciFlows) {
+      const p = `repos/${slug}/actions/workflows/${encodeURIComponent(file)}/runs?status=completed&per_page=20`;
+      const r = call(p, tok);
+      // a 404: GitHub does not know the file (not pushed yet); a known workflow with no runs answers an empty list
+      if (!r.ok && /HTTP 404/.test(r.msg)) {
+        untimed.push(
+          `${file}: GitHub does not know this workflow file (not pushed yet)`,
+        );
+        continue;
+      }
+      if (!r.ok) fail(p, r);
+      const secs = JSON.parse(r.out)
+        .workflow_runs.filter((x) =>
+          ["success", "failure", "timed_out"].includes(x.conclusion),
+        )
+        .map(
+          (x) =>
+            (Date.parse(x.updated_at) -
+              Date.parse(x.run_started_at || x.created_at)) /
+            1000,
+        )
+        .sort((a, b) => a - b);
+      if (secs.length < 5) {
+        untimed.push(`${file}: ${secs.length} finished runs`);
+        continue;
+      }
+      const mid = secs.length / 2;
+      timed.push({
+        file,
+        n: secs.length,
+        median:
+          secs.length % 2
+            ? secs[Math.floor(mid)]
+            : (secs[mid - 1] + secs[mid]) / 2,
+        slowest: secs[secs.length - 1],
+      });
+    }
+    if (!timed.length)
+      return add(
+        "P26",
+        "note",
+        `${where}/actions`,
+        `CI speed not checked: ${untimed.join("; ")}; a median needs 5 finished runs`,
+      );
+    const top = timed.sort((a, b) => b.median - a.median)[0];
+    const mins = (s) => {
+      const r = Math.round(s);
+      return `${Math.floor(r / 60)}m ${String(r % 60).padStart(2, "0")}s`;
+    };
+    if (top.median > CI_SLOW_SECONDS)
+      add(
+        "P26",
+        "ask",
+        `${where}/actions/workflows/${top.file}`,
+        `${top.file} takes ${mins(top.median)} at the median, ${mins(top.slowest)} at the slowest, over its last ${top.n} finished runs: a CI speed pass by ~/.claude/skills/update-project/fast-ci.md (time each step first, then fix the biggest)`,
+      );
   };
   // GitHub's repo answer names the caller's rights; a token that is no admin cannot see or change P20-P22
   const isAdmin = (r) => JSON.parse(r.out).permissions?.admin === true;
@@ -883,21 +1058,27 @@ function checkGitHub(add, g) {
         first = r;
         break;
       }
-      readable ??= a;
+      readable ??= { a, t };
     }
-    if (!first && readable)
-      return skipped(
+    if (!first && readable) {
+      skipped(
         `no signed-in gh account is an admin of ${slug} (tried ${accounts.join(", ")}): GitHub shows and changes these settings only for an admin`,
+        true,
       );
+      return ciSpeed(readable.t);
+    }
     if (!first)
       return skipped(
         `no signed-in gh account can read ${slug} (tried ${accounts.join(", ")}): one of them needs access to ${slug}`,
       );
   }
-  if (first.ok && !isAdmin(first))
-    return skipped(
+  if (first.ok && !isAdmin(first)) {
+    skipped(
       `${ownerAccount} is not an admin of ${slug}: GitHub shows and changes these settings only for an admin`,
+      true,
     );
+    return ciSpeed(token);
+  }
   const api = (p) => call(p, token);
   // a GET whose 404 means "off" (GitHub's answer for a setting that is not on): the JSON, true for an empty 2xx, or null
   const getOrOff = (p) => {
@@ -910,7 +1091,7 @@ function checkGitHub(add, g) {
     if (/HTTP \d{3}/.test(first.msg)) fail(`repos/${slug}`, first);
     return skipped(`GitHub not reachable (${first.msg})`);
   }
-  pending = ["P20", "P21", "P22"];
+  pending = [...all];
   const r = JSON.parse(first.out);
   const vis = r.private ? "private" : "public";
   // P13: the visibility the Git: line names; P16: the default branch, when the clone does not know it
@@ -950,7 +1131,7 @@ function checkGitHub(add, g) {
       where,
       `merge settings: ${differ.join(", ")}: the merge-settings PATCH of new-project step 2b, then a read-back`,
     );
-  pending = ["P21", "P22"];
+  pending = all.slice(1);
   // P21: a ruleset on the default branch; GitHub Free answers 403 for a private repo
   const rs = api(`repos/${slug}/rulesets`);
   if (!rs.ok && /Upgrade to GitHub Pro/i.test(rs.out + rs.msg))
@@ -986,7 +1167,7 @@ function checkGitHub(add, g) {
         `the ruleset on ${r.default_branch} lacks: ${missing.join(", ")}: create or update the ruleset of new-project step 2b`,
       );
   }
-  pending = ["P22"];
+  pending = all.slice(2);
   // P22: the security settings (public: all of them; private on Free: Dependabot alerts and security updates only)
   const off = [];
   if (!getOrOff(`repos/${slug}/vulnerability-alerts`))
@@ -1013,6 +1194,7 @@ function checkGitHub(add, g) {
       where,
       `off on this ${vis} repo: ${off.join(", ")}: one call per setting (new-project step 2b, Security settings), then a read-back`,
     );
+  ciSpeed(token);
 }
 
 // ---- folders worked in lately: the project homes, plus the cwd of the newest transcript in each

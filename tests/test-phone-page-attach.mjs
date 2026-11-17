@@ -518,6 +518,23 @@ try {
     show(queued),
   );
 
+  // ---- Note carries the files too (the user, 2026-11-16: files and photos go with a note as well)
+  // After the Queue's answer has cleared the box.
+  await until(() => box(q).field.value === "" && box(q).chips.length === 0);
+  type(q, "Note this");
+  pick(q, photo("IMG_note.png"));
+  await until(() => box(q).chips[0]?.textContent.includes(" B"));
+  byTag(q, "button")
+    .find((n) => n.attrs["data-action"] === "session.note")
+    ?.click();
+  const noted = await until(() => askedOf("session.note")[0]);
+  check(
+    "Note carries the picked photo's id in attachments",
+    /^[0-9a-f]{16}$/.test(noted?.d.attachments?.[0]) &&
+      noted.d.text === "Note this",
+    show(noted),
+  );
+
   // ---- no type from the phone: the first bytes decide, as on the PC
   const t = drawSession(S.idle);
   await until(() => box(t).input);

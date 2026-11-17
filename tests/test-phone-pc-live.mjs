@@ -487,6 +487,53 @@ try {
     show({ early, late: late?.d }),
   );
 
+  // ---- a reconnect: a new channel session watches again from the last `at` and gets only the rows it missed
+  {
+    const lastAt = late?.d.at;
+    check(
+      "a live push carries `at`, the transcript position its rows reach (the file's end when every line is whole)",
+      lastAt === fs.statSync(FILE1).size,
+      show({ at: lastAt, size: fs.statSync(FILE1).size }),
+    );
+    await A.hello();
+    append(FILE1, toolUse("toolu_missed", "Glob", { pattern: "*.md" }));
+    const part = line(toolUse("toolu_part", "Grep", { pattern: "y" }));
+    fs.appendFileSync(FILE1, part.slice(0, 30));
+    from = A.events.length;
+    const again = await A.ask("session.watch", {
+      session: S.live,
+      start: lastAt,
+    });
+    const back = await until(
+      () =>
+        A.liveAfter(from, (d) => d.rows.some((r) => r.id === "toolu_missed")),
+      2500,
+    );
+    const resent = A.events
+      .slice(from)
+      .filter((e) => e.e === "live")
+      .flatMap((e) => e.d.rows);
+    check(
+      "a reconnect that watches again with start = at gets the rows written while away and none it already had",
+      again?.ok &&
+        again.d.at === lastAt &&
+        back &&
+        resent.every((r) => r.pos >= lastAt) &&
+        !resent.some((r) => r.id === "toolu_half"),
+      show({ again: again?.d.at, rows: resent.map((r) => r.id ?? r.kind) }),
+    );
+    check(
+      "`at` stops at the start of a line still being written, so a resume reads that line whole",
+      back?.d.at === fs.statSync(FILE1).size - 30,
+      show({ at: back?.d.at, size: fs.statSync(FILE1).size }),
+    );
+    fs.appendFileSync(FILE1, part.slice(30));
+    await until(
+      () => A.liveAfter(from, (d) => d.rows.some((r) => r.id === "toolu_part")),
+      2500,
+    );
+  }
+
   // ---- user lines the system wrote: a helper's notice is one short row; a reminder, a hook's note, a wrapper none
   from = A.events.length;
   const QUOTE = "why does the report end with <usage>total_tokens: 5</usage>?";
@@ -615,6 +662,20 @@ try {
     changed &&
       qEvt.d.queue[0].queueId === "queued-1" &&
       qEvt.d.queue[0].text === "and then this",
+    show(A.events.slice(from).map((e) => e.d)),
+  );
+  // Nimbalyst hands the message to the session: its row turns executing and must leave the phone's queue.
+  from = A.events.length;
+  fx.prepare("UPDATE queued_prompts SET status = 'executing' WHERE id = ?").run(
+    "queued-1",
+  );
+  const handedOver = await until(
+    () => A.liveAfter(from, (d) => d.queue?.length === 0),
+    2500,
+  );
+  check(
+    "a message already handed to the session must leave the phone queue: the live push sends an empty queue once its row is executing",
+    handedOver,
     show(A.events.slice(from).map((e) => e.d)),
   );
   await sleep(1200);
@@ -754,6 +815,143 @@ try {
     live.watchCount() === 0,
     String(live.watchCount()),
   );
+
+  // ---- the relay link: a stand-in socket plays the relay; times are cut from 20 s / 10 s / 30 s to milliseconds
+  const { openLink } = await import("../skills/phone-bot/pc/core/link.mjs");
+  const socks = [];
+  let answerPings = false;
+  class FakeSocket {
+    static OPEN = 1;
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      this.sent = [];
+      this.closed = null;
+      socks.push(this);
+    }
+    send(s) {
+      this.sent.push(JSON.parse(s));
+      if (answerPings && s === '{"t":"ping"}')
+        setTimeout(() => this.onmessage({ data: '{"t":"pong"}' }), 1);
+    }
+    close(code, reason) {
+      this.closed = { code, reason };
+    }
+    open() {
+      this.readyState = 1;
+      this.onopen();
+    }
+    accept() {
+      this.onmessage({ data: JSON.stringify({ t: "pc-auth", ok: true }) });
+    }
+    end() {
+      this.readyState = 3;
+      this.onclose({ code: 1006, reason: "" });
+    }
+  }
+  const waits = []; // the top of each retry wait the link drew from
+  const TIMES = {
+    pingMs: 40,
+    pongMs: 30,
+    connectMs: 150,
+    healthyMs: 200,
+    floorMs: 1,
+    baseMs: 10,
+    capMs: 1000,
+    random: (lo, hi) => {
+      waits.push(hi);
+      return lo;
+    },
+  };
+  const relayLink = () =>
+    openLink({
+      keys: {
+        joined: true,
+        relay: "https://relay.test",
+        pcId: "pc",
+        token: "t",
+      },
+      version: "0.0.0",
+      onFrame: () => {},
+      onReady: () => {},
+      saveKeys: () => {},
+      timing: TIMES,
+      Socket: FakeSocket,
+    });
+  const nextSock = (n) => until(() => socks[n], 1000);
+
+  const l1 = relayLink();
+  l1.start();
+  socks[0].open();
+  socks[0].accept();
+  check(
+    "the PC's pc-auth says ping: 20, so the relay closes it after 50 s of silence, not 130 s",
+    socks[0].sent[0]?.t === "pc-auth" && socks[0].sent[0].ping === 20,
+    show(socks[0].sent[0]),
+  );
+  const s1 = await nextSock(1);
+  check(
+    "no pong after a ping: the link gives up that socket and connects again, not waiting for its close",
+    s1 &&
+      socks[0].sent.some((f) => f.t === "ping") &&
+      socks[0].closed?.reason === "dead-link",
+    show({ sent: socks[0].sent.map((f) => f.t), closed: socks[0].closed }),
+  );
+  answerPings = true;
+  s1.open();
+  s1.accept();
+  await sleep(TIMES.pingMs * 5);
+  check(
+    "a link whose pings are answered stays up",
+    socks.length === 2 &&
+      !s1.closed &&
+      s1.sent.filter((f) => f.t === "ping").length >= 3,
+    show({ socks: socks.length, closed: s1.closed }),
+  );
+  s1.accept();
+  s1.accept();
+  const pings = s1.sent.filter((f) => f.t === "ping").length;
+  check(
+    "answered pings and repeated oks leave no timers behind: a link up for days keeps a flat timer list",
+    // attempt limit, ping clock, healthy mark, and at most one pong wait in flight
+    pings >= 3 && l1.timers() <= 4,
+    show({ pings, timers: l1.timers() }),
+  );
+  l1.stop();
+
+  socks.length = 0;
+  waits.length = 0;
+  const l2 = relayLink();
+  l2.start();
+  await sleep(TIMES.connectMs + 50);
+  check(
+    "a socket not accepted within the attempt limit is given up and a new one made",
+    socks.length === 2 && socks[0].closed?.reason === "dead-link",
+    show({ socks: socks.length, closed: socks[0].closed }),
+  );
+  for (let i = 1; i <= 4; i++) {
+    const s = await nextSock(i);
+    s.open();
+    s.accept();
+    s.end();
+  }
+  await nextSock(5);
+  check(
+    "a link that drops right after it is accepted keeps the retry wait growing (no tight loop)",
+    show(waits) === show([10, 20, 40, 80, 160]),
+    show(waits),
+  );
+  socks[5].open();
+  socks[5].accept();
+  await sleep(TIMES.healthyMs + 60);
+  socks[5].end();
+  await nextSock(6);
+  check(
+    "the retry wait goes back to its start only after the link stayed up 30 s (here 200 ms)",
+    waits.at(-1) === 10,
+    show(waits),
+  );
+  l2.stop();
 } catch (e) {
   failure = e;
 } finally {

@@ -1,13 +1,15 @@
 // Tests the phone relay's Hub through the local relay (phone/relay/local/server.mjs), with Node's own WebSocket
-// client as the phone pages and the PC programs. The sealed blobs are AES-GCM under a key only the test holds,
+// client as the phone pages and the PC programs; dead links, the kept store and the cut proxy of the steady design
+// (docs/2026-11-16-phone-steady-design.md, section 3) at the end. The sealed blobs are AES-GCM under a key only the test holds,
 // so the Hub sees what it sees on Cloudflare: bytes it cannot open. Telegram's initData key is a key pair the
 // test makes. Checks: pipe design section 12, row B1.   node tests/test-phone-relay.mjs
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { startLocalRelay } from "../phone/relay/local/server.mjs";
-import { pcIdOf, toB64url } from "../phone/relay/src/hub.mjs";
+import { PING, PONG, pcIdOf, toB64url } from "../phone/relay/src/hub.mjs";
 import * as seal from "../phone/shared/seal.mjs";
+import { startCutProxy } from "./phone-bot/cut-proxy.mjs";
 
 const subtle = globalThis.crypto.subtle;
 const enc = new TextEncoder();
@@ -38,6 +40,7 @@ const POLICY =
   "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; " +
   "media-src 'self' blob:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; " +
   "frame-ancestors https://web.telegram.org";
+const SECOND = 1000;
 const MINUTE = 60_000;
 
 let clock = Date.UTC(2026, 10, 14, 12, 0, 0);
@@ -61,7 +64,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "phone-relay-"));
 fs.writeFileSync(path.join(tmp, "index.html"), "<!doctype html><p>page</p>");
 fs.writeFileSync(path.join(tmp, "version.json"), '{"version":"0.0.0"}');
 
-const relay = await startLocalRelay({
+const relayOpts = {
   port: 0,
   pageDir: tmp,
   botId: BOT_ID,
@@ -82,7 +85,8 @@ const relay = await startLocalRelay({
   now: () => clock,
   log: (line) => logLines.push(line),
   bot: null,
-});
+};
+let relay = await startLocalRelay(relayOpts);
 const dump = () => JSON.stringify([...relay.map]);
 
 // The invite list is the bot's to fill (row B5); here the test writes it as the bot would.
@@ -120,8 +124,8 @@ async function settle() {
   await new Promise((done) => setTimeout(done, 20));
 }
 
-async function connect() {
-  const ws = new WebSocket(`${relay.url.replace("http", "ws")}/ws`);
+async function connect(url = relay.url) {
+  const ws = new WebSocket(`${url.replace("http", "ws")}/ws`);
   const c = { ws, inbox: [], closedWith: null };
   ws.addEventListener("message", (e) => c.inbox.push(e.data));
   ws.addEventListener("close", (e) => {
@@ -137,6 +141,21 @@ async function connect() {
   c.takeJson = () => c.take().map((t) => JSON.parse(t));
   await settle();
   return c;
+}
+
+// A ping as a PC or a page sends it; the relay's pong is taken from the inbox.
+async function ping(c) {
+  c.send(PING);
+  await settle();
+  const at = c.inbox.indexOf(PONG);
+  if (at < 0) throw new Error("the relay answered a ping with no pong");
+  c.inbox.splice(at, 1);
+}
+
+// Any new socket wakes the Hub, and the Hub looks for dead links then.
+async function wake() {
+  (await connect()).ws.close();
+  await settle();
 }
 
 async function phone(tgId) {
@@ -670,6 +689,9 @@ same(
   same("the PC signs in again with its token", back.takeJson(), [
     { v: 1, t: "pc-auth", ok: true, botId: BOT_ID, paired: true },
   ]);
+  same("a PC's sign-in tells its user's pages pc-online", friend.takeJson(), [
+    { v: 1, t: "pc-online" },
+  ]);
   back.ws.close();
 }
 
@@ -707,12 +729,14 @@ same(
   const pc = await newPc();
   pc.take();
   clock += 14 * MINUTE;
+  await ping(pc);
   (await connect()).ws.close();
   check(
     "after 14 minutes the unpaired record and its socket are still there",
     relay.map.has(`pc:${pc.pcId}`) && pc.closedWith === null,
   );
   clock += MINUTE;
+  await ping(pc);
   friend.send({
     v: 1,
     t: "pair",
@@ -938,6 +962,7 @@ const joinSecrets = []; // every key, box and nonce of the joins below, for the 
   await settle();
   pcJ.take();
   clock += 4 * MINUTE;
+  await ping(pcJ);
   N.send({ v: 1, t: "join-reveal", dev: devL, Nn: toB64url(late.Nn) });
   await settle();
   same("a join-reveal after 4 minutes is dropped", pcJ.take(), []);
@@ -1016,6 +1041,99 @@ const joinSecrets = []; // every key, box and nonce of the joins below, for the 
   pcJ.ws.close();
 }
 
+// ---- dead links (steady design, sections 2 and 3) ----
+
+{
+  const pcA = await connect();
+  pcA.send({ v: 1, t: "pc-auth", pcId: pc1.pcId, token: pc1.token, ping: 20 });
+  await settle();
+  pcA.take();
+  friend.take();
+  await ping(pcA);
+  const pinged = clock;
+  clock += 50 * SECOND;
+  await wake();
+  check(
+    "a PC that says ping 20 is kept 50 s after its last ping",
+    pcA.closedWith === null,
+    JSON.stringify(pcA.closedWith),
+  );
+  clock += SECOND;
+  friend.send(await sealedFrame(DEV, 2, { k: "req", d: MARKER }));
+  await settle();
+  same(
+    "a silent PC (ping 20, none for 51 s) is closed 4001 dead-link and its page is told offline since its last ping",
+    [
+      pcA.closedWith,
+      friend.takeJson(),
+      relay.map.get(`pc:${pc1.pcId}`).lastSeen,
+    ],
+    [
+      { code: 4001, reason: "dead-link" },
+      [{ v: 1, t: "offline", lastSeen: pinged }],
+      pinged,
+    ],
+  );
+}
+{
+  const quiet = await connect();
+  quiet.send({
+    v: 1,
+    t: "pc-auth",
+    pcId: pc2.pcId,
+    token: pc2.token,
+    ping: 20,
+  });
+  await settle();
+  clock += 51 * SECOND;
+  await wake();
+  same(
+    "a PC that never pinged is closed 4001 dead-link 51 s after it opened",
+    quiet.closedWith,
+    { code: 4001, reason: "dead-link" },
+  );
+}
+{
+  // A PC before 26.3.2: no ping field in pc-auth, a ping every 60 s.
+  const old = await connect();
+  old.send({ v: 1, t: "pc-auth", pcId: pc2.pcId, token: pc2.token });
+  await settle();
+  for (let i = 0; i < 3; i++) {
+    clock += 60 * SECOND;
+    await wake();
+    if (old.closedWith) break;
+    await ping(old);
+  }
+  clock += 130 * SECOND;
+  await wake();
+  check(
+    "a PC before 26.3.2 pinging every 60 s is never closed, and is kept 130 s after its last ping",
+    old.closedWith === null,
+    JSON.stringify(old.closedWith),
+  );
+  clock += SECOND;
+  await wake();
+  same(
+    "a PC that names no ping interval is closed 4001 dead-link after 131 s without a ping",
+    old.closedWith,
+    { code: 4001, reason: "dead-link" },
+  );
+}
+{
+  // A page before 26.3.2 never pings; the relay keeps it however long it is quiet.
+  const page = await phone(FRIEND);
+  clock += 30 * MINUTE;
+  await wake();
+  page.send(await sealedFrame(DEV, 3, { k: "req", d: MARKER }));
+  await settle();
+  check(
+    "a page that never pings is never closed (a page before 26.3.2 never pings)",
+    page.closedWith === null && page.takeJson()[0]?.t === "offline",
+    JSON.stringify(page.closedWith),
+  );
+  page.ws.close();
+}
+
 // ---- what the Hub kept (sections 1 and 6) ----
 
 await settle();
@@ -1041,6 +1159,79 @@ check(
 );
 
 await relay.close();
+
+// ---- the local relay keeps its store across a restart; the cut proxy (steady design, section 3) ----
+
+{
+  const storeFile = path.join(tmp, "store.bin");
+  relay = await startLocalRelay({ ...relayOpts, storeFile });
+  const pc = await newPc();
+  await relay.close();
+  relay = await startLocalRelay({ ...relayOpts, storeFile });
+  const back = await connect();
+  back.send({ v: 1, t: "pc-auth", pcId: pc.pcId, token: pc.token });
+  await settle();
+  same(
+    "after a restart the local relay still knows the PC (its store is kept in its file)",
+    back.takeJson(),
+    [{ v: 1, t: "pc-auth", ok: true, botId: BOT_ID, paired: false }],
+  );
+
+  const proxy = await startCutProxy({ port: Number(new URL(relay.url).port) });
+  const c = await connect(proxy.url);
+  proxy.hold();
+  c.send(PING);
+  await settle();
+  const whileHeld = [c.take(), c.closedWith];
+  proxy.heal();
+  await settle();
+  const afterHeal = c.take();
+  proxy.cut();
+  await settle();
+  const again = await connect(proxy.url).then(
+    () => "opened",
+    () => "refused",
+  );
+  same(
+    "the cut proxy: hold passes nothing and closes nothing, heal passes what was held, cut closes and refuses",
+    [whileHeld, afterHeal, c.closedWith !== null, again],
+    [[[], null], [PONG], true, "refused"],
+  );
+  await proxy.close();
+  await relay.close();
+}
+
+// A program killed on macOS or Linux leaves with a FIN and no close frame; the relay must drop its socket at once,
+// or the next hello goes to the dead PC (the e2e restart timed out on macOS this way).
+{
+  const net = await import("node:net");
+  relay = await startLocalRelay(relayOpts);
+  let closed = 0;
+  const realClosed = relay.hub.closed.bind(relay.hub);
+  relay.hub.closed = (c) => {
+    closed += 1;
+    return realClosed(c);
+  };
+  const { port } = new URL(relay.url);
+  const raw = net.connect(Number(port), "127.0.0.1");
+  await new Promise((ok) => raw.once("connect", ok));
+  raw.write(
+    "GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+  );
+  await new Promise((ok) => raw.once("data", ok));
+  raw.end(); // FIN only, as a killed program on macOS sends
+  const t0 = Date.now();
+  while (!closed && Date.now() - t0 < 2000)
+    await new Promise((r) => setTimeout(r, 20));
+  check(
+    "a client that leaves with a FIN and no close frame is dropped by the relay within 2 s (FAIL: a killed PC stays online on macOS)",
+    closed === 1,
+    `closed ${closed} times`,
+  );
+  raw.destroy();
+  await relay.close();
+}
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

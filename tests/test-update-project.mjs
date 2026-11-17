@@ -1,6 +1,6 @@
 // Tests for skills/update-project/pass.mjs: --check on a made-up folder raises each check id (P1 to P12, and P13 to
-// P15 for a local git folder), the git and GitHub checks (P13 to P23) on folders of each kind with a fake gh (an
-// organisation's repo, an owner in another case, a 401 and a 404 among them), a folder inside a bigger repo, and the
+// P15 for a local git folder), the git and GitHub checks (P13 to P26) on folders of each kind with a fake gh (an
+// organisation's repo, an owner in another case, a 401 and a 404, slow, fast and too few CI runs among them), a folder inside a bigger repo, and the
 // stamp modes (--done with --kept, --skip, --skip-all, --list) write ~/.claude/project-pass.json as the design says,
 // and version.json's projectPass equals pass.mjs's LEVEL.
 // Everything happens in a temporary home folder (--home, and HOME and USERPROFILE for what pass.mjs imports), so the
@@ -103,9 +103,11 @@ check(
   first.out,
 );
 // a local git folder without the preset also raises P13 (no Git: line), P14 (no commit line), P15 (no .gitattributes)
+// and P25 (no .gitignore for .claude/settings.local.json)
 check(
-  "--check raises every check id, P1 to P15",
-  top.join() === Array.from({ length: 15 }, (_, i) => `P${i + 1}`).join(),
+  "--check raises every check id, P1 to P15 and P25",
+  top.join() ===
+    [...Array.from({ length: 15 }, (_, i) => `P${i + 1}`), "P25"].join(),
   top.join(),
 );
 check(
@@ -302,6 +304,22 @@ if (a === R + "/vulnerability-alerts") on ? out("") : fail("Not Found (HTTP 404)
 if (a === R + "/automated-security-fixes") out({ enabled: on, paused: false });
 if (a === R + "/private-vulnerability-reporting") out({ enabled: on });
 if (a === R + "/code-scanning/default-setup") out({ state: on ? "configured" : "not-configured" });
+const wf = a.startsWith(R + "/actions/workflows/") && a.match(/\\/workflows\\/([^/]+)\\/runs\\?status=completed&per_page=20$/);
+if (wf) {
+  const run = (secs, conclusion = "success") => ({ conclusion, created_at: "2026-11-01T09:00:00Z",
+    run_started_at: "2026-11-01T10:00:00Z", updated_at: new Date(Date.parse("2026-11-01T10:00:00Z") + secs * 1000).toISOString() });
+  // FAKE_RUNS: one mode for every workflow, or "<file>=<mode>,..." with "fast" for the files it does not name
+  const spec = process.env.FAKE_RUNS || "fast";
+  const runs = spec.includes("=") ? Object.fromEntries(spec.split(",").map((x) => x.split("=")))[wf[1]] || "fast" : spec;
+  if (runs === "none") fail("Not Found (HTTP 404)");
+  out({ workflow_runs: {
+    fast: [...Array(19).fill(180), 290].map((s) => run(s)),
+    slow: [...Array.from({ length: 16 }, (_, i) => run(360 + i * 10)), run(730, "failure"), run(30, "cancelled"),
+      run(0, "action_required"), run(0, "startup_failure")],
+    few: [...Array(4).fill(400).map((s) => run(s)), ...Array(6).fill(20).map((s) => run(s, "cancelled"))],
+    empty: [],
+  }[runs] });
+}
 fail("fake gh has no answer for: " + a);
 `,
 );
@@ -360,6 +378,7 @@ write(
 );
 write(path.join(hub, ".github", "workflows", "ci.yml"), preset("ci-node.yml"));
 write(path.join(hub, "CHANGELOG.md"), preset("CHANGELOG.md"));
+write(path.join(hub, ".gitignore"), ".claude/settings.local.json\n");
 spawnSync("git", [
   "-C",
   hub,
@@ -369,7 +388,7 @@ spawnSync("git", [
 ]);
 const hubOn = runEnv({ PASS_GH: fakeGh, FAKE_GH: "on" }, "--check", hub);
 check(
-  "the same folder with the preset in place and the settings on prints none of P13 to P23",
+  "the same folder with the preset in place, the settings on and fast CI prints none of P13 to P26",
   hubOn.code === 0 && gitIds(hubOn.out).length === 0,
   hubOn.out,
 );
@@ -461,6 +480,136 @@ check(
   cased.out,
 );
 setOrigin("https://github.com/someone/thing.git");
+// P26: CI speed from the last 20 completed runs of each workflow on pull requests (FAKE_RUNS: "fast" by default,
+// "slow", "few", "empty", "none"). The slow runs: 16 of 6m-8m30s and one failed at 12m10s count; one cancelled, one
+// action_required and one startup_failure did not do the work and must not count (counted, the median moves).
+const ciLine = (out) => out.match(/^P26\s.*$/m)?.[0] || "";
+const slow = runEnv(
+  { PASS_GH: fakeGh, FAKE_GH: "on", FAKE_RUNS: "slow" },
+  "--check",
+  hub,
+);
+check(
+  "CI over 5 minutes at the median offers a CI speed pass by fast-ci.md, with the median and slowest run (runs that did not do the work left out)",
+  slow.code === 0 &&
+    /^P26\s+ask\s+github\.com\/someone\/thing\/actions\/workflows\/ci\.yml\s+ci\.yml takes 7m 20s at the median, 12m 10s at the slowest, over its last 17 finished runs: a CI speed pass by ~\/\.claude\/skills\/update-project\/fast-ci\.md/m.test(
+      slow.out,
+    ),
+  slow.out,
+);
+// a second workflow on pull requests, after ci.yml by name, is the slow one
+write(
+  path.join(hub, ".github", "workflows", "tests.yml"),
+  "on: [pull_request]\njobs: {}\n",
+);
+const twoFlows = runEnv(
+  { PASS_GH: fakeGh, FAKE_GH: "on", FAKE_RUNS: "tests.yml=slow" },
+  "--check",
+  hub,
+);
+fs.rmSync(path.join(hub, ".github", "workflows", "tests.yml"));
+check(
+  "every workflow on pull requests is timed: a slow one beside a fast ci.yml offers the CI speed pass and names that workflow",
+  /^P26\s+ask\s+github\.com\/someone\/thing\/actions\/workflows\/tests\.yml\s+tests\.yml takes 7m 20s at the median/m.test(
+    twoFlows.out,
+  ),
+  ciLine(twoFlows.out) || twoFlows.out,
+);
+const fast = runEnv({ PASS_GH: fakeGh, FAKE_GH: "on" }, "--check", hub);
+check(
+  "CI under 5 minutes at the median offers no CI speed pass",
+  fast.code === 0 &&
+    ciLine(fast.out) === "" &&
+    /^project-pass /m.test(fast.out),
+  fast.out,
+);
+const few = runEnv(
+  { PASS_GH: fakeGh, FAKE_GH: "on", FAKE_RUNS: "few" },
+  "--check",
+  hub,
+);
+check(
+  "under 5 finished CI runs: the CI speed check is skipped with a note that says why",
+  /^P26\s+note\s+github\.com\/someone\/thing\/actions\s+CI speed not checked: ci\.yml: 4 finished runs; a median needs 5 finished runs$/m.test(
+    few.out,
+  ),
+  few.out,
+);
+const noRuns = runEnv(
+  { PASS_GH: fakeGh, FAKE_GH: "on", FAKE_RUNS: "empty" },
+  "--check",
+  hub,
+);
+check(
+  "a workflow GitHub knows but has not run: the CI speed check is a note with 0 finished runs",
+  /^P26\s+note\s+\S+\s+CI speed not checked: ci\.yml: 0 finished runs; a median needs 5 finished runs$/m.test(
+    noRuns.out,
+  ),
+  ciLine(noRuns.out) || noRuns.out,
+);
+const unknownFlow = runEnv(
+  { PASS_GH: fakeGh, FAKE_GH: "on", FAKE_RUNS: "none" },
+  "--check",
+  hub,
+);
+check(
+  "a workflow file GitHub does not know (a 404, not pushed yet): the CI speed check is a note that says so, not a GitHub error",
+  /^P26\s+note\s+\S+\s+CI speed not checked: ci\.yml: GitHub does not know this workflow file \(not pushed yet\); a median needs 5 finished runs$/m.test(
+    unknownFlow.out,
+  ) && !/^GitHub/m.test(unknownFlow.out),
+  ciLine(unknownFlow.out) || unknownFlow.out,
+);
+check(
+  "without gh, the CI speed check is a note that names the missing gh",
+  /^P26\s+note\s+github\.com\/someone\/thing\s+not checked: gh not found/m.test(
+    noGh.out,
+  ),
+  ciLine(noGh.out) || noGh.out,
+);
+setOrigin("https://github.com/acme/thing.git");
+const readerSlow = runEnv(
+  {
+    PASS_GH: fakeGh,
+    FAKE_GH: "on",
+    FAKE_ACCOUNTS: "outsider,member",
+    FAKE_ADMIN: "no",
+    FAKE_RUNS: "slow",
+  },
+  "--check",
+  hub,
+);
+check(
+  "an account that can read the repo but is no admin still gets the CI speed check",
+  /^P26\s+ask\s+github\.com\/acme\/thing\/actions\/workflows\/ci\.yml\s+ci\.yml takes 7m 20s/m.test(
+    readerSlow.out,
+  ),
+  readerSlow.out,
+);
+spawnSync("git", ["-C", hub, "remote", "remove", "origin"]);
+const noRemote = run("--check", hub);
+check(
+  "a git folder with a CI workflow but no github.com remote: the CI speed check is a note that says why",
+  /^P26\s+note\s+\.github\/workflows\/\s+CI speed not checked: no github\.com remote/m.test(
+    noRemote.out,
+  ),
+  noRemote.out,
+);
+spawnSync("git", [
+  "-C",
+  hub,
+  "remote",
+  "add",
+  "origin",
+  "https://github.com/someone/thing.git",
+]);
+// removing the remote dropped origin/HEAD too
+spawnSync("git", [
+  "-C",
+  hub,
+  "symbolic-ref",
+  "refs/remotes/origin/HEAD",
+  "refs/remotes/origin/main",
+]);
 for (const [mode, code] of [
   ["revoked", 401],
   ["gone", 404],
@@ -471,7 +620,7 @@ for (const [mode, code] of [
     r.code === 0 &&
       /^P1\s+fix\s+HANDOFF\.md/m.test(r.out) &&
       new RegExp(
-        `^GitHub\\s+note\\s+github\\.com/someone/thing\\s+GitHub answered gh api repos/someone/thing: .*HTTP ${code}.*; did not run: P13 \\(the visibility\\), P20, P21, P22$`,
+        `^GitHub\\s+note\\s+github\\.com/someone/thing\\s+GitHub answered gh api repos/someone/thing: .*HTTP ${code}.*; did not run: P13 \\(the visibility\\), P20, P21, P22, P26$`,
         "m",
       ).test(r.out) &&
       !/^P2[0-2]/m.test(r.out) &&
@@ -496,6 +645,97 @@ check(
     !/^P15\s/m.test(monoOut) &&
     /^P7\s+ask\s+\.\/\s+the whole folder is untracked/m.test(monoOut),
   monoOut,
+);
+// P25: the "don't ask again" list (.claude/settings.local.json) must be ignored by a .gitignore the repo carries
+// (an ignore on this computer only does not travel with a clone) and must not be tracked
+const sec = path.join(tmp, "secrets");
+spawnSync("git", ["init", "-q", sec]);
+const p25 = (env = {}, ...extra) =>
+  runEnv(env, "--check", sec, ...extra)
+    .out.split(/\r?\n/)
+    .filter((l) => /^P25/.test(l));
+write(
+  path.join(sec, ".git", "info", "exclude"),
+  ".claude/settings.local.json\n",
+);
+let got = p25();
+check(
+  "P25 asks for a .gitignore line when only this computer's .git/info/exclude hides the don't-ask-again file",
+  got.length === 1 &&
+    /^P25\.ignore\s+ask\s+\.gitignore\s+.*only \.git\/info\/exclude on this computer ignores it/.test(
+      got[0],
+    ),
+  got.join("\n"),
+);
+// a global excludes file named .gitignore (an absolute path) is still this computer's own
+const globalIgnore = path.join(tmp, "global-home", ".gitignore");
+write(globalIgnore, ".claude/settings.local.json\n");
+const globalCfg = path.join(tmp, "global-home", ".gitconfig");
+write(globalCfg, `[core]\n\texcludesFile = ${fwd(globalIgnore)}\n`);
+write(path.join(sec, ".git", "info", "exclude"), "");
+got = p25({ GIT_CONFIG_GLOBAL: globalCfg });
+check(
+  "P25 does not count a global excludes file named .gitignore as the repo's",
+  got.length === 1 &&
+    /^P25\.ignore\s.*only .*global-home\/\.gitignore on this computer/.test(
+      got[0],
+    ),
+  got.join("\n"),
+);
+write(path.join(sec, ".gitignore"), ".claude/settings.local.json\n");
+got = p25();
+check(
+  "P25 is quiet once the repo's .gitignore ignores the don't-ask-again file",
+  got.length === 0,
+  got.join("\n"),
+);
+// this computer's ".claude/" rule is the one git names, but the repo's own line still travels with a clone
+write(path.join(sec, ".git", "info", "exclude"), ".claude/\n");
+got = p25();
+check(
+  "P25 stays quiet when a local .claude/ exclude masks the repo's own .gitignore line",
+  got.length === 0,
+  got.join("\n"),
+);
+write(path.join(sec, ".git", "info", "exclude"), "");
+// (a folder rule like ".claude/" can't be un-ignored inside, so the test un-ignores after a file pattern)
+write(
+  path.join(sec, ".gitignore"),
+  "*.local.json\n!.claude/settings.local.json\n",
+);
+got = p25();
+check(
+  "P25 counts a .gitignore line that un-ignores the don't-ask-again file as not ignored, and names that line",
+  got.length === 1 &&
+    /^P25\.ignore\s+ask\s+\.gitignore\s.*the line `!\.claude\/settings\.local\.json` in \.gitignore un-ignores it/.test(
+      got[0],
+    ),
+  got.join("\n"),
+);
+// a package folder inside a bigger repo: the repo's top .gitignore counts
+const secPkg = path.join(sec, "packages", "app");
+write(path.join(secPkg, "CLAUDE.md"), "# App\n");
+write(path.join(sec, ".gitignore"), "**/.claude/settings.local.json\n");
+got = run("--check", secPkg)
+  .out.split(/\r?\n/)
+  .filter((l) => /^P25/.test(l));
+check(
+  "P25 in a package folder reads the bigger repo's top .gitignore",
+  got.length === 0,
+  got.join("\n"),
+);
+fs.rmSync(path.join(sec, "packages"), { recursive: true, force: true });
+write(path.join(sec, ".gitignore"), ".claude/settings.local.json\n");
+write(path.join(sec, ".claude", "settings.local.json"), "{}\n");
+spawnSync("git", ["-C", sec, "add", "-f", ".claude/settings.local.json"]);
+got = p25();
+check(
+  "P25 asks to untrack and rotate when git already tracks the don't-ask-again file, warning not to commit it by name",
+  got.length === 1 &&
+    /^P25\.tracked\s+ask\s+\.claude\/settings\.local\.json\s+git tracks .*git rm --cached.*without naming that file.*rotate/.test(
+      got[0],
+    ),
+  got.join("\n"),
 );
 const noGit = path.join(tmp, "nogit");
 write(path.join(noGit, "CLAUDE.md"), "# No git\n\nA made-up project.\n");

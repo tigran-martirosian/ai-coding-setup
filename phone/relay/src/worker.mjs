@@ -37,6 +37,8 @@ export class Hub extends DurableObject {
         setAttachment: (ws, value) => ws.serializeAttachment(value),
         send: (ws, text) => ws.send(text),
         close: (ws, code, reason) => ws.close(code, reason),
+        // The time of the last PING the auto-response below answered; null when the socket never pinged.
+        lastPing: (ws) => ctx.getWebSocketAutoResponseTimestamp(ws),
       },
       telegram: api.telegram,
       download: api.download,

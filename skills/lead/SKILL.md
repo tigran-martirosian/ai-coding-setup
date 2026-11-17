@@ -7,7 +7,7 @@ description: Lead a big request. The planner splits it into steps, one plan revi
 
 You own the outcome. The `planner` agent writes the plan and the job-list rows, workers do the steps, and you run the rows and hold what the planner never sees: the user's notes since the brief and the live state of the work. That keeps this session's context on the plan, so when something goes wrong you already know what should be there. The reasons behind the defaults below are in [reference.md](reference.md).
 
-**The stages of a big job:** request understood and talked through → research (only when facts are missing) → plan → one plan review → plan fixes → the user reviews the plan → build (a design step for something a person will see, read or use gets the early blind look on its mock-up before the user's OK) → build review, with the final blind look beside it → fixes → the user reviews the build → tests, release and records. The user sees the work at the research file (when there is one), the plan, design files that need an OK, `BLOCKED` lines the plan cannot answer, and the build. How many reviewers and what the blind look gets: section 5. Once per release, `/setup-audit full` adds a blind look at the whole setup.
+**The stages of a big job:** lane named → request understood and talked through → research → approach page and the user's OK → job list → one plan review → plan fixes → the user reviews the plan → build (a design step for something a person will see, read or use gets the early blind look on its mock-up before the user's OK) → build review, with the final blind look beside it → fixes → the user reviews the build → tests, release and records. The user sees the work at the research file (when there is one), the plan, design files that need an OK, `BLOCKED` lines the plan cannot answer, and the build. How many reviewers and what the blind look gets: section 5. Once per release, `/setup-audit full` adds a blind look at the whole setup.
 
 ## 1. What goes where
 
@@ -22,13 +22,15 @@ You own the outcome. The `planner` agent writes the plan and the job-list rows, 
 
 ## 2. Set up the plan
 
-1. **Understand the request and talk it through.** Restate it; ask only what only the user knows. When the facts to plan from are missing (how the code works, run data, how others do it), the next step is a research `worker` that writes them to `docs/research/YYYY-MM-DD-topic.md`: show the user its link and short answer before planning, instead of a guessed pick.
-2. Inspect just enough of the project to brief the planner (CLAUDE.md, HANDOFF, DECISIONS, the files in scope).
-3. **The tracker is the job's record:** a job is work over several sessions (not a one-session fix), one `release` item named after it, and after the user's OK one `task` item (a **step**) per plan row (step 5). Take the open job the work belongs to (the one the user named, or the one it ships in), else create one (`tracker_create`) after a `tracker_list` with `search` finds no duplicate, and link this session to it (`linkSession: true` on the create or a `tracker_update`). Decisions made on the way go on it as comments or as `decision` items; titles, bodies and comments follow `where-are-we/tracker-texts.md`. A project whose tracker lacks the task-type patch (`/where-are-we` says so) gets it from `/update-project` first; if the user says no, tell them in one line that this job runs without a tracker and its state lives in the plan's State cells.
-4. Set this session's phase with `update_session_meta` (`planning` → `implementing` → `validating`). For a plain research job or a build→review→test loop, consider `workflowPreset` `research` or `implement-review-test`.
-5. Get the plan from the `planner` (below), have it reviewed and fixed, and show it to the user; its rows become the job list (section 3). On the user's OK, write the plan file's path into the job's description and run `/where-are-we` once: it copies the rows into the job as steps, plus one step per thing only the user can do (an OK, a look, a restart time).
+1. **Name the lane first**, in one line ("Lane: planner, many parts"), by the rules' lane line; the user can overrule it. A fix or talk request is built in this session, not led here.
+2. **Understand the request and talk it through.** Restate it; ask only what only the user knows.
+3. **Research before the planner.** A research `worker` writes the facts the plan rests on (how the code works, run data, what others do) to `docs/research/YYYY-MM-DD-topic.md`, and the planner's brief names that file; it is skipped only when those facts are already on file. Show the user its link and short answer before planning, instead of a guessed pick.
+4. Inspect just enough of the project to brief the planner (CLAUDE.md, HANDOFF, DECISIONS, the files in scope).
+5. **The tracker is the job's record:** a job is work over several sessions (not a one-session fix), one `release` item named after it, and after the user's OK one `task` item (a **step**) per plan row (step 7). Take the open job the work belongs to (the one the user named, or the one it ships in), else create one (`tracker_create`) after a `tracker_list` with `search` finds no duplicate, and link this session to it (`linkSession: true` on the create or a `tracker_update`). Decisions made on the way go on it as comments or as `decision` items; titles, bodies and comments follow `where-are-we/tracker-texts.md`. A project whose tracker lacks the task-type patch (`/where-are-we` says so) gets it from `/update-project` first; if the user says no, tell them in one line that this job runs without a tracker and its state lives in the plan's State cells.
+6. Set this session's phase with `update_session_meta` (`planning` → `implementing` → `validating`). For a plain research job or a build→review→test loop, consider `workflowPreset` `research` or `implement-review-test`.
+7. Get the approach page from the `planner` and the user's OK on it, then its job list; have that reviewed and fixed, and show it to the user (below); its rows become the job list (section 3). On the user's OK, write the plan file's path into the job's description and run `/where-are-we` once: it copies the rows into the job as steps, plus one step per thing only the user can do (an OK, a look, a restart time).
 
-**How much of this a job gets.** A question, a small edit, a fix with a clear cause or a data change: none of it, do it here. A plan that comes back as one step, touching no hook, rule, agent, skill, settings or CI file and with nothing costly to undo: no plan review, and a build review only when the gate asks. A job is **big**, and gets every stage, when its plan has 2 or more helper steps, a change to a hook, rule, agent, skill, settings or CI file, a design step for something a person looks at or uses, or a step its Needs-OK list calls costly to undo. Decide from the plan, not the request.
+**How much of this a job gets.** A question, a small edit, a data change, or a fix- or talk-lane request: none of it, do it here (talk after the user's OK on a one-page approach). A plan that comes back as one step, touching no hook, rule, agent, skill, settings or CI file and with nothing costly to undo: no plan review, and a build review only when the gate asks. A job is **big**, and gets every stage, when its plan has 2 or more helper steps, a change to a hook, rule, agent, skill, settings or CI file, a design step for something a person looks at or uses, or a step its Needs-OK list calls costly to undo. Decide from the plan, not the request.
 
 ### The plan comes from the `planner`
 
@@ -36,14 +38,13 @@ Every job led here starts there: Agent tool, `subagent_type: "planner"`. It runs
 
 Its brief: read reference.md section "The planner's brief" when writing it (what goes in, what stays out).
 
-When the plan comes back:
-- **Check its Read line.** A folder or commit outside the ones you gave means it planned against other code: run it again with the folders said plainly.
-- **Compare it with your own view** and tell the user where they differ instead of quietly picking one.
-- **Save it** to the plan file (section 3) with the rows unchanged, before the review.
+It plans in two passes:
+1. **The approach page** (pass 1, no rows). **Check its Read line**: a folder or commit outside the ones you gave means it planned against other code, so run it again with the folders said plainly. Save the page to the plan file (section 3), **compare it with your own view**, and show the user its For the user part, its Needs-OK list and where you differ (tell the user where they differ instead of quietly picking one), with the file's link. Wait for the user's OK.
+2. **The job list** (pass 2). Save the user's answer, quoted, under the page in the plan file. Send it to the same planner by SendMessage (when it has no turns left, a new run with the first brief, the page and the answer). Save its rows unchanged under the answer, before the review.
 
 ### One plan review, then one fix round
 
-A big job's plan gets one pass from the **`plan-reviewer`** (Agent tool, `subagent_type: "plan-reviewer"`, read-only): give it the request in the user's own words, the decisions with their quotes and the path of `DECISIONS.md` (as in the planner's brief), the plan file and the folders with their commits. Write its report into the plan file's **Review** section the moment it arrives, each Important as `open`.
+A big job's plan gets one pass from the **`plan-reviewer`** (Agent tool, `subagent_type: "plan-reviewer"`, read-only): give it the request in the user's own words, the decisions with their quotes and the path of `DECISIONS.md` (as in the planner's brief), the user's answer to the approach page, quoted, the plan file and the folders with their commits. Write its report into the plan file's **Review** section the moment it arrives, each Important as `open`.
 
 1. Send the report to the **same planner** by SendMessage. It rewrites the affected rows in place and answers each finding with one line: `fixed: <row change>` or `kept: <why>`.
 2. Check that every Important has one of the two and that each row change it names is in the rows; write the lines into the Review section. No second plan review.
@@ -68,7 +69,7 @@ If the call fails, say so and write the plan yourself.
 
 ## 3. The job list and the briefs
 
-The job list is the plan file, one per job, in the project: `docs/<date>-<job>-plan.md`. It holds the Brief, the whole plan, the rows with your State column, the Review section, the `Changed <date>` lines of re-plans and the Findings; the JOB LIST line of every brief points to it, and every worker reads it first. Only a job with no project folder uses `~/.claude/job-lists/<date>-<job>.md`. The rows are the planner's; you add and keep the State column; workers only add lines under Findings. The plan file keeps each row's design; the step's state lives on its tracker item. The State cell holds only the claim and the `done <hash>` mark the job-done hook reads, and no `docs/progress.md` or HANDOFF step lines are kept beside it: HANDOFF, DECISIONS and `docs/facts.md` keep knowledge, the tracker keeps state.
+The job list is the plan file, one per job, in the project: `docs/<date>-<job>-plan.md`. It holds the Brief, the approach page with the user's answer, the whole plan, the rows with your State column, the Review section, the `Changed <date>` lines of re-plans and the Findings; the JOB LIST line of every brief points to it, and every worker reads it first. Only a job with no project folder uses `~/.claude/job-lists/<date>-<job>.md`. The rows are the planner's; you add and keep the State column; workers only add lines under Findings. The plan file keeps each row's design; the step's state lives on its tracker item. The State cell holds only the claim and the `done <hash>` mark the job-done hook reads, and no `docs/progress.md` or HANDOFF step lines are kept beside it: HANDOFF, DECISIONS and `docs/facts.md` keep knowledge, the tracker keeps state.
 
 ```
 # Job: <title>
@@ -76,6 +77,12 @@ Goal: <one sentence with the exact target: "the checkout page shows the member d
 Plan read: <folders> at <commits>. Review: <plan yes/no, build yes/no, why>. Stage: <planned | reviewed | fixed | user OK>
 
 ## Brief
+## Approach
+<the planner's approach page, unchanged>
+
+The user's answer (<date>):
+> "<the user's words on the page, quoted>"
+
 ## Plan
 | Step | Job | Decides | Serves | Files | Stage | Expect before | Done when | Helper | Runs | Budget | State |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -110,6 +117,7 @@ Workers talk only to you. Nobody talks sideways: what another step needs goes un
   - **Needs the user:** status waits-for-you ("Needs you"), the question as a comment, `waitsOn` "your answer"; while the user is here, the question card is still asked.
   - **A piece committed:** `proof` (commit and session id) and one plain comment: changed, left, not checked yet.
   - **Done when passed:** see section 6.
+- **Every row is on the job before the build starts** (user, 2026-11-16): the OK'd plan's rows are its steps, also the rows other sessions will run. A session runs only its own rows, reads the user's comments on its steps before it starts them, and ends once its rows are done instead of staying open for the others.
 - **One piece per session** (user, 2026-11-08). Once a step is committed and steps are left, bring its tracker item and State cell up to date and hand the rest of the job to a fresh session (handoff skill); that session reads the plan file and runs the next row. Before it starts a row, a session claims it in that row's State cell (read reference.md section "Claiming a row") and claims its tracker step (**Claimed**, above). The handoff names the plan file and its Stage. A handover before the plan's fix round ends starts a **new planner** with the Brief, the plan file and its `open` findings, told to fix only those; you check them as in section 2, with no second plan review. Compaction is only the safety net inside a step.
 - **A design step for something the user looks at or uses** (a build, a page, a screen) ends with the user's OK: show the design file's link and a picture or a short summary of it, and the build steps after it wait for the answer (user, 2026-11-07). A change they ask for goes back to the same worker. Before you show it, its mock-up, first screen or draft gets the early blind look (section 5), and the serious findings are fixed or named to the user.
 

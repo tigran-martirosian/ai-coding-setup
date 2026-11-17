@@ -37,11 +37,20 @@ const waitFor = (fn, ms = 20000) => {
     if (fn()) return true;
   return fn();
 };
-const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "");
-const ledger = (sid) =>
-  fs.existsSync(path.join(STATE, `${sid}.json`))
-    ? JSON.parse(read(path.join(STATE, `${sid}.json`)))
-    : null;
+// One read each: the hook's detached closer deletes an emptied ledger, so a check-then-read can find it gone
+// in between (seen on a busy CI runner as "Unexpected end of JSON input").
+const read = (f) => {
+  try {
+    return fs.readFileSync(f, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return "";
+    throw err;
+  }
+};
+const ledger = (sid) => {
+  const text = read(path.join(STATE, `${sid}.json`));
+  return text ? JSON.parse(text) : null;
+};
 const pids = (sid) => (ledger(sid)?.processes ?? []).map((e) => e.pid);
 const kills = () => read(`${PROCS}.kills`).split("\n").filter(Boolean);
 const closedLog = () => read(CLOSED_LOG);

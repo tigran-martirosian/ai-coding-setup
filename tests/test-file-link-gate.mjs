@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { makeChecker, UNDER_MS } from "./lib/kit.mjs";
+import { makeChecker, nodeStarts, UNDER_STARTS } from "./lib/kit.mjs";
 
 const HOOK = fileURLToPath(
   new URL("../hooks/file-link-gate.mjs", import.meta.url),
@@ -20,7 +20,6 @@ const SETTINGS = JSON.parse(
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "file-link-gate-test-"));
 const CWD = "C:\\Projects\\my project";
 const run = (input, env = {}) => {
-  const t0 = Date.now();
   const r = spawnSync("node", [HOOK], {
     input: typeof input === "string" ? input : JSON.stringify(input),
     encoding: "utf8",
@@ -32,7 +31,7 @@ const run = (input, env = {}) => {
       ...env,
     },
   });
-  return { out: r.stdout, ms: Date.now() - t0 };
+  return { out: r.stdout };
 };
 const reasonOf = (out) => {
   try {
@@ -461,10 +460,16 @@ lines.push(
 );
 const big = path.join(dir, "big.jsonl");
 fs.writeFileSync(big, lines.join("\n") + "\n");
-const timed = run({ transcript_path: big, cwd: CWD });
 check(
-  `4 MB transcript blocks in ${timed.ms} ms (node start included, under ${UNDER_MS / 1000} s)`,
-  !!reasonOf(timed.out) && timed.ms < UNDER_MS,
+  "4 MB transcript: the link in the last reply still blocks",
+  !!reasonOf(run({ transcript_path: big, cwd: CWD }).out),
+);
+// The Stop hook a person waits on stays quick on a long session: timed in bare node starts, so a busy computer
+// (CI runs every core at once) slows both sides alike
+const timed = nodeStarts(3, () => run({ transcript_path: big, cwd: CWD }));
+check(
+  `a 4 MB transcript is judged within ${UNDER_STARTS} bare node starts (best of three: ${timed.ms} ms = ${timed.starts} starts of ${timed.startMs} ms)`,
+  timed.starts < UNDER_STARTS,
 );
 
 fs.rmSync(dir, { recursive: true, force: true });
