@@ -103,7 +103,7 @@ const WRITES = [
   ["where-are-we: the groomed comment", partOf(where, "8. **The reading.**")],
   [
     "lead: the tracker as the job's record (job, steps, comments)",
-    lineOf(lead, "3. **The tracker is the job's record:**"),
+    lineOf(lead, "5. **The tracker is the job's record:**"),
   ],
   ["handoff: the prompt for a tracker step", handoffPrompt],
   ["job-done: the note to create a missing step", linkText],
@@ -147,9 +147,9 @@ check(
 const newProject = read("skills", "new-project", "SKILL.md");
 const updateProject = read("skills", "update-project", "SKILL.md");
 check(
-  "lead step 3: work over several sessions is a job named after it, taken if open, else made",
+  "lead step 5: work over several sessions is a job named after it, taken if open, else made",
   /a job is work over several sessions \(not a one-session fix\), one `release` item named after it/.test(
-    lineOf(lead, "3. **The tracker is the job's record:**"),
+    lineOf(lead, "5. **The tracker is the job's record:**"),
   ) &&
     /Take the open job the work belongs to \(the one the user named, or the one it ships in\), else create one/.test(
       lead,
@@ -172,7 +172,7 @@ check(
   ) && /lacks the step fields \(`file` among them\)/.test(updateProject),
 );
 check(
-  "update-project offers the patch also before a project's first job, as lead step 3 sends it there",
+  "update-project offers the patch also before a project's first job, as lead step 5 sends it there",
   /A project with plan files \(`docs\/\*-plan\.md`\), or one `lead` is about to make its first job in, whose tracker/.test(
     updateProject,
   ),
@@ -193,6 +193,12 @@ check(
   ),
 );
 check(
+  "a user step's title is the exact ask, never a step code, and a helper's review is never worded as an ask",
+  /\| \*\*Title\*\* \|[^\n]*A user step's title is the exact ask in plain words[^\n]*never a step code\. A helper's step, a review the pipeline runs included, is never worded as an ask: it does not wait for the user\./.test(
+    rules,
+  ),
+);
+check(
   "the rules keep `file` among the fields the extension reads",
   /`step`, `stage`, `waitsOn`, `budget`, `file` and the job description's first line keep their shape/.test(
     rules,
@@ -204,7 +210,7 @@ check(
 const MAKES = [
   [
     "lead: steps come from the plan rows after the user's OK",
-    lineOf(lead, "3. **The tracker is the job's record:**"),
+    lineOf(lead, "5. **The tracker is the job's record:**"),
     [/after the user's OK one `task` item \(a \*\*step\*\*\) per plan row/],
   ],
   [

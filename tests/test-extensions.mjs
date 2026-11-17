@@ -51,5 +51,47 @@ for (const [ext, file, needs] of TESTS) {
     `${ok ? "PASS" : "FAIL"} ${ext}/${file}: ${ok ? last : (r.stderr || r.stdout).trim().slice(-400)}`,
   );
 }
+
+// The installer stages every build (scripts/extensions.mjs): extensionTarget follows SETUP_EXT_STAGE, and each of the
+// eight extensions installs through it (its own build.mjs, or scripts/install.mjs with installBuilt)
+{
+  const extRoot = fileURLToPath(new URL("../extensions/", import.meta.url));
+  const stage = path.join(extRoot, "no-such-stage");
+  const r = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import { extensionTarget } from ${JSON.stringify(new URL("../extensions/shared/build-lib.mjs", import.meta.url).href)}; console.log(extensionTarget("inktheme"));`,
+    ],
+    {
+      encoding: "utf8",
+      env: { ...process.env, SETUP_EXT_STAGE: stage, APPDATA: "" },
+    },
+  );
+  const installers = fs
+    .readdirSync(extRoot)
+    .filter((n) => fs.existsSync(path.join(extRoot, n, "package.json")))
+    .map((n) =>
+      [
+        path.join(extRoot, n, "build.mjs"),
+        path.join(extRoot, n, "scripts", "install.mjs"),
+      ].find((f) => fs.existsSync(f)),
+    );
+  const unstaged = installers.filter(
+    (f) =>
+      !f ||
+      !/\b(extensionTarget|installBuilt)\(/.test(fs.readFileSync(f, "utf8")),
+  );
+  const ok =
+    r.status === 0 &&
+    r.stdout.trim() === path.join(stage, "inktheme") &&
+    installers.length === 8 &&
+    !unstaged.length;
+  if (!ok) failed++;
+  console.log(
+    `${ok ? "PASS" : "FAIL"} shared/build-lib.mjs: extensionTarget follows SETUP_EXT_STAGE and all eight install through it${ok ? "" : `: got ${JSON.stringify({ out: r.stdout.trim(), err: r.stderr.trim().slice(-300), installers: installers.length, unstaged })}`}`,
+  );
+}
 console.log(failed ? `${failed} failed` : "all passed");
 process.exit(failed ? 1 : 0);

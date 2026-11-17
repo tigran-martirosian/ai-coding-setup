@@ -21,9 +21,39 @@ The relay's deploy files:
 | `relay/deploy-test.mjs` | The test relay, deployed from your PC with your secrets file |
 | `.github/workflows/phone-deploy.yml` | The real relay, deployed by GitHub Actions from a release tag only |
 
-Both deploys run Wrangler with one pinned version (`WRANGLER_VERSION` in `relay/deploy.mjs`). Both refuse a page
-that differs from `skills/phone-bot/pc/page-hashes.json`, since a PC marks such a page unverified and goes
-read-only.
+Both deploys run Wrangler with one pinned version (`WRANGLER_VERSION` in `relay/deploy.mjs`).
+
+## How the link holds
+
+The page and the PC program each ping the relay every 20 seconds. A side that gets no pong within 10 seconds drops
+its socket and opens a new one. A failed attempt waits a random time up to 2^n seconds before the next attempt:
+at most 30 seconds on the page and 60 on the PC. The relay closes a PC socket that has been silent for two ping
+times plus 10 seconds (50 seconds for a PC that pings every 20). Once that PC authenticates again, the relay tells
+the user's open pages. They then say hello again at once, so an idle page also notices a restarted PC program. A page
+whose session ended because the PC was gone says the PC is off only after 20 seconds of that.
+`tests/test-phone-steady.mjs` checks this with short timers: drops, outages, half-open links, a network switch,
+restarts of the PC program and the relay, a second device, a page update, and the old-with-new pairs below.
+
+## Old with new
+
+A relay deploy and a PC update do not happen at the same moment, so parts of different releases meet. The relay
+serves the page, so a new page always comes with a new relay. An old page is one Telegram still holds open or cached.
+"Old" here means 26.3.1.
+
+| Pair | Result |
+|---|---|
+| Old page, new PC | Works. The PC's hello still says the page is fine, and the protocol number is unchanged |
+| Old page, new relay | Works. The relay never closes a phone socket that never pinged, and the old page never pings. The old page ignores the relay's "PC is back" frame, so after a PC restart it notices only when a question goes unanswered for 30 seconds |
+| Old PC, new relay | Works. The old PC pings once a minute and sends no ping time, so the relay waits 130 seconds of silence before it closes the socket |
+| New PC, old relay | Works by design, not covered by a test: the old relay ignores the ping time and answers pings itself. Pages fall back to their timed hello retries |
+| New page, 26.3 or 26.3.1 PC (both still check the page) | Status only, with the Read-only line, until the PC runs `/update-setup` |
+
+`tests/test-phone-steady.mjs` takes the old page and the old PC from the `v26.3.1` tag. A clone without that tag
+(a shallow clone, as in CI) skips those pairs and prints a `skip` line.
+
+Rules that keep this true: a new frame type must be one an old part can ignore. The PC keeps answering `page: "ok"`
+for a page it accepts. The relay never closes a phone socket that has not pinged. A change of the protocol number is
+a break, and the release notes must say so.
 
 ## Two relays, one at a time
 

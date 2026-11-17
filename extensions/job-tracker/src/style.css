@@ -317,12 +317,16 @@ body:has(.tracker-mode > .rt-chat-handle) [data-rt-item-chat] {
   z-index: 10;
   width: 380px;
   max-height: 70vh;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 4px;
-  background: var(--x-surface-0);
-  border: 1px solid var(--x-hairline);
+  /* Its own raised surface and a firm edge, so it stands apart from the page under it in both themes */
+  background: var(--x-surface-2);
+  border: 1px solid color-mix(in oklab, var(--nim-text) 18%, transparent);
   border-radius: var(--x-radius-window);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.25);
 }
 /* Only on opening: each redraw makes a new picker, and a redraw while it is open must not fade it in again */
 .rt-picker.rt-picker-fade {
@@ -345,10 +349,10 @@ body:has(.tracker-mode > .rt-chat-handle) [data-rt-item-chat] {
   border-radius: var(--x-radius-control);
 }
 .rt-root .rt-pk:hover {
-  background: var(--x-surface-1);
+  background: var(--x-overlay-hover);
 }
 .rt-root .rt-pk[aria-selected="true"] {
-  background: var(--x-state-selected);
+  background: var(--x-overlay-selected);
 }
 .rt-root .rt-pk:disabled {
   cursor: default;
@@ -395,7 +399,7 @@ body:has(.tracker-mode > .rt-chat-handle) [data-rt-item-chat] {
   color: var(--x-text-muted);
 }
 .rt-root .rt-pk-more:hover {
-  background: var(--x-surface-1);
+  background: var(--x-overlay-hover);
   color: var(--x-text);
 }
 .rt-needs-n {
@@ -651,6 +655,10 @@ body:has(.tracker-mode > .rt-chat-handle) [data-rt-item-chat] {
   width: 20px;
   height: 20px;
 }
+/* A running session that waits on the user: the listening orb in the needs tone, as in the agents panel */
+.rt-mark canvas[data-orb="listening"] {
+  color: var(--x-state-needs);
+}
 .rt-dot {
   width: 9px;
   height: 9px;
@@ -738,8 +746,9 @@ body:has(.tracker-mode > .rt-chat-handle) [data-rt-item-chat] {
 .rt-wait-ready {
   color: var(--x-text);
 }
+/* A session at work reads as plain text: the accent is kept for links */
 .rt-wait-running {
-  color: var(--x-state-running);
+  color: var(--x-text);
 }
 .rt-root .rt-session {
   color: var(--x-accent-text);
@@ -806,6 +815,29 @@ body:has(.tracker-mode > .rt-chat-handle) [data-rt-item-chat] {
 .rt-file-note {
   color: var(--x-text-muted);
   font: var(--x-meta);
+}
+/* The Mark done button: a quiet outlined button on the row's second line, after the file link */
+.rt-root .rt-done-button {
+  padding: 4px 12px;
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: var(--x-surface-0);
+  color: var(--x-text);
+  font: var(--x-meta);
+}
+.rt-root .rt-done-button:hover {
+  border-color: var(--x-accent-text);
+  color: var(--x-accent-text);
+}
+/* The Mark done write failed: the row's words say so */
+.rt-wait-failed {
+  color: var(--x-state-failed);
+}
+/* The states that ask for the user's attention, in one warning tone (both themes: tokens.css darkens it on a light
+   page): the session waits on the user ("needs you"), or a started step's session had no change for a day or no
+   longer runs ("no change since …", "session ended …, step not done") */
+.rt-wait-attention {
+  color: var(--x-state-needs);
 }
 .rt-root .rt-more {
   display: block;

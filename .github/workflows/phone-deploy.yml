@@ -36,7 +36,7 @@ jobs:
             echo "::error::$GITHUB_REF_NAME is not on main; only a released commit is deployed"
             exit 1
           }
-      # The PCs trust only the page of their own version (skills/phone-bot/pc/page-hashes.json).
+      # Only a released version is deployed: the tag must name the version in version.json.
       - name: The tag is the version in version.json
         run: |
           node -e '

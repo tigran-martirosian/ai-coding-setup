@@ -11,12 +11,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  buildPage,
-  HASHES_FILE,
-  hashesText,
-  writePage,
-} from "../page/build.mjs";
+import { buildPage, writePage } from "../page/build.mjs";
 import { telegramApi } from "./bot/telegram.mjs";
 import { PAGE_HEADERS } from "./local/server.mjs";
 
@@ -66,30 +61,10 @@ const headersFile = () =>
     .map(([k, v]) => `  ${k}: ${v}`)
     .join("\n")}\n`;
 
-// Builds the page and checks it against the committed page-hashes.json: a PC trusts only a page that matches its
-// own list, so a stale list would leave every PC read-only. `write` puts the page and _headers into ./dist.
-// `checks` (the owner's test relay only): the test build with the Checks screen, which no PC trusts, so the list
-// is not compared; a normal deploy afterwards puts the trusted page back.
+// Builds the page. `write` puts the page and _headers into ./dist. `checks` (the owner's test relay only): the
+// test build with the Checks screen; a normal deploy afterwards takes it away.
 export function preparePage({ write, checks = false }) {
   const build = buildPage({ checks });
-  if (checks) {
-    if (write) {
-      writePage(OUT, build);
-      fs.writeFileSync(path.join(OUT, "_headers"), headersFile());
-    }
-    return build;
-  }
-  let listed;
-  try {
-    listed = fs.readFileSync(HASHES_FILE, "utf8").replace(/\r\n/g, "\n");
-  } catch (e) {
-    throw new Error(`deploy: cannot read ${HASHES_FILE}: ${e.message}`);
-  }
-  if (listed !== hashesText(build.hashes))
-    throw new Error(
-      `deploy: the page differs from ${HASHES_FILE}, so every PC would mark it unverified. ` +
-        "Run node phone/page/build.mjs and commit the new list.",
-    );
   if (write) {
     writePage(OUT, build);
     fs.writeFileSync(path.join(OUT, "_headers"), headersFile());
@@ -221,7 +196,7 @@ export async function deployRelay({
   const build = preparePage({ write: !dryRun, checks });
   if (checks)
     say(
-      "test build with the Checks screen: every PC marks this page unverified until a normal deploy",
+      "test build with the Checks screen: it stays on the relay until a normal deploy",
     );
   const wr = `npx wrangler@${WRANGLER_VERSION}`;
   if (dryRun) {

@@ -1332,8 +1332,15 @@ ok(
   false,
 );
 
-// ---- with Nimbalyst there, the run builds an extension and puts it into Nimbalyst's folder
+// ---- with Nimbalyst there, the run builds an extension and puts it into Nimbalyst's folder. Nimbalyst counts as
+// closed (SETUP_NIMBALYST_OPEN=no), so the build staged in extensions-pending is swapped in at once and nothing
+// is left pending; the staged flow with Nimbalyst open is T11 below
 if (process.platform === "win32") {
+  const pendingIn = (appData) =>
+    path.join(appData, "@nimbalyst", "electron", "extensions-pending");
+  const nothingPending = (appData) =>
+    !fs.existsSync(pendingIn(appData)) ||
+    fs.readdirSync(pendingIn(appData)).every((f) => f.startsWith("."));
   const themeDist = path.join(REPO, "extensions", "ink-themes", "dist");
   const hadDist = fs.existsSync(themeDist);
   const appData = path.join(tmp, "appdata");
@@ -1352,6 +1359,7 @@ if (process.platform === "win32") {
           Path: emptyPath,
           APPDATA: appData,
           SETUP_EXTENSIONS: "ink-themes",
+          SETUP_NIMBALYST_OPEN: "no",
         },
       },
     ).stdout;
@@ -1359,6 +1367,7 @@ if (process.platform === "win32") {
     "the theme extension is built and installed",
     [
       withExt().includes("extension installed: ink-themes"),
+      nothingPending(appData),
       fs.existsSync(
         path.join(
           appData,
@@ -1370,7 +1379,7 @@ if (process.platform === "win32") {
         ),
       ),
     ],
-    [true, true],
+    [true, true, true],
   );
   ok(
     "the next run leaves it alone",
@@ -1389,6 +1398,7 @@ if (process.platform === "win32") {
         Path: emptyPath,
         APPDATA: appData,
         SETUP_EXTENSIONS: "agents-panel",
+        SETUP_NIMBALYST_OPEN: "no",
       },
     },
   ).stdout;
@@ -1396,6 +1406,7 @@ if (process.platform === "win32") {
     "the agents panel is built and installed without npm",
     [
       panelRun.includes("extension installed: agents-panel"),
+      nothingPending(appData),
       fs.existsSync(
         path.join(
           appData,
@@ -1408,7 +1419,7 @@ if (process.platform === "win32") {
         ),
       ),
     ],
-    [true, true],
+    [true, true, true],
   );
   if (!hadPanelDist) fs.rmSync(panelDist, { recursive: true, force: true });
   const trackerDist = path.join(REPO, "extensions", "job-tracker", "dist");
@@ -1424,6 +1435,7 @@ if (process.platform === "win32") {
         Path: emptyPath,
         APPDATA: appData,
         SETUP_EXTENSIONS: "job-tracker",
+        SETUP_NIMBALYST_OPEN: "no",
       },
     },
   ).stdout;
@@ -1431,6 +1443,7 @@ if (process.platform === "win32") {
     "the job tracker is built and installed without npm",
     [
       trackerRun.includes("extension installed: job-tracker"),
+      nothingPending(appData),
       fs.existsSync(
         path.join(
           appData,
@@ -1443,7 +1456,7 @@ if (process.platform === "win32") {
         ),
       ),
     ],
-    [true, true],
+    [true, true, true],
   );
   if (!hadTrackerDist) fs.rmSync(trackerDist, { recursive: true, force: true });
   ok(
@@ -1454,6 +1467,155 @@ if (process.platform === "win32") {
   );
   // the build writes its output next to the source; a folder this test made goes again
   if (!hadDist) fs.rmSync(themeDist, { recursive: true, force: true });
+}
+
+// ---- the staged flow (scripts/extensions.mjs, tools/nimbalyst-patch/ext-swap.mjs), both systems: a build goes to
+// extensions-pending and into the live folder only while Nimbalyst is closed. A live folder that changes while
+// Nimbalyst counts as open fails the case.
+{
+  const darwin = process.platform === "darwin";
+  const nimbalystIn = (root) =>
+    darwin
+      ? path.join(
+          root,
+          "Library",
+          "Application Support",
+          "@nimbalyst",
+          "electron",
+        )
+      : path.join(root, "@nimbalyst", "electron");
+  // Every file under a folder with its text, relative; [] for a missing folder
+  const tree = (dir) =>
+    fs.existsSync(dir)
+      ? walk(dir)
+          .map((f) => [path.relative(dir, f), fs.readFileSync(f, "utf8")])
+          .sort()
+      : [];
+  const staged = (root, extra) => {
+    const r = spawnSync(
+      process.execPath,
+      [INSTALL, "--home", path.join(root, "home"), "--extensions", "yes"],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: emptyPath,
+          Path: emptyPath,
+          ...(darwin ? { HOME: root } : { APPDATA: root }),
+          ...extra,
+        },
+      },
+    );
+    return `${r.stdout}${r.stderr}`;
+  };
+  const writeFile = (file, text) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+  };
+
+  // T11: Nimbalyst open, then closed
+  const themeDist = path.join(REPO, "extensions", "ink-themes", "dist");
+  const hadDist = fs.existsSync(themeDist);
+  const root = path.join(tmp, "staged-open");
+  const data = nimbalystIn(root);
+  const live = path.join(data, "extensions", "inktheme");
+  const pending = path.join(data, "extensions-pending");
+  writeFile(path.join(live, "manifest.json"), "the installed ink");
+  writeFile(path.join(live, "dist", "theme.css"), "the installed css");
+  const before = tree(live);
+  const open = staged(root, {
+    SETUP_EXTENSIONS: "ink-themes",
+    SETUP_NIMBALYST_OPEN: "yes",
+  });
+  ok(
+    "T11 Nimbalyst open: the build waits in extensions-pending, the live folder is unchanged",
+    [
+      open.includes(
+        "extension waiting: ink-themes (goes in when Nimbalyst is closed)",
+      ),
+      open.includes("extension installed:"),
+      tree(live),
+      fs.existsSync(path.join(pending, "inktheme", "manifest.json")),
+      fs.existsSync(path.join(pending, ".part", "inktheme")),
+    ],
+    [true, false, before, true, false],
+  );
+  const closed = staged(root, {
+    SETUP_EXTENSIONS: "ink-themes",
+    SETUP_NIMBALYST_OPEN: "no",
+  });
+  ok(
+    "T11 Nimbalyst closed: the next run swaps the waiting build in without building again",
+    [
+      closed.includes("extension installed: ink-themes"),
+      closed.includes("extension waiting:"),
+      closed.includes("extension unchanged:"),
+      fs.readFileSync(path.join(live, "manifest.json"), "utf8") ===
+        fs.readFileSync(
+          path.join(REPO, "extensions", "ink-themes", "manifest.json"),
+          "utf8",
+        ),
+      fs.existsSync(path.join(pending, "inktheme")),
+    ],
+    [true, false, false, true, false],
+  );
+  ok(
+    "T11 the run after it leaves the extension alone",
+    staged(root, {
+      SETUP_EXTENSIONS: "ink-themes",
+      SETUP_NIMBALYST_OPEN: "no",
+    }).includes("extension unchanged: ink-themes"),
+  );
+  if (!hadDist) fs.rmSync(themeDist, { recursive: true, force: true });
+
+  // T3 (installer part): a broken extension source. A copy of board-tidy without pick.mjs, so its --install step
+  // fails after it has written into the side folder
+  const sources = path.join(tmp, "broken-sources");
+  for (const name of ["board-tidy", "shared"])
+    fs.cpSync(path.join(REPO, "extensions", name), path.join(sources, name), {
+      recursive: true,
+      filter: (f) => !/[\\/](node_modules|dist)$/.test(f),
+    });
+  fs.rmSync(path.join(sources, "board-tidy", "pick.mjs"));
+  const brokenRoot = path.join(tmp, "staged-broken");
+  const brokenLive = path.join(
+    nimbalystIn(brokenRoot),
+    "extensions",
+    "boardtidy",
+  );
+  const brokenPending = path.join(
+    nimbalystIn(brokenRoot),
+    "extensions-pending",
+  );
+  writeFile(path.join(brokenLive, "manifest.json"), "the installed tidy");
+  writeFile(path.join(brokenLive, "pick.mjs"), "the installed pick");
+  const brokenBefore = tree(brokenLive);
+  const broken = staged(brokenRoot, {
+    SETUP_EXT_SOURCES: sources,
+    SETUP_EXTENSIONS: "board-tidy",
+    SETUP_NIMBALYST_OPEN: "no",
+  });
+  const brokenState = path.join(
+    brokenRoot,
+    "home",
+    ".claude",
+    "setup-state.json",
+  );
+  ok(
+    "T3 a broken extension: named as failed, the live folder is byte-identical, nothing is pending",
+    [
+      broken.includes("extension failed: board-tidy"),
+      broken.includes("extension installed:"),
+      tree(brokenLive),
+      fs.existsSync(brokenPending)
+        ? fs.readdirSync(brokenPending).filter((f) => f !== ".part")
+        : [],
+      tree(path.join(brokenPending, ".part")),
+      fs.existsSync(brokenState) &&
+        "board-tidy" in (json(brokenState).extensions || {}),
+    ],
+    [true, false, brokenBefore, [], [], false],
+  );
 }
 
 // ---- Claude Code's own settings: a model when none is set, the permission rules, and a set model stays

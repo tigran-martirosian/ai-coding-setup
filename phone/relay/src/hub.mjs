@@ -7,7 +7,7 @@
 // createHub(env) takes, all required:
 //   store      get(key), put(key, value), delete(key), list(prefix) -> [[key, value], ...]; sync or async
 //   sockets    accept(ws), all() -> open sockets, attachment(ws), setAttachment(ws, value), send(ws, text),
-//              close(ws, code, reason)
+//              close(ws, code, reason), lastPing(ws) -> Date of the last ping answered on it, or null
 //   telegram   async (method, params) -> result of the Bot API call
 //   download   async (filePath) -> bytes of a Telegram file (only the bot uses it)
 //   now        () -> milliseconds since 1970
@@ -29,6 +29,11 @@ export const PING = '{"t":"ping"}';
 export const PONG = '{"t":"pong"}';
 
 const MINUTE = 60_000;
+// Dead links (steady design, sections 2 and 3): a socket's first frame may say `ping: 20`; any other socket is taken
+// to ping every 60 s, as a PC before 26.3.2 does. Silent for 2 pings and 10 s more, it is closed.
+const PING_FAST = 20;
+const PING_SLOW = 60;
+const DEAD_GRACE = 10_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const UNPAIRED_LIFE = 15 * MINUTE;
@@ -68,8 +73,9 @@ const KINDS = {
   other: "Another device",
 };
 
-// Close codes. 4401, 4408 and 4409 are the design's; the others are this file's.
+// Close codes. 4401, 4408 and 4409 are the design's, 4001 the steady design's; the others are this file's.
 const CLOSE = {
+  dead: 4001,
   auth: 4401,
   timeout: 4408,
   exists: 4409,
@@ -98,6 +104,8 @@ export function createHub(env) {
   }
   if (env.bot === undefined)
     throw new Error("hub: bot must be given, as null until it is built");
+  if (typeof env.sockets.lastPing !== "function")
+    throw new Error("hub: sockets.lastPing(ws) is missing");
   for (const name of ["botId", "ownerTgId"]) {
     if (!Number.isSafeInteger(env[name]) || env[name] <= 0)
       throw new Error(`hub: ${name} must be a positive whole number`);
@@ -138,6 +146,27 @@ export function createHub(env) {
   }
   function closeWhere(match, code, reason) {
     for (const ws of live()) if (match(att(ws))) shut(ws, code, reason);
+  }
+
+  // Closes every socket silent too long (steady design, section 3). The time is the last ping the relay answered;
+  // a PC that never pinged counts from its open, a phone that never pinged is kept (a page before 26.3.2 never
+  // pings). webSocketClose never runs for a peer that is gone, so a dead PC's lastSeen is its last ping.
+  async function dropDead() {
+    const t = now();
+    for (const ws of live()) {
+      const a = att(ws);
+      const pinged = sockets.lastPing(ws);
+      if (!pinged && a.role !== "pc") continue;
+      const last = pinged ? pinged.getTime() : a.openedAt;
+      if (t - last <= 2 * a.ping * 1000 + DEAD_GRACE) continue;
+      shut(ws, CLOSE.dead, "dead-link");
+      log(`${a.role || "socket"} closed: dead-link`);
+      if (a.role !== "pc") continue;
+      const pc = await store.get(`pc:${a.pcId}`);
+      if (!pc) continue;
+      pc.lastSeen = last;
+      await store.put(`pc:${a.pcId}`, pc);
+    }
   }
 
   // ---- the daily count (section 9) ----
@@ -261,9 +290,12 @@ export function createHub(env) {
       origin,
       role: null,
       msgs: 0,
+      openedAt: now(),
+      ping: PING_SLOW,
     });
     const day = await count("requests");
     await sweep();
+    await dropDead();
     if (day.requests >= DAY_SOFT_LIMIT) {
       reply(ws, { t: "limit", resetAt: nextMidnight() });
       shut(ws, CLOSE.limit, "limit");
@@ -289,6 +321,7 @@ export function createHub(env) {
     }
     if (f.v !== PROTOCOL) return fail(ws, "protocol");
     if (!a.role) {
+      a.ping = f.ping === PING_FAST ? PING_FAST : PING_SLOW;
       if (f.t === "auth") return phoneAuth(ws, a, f);
       if (f.t === "pc-auth") return pcAuth(ws, a, f);
       if (f.t === "pc-join") return pcJoin(ws, a, f);
@@ -340,6 +373,7 @@ export function createHub(env) {
   }
 
   async function pcAuth(ws, a, f) {
+    await dropDead();
     const pc = PC_ID.test(f.pcId) ? await store.get(`pc:${f.pcId}`) : null;
     const token = keyBytes(f.token);
     if (!pc || !token || !sameText(await sha256Hex(token), pc.tokenHash)) {
@@ -360,6 +394,12 @@ export function createHub(env) {
       alerts: null,
     });
     reply(ws, { t: "pc-auth", ok: true, botId, paired: pc.tgId !== null });
+    // A page waiting on "PC off" says hello at once (steady design, section 1).
+    if (pc.tgId !== null) {
+      for (const p of live())
+        if (att(p).role === "phone" && att(p).tgId === pc.tgId)
+          reply(p, { t: "pc-online" });
+    }
     if (bot) await bot.pcConnected(f.pcId);
   }
 
@@ -636,6 +676,7 @@ export function createHub(env) {
   // ---- the app channel (sections 3, 4, 9): the Hub fixes the route; the frame goes on as it came ----
 
   async function phoneApp(ws, a, f, text) {
+    await dropDead();
     if (!isAppFrame(f)) return fail(ws, "bad-frame");
     const user = await store.get(`user:${a.tgId}`);
     if (!user) return shut(ws, CLOSE.auth, "not-invited");
@@ -723,9 +764,10 @@ export function createHub(env) {
 
   // ---- a socket gone; the bot's webhook ----
 
+  // A socket the Hub closed itself keeps the lastSeen it set (a dead link's is its last ping, not now).
   async function closed(ws) {
     const a = att(ws);
-    if (!a || a.role !== "pc") return;
+    if (!a || a.role !== "pc" || a.closed) return;
     const pc = await store.get(`pc:${a.pcId}`);
     if (!pc) return;
     pc.lastSeen = now();

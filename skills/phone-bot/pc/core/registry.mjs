@@ -1,5 +1,5 @@
 // The action list. Each file in ../actions/ exports register(registry) and calls
-// registry.add({ name, input, run, readOnly }). The phone can ask for nothing else: any other name is
+// registry.add({ name, input, run }). The phone can ask for nothing else: any other name is
 // answered "not-offered". Inputs are checked here before `run` sees them.
 import fs from "node:fs";
 import path from "node:path";
@@ -55,7 +55,7 @@ export function createRegistry() {
   let source = "(code)";
 
   const registry = {
-    add({ name, input = {}, run, readOnly = false }) {
+    add({ name, input = {}, run }) {
       if (!NAME.test(name || ""))
         throw new Error(`${source}: action name "${name}" is not area.verb`);
       if (typeof run !== "function")
@@ -78,7 +78,7 @@ export function createRegistry() {
         throw new Error(
           `action "${name}" is registered by both ${had.source} and ${source}`,
         );
-      actions.set(name, { name, input, run, readOnly, source });
+      actions.set(name, { name, input, run, source });
     },
 
     names: () => [...actions.keys()].sort(),
@@ -110,10 +110,6 @@ export function createRegistry() {
       if (!action) {
         log("refused", `not-offered ${String(req.a).slice(0, 40)}`);
         return answer(false, { err: "not-offered" });
-      }
-      if (ctx.page !== "ok" && !action.readOnly) {
-        log("refused", `page-unverified ${action.name}`);
-        return answer(false, { err: "page-unverified" });
       }
       try {
         const d = checkInput(action.input, req.d);

@@ -4,12 +4,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { log } from "./log.mjs";
-import { testOverride } from "./mode.mjs";
 import { ActionError } from "./registry.mjs";
 
-const PC_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const WIN = process.platform === "win32";
 
 export class FileRefused extends Error {
@@ -59,9 +56,6 @@ export const NIMBALYST_MARKER = "ai-coding-setup-patched.json";
 export const updateCheckPath = () =>
   path.join(os.homedir(), ".claude", "update-check.json");
 
-export const pageHashesPath = () =>
-  testOverride("PHONE_PC_PAGE_HASHES") || path.join(PC_DIR, "page-hashes.json");
-
 // The two files of Nimbalyst's install that hold its version; none when the install folder has no name here.
 function nimbalystVersionFiles() {
   let res;
@@ -100,7 +94,6 @@ export function places() {
     { at: appDir(), file: false, write: true },
     { at: path.join(home, "phone-inbox"), file: false, write: true },
     { at: path.join(os.tmpdir(), "phone-app-voice"), file: false, write: true },
-    { at: pageHashesPath(), file: true, write: false },
     { at: updateCheckPath(), file: true, write: false },
     ...nimbalystVersionFiles(),
   ];

@@ -54,7 +54,7 @@ export function report(ctx, { noGitBash }) {
       }
     }
   const did = said.some((l) =>
-    /^(rules: |notes: )?(copied|replaced|wrote|brought up|hook added|hook repointed|hook replaced|hook matcher updated|linked|removed|extension installed|plugin installed|skill installed|model: set|MODEL CHANGED|model: sonnet is back|permissions: )/.test(
+    /^(rules: |notes: )?(copied|replaced|wrote|brought up|hook added|hook repointed|hook replaced|hook matcher updated|linked|removed|extension installed|extension waiting|plugin installed|skill installed|model: set|MODEL CHANGED|model: sonnet is back|permissions: )/.test(
       l,
     ),
   );

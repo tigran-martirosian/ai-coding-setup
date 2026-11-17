@@ -69,6 +69,15 @@ check(
 check("body asks for the alternatives", /other ways you weighed/.test(body));
 check("body asks for pushback", /push back/.test(body));
 check("body treats a steering brief as an opinion", /one opinion/.test(body));
+// 2026-11-16: a brief that named a part as fact locked the plan into keeping it; the planner starts from the plain way
+check(
+  "body: starts from the plain way, asks whether an existing part should go, and says what a removed part was for",
+  /## Start from the plain way/.test(body) &&
+    /How do ordinary products of this kind solve it\?/.test(body) &&
+    /Is an existing part the cause\?/.test(body) &&
+    /says what the part was for[^\n]*Needs-OK list/.test(body) &&
+    /\*\*The plain way\*\* \(how ordinary products solve this/.test(body),
+);
 check(
   "body: reads only the folder the brief names",
   /Read code only in those folders/.test(body),
@@ -107,7 +116,7 @@ check(
 );
 check(
   "body: says which folders and commits it read",
-  /\*\*Read:\*\* the folders and commits/.test(body),
+  /\*\*Read:\*\* one line: the folders and commits/.test(body),
 );
 check(
   "body: names what the review gate forces",
@@ -233,9 +242,74 @@ check(
   "body: self-check item 1 lists each decision quote with its row",
   /one line per decision quote with the row that carries it/.test(body),
 );
+// Two passes (docs/2026-11-16-pipeline-approach.md): the user OKs a one-page approach before any row is written
+const pass1 = body.split("### Pass 1")[1]?.split("### Pass 2")[0] || "";
+const pass2 = body.split("### Pass 2")[1]?.split("**A re-plan**")[0] || "";
+const needsOk1 =
+  pass1.split("2. **Needs the user's OK:**")[1]?.split("\n3. ")[0] || "";
+const approach1 =
+  pass1.split("3. **The approach:**")[1]?.split("\n4. ")[0] || "";
+check(
+  "pass 1: the approach page has four parts (For the user, Needs OK, the approach, a one-line Read), then stops for the user",
+  /\n1\. \*\*For the user\*\*[\s\S]*\n2\. \*\*Needs the user's OK:\*\*[\s\S]*\n3\. \*\*The approach:\*\*[\s\S]*\n4\. \*\*Read:\*\* one line:/.test(
+    pass1,
+  ) &&
+    !/\n5\. /.test(pass1) &&
+    /Stop after item 4\. The session shows the page to the user/.test(pass1),
+);
+check(
+  "pass 1: the approach holds the plain way and the involves list, the Needs-OK list holds the push back",
+  /\*\*The plain way\*\*/.test(approach1) &&
+    /\*\*What the request involves:\*\*/.test(approach1) &&
+    /Your push back goes here too/.test(needsOk1) &&
+    !/\*\*Push back:\*\*/.test(pass1),
+);
+check(
+  "pass 1 is asked for only by a new request; a fix round, a card's changes or a re-plan after the OK get pass 2",
+  /A new request asks for pass 1\./.test(body) &&
+    /Everything after the user's OK on your page asks for pass 2: the OK itself, a plan-review report to fix, a card's changes text, or a re-plan/.test(
+      body,
+    ) &&
+    !/any other asks for pass 1/.test(body),
+);
+check(
+  "pass 2: the user's answer comes in its brief and the rows follow it; the planner rewrites no saved page",
+  /The user's answer comes in this pass's brief, and the rows follow it/.test(
+    pass2,
+  ) && !/rewritten there in place/.test(body),
+);
+check(
+  "body: pass 1 reads only what the approach needs, pass 2 reads the rest",
+  /Pass 1 reads enough for the approach/.test(body) &&
+    /Pass 2 reads the rest/.test(body),
+);
+check(
+  "pass 1: the approach page holds no job-list rows (rows wait for the user's OK)",
+  pass1.length > 0 &&
+    /holds no job-list rows/.test(pass1) &&
+    !/\| Step \| Job \|/.test(pass1) &&
+    !/\*\*The job-list rows:\*\*/.test(pass1),
+);
+check(
+  "pass 2: the job list comes only after the user's OK, rows still carry Serves and Done when",
+  /### Pass 2: the job list, after the user's OK/.test(body) &&
+    /\| Step \| Job \| Decides \| Serves \|[^\n]*\| Done when \|/.test(pass2) &&
+    /the rows build the approach the user OK'd/.test(pass2),
+);
 const reviewer = fs.readFileSync(
   path.join(ROOT, "agents", "plan-reviewer.md"),
   "utf8",
+);
+check(
+  "plan-reviewer: finds the involves list in the approach part and the push back in the Needs-OK list, and reads the user's answer",
+  /the approach page the user OK'd, with the user's answer to it saved under it, and the job list/.test(
+    reviewer,
+  ) &&
+    /"What the request involves" list sits inside its approach part, and its push back sits in its Needs-OK list/.test(
+      reviewer,
+    ) &&
+    /the approach page's Needs-OK list already pushes back on/.test(reviewer) &&
+    !/"Push back" list/.test(reviewer),
 );
 // Intent-drift fix I2 (docs/2026-11-12-intent-drift-fix-plan.md): the user's purpose travels with each row
 check(
@@ -441,6 +515,31 @@ check(
     !/its top section plus a grep/.test(leadRef),
 );
 check(
+  "plain way: the plan-reviewer holds the plan against the goal, the brief guide keeps design questions with the planner",
+  /plainer way \(often by removing an existing part/.test(reviewer) &&
+    /Design questions stay with the planner/.test(leadRef) &&
+    /plain observations/.test(leadRef),
+);
+check(
+  "lead: planner lane runs approach page, the user's OK, job list, plan review, in that order",
+  /1\. \*\*The approach page\*\* \(pass 1, no rows\)[\s\S]*Wait for the user's OK\.\n2\. \*\*The job list\*\* \(pass 2\)[\s\S]*### One plan review/.test(
+    lead,
+  ) &&
+    /The job list \(pass 2\) is asked for only with the user's OK/.test(
+      leadRef,
+    ),
+);
+check(
+  "lead: saves the user's answer to the approach page, quoted, under the page, and gives it to the plan-reviewer",
+  /Save the user's answer, quoted, under the page in the plan file\./.test(
+    lead,
+  ) &&
+    /## Approach\r?\n<the planner's approach page, unchanged>\r?\n\r?\nThe user's answer \(<date>\):\r?\n> "<the user's words on the page, quoted>"\r?\n\r?\n## Plan/.test(
+      lead,
+    ) &&
+    /the user's answer to the approach page, quoted, the plan file/.test(lead),
+);
+check(
   "lead: sections keep their numbers",
   /## 3\. The job list and the briefs/.test(lead) && /## 6\. Finish/.test(lead),
 );
@@ -449,10 +548,34 @@ const rulesFile = ["CLAUDE.md", path.join("rules", "CLAUDE.md")]
   .map((f) => path.join(ROOT, f))
   .find((f) => fs.existsSync(f));
 check("the rules file exists", !!rulesFile);
+// Three lanes (docs/2026-11-16-pipeline-approach.md): each lane with its trigger, on the one lane line
+const laneLine =
+  (rulesFile ? fs.readFileSync(rulesFile, "utf8") : "")
+    .split(/\r?\n/)
+    .find((l) => l.includes("**Name the lane first**")) || "";
 check(
-  "the rules name the planner exception",
-  !!rulesFile &&
-    /`planner` agent first/.test(fs.readFileSync(rulesFile, "utf8")),
+  "the rules must route a clear cause in a few files to the fix lane, built here with its test",
+  /\*\*Fix\*\* \(clear cause, a few files\): built here with its test\./.test(
+    laneLine,
+  ),
+);
+check(
+  "the rules must route new behaviour, an unclear cause or a design call to the talk lane, built here after a one-page approach the user OKs",
+  /\*\*Talk\*\* \(new behaviour in a system, unclear cause, a design call\): a one-page approach OK'd in chat, then built here\./.test(
+    laneLine,
+  ),
+);
+check(
+  "the rules must route many parts, a new app or system or a big release to the planner lane and the `planner`",
+  /\*\*Planner\*\* \(many parts, a new app or system, a big release\):[^\n]*then the `planner`/.test(
+    laneLine,
+  ),
+);
+check(
+  "the rules must show the user the planner's approach page, then its job list, and start no helper before both OKs",
+  /its approach page, Needs-OK list and where you differ go to the user, then its job list; no helper starts before both OKs/.test(
+    laneLine,
+  ),
 );
 
 console.log(`${pass} passed, ${fail} failed`);

@@ -357,7 +357,7 @@ fs.writeFileSync(
 const ENDPOINT = path.join(NIM, "mcp-endpoint.json");
 const WORKSPACES = Object.entries(P).map(([name, p]) => ({ name, path: p }));
 const doorState = new Map(); // session -> { status, pendingPrompt, clearOnAnswer }
-const queues = new Map(); // session -> [{ id, prompt, createdAt }]
+const queues = new Map(); // session -> [{ id, prompt, createdAt, status? }] (status "pending" when not set)
 const madeOnCreate = new Map(); // project path -> how many sessions create_session leaves
 let qn = 0;
 const st = (id) => {
@@ -414,7 +414,7 @@ function handle(name, a, call) {
       // As Nimbalyst answers: a 300-character preview, the whole text only on includePromptText.
       const prompts = queueOf(a.sessionId).map((q) => ({
         id: q.id,
-        status: "pending",
+        status: q.status ?? "pending",
         createdAt: q.createdAt,
         promptPreview:
           q.prompt.length > 300 ? `${q.prompt.slice(0, 300)}...` : q.prompt,
@@ -1008,18 +1008,20 @@ try {
     title: "Idle",
     status: "idle",
   });
+  // A Note takes the desktop Note button's path (steer.mjs): a session that is not busy gets it as a normal message.
   const m4 = door.calls.length;
   const note = await ask("session.note", { session: idle, text: "for later" });
   const nSend = callsOf("send_prompt", m4);
   check(
-    'a Note uses messageKind "status" and starts no turn',
+    "a Note to a session that is not busy goes through steer.mjs and reaches it as a normal message, as the desktop Note button does",
     note.ok &&
-      note.d.held === true &&
+      note.d.started === true &&
       nSend.length === 1 &&
-      nSend[0].args.messageKind === "status" &&
-      st(idle).status === "idle",
+      nSend[0].args.messageKind === undefined &&
+      nSend[0].args.prompt.startsWith("for later\n\n"),
     show({ note, nSend }),
   );
+  st(idle).status = "idle";
   const m5 = door.calls.length;
   const send = await ask("session.send", { session: idle, text: "go on" });
   check(
@@ -1044,6 +1046,56 @@ try {
     title: "Works, no queue",
     status: "running",
   });
+  // A session mid-turn as steer.mjs sees it: Nimbalyst says running and its transcript ends in a tool call.
+  const NOTE_T = "77777777-2222-4333-8444-555555555555";
+  const working = addSession({
+    workspace_id: P.beta,
+    title: "Works, takes notes",
+    status: "running",
+    provider_session_id: NOTE_T,
+  });
+  fs.writeFileSync(
+    path.join(talkDir, `${NOTE_T}.jsonl`),
+    `${[
+      {
+        type: "user",
+        timestamp: new Date().toISOString(),
+        message: { content: "fix the build" },
+      },
+      {
+        type: "assistant",
+        timestamp: new Date().toISOString(),
+        message: {
+          content: [
+            { type: "tool_use", id: "t1", name: "Bash", input: { command: "npm test" } },
+          ],
+        },
+      },
+    ]
+      .map((l) => JSON.stringify(l))
+      .join("\n")}\n`,
+  );
+  const mN = door.calls.length;
+  const busyNote = await ask("session.note", {
+    session: working,
+    text: "also check the logs",
+  });
+  const steerDir = path.join(home, ".claude", "steer");
+  const inboxes = fs.existsSync(steerDir)
+    ? fs
+        .readdirSync(steerDir)
+        .filter((n) => n.endsWith(".jsonl"))
+        .map((n) => fs.readFileSync(path.join(steerDir, n), "utf8"))
+        .join("")
+    : "";
+  check(
+    "a Note to a busy session goes into steer.mjs's inbox for that session, mid-turn as the desktop Note button's, with no send_prompt",
+    busyNote.ok &&
+      busyNote.d.held === true &&
+      callsOf("send_prompt", mN).length === 0 &&
+      inboxes.includes("also check the logs"),
+    show({ busyNote, inboxes, sends: callsOf("send_prompt", mN) }),
+  );
   const m6 = door.calls.length;
   const stop = await ask("session.stop", { session: busy });
   const stopSend = callsOf("send_prompt", m6);
@@ -1313,6 +1365,31 @@ try {
       longRm: longRm.d?.text?.slice(-40),
     }),
   );
+  // Nimbalyst also lists a message it already handed to the session (status executing): the phone must not.
+  queueOf(S.busyQueue).push(
+    {
+      id: "queued-sent",
+      prompt: "already sent",
+      createdAt: Date.now(),
+      status: "executing",
+    },
+    { id: "queued-wait", prompt: "still waiting", createdAt: Date.now() },
+  );
+  const sentList = await ask("queue.list", { session: S.busyQueue });
+  const sentRm = await ask("queue.remove", {
+    session: S.busyQueue,
+    queueId: "queued-sent",
+  });
+  check(
+    "a message already handed to the session must leave the phone queue: queue.list shows only the pending one and queue.remove of the executing one answers no-queued",
+    sentList.ok &&
+      sentList.d.length === 1 &&
+      sentList.d[0].queueId === "queued-wait" &&
+      sentRm.err === "no-queued" &&
+      queueOf(S.busyQueue).length === 2,
+    show({ sentList, sentRm }),
+  );
+  queueOf(S.busyQueue).length = 0;
   const note2Send = await ask("session.note", { session: idle, text: "y" });
   const lastNote = callsOf("send_prompt").pop();
   check(

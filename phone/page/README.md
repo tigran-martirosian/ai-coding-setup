@@ -21,14 +21,12 @@ The look follows `extensions/shared/DESIGN.md` (section "Phone app") and `extens
 
     node phone/page/build.mjs
 
-It writes the served page to `phone/page/dist/` (git ignores it) and the SHA-256 of every served file to
-`skills/phone-bot/pc/page-hashes.json`. The PC program trusts only a page whose files match that list, so run the
-build after any change to a page file and commit the new list with it. The build is byte-for-byte repeatable.
+It writes the served page to `phone/page/dist/` (git ignores it). The build is byte-for-byte repeatable.
 
     node phone/page/build.mjs --checks [--out <dir>]
 
 The test build for a check on a real phone: it adds the Checks screen (what this Telegram can do: microphone,
-recording formats, storage, crypto), opens it first, and writes no `page-hashes.json`, so a PC never trusts it.
+recording formats, storage, crypto), and opens it first.
 `--out` puts the page somewhere other than `dist/`.
 
 ## Local run
@@ -50,6 +48,32 @@ shows the pairing screen and goes no further. Two other ways go further:
   a fake PC (Nimbalyst open, Nimbalyst closed, PC off), and Settings at 390 px, dark and light. For Home and Settings
   it swaps in a fake Telegram host, a stored pairing and a channel that answers from fixed answers, in a temp build
   only.
+
+## The link
+
+`frame/channel.js` holds the socket and the sealed session; `frame/app.js` decides when to connect and what the
+screen says about the link.
+
+- The page pings every 20 seconds. If no pong comes within 10 seconds, it drops the socket and connects again.
+- A failed attempt waits a random time between 0.25 seconds and 2^n seconds, at most 30 seconds. A session that
+  stayed up 30 seconds starts the waits over.
+- The phone's `online` event and a page shown from the cache drop the old socket and open a new one at once: a
+  socket that may have died silently on the old network is not trusted. A hidden page closes its link, and it
+  connects again when it is shown.
+- When the relay answers that the PC has no link, the page keeps its socket and says hello again on it: every 3 to
+  7 seconds for the first 20 seconds, then every 10 to 20 seconds. It says the PC is off only after 20 seconds of
+  those answers.
+- When the PC authenticates again, the relay tells the page. The page ends its session and says hello again at once
+  on the same socket, so a restarted PC program (as after `/update-setup`) gets a session it knows.
+- For 2 seconds after a drop, the screen stays as it was. After that it shows that it is connecting. After
+  30 seconds without reaching the relay, it asks the user to check the phone's internet.
+- Two attempts in a row whose socket never opened reload the page, at most once in 5 minutes. This frees a web view
+  whose network is stuck after a wake.
+- An open page keeps working when the relay starts serving a newer page; the next open gets the new files.
+
+`tests/test-phone-steady.mjs` runs the real `app.js` and `channel.js` headless against the local relay, with a
+scaled clock. It checks the reconnects after drops, outages, half-open links, a network switch and restarts. It does
+not check the reload, the cache or sleep.
 
 ## Screens
 

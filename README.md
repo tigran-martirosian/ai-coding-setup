@@ -84,7 +84,7 @@ Each project gets a map of its parts and what connects to what, built in the bac
 - On Windows, Nimbalyst updates through the setup, which changes some of its app files to add fixes ([details and how to undo it](docs/features.md#updating-details)).
 - If you haven't picked a model, it sets Claude Opus at medium effort. The planner and both reviewers run Fable, a stronger Claude model, at high effort ([why](docs/features.md#install-details)).
 - If you haven't set how long to keep transcripts, it keeps them for 120 days.
-- Every 12 hours you might see a line saying there's a new version. Small fixes install themselves (`AUTO_UPDATE=off` stops that); anything bigger waits for `/update-setup`.
+- Every 12 hours you might see a line saying there's a new version. An update that asks you nothing installs itself in the background, and panel changes show the next time Nimbalyst starts; on a Mac they wait until you type `/update-setup` when the grey line asks (`AUTO_UPDATE=off` stops all that). Only one that needs your answer waits for `/update-setup`.
 
 ## Install and undo
 
@@ -149,10 +149,11 @@ Claude Code sends your work to Anthropic either way. On top of that, this setup 
 |---|---|---|---|
 | Your saved Claude sign-in, to read your plan percentages | api.anthropic.com | During a session, every 5 minutes; every 30 seconds once you pass 70% of a limit | `PLAN_USAGE_LOGGER=off` |
 | A request for the latest version number | GitHub | Every 12 hours; an hour after a failed try | `UPDATE_CHECK=off` |
-| A small release (hook, skill, agent or worker files), installed in the background; files you changed stay yours | GitHub | When one comes out | `AUTO_UPDATE=off` |
+| A release that asks you nothing, panel builds included, installed in the background; files you changed stay yours | GitHub | When one comes out | `AUTO_UPDATE=off` |
 | Your project's files, read by the systems map's background worker (a Claude helper, about 50 tool calls per build or refresh) | Anthropic, like any Claude work | In a project with 100+ code files: up to three tries a week apart, then at most a weekly refresh | `MAP_NUDGE=off` |
+| Package names, to fetch what a changed Nimbalyst panel is built from | The npm registry | When an update rebuilds a panel | `AUTO_UPDATE=off` for the background ones |
 | Project and package names, when the agent looks up a version | endoflife.date, GitHub, npm, PyPI, crates.io, Docker Hub, Maven Central, NuGet | When it checks a version | None |
-| Your sessions, sealed so the relay cannot read them (alert lines with a project name and session title pass unsealed) | Telegram and a relay on Cloudflare | Only if you add the phone app (`install.mjs --with phone-bot`) and join it | `node ~/.claude/skills/phone-bot/pc/setup.mjs remove` |
+| Your sessions, sealed so the relay cannot read them (alert lines with a project name and session title pass unsealed; the relay also serves the page, so its owner is trusted) | Telegram and a relay on Cloudflare | Only if you add the phone app (`install.mjs --with phone-bot`) and join it | `node ~/.claude/skills/phone-bot/pc/setup.mjs remove` |
 | Your Claude folder and picked project folders, encrypted with a password only you have | Your own Backblaze B2 storage | Only if you set up `/backup`: when you ask, or daily or weekly | `/backup off` stops the schedule |
 
 The installer also adds rules that stop Claude Code from reading saved sign-ins for Claude, Codex and Gemini, or your SSH keys, through its own tools, and makes it ask before opening a `.env` file. A script that reaches a file without naming it won't be stopped.
@@ -174,9 +175,9 @@ Starter projects, the planner, helpers, reviewers, a stuck advisor, web pages an
 node tests/run-all.mjs
 ```
 
-Each hook runs as its own process on made-up session logs, the installer runs twice on an empty home folder, and `scripts/privacy-check.mjs` scans the repo for home folder paths, email addresses and API keys. GitHub Actions runs all of it on Windows and macOS for every change to `main`, along with a lint, a type check of the four TypeScript extensions and the privacy scan.
+Each hook runs as its own process on made-up session logs, the installer runs twice on an empty home folder, and `scripts/privacy-check.mjs` scans the repo for home folder paths, email addresses and API keys. GitHub Actions runs all of it on Windows and macOS on every pull request to `main`, along with a lint, a type check of the four TypeScript extensions and the privacy scan.
 
-`--only a,b`, `--failed` and `--verbose` are explained at the top of `tests/run-all.mjs`.
+`--only a,b`, `--failed`, `--changed` and `--verbose` are explained at the top of `tests/run-all.mjs`.
 
 ## Problems and contributing
 

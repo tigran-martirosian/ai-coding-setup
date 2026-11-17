@@ -1,13 +1,16 @@
-// Runs every test file in this folder. Run: node tests/run-all.mjs [--only a,b] [--failed] [--verbose]
+// Runs every test file in this folder. Run: node tests/run-all.mjs [--only a,b] [--failed] [--changed [ref]] [--verbose]
 // Each file runs with an empty home folder, as on GitHub's runners: a test that leans on files installed in
 // ~/.claude passes on a set-up computer and fails there, so it fails here too.
-// Files run side by side, half as many at once as the computer has cores (at least 2, at most 8): each test file
-// starts hooks of its own, so a file uses more than one core at its peak, and timing checks in some tests fail when
-// every core is busy. The slowest files of the last run start first. A green file prints one line, a failed file its
+// Files run side by side, one fewer at once than the computer has cores (at least 2, at most 8): each test file
+// starts hooks of its own, and timing checks in some tests fail when every core is busy (a GitHub Windows runner,
+// 4 cores: 4 at once failed a 1-second check, 3 at once passed and took 344 s against 471 s at 2). The slowest files of the last run start first. A green file prints one line, a failed file its
 // earlier failure lines and its last 20 lines. --only a,b runs only those files; --failed reruns the files that
 // failed in the last run (the list is kept in the OS temp folder, one file per repo folder; a run of some files
-// updates only their entries); --verbose runs one file at a time with its full output, as GitHub CI does.
-import { spawn } from "node:child_process";
+// updates only their entries); --verbose runs one file at a time with its full output (GitHub CI reruns failed files so).
+// --changed [ref] runs the test files git sees changed since ref (default HEAD: uncommitted and new files) and the
+// test files whose text names a changed file (by its file name); the full suite when none match or this runner
+// changed. For a session's end-of-work run; CI runs the full suite.
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -25,17 +28,28 @@ const dir = fileURLToPath(new URL(".", import.meta.url));
 const args = process.argv.slice(2);
 const verbose = args.includes("--verbose");
 const onlyAt = args.indexOf("--only");
+const changedAt = args.indexOf("--changed");
+const changedRef =
+  changedAt >= 0 && args[changedAt + 1] && !args[changedAt + 1].startsWith("--")
+    ? args[changedAt + 1]
+    : changedAt >= 0
+      ? "HEAD"
+      : null;
 const unknown = args.filter(
   (a, i) =>
-    !["--verbose", "--failed", "--only"].includes(a) &&
-    !(onlyAt >= 0 && i === onlyAt + 1),
+    !["--verbose", "--failed", "--only", "--changed"].includes(a) &&
+    !(onlyAt >= 0 && i === onlyAt + 1) &&
+    !(changedAt >= 0 && i === changedAt + 1 && a === changedRef),
 );
-if (unknown.length || (onlyAt >= 0 && !args[onlyAt + 1])) {
+const picks = [onlyAt >= 0, args.includes("--failed"), changedAt >= 0].filter(
+  Boolean,
+).length;
+if (unknown.length || (onlyAt >= 0 && !args[onlyAt + 1]) || picks > 1) {
   console.error(
-    `${unknown.length ? `unknown argument: ${unknown.join(" ")}` : "--only needs a list of files"}; valid flags: --only a,b  --failed  --verbose`,
+    `${unknown.length ? `unknown argument: ${unknown.join(" ")}` : picks > 1 ? "--only, --failed and --changed go one at a time" : "--only needs a list of files"}; valid flags: --only a,b  --failed  --changed [ref]  --verbose`,
   );
   console.error(
-    "usage: node tests/run-all.mjs [--only a,b] [--failed] [--verbose]",
+    "usage: node tests/run-all.mjs [--only a,b] [--failed] [--changed [ref]] [--verbose]",
   );
   process.exit(2);
 }
@@ -83,6 +97,43 @@ if (args.includes("--failed")) {
     process.exit(0);
   }
 }
+let changedPick = false;
+if (changedRef) {
+  const git = (a) => {
+    const r = spawnSync("git", ["-C", dir, ...a], { encoding: "utf8" });
+    if (r.status !== 0)
+      throw new Error(
+        `--changed: git ${a.join(" ")} failed: ${(r.stderr || r.error?.message || "").trim()}`,
+      );
+    return r.stdout.split("\n").filter(Boolean);
+  };
+  const root = git(["rev-parse", "--show-toplevel"])[0];
+  const changed = [
+    ...git(["diff", "--name-only", changedRef, "--", root]),
+    ...git(["ls-files", "--others", "--exclude-standard", "--full-name", root]),
+  ];
+  const names = [...new Set(changed.map((p) => p.split("/").pop()))];
+  const picked = changed.includes("tests/run-all.mjs")
+    ? []
+    : files.filter((n) => {
+        if (names.includes(n)) return true;
+        const text = readFileSync(join(dir, n), "utf8");
+        return names.some((c) => text.includes(c));
+      });
+  console.log(
+    !changed.length
+      ? `--changed: nothing changed since ${changedRef}; the full suite`
+      : changed.includes("tests/run-all.mjs")
+        ? "--changed: the runner itself changed; the full suite"
+        : picked.length
+          ? `--changed: ${changed.length} changed file(s) since ${changedRef}; ${picked.length} test file(s) cover them`
+          : `--changed: no test file names the ${changed.length} changed file(s); the full suite`,
+  );
+  if (picked.length) {
+    files = picked;
+    changedPick = true;
+  }
+}
 
 function envFor(home) {
   const env = {
@@ -126,11 +177,7 @@ const queue = verbose
   : [...files].sort((a, b) => (known[b] ?? 1e9) - (known[a] ?? 1e9)); // unknown files count as slow
 const width = verbose
   ? 1
-  : Math.min(
-      files.length,
-      8,
-      Math.max(2, Math.floor(availableParallelism() / 2)),
-    );
+  : Math.min(files.length, 8, Math.max(2, availableParallelism() - 1));
 const results = {};
 const started = Date.now();
 async function worker() {
@@ -172,8 +219,8 @@ await Promise.all(Array.from({ length: width }, worker));
 const failed = files.filter((n) => !results[n].ok);
 const secs = { ...known };
 for (const n of files) secs[n] = Math.round(results[n].secs * 10) / 10;
-// A run of some files (--only, --failed) updates only those files' entries in the failed list.
-const partial = onlyAt >= 0 || args.includes("--failed");
+// A run of some files (--only, --failed, --changed) updates only those files' entries in the failed list.
+const partial = onlyAt >= 0 || args.includes("--failed") || changedPick;
 const failedAll = partial
   ? [...(state?.failed ?? []).filter((n) => !files.includes(n)), ...failed]
   : failed;

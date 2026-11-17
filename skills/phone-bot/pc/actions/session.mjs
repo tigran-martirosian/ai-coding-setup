@@ -1,11 +1,14 @@
 // One session (actions 9, 10, 13, 16, 17 and 23 of the PC program design): its conversation, sending, a Note,
 // a new session and Stop.
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { knownSession, sessionsCreatedSince } from "../core/db.mjs";
 import {
   createSession,
   hasTool,
   listQueued,
   PROJECT_INPUT,
+  phoneNote,
   projectByHandle,
   recentSessionIds,
   SESSION_INPUT,
@@ -21,6 +24,10 @@ import { readTurns, transcriptPath } from "../core/transcripts.mjs";
 import { sessionOpened } from "./alerts.mjs";
 import { ATTACHMENTS_INPUT, sendWithAttachments } from "./attach.mjs";
 
+// The note sender the desktop Note button runs, beside this skill (skills/steer in the repo and in ~/.claude).
+const STEER = fileURLToPath(
+  new URL("../../../steer/steer.mjs", import.meta.url),
+);
 const TURNS = 50;
 // One answer stays within one stream piece (pipe design, section 4); older turns are left to session.older.
 const MAX_ANSWER = 192 * 1024;
@@ -139,12 +146,34 @@ export function register(registry) {
   registry.add({
     name: "session.note",
     input: { session: SESSION_INPUT, text: TEXT_INPUT },
+    // The same path as the desktop Note button: steer.mjs puts the note where the busy session reads it before
+    // its next step. A session that is not busy (steer's exit 3) gets it as a normal message, which starts it.
     run: async (d) => {
       const { project } = knownSession(d.session);
-      await sendPrompt(project.path, d.session, d.text, {
-        messageKind: "status",
+      const r = spawnSync(
+        process.execPath,
+        [STEER, "send", "--to", d.session, "-", "--nowait"],
+        {
+          input: `${d.text}\n\n${await phoneNote()}`,
+          encoding: "utf8",
+          timeout: 30000,
+          windowsHide: true,
+        },
+      );
+      if (r.status === 0) return { held: true };
+      if (r.status === 3) {
+        const s = await sendPrompt(project.path, d.session, d.text);
+        return { started: s.processingTriggered === true };
+      }
+      const why =
+        `${r.stdout || ""}${r.stderr || ""}${r.error ? r.error.message : ""}`
+          .trim()
+          .replace(/\s+/g, " ")
+          .replace(/^NOT SENT:?\s*/i, "")
+          .slice(0, 240);
+      throw new ActionError("note-failed", {
+        why: why || `steer.mjs exited with ${r.status}`,
       });
-      return { held: true };
     },
   });
 

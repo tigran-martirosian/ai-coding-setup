@@ -52,9 +52,8 @@ check(
     fs.existsSync(path.join(here, manifest.styles)),
 );
 
-const { STRINGS } = await import(
-  pathToFileURL(path.join(here, "src", "index.js")).href
-);
+const { STRINGS, closeStep, archiveOldJobs, failure, readSessions } =
+  await import(pathToFileURL(path.join(here, "src", "index.js")).href);
 const {
   releaseSteps,
   categoryOf,
@@ -62,6 +61,7 @@ const {
   foldsOf,
   pickerJobs,
   notInJob,
+  oldClosedJobs,
   workingItemIds,
 } = await import(pathToFileURL(path.join(here, "src", "model.js")).href);
 const { pageView } = await import(
@@ -110,22 +110,24 @@ check(
     view.progress.updated === "Updated 17:40",
 );
 check(
-  "bar: parts done 17, needs 3, running 2, to do 5 (the model's counts)",
-  partsOf(view) === "done 17, needs 3, running 2, todo 5",
+  "bar: parts done 17, needs 1, running 2, to do 7 (the model's counts)",
+  partsOf(view) === "done 17, needs 1, running 2, todo 7" ||
+    console.log(partsOf(view)),
 );
 {
   const c = pickerJobs(items, fxWorking).open[0].counts;
   check(
     "bar: each part's count and hover come from the model's counts",
-    view.progress.parts.every((p) => p.n === c[p.part]) &&
+    (view.progress.parts.every((p) => p.n === c[p.part]) &&
       view.progress.parts.map((p) => p.tip).join(" | ") ===
-        "Done: 17 of 27 steps | Needs you: 3 steps | Running: 2 steps, a session works on each | To do: 5 steps for Claude",
+        "Done: 17 of 27 steps | Needs you: 1 step | Running: 2 steps, a session works on each | To do: 7 steps, 5 for Claude, 2 for you") ||
+      console.log(view.progress.parts.map((p) => p.tip).join(" | ")),
   );
 }
 check(
   "bar: a part at 0 is left out",
   partsOf(pageView(STRINGS, items, new Set(), null, at, "p")) ===
-    "done 17, needs 3, todo 7",
+    "done 17, needs 1, todo 9",
 );
 
 // A dropped step leaves the total, whether wont-do or duplicate; a step that is not dropped counts (the page's own
@@ -163,17 +165,17 @@ check(
 );
 
 // Needs you is the user's, never running, though the app files it under "started": with a session on each of the
-// four started steps, all four run and the three waits-for-you steps need you
+// four started steps, all four run; of the three waits-for-you steps, the one no open step comes before needs you
 const allRunning = new Set(["t-18", "t-19", "t-20", "t-21"]);
 check(
   "needs you: not running",
   countsOf(steps, allRunning).running === 4 &&
-    countsOf(steps, allRunning).needs === 3,
+    countsOf(steps, allRunning).needs === 1,
 );
 check(
   "needs you: a running step turned Needs you leaves running",
   countsOf(withStatus("t-21", "waits-for-you"), allRunning).running === 3 &&
-    countsOf(withStatus("t-21", "waits-for-you"), allRunning).needs === 4,
+    countsOf(withStatus("t-21", "waits-for-you"), allRunning).needs === 2,
 );
 check(
   "unknown status: a clear error that names the step",
@@ -191,7 +193,7 @@ check(
 check(
   "needs you: an in-review step counts for you, not running",
   countsOf(withStatus("t-20", "in-review"), allRunning).running === 3 &&
-    countsOf(withStatus("t-20", "in-review"), allRunning).needs === 4,
+    countsOf(withStatus("t-20", "in-review"), allRunning).needs === 2,
 );
 
 // The page's job rules (tracker one-page design, sections 1 and 2), on the fixture's made-up jobs: s-1 runs and
@@ -536,8 +538,9 @@ check(
 
 // The four folds (design 3.7): Needs you, Running, To do, Done, in that order, with foldsOf's counts. The fixture's
 // sessions as index.js reads them: s-1 runs on S18 and last edited a file, s-2 runs the tests on S19, s-3 is linked
-// to S20 but does not run, the finished s-4 is linked to the done S15
+// to S20 but does not run (it ended at 15:40), the finished s-4 is linked to the done S15
 const fxFolds = foldsOf(steps, fxWorking);
+const minutesAgo = (n) => +at - n * 60 * 1000;
 const fxSessions = new Map([
   [
     "t-18",
@@ -545,6 +548,8 @@ const fxSessions = new Map([
       id: "s-1",
       title: "",
       running: true,
+      waiting: false,
+      updatedAt: minutesAgo(5),
       call: { toolName: "Edit", arguments: {} },
     },
   ],
@@ -554,16 +559,35 @@ const fxSessions = new Map([
       id: "s-2",
       title: "",
       running: true,
+      waiting: false,
+      updatedAt: minutesAgo(5),
       call: {
         toolName: "Bash",
         arguments: { command: "npm test", description: "Run the tests" },
       },
     },
   ],
-  ["t-20", { id: "s-3", title: "", running: false, call: null }],
+  [
+    "t-20",
+    {
+      id: "s-3",
+      title: "",
+      running: false,
+      waiting: false,
+      updatedAt: minutesAgo(120),
+      call: null,
+    },
+  ],
   [
     "t-15",
-    { id: "s-4", title: "Pick the type sizes", running: false, call: null },
+    {
+      id: "s-4",
+      title: "Pick the type sizes",
+      running: false,
+      waiting: false,
+      updatedAt: minutesAgo(3 * 1440),
+      call: null,
+    },
   ],
 ]);
 const foldCtx = {
@@ -580,13 +604,13 @@ check(
   "folds: Needs you, Running, To do, Done in that order, each count foldsOf's",
   ORDER.join(",") === "needs,running,todo,done" &&
     fv.map((f) => `${f.word} ${f.count}`).join(" | ") ===
-      "Needs you 3 | Running 2 | To do 5 | Done 18" &&
+      "Needs you 1 | Running 2 | To do 7 | Done 18" &&
     fv.every((f) => f.count === fxFolds.folds[f.key].length),
 );
 check(
   "folds: the steps in each fold; Done newest first, the dropped step last",
   fv.map(foldIds).join(" / ") ===
-    "t-22,t-26,t-27 / t-18,t-19 / t-20,t-21,t-23,t-24,t-25 / " +
+    "t-27 / t-18,t-19 / t-20,t-21,t-22,t-23,t-24,t-25,t-26 / " +
       "t-17,t-16,t-15,t-14,t-13,t-12,t-11,t-10,t-09,t-08,t-07,t-06,t-05,t-04,t-03,t-02,t-01,t-28" ||
     console.log(fv.map(foldIds).join(" / ")),
 );
@@ -644,9 +668,14 @@ const said = (r) =>
   ].join(" | ");
 for (const [what, id, want] of [
   [
-    "Needs you, waiting on open steps",
+    "Needs you, ready for the user",
+    "t-27",
+    "dot | ready for you | Part 3 · builds | -",
+  ],
+  [
+    "the user's step that waits on open steps sits in To do, not Needs you: your turn after them",
     "t-22",
-    "dot | waits on S18, S19 | Part 2 · design | -",
+    "ring | your turn after The polish round on the two mock-ups; Restyle the account mock-up | Part 2 · design | -",
   ],
   [
     "running, its session editing",
@@ -659,16 +688,20 @@ for (const [what, id, want] of [
     "orb:solving | running a check | Part 2 · design | Open session s-2",
   ],
   [
-    "started, its session not running",
+    "started, its session not running: the session ended, with the time of its last change",
     "t-20",
-    "ring:half | started, no session on it | Part 2 · design | Open session s-3",
+    "ring:half | session ended 15:40, step not done | Part 2 · design | Open session s-3",
   ],
   [
     "started, no session",
     "t-21",
     "ring:half | started, no session on it | Part 2 · design | -",
   ],
-  ["to do, waiting", "t-23", "ring | waits on S22 | Part 3 · builds | -"],
+  [
+    "to do, waiting",
+    "t-23",
+    "ring | waits on Your OK on the restyled mock-ups | Part 3 · builds | -",
+  ],
   [
     "done, a finished session linked",
     "t-15",
@@ -680,6 +713,105 @@ for (const [what, id, want] of [
     `row ${what}: ${want}`,
     said(rowById(id)) === want || console.log(said(rowById(id))),
   );
+// The session's state on a row (close approach, Proofs, Session states; the user picked "Show what's real"): only
+// the states the app keeps a source for, in the agents panel's and the phone app's words
+{
+  const s1 = fxSessions.get("t-18");
+  // S18 as the model files it when its session waits on the user (the session is not in the running ids, index.js
+  // readSessions): in Needs you
+  const asking = foldsOf(steps, new Set(["t-18", "t-19"]), new Set(["t-18"]));
+  const rowOfId = (id) =>
+    asking.rows.find((r) => r.item.id === id && r.fold !== "running") ||
+    fxFolds.folds.running.find((r) => r.item.id === id);
+  const stated = (session) => {
+    const row = session.waiting ? rowOfId("t-18") : fxFolds.folds.running[0];
+    const v = rowView(STRINGS, row, { ...foldCtx, session });
+    return `${v.mark.orb} | ${v.wait} | ${v.waitTone}`;
+  };
+  const waits = { ...s1, running: false, waiting: true, call: null };
+  const cases = [
+    [
+      "a working session shows what it does and since when, in plain running words",
+      s1,
+      "composing | editing files · since 17:20 | running",
+    ],
+    [
+      'a session that waits on the user says "needs you" with the listening orb and since it began to wait, in the attention tone',
+      { ...waits, waitingSince: minutesAgo(3) },
+      "listening | needs you · since 17:37 | attention",
+    ],
+    [
+      'a waiting session whose start of waiting the app does not give says "needs you" with no "since"',
+      { ...waits, waitingSince: null },
+      "listening | needs you | attention",
+    ],
+    [
+      'a running session with no change for a day says "no change since" its day and hour',
+      { ...s1, updatedAt: +new Date(2026, 10, 11, 9, 10) },
+      "composing | no change since 11 Nov 09:10 | attention",
+    ],
+    [
+      "a running session quiet for less than a day still shows what it does",
+      { ...s1, updatedAt: minutesAgo(23 * 60) },
+      "composing | editing files · since 17:20 | running",
+    ],
+    [
+      "a session that waits on the user says so even with no change for a day",
+      {
+        ...waits,
+        waitingSince: minutesAgo(3),
+        updatedAt: minutesAgo(2 * 1440),
+      },
+      "listening | needs you · since 17:37 | attention",
+    ],
+  ];
+  check(
+    "session waits on you: the step moves to Needs you, out of Running, and counts there",
+    asking.folds.needs.map((r) => r.item.id).join(",") === "t-18,t-27" &&
+      !asking.folds.running.some((r) => r.item.id === "t-18") &&
+      asking.counts.needs === 2 &&
+      asking.counts.running === 1,
+  );
+  {
+    const v = rowView(STRINGS, rowOfId("t-18"), {
+      ...foldCtx,
+      session: { ...waits, waitingSince: minutesAgo(3) },
+    });
+    check(
+      "session waits on you: its action is Open session, not Mark done",
+      v.done === null && v.session && v.session.word === "Open session",
+    );
+  }
+  for (const [what, session, want] of cases)
+    check(
+      `session state: ${what}: ${want}`,
+      stated(session) === want || console.log(stated(session)),
+    );
+  check(
+    "session state: a started step's session that ended yesterday says its day and hour",
+    rowView(
+      STRINGS,
+      fxFolds.folds.todo.find((r) => r.item.id === "t-20"),
+      {
+        ...foldCtx,
+        session: {
+          ...fxSessions.get("t-20"),
+          updatedAt: +new Date(2026, 10, 12, 9, 10),
+        },
+      },
+    ).wait === "session ended 12 Nov 09:10, step not done",
+  );
+  // The app keeps no lasting record of a session's error: no row ever names one, whatever the session holds
+  const words = [
+    ...cases.map(([, session]) => stated({ ...session, status: "error" })),
+    ...fv.flatMap((f) => f.rows).map((r) => r.wait),
+  ];
+  check(
+    "session state: no row says a session failed or had an error",
+    !words.some((w) => /error|fail|stopped/i.test(w)) ||
+      console.log(words.filter((w) => /error|fail|stopped/i.test(w))),
+  );
+}
 check(
   "rows: a session link only on S18, S19, S20 and S15",
   fv
@@ -705,7 +837,7 @@ check(
   "rows: the Needs you row's ready words, and To do's ready when nothing is waited on",
   rowView(STRINGS, fxFolds.folds.needs[0], { ...foldCtx, open: [] }).wait ===
     "ready for you" &&
-    rowView(STRINGS, fxFolds.folds.todo[2], { ...foldCtx, open: [] }).wait ===
+    rowView(STRINGS, fxFolds.folds.todo[3], { ...foldCtx, open: [] }).wait ===
       "ready",
 );
 check(
@@ -756,11 +888,11 @@ const byLink = coded("w-8", "look W8", { dependsOn: [{ itemId: "w-45" }] });
 const liveOpen = openSteps([w4, w45, p5, byText, byLink]);
 check(
   "waits on: a spaced code in the text matches whole, a done step and a longer code do not",
-  waitsOn(byText, liveOpen).join("|") === "look W4",
+  waitsOn(byText, liveOpen).join("|") === "Step look W4",
 );
 check(
   "waits on: a dependsOn link to an open step counts",
-  waitsOn(byLink, liveOpen).join("|") === "look W45",
+  waitsOn(byLink, liveOpen).join("|") === "Step look W45",
 );
 check(
   "waits on: the row says it",
@@ -768,19 +900,337 @@ check(
     open: liveOpen,
     now: at,
     session: null,
-  }).wait === "waits on look W45",
+  }).wait === "waits on Step look W45",
+);
+check(
+  "waits on: the row names the waited-on step by its title, never its code",
+  rowView(STRINGS, foldsOf([w4, byText], new Set()).rows[1], {
+    open: liveOpen,
+    now: at,
+    session: null,
+  }).wait === "waits on Step look W4",
 );
 {
   const w7 = { ...byLink, status: "waits-for-you", id: "w-7" };
-  const needs = foldsOf([w4, w7, w45], new Set()).folds.needs;
+  const f = foldsOf([w4, w7, w45], new Set());
+  const row = f.folds.todo.find((r) => r.item.id === "w-7");
+  const v =
+    row &&
+    rowView(STRINGS, row, {
+      open: openSteps([w4, w7, w45]),
+      now: at,
+      session: null,
+    });
   check(
-    "waits on: a Needs you step linked to an open step waits on it, not ready for you",
-    needs.length === 1 &&
-      rowView(STRINGS, needs[0], {
-        open: openSteps([w4, w7, w45]),
-        now: at,
-        session: null,
-      }).wait === "waits on look W45",
+    "waits on: a step for the user linked to an open step is in To do, not Needs you, says your turn after it, and has no Mark done",
+    f.folds.needs.length === 0 &&
+      f.counts.forYou === 1 &&
+      v.wait === "your turn after Step look W45" &&
+      v.done === null,
+  );
+}
+
+// The Mark done button (close approach, point 1): the ready Needs you row and a started step whose session ended
+// have it; a click writes the step type's own done status through the app's tracker update, and the row moves to
+// Done; a failed write keeps the row and its words say so
+{
+  const t27 = steps.find((s) => s.id === "t-27");
+  const needsRow = (list) => foldsOf(list, fxWorking).folds.needs;
+  check(
+    "Mark done: the ready Needs you row and the started step whose session ended have one, no other row",
+    fv
+      .flatMap((f) => f.rows)
+      .filter((r) => r.done)
+      .map((r) => `${r.id} ${r.done.word}`)
+      .join(",") === "t-27 Mark done,t-20 Mark done" ||
+      console.log(fv.flatMap((f) => f.rows).filter((r) => r.done)),
+  );
+  const calls = [];
+  const writes = (answer) => ({
+    documentService: {
+      updateTrackerItem: async (arg) => {
+        calls.push(arg);
+        return answer();
+      },
+    },
+  });
+  const ok = await closeStep(
+    writes(() => ({ success: true, item: { ...t27, status: "done" } })),
+    () => steps,
+    "t-27",
+  );
+  const after = foldsOf(ok.items, fxWorking).folds;
+  check(
+    "Mark done: the click calls the tracker update with status done for that step only",
+    JSON.stringify(calls) ===
+      JSON.stringify([{ itemId: "t-27", updates: { status: "done" } }]),
+  );
+  check(
+    "Mark done: after the write the row leaves Needs you and is first in Done",
+    ok.error === null &&
+      !after.needs.some((r) => r.item.id === "t-27") &&
+      after.done[0].item.id === "t-27",
+  );
+  // A plan's done status is "completed" (tracker facts); "done" is not a plan status
+  calls.length = 0;
+  const plan = { ...t27, id: "p-1", type: "plan", status: "in-review" };
+  const planned = await closeStep(
+    writes(() => ({ success: true })),
+    () => [plan],
+    "p-1",
+  );
+  check(
+    'Mark done: a plan is written with its own done status "completed", and lands in Done',
+    JSON.stringify(calls) ===
+      JSON.stringify([{ itemId: "p-1", updates: { status: "completed" } }]) &&
+      planned.items[0].status === "completed" &&
+      foldsOf(planned.items, new Set()).folds.done.length === 1,
+  );
+  // A read that lands during the write is kept: closeStep builds on the items as they stand when the write answers
+  let current = steps;
+  const later = steps.map((s) =>
+    s.id === "t-23" ? { ...s, title: "New" } : s,
+  );
+  const raced = await closeStep(
+    writes(() => {
+      current = later;
+      return { success: false, error: "the database is locked" };
+    }),
+    () => current,
+    "t-27",
+  );
+  check(
+    "Mark done: a failed write keeps a read that landed meanwhile",
+    raced.items === later,
+  );
+  const no = await closeStep(
+    writes(() => ({ success: false, error: "the database is locked" })),
+    () => steps,
+    "t-27",
+  );
+  const thrown = await closeStep(
+    writes(() => {
+      throw new Error("the app did not answer");
+    }),
+    () => steps,
+    "t-27",
+  );
+  check(
+    "Mark done: a failed write (an error answer or a thrown call) keeps the row in Needs you",
+    no.items === steps &&
+      thrown.items === steps &&
+      needsRow(no.items).some((r) => r.item.id === "t-27") &&
+      thrown.error === "the app did not answer",
+  );
+  const objectError = await closeStep(
+    writes(() => ({
+      success: false,
+      error: { code: "SQLITE_BUSY", message: "the file is busy" },
+    })),
+    () => steps,
+    "t-27",
+  );
+  check(
+    'Mark done: an error answer that is an object gives its message, not "[object Object]"',
+    objectError.error === "the file is busy" &&
+      failure({ error: new Error("disk full") }) === "disk full",
+  );
+  const row = rowView(
+    STRINGS,
+    needsRow(no.items).find((r) => r.item.id === "t-27"),
+    { ...foldCtx, failed: new Map([["t-27", no.error]]) },
+  );
+  check(
+    "Mark done: after a failed write the row says the tracker did not save it, and why",
+    row.wait ===
+      "Not marked done: the tracker did not save it (the database is locked)" &&
+      row.waitTone === "failed",
+  );
+}
+
+// Finished jobs leave the picker (close approach, point 2): a job released or cancelled 3 days ago is archived when
+// the page reads, through the app's archive call; a newer one stays; a job the app did not archive stays too
+{
+  const now = Date.parse("2026-11-16T12:00:00");
+  const ago = (days) => new Date(now - days * 864e5).toISOString();
+  const job = (id, status, updated, closed) => ({
+    id,
+    type: "release",
+    title: id,
+    status,
+    archived: false,
+    updated,
+    customFields: closed
+      ? {
+          activity: [
+            { action: "status_changed", newValue: status, timestamp: closed },
+          ],
+        }
+      : {},
+  });
+  const jobs = [
+    job("j-open", "in-progress", ago(10)),
+    // released 4 days ago, edited since: its release line counts, not its last change
+    job("j-old", "released", ago(1), ago(4)),
+    job("j-new", "released", ago(2), ago(2)),
+    job("j-gone", "cancelled", ago(5)),
+    job("j-locked", "released", ago(6)),
+  ];
+  const asked = [];
+  const r = await archiveOldJobs(
+    {
+      documentService: {
+        archiveTrackerItem: async (arg) => {
+          asked.push(arg);
+          return arg.itemId === "j-locked"
+            ? { success: false, error: "the database is locked" }
+            : { success: true };
+        },
+      },
+    },
+    jobs,
+    now,
+    new Set(),
+  );
+  const shown = pickerJobs(r.items, new Set());
+  const ids = [...shown.open, ...shown.finished].map((j) => j.job.id);
+  check(
+    "old jobs: the jobs released or cancelled 3 days ago are archived through the app, the newer one is not",
+    JSON.stringify(asked) ===
+      JSON.stringify([
+        { itemId: "j-old", archive: true },
+        { itemId: "j-gone", archive: true },
+        { itemId: "j-locked", archive: true },
+      ]),
+  );
+  check(
+    "old jobs: a job released over 3 days ago is not in the picker; one released 2 days ago still is",
+    !ids.includes("j-old") &&
+      !ids.includes("j-gone") &&
+      ids.includes("j-new") &&
+      ids.includes("j-open"),
+  );
+  check(
+    "old jobs: a job the app did not archive stays in the picker and is named with what failed",
+    ids.includes("j-locked") &&
+      JSON.stringify(r.failed) ===
+        JSON.stringify([{ id: "j-locked", error: "the database is locked" }]),
+  );
+  // The app stamps an activity line with Date.now(), a number: released 4 days ago by that line, edited yesterday
+  const stamped = job("j-ms", "released", ago(1), now - 4 * 864e5);
+  check(
+    "old jobs: a release line stamped in ms (as the app writes it) counts, not the job's last change",
+    oldClosedJobs([stamped], now).length === 1,
+  );
+  // An archived job's open steps stay in view under "Not in a job"; its done steps leave with it
+  const step = (id, status) => ({
+    id,
+    type: "task",
+    title: id,
+    status,
+    archived: false,
+    updated: ago(5),
+    customFields: { collection: [{ itemId: "j-old" }] },
+  });
+  const loose = notInJob([
+    { ...jobs[1], archived: true },
+    step("s-open", "to-do"),
+    step("s-done", "done"),
+  ]).map((i) => i.id);
+  check(
+    'old jobs: an archived job\'s open step shows under "Not in a job", its done step does not',
+    loose.join(",") === "s-open" || console.log(loose),
+  );
+}
+
+// The sessions as index.js reads them (close approach, Proofs, Session states): the app counts a session as running
+// only while its turn runs, so a Claude CLI session that waits on the user is not in the running ids; its own state
+// says "waiting_for_input", with lastActivity the time it began to wait
+{
+  const waitedAt = new Date(2026, 10, 13, 17, 31);
+  const fakeApp = {
+    invoke: async (channel) => {
+      if (channel === "sessions:list")
+        return {
+          success: true,
+          sessions: [
+            {
+              id: "s-w",
+              updatedAt: minutesAgo(9),
+              linkedTrackerItemIds: ["t-18"],
+            },
+            {
+              id: "s-r",
+              updatedAt: minutesAgo(1),
+              linkedTrackerItemIds: ["t-19"],
+            },
+            {
+              id: "s-e",
+              updatedAt: minutesAgo(120),
+              linkedTrackerItemIds: ["t-20"],
+            },
+          ],
+        };
+      if (channel === "transcript:get-tail-messages") return [];
+      throw new Error(`no channel ${channel}`);
+    },
+    sessionState: {
+      getRunningSessionIds: async () => ({
+        success: true,
+        sessionIds: ["s-r"],
+      }),
+      getSessionState: async (id) => ({
+        success: true,
+        state:
+          id === "s-w"
+            ? {
+                status: "waiting_for_input",
+                isStreaming: false,
+                lastActivity: waitedAt,
+              }
+            : id === "s-r"
+              ? {
+                  status: "running",
+                  isStreaming: true,
+                  lastActivity: new Date(),
+                }
+              : null,
+      }),
+    },
+  };
+  const got = await readSessions(fakeApp, steps, "/p");
+  const f = foldsOf(steps, got.working, got.waiting);
+  const fold = (id) => f.rows.find((r) => r.item.id === id).fold;
+  check(
+    "sessions: a session that waits on the user, not in the running ids, is found as waiting, with when it began to wait",
+    got.waiting.has("t-18") &&
+      got.working.has("t-18") &&
+      got.sessions.get("t-18").waiting === true &&
+      got.sessions.get("t-18").waitingSince === +waitedAt,
+  );
+  check(
+    'sessions: its step shows in Needs you as "needs you", never as "session ended"; a session that ended still says so',
+    fold("t-18") === "needs" &&
+      rowView(
+        STRINGS,
+        f.rows.find((r) => r.item.id === "t-18"),
+        {
+          ...foldCtx,
+          session: got.sessions.get("t-18"),
+        },
+      ).wait === "needs you · since 17:31" &&
+      fold("t-19") === "running" &&
+      fold("t-20") === "todo" &&
+      /^session ended/.test(
+        rowView(
+          STRINGS,
+          f.rows.find((r) => r.item.id === "t-20"),
+          {
+            ...foldCtx,
+            session: got.sessions.get("t-20"),
+          },
+        ).wait,
+      ),
   );
 }
 
@@ -1065,6 +1515,16 @@ async function pictures() {
         ...(v.picker.more ? ["more"] : []),
       ].join(",");
     const mainAll = pageView(STRINGS, items, fxWorking, "all", at, "p");
+    // The page archives the fixture's jobs released or cancelled 3 days before the real clock, so its picker leaves them out
+    const oldIds = new Set(oldClosedJobs(items, Date.now()).map((j) => j.id));
+    const archivedNow = pageView(
+      STRINGS,
+      items.map((i) => (oldIds.has(i.id) ? { ...i, archived: true } : i)),
+      fxWorking,
+      null,
+      at,
+      "fixture-project",
+    );
 
     for (const theme of ["ink-aurora", "ink-bone"]) {
       for (const [width, height, title] of [
@@ -1200,7 +1660,8 @@ async function pictures() {
         );
         check(
           `${name}: the bar's parts in order with the model's counts and hover words, each as wide as its share`,
-          m.parts === partsLine(view) && m.shares,
+          (m.parts === partsLine(view) && m.shares) ||
+            console.log(`${m.parts}\n${partsLine(view)}\n${m.shares}`),
         );
         check(
           `${name}: the folds start under the bar; the app's own list hidden`,
@@ -1236,9 +1697,10 @@ async function pictures() {
           f.oneLine && f.titleFonts === "500,400",
         );
         check(
-          `${name}: S20 and S21 in To do, half-filled rings, "started …, no session on it"`,
-          f.started ===
-            "todo half started, no session on it|todo half started, no session on it",
+          `${name}: S20 and S21 in To do, half-filled rings; S20's session ended two hours ago and says so with its time, S21 has no session`,
+          /^todo half session ended (\d\d:\d\d|\d{1,2} \w{3} \d\d:\d\d), step not done\|todo half started, no session on it$/.test(
+            f.started,
+          ) || console.log(f.started),
         );
         check(
           `${name}: session links on S18, S19 and S20 while Done is closed; the running orbs from the last tools`,
@@ -1277,8 +1739,8 @@ async function pictures() {
           pk.expanded === "true" && pk.under,
         );
         check(
-          `${theme}-picker: All open first, the open jobs, Not in a job, then Finished below, top to bottom`,
-          pk.order === pickerOrder(view) && pk.topDown,
+          `${theme}-picker: All open first, the open jobs, Not in a job, then Finished below, top to bottom; the jobs released or cancelled 3 days ago left out`,
+          pk.order === pickerOrder(archivedNow) && pk.topDown,
         );
         // All open from the picker; then the job back through the picker
         await click('.rt-picker [data-pick="all"]');
@@ -1468,6 +1930,38 @@ async function pictures() {
           `${name}: a step added later lands in To do, its count one up`,
           added === `todo ${fv[2].count + 1}`,
         );
+        // The Mark done button through the page (index.js markDone): a failed save keeps the row and says why; a
+        // save that goes through moves the row to Done
+        const doneState = `(() => { const r = document.querySelector('.rt-row[data-step="t-27"]');
+          return r && r.closest(".rt-fold").dataset.fold + " | " + r.querySelector(".rt-wait").textContent; })()`;
+        await page.send("Runtime.evaluate", {
+          expression: "window.fxFailWrites = true",
+        });
+        await click('.rt-row[data-step="t-27"] .rt-done-button');
+        const kept = await waitFor(
+          page,
+          `(() => { const s = ${doneState}; return s && s.includes("Not marked") && s; })()`,
+          "the failed Mark done",
+        );
+        check(
+          `${name}: Mark done with a failed save keeps the row in Needs you and says the tracker did not save it`,
+          kept ===
+            "needs | Not marked done: the tracker did not save it (the database is locked)" ||
+            console.log(kept),
+        );
+        await page.send("Runtime.evaluate", {
+          expression: "window.fxFailWrites = false",
+        });
+        await click('.rt-row[data-step="t-27"] .rt-done-button');
+        const moved = await waitFor(
+          page,
+          `(() => { const s = ${doneState}; return s && s.startsWith("done") && s; })()`,
+          "the row in Done after Mark done",
+        );
+        check(
+          `${name}: Mark done with a save that goes through moves the row to Done`,
+          moved.startsWith("done | ") || console.log(moved),
+        );
       }
 
       // A name too long for one line at 1920 wraps to two; the picker opens under its second line, not over it
@@ -1512,12 +2006,24 @@ async function pictures() {
       const allFile = await shoot(`${theme}-all-open.png`);
       console.log(`${theme}-all-open: ${all.jobs} · ${all.needs} · ${allFile}`);
       noErrors(`${theme}-all-open`);
+      // As the page reads it: the cancelled Spring menu is archived, and its open step shows under Not in a job
+      const oldIds = new Set(
+        oldClosedJobs(jobItems, Date.now()).map((j) => j.id),
+      );
+      const pagedAll = pageView(
+        STRINGS,
+        jobItems.map((i) => (oldIds.has(i.id) ? { ...i, archived: true } : i)),
+        working,
+        "all",
+        at,
+        "p",
+      );
       check(
         `${theme}-all-open: one line per open job with its needs-you words, no bar, the list hidden`,
         all.name === allView.head.name &&
           all.meta.startsWith("3 open · as of ") &&
-          all.jobs === allView.jobs.map((j) => j.id).join(",") &&
-          all.needs === allView.jobs.map((j) => j.needs || "").join(",") &&
+          all.jobs === pagedAll.jobs.map((j) => j.id).join(",") &&
+          all.needs === pagedAll.jobs.map((j) => j.needs || "").join(",") &&
           all.parts === "" &&
           !all.tableShown &&
           !all.foldsShown,
@@ -1528,6 +2034,34 @@ async function pictures() {
       check(
         `${theme}-all-open: a click on a job's line opens the job`,
         opened.name === jobsView.picker.open[0].name && opened.foldsShown,
+      );
+
+      // The session states (close approach, Proofs): s-1 waits on the user, s-2 had no change for two days (and the
+      // app's state says "error"), s-3 ended two hours ago
+      await open("&states=1", theme, "job");
+      const st = await waitFor(page, foldsScript(), "the four folds");
+      const stFile = await shoot(`${theme}-session-states.png`);
+      console.log(`${theme}-session-states: ${st.states} · ${stFile}`);
+      noErrors(`${theme}-session-states`);
+      const stamp = "(\\d\\d:\\d\\d|\\d{1,2} \\w{3} \\d\\d:\\d\\d)";
+      check(
+        `${theme}-session-states: S18 (its session waits, not in the running ids) in Needs you with the listening orb and "needs you" since it began to wait, S19 says "no change since" its day and hour, S20 "session ended", its time and "step not done"`,
+        new RegExp(
+          "^t-18 needs listening ~ needs you · since \\d\\d:\\d\\d ~ rt-wait rt-wait-attention \\| " +
+            `t-19 running solving ~ no change since \\d{1,2} \\w{3} \\d\\d:\\d\\d ~ rt-wait rt-wait-attention \\| ` +
+            `t-20 todo - ~ session ended ${stamp}, step not done ~ rt-wait rt-wait-attention$`,
+        ).test(st.states) || console.log(st.states),
+      );
+      check(
+        `${theme}-session-states: the attention words share the one warning tone; working words are plain text, links keep their own colour`,
+        (st.tones.attention === st.tones.warning &&
+          st.tones.attention !== st.tones.text &&
+          st.tones.link !== st.tones.text) ||
+          console.log(st.tones),
+      );
+      check(
+        `${theme}-session-states: no row names an error, though the app's state of S19's session says "error"`,
+        st.errorWords === "" || console.log(st.errorWords),
       );
 
       // No job (design 3.10): Not in a job, its progress over the loose items
@@ -2681,11 +3215,36 @@ function foldsScript() {
     rows: folds.map((f) => [...f.querySelectorAll(".rt-row")].filter(shown).map((r) => r.dataset.step).join(",")).join(" / "),
     oneLine: rows.every((r) => r.querySelector(".rt-row-title").getBoundingClientRect().height <= 21 &&
       r.querySelector(".rt-row-right").getBoundingClientRect().height <= 24),
-    titleFonts: ["t-22", "t-23"].map((id) => cs(row(id).querySelector(".rt-row-title")).fontWeight).join(","),
+    titleFonts: ["t-27", "t-23"].map((id) => cs(row(id).querySelector(".rt-row-title")).fontWeight).join(","),
     started: ["t-20", "t-21"].map((id) => row(id).closest(".rt-fold").dataset.fold + " " +
       (row(id).querySelector(".rt-ring.rt-half") ? "half " : "") + row(id).querySelector(".rt-wait").textContent).join("|"),
     sessions: [...document.querySelectorAll(".rt-session")].filter(shown)
       .map((e) => e.closest(".rt-row").dataset.step + ":" + e.textContent).join(","),
+    // S18, S19 and S20's session states: orb ~ words ~ tone class
+    states: ["t-18", "t-19", "t-20"].map((id) => {
+      const c = row(id).querySelector("canvas[data-orb]");
+      const w = row(id).querySelector(".rt-wait");
+      return id + " " + row(id).closest(".rt-fold").dataset.fold + " " + (c ? c.dataset.orb : "-") + " ~ " +
+        w.textContent + " ~ " + w.className;
+    }).join(" | "),
+    // The colours: a working session's words, the attention words, a row title and a session link
+    tones: (() => {
+      const color = (sel) => { const e = document.querySelector(sel); return e ? cs(e).color : "-"; };
+      const warn = document.createElement("span");
+      warn.style.color = "var(--x-state-needs)";
+      document.querySelector(".rt-root").append(warn);
+      const warning = cs(warn).color;
+      warn.remove();
+      return {
+        running: color(".rt-wait-running"),
+        attention: [...new Set([...document.querySelectorAll(".rt-wait-attention")].map((e) => cs(e).color))].join(","),
+        text: color(".rt-row-title"),
+        link: color(".rt-session"),
+        warning,
+      };
+    })(),
+    errorWords: [...document.querySelectorAll(".rt-wait")].map((e) => e.textContent)
+      .filter((t) => /error|fail|stopped/i.test(t)).join(" | "),
     orbs: [...document.querySelectorAll(".rt-fold-running canvas[data-orb]")].map((c) => c.dataset.orb).join(","),
     file: link && shown(link) ? link.textContent + "|" + cs(link).textDecorationLine : null,
     contrast,

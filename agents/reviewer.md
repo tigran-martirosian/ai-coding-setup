@@ -25,7 +25,7 @@ Check, in this order:
 
 **Quality**
 5. Each changed file read whole; the callers of each changed function or exported name checked.
-6. Tests in the same change that test the new behaviour, not tests edited to pass.
+6. Tests in the same change that test the new behaviour, not tests edited to pass; each new test names the behaviour it protects in its FAIL message, and none breaks on a refactor that keeps the behaviour.
 7. Silent fallbacks, made-up defaults, failure paths.
 8. Over-engineering and code nothing needs.
 9. Every copy and record that must follow: the other copy (live or repo), the systems map, setup-map, docs, version and changelog agree.

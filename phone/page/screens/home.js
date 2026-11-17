@@ -120,6 +120,8 @@ const sessionsWord = (n) =>
       ? "1 session open"
       : `${n} sessions open`;
 
+// While the frame connects, the screen kept under its strip shows this block as last known: "Last seen: " comes in
+// front of the title and the block's own "as of" goes, as the strip carries it (page.css, .kept).
 function pcBlock(tone, title, meta, ...more) {
   return el(
     "div.group.home-pc",
@@ -128,7 +130,11 @@ function pcBlock(tone, title, meta, ...more) {
       el(
         "div.pc",
         el(`span.pc-icon${tone ? `.${tone}` : ""}`, icon(ICONS.pc)),
-        el("div", el("div.pc-title", title), el("div.pc-meta", meta)),
+        el(
+          "div",
+          el("div.pc-title", el("span.pc-was", "Last seen: "), title),
+          el("div.pc-meta", meta),
+        ),
       ),
       ...more,
     ),
@@ -171,11 +177,10 @@ function renderPc(ctx) {
   if (s.nimbalyst === "open") {
     const parts = [s.pcName];
     if (s.sessionsOpen !== null) parts.push(sessionsWord(s.sessionsOpen));
-    parts.push(`as of ${hhmm(s.asOf)}`);
     return pcBlock(
       "ok",
       "PC on · Nimbalyst open",
-      parts.join(" · "),
+      [parts.join(" · "), el("span.pc-asof", ` · as of ${hhmm(s.asOf)}`)],
       home.error
         ? el("p.err", `Could not read the sessions: ${home.error}`)
         : null,
@@ -213,17 +218,19 @@ function renderPc(ctx) {
 
 registerHomePart({ id: "pc-status", order: 10, render: renderPc });
 
-// ---- version line (order 20): the version this PC is on, and the newer one when there is one
+// ---- version line (order 20): the version of the PC program (the setup on the PC), and the newer one when there
+// is one, with how to get it. "The PC program" is the same name the frame's connecting words use.
 
 export function versionText(status) {
-  const on = `You're on setup ${status.setupVersion}${
+  const on = `PC program: setup ${status.setupVersion}${
     status.nimbalystVersion ? ` · Nimbalyst ${status.nimbalystVersion}` : ""
   }`;
   return {
     on,
     available: status.update
-      ? `Setup ${status.update.version} available`
+      ? `PC program update: setup ${status.update.version}`
       : null,
+    how: status.update ? "On the PC, run /update-setup in Claude Code." : null,
   };
 }
 
@@ -235,6 +242,7 @@ function renderVersion(ctx) {
     "div.version",
     el("span.version-on", v.on),
     v.available ? el("span.version-new", v.available) : null,
+    v.how ? el("span.version-how", v.how) : null,
   );
 }
 

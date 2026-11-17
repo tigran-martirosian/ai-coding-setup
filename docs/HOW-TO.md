@@ -60,9 +60,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   adds the picture skill to the `quick-tasks` folder.
   The installer saves the folder you ran it from as `repo` in `~/.claude/setup-state.json`, so a
   chat can find it again.
-- **Updates.** Every 12 hours the setup checks whether a newer version is released. A small one (only
-  hook, skill, agent or worker files, no restart, no questions) installs itself in the background and says so in one
-  line; `AUTO_UPDATE=off` stops that. For a bigger one it reminds you; type `/update-setup` to install it: your own skills, hooks, settings and notes stay, your own
+- **Updates.** Every 12 hours the setup checks whether a newer version is released. One that asks you
+  nothing installs itself in the background and says so in one line; changed panels show the next time Nimbalyst
+  starts (on a Mac, once you type `/update-setup` when the grey line asks). `AUTO_UPDATE=off` stops that. For one that needs your answer it reminds you; type `/update-setup` to install it: your own skills, hooks, settings and notes stay, your own
   rules stay in `~/.claude/rules/my-rules.md`, and one of the setup's files you changed yourself is replaced only after you say yes.
   It also clears the setup's own leftovers and says how much it freed, and offers your own leftovers and a reorganize
   of your project files on one card (yes or not now; later, any time: `/disk-tidy` or `/file-upkeep`). The same card
@@ -200,7 +200,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 
 - **The phone app: your Nimbalyst sessions in Telegram.** A page in Telegram shows your sessions on this
   PC and lets you follow and drive them from the phone. It talks to a small program on your PC
-  through a relay; the page and the PC seal what they send, so the relay cannot read it. Alerts are the
+  through a relay; the page and the PC seal what they send, so the relay cannot read it (the relay also serves the page, so its owner is trusted). Alerts are the
   exception: their text (project name and session title) passes the relay unsealed. Windows only.
 - **To join:** an add-on, `node install.mjs --with phone-bot` adds it. You need an invite link from the
   bot's owner. Open it on your phone, tap Start, and paste the line the bot sends into a session on your

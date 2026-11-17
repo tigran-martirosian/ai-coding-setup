@@ -1,7 +1,7 @@
 // The PC program: one copy at a time (the named pipe is the lock and the control channel for setup.mjs),
 // loads every action module in actions/, dials out to the relay and answers the paired phone's sealed frames.
 // Run: node main.mjs (started at log-on by keep.mjs, which starts it again when it ends; it ends with
-// STOP_CODE when another copy already runs, so that keep.mjs stops too)
+// STOP_CODE when another copy already runs, or when setup.mjs asks it to stop, so that keep.mjs stops too)
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -14,14 +14,19 @@ import { loadKeys, saveKeys } from "./core/keys.mjs";
 import { openLink } from "./core/link.mjs";
 import { log } from "./core/log.mjs";
 import { pipeName } from "./core/mode.mjs";
-import { checkPage } from "./core/page-check.mjs";
 import { createJoin, createPairing } from "./core/pairing.mjs";
 import { createRegistry } from "./core/registry.mjs";
 import { STOP_CODE } from "./keep.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PAGE_CHECK_MS = 30 * 60 * 1000;
 const JOIN_TICK_MS = 10 * 1000;
+
+// keep.mjs starts the program hidden, so an error that ends it (a missing key file, an action that does not load)
+// goes to pc.log, or nobody sees it.
+process.on("uncaughtException", (e) => {
+  log("error", `the program ended: ${e.message}`);
+  process.exit(1);
+});
 
 // The setup version this copy belongs to: version.json three folders up (the repo, or ~/.claude when installed).
 function setupVersion() {
@@ -63,7 +68,8 @@ const version = setupVersion();
 const registry = createRegistry();
 await registry.load(path.join(HERE, "actions"));
 
-let page = "unverified";
+// The PC no longer checks the page; pages before 26.3.2 grey out unless the hello says "ok".
+const page = "ok";
 const link = openLink({
   keys,
   version,
@@ -101,20 +107,6 @@ join.register(registry);
 // The devices list and Remove (actions/devices.mjs) read the same keys and remove through the join's rule.
 bindDevices({ keys, join });
 
-let checking = null;
-async function runPageCheck() {
-  if (checking) return checking;
-  checking = checkPage(keys.relay, version)
-    .then((r) => {
-      page = r.page;
-      channel.push({ e: "status", d: { page } });
-    })
-    .finally(() => {
-      checking = null;
-    });
-  return checking;
-}
-
 function onReady(f) {
   if (typeof f.botId === "number" && keys.botId !== f.botId) {
     if (keys.botId === null) {
@@ -122,7 +114,6 @@ function onReady(f) {
       saveKeys(keys);
     } else log("bot-id", "the relay named another bot: kept the first one");
   }
-  runPageCheck().catch((e) => log("error", `page check: ${e.message}`));
 }
 
 function onFrame(f) {
@@ -138,7 +129,7 @@ function onFrame(f) {
   else log("drop", `relay frame ${String(f.t).slice(0, 12)}`);
 }
 
-// Control channel: one JSON line in, one JSON line out. {"cmd":"pair"} or {"cmd":"status"}.
+// Control channel: one JSON line in, one JSON line out. {"cmd":"pair"}, {"cmd":"status"} or {"cmd":"stop"}.
 server.on("connection", (sock) => {
   let buf = "";
   sock.setEncoding("utf8");
@@ -161,7 +152,18 @@ server.on("connection", (sock) => {
           page,
           actions: registry.names().length,
         };
-      else answer = { error: `unknown command ${String(cmd).slice(0, 20)}` };
+      else if (cmd === "stop") {
+        // setup.mjs join and remove: whichever copy holds the pipe (installed or a work copy) ends, and its keep.mjs
+        // with it.
+        log("stop", "asked by setup.mjs");
+        link.stop();
+        sock.end(
+          `${JSON.stringify({ stopping: true })}
+`,
+          () => process.exit(STOP_CODE),
+        );
+        return;
+      } else answer = { error: `unknown command ${String(cmd).slice(0, 20)}` };
     } catch (e) {
       answer = { error: e.message };
     }
@@ -169,7 +171,6 @@ server.on("connection", (sock) => {
   });
 });
 
-setInterval(() => runPageCheck().catch(() => {}), PAGE_CHECK_MS);
 setInterval(
   () => join.tick().catch((e) => log("error", `join tick: ${e.message}`)),
   JOIN_TICK_MS,

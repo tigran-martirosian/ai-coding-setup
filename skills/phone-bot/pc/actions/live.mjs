@@ -20,6 +20,7 @@ import { ActionError } from "../core/registry.mjs";
 import {
   labelOf,
   namedFile,
+  notesOf,
   resultsOf,
   toTurn,
   transcriptPath,
@@ -165,6 +166,11 @@ const cutText = (text, at, role) =>
 // The rows one transcript line adds to the live view: tool calls, their results, thinking, and text turns.
 // A thinking row's `at` is when the block was written, at the end of the thinking.
 export function rowsOf(line) {
+  if (line?.type === "attachment")
+    return notesOf(line).map((n) => ({
+      ...cutText(n.text, n.at, "user"),
+      note: true,
+    }));
   if (!line?.message || line.isSidechain || line.isMeta) return [];
   const at = line.timestamp ?? null;
   const content = line.message.content;
@@ -387,11 +393,12 @@ function helperList(index, file, status, agents) {
 
 // ---- the queue, from the database (probe 3's read)
 
+// Only `pending` rows wait; an `executing` one was already handed to the session.
 function queueOf(sessionId) {
   return openDb()
     .prepare(
       `SELECT id, prompt, created_at FROM queued_prompts
-       WHERE session_id = ? AND status IN ('pending', 'claimed') ORDER BY created_at`,
+       WHERE session_id = ? AND status = 'pending' ORDER BY created_at`,
     )
     .all(sessionId)
     .map((q) => ({
@@ -513,16 +520,22 @@ function check(w) {
   for (const [k, v] of Object.entries({ queue, context, helpers, turnAt }))
     if (JSON.stringify(v) !== JSON.stringify(w.last[k])) d[k] = v;
   w.last = { state, queue, context, helpers, turnAt };
-  if (Object.keys(d).length > 2 || d.rows.length) w.push({ e: "live", d });
+  if (Object.keys(d).length > 2 || d.rows.length)
+    w.push({ e: "live", d: { ...d, at: readTo(w) } });
 }
 
+// The transcript position up to which rows were read: the start of the line not yet whole. After a reconnect the
+// page asks session.watch with this as `start` and gets only the rows it missed (phone steady design, section 5).
+const readTo = (w) => w.pos - w.carry.length;
+
 // turnAt: when the newest prompt was written (the turn's start; null when the transcript has none). tail: the
-// newest work row before the watch began, so the page can count a Thinking row before the first push.
+// newest work row before the watch began, so the page can count a Thinking row before the first push. at: readTo.
 const snapshot = (w) => ({
   watching: true,
   checkMs: CHECK_MS,
   ...w.last,
   tail: w.tail,
+  at: readTo(w),
 });
 
 function startWatch(d, ctx) {

@@ -193,7 +193,6 @@ export function register(registry) {
 
   registry.add({
     name: "pc.status",
-    readOnly: true,
     run: async (_d, ctx) => {
       const nimbalyst = nimbalystState();
       return {

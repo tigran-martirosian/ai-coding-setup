@@ -70,11 +70,17 @@ fs.appendFileSync(
   "\nChanged in the newer version.\n",
 );
 // A stand-in for tools/nimbalyst-patch/deliver.mjs, in every pack and in a home before each run, so no test starts the
-// real one: it adds its flags to calls.log beside it, and --status prints STUB_NIMBALYST as the `nimbalyst:` line
+// real one: it adds its flags to calls.log beside it, --status prints STUB_NIMBALYST as the `nimbalyst:` line, and
+// --stage writes STUB_STAGED as staged.json in NIMBALYST_DELIVER_DATA (as the real one's marker job)
 const DELIVER_REL = path.join("tools", "nimbalyst-patch", "deliver.mjs");
 const DELIVER_STUB = `import fs from "node:fs";
+import path from "node:path";
 fs.appendFileSync(new URL("./calls.log", import.meta.url), process.argv.slice(2).join(" ") + "\\n");
 if (process.argv.includes("--status")) console.log("nimbalyst: " + (process.env.STUB_NIMBALYST || "on, 0.83.0, 3 fixes applied"));
+if (process.argv.includes("--stage") && process.env.STUB_STAGED) {
+  fs.mkdirSync(process.env.NIMBALYST_DELIVER_DATA, { recursive: true });
+  fs.writeFileSync(path.join(process.env.NIMBALYST_DELIVER_DATA, "staged.json"), process.env.STUB_STAGED);
+}
 `;
 const putStub = (root) => {
   fs.mkdirSync(path.dirname(path.join(root, DELIVER_REL)), { recursive: true });
@@ -129,22 +135,28 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const BASE = `http://127.0.0.1:${server.address().port}`;
-// The server runs in this process, so the updater is started without blocking it
-const update = (home, ...flags) =>
+// The server runs in this process, so the updater is started without blocking it. updateWith adds to the
+// environment; a key given as undefined is left out.
+const updateWith = (extra, home, ...flags) =>
   new Promise((resolve) => {
     if (fs.existsSync(path.join(home, ".claude")))
       putStub(path.join(home, ".claude"));
+    const env = {
+      ...process.env,
+      SETUP_UPDATE_BASE: BASE,
+      NIMBALYST_DELIVER_DATA: path.join(home, "nimbalyst-data"),
+      ...extra,
+    };
+    for (const key of Object.keys(env))
+      if (env[key] === undefined) delete env[key];
     const p = spawn(process.execPath, [UPDATE, "--home", home, ...flags], {
-      env: {
-        ...process.env,
-        SETUP_UPDATE_BASE: BASE,
-        NIMBALYST_DELIVER_DATA: path.join(home, "nimbalyst-data"),
-      },
+      env,
     });
     let out = "";
     p.stdout.on("data", (d) => (out += d));
     p.on("close", (code) => resolve({ code, out }));
   });
+const update = (home, ...flags) => updateWith({}, home, ...flags);
 
 // ---- this version installed, with no workers, plus things of the user's own
 const home = path.join(tmp, "home");
@@ -824,6 +836,83 @@ check(
     !json(path.join(mine, ".claude", "setup-state.json")).rulesLeftOut?.length,
 );
 
+// ---- a panel the last quiet run could not build: /update-setup on the newest version runs the installer again
+const mineCheck = path.join(mine, ".claude", "update-check.json"),
+  mineVersion = json(path.join(mine, ".claude", "setup-state.json")).version;
+const stateWritten = async (flags, auto) => {
+  if (auto) fs.writeFileSync(mineCheck, JSON.stringify({ auto }));
+  // the installer names each file it compares ("unchanged <path>"); the path without it names none
+  const r = await update(mine, ...flags);
+  return { ...r, wrote: /^unchanged /m.test(r.out) };
+};
+const retried = await stateWritten([], {
+  version: mineVersion,
+  ok: true,
+  told: true,
+  extFailed: ["job-tracker"],
+  panels: null,
+});
+check(
+  "PR1. a panel the last quiet run could not build: one line says why, the installer runs again, the record is cleared",
+  retried.code === 0 &&
+    retried.out.includes(
+      "The installer runs again: the last update could not build the panel job-tracker.",
+    ) &&
+    retried.wrote &&
+    JSON.stringify(json(mineCheck).auto.extFailed) === "[]",
+);
+const notAgain = await stateWritten([]);
+check(
+  "PR2. once retried, the next run on the newest version runs no installer",
+  notAgain.code === 0 &&
+    !notAgain.out.includes("The installer runs again") &&
+    !notAgain.wrote,
+);
+const olderRecord = await stateWritten([], {
+  version: "0.0.1",
+  ok: true,
+  told: true,
+  extFailed: ["job-tracker"],
+});
+check(
+  "PR3. a failed panel of an older version's quiet run starts no installer",
+  olderRecord.code === 0 &&
+    !olderRecord.out.includes("The installer runs again") &&
+    !olderRecord.wrote,
+);
+// a retry whose build fails again keeps that panel on record (a stand-in installer prints the failure line)
+const retryStateAt = path.join(mine, ".claude", "setup-state.json"),
+  retryStateBefore = fs.readFileSync(retryStateAt, "utf8"),
+  stubRepo = path.join(tmp, "stub-repo");
+fs.mkdirSync(stubRepo, { recursive: true });
+for (const part of ["scripts", "version.json"])
+  fs.cpSync(path.join(REPO, part), path.join(stubRepo, part), {
+    recursive: true,
+  });
+fs.writeFileSync(
+  path.join(stubRepo, "install.mjs"),
+  'console.log("extension failed: job-tracker (npm ci: no network). The installed one stays.");\n',
+);
+fs.writeFileSync(
+  retryStateAt,
+  JSON.stringify({ ...JSON.parse(retryStateBefore), repo: stubRepo }),
+);
+const againFailed = await stateWritten([], {
+  version: mineVersion,
+  ok: true,
+  told: true,
+  extFailed: ["job-tracker", "read-aloud"],
+  panels: null,
+});
+check(
+  "PR4. a retry that fails again keeps only that panel on record, so the next /update-setup tries it again",
+  againFailed.code === 0 &&
+    againFailed.out.includes("extension failed: job-tracker") &&
+    JSON.stringify(json(mineCheck).auto.extFailed) === '["job-tracker"]',
+);
+fs.writeFileSync(retryStateAt, retryStateBefore);
+fs.rmSync(mineCheck);
+
 // ---- the closing list: what stays behind this version, with the line that takes it; the rules are never on it
 check(
   "an update ends with the list of what stays on old versions, each with its --replace line, and no rules line",
@@ -1250,6 +1339,395 @@ check(
   tidy.code === 0 && !/^files/m.test(tidy.out),
   tidy.out,
 );
+
+// ---- --quiet, the self-install for releases that ask nothing (plan 2026-11-15-quiet-updates, tests T1-T4, T8).
+// The release changes a hook, the rules and the plain extension job-tracker. Nimbalyst's folder is inside the test
+// home (APPDATA on Windows, HOME on a Mac), so no run reads or swaps the real one; the base install is made from a
+// copy of this repository, so no build writes into it.
+{
+  const QUIETV = "99.9.12";
+  const BETWEEN = "99.9.11";
+  const darwin = process.platform === "darwin";
+  const ccMin = json(path.join(REPO, "version.json")).claudeCodeMin;
+  const copyRepo = (to) =>
+    fs.cpSync(REPO, to, {
+      recursive: true,
+      filter: (src) => !SKIP.includes(path.basename(src)),
+    });
+  const quietPack = path.join(tmp, "pack-quiet", `ai-coding-setup-${QUIETV}`);
+  copyRepo(quietPack);
+  const quietMeta = {
+    version: QUIETV,
+    projectPass: PASS_NEW,
+    claudeCodeMin: ccMin,
+  };
+  fs.writeFileSync(
+    path.join(quietPack, "version.json"),
+    JSON.stringify(quietMeta),
+  );
+  const qLog = fs.readFileSync(path.join(quietPack, "CHANGELOG.md"), "utf8");
+  fs.writeFileSync(
+    path.join(quietPack, "CHANGELOG.md"),
+    qLog.replace(
+      /^## \[\d/m,
+      (head) =>
+        `## [${QUIETV}] - 2026-11-16\n\n- The job tracker says more.\n\n## [${BETWEEN}] - 2026-11-15\n\n- A hook says more.\n\n${head}`,
+    ),
+  );
+  fs.appendFileSync(
+    path.join(quietPack, "hooks", "sql-guard.mjs"),
+    "\n// quiet release\n",
+  );
+  fs.appendFileSync(
+    path.join(quietPack, "rules", "CLAUDE.md"),
+    "\n- A rule from the quiet release.\n",
+  );
+  fs.appendFileSync(
+    path.join(quietPack, "extensions", "job-tracker", "src", "index.js"),
+    "\n// quiet release\n",
+  );
+  putStub(quietPack);
+  check(
+    "the quiet test archive was made",
+    spawnSync(
+      tar,
+      [
+        "-czf",
+        path.join("..", "served", `v${QUIETV}.tar.gz`),
+        `ai-coding-setup-${QUIETV}`,
+      ],
+      { cwd: path.join(tmp, "pack-quiet"), encoding: "utf8" },
+    ).status === 0,
+  );
+  const kinds = (between, last) => ({
+    ...quietMeta,
+    releases: {
+      [BETWEEN]: { kind: between, important: false, headline: "A hook." },
+      [QUIETV]: {
+        kind: last,
+        important: false,
+        headline: "The job tracker says more.",
+      },
+    },
+  });
+
+  // this version installed from a copy, with job-tracker built and in Nimbalyst's (test) folder
+  const base = path.join(tmp, "quiet-base");
+  copyRepo(base);
+  const qHome = path.join(tmp, "quiet-home");
+  const qc = path.join(qHome, ".claude");
+  const appEnv = darwin
+    ? { HOME: qHome }
+    : { APPDATA: path.join(qHome, "AppData", "Roaming") };
+  const data = darwin
+    ? path.join(
+        qHome,
+        "Library",
+        "Application Support",
+        "@nimbalyst",
+        "electron",
+      )
+    : path.join(qHome, "AppData", "Roaming", "@nimbalyst", "electron");
+  fs.mkdirSync(data, { recursive: true });
+  const live = path.join(data, "extensions", "jobtracker");
+  const pendingAt = path.join(data, "extensions-pending");
+  const pendingNow = () =>
+    fs.existsSync(pendingAt)
+      ? fs.readdirSync(pendingAt).filter((n) => !n.startsWith("."))
+      : [];
+  const extEnv = (open) => ({
+    ...appEnv,
+    SETUP_EXTENSIONS: "job-tracker",
+    SETUP_NIMBALYST_OPEN: open ? "yes" : "no",
+  });
+  const baseRun = spawnSync(
+    process.execPath,
+    [
+      path.join(base, "install.mjs"),
+      "--home",
+      qHome,
+      "--codex",
+      "no",
+      "--extensions",
+      "yes",
+    ],
+    { encoding: "utf8", env: { ...process.env, ...extEnv(false) } },
+  );
+  // every file under the live folder with its text
+  const tree = (dir) =>
+    fs.existsSync(dir)
+      ? fs
+          .readdirSync(dir, { recursive: true })
+          .filter((f) => fs.statSync(path.join(dir, f)).isFile())
+          .sort()
+          .map((f) => `${f}\n${fs.readFileSync(path.join(dir, f), "utf8")}`)
+          .join("\n")
+      : "";
+  const liveBefore = tree(live);
+  check(
+    "quiet: this version installs with job-tracker in the test Nimbalyst folder",
+    baseRun.status === 0 &&
+      baseRun.stdout.includes("extension installed: job-tracker") &&
+      liveBefore.length > 0 &&
+      !liveBefore.includes("// quiet release"),
+  );
+  // T8: a hook the person changed
+  const qMyHook = path.join(qc, "hooks", "link-gate.mjs");
+  fs.appendFileSync(qMyHook, "\n// my own change\n");
+  const qState = path.join(qc, "setup-state.json");
+  const qCheck = path.join(qc, "update-check.json");
+  const sqlGuard = path.join(qc, "hooks", "sql-guard.mjs");
+  // back to this version before each run: the hook's record of a run under way, the extension's fingerprint dropped
+  // so it is built again, staged.json gone
+  const rewind = () => {
+    const s = json(qState);
+    s.version = thisVersion;
+    if (s.extensions) delete s.extensions["job-tracker"];
+    fs.writeFileSync(qState, JSON.stringify(s, null, 2));
+    fs.writeFileSync(
+      qCheck,
+      JSON.stringify({
+        latest: QUIETV,
+        autoRun: {
+          version: QUIETV,
+          from: thisVersion,
+          startedAt: new Date().toISOString(),
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(qc, "update-auto.lock"), "");
+    fs.rmSync(path.join(qHome, "nimbalyst-data"), {
+      recursive: true,
+      force: true,
+    });
+    fs.rmSync(path.join(qc, path.dirname(DELIVER_REL), "calls.log"), {
+      force: true,
+    });
+  };
+  const quiet = (env) =>
+    updateWith(env, qHome, "--quiet", "--extensions", "yes");
+  const untouched = () =>
+    json(qState).version === thisVersion &&
+    !fs.readFileSync(sqlGuard, "utf8").includes("// quiet release") &&
+    tree(live) === liveBefore &&
+    pendingNow().length === 0;
+
+  // T4: Claude Code below the minimum. A stand-in `claude` that says 1.0.0 and an `npm`, each leaving a file when
+  // run for an update or at all: neither may be run for an update
+  const fakeBin = path.join(tmp, "fake-bin");
+  fs.mkdirSync(fakeBin);
+  if (process.platform === "win32") {
+    fs.writeFileSync(
+      path.join(fakeBin, "claude.cmd"),
+      `@echo off\r\nif "%1"=="update" echo x> "%~dp0claude-updated.txt"\r\necho 1.0.0 (Claude Code)\r\n`,
+    );
+    fs.writeFileSync(
+      path.join(fakeBin, "npm.cmd"),
+      `@echo off\r\necho x> "%~dp0npm-ran.txt"\r\n`,
+    );
+  } else {
+    fs.writeFileSync(
+      path.join(fakeBin, "claude"),
+      `#!/bin/sh\n[ "$1" = update ] && echo x > "$(dirname "$0")/claude-updated.txt"\necho "1.0.0 (Claude Code)"\n`,
+      { mode: 0o755 },
+    );
+    fs.writeFileSync(
+      path.join(fakeBin, "npm"),
+      `#!/bin/sh\necho x > "$(dirname "$0")/npm-ran.txt"\n`,
+      { mode: 0o755 },
+    );
+  }
+  const pathKey =
+    Object.keys(process.env).find((k) => /^path$/i.test(k)) || "PATH";
+  rewind();
+  released = kinds("files", "quiet");
+  const tooOld = await quiet({
+    ...extEnv(false),
+    SETUP_CC_CHECK: undefined,
+    [pathKey]: `${fakeBin}${path.delimiter}${process.env[pathKey]}`,
+  });
+  const tooOldAuto = json(qCheck).auto;
+  check(
+    "T4 --quiet with Claude Code below the minimum: stopped, the reason in auto",
+    tooOld.code === 1 &&
+      tooOldAuto?.ok === false &&
+      new RegExp(
+        `Claude Code 1\\.0\\.0 is older than ${ccMin.replace(/\./g, "\\.")}`,
+      ).test(tooOldAuto.error),
+    tooOld.out,
+  );
+  check(
+    "T4 nothing installed, no update of Claude Code tried, npm not asked, the lock freed",
+    untouched() &&
+      !fs.existsSync(path.join(fakeBin, "claude-updated.txt")) &&
+      !fs.existsSync(path.join(fakeBin, "npm-ran.txt")) &&
+      !fs.existsSync(path.join(qc, "update-auto.lock")),
+  );
+
+  // T2: a setup release among the missed ones
+  rewind();
+  released = kinds("setup", "quiet");
+  const qRefused = await quiet(extEnv(false));
+  check(
+    "T2 --quiet refuses when a missed release is labelled setup, with the reason in auto; nothing installed",
+    qRefused.code === 1 &&
+      json(qCheck).auto?.ok === false &&
+      /99\.9\.11 is not a release that installs itself; \/update-setup installs it/.test(
+        json(qCheck).auto.error,
+      ) &&
+      untouched(),
+  );
+  // --files-only does not take a quiet release
+  rewind();
+  released = kinds("files", "quiet");
+  const filesOnQuiet = await updateWith(extEnv(false), qHome, "--files-only");
+  check(
+    "--files-only refuses a release labelled quiet",
+    filesOnQuiet.code === 1 &&
+      /99\.9\.12 is not a release of files only/.test(
+        json(qCheck).auto?.error,
+      ) &&
+      untouched(),
+  );
+
+  // T3 and T8: a broken job-tracker source (its build script fails), Nimbalyst closed
+  const broken = path.join(tmp, "quiet-broken");
+  for (const name of ["job-tracker", "shared"])
+    fs.cpSync(path.join(base, "extensions", name), path.join(broken, name), {
+      recursive: true,
+    });
+  fs.writeFileSync(
+    path.join(broken, "job-tracker", "build.mjs"),
+    'console.error("broken on purpose"); process.exit(1);\n',
+  );
+  rewind();
+  const brokenRun = await quiet({
+    ...extEnv(false),
+    SETUP_EXT_SOURCES: broken,
+  });
+  const brokenAuto = json(qCheck).auto;
+  check(
+    "T3 --quiet with a broken extension: the rest installs, auto.extFailed names it, no panels",
+    brokenRun.code === 0 &&
+      json(qState).version === QUIETV &&
+      fs.readFileSync(sqlGuard, "utf8").includes("// quiet release") &&
+      brokenAuto?.ok === true &&
+      JSON.stringify(brokenAuto.extFailed) ===
+        JSON.stringify(["job-tracker"]) &&
+      brokenAuto.panels === null,
+    brokenRun.out,
+  );
+  check(
+    "T3 the live folder is byte-identical and nothing is pending",
+    tree(live) === liveBefore && pendingNow().length === 0,
+  );
+  check(
+    "T8 the hook the person changed stays, and auto.kept names it",
+    fs.readFileSync(qMyHook, "utf8").endsWith("// my own change\n") &&
+      brokenAuto.kept.includes("hooks/link-gate.mjs"),
+    JSON.stringify(brokenAuto.kept),
+  );
+  check(
+    "--quiet runs the full installer (the rules change too), asks nothing and makes no offer, frees the lock",
+    fs
+      .readFileSync(path.join(qc, "CLAUDE.md"), "utf8")
+      .includes("A rule from the quiet release.") &&
+      !/^(files-offer|offer|project-pass|Backup):/m.test(brokenRun.out) &&
+      !fs.existsSync(path.join(qc, "update-auto.lock")) &&
+      !("autoRun" in json(qCheck)),
+  );
+
+  // T1: Nimbalyst running. The build waits, the live folder stays; no close listener (no staged.json) is waiting
+  rewind();
+  const openRun = await quiet(extEnv(true));
+  const openAuto = json(qCheck).auto;
+  check(
+    "T1 --quiet, Nimbalyst running: the build is in extensions-pending, the live folder is byte-identical",
+    openRun.code === 0 &&
+      tree(live) === liveBefore &&
+      JSON.stringify(pendingNow()) === JSON.stringify(["jobtracker"]) &&
+      tree(path.join(pendingAt, "jobtracker")).includes("// quiet release"),
+    openRun.out,
+  );
+  // deliver.mjs and the close listener are Windows-only: elsewhere update.mjs starts no stage and the panels wait
+  const WIN = process.platform === "win32";
+  check(
+    WIN
+      ? "T1 the stage runs and is waited for; with no staged.json auto.panels is waiting"
+      : "T1 off Windows no stage runs and auto.panels is waiting",
+    openAuto?.ok === true &&
+      openAuto.panels === "waiting" &&
+      JSON.stringify(openAuto.extFailed) === "[]" &&
+      JSON.stringify(callsOf(qHome)) ===
+        JSON.stringify(WIN ? ["--stage", "--wait"] : []),
+    JSON.stringify(callsOf(qHome)),
+  );
+  // the same with a job whose atClose is true (deliver.mjs --stage's marker job): the close puts them in
+  rewind();
+  const closeRun = await quiet({
+    ...extEnv(true),
+    STUB_STAGED: JSON.stringify({
+      extensions: true,
+      installer: null,
+      atClose: true,
+    }),
+  });
+  check(
+    WIN
+      ? "T1 Nimbalyst running, staged.json with atClose true: auto.panels is at-close, the live folder unchanged"
+      : "T1 off Windows no stage runs, so no staged.json: auto.panels is waiting, the live folder unchanged",
+    closeRun.code === 0 &&
+      json(qCheck).auto?.panels === (WIN ? "at-close" : "waiting") &&
+      tree(live) === liveBefore,
+    json(qCheck).auto?.panels,
+  );
+  rewind();
+  const noCloseRun = await quiet({
+    ...extEnv(true),
+    STUB_STAGED: JSON.stringify({
+      extensions: true,
+      installer: null,
+      atClose: false,
+    }),
+  });
+  check(
+    "T1 staged.json with atClose false: auto.panels is waiting",
+    noCloseRun.code === 0 && json(qCheck).auto?.panels === "waiting",
+  );
+  // NIMBALYST_FOLLOW=off: no stage, the panels wait for /update-setup
+  rewind();
+  const offRun = await quiet({ ...extEnv(true), NIMBALYST_FOLLOW: "off" });
+  check(
+    "--quiet with NIMBALYST_FOLLOW=off: no stage, auto.panels is waiting",
+    offRun.code === 0 &&
+      json(qCheck).auto?.panels === "waiting" &&
+      callsOf(qHome).length === 0,
+  );
+
+  // T1: Nimbalyst not running. The new build goes in now, nothing waits, no stage
+  rewind();
+  const closedRun = await quiet(extEnv(false));
+  check(
+    "T1 --quiet, Nimbalyst not running: the live folder is the new build, nothing is pending, auto.panels is in",
+    closedRun.code === 0 &&
+      tree(live).includes("// quiet release") &&
+      pendingNow().length === 0 &&
+      json(qCheck).auto?.panels === "in" &&
+      callsOf(qHome).length === 0,
+    closedRun.out,
+  );
+  // a quiet run on the newest version records nothing new and frees the lock
+  fs.writeFileSync(path.join(qc, "update-auto.lock"), "");
+  const atNewest = await quiet(extEnv(false));
+  check(
+    "--quiet on the newest version: exit 0, the lock freed",
+    atNewest.code === 0 && !fs.existsSync(path.join(qc, "update-auto.lock")),
+  );
+  check(
+    "--extensions without --quiet is refused",
+    (await update(qHome, "--extensions", "yes")).code === 1,
+  );
+}
 
 // ---- what stops an update leaves the setup as it was
 released = { version: "99.9.10" };

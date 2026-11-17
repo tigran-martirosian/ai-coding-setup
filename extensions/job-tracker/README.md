@@ -13,6 +13,14 @@ skill).
 - **Four folds.** Needs you, Running, To do, Done. Running holds only steps a session works on right now; a
   step marked in progress with no session on it waits under To do. Switches above them show Steps, Bugs,
   Decisions, Ideas or All.
+- **The session's state on each row.** A running step says what its session does ("editing files"), or "needs
+  you" when the session waits on you, as the phone app says it, or "no change since 14 Nov 15:52" when the session
+  had no change for a day. A started step whose session no longer runs says "session ended 13:52". There is no
+  error word: the app ends a failed session at once and keeps no record of the error.
+- **Done on Needs you.** Each Needs you row has a Done button: it sets the step done, and the row moves to Done.
+  When the tracker does not save it, the row stays and says so. A row that waits on other steps names their titles.
+- **Old jobs leave.** A job released or cancelled 3 days ago is archived when the page reads, so it leaves the
+  picker; Nimbalyst's own tracker can bring it back.
 - **One click to open.** A step that asks you to read a file shows the file under its title: a click opens it
   in the editor. A step with a session opens that session; a click on the row opens the step itself.
 - **A step's own view.** One main button, "Open session"; the rarely used fields fold behind "More fields" and
@@ -25,7 +33,8 @@ skill).
   A step opens beside the list when the list keeps 440 px, else in its place with a "Back to <job>" line.
 
 The page opens on the open job with the newest activity. The app's left tracker column is hidden while the
-page is on. The extension only reads the tracker and never writes an item. It reads the app's page markup
+page is on. The extension writes the tracker in two ways only, both through the app's own calls: the Done
+button's status change and the archive of old finished jobs. It reads the app's page markup
 (`src/selectors.js` lists the selectors), so an app update may break it; then the tracker shows as before and
 the console says why (its lines start with `job-tracker:`).
 

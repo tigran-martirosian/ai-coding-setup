@@ -103,9 +103,11 @@ check(
   first.out,
 );
 // a local git folder without the preset also raises P13 (no Git: line), P14 (no commit line), P15 (no .gitattributes)
+// and P25 (no .gitignore for .claude/settings.local.json)
 check(
-  "--check raises every check id, P1 to P15",
-  top.join() === Array.from({ length: 15 }, (_, i) => `P${i + 1}`).join(),
+  "--check raises every check id, P1 to P15 and P25",
+  top.join() ===
+    [...Array.from({ length: 15 }, (_, i) => `P${i + 1}`), "P25"].join(),
   top.join(),
 );
 check(
@@ -360,6 +362,7 @@ write(
 );
 write(path.join(hub, ".github", "workflows", "ci.yml"), preset("ci-node.yml"));
 write(path.join(hub, "CHANGELOG.md"), preset("CHANGELOG.md"));
+write(path.join(hub, ".gitignore"), ".claude/settings.local.json\n");
 spawnSync("git", [
   "-C",
   hub,
@@ -496,6 +499,97 @@ check(
     !/^P15\s/m.test(monoOut) &&
     /^P7\s+ask\s+\.\/\s+the whole folder is untracked/m.test(monoOut),
   monoOut,
+);
+// P25: the "don't ask again" list (.claude/settings.local.json) must be ignored by a .gitignore the repo carries
+// (an ignore on this computer only does not travel with a clone) and must not be tracked
+const sec = path.join(tmp, "secrets");
+spawnSync("git", ["init", "-q", sec]);
+const p25 = (env = {}, ...extra) =>
+  runEnv(env, "--check", sec, ...extra)
+    .out.split(/\r?\n/)
+    .filter((l) => /^P25/.test(l));
+write(
+  path.join(sec, ".git", "info", "exclude"),
+  ".claude/settings.local.json\n",
+);
+let got = p25();
+check(
+  "P25 asks for a .gitignore line when only this computer's .git/info/exclude hides the don't-ask-again file",
+  got.length === 1 &&
+    /^P25\.ignore\s+ask\s+\.gitignore\s+.*only \.git\/info\/exclude on this computer ignores it/.test(
+      got[0],
+    ),
+  got.join("\n"),
+);
+// a global excludes file named .gitignore (an absolute path) is still this computer's own
+const globalIgnore = path.join(tmp, "global-home", ".gitignore");
+write(globalIgnore, ".claude/settings.local.json\n");
+const globalCfg = path.join(tmp, "global-home", ".gitconfig");
+write(globalCfg, `[core]\n\texcludesFile = ${fwd(globalIgnore)}\n`);
+write(path.join(sec, ".git", "info", "exclude"), "");
+got = p25({ GIT_CONFIG_GLOBAL: globalCfg });
+check(
+  "P25 does not count a global excludes file named .gitignore as the repo's",
+  got.length === 1 &&
+    /^P25\.ignore\s.*only .*global-home\/\.gitignore on this computer/.test(
+      got[0],
+    ),
+  got.join("\n"),
+);
+write(path.join(sec, ".gitignore"), ".claude/settings.local.json\n");
+got = p25();
+check(
+  "P25 is quiet once the repo's .gitignore ignores the don't-ask-again file",
+  got.length === 0,
+  got.join("\n"),
+);
+// this computer's ".claude/" rule is the one git names, but the repo's own line still travels with a clone
+write(path.join(sec, ".git", "info", "exclude"), ".claude/\n");
+got = p25();
+check(
+  "P25 stays quiet when a local .claude/ exclude masks the repo's own .gitignore line",
+  got.length === 0,
+  got.join("\n"),
+);
+write(path.join(sec, ".git", "info", "exclude"), "");
+// (a folder rule like ".claude/" can't be un-ignored inside, so the test un-ignores after a file pattern)
+write(
+  path.join(sec, ".gitignore"),
+  "*.local.json\n!.claude/settings.local.json\n",
+);
+got = p25();
+check(
+  "P25 counts a .gitignore line that un-ignores the don't-ask-again file as not ignored, and names that line",
+  got.length === 1 &&
+    /^P25\.ignore\s+ask\s+\.gitignore\s.*the line `!\.claude\/settings\.local\.json` in \.gitignore un-ignores it/.test(
+      got[0],
+    ),
+  got.join("\n"),
+);
+// a package folder inside a bigger repo: the repo's top .gitignore counts
+const secPkg = path.join(sec, "packages", "app");
+write(path.join(secPkg, "CLAUDE.md"), "# App\n");
+write(path.join(sec, ".gitignore"), "**/.claude/settings.local.json\n");
+got = run("--check", secPkg)
+  .out.split(/\r?\n/)
+  .filter((l) => /^P25/.test(l));
+check(
+  "P25 in a package folder reads the bigger repo's top .gitignore",
+  got.length === 0,
+  got.join("\n"),
+);
+fs.rmSync(path.join(sec, "packages"), { recursive: true, force: true });
+write(path.join(sec, ".gitignore"), ".claude/settings.local.json\n");
+write(path.join(sec, ".claude", "settings.local.json"), "{}\n");
+spawnSync("git", ["-C", sec, "add", "-f", ".claude/settings.local.json"]);
+got = p25();
+check(
+  "P25 asks to untrack and rotate when git already tracks the don't-ask-again file, warning not to commit it by name",
+  got.length === 1 &&
+    /^P25\.tracked\s+ask\s+\.claude\/settings\.local\.json\s+git tracks .*git rm --cached.*without naming that file.*rotate/.test(
+      got[0],
+    ),
+  got.join("\n"),
 );
 const noGit = path.join(tmp, "nogit");
 write(path.join(noGit, "CLAUDE.md"), "# No git\n\nA made-up project.\n");

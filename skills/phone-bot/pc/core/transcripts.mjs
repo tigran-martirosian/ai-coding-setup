@@ -90,6 +90,36 @@ export function toTurn(line) {
   return null;
 }
 
+// The notes steer.mjs handed the session (a Note from the desktop button or the phone, /btw): a hook's added context
+// "[btw] <rules>\n- [note <id>] <text>", one "- [note" line per note, before any "[report]" or "[user]" part. Each
+// note is a user turn marked `note: true`, without the line the phone adds, so the page finds its own words again.
+export function notesOf(line) {
+  const a = line?.attachment;
+  if (
+    line?.type !== "attachment" ||
+    line.isSidechain ||
+    a?.type !== "hook_additional_context"
+  )
+    return [];
+  const out = [];
+  for (const part of Array.isArray(a.content) ? a.content : [a.content]) {
+    const from = typeof part === "string" ? part.indexOf("[btw] ") : -1;
+    if (from < 0) continue;
+    const body = part.slice(from).split(/\n\[(?:report|user)\] /)[0];
+    for (const piece of body.split(/\n- \[note [a-z0-9]+\] /).slice(1)) {
+      const text = withoutNote(piece.trim());
+      if (text)
+        out.push({
+          role: "user",
+          note: true,
+          text,
+          at: line.timestamp ?? null,
+        });
+    }
+  }
+  return out;
+}
+
 // The transcript's lines that end before byte `stop`, newest first, each as { at, line } with its byte offset and
 // its parsed JSON. A line that does not parse (one still being written) is skipped.
 function* linesBackward(fd, stop) {
@@ -395,6 +425,8 @@ export function readTurns(file, end, count, place) {
           if (t.text) t.links = linksOf(t.text, place, place.base);
         }
         if (t) turns.push({ ...t, pos: at });
+        // newest first here: a line's later note goes in first
+        for (const n of notesOf(line).reverse()) turns.push({ ...n, pos: at });
         if (turns.length >= count) break;
       }
     turns.reverse();
