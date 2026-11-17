@@ -12,6 +12,11 @@
 //     Done holds every finished step; the app's own list is hidden (its rows are only what its filter shows)
 //   - a row's click opens the item view, its file link the file in the editor, its session link the session (the
 //     three ways of the one-page proofs)
+//   - the page's two writes (close approach, 2026-11-16, Proofs): a row's Mark done button (a Needs you step the
+//     user can close, a started step whose session ended) sets the step to its type's done status
+//     (window.electronAPI.documentService.updateTrackerItem), and each read archives the jobs released or cancelled
+//     3 days ago (archiveTrackerItem), so they leave the picker; the item list holds archived items too, and the
+//     page leaves them out (model.js)
 //   - the item view: one status line, one filled button (the linked session, else "Launch Session"), the step's
 //     text, and the rest behind "More fields" and "History and details" (item-view.js and style.css)
 // The counts are in model.js, the words and drawing in reading.js, the app's selectors in selectors.js. The data
@@ -39,8 +44,10 @@ import { foldsView, renderFolds } from "./groups.js";
 import { clearItemViews, drawItemViews } from "./item-view.js";
 import {
   categoryOf,
+  doneStatusOf,
   foldsOf,
   notInJob,
+  oldClosedJobs,
   openSteps,
   releaseSteps,
   STEP_TYPES,
@@ -131,12 +138,24 @@ const STRINGS = {
   showMore: "Show {n} more",
   since: "since {date}",
   working: "working",
-  waitsOn: "waits on {codes}",
+  waitsOn: "waits on {steps}",
+  waitsSep: "; ",
   readyForYou: "ready for you",
+  // A step for the user that waits on an open step: in To do, not the user's move yet
+  yourTurnAfter: "your turn after {steps}",
+  // The Mark done button, and its row's words when the tracker did not save the change; {error} is what failed
+  doneButton: "Mark done",
+  doneTip: "Mark this step done",
+  doneFailed: "Not marked done: the tracker did not save it ({error})",
   ready: "ready",
   startedOn: "started {date}, no session on it",
   startedNoSession: "started, no session on it",
   startedTip: "Marked in progress, but no session is working on it now",
+  // A linked session's state (close approach, Proofs, Session states), in the agents panel's and the phone app's
+  // words; {date} is the session's last change. No error word: the app keeps no lasting record of one
+  sessionWaiting: "needs you",
+  noChangeSince: "no change since {date}",
+  sessionEnded: "session ended {date}, step not done",
   dropped: "dropped",
   bug: "Bug",
   openFile: "Open {name}",
@@ -212,6 +231,79 @@ async function readItems() {
   return items;
 }
 
+/**
+ * What failed, in words, from a write's answer ({ success: false, error }) or a thrown error. An error that is an
+ * object (an Error, or { message }) gives its message.
+ */
+function failure(r) {
+  const e = r && (r.error || r.message);
+  if (!e) return "no answer from the tracker";
+  if (typeof e === "string") return e;
+  if (typeof e.message === "string" && e.message) return e.message;
+  return JSON.stringify(e);
+}
+
+/**
+ * Sets the step to its type's done status (model.js doneStatusOf: a plan is "completed") through the app's own
+ * tracker write (close approach, Proofs: it answers { success, item } or { success: false, error }). `itemsNow()`
+ * gives the items as they stand when the write answers, so a read that landed meanwhile is kept. Returns those items
+ * with the step done and its time now; on a failed write, the same items and `error`, the plain words of what failed.
+ */
+async function closeStep(api, itemsNow, itemId) {
+  const step = itemsNow().find((i) => i.id === itemId);
+  if (!step)
+    return { items: itemsNow(), error: `no step ${itemId} in the list` };
+  const status = doneStatusOf(step);
+  let r;
+  try {
+    r = await api.documentService.updateTrackerItem({
+      itemId,
+      updates: { status },
+    });
+  } catch (e) {
+    return { items: itemsNow(), error: failure(e) };
+  }
+  const items = itemsNow();
+  if (!r || !r.success) return { items, error: failure(r) };
+  const now = new Date();
+  return {
+    items: items.map((i) =>
+      i.id === itemId ? { ...i, status, updated: now } : i,
+    ),
+    error: null,
+  };
+}
+
+/**
+ * Archives the jobs released or cancelled 3 days before `now` (ms; model.js oldClosedJobs) through the call the app's
+ * own tracker uses; the ids in `skip` are not tried. Returns `items` with those the app archived marked archived, and
+ * `failed`, [{ id, error }] for each it did not archive (they stay in the picker).
+ */
+async function archiveOldJobs(api, items, now, skip) {
+  const archived = new Set();
+  const failed = [];
+  for (const job of oldClosedJobs(items, now)) {
+    if (skip.has(job.id)) continue;
+    let r;
+    try {
+      r = await api.documentService.archiveTrackerItem({
+        itemId: job.id,
+        archive: true,
+      });
+    } catch (e) {
+      r = { success: false, error: failure(e) };
+    }
+    if (r && r.success) archived.add(job.id);
+    else failed.push({ id: job.id, error: failure(r) });
+  }
+  return {
+    items: items.map((i) =>
+      archived.has(i.id) ? { ...i, archived: true } : i,
+    ),
+    failed,
+  };
+}
+
 /** The project folder's name, for the "Not in a job" page's meta line. */
 const projectName = () =>
   String(window.workspacePath)
@@ -230,18 +322,26 @@ const viewNow = () =>
     state.picked,
     state.readAt,
     projectName(),
+    state.waiting,
   );
 
 /** The folds of what the page shows (model.js foldsOf): a job's steps, the items no job holds, or null. */
 function shownFolds(view) {
   if (view.kind === "job")
-    return foldsOf(releaseSteps(state.items, view.current), state.working);
+    return foldsOf(
+      releaseSteps(state.items, view.current),
+      state.working,
+      state.waiting,
+    );
   if (view.kind === "none")
-    return foldsOf(notInJob(state.items), state.working);
+    return foldsOf(notInJob(state.items), state.working, state.waiting);
   return null;
 }
 
-/** The session linked to an item (a running one first), or null: { id, title, running, call }. */
+/**
+ * The session linked to an item (one that waits on the user first, then a running one), or null: { id, title,
+ * running, waiting, waitingSince, updatedAt, call }.
+ */
 const sessionOf = (id) => state.sessions.get(id) || null;
 
 /**
@@ -264,6 +364,7 @@ function mount(doc, page, view, ui, on) {
       now: state.readAt,
       sessionOf,
       listed: (id) => listedSession(doc, id) !== null,
+      failed: state.doneFailed,
     });
     root.append(renderFolds(doc, fv, on));
   }
@@ -277,8 +378,8 @@ function mount(doc, page, view, ui, on) {
 }
 
 // The data marks that tell our controls apart (reading.js, groups.js, row.js): a job pick, a fold, a step's row and
-// its file and session links
-const FOCUS_MARKS = ["pick", "fold", "step", "file", "session"];
+// its file and session links and its Mark done button
+const FOCUS_MARKS = ["pick", "fold", "step", "file", "session", "done"];
 
 /**
  * A selector for `el` inside `root` that finds the same control in a redrawn section: its tag and first class with
@@ -322,15 +423,28 @@ function anchorPicker(root) {
   picker.style.top = `${Math.round(top) + 6}px`;
 }
 
+/** A time the app gives as a Date, ms or an ISO text, in ms; null when it gives none. */
+function msOf(t) {
+  if (t == null) return null;
+  const ms = new Date(t).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
 /**
- * The sessions (build proofs point 6; one-page proofs point 6 for the archived ones): `working`, the ids of the items a running session is linked to, and
- * `sessions`, item id -> { id, title, running, call } for each item a session is linked to (a running session
- * first), where call is a running session's last tool call ({ toolName, arguments }) on a started step, else null.
+ * The sessions of the project at `workspacePath`, for the tracker `items`, through the app's `api`
+ * (window.electronAPI; build proofs point 6; one-page proofs point 6 for the archived ones). Returns `working`, the
+ * ids of the items a session is on now (it runs, or it waits on the user), `waiting`, the ids of those whose session
+ * waits on the user, and `sessions`, item id -> { id, title, running, waiting, waitingSince, updatedAt, call } for
+ * each item a session is linked to (one that waits first, then a running one), where call is a running session's
+ * last tool call ({ toolName, arguments }) on a started step, else null.
+ * The state (close approach, Proofs, Session states): the app counts a session as running only while its turn runs
+ * (status "running" or streaming), so a Claude CLI session that waits on the user is not in the running ids; its own
+ * state (getSessionState) says "waiting_for_input", and its lastActivity is when it began to wait. sessions:list's
+ * open question counts as waiting too, with no time. updatedAt is sessions:list's last change, in ms.
  */
-async function readSessions() {
-  const api = window.electronAPI;
+async function readSessions(api, items, workspacePath) {
   // With the archived sessions too: a finished step's session is often archived (one-page proofs point 6)
-  const list = await api.invoke("sessions:list", window.workspacePath, {
+  const list = await api.invoke("sessions:list", workspacePath, {
     includeArchived: true,
   });
   if (!list || !list.success || !Array.isArray(list.sessions))
@@ -338,29 +452,55 @@ async function readSessions() {
   const run = await api.sessionState.getRunningSessionIds();
   if (!run || !run.success || !Array.isArray(run.sessionIds))
     throw new Error("job-tracker: getRunningSessionIds failed");
-  state.working = workingItemIds(list.sessions, run.sessionIds);
   const runningIds = new Set(run.sessionIds);
   const started = new Set(
-    state.items
+    items
       .filter((i) => STEP_TYPES.has(i.type) && categoryOf(i) === "running")
       .map((i) => i.id),
   );
+  // Session id -> since when it waits (ms, or null when the app does not say), for each session that waits on the
+  // user and is linked to a started step, whether it runs or not
+  const waitingSince = new Map();
+  for (const s of list.sessions) {
+    if (!(s.linkedTrackerItemIds || []).some((id) => started.has(id))) continue;
+    const st = await api.sessionState.getSessionState(s.id);
+    if (!st || typeof st !== "object" || !("state" in st))
+      throw new Error(
+        `job-tracker: getSessionState gave no state for session ${s.id}`,
+      );
+    if (st.state && st.state.status === "waiting_for_input")
+      waitingSince.set(s.id, msOf(st.state.lastActivity));
+    else if (s.hasPendingInteractivePrompt === true)
+      waitingSince.set(s.id, null);
+  }
+  const working = workingItemIds(list.sessions, [
+    ...runningIds,
+    ...waitingSince.keys(),
+  ]);
+  const waiting = workingItemIds(list.sessions, [...waitingSince.keys()]);
+  const rank = (s) =>
+    waitingSince.has(s.id) ? 0 : runningIds.has(s.id) ? 1 : 2;
+  const ordered = [...list.sessions].sort((a, b) => rank(a) - rank(b));
   const out = new Map();
-  const ordered = [
-    ...list.sessions.filter((s) => runningIds.has(s.id)),
-    ...list.sessions.filter((s) => !runningIds.has(s.id)),
-  ];
   for (const s of ordered)
     for (const id of s.linkedTrackerItemIds || [])
-      if (!out.has(id))
+      if (!out.has(id)) {
+        if (!Number.isFinite(s.updatedAt))
+          throw new Error(
+            `job-tracker: sessions:list gave session ${s.id} no updatedAt`,
+          );
         out.set(id, {
           id: s.id,
           title: typeof s.title === "string" ? s.title.trim() : "",
           running: runningIds.has(s.id),
+          waiting: waitingSince.has(s.id),
+          waitingSince: waitingSince.has(s.id) ? waitingSince.get(s.id) : null,
+          updatedAt: s.updatedAt,
           call: null,
         });
+      }
   for (const [itemId, s] of out) {
-    if (!s.running || !started.has(itemId)) continue;
+    if (!s.running || s.waiting || !started.has(itemId)) continue;
     const tail = await api.invoke("transcript:get-tail-messages", s.id, TAIL);
     if (!Array.isArray(tail))
       throw new Error(
@@ -369,14 +509,33 @@ async function readSessions() {
     const last = tail.filter((m) => m && m.type === "tool_call" && m.toolCall);
     s.call = last.length ? last[last.length - 1].toolCall : null;
   }
-  return out;
+  return { working, waiting, sessions: out };
 }
 
 async function read() {
   state.stale = false;
-  state.items = await readItems();
+  const items = await readItems();
   state.readAt = new Date();
-  state.sessions = await readSessions();
+  // A job the app did not archive is not tried again while the page is on: the console says why once
+  const arch = await archiveOldJobs(
+    window.electronAPI,
+    items,
+    +state.readAt,
+    state.archiveFailed,
+  );
+  for (const f of arch.failed) {
+    state.archiveFailed.add(f.id);
+    console.error(`job-tracker: could not archive job ${f.id}: ${f.error}`);
+  }
+  state.items = arch.items;
+  const linked = await readSessions(
+    window.electronAPI,
+    state.items,
+    window.workspacePath,
+  );
+  state.working = linked.working;
+  state.waiting = linked.waiting;
+  state.sessions = linked.sessions;
 }
 
 /**
@@ -390,7 +549,7 @@ function drawPage(page) {
   const listed = [...state.sessions.values()]
     .map((s) => (listedSession(document, s.id) ? 1 : 0))
     .join("");
-  const key = `${+state.readAt} ${state.picked} ${state.pickerOpen} ${state.moreFinished} ${[...state.open].sort()} ${state.doneAll} ${shown} ${listed}`;
+  const key = `${+state.readAt} ${state.changes} ${state.picked} ${state.pickerOpen} ${state.moreFinished} ${[...state.open].sort()} ${state.doneAll} ${shown} ${listed}`;
   if (root && root.dataset.readAt === key) return root;
   const view = viewNow();
   state.back = view.head
@@ -418,6 +577,7 @@ function drawPage(page) {
       file: openFile,
       session: openSession,
       chat: toggleChat,
+      done: markDone,
     },
   );
   if (made) {
@@ -596,6 +756,32 @@ function showAllDone() {
   run();
 }
 
+/**
+ * The Mark done button: the step is set done; the row moves to Done at once, and the next read brings the app's own
+ * copy. On a failed write the row stays where it is and its words say the write failed; a read that landed during
+ * the write is kept either way.
+ */
+async function markDone(itemId) {
+  if (!state) return;
+  // The page may be left during the write: then there is nothing to keep
+  const r = await closeStep(
+    window.electronAPI,
+    () => (state ? state.items : []),
+    itemId,
+  );
+  if (!state) return;
+  state.items = r.items;
+  if (r.error) {
+    state.doneFailed.set(itemId, r.error);
+    console.error(`job-tracker: could not mark ${itemId} done: ${r.error}`);
+  } else {
+    state.doneFailed.delete(itemId);
+    state.stale = true;
+  }
+  state.changes += 1;
+  run();
+}
+
 /** Opens the item view (one-page proofs, "Opening an item"). */
 function openItem(itemId) {
   if (state) noteListScroll(document, state.item);
@@ -717,6 +903,14 @@ function activate() {
     throw new Error(
       "job-tracker: window.electronAPI.sessionState is not there",
     );
+  if (
+    !api.documentService ||
+    typeof api.documentService.updateTrackerItem !== "function" ||
+    typeof api.documentService.archiveTrackerItem !== "function"
+  )
+    throw new Error(
+      "job-tracker: window.electronAPI.documentService has no tracker writes",
+    );
   loadOrbs();
   window.__jobTracker = { deactivate };
   state = {
@@ -730,6 +924,12 @@ function activate() {
     doneAll: false,
     sessions: new Map(),
     working: new Set(),
+    waiting: new Set(),
+    // Counts the page's own writes, so a Done click redraws before the next read
+    changes: 0,
+    // Step id -> what failed, for a Done click the tracker did not save; job ids the app did not archive
+    doneFailed: new Map(),
+    archiveFailed: new Set(),
     // What the user picked: a job id, "all", "none", or null for the open job with the newest activity
     picked: null,
     pickerOpen: false,
@@ -849,4 +1049,12 @@ function deactivate() {
     delete window.__jobTracker;
 }
 
-export { activate, deactivate, STRINGS };
+export {
+  activate,
+  archiveOldJobs,
+  closeStep,
+  deactivate,
+  failure,
+  readSessions,
+  STRINGS,
+};

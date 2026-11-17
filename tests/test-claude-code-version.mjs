@@ -177,6 +177,43 @@ ok(
   ),
 );
 
+// minOnly (update.mjs --quiet): only the version against the minimum; no npm, no update, no look at Nimbalyst's copy
+r = world({
+  cli: "2.1.200",
+  latest: "2.1.312",
+  afterUpdate: "2.1.312",
+  nim: "2.1.290",
+})({
+  minOnly: true,
+});
+ok(
+  "minOnly, below the minimum: stops with the reason, only `claude --version` run",
+  [
+    /2\.1\.200 is older than 2\.1\.296.*does not update Claude Code/.test(
+      r.stop || "",
+    ),
+    r.calls,
+  ],
+  [true, ["claude --version"]],
+);
+r = world({ cli: "2.1.300", latest: "2.1.312", nim: "2.1.290" })({
+  minOnly: true,
+});
+ok(
+  "minOnly, behind npm but at or above the minimum: goes on, nothing updated",
+  [r.stop, r.calls, r.out],
+  [
+    null,
+    ["claude --version"],
+    "Claude Code 2.1.300, at or above the minimum 2.1.296.",
+  ],
+);
+r = world({ cli: null, latest: "2.1.312" })({ minOnly: true });
+ok(
+  "minOnly, no claude on the PATH: said, not a stop",
+  r.stop === null && r.out.includes("not found on the PATH"),
+);
+
 // an update command that fails: the plain message
 {
   const run = (cmd, a) => {

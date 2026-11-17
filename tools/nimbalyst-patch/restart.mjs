@@ -83,9 +83,13 @@ function log(line) {
   );
 }
 
-// status.json in deliver.mjs's shape
+// status.json in deliver.mjs's shape; a marker job (panels only) writes none: no Nimbalyst update stopped
 function fail(error) {
   const job = readJson(D().staged);
+  if (job?.extensions && !job.version) {
+    log(`failed (marker job, no status.json): ${error}`);
+    return 1;
+  }
   fs.writeFileSync(
     D().status,
     JSON.stringify(

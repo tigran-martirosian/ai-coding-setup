@@ -6,6 +6,7 @@ import {
   hasTool,
   listQueued,
   PROJECT_INPUT,
+  phoneNote,
   projectByHandle,
   recentSessionIds,
   SESSION_INPUT,
@@ -20,6 +21,7 @@ import { ActionError } from "../core/registry.mjs";
 import { readTurns, transcriptPath } from "../core/transcripts.mjs";
 import { sessionOpened } from "./alerts.mjs";
 import { ATTACHMENTS_INPUT, sendWithAttachments } from "./attach.mjs";
+import { steerNote } from "../core/steer-note.mjs";
 
 const TURNS = 50;
 // One answer stays within one stream piece (pipe design, section 4); older turns are left to session.older.
@@ -139,12 +141,19 @@ export function register(registry) {
   registry.add({
     name: "session.note",
     input: { session: SESSION_INPUT, text: TEXT_INPUT },
+    // The same path as the desktop Note button: steer.mjs puts the note where the busy session reads it before
+    // its next step. A session that is not busy (steer's exit 3) gets it as a normal message, which starts it.
     run: async (d) => {
       const { project } = knownSession(d.session);
-      await sendPrompt(project.path, d.session, d.text, {
-        messageKind: "status",
+      const r = await steerNote(d.session, `${d.text}\n\n${await phoneNote()}`);
+      if (r.code === 0) return { held: true };
+      if (r.code === 3) {
+        const s = await sendPrompt(project.path, d.session, d.text);
+        return { started: s.processingTriggered === true };
+      }
+      throw new ActionError("note-failed", {
+        why: r.words || `steer.mjs exited with ${r.code}`,
       });
-      return { held: true };
     },
   });
 

@@ -29,7 +29,13 @@ import {
 const PAIR_MS = 30_000;
 // A join request lives 3 minutes on the PC; the page waits a little longer for the PC's own "expired".
 const JOIN_MS = 200_000;
-const HELLO_MS = 15_000;
+const HELLO_MS = 10_000;
+// The link's own checks (phone steady design, section 2): a ping every 20 s, which the relay answers by itself
+// (its auto-response matches this exact text); no pong in 10 s drops the socket. A socket not open in 10 s is stuck.
+const PING_S = 20;
+const PING = '{"t":"ping"}';
+const PONG_MS = 10_000;
+const OPEN_MS = 10_000;
 const ANSWER_MS = 30_000;
 // Large payloads in pieces (pipe design, section 4).
 const PIECE_BYTES = 192 * 1024;
@@ -38,7 +44,7 @@ const STREAMS_OPEN = 2;
 const BUFFERED_MAX = 1024 * 1024;
 
 // A failure the page shows: `code` is the relay's or the PC's one word (pair-fail reasons, close reasons,
-// "pc-offline", "protocol", "timeout", "closed", "counter-gap"), `extra` what came with it.
+// "pc-offline", "pc-online", "protocol", "timeout", "closed", "counter-gap"), `extra` what came with it.
 export class ChannelError extends Error {
   constructor(code, extra = {}) {
     super(`channel: ${code}`);
@@ -56,8 +62,9 @@ export function socketUrl(pageUrl) {
   return u.href;
 }
 
-// Opens the relay socket and signs in with `auth { initData }`. The Hub does not answer a good sign-in; a bad one
-// closes the socket with 4401 and one word. Resolves once the socket is open and `auth` is sent.
+// Opens the relay socket and signs in with `auth { initData, ping }`. The Hub does not answer a good sign-in; a bad
+// one closes the socket with 4401 and one word. Resolves once the socket is open and `auth` is sent; a socket not
+// open in 10 s rejects with "stuck". While open it pings; a missing pong drops it (`closed` says "no-pong").
 export function openLink({ url, initData, WebSocket: Socket }) {
   if (typeof initData !== "string" || !initData)
     throw new ChannelError("no-init-data");
@@ -68,6 +75,20 @@ export function openLink({ url, initData, WebSocket: Socket }) {
   const whenClosed = new Promise((r) => {
     markClosed = r;
   });
+  let pinger = null;
+  let pongWait = null;
+  // Timers that never keep a Node test run alive (a browser's timer ids have no unref).
+  const unref = (t) => {
+    t?.unref?.();
+    return t;
+  };
+  function shut(c) {
+    if (closed) return;
+    closed = c;
+    clearInterval(pinger);
+    clearTimeout(pongWait);
+    markClosed(closed);
+  }
 
   const link = {
     send(frame) {
@@ -113,6 +134,16 @@ export function openLink({ url, initData, WebSocket: Socket }) {
     close(code = 1000, reason = "bye") {
       if (!closed) ws.close(code, reason);
     },
+    // Ends the link at once, whatever the socket's state: a socket that went dead may never fire its close.
+    drop(reason) {
+      if (closed) return;
+      shut({ code: 4000, reason });
+      try {
+        ws.close(4000, reason);
+      } catch {
+        // a socket still connecting or already gone: nothing more to close
+      }
+    },
     get closed() {
       return closed;
     },
@@ -130,21 +161,41 @@ export function openLink({ url, initData, WebSocket: Socket }) {
     } catch {
       return;
     }
-    if (!f || typeof f !== "object" || f.t === "pong") return;
+    if (!f || typeof f !== "object") return;
+    if (f.t === "pong") {
+      clearTimeout(pongWait);
+      pongWait = null;
+      return;
+    }
     for (const fn of [...listeners]) fn(f);
   };
-  ws.onclose = (ev) => {
-    closed = { code: ev.code, reason: String(ev.reason || "") };
-    markClosed(closed);
-  };
+  ws.onclose = (ev) => shut({ code: ev.code, reason: String(ev.reason || "") });
 
   return new Promise((resolve, reject) => {
+    const stuck = unref(
+      setTimeout(() => {
+        reject(new ChannelError("stuck"));
+        link.drop("stuck");
+      }, OPEN_MS),
+    );
     ws.onopen = () => {
-      ws.send(JSON.stringify({ v: PROTOCOL, t: "auth", initData }));
+      clearTimeout(stuck);
+      ws.send(
+        JSON.stringify({ v: PROTOCOL, t: "auth", initData, ping: PING_S }),
+      );
+      pinger = unref(
+        setInterval(() => {
+          if (closed) return;
+          ws.send(PING);
+          pongWait ??= unref(setTimeout(() => link.drop("no-pong"), PONG_MS));
+        }, PING_S * 1000),
+      );
       resolve(link);
     };
     ws.onerror = () => {
-      if (ws.readyState !== 1) reject(new ChannelError("unreachable"));
+      if (ws.readyState === 1) return;
+      clearTimeout(stuck);
+      reject(new ChannelError("unreachable"));
     };
   });
 }
@@ -308,15 +359,8 @@ export async function join(link, { kind, initData }) {
   };
 }
 
-// Starts a channel session: `hello` sealed with K, then one session key per direction. Resolves with
-// { hello, ask(action, data, ms), sendStream(bytes, mime, onProgress), bye(), ended } where `hello` is the PC's
-// answer ({ pcVersion, protocol, page }) and `ended` resolves with the reason the session stopped. onEvent gets
-// every `evt` body the PC pushes.
-export async function openSession(link, { K, dev, pageVersion, onEvent }) {
-  const sid = toB64u(randomBytes(12));
-  const np = randomBytes(16);
-  const header = (n) => ({ v: PROTOCOL, t: "app", dev, sid, n });
-  const h0 = header(0);
+// Sends the hello and checks the PC's answer; resolves with the answer and the session keys.
+async function sayHello(link, { K, dev, sid, np, h0, pageVersion }) {
   const answer = link.next(
     (f) =>
       (f.t === "app" && f.dev === dev && f.sid === sid && f.n === 0) ||
@@ -350,7 +394,40 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
   } catch {
     throw new ChannelError("bad-hello");
   }
-  const keys = await sessionKeys(K, np, npc);
+  return { hello, keys: await sessionKeys(K, np, npc) };
+}
+
+// Starts a channel session: `hello` sealed with K, then one session key per direction. Resolves with
+// { hello, ask(action, data, ms), sendStream(bytes, mime, onProgress), bye(), ended } where `hello` is the PC's
+// answer ({ pcVersion, protocol, page }) and `ended` resolves with the reason the session stopped. onEvent gets
+// every `evt` body the PC pushes.
+export async function openSession(link, { K, dev, pageVersion, onEvent }) {
+  const sid = toB64u(randomBytes(12));
+  const np = randomBytes(16);
+  const header = (n) => ({ v: PROTOCOL, t: "app", dev, sid, n });
+  const h0 = header(0);
+  // The PC may send frames of this session right behind its hello answer (pairing's device.joined at hello). They
+  // can come before the session keys are made, so they wait here and are taken in order once the keys are ready.
+  const early = [];
+  const offEarly = link.listen((f) => {
+    if (f.t === "app" && f.dev === dev && f.sid === sid && f.n > 0)
+      early.push(f);
+  });
+  let hello;
+  let keys;
+  try {
+    ({ hello, keys } = await sayHello(link, {
+      K,
+      dev,
+      sid,
+      np,
+      h0,
+      pageVersion,
+    }));
+  } catch (e) {
+    offEarly();
+    throw e;
+  }
 
   let nOut = 0;
   let nIn = 0;
@@ -405,11 +482,15 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
     } else if (body.k === "evt" && onEvent) onEvent(body);
   }
 
+  offEarly();
+  for (const f of early) inQueue = inQueue.then(() => take(f));
   const off = link.listen((f) => {
     if (f.t === "app" && f.dev === dev && f.sid === sid && f.n > 0)
       inQueue = inQueue.then(() => take(f));
     else if (f.t === "offline")
       end("pc-offline", { lastSeen: f.lastSeen ?? null });
+    // The PC linked again: a restarted PC program no longer knows this session and drops its frames unanswered.
+    else if (f.t === "pc-online") end("pc-online");
   });
   const offClose = link.onClose((c) => end(closeCode(c), c));
 

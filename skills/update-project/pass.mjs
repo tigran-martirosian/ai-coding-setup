@@ -36,7 +36,7 @@ import {
 
 // The pass level this file's checks implement. It goes up only with a release that changes what a project folder
 // should hold (the new-project base table, the file standard, checks.md); version.json's projectPass equals it.
-export const LEVEL = 3;
+export const LEVEL = 4;
 
 const args = process.argv.slice(2);
 const stop = (why) => {
@@ -534,7 +534,7 @@ function checkFacts(dir, add) {
   }
 }
 
-// ---- P13-P18, P23: git and the preset files, local reads only (the preset: new-project step 2b and its preset/
+// ---- P13-P18, P23, P25: git and the preset files, local reads only (the preset: new-project step 2b and its preset/
 // folder). The kind: not in a git repo -> no git; in a repo with no github.com remote -> local git; a github.com
 // remote -> GitHub. A folder inside a bigger repo (a package with its own CLAUDE.md) is a git folder: the repo-wide
 // files (.gitattributes, .github/) are read at the repo's top folder.
@@ -657,6 +657,93 @@ function checkGit(dir, add, since) {
       "ask",
       topRel(".gitattributes"),
       `no text=auto rule: add the rules of ${PRESET}/gitattributes.txt; a second tick runs git add --renormalize ., committed on its own`,
+    );
+  // P25: the "don't ask again" list. Claude Code writes each approved command word for word into
+  // .claude/settings.local.json, a typed token too, and hides the file only through this computer's own git
+  // excludes, which a clone elsewhere does not have. So a .gitignore the repo carries must ignore it, and git
+  // must not track it.
+  const LOCAL_SETTINGS = ".claude/settings.local.json";
+  const rel = path.relative(top, dir);
+  const relFile = fwd(path.join(rel, LOCAL_SETTINGS));
+  const ruleOf = (r, where) => {
+    if (r.status !== 0 && r.status !== 1)
+      throw new Error(
+        `git check-ignore failed in ${where}: ${r.stderr.trim()}`,
+      );
+    // "<source>:<line>:<pattern>\t<path>"
+    const m = r.status === 0 ? r.stdout.match(/^(.*?):\d+:(.*)\t/) : null;
+    return m ? { source: fwd(m[1]), pattern: m[2] } : null;
+  };
+  // Only the .gitignore files the repo carries, from its top down to the folder's .claude/, copied in place into a
+  // scratch repo with no excludes: this computer's own excludes (global, .git/info/exclude) can then neither stand
+  // in for them nor mask them (a ".claude/" line there would be the rule git names, the repo's line unseen).
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pass-p25-"));
+  let carried;
+  try {
+    const parts = path.join(rel, ".claude").split(path.sep).filter(Boolean);
+    for (let i = 0; i <= parts.length; i++) {
+      const sub = parts.slice(0, i).join(path.sep);
+      const src = path.join(top, sub, ".gitignore");
+      if (!isFile(src)) continue;
+      fs.mkdirSync(path.join(scratch, sub), { recursive: true });
+      fs.copyFileSync(src, path.join(scratch, sub, ".gitignore"));
+    }
+    const init = spawnSync("git", ["init", "-q", scratch], {
+      encoding: "utf8",
+    });
+    if (init.status !== 0)
+      throw new Error(
+        `git init in ${fwd(scratch)} failed: ${init.stderr.trim()}`,
+      );
+    const none = path.join(scratch, ".git", "no-excludes");
+    fs.writeFileSync(none, "");
+    fs.writeFileSync(path.join(scratch, ".git", "info", "exclude"), "");
+    carried = ruleOf(
+      spawnSync(
+        "git",
+        [
+          "-C",
+          scratch,
+          "-c",
+          `core.excludesFile=${fwd(none)}`,
+          "check-ignore",
+          "-v",
+          "--no-index",
+          relFile,
+        ],
+        { encoding: "utf8" },
+      ),
+      `a scratch copy of ${fwd(top)}'s .gitignore files`,
+    );
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+  if (!carried || carried.pattern.startsWith("!")) {
+    const here = ruleOf(
+      gitRead(dir, "check-ignore", "-v", "--no-index", LOCAL_SETTINGS),
+      fwd(dir),
+    );
+    const why = carried
+      ? ` (the line \`${carried.pattern}\` in ${carried.source} un-ignores it)`
+      : here && !here.pattern.startsWith("!")
+        ? ` (only ${here.source} on this computer ignores it, and a clone elsewhere does not have that)`
+        : "";
+    add(
+      "P25.ignore",
+      "ask",
+      ".gitignore",
+      `${LOCAL_SETTINGS} is not ignored by a .gitignore the repo carries${why}: add the line \`${LOCAL_SETTINGS}\`, because the "don't ask again" list keeps each approved command word for word, a typed token or password too`,
+    );
+  }
+  const ls = gitRead(dir, "ls-files", "--", LOCAL_SETTINGS);
+  if (ls.status !== 0)
+    throw new Error(`git ls-files failed in ${fwd(dir)}: ${ls.stderr.trim()}`);
+  if (ls.stdout.trim())
+    add(
+      "P25.tracked",
+      "ask",
+      LOCAL_SETTINGS,
+      `git tracks ${LOCAL_SETTINGS}: run git rm --cached ${LOCAL_SETTINGS}, then commit on the person's word without naming that file (a commit that names it takes the copy on disk and tracks it again); read git log -p -- ${LOCAL_SETTINGS} and rotate at its provider any token or password in it, because the history keeps it`,
     );
   // P23: the changelog's headings and plain tags (only in a folder with a CHANGELOG.md or a tag)
   if (isFile(at("CHANGELOG.md"))) {

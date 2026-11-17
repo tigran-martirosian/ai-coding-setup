@@ -102,11 +102,14 @@ export function updateCommand(claudePath) {
   return ["claude", ["update"]];
 }
 
-// opts: { min, dry, run, exists, platform, arch, env, log }. Returns { stop: string|null }.
+// opts: { min, dry, minOnly, run, exists, platform, arch, env, log }. Returns { stop: string|null }.
+// minOnly (update.mjs --quiet, a run in the background while Claude runs, where its own update fails): only the
+// version against the minimum; no npm, no update, no look at Nimbalyst's copy.
 export function checkClaudeCode(opts) {
   const {
     min,
     dry = false,
+    minOnly = false,
     run = realRun,
     exists = fs.existsSync,
     platform = process.platform,
@@ -127,6 +130,20 @@ export function checkClaudeCode(opts) {
   };
 
   let cur = versionOf("claude");
+  if (minOnly) {
+    if (!cur) {
+      log(
+        "Claude Code: its version could not be read (not found on the PATH, or no answer within 30 seconds), so it was not checked.",
+      );
+      return { stop: null };
+    }
+    if (compareVersions(cur, min) < 0)
+      return {
+        stop: `Claude Code ${cur} is older than ${min}, which this setup needs (its agent files use autoCompactWindow), and an update in the background does not update Claude Code. Close Claude, run \`claude update\` in a plain terminal, then run /update-setup.`,
+      };
+    log(`Claude Code ${cur}, at or above the minimum ${min}.`);
+    return { stop: null };
+  }
   const npmOut = run("npm", ["view", "@anthropic-ai/claude-code", "version"]);
   const latest =
     npmOut.status === 0 && !npmOut.error ? parseVersion(npmOut.stdout) : null;

@@ -19,9 +19,15 @@
 //
 // Data folder <data> = %LOCALAPPDATA%\ai-coding-setup\nimbalyst (NIMBALYST_DELIVER_DATA moves it; the quit
 // listener honours the same variable). Files: off.json, staged.json { version, installer|null, node, deliver,
-// at, override?, asarSha256? } or a restore job { restore: true, installer: null, node, deliver, at },
+// at, atClose, override?, asarSha256? } or a restore job { restore: true, installer: null, node, deliver, at } or a
+// marker job { extensions: true, installer: null, node, deliver, at, atClose: true },
 // status.json { at, ok, version, patches, override?, error? }, download.lock { pid, version, at } while a stage
 // run works, deliver.log.
+// `atClose` is true when the app's close listener will start --after-quit (the app is patched; the delivery is on).
+// Panels (Nimbalyst extensions the setup built into extensions-pending, see ext-swap.mjs) go in after the job's
+// own work in --install-now and --after-quit, never while Nimbalyst runs. With no other job staged, --stage keeps a
+// marker job while panels wait and the close listener is there: it makes the close start --after-quit, installs
+// nothing, writes no status.json and goes once no panel waits. A failed swap goes to deliver.log only.
 // Off when NIMBALYST_FOLLOW=off (any case; environment, or the env of ~/.claude/settings.json) or off.json exists.
 // A job marked `override` (a trial of a version newer than the pin, written by the follow script) is never
 // replaced by --stage; it is checked against its own asarSha256 and status.json keeps `override: true`.
@@ -45,6 +51,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pendingNames, swapPending } from "./ext-swap.mjs";
 import {
   apply,
   asarVersion,
@@ -331,7 +338,8 @@ export async function statusLine() {
   const app = await appState(install),
     staged = readJson(D().staged),
     status = readJson(D().status);
-  if (staged && !staged.restore) {
+  // a restore job and a marker job (panels only) have no version: for Nimbalyst nothing is staged
+  if (staged?.version) {
     return (
       (app.blocked
         ? `${staged.version} installs when Nimbalyst closes`
@@ -389,8 +397,76 @@ function restoreOriginal(P) {
   log(`--off: ${lines.join("; ")}; Nimbalyst updates itself again`);
 }
 
+// ---- panels ----
+
+const isMarker = (job) => job?.extensions === true && !job.version;
+
+// Swaps the waiting panels in; ext-swap.mjs checks itself that Nimbalyst is closed. A failure goes to deliver.log
+// only: the panels stay pending and the next close tries again. Returns whether a panel still waits.
+function swapPanels(tag) {
+  try {
+    if (!pendingNames().length) return false;
+    swapPending({ log: (l) => log(`${tag}: panels: ${l}`) });
+    return pendingNames().length > 0;
+  } catch (e) {
+    log(`${tag}: panels: not swapped, they stay pending: ${e.message}`);
+    return true;
+  }
+}
+
+// With no other job staged: keeps a marker job while panels wait and the close listener can start the swap (the
+// app patched, the delivery on); else drops a marker job that is there.
+function markPanels(tag, blocked) {
+  const d = D(),
+    job = readJson(d.staged);
+  if (job && !isMarker(job)) return;
+  const waiting = pendingNames();
+  if (waiting.length && blocked && !isOff()) {
+    writeJson(d.staged, {
+      extensions: true,
+      installer: null,
+      node: process.execPath,
+      deliver: SELF,
+      at: new Date().toISOString(),
+      atClose: true,
+    });
+    log(
+      `${tag}: panels wait (${waiting.join(", ")}): a marker job makes the next close swap them in`,
+    );
+  } else if (job) {
+    dropStaged();
+    log(
+      `${tag}: the marker job is dropped: ${waiting.length ? "no close listener starts the swap" : "no panel waits"}`,
+    );
+  }
+}
+
+// --install-now: the job's own work, then the waiting panels. A marker job only swaps the panels: no install, no
+// patch run, no status.json; it goes once no panel waits.
+async function installNow(tag = "--install-now") {
+  const job = readJson(D().staged);
+  if (isMarker(job)) {
+    if (swapPanels(tag)) {
+      log(`${tag}: panels still wait; the marker job stays for the next close`);
+      return 0;
+    }
+    dropStaged();
+    log(`${tag}: the panels are in; the marker job is dropped`);
+    return 0;
+  }
+  const code = await installJob();
+  if (swapPanels(tag) && !fs.existsSync(D().staged))
+    try {
+      const install = installDir();
+      if (install) markPanels(tag, (await appState(install)).blocked);
+    } catch (e) {
+      log(`${tag}: panels: no marker job written: ${e.message}`);
+    }
+  return code;
+}
+
 // Installs the staged job (if any) and patches, or carries out a restore job. The app must be closed.
-async function installNow() {
+async function installJob() {
   const install = installDir();
   if (!install) return fail("Nimbalyst is not installed");
   const P = appPaths(install),
@@ -617,7 +693,11 @@ function handOver(version) {
 async function stage({ worker = false } = {}) {
   if (process.platform !== "win32") return 0;
   if (isOff()) {
-    log("--stage: delivery is off");
+    // the close path is off: waiting panels wait for /update-setup
+    if (isMarker(readJson(D().staged))) {
+      dropStaged();
+      log("--stage: delivery is off; the marker job is dropped");
+    } else log("--stage: delivery is off");
     return 0;
   }
   const install = installDir();
@@ -633,6 +713,8 @@ async function stage({ worker = false } = {}) {
   }
   const pin = readPin();
   let job = readJson(d.staged);
+  // a marker job stays only while no Nimbalyst job is staged (markPanels below, or overwritten by a new job)
+  if (isMarker(job)) job = null;
   if (job?.restore) {
     dropStaged();
     job = null;
@@ -652,11 +734,13 @@ async function stage({ worker = false } = {}) {
       log(
         `--stage: installed ${app.version}${trial ? " (trial)" : ""} is newer than the pin ${pin.version}: nothing to do`,
       );
+      markPanels("--stage", app.blocked);
       return 0;
     }
     if (app.version === pin.version && app.complete) {
       if (job) dropStaged();
       log(`--stage: ${pin.version} is in with every fix: nothing to do`);
+      markPanels("--stage", app.blocked);
       return 0;
     }
     const have =
@@ -701,12 +785,17 @@ async function stage({ worker = false } = {}) {
       node: process.execPath,
       deliver: SELF,
       at: new Date().toISOString(),
+      atClose: (await appState(install)).blocked,
     };
     writeJson(d.staged, job);
     log(`--stage: staged ${pin.version}${installer ? "" : " (patches only)"}`);
   }
   if (!running(install).length) return installNow();
   const blocked = (await appState(install)).blocked;
+  if (job.atClose !== blocked) {
+    job = { ...job, atClose: blocked };
+    writeJson(d.staged, job);
+  }
   log(
     blocked
       ? `--stage: Nimbalyst is open; ${job.version} installs when it closes`
@@ -741,7 +830,8 @@ export const missingText = (exe, error) =>
 async function afterQuit() {
   if (process.platform !== "win32") return 0;
   const job = readJson(D().staged);
-  if (!job || (isOff() && !job.restore)) return 0;
+  // a marker job still swaps the panels with the delivery off: they are no part of it
+  if (!job || (isOff() && !job.restore && !isMarker(job))) return 0;
   const install = installDir();
   if (!install) return fail("Nimbalyst is not installed");
   const step = Math.max(50, Math.min(500, QUIT_WAIT_MS / 4)),
@@ -755,7 +845,7 @@ async function afterQuit() {
     }
     await new Promise((r) => setTimeout(r, step));
   }
-  const code = await installNow();
+  const code = await installNow("--after-quit");
   // nobody waits for this run: a Nimbalyst that can't start any more is said on the screen
   const exe = appPaths(install).exe;
   if (code && !fs.existsSync(exe))

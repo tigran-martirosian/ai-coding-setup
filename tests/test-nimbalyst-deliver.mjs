@@ -208,6 +208,9 @@ function world(
     NIMBALYST_DELIVER_RUNNING: w.runningFile,
     NIMBALYST_DELIVER_QUIT_WAIT_MS: "600",
     NIMBALYST_PATCH_PROGRAM_DIRS: "",
+    // the panels (ext-swap.mjs): Nimbalyst's own folder in the world, running while the running file exists
+    APPDATA: path.join(root, "appdata"),
+    SETUP_NIMBALYST_OPEN_FILE: w.runningFile,
     FAKE_INSTALLER_LOG: w.installerLog,
     FAKE_DOWNLOAD_LOG: w.downloadLog,
     FAKE_INSTALL_DIR: install,
@@ -851,6 +854,128 @@ try {
     "unknown option: exit 2",
     r.code === 2 && /unknown option --bogus/.test(r.out),
     r.out,
+  );
+
+  // 13. panels waiting in extensions-pending (T10): the close swaps them in after the job's own work
+  const COMPLETE = 'module.exports = { updater: "off", label: "Changed" };\n';
+  const panels = (w) => {
+    const data = path.join(w.root, "appdata", "@nimbalyst", "electron");
+    const p = {
+      live: path.join(data, "extensions", "demo"),
+      pending: path.join(data, "extensions-pending", "demo"),
+    };
+    write(path.join(p.pending, "new.txt"), "new");
+    write(path.join(p.live, "old.txt"), "old");
+    p.swapped = () =>
+      fs.existsSync(path.join(p.live, "new.txt")) &&
+      !fs.existsSync(path.join(p.live, "old.txt")) &&
+      !fs.existsSync(p.pending);
+    return p;
+  };
+  const isMarker = (job) =>
+    job?.extensions === true &&
+    !("version" in job) &&
+    job.installer === null &&
+    job.node === process.execPath &&
+    path.resolve(job.deliver).toLowerCase() ===
+      path.resolve(DELIVER).toLowerCase();
+
+  // a patched app at the pin with every fix, open: nothing for Nimbalyst, so a marker job
+  w = world("panels", { version: "0.84.0", running: true });
+  buildAsar(w.asar, "0.84.0", COMPLETE);
+  const asarBefore = sha256(w.asar);
+  let pan = panels(w);
+  r = w.stage();
+  check(
+    "panels waiting, patched app, delivery on, no Nimbalyst job: --stage leaves a marker job with atClose true and no version",
+    r.code === 0 && isMarker(w.staged()) && w.staged().atClose === true,
+    `${r.out}\n${JSON.stringify(w.staged())}\n${w.log()}`,
+  );
+  const markerLine = w.line();
+  const stagedFile = path.join(w.data, "staged.json");
+  fs.renameSync(stagedFile, `${stagedFile}.aside`);
+  const plainLine = w.line();
+  fs.renameSync(`${stagedFile}.aside`, stagedFile);
+  check(
+    "marker job only: --status prints the line it prints with nothing staged",
+    markerLine === plainLine &&
+      markerLine === "nimbalyst: on, 0.84.0, 2 fixes applied",
+    `${markerLine}\n${plainLine}`,
+  );
+  w.setRunning(false);
+  r = w.run("--after-quit");
+  check(
+    "marker job: --after-quit swaps the panel in, drops the marker, writes no status.json, installs and patches nothing",
+    r.code === 0 &&
+      pan.swapped() &&
+      !w.staged() &&
+      !w.status() &&
+      w.installerRuns().length === 0 &&
+      sha256(w.asar) === asarBefore,
+    `${r.out}\n${JSON.stringify(w.staged())}\n${JSON.stringify(w.status())}\n${w.log()}`,
+  );
+
+  // a Nimbalyst job staged on a patched open app: at the close its install runs first, then the panels go in
+  w = world("panels-job", { blocked: true, running: true });
+  pan = panels(w);
+  r = w.stage();
+  check(
+    "panels waiting with a Nimbalyst job: the job is staged (not a marker), atClose true",
+    r.code === 0 &&
+      w.staged()?.version === "0.84.0" &&
+      w.staged().installer &&
+      w.staged().atClose === true &&
+      !w.staged().extensions,
+    `${r.out}\n${JSON.stringify(w.staged())}`,
+  );
+  w.setRunning(false);
+  r = w.run("--after-quit");
+  const installedAt = w.log().indexOf("installed 0.84.0"),
+    swappedAt = w.log().indexOf("panels: demo: swapped in");
+  check(
+    "Nimbalyst job: --after-quit installs and patches, then swaps the panel in",
+    r.code === 0 &&
+      asarVersion(w.asar) === "0.84.0" &&
+      patchedText(w.asar) &&
+      w.status()?.ok === true &&
+      !w.staged() &&
+      pan.swapped() &&
+      installedAt >= 0 &&
+      swappedAt > installedAt,
+    `${r.out}\n${w.log()}`,
+  );
+
+  // delivery off: no marker, and one left from before goes
+  w = world("panels-off", { version: "0.84.0", running: true });
+  buildAsar(w.asar, "0.84.0", COMPLETE);
+  pan = panels(w);
+  w.stage();
+  const hadMarker = isMarker(w.staged());
+  r = w.stage({ NIMBALYST_FOLLOW: "off" });
+  check(
+    "delivery off: --stage leaves no marker job (one from before is dropped), the panel stays pending",
+    hadMarker && r.code === 0 && !w.staged() && fs.existsSync(pan.pending),
+    `${hadMarker}\n${r.out}\n${JSON.stringify(w.staged())}\n${w.log()}`,
+  );
+
+  // the app not patched: no close listener, so atClose false (and no marker job)
+  w = world("panels-unpatched", { running: true });
+  pan = panels(w);
+  r = w.stage();
+  check(
+    "app not patched: the staged Nimbalyst job has atClose false",
+    r.code === 0 &&
+      w.staged()?.version === "0.84.0" &&
+      w.staged().atClose === false,
+    `${r.out}\n${JSON.stringify(w.staged())}`,
+  );
+  w = world("panels-unpatched-newer", { version: "0.90.0", running: true });
+  pan = panels(w);
+  r = w.stage();
+  check(
+    "app not patched, nothing for Nimbalyst: no marker job, the panel stays pending",
+    r.code === 0 && !w.staged() && fs.existsSync(pan.pending),
+    `${r.out}\n${JSON.stringify(w.staged())}\n${w.log()}`,
   );
 } finally {
   fs.rmSync(T, { recursive: true, force: true });

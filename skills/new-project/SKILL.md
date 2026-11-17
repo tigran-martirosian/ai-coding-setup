@@ -49,6 +49,7 @@ each as its own question (not a tick-list):
 | `.claude/rules/` | One short file per rule area (e.g. `content-sources.md`, `code-style.md`) that is too long for CLAUDE.md |
 | `.claude/skills/`, `.claude/agents/` | Project-only skills from step 3; otherwise empty for now. The project's CLAUDE.md names each skill in one line, with the ask in the user's words (example: "a deploy, hotfix or rollback → `.claude/skills/deploy`"). Add a read-only reviewer agent when output quality needs an independent check. When step 1 shows distinct kinds of sessions (for example building, answering questions, releasing), offer one skill per kind and a "Which skill" table in CLAUDE.md. |
 | `.claude/settings.json` | `permissions.allow` for the project's safe, frequent commands (test, lint, build) so they don't prompt, and `enabledPlugins` from step 3 |
+| `.gitignore` | Git kinds: holds `.claude/settings.local.json`, because Claude Code saves each "don't ask again" command there word for word (a typed token too) and hides it at most through this computer's git excludes, which a clone elsewhere lacks. |
 | `.gitattributes` | Git kinds: a copy of `preset/gitattributes.txt` (LF line ends, CRLF for Windows scripts, binaries marked), so a Windows clone does not break shell scripts. |
 | `.github/pull_request_template.md` | GitHub kinds: a copy of `preset/pull_request_template.md` (What changes, Why, How it was checked). |
 | `.github/workflows/ci.yml` | GitHub public: the stack's CI template (step 2b, "CI"). GitHub private: offered, because each run spends the account's included minutes. |
@@ -65,7 +66,7 @@ Keep everything short. CLAUDE.md is loaded into every session and every line cos
 ## 2b. Git and GitHub (the history answer of step 1)
 
 What each kind gets. **set** = done as part of the answer; **offered** = one question; a dash names
-why it is not possible. `/update-project` checks the same items (P13-P23 in its `checks.md`).
+why it is not possible. `/update-project` checks the same items (P13-P25 in its `checks.md`).
 
 | Item | Git on this computer only | GitHub private | GitHub public |
 |---|---|---|---|

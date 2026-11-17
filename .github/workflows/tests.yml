@@ -1,6 +1,6 @@
 name: Tests
 
-# main gets one squash-merged pull request per release; tags start no run (the commit was tested as main).
+# main gets one squash-merged pull request per release; tags start no run (the commit was checked as main).
 # A pull request title is read when the pull request is opened, reopened or pushed to: after an edit of the
 # title, push again (a re-run reads the old title).
 on:
@@ -18,7 +18,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Tests run once per release, on its pull request (the ruleset requires them there); the push to main that the
+  # squash merge makes holds the same files, so it gets lint, typecheck and privacy only. A manual run tests too.
   test:
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -38,8 +41,10 @@ jobs:
       # On a Mac the plain ffmpeg has no drawtext filter; skills/watch/watch.mjs finds ffmpeg-full by itself.
       - if: runner.os == 'macOS'
         run: brew install ffmpeg ffmpeg-full
-      # --verbose: one file at a time with its full output, so a failure's whole log is in the run
-      - run: node tests/run-all.mjs --verbose
+      # Files side by side; on a failure the failed files run again one at a time with their full output, so the
+      # whole log is in the run. The step stays red even when the rerun passes: a flaky test is still a failure.
+      - shell: bash
+        run: node tests/run-all.mjs || { node tests/run-all.mjs --failed --verbose; exit 1; }
 
   lint:
     runs-on: ubuntu-latest

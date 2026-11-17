@@ -333,7 +333,7 @@
     {
       "id": "update-flow",
       "name": "Setup update and release",
-      "what": "Version check on prompt (and the self-install of a files-only release), the update-setup skill that installs a newer release, the tidy of the person's own rules, and the version and changelog files.",
+      "what": "Version check on prompt (and the background self-install of a release that asks nothing, files-only or quiet), the update-setup skill that installs a newer release, the tidy of the person's own rules, and the version and changelog files.",
       "files": [
         "hooks/update-check.mjs",
         "skills/update-setup/update.mjs",
@@ -470,6 +470,9 @@
         "tools/nimbalyst-patch/deliver.mjs",
         "tools/nimbalyst-patch/restart.mjs",
         "tests/test-nimbalyst-patch.mjs",
+        "tests/test-nimbalyst-patch-guards.mjs",
+        "tests/test-nimbalyst-patch-real.mjs",
+        "tests/lib/nimbalyst-patch-fixture.mjs",
         "tests/test-nimbalyst-wakeup-note.mjs",
         "tests/test-nimbalyst-deliver.mjs",
         "tests/test-nimbalyst-restart.mjs"
@@ -674,6 +677,7 @@
       "what": "run-all with an empty home, the kit and the check that nothing private ships.",
       "files": [
         "tests/run-all.mjs",
+        "tests/test-run-all.mjs",
         "tests/lib/kit.mjs",
         "scripts/privacy-check.mjs",
         "tests/test-privacy-check.mjs",

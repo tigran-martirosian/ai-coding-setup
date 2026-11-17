@@ -1,4 +1,4 @@
-// ~/.phone-app/pc.log: one line per connect, pairing, page check, refused action, alert kind or error.
+// ~/.phone-app/pc.log: one line per connect, pairing, refused action, alert kind or error.
 // Never a secret, a key, the relay address, session text or a prompt. 1 MB per file, two files kept.
 import fs from "node:fs";
 import os from "node:os";
