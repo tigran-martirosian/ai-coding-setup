@@ -20,7 +20,7 @@ Answer from its output in a few lines. When the user names the session, add `--t
 `EOF`
 
 - When the user names the session (a Nimbalyst session id), add `--to <that id>` after `send`; Nimbalyst ids work, in any folder.
-- If it prints `Delivered to …`, `Queued for …` or `Left for …`, reply with that line. Only `Delivered` means the session has the note. The
+- If it prints `Delivered to …`, `Sent to …`, `Queued for …` or `Left for …`, reply with that line. Only `Delivered` means the session has the note. The
   name in it is the name on that session's tab: it tells the user where the note went.
   With several sessions active the script picks one itself (a busy one, else the most recently
   active): never ask the user which.

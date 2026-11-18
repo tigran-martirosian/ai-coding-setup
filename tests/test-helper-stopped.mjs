@@ -79,6 +79,17 @@ check(
   note(run(agent([CUT], {}, "Task")))?.startsWith("[helper-stopped]"),
 );
 check(
+  "stopped early for a user note: answer the user, then finish it; a reviewer stopped so is not run",
+  note(
+    run(
+      agent([
+        HARNESS,
+        "Stopped early for a user note: is it done?\nDone: a.js. Left: b.js.",
+      ]),
+    ),
+  )?.includes("answer the user now"),
+);
+check(
   "normal report: silent",
   run(agent(["Files changed: a.js. Check: all passed."])).stdout === "",
 );

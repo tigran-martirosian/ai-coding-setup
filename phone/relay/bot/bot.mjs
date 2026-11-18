@@ -107,8 +107,8 @@ export function makeBot({ webhookSecret }) {
       let removed = 0;
       for (const [key, kept] of await store.list("topics:")) {
         const chatId = Number(key.slice("topics:".length));
-        for (const thread of [kept.alerts, kept.files]) {
-          if (thread === null) continue;
+        for (const thread of [kept.inbox, kept.alerts, kept.files]) {
+          if (!Number.isSafeInteger(thread)) continue;
           try {
             await telegram("deleteForumTopic", {
               chat_id: chatId,
@@ -161,8 +161,47 @@ export function makeBot({ webhookSecret }) {
         await ownerCommand(cmd[1], (cmd[2] || "").trim());
         return true;
       }
+      // Telegram's own notes about topics are not the user's items.
+      if (TOPIC_NOTES.some((k) => msg[k])) {
+        if (msg.forum_topic_created?.is_name_implicit === true)
+          await store.put(
+            strayKey(from, msg.message_thread_id ?? msg.message_id),
+            {
+              at: now(),
+            },
+          );
+        return true;
+      }
+      await nameStray(msg);
       await held.forward(msg, user);
       return true;
+    }
+
+    // A message sent outside the bot's topics makes Telegram open a topic it names itself ("New Chat"). Telegram
+    // says so with a forum_topic_created note whose is_name_implicit is true, either as its own update (kept as
+    // `stray:<chat>:<thread>`) or as the reply_to_message of the topic's first messages. The topic is renamed once,
+    // after what its first item is; a refused rename is logged and the item still goes to the PC.
+    async function nameStray(msg) {
+      const thread = msg.message_thread_id;
+      if (!Number.isSafeInteger(thread)) return;
+      const key = strayKey(msg.chat.id, thread);
+      const noted = await store.get(key);
+      const implicit =
+        msg.reply_to_message?.forum_topic_created?.is_name_implicit === true &&
+        (await store.get(namedKey(msg.chat.id, thread))) === undefined;
+      if (noted === undefined && !implicit) return;
+      await store.delete(key);
+      await store.put(namedKey(msg.chat.id, thread), { at: now() });
+      try {
+        await telegram("editForumTopic", {
+          chat_id: msg.chat.id,
+          message_thread_id: thread,
+          name: strayName(msg),
+        });
+        log("stray topic named");
+      } catch (e) {
+        log(`stray topic name refused: ${e.message}`);
+      }
     }
 
     async function redeem(msg, token, origin) {
@@ -333,6 +372,41 @@ export function makeBot({ webhookSecret }) {
 }
 
 const firstName = (msg) => String(msg.from.first_name || "").slice(0, 64);
+
+// Telegram's service notes about topics in a private chat with topics on.
+const TOPIC_NOTES = [
+  "forum_topic_created",
+  "forum_topic_edited",
+  "forum_topic_closed",
+  "forum_topic_reopened",
+  "general_forum_topic_hidden",
+  "general_forum_topic_unhidden",
+];
+const strayKey = (chatId, thread) => `stray:${chatId}:${thread}`;
+const namedKey = (chatId, thread) => `named:${chatId}:${thread}`;
+const NAME_MAX = 40;
+
+// A stray topic's name after what the message holds: "Photo", a file's name, "Link: example.com", or the text's
+// first words; at most NAME_MAX characters.
+export function strayName(msg) {
+  const cut = (s) => {
+    const one = s.replace(/\s+/g, " ").trim();
+    return one.length > NAME_MAX ? `${one.slice(0, NAME_MAX - 1)}…` : one;
+  };
+  if (msg.photo) return "Photo";
+  if (msg.video) return "Video";
+  if (msg.animation) return "GIF";
+  if (msg.voice) return "Voice note";
+  if (msg.video_note) return "Video note";
+  if (msg.sticker) return "Sticker";
+  if (msg.audio)
+    return cut(msg.audio.title || msg.audio.file_name || "") || "Audio";
+  if (msg.document) return cut(msg.document.file_name || "") || "File";
+  const text = typeof msg.text === "string" ? msg.text : msg.caption || "";
+  const url = /https?:\/\/([^\s/?#]+)/i.exec(text);
+  if (url) return cut(`Link: ${url[1].replace(/^www\./i, "")}`);
+  return cut(text) || "Note";
+}
 
 // Compares two texts in a time that does not depend on where they differ.
 function sameText(a, b) {

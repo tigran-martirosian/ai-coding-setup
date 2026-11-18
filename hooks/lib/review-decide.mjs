@@ -4,6 +4,7 @@
 import path from "node:path";
 import { isCode, isSetup } from "./code-files.mjs";
 import { fileKey } from "./paths.mjs";
+import { NOTE_STOP } from "./texts.mjs";
 
 export const MIN_FILES = 10; // different code files since the last review (CODE_REVIEW_MIN_FILES changes it)
 export const MIN_STEPS = 2; // helper steps that edited code: a job of several steps
@@ -97,8 +98,10 @@ export function smallSetupEdits(lineMap, otherKeys = new Set()) {
 }
 
 // A reviewer's last entry is a report: it ends on text, with the report's line or long enough to be one
+// A reviewer a user note stopped early has done only part of its review
 export const reported = (r) =>
   r.type === "assistant" &&
+  !r.said.includes(NOTE_STOP) &&
   (r.said.includes(REPORT_PHRASE) || r.said.length >= REPORT_MIN);
 
 // What helpers changed between two times. A helper resumed for a fix keeps its whole history in one file, so the

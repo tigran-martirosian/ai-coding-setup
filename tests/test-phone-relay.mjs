@@ -1247,11 +1247,15 @@ await relay.close();
   let nextThread = 50;
   const gone = new Set(); // thread ids the "user" deleted: a call into one is refused as Telegram does
   const calls = [];
+  // As Telegram answered live (2026-11-18): an edit of a deleted topic is TOPIC_ID_INVALID, a send into one is
+  // "message thread not found", and a chat action into one succeeds.
   const topicTelegram = async (method, params) => {
     calls.push({ method, params });
-    if (gone.has(params.message_thread_id))
+    if (gone.has(params.message_thread_id) && method !== "sendChatAction")
       throw new Error(
-        `telegram ${method}: Bad Request: message thread not found`,
+        method === "editForumTopic"
+          ? `telegram ${method}: Bad Request: TOPIC_ID_INVALID`
+          : `telegram ${method}: Bad Request: message thread not found`,
       );
     if (method === "getMe")
       return { id: BOT_ID, username: "test_bot", has_topics_enabled: topicsOn };
@@ -1307,25 +1311,48 @@ await relay.close();
   });
   let pcA = await signIn(pc);
   same(
-    "topic mode on: a paired PC's sign-in creates Alerts and Files once in its chat (FAIL: no topics, or made twice)",
+    "topic mode on: a paired PC's sign-in creates Inbox, Alerts and Files once in its chat (FAIL: no topics, or made twice)",
     made(),
     [
+      { chat_id: OWNER, name: "Inbox" },
       { chat_id: OWNER, name: "Alerts" },
       { chat_id: OWNER, name: "Files" },
     ],
   );
   same(
     "the topic ids are kept as topics:<chat> (FAIL: a restart could not find them)",
-    (({ alerts, files }) => ({ alerts, files }))(
+    (({ inbox, alerts, files }) => ({ inbox, alerts, files }))(
       relay.map.get(`topics:${OWNER}`),
     ),
-    { alerts: 51, files: 52 },
+    { inbox: 51, alerts: 52, files: 53 },
+  );
+  const opens = () =>
+    calls
+      .filter(
+        (c) => c.method === "sendMessage" && c.params.text === "Open the app",
+      )
+      .map((c) => [
+        c.params.message_thread_id,
+        c.params.reply_markup.inline_keyboard[0][0].web_app.url,
+      ]);
+  const pins = () => calls.filter((c) => c.method === "pinChatMessage").length;
+  same(
+    "each topic gets one pinned Open button at sign-in (FAIL: inside a topic on iPhone there is no way to open the app)",
+    [opens(), pins()],
+    [
+      [
+        [51, `${relay.url}/`],
+        [52, `${relay.url}/`],
+        [53, `${relay.url}/`],
+      ],
+      3,
+    ],
   );
   await alert(pcA, "t1");
   same(
     "topic mode on: an alert carries the Alerts topic's id",
     lastAlert().message_thread_id,
-    51,
+    52,
   );
 
   await relay.close();
@@ -1335,15 +1362,31 @@ await relay.close();
   same(
     "after a relay restart nothing is created again and alerts still go to Alerts (FAIL: the kept ids were lost)",
     [made().length, lastAlert().message_thread_id],
-    [2, 51],
+    [3, 52],
   );
 
-  gone.add(51);
+  // The bug seen 2026-11-18: a kept topic the user deleted stayed kept, so it was never made again.
+  gone.add(53);
+  await relay.close();
+  relay = await startLocalRelay(opts);
+  pcA = await signIn(pc);
+  same(
+    "a kept Files topic the user deleted is found at sign-in and made again (FAIL: the dead id is trusted and no Files topic exists)",
+    [made().length, made().at(-1).name, relay.map.get(`topics:${OWNER}`).files],
+    [4, "Files", 54],
+  );
+  same(
+    "the Open button is not sent again on a later sign-in, only into the remade Files topic (FAIL: a new pin every sign-in, or none in the new topic)",
+    [opens().length, opens().at(-1)[0], pins()],
+    [4, 54, 4],
+  );
+
+  gone.add(52);
   const answer = await alert(pcA, "t3");
   same(
     "an Alerts topic the user deleted is made again once and the alert sent into the new one",
     [answer, made().length, made().at(-1).name, lastAlert().message_thread_id],
-    [[], 3, "Alerts", 53],
+    [[], 5, "Alerts", 55],
   );
 
   const [, fwd] = await hook({
@@ -1353,7 +1396,7 @@ await relay.close();
       date: Math.floor(clock / 1000),
       from: { id: OWNER, first_name: "Owner" },
       chat: { id: OWNER, type: "private" },
-      message_thread_id: 52,
+      message_thread_id: 54,
       is_topic_message: true,
       document: { file_id: "FileIdF1", file_size: 10, file_name: "a.txt" },
     },
@@ -1367,18 +1410,140 @@ await relay.close();
     `${fwd} ${JSON.stringify(held)}`,
   );
 
+  same(
+    "a forward into a bot-made topic renames nothing (FAIL: the bot's own topic was taken for a stray one)",
+    calls.filter(
+      (c) =>
+        c.method === "editForumTopic" &&
+        c.params.message_thread_id === 54 &&
+        c.params.name !== "Files",
+    ).length,
+    0,
+  );
+
+  // A stray topic Telegram opened for a message sent from the All view.
+  const owner = { id: OWNER, first_name: "Owner" };
+  const chat = { id: OWNER, type: "private" };
+  const date = Math.floor(clock / 1000);
+  const renames = () =>
+    calls
+      .filter(
+        (c) =>
+          c.method === "editForumTopic" && c.params.message_thread_id >= 70,
+      )
+      .map((c) => [c.params.message_thread_id, c.params.name]);
+  await hook({
+    update_id: 2,
+    message: {
+      message_id: 70,
+      message_thread_id: 70,
+      date,
+      from: owner,
+      chat,
+      forum_topic_created: {
+        name: "New Chat",
+        icon_color: 1,
+        is_name_implicit: true,
+      },
+    },
+  });
+  check(
+    "Telegram's topic-made note is not sent to the PC (FAIL: a service note became a saved item)",
+    pcA.takeJson().filter((f) => f.t === "held").length === 0,
+  );
+  await hook({
+    update_id: 3,
+    message: {
+      message_id: 71,
+      message_thread_id: 70,
+      is_topic_message: true,
+      date,
+      from: owner,
+      chat,
+      photo: [{ file_id: "PhotoP1", file_size: 10 }],
+    },
+  });
+  await hook({
+    update_id: 4,
+    message: {
+      message_id: 72,
+      message_thread_id: 70,
+      is_topic_message: true,
+      date,
+      from: owner,
+      chat,
+      text: "second item",
+    },
+  });
+  same(
+    'a stray topic is renamed once after its first item, and that item still reaches the PC (FAIL: still "New Chat", renamed twice, or the item lost)',
+    [renames(), pcA.takeJson().filter((f) => f.t === "held").length],
+    [[[70, "Photo"]], 2],
+  );
+  await hook({
+    update_id: 5,
+    message: {
+      message_id: 81,
+      message_thread_id: 80,
+      is_topic_message: true,
+      date,
+      from: owner,
+      chat,
+      reply_to_message: {
+        message_id: 80,
+        date,
+        from: owner,
+        chat,
+        forum_topic_created: {
+          name: "New Chat",
+          icon_color: 1,
+          is_name_implicit: true,
+        },
+      },
+      text: "see https://www.example.com/a?b=1 later",
+    },
+  });
+  await hook({
+    update_id: 6,
+    message: {
+      message_id: 91,
+      message_thread_id: 90,
+      is_topic_message: true,
+      date,
+      from: owner,
+      chat,
+      reply_to_message: {
+        message_id: 90,
+        date,
+        from: owner,
+        chat,
+        forum_topic_created: { name: "Receipts", icon_color: 1 },
+      },
+      text: "kept name",
+    },
+  });
+  same(
+    "a stray topic known only from its first message's reply is renamed after its link; a topic the user named is left alone",
+    renames(),
+    [
+      [70, "Photo"],
+      [80, "Link: example.com"],
+    ],
+  );
+
   const removed = await hook({ relay_command: "remove-topics" });
   const deleted = calls
     .filter((c) => c.method === "deleteForumTopic")
     .map((c) => c.params);
   same(
-    "remove-topics deletes both kept topics at Telegram and forgets their ids",
+    "remove-topics deletes every kept topic at Telegram and forgets their ids",
     [removed, deleted, relay.map.has(`topics:${OWNER}`)],
     [
-      [200, '{"removed":2}'],
+      [200, '{"removed":3}'],
       [
-        { chat_id: OWNER, message_thread_id: 53 },
-        { chat_id: OWNER, message_thread_id: 52 },
+        { chat_id: OWNER, message_thread_id: 51 },
+        { chat_id: OWNER, message_thread_id: 55 },
+        { chat_id: OWNER, message_thread_id: 54 },
       ],
       false,
     ],
@@ -1387,7 +1552,7 @@ await relay.close();
   same(
     "a second remove-topics changes nothing",
     [again, calls.filter((c) => c.method === "deleteForumTopic").length],
-    [[200, '{"removed":0}'], 2],
+    [[200, '{"removed":0}'], 3],
   );
   await relay.close();
 
@@ -1434,7 +1599,10 @@ await relay.close();
   const fileTelegram = async (method, params) => {
     if (method === "getMe") return { id: BOT_ID, has_topics_enabled: topicsOn };
     if (method === "createForumTopic")
-      return { message_thread_id: params.name === "Alerts" ? 61 : 62 };
+      return {
+        message_thread_id: { Inbox: 60, Alerts: 61 }[params.name] ?? 62,
+      };
+    if (method === "sendMessage") return { message_id: ++tgMessageId };
     return true;
   };
   // Like Telegram's sendDocument: reads the multipart body to its end, then answers.

@@ -151,7 +151,7 @@ const run = async (
         ? { success: true, stdout, stderr: "", exitCode: 0 }
         : {
             success: false,
-            stdout: "NOT SENT: idle",
+            stdout: stdout === "Delivered to it" ? "NOT SENT: idle" : stdout,
             stderr: "",
             exitCode: execCode,
           };
@@ -191,6 +191,20 @@ assert.deepEqual(r.calls[2].slice(1), ["sess-1", "look at X", []]);
 assert.deepEqual(r.outcome, { ok: true, message: "Queued, it starts now" });
 ok(
   "an idle session (exit 3): steer.mjs, then createQueuedPrompt(sessionId, text)",
+);
+r = await run(
+  3,
+  undefined,
+  "look at X",
+  [],
+  "NOT SENT: it has finished its reply and nothing is watching for notes.",
+);
+assert.deepEqual(r.outcome, {
+  ok: true,
+  message: "Queued, it starts when its reply ends",
+});
+ok(
+  "a session still ending its reply (exit 3): the label says it starts when the reply ends, not now",
 );
 
 r = await run(2);

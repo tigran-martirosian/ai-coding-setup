@@ -1,10 +1,6 @@
 # AI coding setup for Claude Code
 
-My Claude Code setup. Its hooks check what the agent says it did against Claude Code's own log, so it can't claim it ran the tests or opened a link when it didn't.
-
-It's in use at work by people in finance, data engineering and government IT.
-
-On 16 real code changes, my reviewer agent found 5 of 8 known bugs, matching a plain "review this change" prompt, with 40% fewer tokens. Replayed on real past sessions and made-up cases, the hooks ran 12,000+ times without a crash.
+A multi-agent setup for Claude Code. A planner, builders and independent reviewers take each feature from plan to tested code, and hooks check what an agent says it did against Claude Code's own log, so it can't claim it ran the tests or opened a link when it didn't. People in finance, data engineering and government IT use it for their own work.
 
 https://github.com/user-attachments/assets/9de3696e-cfde-4024-a7a3-7710bf9ebdb5
 
@@ -12,9 +8,9 @@ If the video doesn't load (the GitHub app sometimes won't play it), [watch it he
 
 ## Test results
 
-- **The reviewer agent found 5 of the 8 known bugs, as many as a plain "review this change" prompt, with 40% fewer tokens and 16% lower cost, and was faster on 13 of the 16 changes.** Both ran the same model, effort and tools; only the instructions differed.
-- **The hooks ran over 12,000 times on real past sessions and hard made-up cases with no crashes.** The delete, long-sleep and find guards were right on all 30 test commands.
-- False alarms: the hooks wrongly sent back work in 4 of 12 real sessions; after the fixes this test led to, 1 of 13 ([what changed](docs/test-results.md#the-hooks-on-real-sessions)).
+- **The reviewer agent finds as many bugs as a plain review, with 40% fewer tokens and 16% lower cost.** On 16 real code changes with 8 known bugs, it and a plain "review this change" prompt each found 5, and it was faster on 13 of the 16. Both ran the same model, effort and tools; only the instructions differed.
+- **The hooks ran over 12,000 times without a crash**, replayed on real past sessions and hard made-up cases. The delete, long-sleep and find guards were right on all 30 test commands.
+- **False alarms dropped from 4 of 12 real sessions to 1 of 13** after the fixes this test led to ([what changed](docs/test-results.md#the-hooks-on-real-sessions)).
 
 How each test ran: [docs/test-results.md](docs/test-results.md).
 
