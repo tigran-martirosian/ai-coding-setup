@@ -58,12 +58,15 @@ const ALERT_OPEN = /^[A-Za-z0-9_-]{1,16}$/;
 // deletes a message only while it is under 48 hours old, so older ones are dropped. bot.mjs reads the same keys.
 const ALERT_LIFE = 2 * DAY;
 const alertKey = (tgId, open) => `alert:${tgId}:${open}`;
-// Topics (files contract, section 7): with the bot's topic mode on, alerts go to an "Alerts" topic and documents to
-// a "Files" topic of each chat. Their thread ids are kept as `topics:<chat>` -> { alerts, files, at }; bot.mjs
-// removes them on the `remove-topics` command.
-const TOPIC_NAMES = { alerts: "Alerts", files: "Files" };
+// Topics (files contract, section 7): with the bot's topic mode on, each chat gets an "Inbox" topic for what the
+// user sends to the PC, an "Alerts" topic for alerts and a "Files" topic for documents, made in that order. Their
+// thread ids are kept as `topics:<chat>` -> { inbox, alerts, files, at }; bot.mjs removes them on the
+// `remove-topics` command. Telegram answers a send into a deleted topic "message thread not found" and an edit of
+// one "TOPIC_ID_INVALID", but a chat action into one succeeds (checked live 2026-11-18), so a kept topic is checked
+// with an edit of its own name.
+export const TOPIC_NAMES = { inbox: "Inbox", alerts: "Alerts", files: "Files" };
 const topicKey = (tgId) => `topics:${tgId}`;
-const THREAD_GONE = /message thread not found/i;
+const THREAD_GONE = /message thread not found|TOPIC_ID_INVALID/i;
 // Files to Telegram and to a browser (files contract, section 6): kept in the Hub's memory and the PC socket's
 // attachment only, never in the store.
 const FILE_MAX = 50 * 1024 * 1024;
@@ -445,13 +448,18 @@ export function createHub(env) {
           reply(p, { t: "pc-online" });
     }
     if (bot) await bot.pcConnected(f.pcId);
-    // Topic mode and the topics, after the answer has gone. An unpaired PC has no chat: its mode is read at its
-    // first alert. A refusal here only costs the topics until the next alert, so the PC stays signed in.
+    // Topic mode and the topics, after the answer has gone: each kept topic is checked and a missing one made. An
+    // unpaired PC has no chat: its mode is read at its first alert. A refusal here only costs the topics until the
+    // next alert or file, so the PC stays signed in.
     if (pc.tgId === null) return;
     try {
       if (await topicMode(ws)) {
-        await topicId(pc.tgId, "alerts");
-        await topicId(pc.tgId, "files");
+        // All topics first, so a refused Open button never stops a topic from being made.
+        const threads = {};
+        for (const which of Object.keys(TOPIC_NAMES))
+          threads[which] = await liveTopic(pc.tgId, which);
+        for (const which of Object.keys(TOPIC_NAMES))
+          await openButton(pc.tgId, which, threads[which], a.origin);
       }
     } catch (e) {
       log(`topics at sign-in refused: ${e.message}`);
@@ -469,29 +477,102 @@ export function createHub(env) {
     return on;
   }
 
-  // The kept thread id of topic `which` ("alerts" or "files") in the chat tgId; made once when none is kept.
-  async function topicId(tgId, which) {
-    const kept = (await store.get(topicKey(tgId))) ?? {
-      alerts: null,
-      files: null,
-      at: null,
-    };
-    if (kept[which] !== null) return kept[which];
-    const made = await telegram("createForumTopic", {
-      chat_id: tgId,
-      name: `${TOPIC_NAMES[which]}${topicSuffix}`,
+  // One chat's topic record is read and written by one call at a time: a sign-in and an alert both making topics
+  // would otherwise each write back the record they read, and the later write would drop the other's new topic.
+  const topicTurns = new Map();
+  function topicTurn(tgId, fn) {
+    const run = (topicTurns.get(tgId) ?? Promise.resolve()).then(fn);
+    const done = run.catch(() => {});
+    topicTurns.set(tgId, done);
+    done.then(() => {
+      if (topicTurns.get(tgId) === done) topicTurns.delete(tgId);
     });
-    if (!Number.isSafeInteger(made?.message_thread_id))
-      throw new Error(
-        "hub: Telegram's createForumTopic gave no message_thread_id",
-      );
-    await store.put(topicKey(tgId), {
-      ...kept,
-      [which]: made.message_thread_id,
-      at: now(),
+    return run;
+  }
+  const topicName = (which) => `${TOPIC_NAMES[which]}${topicSuffix}`;
+
+  // The kept thread id of topic `which` (a TOPIC_NAMES key) in the chat tgId; made once when none is kept.
+  function topicId(tgId, which) {
+    return topicTurn(tgId, async () => {
+      const kept = (await store.get(topicKey(tgId))) ?? { at: null };
+      if (Number.isSafeInteger(kept[which])) return kept[which];
+      const made = await telegram("createForumTopic", {
+        chat_id: tgId,
+        name: topicName(which),
+      });
+      if (!Number.isSafeInteger(made?.message_thread_id))
+        throw new Error(
+          "hub: Telegram's createForumTopic gave no message_thread_id",
+        );
+      await store.put(topicKey(tgId), {
+        ...kept,
+        [which]: made.message_thread_id,
+        at: now(),
+      });
+      log(`topic made: ${which}`);
+      return made.message_thread_id;
     });
-    log(`topic made: ${which}`);
-    return made.message_thread_id;
+  }
+
+  // Forgets topic `which` of the chat tgId when its kept id is still `thread` (the user deleted it).
+  function forgetTopic(tgId, which, thread) {
+    return topicTurn(tgId, async () => {
+      const kept = await store.get(topicKey(tgId));
+      if (!kept || kept[which] !== thread) return;
+      await store.put(topicKey(tgId), { ...kept, [which]: null });
+      log(`topic gone: ${which}`);
+    });
+  }
+
+  // Telegram for iPhone shows the chat's menu button (the bot's Open) only in the All view, never inside a topic
+  // (user, 2026-11-18). So each topic gets one pinned message with an Open button, sent once per topic thread and
+  // kept as `opens.<which>` = { thread, msg } in the topic record; a topic made again gets a new one.
+  function openButton(tgId, which, thread, origin) {
+    if (typeof origin !== "string")
+      throw new Error("hub: the Open button needs the relay's origin");
+    return topicTurn(tgId, async () => {
+      const kept = (await store.get(topicKey(tgId))) ?? { at: null };
+      if (kept.opens?.[which]?.thread === thread) return;
+      const msg = await telegram("sendMessage", {
+        chat_id: tgId,
+        message_thread_id: thread,
+        text: "Open the app",
+        disable_notification: true,
+        reply_markup: {
+          inline_keyboard: [[{ text: "Open", web_app: { url: `${origin}/` } }]],
+        },
+      });
+      if (!Number.isSafeInteger(msg?.message_id))
+        throw new Error("hub: Telegram's sendMessage gave no message_id");
+      await telegram("pinChatMessage", {
+        chat_id: tgId,
+        message_id: msg.message_id,
+        disable_notification: true,
+      });
+      await store.put(topicKey(tgId), {
+        ...kept,
+        opens: { ...kept.opens, [which]: { thread, msg: msg.message_id } },
+      });
+      log(`open button pinned: ${which}`);
+    });
+  }
+
+  // The thread id of topic `which`, checked at Telegram with an edit of its own name (which also undoes a rename by
+  // the user); a topic the user deleted is forgotten and made again. Any other refusal is thrown.
+  async function liveTopic(tgId, which) {
+    const thread = await topicId(tgId, which);
+    try {
+      await telegram("editForumTopic", {
+        chat_id: tgId,
+        message_thread_id: thread,
+        name: topicName(which),
+      });
+      return thread;
+    } catch (e) {
+      if (!THREAD_GONE.test(e.message)) throw e;
+    }
+    await forgetTopic(tgId, which, thread);
+    return topicId(tgId, which);
   }
 
   // Calls `method` in topic `which` of the chat tgId. A topic the user deleted is forgotten, made again once and
@@ -503,9 +584,7 @@ export function createHub(env) {
         return await telegram(method, { ...params, message_thread_id: thread });
       } catch (e) {
         if (again || !THREAD_GONE.test(e.message)) throw e;
-        log(`topic gone: ${which}`);
-        const kept = await store.get(topicKey(tgId));
-        await store.put(topicKey(tgId), { ...kept, [which]: null });
+        await forgetTopic(tgId, which, thread);
       }
     }
   }
@@ -939,16 +1018,18 @@ export function createHub(env) {
     const given = req.headers["content-type"] ?? "";
     const type = MIME.test(given) ? given : "application/octet-stream";
 
-    // Topic mode: the topic is tried first with a chat action, so a topic the user deleted is made again (inTopic)
-    // before the body starts; a streamed body cannot be sent twice.
+    // Topic mode: the topic is checked first (liveTopic), so a topic the user deleted is made again before the body
+    // starts; a streamed body cannot be sent twice. A chat action alone would not do: Telegram takes one into a
+    // deleted topic.
     let thread = null;
     if (await topicMode(ws)) {
       try {
-        await inTopic(pc.tgId, "files", "sendChatAction", {
+        thread = await liveTopic(pc.tgId, "files");
+        await telegram("sendChatAction", {
           chat_id: pc.tgId,
+          message_thread_id: thread,
           action: "upload_document",
         });
-        thread = await topicId(pc.tgId, "files");
       } catch (e) {
         log(`file send refused: ${e.message}`);
         return refused(
@@ -1001,10 +1082,8 @@ export function createHub(env) {
         return refused(400, "aborted");
       }
       log(`file send refused: ${e.message}`);
-      if (thread !== null && THREAD_GONE.test(e.message)) {
-        const kept = await store.get(topicKey(pc.tgId));
-        await store.put(topicKey(pc.tgId), { ...kept, files: null });
-      }
+      if (thread !== null && THREAD_GONE.test(e.message))
+        await forgetTopic(pc.tgId, "files", thread);
       return refused(
         502,
         "telegram-refused",

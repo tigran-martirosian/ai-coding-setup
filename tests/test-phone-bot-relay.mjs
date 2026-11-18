@@ -522,7 +522,11 @@ await hook(
     forum_topic_created: { name: "New thread", icon_color: 7322096 },
   }),
 );
-same("the service message is held", keysOf("held:").length, 1);
+same(
+  "a topic-made service note is not held for the PC (FAIL: Telegram's thread notes reach the inbox as items)",
+  keysOf("held:").length,
+  0,
+);
 await until(
   "the service message is acknowledged",
   () => keysOf("held:").length === 0,

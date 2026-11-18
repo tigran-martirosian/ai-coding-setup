@@ -1,10 +1,15 @@
 {
-  "version": "26.4",
+  "version": "26.4.1",
   "claudeCodeMin": "2.1.321",
   "projectPass": 5,
   "date": "2026-11-18",
-  "summary": "Phone app: a Files tab to move files between PC and phone, instant open, desktop layout, easier code reading",
+  "summary": "Bot chat: Inbox, Alerts and Files topics with an Open button in each; notes reach a busy session sooner",
   "releases": {
+    "26.4.1": {
+      "kind": "quiet",
+      "important": true,
+      "headline": "Notes reach a busy session in seconds; bot chat topics each get an Open button"
+    },
     "26.4": {
       "kind": "quiet",
       "important": true,

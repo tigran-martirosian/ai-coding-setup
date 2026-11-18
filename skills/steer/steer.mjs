@@ -35,12 +35,14 @@ import path from "node:path";
 //                            send_prompt that carries a /btw note (the queue waits for the end of
 //                            the target's turn) until steer.mjs send was tried this turn.
 //   --watch                  Stop hook that runs in the background (asyncRewake): a session waiting
-//                            for a background job makes no tool calls and has ended its reply, so
-//                            --hook never runs. When a job is still running this waits for a
-//                            note and hands it over by waking the session (exit code 2, text on
-//                            stderr). Ends quietly when the session starts a new turn, since
+//                            for a background job, or whose reply has ended while Nimbalyst still
+//                            shows it running, makes no tool calls, so --hook never runs. This
+//                            waits for a note and hands it over by waking the session (exit code 2,
+//                            text on stderr). Ends quietly when the session starts a new turn, since
 //                            --hook covers that, when its Claude is gone, and after
-//                            STEER_WATCH_MAX seconds (default 7100). Forwarded reports are left
+//                            STEER_WATCH_MAX seconds with a job running (default 7100), else
+//                            STEER_WATCH_IDLE (default 600). Ending with a note unread, it has the
+//                            app's queue start the session through the outbox. Forwarded reports are left
 //                            alone: an idle session is woken for those through the outbox.
 //                            STEER_WATCH=off turns it off.
 //   status                   this session's notes that are still on their way or that failed
@@ -680,7 +682,10 @@ ${show(list)}`
   const busy = row
     ? BUSY.has(row.status) && !(row.status === "running" && ended)
     : !ended;
-  if (row && !busy) {
+  // Nimbalyst still says running after the reply ended (a median 39 s): no tool call is left to carry a
+  // note, so --watch wakes the session with it, or has the app's queue start it if the app stopped it.
+  const ending = !!row && !busy && row.status === "running";
+  if (row && !busy && !ending) {
     console.log(
       `NOT SENT: ${label(t)} ${BUSY.has(row.status) ? "has finished its reply and runs no background job" : `is ${row.status}`}, not busy. Send the note with send_prompt to session ${row.id} instead: it starts at once.`,
     );
@@ -713,6 +718,33 @@ ${show(list)}`
       }) + "\n",
     ),
   );
+  if (ending) {
+    // Only a live --watch can hand it over now (it looks every 2 s). None took it: take it back, so the
+    // caller starts the session with it through the app's queue as before.
+    const until =
+      Date.now() + Number(process.env.STEER_ENDING_WAIT ?? 6) * 1000;
+    const taken = () =>
+      read(inboxOf()).some((e) => e.id === id && e.seen) ||
+      !read(inboxOf()).some((e) => e.id === id);
+    while (Date.now() < until && !taken()) sleep(300);
+    let back = false;
+    locked(() => {
+      const all = read(inboxOf());
+      if (all.some((e) => e.id === id && !e.seen)) {
+        write(
+          inboxOf(),
+          all.filter((e) => e.id !== id),
+        );
+        back = true;
+      }
+    });
+    if (back) {
+      console.log(
+        `NOT SENT: ${label(t)} has finished its reply and nothing is watching for notes. Send the note with send_prompt to session ${row.id} instead: it starts at once.`,
+      );
+      process.exit(3);
+    }
+  }
   // "Sent" used to mean only "put in the inbox" and was reported as delivered. Wait for the receipt.
   const end = Date.now() + (busy && !noWait ? WAIT : 0);
   let got = null;
@@ -722,11 +754,13 @@ ${show(list)}`
     console.log(`Delivered to ${label(t)}: the note is in its session.`);
   else
     console.log(
-      !busy
-        ? `Left for ${label(t)}. It is idle, so it reads the note with your next message there (within ${MAX_AGE / 3600e3} hours).`
-        : row?.status === "waiting_for_input"
-          ? `Queued for ${label(t)}, not delivered yet. It is waiting for an answer in its tab; it reads the note right after that answer.`
-          : `Queued for ${label(t)}, not delivered yet. It reads the note before its next step; you are told if that isn't confirmed within ${WARN / 60e3} minutes. Check with: steer.mjs status`,
+      ending
+        ? `Sent to ${label(t)}: its reply is ending, so it is woken with the note within seconds.`
+        : !busy
+          ? `Left for ${label(t)}. It is idle, so it reads the note with your next message there (within ${MAX_AGE / 3600e3} hours).`
+          : row?.status === "waiting_for_input"
+            ? `Queued for ${label(t)}, not delivered yet. It is waiting for an answer in its tab; it reads the note right after that answer.`
+            : `Queued for ${label(t)}, not delivered yet. It reads the note before its next step; you are told if that isn't confirmed within ${WARN / 60e3} minutes. Check with: steer.mjs status`,
     );
   if (noWait) console.log(`Note id: ${id}`);
 } else if (mode === "status") {
@@ -960,7 +994,7 @@ ${show(list)}`
           JSON.stringify({
             hookSpecificOutput: {
               hookEventName: "PostToolUse",
-              additionalContext: `[btw] The user sent this note to the session that started you, while you were working. If it changes your task, follow it from now on and keep the rest. Either way, begin your final report with "User note received:" and what you did about it, so that session sees it too.\n${relay.map((e) => `- ${e.msg}`).join("\n")}`,
+              additionalContext: `[btw] The user sent this note to the session that started you, while you were working. If it is about your task, follow it from now on, keep the rest, and begin your final report with "User note received:" and what you did about it. Stop only if it tells you to stop or makes the rest of your task pointless: then finish the step you are on and end now with your report: "Stopped early for a user note:" the note, then what is done and what is left. If it is not about your task, otherwise carry on as you were: the session that started you reads it and decides what to do.\n${relay.map((e) => `- ${e.msg}`).join("\n")}`,
             },
           }),
         );
@@ -1366,7 +1400,9 @@ ${show(list)}`
     if (inp.agent_id || !inp.session_id || !tp || !fs.existsSync(DIR))
       process.exit(0);
     const start = fs.statSync(tp).size;
-    if (!jobRunning(fs.readFileSync(tp, "utf8"))) process.exit(0);
+    // With no job left it still watches a while: Nimbalyst keeps a finished reply's session busy for
+    // a median 39 s (2026-11-18, 26 cases, up to 10 min) and a note sent then has no hook to read it.
+    const job = jobRunning(fs.readFileSync(tp, "utf8"));
     // Claude only runs this hook in the background for a session that takes streaming input; a plain
     // claude -p waits for it, so there it must end at once. Not sure means ending too.
     const args = claudeArgs(),
@@ -1378,7 +1414,14 @@ ${show(list)}`
     )
       process.exit(0);
     const tick = Number(process.env.STEER_WATCH_TICK ?? 2) * 1000;
-    const end = Date.now() + Number(process.env.STEER_WATCH_MAX ?? 7100) * 1000;
+    const end =
+      Date.now() +
+      Number(
+        job
+          ? (process.env.STEER_WATCH_MAX ?? 7100)
+          : (process.env.STEER_WATCH_IDLE ?? 600),
+      ) *
+        1000;
     const pid = Number(process.env.CLAUDE_PID);
     const gone = () => {
       if (!pid) return false;
@@ -1412,13 +1455,38 @@ ${show(list)}`
     for (;;) {
       // Waits first: a note that came in as the reply ended belongs to --hook, which runs at the same moment.
       sleep(tick);
-      if (Date.now() > end || gone() || newTurn()) process.exit(0);
-      const got = [],
-        mine = (e) =>
-          e.to === inp.session_id &&
-          !e.seen &&
-          !e.kind &&
-          Date.now() - e.ts <= MAX_AGE;
+      const mine = (e) =>
+        e.to === inp.session_id &&
+        !e.seen &&
+        !e.kind &&
+        Date.now() - e.ts <= MAX_AGE;
+      if (newTurn()) process.exit(0);
+      if (Date.now() > end || gone()) {
+        // The app stopped the session with a note still unread: its queue starts it, and the note is
+        // read at the first step.
+        const waiting = fs
+          .readdirSync(DIR)
+          .filter((n) => n.endsWith(".jsonl"))
+          .some((n) => read(path.join(DIR, n)).some(mine));
+        // With no job, a note still unread at the end is the one send is about to take back and queue itself.
+        const row = waiting && job ? await nimbalystRow(inp.session_id) : null;
+        if (row) {
+          const now = Date.now();
+          locked(() => {
+            const keep = read(OUTBOX).filter((e) => now - e.ts < 2 * 3600e3);
+            keep.push({
+              id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+              ts: now,
+              session: row.id,
+              prompt:
+                "A note came for you after your last reply ended. It reaches you as a note at your first step: act on it.",
+            });
+            write(OUTBOX, keep);
+          });
+        }
+        process.exit(0);
+      }
+      const got = [];
       for (const n of fs.readdirSync(DIR)) {
         if (!n.endsWith(".jsonl")) continue;
         const f = path.join(DIR, n);

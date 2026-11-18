@@ -2,7 +2,7 @@
 // secrets file and runs the shared deploy (deploy.mjs) for the Worker phone-relay-test, always `beside`: the Worker
 // and the page (built as a test copy) only, no bot-wide call, so the real relay keeps the webhook, the menus and
 // the Open button. The owner gets one "Test copy" message with a button to the test address. Its topics are named
-// "Alerts (test)" and "Files (test)" (TOPIC_SUFFIX). After a deploy the test relay's address and webhook secret are
+// "Inbox (test)", "Alerts (test)" and "Files (test)" (TOPIC_SUFFIX). After a deploy the test relay's address and webhook secret are
 // kept in the secrets file (testRelayAddress, testRelayWebhookSecret) for --remove-topics. Prints only the relay's
 // address and those lines; no message holds a secret value.
 //   node phone/relay/deploy-test.mjs [--dry-run] [--checks] [--secrets <file>]

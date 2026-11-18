@@ -1371,7 +1371,7 @@ async function checkOld(old) {
     count(text, / connect pc-/g) === 1 && count(text, / closed /g) === 0,
     text
       .split("\n")
-      .filter((l) => / connect pc-| closed | dead| ping/.test(l))
+      .filter((l) => / connect pc-| closed | lost | stopped | drop /.test(l))
       .join("\n")
       .slice(-1200),
   );

@@ -80,7 +80,7 @@ may fetch. A plain test deploy afterwards takes both away.
 
     node phone/relay/deploy-test.mjs --remove-topics
 
-`--remove-topics` deletes the test relay's "Alerts (test)" and "Files (test)" topics, with their messages, in every
+`--remove-topics` deletes the test relay's "Inbox (test)", "Alerts (test)" and "Files (test)" topics, with their messages, in every
 chat. It uses the two keys each test deploy saves in your secrets file: `testRelayAddress` and
 `testRelayWebhookSecret`.
 

@@ -433,6 +433,7 @@ check(
           return { username: "t_bot", has_topics_enabled: true };
         if (method === "createForumTopic")
           return { message_thread_id: ++thread };
+        if (method === "sendMessage") return { message_id: 900 + thread };
         return true;
       },
       download: async () => {
@@ -476,11 +477,11 @@ check(
     frame({ t: "pc-auth", pcId, token: toB64url(token) });
     await settle();
     same(
-      'a test relay creates its topics as "Alerts (test)" and "Files (test)"',
+      'a test relay creates its topics as "Inbox (test)", "Alerts (test)" and "Files (test)"',
       tgCalls
         .filter((c) => c.method === "createForumTopic")
         .map((c) => c.params.name),
-      ["Alerts (test)", "Files (test)"],
+      ["Inbox (test)", "Alerts (test)", "Files (test)"],
     );
     const local = path.join(dir, "local-secrets.json");
     fs.writeFileSync(
@@ -489,9 +490,9 @@ check(
     );
     const n = await removeTopics({ file: local, say: () => {} });
     same(
-      "--remove-topics sends the kept secret to the test relay, which deletes both topics",
+      "--remove-topics sends the kept secret to the test relay, which deletes all three topics",
       [n, tgCalls.filter((c) => c.method === "deleteForumTopic").length],
-      [2, 2],
+      [3, 3],
     );
     ws.close();
     await relay.close();
