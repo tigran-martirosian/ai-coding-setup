@@ -6,9 +6,9 @@ It's in use at work by people in finance, data engineering and government IT.
 
 On 16 real code changes, my reviewer agent found 5 of 8 known bugs, matching a plain "review this change" prompt, with 40% fewer tokens. Replayed on real past sessions and made-up cases, the hooks ran 12,000+ times without a crash.
 
-https://github.com/user-attachments/assets/95705585-1526-4cd4-8db3-65d7c13bb9ea
+https://github.com/user-attachments/assets/9de3696e-cfde-4024-a7a3-7710bf9ebdb5
 
-If the video doesn't load (the GitHub app sometimes won't play it), [watch it here](https://github.com/user-attachments/assets/95705585-1526-4cd4-8db3-65d7c13bb9ea).
+If the video doesn't load (the GitHub app sometimes won't play it), [watch it here](https://github.com/user-attachments/assets/9de3696e-cfde-4024-a7a3-7710bf9ebdb5).
 
 ## Test results
 

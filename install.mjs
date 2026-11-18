@@ -84,6 +84,7 @@
 //                               PATH; remembered for later runs)
 // The jobs are in scripts/ (each says what it does); this file reads the flags, builds the run's ctx and
 // calls them in order. Each takes the ctx; what they record goes into ctx.nextState, written last.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -438,6 +439,29 @@ function passLevel() {
   );
 }
 
+// The phone add-on's voice notes: when the add-on is in place and voice is not set up (no ~/.phone-app/voice.json),
+// its speech model (about 480 MB) downloads in the background, nothing asked. Not with --home: the PC program
+// reads ~/.phone-app of this user only.
+function phoneVoice() {
+  const setup = path.join(CLAUDE, "skills", "phone-bot", "pc", "setup.mjs");
+  if (!ctx.withNames.includes("phone-bot") && !fs.existsSync(setup)) return;
+  if (opt("home") !== null) return;
+  if (fs.existsSync(path.join(home, ".phone-app", "voice.json"))) return;
+  if (DRY)
+    return say(
+      `phone voice: would start its setup in the background: node ${fwd(setup)} voice --background`,
+    );
+  const r = spawnSync(process.execPath, [setup, "voice", "--background"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (r.status !== 0)
+    say(
+      `phone voice: its setup did not start (${(r.stderr || r.stdout || String(r.error)).trim().split("\n").pop()}). Run: node ${fwd(setup)} voice`,
+    );
+  else say(`phone voice: ${r.stdout.trim()}`);
+}
+
 // --files-only: the setup's own files in ~/.claude and the record of them, nothing else and nothing asked
 if (FILES_ONLY) {
   if (!state.version || !("files" in state)) {
@@ -465,6 +489,7 @@ if (FILES_ONLY) {
   say(
     `Files of version ${ctx.version} in place: ${ctx.tally.added} added, ${ctx.tally.replaced.length} replaced, ${ctx.tally.same} unchanged.`,
   );
+  phoneVoice();
   process.exit(0);
 }
 
@@ -588,4 +613,5 @@ if (JSON.stringify(nextState) !== JSON.stringify(onDisk))
   });
 stateSaved = true;
 passLevel();
+phoneVoice();
 report(ctx, { noGitBash });

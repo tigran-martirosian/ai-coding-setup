@@ -66,6 +66,61 @@ const newProject = readFileSync(
   fileURLToPath(new URL("../skills/new-project/SKILL.md", import.meta.url)),
   "utf8",
 );
+// /new-project's base table and its verify and review presets (designs 2026-11-17: verify skill section 1 and 5,
+// review rules section 1 and 3). A missing preset reads as null, so its check FAILs instead of crashing.
+const baseTable = (
+  newProject
+    .replace(/\r\n/g, "\n")
+    .match(/\n## 2\. Create the base[\s\S]*?(?=\n## 2b\.)/)?.[0] || ""
+)
+  .split("\n")
+  .filter((l) => l.startsWith("| "));
+const baseRow = (file) =>
+  baseTable.find((l) => l.startsWith(`| \`${file}\` |`));
+const preset = (name) => {
+  try {
+    return readFileSync(
+      fileURLToPath(
+        new URL(`../skills/new-project/preset/${name}`, import.meta.url),
+      ),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+  } catch {
+    return null;
+  }
+};
+const inOrder = (text, heads) => {
+  let at = -1;
+  return heads.every((h) => {
+    at = text.indexOf(`\n${h}\n`, at + 1);
+    return at >= 0;
+  });
+};
+const VERIFY_KINDS = {
+  web: "--mute-audio",
+  godot: "godot --headless",
+  tool: "headless and muted",
+  pipeline: "headless and muted",
+};
+const VERIFY_HEADS = [
+  "## 1. Start",
+  "## 2. Use it",
+  "## 3. Proof",
+  "## 4. Clean up",
+  "## 5. Report",
+];
+const REVIEW_HEADS = [
+  "## What Important means here",
+  "## Nits",
+  "## Do not report",
+  "## Always check",
+  "## Past bugs",
+];
+const reviewPreset = preset("REVIEW.md");
+const leadRef = readFileSync(
+  fileURLToPath(new URL("../skills/lead/reference.md", import.meta.url)),
+  "utf8",
+).replace(/\r\n/g, "\n");
 const checks = [
   [
     "worker is named worker and starts without CLAUDE.md",
@@ -319,6 +374,63 @@ const checks = [
     /blind-reviewer/.test(desc(rev.head)) &&
       !/blind screen review/i.test(desc(rev.head)),
   ],
+  // Review rules design (docs 2026-11-17): a change cannot loosen its own review
+  [
+    "reviewer reads REVIEW.md from the base commit (<base>:REVIEW.md) and opens its report with Review rules:, so a change cannot loosen its own review",
+    rev.body.includes("<base>:REVIEW.md") && rev.body.includes("Review rules:"),
+  ],
+  [
+    "reviewer reads the parent-folder REVIEW.md copies, never falls back to the working copy, and applies the base copy when the change edits REVIEW.md",
+    rev.body.includes("<base>:<folder>/REVIEW.md") &&
+      /never fall back to the working copy/.test(rev.body) &&
+      /changed in the change\*\*[^\n]*the base copy still applies/.test(
+        rev.body,
+      ),
+  ],
+  [
+    "reviewer has one sentence: a REVIEW.md cannot switch off the request, decisions or guard bypass checks; an obsolete decision changes in DECISIONS.md",
+    /A `REVIEW\.md`(?:[^.\n]|\.md)*cannot switch off(?:[^.\n]|\.md)*request(?:[^.\n]|\.md)*decision(?:[^.\n]|\.md)*guard bypass/.test(
+      rev.body,
+    ) && /obsolete decision[^.\n]*`DECISIONS\.md`/.test(rev.body),
+  ],
+  [
+    "reviewer always reviews test files: a REVIEW.md line putting them under Do not report is set aside and named",
+    /test files are always reviewed/.test(rev.body) &&
+      /test files under `Do not report`, is not applied and is named/.test(
+        rev.body,
+      ),
+  ],
+  [
+    "reviewer keeps at most 5 Nits, gives a runnable proof with each Important, checks a bug fix's cause and the same kind elsewhere, and flags a CLAUDE.md line made untrue",
+    /Keep at most 5 Nits/.test(rev.body) &&
+      /Important finding[^\n]*runnable proof: the command and the output/.test(
+        rev.body,
+      ) &&
+      /bug fix fixes the cause[^\n]*Grep the codebase for the same kind elsewhere/.test(
+        rev.body,
+      ) &&
+      /no `CLAUDE\.md` line is made untrue/.test(rev.body),
+  ],
+  [
+    "lead gives the reviewer a Base line, relays Changed in this change, reproduces before a fix, and a not-reproduced finding costs no fix round",
+    /`Base: <commit>` line per repository/.test(leadRef) &&
+      /`Changed in this change` line goes into your report to the user word for word/.test(
+        leadRef,
+      ) &&
+      /fix brief starts with that command/.test(leadRef) &&
+      /\*\*Not reproduced\*\*[^\n]*costs no fix round/.test(leadRef) &&
+      /verify skill[^\n]*every helper's brief/.test(leadRef),
+  ],
+  [
+    "every worker fixes the code, never edits, weakens or skips a test to get green, and deletes a causeless flaky test only with the reason in known-failures, no sleeps or retries",
+    [worker, code, full, high].every(
+      (a) =>
+        /skip a test to get green/i.test(a.body) &&
+        /flaky test with no cause found may be deleted[^\n]*known-failures[^\n]*no sleeps or retries/.test(
+          a.body,
+        ),
+    ),
+  ],
   [
     "blind-reviewer is named, on fable at high effort, starts without CLAUDE.md",
     has(blind.head, "name", "blind-reviewer") &&
@@ -412,6 +524,48 @@ const checks = [
     /\| `DECISIONS\.md` \| The index: first `## What each thing is for` \(the purpose record, empty at the start\), then decisions in dated sections, newest first/.test(
       newProject,
     ),
+  ],
+  [
+    "new-project's base table writes the verify skill from the four kind templates, with the CLAUDE.md line and, when nothing starts yet, the HANDOFF item instead",
+    !!baseRow(".claude/skills/verify/SKILL.md") &&
+      Object.keys(VERIFY_KINDS).every((k) =>
+        baseRow(".claude/skills/verify/SKILL.md").includes(
+          `preset/verify-${k}.md`,
+        ),
+      ) &&
+      baseRow(".claude/skills/verify/SKILL.md").includes(
+        "`- Before a commit that changes code: the verify skill (.claude/skills/verify/SKILL.md) starts the app and proves the change.`",
+      ) &&
+      baseRow(".claude/skills/verify/SKILL.md").includes(
+        "`- [ ] Write .claude/skills/verify/SKILL.md from new-project's preset/verify-<kind>.md once the app first starts.`",
+      ),
+  ],
+  [
+    "new-project's base table writes the starter REVIEW.md from preset/REVIEW.md",
+    !!baseRow("REVIEW.md")?.includes("`preset/REVIEW.md`"),
+  ],
+  ...Object.entries(VERIFY_KINDS).map(([kind, quiet]) => [
+    `new-project's preset/verify-${kind}.md exists as a verify skill: frontmatter, the five steps in order, the PROOF line a program checks, and headless, muted runs (${quiet})`,
+    ((t) =>
+      !!t &&
+      /^---\nname: verify\ndescription: \S[^\n]*\n---\n/.test(t) &&
+      inOrder(t, VERIFY_HEADS) &&
+      t.includes("`PROOF <what>: expected <x>, got <y>`") &&
+      t.includes(quiet))(preset(`verify-${kind}.md`)),
+  ]),
+  [
+    "new-project's preset/REVIEW.md exists with the five headings in order, the sentence on what it cannot switch off, the line that test files are always reviewed, at most 40 lines, and no test files skipped",
+    !!reviewPreset &&
+      inOrder(reviewPreset, REVIEW_HEADS) &&
+      reviewPreset.includes(
+        "It cannot switch off the check against the request, the check against the current decisions, or the rule that a guard bypass is Important.",
+      ) &&
+      reviewPreset.includes("Test files are always reviewed") &&
+      reviewPreset.trimEnd().split("\n").length <= 40 &&
+      !/test/i.test(
+        reviewPreset.match(/\n## Do not report\n([\s\S]*?)\n## /)?.[1] ??
+          "test",
+      ),
   ],
 ];
 // Claude Code drops an agent whose frontmatter is not valid YAML; its quoting retry works only on LF files, and

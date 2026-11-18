@@ -7,7 +7,9 @@ import { el, ICONS, icon } from "../frame/dom.js";
 import { markdown } from "../frame/markdown.js";
 import { folder, formCard, formDrawable } from "./session-form.js";
 
-export const timing = { undoMs: 5000 };
+// recheckMs: after an answer the PC took, session.pending is asked again at each of these; the last is L, the larger
+// of 10 s and 3 x the measured gap between a form's result line and its database row (0.001 s on 2026-11-17).
+export const timing = { undoMs: 5000, recheckMs: [2000, 5000, 10000] };
 
 // replaceChildren writes an empty slot as the text "null": the empty slots are left out first.
 const fill = (node, ...kids) =>
@@ -36,12 +38,8 @@ function sender(v, box, redraw) {
     redraw();
     const r = await v.answer(kind, answer);
     s.busy = false;
-    if (r?.ok)
-      s.line = {
-        text: r.d.cleared
-          ? "Sent."
-          : "Sent, but the session still waits on it. Answer on the PC.",
-      };
+    // The PC took the answer: v.answer has put the typing box with "Answer sent." in the card's place.
+    if (r?.ok) s.line = null;
     else
       s.line = {
         text: `Not sent: ${v.why(r)}`,

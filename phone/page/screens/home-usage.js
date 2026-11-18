@@ -5,7 +5,7 @@
 // reach the last answer stays, with its "as of" time.
 import { el } from "../frame/dom.js";
 import { registerHomePart } from "../frame/screens.js";
-import { hhmm } from "./home.js";
+import { hhmm, keepPart, keptPart } from "./home.js";
 
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 const WARN_AT = 85;
@@ -118,12 +118,21 @@ async function load(ctx) {
   if (r?.ok) {
     usageKept.d = r.d;
     usageKept.error = null;
+    keepPart("usage", r.d);
   } else usageKept.error = errWord(r);
   fill(false);
 }
 
 function renderUsage(ctx) {
   const { home } = ctx;
+  // Drawn from what Home kept on the phone: the kept usage as if fresh, asking nothing.
+  if (ctx.updating) {
+    usageKept.d = keptPart("usage");
+    if (!usageKept.d) return null;
+    usageKept.box = el("div.group.usage-g");
+    fill(false);
+    return usageKept.box;
+  }
   if (!ctx.connected) {
     if (!usageKept.d) return null;
     usageKept.box = el("div.group.usage-g");

@@ -1,6 +1,7 @@
 // Tests for skills/update-project/pass.mjs: --check on a made-up folder raises each check id (P1 to P12, and P13 to
 // P15 for a local git folder), the git and GitHub checks (P13 to P26) on folders of each kind with a fake gh (an
-// organisation's repo, an owner in another case, a 401 and a 404, slow, fast and too few CI runs among them), a folder inside a bigger repo, and the
+// organisation's repo, an owner in another case, a 401 and a 404, slow, fast and too few CI runs among them), a folder inside a bigger repo,
+// the verify-skill and REVIEW.md offers (P27, P28), and the
 // stamp modes (--done with --kept, --skip, --skip-all, --list) write ~/.claude/project-pass.json as the design says,
 // and version.json's projectPass equals pass.mjs's LEVEL.
 // Everything happens in a temporary home folder (--home, and HOME and USERPROFILE for what pass.mjs imports), so the
@@ -102,12 +103,12 @@ check(
     ).test(lines.at(-1)),
   first.out,
 );
-// a local git folder without the preset also raises P13 (no Git: line), P14 (no commit line), P15 (no .gitattributes)
-// and P25 (no .gitignore for .claude/settings.local.json)
+// a local git folder without the preset also raises P13 (no Git: line), P14 (no commit line), P15 (no .gitattributes),
+// P25 (no .gitignore for .claude/settings.local.json) and P28 (no REVIEW.md); it has no code, so no P27
 check(
-  "--check raises every check id, P1 to P15 and P25",
+  "--check raises every check id, P1 to P15, P25 and P28",
   top.join() ===
-    [...Array.from({ length: 15 }, (_, i) => `P${i + 1}`), "P25"].join(),
+    [...Array.from({ length: 15 }, (_, i) => `P${i + 1}`), "P25", "P28"].join(),
   top.join(),
 );
 check(
@@ -379,6 +380,7 @@ write(
 write(path.join(hub, ".github", "workflows", "ci.yml"), preset("ci-node.yml"));
 write(path.join(hub, "CHANGELOG.md"), preset("CHANGELOG.md"));
 write(path.join(hub, ".gitignore"), ".claude/settings.local.json\n");
+write(path.join(hub, "REVIEW.md"), preset("REVIEW.md"));
 spawnSync("git", [
   "-C",
   hub,
@@ -754,6 +756,92 @@ write(path.join(noGit, "CLAUDE.md"), "# No git\n\nGit: none.\n");
 check(
   "a folder without git and a Git: none line prints no git check",
   gitIds(run("--check", noGit).out).length === 0,
+);
+
+// P27: a folder with code and no verify skill is offered one as ask, the template named by what the folder shows;
+// with a skill, nothing. P28: a git folder with no REVIEW.md is offered the starter copy; with one, or without git,
+// nothing. (New-project writes both; these offer them once to folders made before.)
+const linesOf = (id, folder) =>
+  run("--check", folder)
+    .out.split(/\r?\n/)
+    .filter((l) => new RegExp(`^${id}\\s`).test(l));
+const app = path.join(tmp, "app");
+spawnSync("git", ["init", "-q", app]);
+write(path.join(app, "CLAUDE.md"), "# App\n");
+write(path.join(app, "package.json"), '{ "scripts": { "dev": "vite" } }\n');
+write(path.join(app, ".claude", "hooks", "guard.mjs"), "// setup, not code\n");
+write(path.join(app, "node_modules", "x", "index.js"), "// a dependency\n");
+got = linesOf("P27", app);
+check(
+  "P27 offers no verify skill to a folder whose only code is setup files and dependencies",
+  got.length === 0,
+  got.join("\n"),
+);
+write(path.join(app, "src", "main.js"), "console.log(1);\n");
+got = linesOf("P27", app);
+check(
+  "P27 offers a verify skill as ask to a folder with code and none, naming verify-web.md for a dev script and the HANDOFF item for an app that does not start yet",
+  got.length === 1 &&
+    /^P27\s+ask\s+\.claude\/skills\/verify\/SKILL\.md\s+the folder has code and no verify skill: copy \S+\/new-project\/preset\/verify-web\.md .*HANDOFF\.md `- \[ \] Write \.claude\/skills\/verify\/SKILL\.md/.test(
+      got[0],
+    ),
+  got.join("\n"),
+);
+write(
+  path.join(app, ".claude", "skills", "verify", "SKILL.md"),
+  "---\nname: verify\ndescription: Starts the app and proves a change.\n---\n",
+);
+got = linesOf("P27", app);
+check(
+  "P27 offers nothing once the folder has .claude/skills/verify/SKILL.md",
+  got.length === 0,
+  got.join("\n"),
+);
+got = linesOf("P28", app);
+check(
+  "P28 offers the starter REVIEW.md as ask to a git folder without one",
+  got.length === 1 &&
+    /^P28\s+ask\s+REVIEW\.md\s+missing: copy \S+\/new-project\/preset\/REVIEW\.md/.test(
+      got[0],
+    ),
+  got.join("\n"),
+);
+write(path.join(app, "REVIEW.md"), preset("REVIEW.md"));
+got = linesOf("P28", app);
+check(
+  "P28 offers nothing once the git folder has a REVIEW.md",
+  got.length === 0,
+  got.join("\n"),
+);
+// a folder without git: its files are walked; project.godot names the Godot template; no REVIEW.md is offered
+const game = path.join(tmp, "game");
+write(path.join(game, "CLAUDE.md"), "# Game\n");
+write(path.join(game, "project.godot"), "[application]\n");
+write(path.join(game, "scenes", "main.gd"), "extends Node\n");
+got = linesOf("P27", game);
+check(
+  "P27 in a folder without git finds its code and names verify-godot.md for a project.godot",
+  got.length === 1 && /copy \S+\/preset\/verify-godot\.md/.test(got[0]),
+  got.join("\n"),
+);
+got = linesOf("P28", game);
+check(
+  "P28 offers no REVIEW.md to a folder without git (the reviewer reads it from git)",
+  got.length === 0,
+  got.join("\n"),
+);
+fs.rmSync(path.join(game, "project.godot"));
+got = linesOf("P27", game);
+check(
+  "P27 asks to pick the kind when the folder shows none",
+  got.length === 1 &&
+    /pick the kind .*verify-<web\|godot\|tool\|pipeline>\.md/.test(got[0]),
+  got.join("\n"),
+);
+check(
+  "the pass level is 5, so each folder is offered the verify skill and REVIEW.md pass once (raise this with the next level)",
+  LEVEL === 5,
+  `LEVEL ${LEVEL}`,
 );
 check(
   "--check writes nothing",

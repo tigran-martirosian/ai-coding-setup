@@ -33,6 +33,12 @@
      page; in the dark theme a lighter surface and a hairline, as black on near-black shows no edge */
   --p-raised: var(--p-section);
   --p-raised-edge: transparent;
+  /* A message's Copy menu (comfort design, section 7): the dim over the screen, the held message's opaque tint,
+     the card's edge and shadow */
+  --p-scrim: rgba(0, 0, 0, 0.25);
+  --p-held: color-mix(in oklab, var(--nim-text) 8%, var(--nim-bg));
+  --p-menu-edge: rgba(0, 0, 0, 0.1);
+  --p-menu-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   /* The space every bottom-docked part keeps clear of the screen corners and home bar: the larger of the
      browser's safe area and Telegram's (an in-Telegram webview may give it only through --tg-safe-area-inset-*),
      plus what Telegram's own controls cover. Telegram writes its two variables only once it has sent them, so
@@ -45,6 +51,8 @@
 :root.dark-theme {
   --p-raised: color-mix(in oklab, var(--p-section) 88%, white);
   --p-raised-edge: color-mix(in oklab, white 14%, transparent);
+  --p-scrim: rgba(0, 0, 0, 0.5);
+  --p-menu-edge: var(--p-raised-edge);
   --nim-warning: #f2b440;
   --nim-error: var(--tg-theme-destructive-text-color, #ff6b6b);
 }
@@ -63,6 +71,25 @@
   --p-hero: 600 34px/40px var(--p-font);
   --p-gap: 16px;
   --p-radius: 12px;
+  /* Reading size (comfort design, section 6): your messages and Claude's answers (--p-read, the answer's line
+     height --p-read-answer) and code (--p-read-code). Settings' Text size sets data-text on the session view and on
+     its sample line. */
+  --p-read: 400 16px/22px var(--p-font);
+  --p-read-answer: 25px;
+  --p-read-code: 500 13px/20px var(--x-font-mono);
+  --p-read-code-size: 13px;
+}
+[data-text="small"] {
+  --p-read: 400 15px/21px var(--p-font);
+  --p-read-answer: 23px;
+  --p-read-code: 500 12px/18px var(--x-font-mono);
+  --p-read-code-size: 12px;
+}
+[data-text="large"] {
+  --p-read: 400 18px/25px var(--p-font);
+  --p-read-answer: 28px;
+  --p-read-code: 500 15px/22px var(--x-font-mono);
+  --p-read-code-size: 15px;
 }
 
 /* ---- frame */
@@ -627,6 +654,12 @@ html.zoomable {
   font: var(--p-sub-text);
   color: var(--nim-text-muted);
   margin-top: 2px;
+}
+/* Reading's sample line, at the picked text size (data-text) */
+.text-sample {
+  margin: 10px 0 0;
+  font: var(--p-read);
+  line-height: var(--p-read-answer);
 }
 .set-row {
   display: flex;
@@ -1359,9 +1392,130 @@ html.zoomable {
   padding: 10px 14px;
   border-radius: 16px 16px 4px 16px;
   background: var(--p-section);
-  font: var(--p-body);
+  font: var(--p-read);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A message's text is the iPhone's own to select and copy (comfort design, section 7, branch A): this beats the
+   -webkit-user-select: none Telegram's iPhone app puts on every Mini App, on each element inside the text too */
+.you,
+.you *,
+.md,
+.md * {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+/* Your message's row: the press area, the copy icon, then the bubble at the right */
+.you-row {
+  display: flex;
+  align-items: flex-end;
+}
+.you-row .you {
+  min-width: 0;
+}
+.you-gap {
+  flex: 1;
+  align-self: stretch;
+  -webkit-touch-callout: none;
+}
+/* A message's copy icon: 44 tap area, 18 icon, muted; after a tap a check and "Copied" in the success colour */
+.msg-copy {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 13px;
+  border: 0;
+  background: none;
+  color: var(--nim-text-muted);
+  font: var(--p-caption);
+  -webkit-touch-callout: none;
+}
+.msg-copy.ok {
+  color: var(--nim-success);
+}
+.msg-copy.bad {
+  color: var(--nim-error);
+}
+/* The action row under an answer: 32 high, the copy icon at the left, the rest a press area for the menu */
+.msg-acts {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin: 4px 0 0 -13px;
+}
+.acts-gap {
+  flex: 1;
+  align-self: stretch;
+  -webkit-touch-callout: none;
+}
+/* The Copy menu: the screen dims, the held message stays lit with a tint, the card opens under it */
+.msg-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--p-scrim);
+}
+.lifted {
+  position: relative;
+  z-index: 21;
+  border-radius: 12px;
+  background: var(--p-held);
+  box-shadow: 0 0 0 4px var(--p-held);
+}
+.msg-menu {
+  position: relative;
+  z-index: 21;
+  align-self: flex-start;
+  width: 220px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--p-raised);
+  box-shadow:
+    0 0 0 1px var(--p-menu-edge),
+    var(--p-menu-shadow);
+}
+.msg-menu.mine {
+  align-self: flex-end;
+}
+.msg-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px 0 16px;
+  border: 0;
+  background: none;
+  color: var(--nim-text);
+  font: var(--p-body);
+}
+.msg-menu-item svg {
+  color: var(--nim-link);
+}
+/* After Copy in the menu: "Copied" above the typing box for 1.5 s */
+.copied-pill {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 16px;
+  background: var(--p-raised);
+  box-shadow:
+    0 0 0 1px var(--p-raised-edge),
+    var(--p-lift);
+  font: var(--p-caption);
+  color: var(--nim-text);
+}
+.copied-pill.bad {
+  color: var(--nim-error);
+}
+.copied-pill[hidden] {
+  display: none;
 }
 .you.held {
   border: 1px dashed var(--p-sep);
@@ -1373,9 +1527,89 @@ html.zoomable {
   color: var(--x-accent-text);
   margin-bottom: 2px;
 }
+/* A sent message before the PC answers (comfort design, section 5): a clock and "Sending…" under the bubble */
+.sent-mark {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: -8px 2px 0;
+  font: var(--p-caption);
+  color: var(--nim-text-muted);
+}
+.you.gone {
+  animation: sent-out 150ms ease-out forwards;
+}
+@keyframes sent-out {
+  to {
+    opacity: 0;
+  }
+}
+/* A kept conversation's line: "Updating · as of 14:05" with the page's spinner */
+.s-kept .spinner {
+  margin-right: 4px;
+}
+/* Jump to latest: a 40 circle over the dock's right end, 12 above it, with a 44 tap area */
+.dock {
+  position: relative;
+}
+.jump {
+  position: absolute;
+  right: 16px;
+  bottom: calc(100% + 12px);
+  width: 44px;
+  height: 44px;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: var(--nim-link);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+.jump::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--p-raised);
+  box-shadow:
+    0 0 0 1px var(--p-raised-edge),
+    var(--p-lift);
+}
+.jump svg {
+  position: relative;
+  display: block;
+  margin: auto;
+}
+.jump.on {
+  opacity: 1;
+  pointer-events: auto;
+}
+.jump-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--nim-primary);
+  color: var(--nim-on-primary);
+  font: var(--p-caption);
+}
+@media (prefers-reduced-motion: reduce) {
+  .jump {
+    transition: none;
+  }
+  .you.gone {
+    animation: none;
+    opacity: 0;
+  }
+}
 .reply {
-  font: var(--p-body);
-  line-height: 25px;
+  font: var(--p-read);
+  line-height: var(--p-read-answer);
   overflow-wrap: anywhere;
 }
 .convo-note {
@@ -1476,23 +1710,77 @@ html.zoomable {
 .md-code {
   font: var(--p-caption);
   font-family: var(--x-font-mono);
-  font-size: 13px;
+  font-size: var(--p-read-code-size);
   background: var(--p-fill);
   border-radius: 4px;
   padding: 1px 5px;
 }
-.md-pre {
-  font: var(--p-caption);
-  font-family: var(--x-font-mono);
-  font-size: 13px;
-  line-height: 20px;
+/* A code block (comfort design, section 6): a 44 head with the language, Wrap lines and Copy code over the code;
+   wrapped, lines break at the block's width, else the code scrolls sideways */
+.md-block {
   margin: 0 0 10px;
-  padding: 10px 12px;
   background: var(--p-section);
   border: 1px solid var(--p-sep);
   border-radius: 6px;
+  overflow: hidden;
+}
+.md-block-head {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding-left: 12px;
+  border-bottom: 1px solid var(--p-sep);
+}
+.md-lang {
+  flex: 1;
+  min-width: 0;
+  font: var(--p-caption);
+  color: var(--nim-text-muted);
+}
+.md-lang.ok,
+.md-tool.ok {
+  color: var(--nim-success);
+}
+.md-lang.bad,
+.md-tool.bad {
+  color: var(--nim-error);
+}
+.md-tool {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nim-text-muted);
+}
+.md-tool svg {
+  position: relative;
+}
+/* Wrap on: the link colour on a 30 tile of it at 20 %, so on and off differ by more than colour */
+.md-tool[aria-pressed="true"] {
+  color: var(--nim-link);
+}
+.md-tool[aria-pressed="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--nim-link) 20%, transparent);
+}
+.md-pre {
+  font: var(--p-read-code);
+  margin: 0;
+  padding: 10px 12px;
   overflow-x: auto;
   white-space: pre;
+}
+.md-block.wrap .md-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .md-a {
   color: var(--nim-link);

@@ -1,7 +1,10 @@
 // Home (DS1 section 3, `home`, `home-empty`, `nimbalyst-closed`, `nimbalyst-starting`, `nimbalyst-failed`, `pc-off`):
 // the PC's state first, then the version line, then the sessions that need the user and the ones working
 // (home-sessions.js). The Home screen asks the PC and hands the answers to every Home part as ctx.home. The last
-// answers stay in memory, so with the PC off or Nimbalyst closed Home still shows what it last knew.
+// answers stay in memory, so with the PC off or Nimbalyst closed Home still shows what it last knew. They are kept
+// on the phone too (cache.js "home"), so the next open draws Home before the PC answers (comfort design, section 3):
+// while ctx.updating, Home and its parts draw from that as if fresh and ask nothing.
+import { keep, kept as keptOnPhone } from "../frame/cache.js";
 import { el, ICONS, icon } from "../frame/dom.js";
 import {
   homeParts,
@@ -19,6 +22,26 @@ const kept = {
 };
 // A start of Nimbalyst asked from this page: { at, error }.
 let start = null;
+
+// What Home keeps on the phone: { home: Home's own answers (as `kept`), parts: { [part id]: its last answer } }.
+let onPhone = { home: null, parts: {} };
+
+// A part that asks the PC itself (Jobs, Usage) keeps its last good answer with this.
+export function keepPart(id, data) {
+  onPhone.parts[id] = data;
+  keep("home", onPhone);
+}
+
+// A part's answer as Home kept it on the phone, or null.
+export const keptPart = (id) => onPhone.parts[id] ?? null;
+
+// Home drawn from what it kept, before the first hello: the kept answers come back into memory.
+function restore() {
+  const k = keptOnPhone("home");
+  if (!k) throw new Error("Home is drawn as kept, but nothing is kept for it.");
+  onPhone = k.data;
+  Object.assign(kept, onPhone.home);
+}
 
 export const hhmm = (t) =>
   new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -73,6 +96,8 @@ function render(ctx) {
           : null;
       } else home.error = `sessions: ${errWord(s)}`;
     }
+    onPhone.home = { ...kept };
+    keep("home", onPhone);
     draw();
   }
 
@@ -98,6 +123,10 @@ function render(ctx) {
   ctx.onEvent((body) => {
     if (body.e === "status") load();
   });
+  if (ctx.updating) {
+    restore();
+    home.fresh = true;
+  }
   draw();
   if (ctx.connected) load();
   return box;
@@ -109,6 +138,7 @@ registerScreen({
   title: "Home",
   render,
   actions: ["pc.status"],
+  keep: "home",
 });
 
 // ---- PC status (order 10)
@@ -159,7 +189,7 @@ const startButton = (home, text, busy) =>
 
 function renderPc(ctx) {
   // With no link to the PC the frame's own block says so (PC off, or connecting): nothing to add here.
-  if (!ctx.connected) return null;
+  if (!ctx.connected && !ctx.updating) return null;
   const { home } = ctx;
   const s = home.kept.status;
   if (!home.fresh) {

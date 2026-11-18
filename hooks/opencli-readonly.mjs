@@ -24,8 +24,9 @@ const VALUE_FLAGS = new Set(["--profile"]);
 const deny = (reason) => emit.deny(`opencli-readonly: ${reason}`);
 
 // The words after one `opencli`, up to the end of that shell command, quotes and escapes removed.
+// A redirection holding `&` (`2>&1`, `&>file`) is blanked first, so it does not end the command early.
 function wordsAfter(rest) {
-  const segment = rest.split(/[;&|\n`)]/)[0];
+  const segment = rest.replace(/\d*>&\d*-?|&>>?/g, " ").split(/[;&|\n`)]/)[0];
   return [...segment.matchAll(/"[^"]*"|'[^']*'|\S+/g)].map((m) =>
     m[0].replace(/["'`\\^]/g, ""),
   );
@@ -38,6 +39,12 @@ function siteAndSub(words) {
     const w = words[i];
     if (w.startsWith("-")) {
       if (VALUE_FLAGS.has(w.toLowerCase())) i++;
+      continue;
+    }
+    // A redirection (`2>`, `>out.txt`, `2>/dev/null`) is the shell's, not a word for OpenCLI;
+    // a bare operator takes the next word (its file) with it.
+    if (/^\d*[<>]/.test(w)) {
+      if (/^\d*[<>]+$/.test(w)) i++;
       continue;
     }
     if (w) plain.push(w);
@@ -57,10 +64,15 @@ runHook(
     if (!/\bopencli\b/i.test(command)) return;
 
     const helpCache = new Map();
-    for (const m of command.matchAll(/\bopencli(?:\.cmd|\.exe)?["']?/gi)) {
-      const [site, sub] = siteAndSub(
-        wordsAfter(command.slice(m.index + m[0].length)),
-      );
+    // A longer name (`opencli-readonly`, `test-opencli`) is not the program and is skipped. Any other
+    // word holding `opencli` may run it (`opencli.ps1`, `npx @jackwener/opencli@latest`,
+    // `node .../opencli/dist/src/main.js`): the rest of that word is dropped and the words after it
+    // are read as the site and command.
+    for (const m of command.matchAll(/\bopencli/gi)) {
+      let rest = command.slice(m.index + m[0].length);
+      if (command[m.index - 1] === "-" || /^[-_]\w/.test(rest)) continue;
+      rest = rest.replace(/^[^\s"';&|)<>]*["']?/, "");
+      const [site, sub] = siteAndSub(wordsAfter(rest));
       if (!site || OWN.has(site.toLowerCase())) continue;
       if (!sub) continue; // `opencli reddit --help`
       if (!/^[A-Za-z0-9-]+$/.test(site) || !/^[A-Za-z0-9-]+$/.test(sub)) {

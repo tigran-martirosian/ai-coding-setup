@@ -509,6 +509,28 @@ const passed = args.flatMap((a, i) =>
       ? [a, args[i + 1]]
       : [],
 );
+// The phone add-on's voice notes, as install.mjs does them, on a run that does not start the installer: when the
+// add-on is in place and voice is not set up (no ~/.phone-app/voice.json), its speech model downloads in the
+// background, nothing asked. `dry` (--check) only says so. Not with --home.
+function phoneVoice(dry) {
+  const setup = path.join(CLAUDE, "skills", "phone-bot", "pc", "setup.mjs");
+  if (homeAt !== -1 || !fs.existsSync(setup)) return;
+  if (fs.existsSync(path.join(home, ".phone-app", "voice.json"))) return;
+  if (dry)
+    return console.log(
+      `phone voice: would start its setup in the background: node ${fwd(setup)} voice --background`,
+    );
+  const r = spawnSync(process.execPath, [setup, "voice", "--background"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (r.status !== 0)
+    console.log(
+      `phone voice: its setup did not start (${(r.stderr || r.stdout || String(r.error)).trim().split("\n").pop()}). Run: node ${fwd(setup)} voice`,
+    );
+  else console.log(`phone voice: ${r.stdout.trim()}`);
+}
+
 // --files-only and --quiet return what the run did: { kept, installed, waiting, failed } (extensions by repo name)
 function install(folder) {
   const flags = FILES_ONLY
@@ -723,6 +745,7 @@ if (!newer(latest.version, installed)) {
         }
       }
     }
+    phoneVoice(args.includes("--check"));
   }
   nimbalyst({ stage: args.includes("--check") ? null : "retry" });
   if (!args.includes("--check")) {
@@ -737,6 +760,7 @@ console.log(
 );
 if (latest.summary) console.log(`What is new: ${latest.summary}`);
 if (args.includes("--check")) {
+  phoneVoice(true);
   nimbalyst({ stage: false });
   process.exit(0);
 }

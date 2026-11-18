@@ -3,6 +3,9 @@
 // `wrangler deploy`, the four relay secrets with `wrangler secret put` (each value on standard input), then the bot:
 // the webhook with a fresh secret, its command lists, description and short description (which replace whatever
 // the bot showed before), the default menu button back to the command list, the owner's Open button.
+// A deploy `beside` (the test copy, deploy-test.mjs) makes no bot-wide call, so the real relay keeps the bot: it
+// builds the page with `testCopy`, puts TOPIC_SUFFIX (the "(test)" after its topic names) and sends the owner one
+// "Test copy" message with a button to the test address.
 // Secret values go only into a child's environment or standard input and to Telegram; nothing printed holds one.
 //   node phone/relay/deploy.mjs --name <worker> [--dry-run]
 // This command line is the release workflow's: it reads the values from the environment names in CI_SECRETS.
@@ -56,18 +59,28 @@ export function checkValues(values) {
   if (bad.length) throw new Error(`deploy: ${bad.join("; ")}`);
 }
 
-const headersFile = () =>
-  `/*\n${Object.entries(PAGE_HEADERS)
+// The Checks screen's drag-out probe (`checks` only): /version.json comes as a download that Telegram's web
+// page may fetch.
+export const PROBE_HEADERS = {
+  "Content-Disposition": 'attachment; filename="probe.json"',
+  "Access-Control-Allow-Origin": "https://web.telegram.org",
+};
+const headerBlock = (at, headers) =>
+  `${at}\n${Object.entries(headers)
     .map(([k, v]) => `  ${k}: ${v}`)
     .join("\n")}\n`;
+export const headersFile = ({ checks = false } = {}) =>
+  headerBlock("/*", PAGE_HEADERS) +
+  (checks ? headerBlock("/version.json", PROBE_HEADERS) : "");
 
 // Builds the page. `write` puts the page and _headers into ./dist. `checks` (the owner's test relay only): the
-// test build with the Checks screen; a normal deploy afterwards takes it away.
-export function preparePage({ write, checks = false }) {
-  const build = buildPage({ checks });
+// test build with the Checks screen; a normal deploy afterwards takes it away. `testCopy`: the page keeps its
+// pairing apart from the real app's.
+export function preparePage({ write, checks = false, testCopy = false }) {
+  const build = buildPage({ checks, testCopy });
   if (write) {
     writePage(OUT, build);
-    fs.writeFileSync(path.join(OUT, "_headers"), headersFile());
+    fs.writeFileSync(path.join(OUT, "_headers"), headersFile({ checks }));
   }
   return build;
 }
@@ -78,7 +91,7 @@ function mask(value) {
     console.log(`::add-mask::${value}`);
 }
 
-function wrangler(args, { env, input }) {
+function runWrangler(args, { env, input }) {
   const win = process.platform === "win32";
   const childEnv = { ...process.env, ...env };
   for (const name of [CI_SECRETS.botToken, CI_SECRETS.ownerTgId])
@@ -167,14 +180,36 @@ export async function pointBot({
   });
 }
 
-// Deploys the Worker `name` with the page; returns the relay's address, or null on a dry run.
+// The test copy's one bot call: a message to the owner with a button that opens the test address.
+export async function announceTestCopy({ botToken, ownerTgId, origin, fetch }) {
+  const { telegram } = telegramApi({ token: botToken, fetch });
+  await telegram("sendMessage", {
+    chat_id: Number(ownerTgId),
+    text: "Test copy",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Open the test copy", web_app: { url: `${origin}/` } }],
+      ],
+    },
+  });
+}
+
+// The test copy's topic names end in this (files contract, section 7). It is put as the Worker secret TOPIC_SUFFIX,
+// value on standard input, as a `--var` argument would pass cmd unquoted on Windows.
+export const TEST_TOPIC_SUFFIX = " (test)";
+
+// Deploys the Worker `name` with the page; returns { origin, webhookSecret } (the relay's address and the secret its
+// webhook checks), or null on a dry run. `beside`: the test copy beside the real relay (see the top of this file);
+// it also puts TOPIC_SUFFIX. `wrangler`: a stand-in for the npx call, (args, { env, input }) -> its output, for tests.
 export async function deployRelay({
   name,
   values,
   dryRun = false,
   checks = false,
+  beside = false,
   say = console.log,
   fetch = globalThis.fetch,
+  wrangler = runWrangler,
 }) {
   if (!WORKER_NAME.test(name ?? ""))
     throw new Error(
@@ -193,10 +228,15 @@ export async function deployRelay({
     // 48 characters of A-Z a-z 0-9 _ -, new at each deploy (pipe design, section 5).
     WEBHOOK_SECRET: randomBytes(36).toString("base64url"),
   };
-  const build = preparePage({ write: !dryRun, checks });
+  if (beside) secrets.TOPIC_SUFFIX = TEST_TOPIC_SUFFIX;
+  const build = preparePage({ write: !dryRun, checks, testCopy: beside });
   if (checks)
     say(
       "test build with the Checks screen: it stays on the relay until a normal deploy",
+    );
+  if (beside)
+    say(
+      "test copy beside the real relay: no bot-wide call, the page keeps its own pairing",
     );
   const wr = `npx wrangler@${WRANGLER_VERSION}`;
   if (dryRun) {
@@ -207,13 +247,21 @@ export async function deployRelay({
     say(
       `would run in ${RELAY}: ${wr} deploy --name ${name} (Cloudflare token and account id in its environment only)`,
     );
-    for (const s of RELAY_SECRETS)
+    for (const s of Object.keys(secrets))
       say(
         `would run: ${wr} secret put ${s} --name ${name} (the value on standard input)`,
       );
+    if (checks)
+      say(
+        `would serve /version.json with ${Object.entries(PROBE_HEADERS)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(" and ")}`,
+      );
     say(
-      "would call Telegram: setWebhook to <relay>/tg/hook with a fresh secret, the command lists, description " +
-        "and short description, the default menu button back to commands, the Open button in the owner's chat",
+      beside
+        ? 'would call Telegram: sendMessage "Test copy" to the owner with a web_app button to <relay>/'
+        : "would call Telegram: setWebhook to <relay>/tg/hook with a fresh secret, the command lists, description " +
+            "and short description, the default menu button back to commands, the Open button in the owner's chat",
     );
     return null;
   }
@@ -226,11 +274,23 @@ export async function deployRelay({
         "(Cloudflare dashboard, Workers and Pages, opened once)?",
     );
   mask(origin);
-  for (const s of RELAY_SECRETS)
+  for (const s of Object.keys(secrets))
     wrangler(["secret", "put", s, "--name", name], {
       env,
       input: secrets[s],
     });
+  say(`relay: ${origin}`);
+  const done = { origin, webhookSecret: secrets.WEBHOOK_SECRET };
+  if (beside) {
+    await announceTestCopy({
+      botToken: values.botToken,
+      ownerTgId: values.ownerTgId,
+      origin,
+      fetch,
+    });
+    say('"Test copy" button sent to the owner');
+    return done;
+  }
   await pointBot({
     botToken: values.botToken,
     ownerTgId: values.ownerTgId,
@@ -238,9 +298,8 @@ export async function deployRelay({
     webhookSecret: secrets.WEBHOOK_SECRET,
     fetch,
   });
-  say(`relay: ${origin}`);
   say("webhook set");
-  return origin;
+  return done;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {

@@ -1,5 +1,17 @@
-// Pictures of the page for a look against the mock-ups, dark and light, into %TEMP%/phone-app-shots/:
-//   pairing  the pairing screen at 390 px (iPhone) and 900 px (Telegram Desktop): pairing-<width>-<scheme>.png
+// Pictures of the page for a look against the mock-ups, dark and light, into %TEMP%/phone-app-shots/. The four
+// sizes (SIZES): 390x844 (iPhone), 384x694 (Telegram Desktop as it opens), 1920x1080 and 2560x1440 (Desktop full
+// screen at 100%). After each shot it prints the shot's name and "no overflow", or the elements that stick out of
+// the window sideways; the run fails at its end when any shot overflows.
+//   pairing  the pairing screen at the four sizes: pairing-<width>-<scheme>.png
+//   wide     every tab screen and the session view at the four sizes: Home, Projects, a project, Files, a Files
+//            folder, Settings, a session: screen-<what>-<width>-<scheme>.png; at 1920 and 2560 it prints the column
+//            and grid widths it measured beside the design's (files screens design, section 2)
+//   filestab the Files tab's states at 390 and 1920 (files screens design, section 3): empty, an empty folder, drag
+//            over, drag over too big, uploading and waiting, failed and too big, the file menu, the move sheet,
+//            sending to chat, sent to chat, send failed, the PC without the folder actions, the PC off:
+//            filestab-<state>-<width>-<scheme>.png
+//   comfort  the skeletons of Home, Projects and Files (a PC that never answers the hello), a reply's Copy menu
+//            held open and a sent message's "Sending…" mark, at the four sizes: comfort-<what>-<width>-<scheme>.png
 //   home     Home at 390 px against a fake PC: Nimbalyst open (one session waiting on you, two working, an
 //            update, three jobs, usage at 42%), Nimbalyst closed and the PC off, both with the "Last known" list:
 //            home-<state>-<scheme>.png
@@ -86,10 +98,14 @@ const THEMES = {
     bottom_bar_bg_color: "#f2f2f2",
   },
 };
+// scale: the device pixel ratio (the iPhone's 2 at the phone sizes; Windows at 100% on the full screens)
 const SIZES = [
-  { width: 390, height: 844, platform: "ios" },
-  { width: 900, height: 760, platform: "tdesktop" },
+  { width: 390, height: 844, platform: "ios", scale: 2 },
+  { width: 384, height: 694, platform: "tdesktop", scale: 2 },
+  { width: 1920, height: 1080, platform: "tdesktop", scale: 1 },
+  { width: 2560, height: 1440, platform: "tdesktop", scale: 1 },
 ];
+const SIZE_1920 = SIZES[2];
 // Home and the job page at the phone's width, tall enough to hold the whole page in one picture (the headless
 // shell takes the window only, not the scrolled length)
 const TALL = { width: 390, height: 1600, platform: "ios" };
@@ -181,7 +197,23 @@ export async function loadPairing() {
 // first, then the link drops and no hello answers), "connect-kept-long" (open first, then the relay is not reached
 // again), "connect-first-off" (the relay says offline from the first hello), "connect-update" (open first, then the
 // relay says protocol), "connect-readonly" (a 26.3 PC that calls the page unverified); any other connect state is
-// the plain open Home.
+// the plain open Home. "files-old-pc": a 26.3.3 PC, whose hello names no actions, so the Files tab greys.
+// The action names the real PC program registers, which a current PC lists in its hello (frame/offers.js).
+const PC_ACTIONS = fs
+  .readdirSync(new URL("../../skills/phone-bot/pc/actions/", import.meta.url))
+  .flatMap((f) => [
+    ...fs
+      .readFileSync(
+        new URL(`../../skills/phone-bot/pc/actions/${f}`, import.meta.url),
+        "utf8",
+      )
+      .matchAll(/name: "([a-z]+.[a-zA-Z]+)"/g),
+  ])
+  .map((m) => m[1]);
+if (!PC_ACTIONS.includes("folder.list"))
+  throw new Error(
+    "pictures: no PC action names found in skills/phone-bot/pc/actions",
+  );
 const FAKE_CHANNEL = `import { ChannelError } from "./channel-real.js";
 export * from "./channel-real.js";
 const STATE = new URLSearchParams(location.hash.slice(1)).get("pictureState");
@@ -194,6 +226,29 @@ const status = {
   nimbalystVersion: "0.83.0",
   update: { version: "26.3" },
 };
+const file = (name, size, m) => ({ name, kind: "file", size, at: ago(m) });
+const folder = (name, count) => ({ name, kind: "folder", count });
+// The Files tab's top level and two of its folders
+const FOLDERS = {
+  "": [
+    folder("Screenshots", 4),
+    folder("Invoices", 2),
+    folder("Old", 0),
+    file("invoice-november.pdf", 2400000, 35),
+    file("screenshot-2026-11-17-final.png", 870000, 90),
+    file("backup-notes.zip", 38000000, 60 * 26),
+    file("todo.txt", 3100, 60 * 24 * 5),
+    file("report-q3-figures-and-notes.docx", 512000, 60 * 24 * 9),
+  ],
+  Screenshots: [
+    folder("2026 bugs", 3),
+    file("login-error.png", 640000, 20),
+    file("settings-dark.png", 720000, 80),
+    file("home-light.png", 690000, 60 * 30),
+    file("pairing.jpg", 410000, 60 * 24 * 7),
+  ],
+  Old: [],
+};
 // The pins states: "pins" with the door patch's set_session_pinned, "pins-nopatch" without it.
 const PINS = STATE === "pins" || STATE === "pins-nopatch";
 const door = {
@@ -205,6 +260,13 @@ const door = {
 };
 const ANSWERS = {
   "pc.status": () => ({ ...status, ...(PINS ? { door } : {}), asOf: new Date().toISOString() }),
+  // The Files tab: phone-inbox with three folders and five files; Screenshots holds a sub-folder and four files,
+  // Old is empty; pictureState "files-empty" has nothing at all.
+  "folder.list": ({ dir }) => ({ items: STATE === "files-empty" ? [] : FOLDERS[dir] ?? [], more: false }),
+  "folder.put": ({ name }) => ({ name, size: 2400000 }),
+  "folder.send": () => ({}),
+  "folder.make": ({ name }) => ({ name }),
+  "folder.move": () => ({}),
   "home.sessions": () => ({
     needsYou: [
       { session: "s1", project: "p1", title: "Sign-in page fix", kind: "question", since: ago(4) },
@@ -680,8 +742,17 @@ export async function openSession(_link, { onEvent }) {
   if (STATE === "connect-kept" || STATE === "connect-kept-long") setTimeout(() => end(new ChannelError("closed")), 500);
   if (STATE === "connect-update") setTimeout(() => end(new ChannelError("protocol")), 500);
   return {
-    hello: { pcVersion: status.setupVersion, page: STATE === "connect-readonly" ? "unverified" : "ok" },
+    hello: {
+      pcVersion: status.setupVersion,
+      page: STATE === "connect-readonly" ? "unverified" : "ok",
+      actions: STATE === "files-old-pc" ? null : ${JSON.stringify(PC_ACTIONS)},
+    },
     ask: async (action, data) => {
+      // The comfort and Files states that need a PC answer that never comes, or one that fails.
+      if (action === "session.send" && STATE === "sending") return new Promise(() => {});
+      if (action === "folder.send" && STATE === "files-sending") return new Promise(() => {});
+      if (action === "folder.send" && STATE === "files-send-failed")
+        return { ok: false, err: "telegram-refused", why: "the Files topic was removed" };
       if (!ANSWERS[action]) throw new ChannelError("unknown-action");
       return { ok: true, d: ANSWERS[action](data) };
     },
@@ -709,7 +780,9 @@ function writeHomeStandIns(dir) {
   fs.writeFileSync(path.join(dir, "page", "picture-host.js"), FAKE_HOST);
   const index = path.join(dir, "index.html");
   const html = fs.readFileSync(index, "utf8");
-  const tg = '<script src="page/telegram-web-app.js"></script>';
+  // The host stand-in is a plain script before Telegram's (async) one, so it has run when Telegram's runs.
+  const tg =
+    '<script async id="tg-script" src="page/telegram-web-app.js"></script>';
   if (!html.includes(tg))
     throw new Error(`pictures: ${index} does not load ${tg}`);
   fs.writeFileSync(
@@ -748,6 +821,33 @@ function findBrowser() {
     );
   return found;
 }
+
+// What sticks out of the window sideways: the page's own scroll width against the window, and each element whose
+// shown part (cut by any ancestor that clips or scrolls) reaches past the window's left or right edge. Elements
+// inside a clipping box are cut to it, so a code line in a sideways-scrolling block is not counted.
+const OVERFLOW_PROBE = `(() => {
+  const w = document.documentElement.clientWidth;
+  const name = (n) => n.tagName.toLowerCase() + (n.className && typeof n.className === "string" ? "." + n.className.trim().split(/\\s+/).join(".") : "");
+  const out = [];
+  for (const n of document.body.querySelectorAll("*")) {
+    const r = n.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    let left = r.left;
+    let right = r.right;
+    for (let a = n.parentElement; a && a !== document.body; a = a.parentElement) {
+      if (getComputedStyle(a).overflowX === "visible") continue;
+      const c = a.getBoundingClientRect();
+      left = Math.max(left, c.left);
+      right = Math.min(right, c.right);
+    }
+    if (right <= left) continue;
+    if (right > w + 0.5 || left < -0.5) out.push(name(n) + " " + Math.round(left) + ".." + Math.round(right));
+  }
+  return { scroll: document.documentElement.scrollWidth, width: w, out: out.slice(0, 6), more: Math.max(0, out.length - 6) };
+})()`;
+// Each shot's overflow line goes here too; the run fails at its end when any shot overflows.
+const overflowed = [];
+let shotCount = 0;
 
 // Opens `url` in the browser, waits `settleMs` for the page and the fake PC, and writes a picture of what is on
 // screen to `file`. The picture comes over the DevTools protocol: the shell's own --screenshot paints a scrolled
@@ -805,6 +905,13 @@ async function capture(
           if (r.id !== 10 + i) return;
           if (r.error)
             reject(new Error(`pictures: ${b.method}: ${r.error.message}`));
+          // A script awaited before the shot that threw: the state it was to set up is not on screen.
+          else if (b.params?.awaitPromise && r.result?.exceptionDetails)
+            reject(
+              new Error(
+                `pictures: before the shot: ${r.result.exceptionDetails.exception?.description ?? r.result.exceptionDetails.text}`,
+              ),
+            );
           else resolve();
         };
         ws.send(JSON.stringify({ id: 10 + i, ...b }));
@@ -852,8 +959,28 @@ async function capture(
           }),
         );
       });
+    const overflow = await new Promise((resolve, reject) => {
+      ws.onmessage = (m) => {
+        const r = JSON.parse(m.data);
+        if (r.id !== 3) return;
+        if (r.error || r.result.exceptionDetails)
+          reject(
+            new Error(
+              `pictures: overflow probe: ${JSON.stringify(r.error ?? r.result.exceptionDetails)}`,
+            ),
+          );
+        else resolve(r.result.result.value);
+      };
+      ws.send(
+        JSON.stringify({
+          id: 3,
+          method: "Runtime.evaluate",
+          params: { expression: OVERFLOW_PROBE, returnByValue: true },
+        }),
+      );
+    });
     ws.close();
-    return probed;
+    return { probed, overflow };
   } finally {
     const ended = new Promise((r) =>
       c.exitCode === null ? c.on("exit", r) : r(),
@@ -984,6 +1111,9 @@ const TO_TOP = {
 
 const SETS = [
   "pairing",
+  "wide",
+  "filestab",
+  "comfort",
   "home",
   "job",
   "settings",
@@ -1042,6 +1172,99 @@ const COMPOSE_PROBE = `(() => {
     boxBottom: tenth(at(box).bottom),
   };
 })()`;
+// The design's widths at the two full screens (files screens design, section 2): the column, Home's columns (24
+// between groups), the folder tiles and the file cards (16 between cards), in whole px.
+const WIDTHS = {
+  1920: {
+    col: 1104,
+    home: "540,540",
+    folders: "264,264,264,264",
+    files: "357,357,357",
+  },
+  2560: {
+    col: 1440,
+    home: "464,464,464",
+    folders: "227,227,227,227,227,227",
+    files: "348,348,348,348",
+  },
+};
+// Measures the content's inner width (the column), the grids' column widths and the tab bar's button group.
+const WIDTH_PROBE = `(() => {
+  const c = document.querySelector(".content");
+  const cs = getComputedStyle(c);
+  const cols = (sel) => {
+    const g = document.querySelector(sel);
+    return g ? getComputedStyle(g).gridTemplateColumns.split(" ").map((x) => Math.round(parseFloat(x))).join(",") : "none";
+  };
+  const tabs = [...document.querySelectorAll(".tabbar .tab")].reduce((n, t) => n + t.getBoundingClientRect().width, 0);
+  return {
+    col: Math.round(c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)),
+    home: cols(".home"),
+    folders: cols(".files-folders"),
+    files: cols(".files-files"),
+    tabs: Math.round(tabs),
+  };
+})()`;
+// Runs side by side to their ends, then throws the first failure: a run still going would hold its browser's
+// profile, and the temp folder could not be removed.
+async function allDone(runs) {
+  const ended = await Promise.allSettled(runs);
+  const failed = ended.find((r) => r.status === "rejected");
+  if (failed) throw failed.reason;
+}
+// A script run before the shot (awaited; a throw stops the run, as the state is then not on screen).
+const js = (expression) => ({
+  method: "Runtime.evaluate",
+  params: { expression: `(async () => {${expression}})()`, awaitPromise: true },
+});
+const settle = "await new Promise((r) => setTimeout(r, 600));";
+const tapFirst = (sel) =>
+  js(`const b = document.querySelector(${JSON.stringify(sel)});
+  if (!b) throw new Error("nothing to tap: " + ${JSON.stringify(sel)});
+  b.click();
+  ${settle}`);
+// Taps the element whose words or label are `text`.
+const tapText = (sel, text) =>
+  js(`const b = [...document.querySelectorAll(${JSON.stringify(sel)})].find((x) => x.textContent.trim() === ${JSON.stringify(text)} || x.getAttribute("aria-label") === ${JSON.stringify(text)});
+  if (!b) throw new Error("nothing to tap: " + ${JSON.stringify(`${sel} "${text}"`)});
+  b.click();
+  ${settle}`);
+// Files as a drag from the desktop carries them: [name, size]. Kept over the content (the tint goes after 1 s
+// without drag events), or dropped on it after the stream stand-in is set.
+const fileList = (files) => `const list = new DataTransfer();
+  for (const [name, size] of ${JSON.stringify(files)}) list.items.add(new File([new Uint8Array(size)], name));
+  const box = document.querySelector(".content");
+  const send = (type) => box.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: list }));`;
+const dragOver = (files) =>
+  js(`${fileList(files)}
+  send("dragover");
+  setInterval(() => send("dragover"), 200);
+  ${settle}`);
+const dropFiles = (files, stream) =>
+  js(`globalThis.pictureStream = ${stream};
+  ${fileList(files)}
+  send("dragover");
+  send("drop");
+  ${settle}`);
+// Send to chat on the first file: the card's button where it shows (1200 and over), else from its "⋯" menu.
+const SEND_FIRST =
+  js(`const b = [...document.querySelectorAll(".files-send")].find((x) => x.offsetParent);
+  if (b) b.click();
+  else {
+    document.querySelector(".files-more").click();
+    ${settle}
+    const item = [...document.querySelectorAll(".files-choice")].find((x) => x.textContent.trim() === "Send to chat");
+    if (!item) throw new Error("no Send to chat in the file menu");
+    item.click();
+  }
+  ${settle}`);
+// A touch held on the action row under the last reply, so the Copy menu opens after its 300 ms.
+const HOLD_REPLY =
+  js(`const a = [...document.querySelectorAll(".msg-acts .acts-gap")].at(-1);
+  if (!a) throw new Error("no reply action row to hold");
+  const r = a.getBoundingClientRect();
+  a.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch", clientX: r.left + 20, clientY: r.top + 10 }));
+  await new Promise((ok) => setTimeout(ok, 700));`);
 const LONG_PROMPT = Array.from(
   { length: 60 },
   (_, i) => `Line ${i + 1} of a long prompt read back before it goes.`,
@@ -1093,7 +1316,7 @@ async function shoot(pageDir, shots) {
         [
           "--mute-audio",
           "--hide-scrollbars",
-          "--force-device-scale-factor=2",
+          `--force-device-scale-factor=${s.size.scale ?? 2}`,
           `--window-size=${s.size.width},${s.size.height}`,
           `--user-data-dir=${fs.mkdtempSync(path.join(tmp, "profile-"))}`,
           ...(s.flags ?? []),
@@ -1104,8 +1327,15 @@ async function shoot(pageDir, shots) {
         s.probe,
         s.before,
       );
-      console.log(file);
-      if (s.check) s.check(probed);
+      shotCount++;
+      const o = probed.overflow;
+      const wide = o.scroll > o.width || o.out.length;
+      const line = wide
+        ? `${s.name}: overflow, page ${o.scroll} in ${o.width}: ${o.out.join(", ")}${o.more ? ` and ${o.more} more` : ""}`
+        : `${s.name}: no overflow`;
+      if (wide) overflowed.push(line);
+      console.log(`${file}\n  ${line}`);
+      if (s.check) s.check(probed.probed);
     }
   } finally {
     await relay.close();
@@ -1799,6 +2029,222 @@ try {
         `pictures: ${bad.length} scroll measures fail:\n${bad.join("\n")}`,
       );
   }
+  // Every tab screen and the session view at the four sizes; at 1920 and 2560 the column and grids measured.
+  if (sets.includes("wide")) {
+    const pageDir = path.join(tmp, "wide-page");
+    writePage(pageDir, buildPage());
+    writeHomeStandIns(pageDir);
+    const screens = [
+      ["home", {}, ""],
+      ["projects", { pictureTab: "Projects" }, ""],
+      [
+        "project",
+        { pictureTab: "Projects", pictureClick: '[data-project="p1"]' },
+        "",
+      ],
+      ["files", { pictureTab: "Files" }, ""],
+      [
+        "files-folder",
+        { pictureTab: "Files", pictureClick: '[data-folder="Screenshots"]' },
+        "",
+      ],
+      ["settings", { pictureTab: "Settings" }, ""],
+      ["session", {}, "?o=talk"],
+    ];
+    const measured = [];
+    await allDone(
+      Object.entries(THEMES).map(([scheme, theme]) =>
+        shoot(
+          pageDir,
+          SIZES.flatMap((size) =>
+            screens.map(([what, taps, query]) => ({
+              name: `screen-${what}-${size.width}-${scheme}`,
+              size,
+              theme,
+              query,
+              extra: { pictureState: "open", ...taps },
+              ...(size.width >= 1920 &&
+              ["home", "files", "session"].includes(what)
+                ? {
+                    probe: WIDTH_PROBE,
+                    check: (m) =>
+                      measured.push({ what, width: size.width, scheme, m }),
+                  }
+                : {}),
+            })),
+          ),
+        ),
+      ),
+    );
+    const bad = [];
+    console.log("\nwidths measured (design, files screens design section 2):");
+    for (const { what, width, scheme, m } of measured) {
+      const want = WIDTHS[width];
+      const pairs =
+        what === "home"
+          ? [
+              ["column", m.col, want.col],
+              ["home columns", m.home, want.home],
+              ["tab group", m.tabs, 480],
+            ]
+          : what === "files"
+            ? [
+                ["column", m.col, want.col],
+                ["folder tiles", m.folders, want.folders],
+                ["file cards", m.files, want.files],
+              ]
+            : [["session column", m.col, 760]];
+      const words = pairs.map(([n, got, w]) => `${n} ${got} (design ${w})`);
+      console.log(`  ${what} ${width} ${scheme}: ${words.join("; ")}`);
+      for (const [n, got, w] of pairs)
+        if (String(got) !== String(w))
+          bad.push(`${what} ${width} ${scheme}: ${n} ${got}, design ${w}`);
+    }
+    if (bad.length)
+      throw new Error(
+        `pictures: ${bad.length} widths differ from the design:\n${bad.join("\n")}`,
+      );
+  }
+  // The Files tab's states at 390 and 1920.
+  if (sets.includes("filestab")) {
+    const pageDir = path.join(tmp, "filestab-page");
+    writePage(pageDir, buildPage());
+    writeHomeStandIns(pageDir);
+    const files = { pictureTab: "Files" };
+    const states = [
+      ["empty", "files-empty", files, []],
+      [
+        "folder-empty",
+        "open",
+        { ...files, pictureClick: '[data-folder="Old"]' },
+        [],
+      ],
+      ["drag-over", "open", files, [dragOver([["photo.png", 640000]])]],
+      [
+        "drag-over-big",
+        "open",
+        files,
+        [dragOver([["report-video.mp4", 72 * 1024 * 1024]])],
+      ],
+      [
+        "uploading",
+        "open",
+        files,
+        [
+          dropFiles(
+            [
+              ["holiday-video.mp4", 38 * 1024 * 1024],
+              ["notes.pdf", 4300000],
+            ],
+            "(b, p) => (p?.(0.33), new Promise(() => {}))",
+          ),
+        ],
+      ],
+      [
+        "failed",
+        "open",
+        files,
+        [
+          dropFiles(
+            [
+              ["scan.pdf", 1200000],
+              ["report-video.mp4", 72 * 1024 * 1024],
+            ],
+            'async () => ({ ok: false, err: "stream-gone" })',
+          ),
+        ],
+      ],
+      ["menu", "open", files, [tapFirst(".files-more")]],
+      [
+        "move",
+        "open",
+        files,
+        [tapFirst(".files-more"), tapText(".files-choice", "Move to folder…")],
+      ],
+      ["sending", "files-sending", files, [SEND_FIRST]],
+      ["sent", "open", files, [SEND_FIRST]],
+      ["send-failed", "files-send-failed", files, [SEND_FIRST]],
+      ["readonly", "connect-readonly", files, []],
+      ["old-pc", "files-old-pc", files, []],
+      ["pc-off", "pc-off", files, []],
+    ];
+    await allDone(
+      Object.entries(THEMES).map(([scheme, theme]) =>
+        shoot(
+          pageDir,
+          [SIZES[0], SIZE_1920].flatMap((size) =>
+            states.map(([state, pictureState, taps, before]) => ({
+              name: `filestab-${state}-${size.width}-${scheme}`,
+              size,
+              theme,
+              extra: { pictureState, ...taps },
+              before,
+              // "PC off" shows once the relay's offline answers held 20 s; they come every 3-7 s.
+              ...(state === "pc-off" ? { settleMs: 30_000 } : {}),
+            })),
+          ),
+        ),
+      ),
+    );
+  }
+  // The comfort design's skeletons (no hello answer ever, nothing kept), the Copy menu and the "Sending…" mark.
+  if (sets.includes("comfort")) {
+    const pageDir = path.join(tmp, "comfort-page");
+    writePage(pageDir, buildPage());
+    writeHomeStandIns(pageDir);
+    const shots = [
+      ["skeleton-home", "connect-first", "", [], 2000],
+      [
+        "skeleton-projects",
+        "connect-first",
+        "",
+        [tapText("#tabbar .tab", "Projects")],
+        2000,
+      ],
+      [
+        "skeleton-files",
+        "connect-first",
+        "",
+        [tapText("#tabbar .tab", "Files")],
+        2000,
+      ],
+      ["copy-menu", "open", "?o=talk", [HOLD_REPLY], 3000],
+      [
+        "sending",
+        "sending",
+        "?o=done",
+        [
+          typeInBox("Please update the changelog too"),
+          tapText(".compose-box button", "Send"),
+        ],
+        3000,
+      ],
+    ];
+    await allDone(
+      Object.entries(THEMES).map(([scheme, theme]) =>
+        shoot(
+          pageDir,
+          SIZES.flatMap((size) =>
+            shots.map(([what, pictureState, query, before, settleMs]) => ({
+              name: `comfort-${what}-${size.width}-${scheme}`,
+              size,
+              theme,
+              query,
+              extra: { pictureState },
+              before,
+              settleMs,
+            })),
+          ),
+        ),
+      ),
+    );
+  }
+  console.log(`\n${shotCount} pictures in ${out}`);
+  if (overflowed.length)
+    throw new Error(
+      `pictures: ${overflowed.length} shots overflow sideways:\n${overflowed.join("\n")}`,
+    );
+  console.log("no shot overflows sideways");
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
 }

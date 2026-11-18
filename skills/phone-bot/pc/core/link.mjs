@@ -20,13 +20,20 @@ export const TIMING = {
 // The `ping` field of the first frame: the relay closes this socket after 2 x 20 s + 10 s of silence.
 const PING_EVERY = 20;
 
-// https://host -> wss://host/ws. Plain http only in test mode, for the stand-in relay on 127.0.0.1.
-export function socketUrl(relay) {
+// https://host + /pc/send -> https://host/pc/send, for the PC's HTTP calls to the relay (Send to chat, a download
+// link's bytes). Plain http only in test mode, for the stand-in relay on 127.0.0.1.
+export function relayUrl(relay, pathname) {
   const u = new URL(relay);
-  if (u.protocol === "https:") u.protocol = "wss:";
-  else if (u.protocol === "http:" && TEST) u.protocol = "ws:";
-  else throw new Error(`the relay address must start with https://`);
-  u.pathname = "/ws";
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && TEST))
+    throw new Error(`the relay address must start with https://`);
+  u.pathname = pathname;
+  return u.href;
+}
+
+// https://host -> wss://host/ws.
+export function socketUrl(relay) {
+  const u = new URL(relayUrl(relay, "/ws"));
+  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
   return u.href;
 }
 

@@ -189,6 +189,47 @@ check(
   run("opencli reddit com$ment abc"),
   "deny",
 );
+check(
+  "site help with a redirect is allowed (was refused as an odd command word)",
+  run("opencli reddit --help 2>&1 | head -30"),
+  "allow",
+);
+check(
+  "a read with its errors sent away is allowed",
+  run('opencli reddit search "x" 2>/dev/null'),
+  "allow",
+);
+check(
+  "a write is still caught behind a redirect",
+  run("opencli reddit 2> err.txt comment abc"),
+  "deny",
+);
+check(
+  "the word inside a folder path runs no opencli",
+  run(
+    'node "$APPDATA/npm/node_modules/@jackwener/opencli/dist/src/main.js" --help 2>&1',
+  ),
+  "allow",
+);
+check(
+  "the word inside a longer name runs no opencli",
+  run("grep -rn opencli-readonly hooks/ 2>/dev/null"),
+  "allow",
+);
+check(
+  "a write through a full path to the program is still caught",
+  run("/usr/local/bin/opencli reddit comment abc hi"),
+  "deny",
+);
+for (const cmd of [
+  'node "$APPDATA/npm/node_modules/@jackwener/opencli/dist/src/main.js" reddit comment abc hi',
+  "npx -y @jackwener/opencli@latest reddit comment abc hi",
+  "opencli.ps1 reddit comment abc hi",
+  "opencli reddit 2>&1 comment abc hi",
+  "opencli 2>&1 reddit comment abc hi",
+  "opencli>/dev/null reddit comment abc hi",
+])
+  check(`a write the guard must still catch: ${cmd}`, run(cmd), "deny");
 
 rmSync(bin, { recursive: true, force: true });
 rmSync(empty, { recursive: true, force: true });
