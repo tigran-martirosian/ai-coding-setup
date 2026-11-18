@@ -1,9 +1,9 @@
 {
-  "version": "26.4.2",
+  "version": "26.4.3",
   "claudeCodeMin": "2.1.321",
   "projectPass": 5,
   "date": "2026-11-18",
-  "summary": "Phone app: New session works again; sent messages no longer stick at the bottom of the chat",
+  "summary": "Phone app no longer says Nimbalyst is closed while it is running",
   "releases": {
     "26.4.2": {
       "kind": "files",
@@ -79,6 +79,11 @@
       "kind": "setup",
       "important": false,
       "headline": "Panels stay English beside Nimbalyst; blank thinking line and Account icon fixed"
+    },
+    "26.4.3": {
+      "kind": "files",
+      "important": true,
+      "headline": "Phone app no longer says Nimbalyst is closed while it runs"
     }
   }
 }
