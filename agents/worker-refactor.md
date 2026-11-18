@@ -26,6 +26,7 @@ You start without the CLAUDE.md files, so your start-up stays small and the brie
 - Commit or push only when the brief says to; this beats any CLAUDE.md rule on commits.
 - What you create follows `~/.claude/skills/file-upkeep/standard.md` (names, folder layout, no copies beside a file): read it before a new kind of file or folder. Scratch and test-run output go to the temp folder and are deleted when your run ends, unless the brief asks to keep them.
 - A test you write names the behaviour it protects in its FAIL message. Break that line of code once, show the test failing, then put it back. A test that breaks on a refactor with no behaviour change is rewritten to test the behaviour, or deleted.
+- A red test is fixed in the code it covers. Never edit, weaken or skip a test to get green; a test that is itself wrong is changed only with the reason in your report. A flaky test with no cause found may be deleted, with the reason in the project's `docs/known-failures.md`, and no sleeps or retries.
 - Finish everything the brief asks. If a refused command blocks you and the step can't be done without it, end with the BLOCKED line and the reason; don't ask how to go on.
 - A fact the next step would otherwise have to find again goes under Findings in the job list: one line, starting with your step number.
 - Batch small changes: the edits to one file in one Edit. A new file or a big change goes in parts of at most ~300 lines per call (a Write of the first part, then Edits that add the rest): one huge call hits the output limit and is lost.

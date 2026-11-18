@@ -2,15 +2,18 @@
 // when it is imported; the build's screens.generated.js imports every such file, so a new screen is a new file
 // and no frame file changes.
 //   registerScreen({ id, tab, title, render, actions })
-//     tab: "home", "projects", "settings" (that tab's top screen) or null; title: text or (params) => text;
+//     tab: "home", "projects", "files", "settings" (that tab's top screen) or null; title: text or (params) => text;
 //     render(ctx) returns an element, or { content, bottom } where `bottom` sits above Telegram's main button;
-//     actions: the PC actions the screen uses, so the frame can grey it when the PC does not offer them.
+//     actions: the PC actions the screen uses, so the frame can grey it when the PC does not offer them;
+//     updateLine: the words the frame shows in place of its general update words when it greys the screen;
+//     keep: the cache.js name the screen keeps its last answer under, so the frame draws it before the first hello.
 //   registerHomePart({ id, order, render }): a block on Home; order from DS1's list (PC status 10, version 20,
 //     needs you 30, working 40, jobs 50, usage 60). render(ctx) returns an element or null.
 
 export const TABS = [
   { tab: "home", word: "Home" },
   { tab: "projects", word: "Projects" },
+  { tab: "files", word: "Files" },
   { tab: "settings", word: "Settings" },
 ];
 
@@ -18,7 +21,15 @@ const ID = /^[a-z][a-z0-9-]*$/;
 const screens = new Map();
 const parts = new Map();
 
-export function registerScreen({ id, tab = null, title, render, actions }) {
+export function registerScreen({
+  id,
+  tab = null,
+  title,
+  render,
+  actions,
+  updateLine,
+  keep,
+}) {
   if (!ID.test(String(id)))
     throw new Error(`registerScreen: "${id}" is not a screen id`);
   if (screens.has(id))
@@ -38,7 +49,11 @@ export function registerScreen({ id, tab = null, title, render, actions }) {
     throw new Error(`registerScreen ${id}: render is not a function`);
   if (!Array.isArray(actions) || actions.some((a) => typeof a !== "string"))
     throw new Error(`registerScreen ${id}: actions is a list of action names`);
-  screens.set(id, { id, tab, title, render, actions });
+  if (updateLine !== undefined && typeof updateLine !== "string")
+    throw new Error(`registerScreen ${id}: updateLine is text`);
+  if (keep !== undefined && !ID.test(String(keep)))
+    throw new Error(`registerScreen ${id}: keep is a cache.js name`);
+  screens.set(id, { id, tab, title, render, actions, updateLine, keep });
 }
 
 export function registerHomePart({ id, order, render }) {
@@ -59,7 +74,15 @@ export function screen(id) {
   return s;
 }
 
-export const hasScreen = (id) => screens.has(id);
+// The screens that load after the first draw (screens.generated.js LATER): they count as in this build at once,
+// so a row that opens one is drawn as opening; the frame waits for them before it draws one.
+const later = new Set();
+export function laterScreens(ids) {
+  for (const id of ids) later.add(id);
+}
+
+export const hasScreen = (id) => screens.has(id) || later.has(id);
+export const isLoaded = (id) => screens.has(id);
 
 // The tabs that have a top screen in this build, in the bar's order.
 export const tabScreens = () =>

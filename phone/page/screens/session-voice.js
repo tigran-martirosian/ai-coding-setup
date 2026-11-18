@@ -8,6 +8,7 @@
 // What a recording is doing lives here, one per session, not in the view: the page ends its channel session after
 // an answer is 30 s late and draws the session view again on the new one, and a recording or a job in progress
 // carries on into the new view.
+import { FILES_STREAM_MAX } from "../frame/channel.js";
 import { el, icon } from "../frame/dom.js";
 
 const LIMIT_MS = 15 * 60 * 1000;
@@ -47,7 +48,7 @@ const SAY = {
   "not-connected": "no link to the PC right now",
   closed: "the link to the PC closed",
   "pc-offline": "the PC is off or asleep",
-  "too-big": "the recording is over 25 MB",
+  "too-big": "the recording is over 50 MB",
   "stream-broken": "the recording did not arrive whole",
   "no-job": "the PC no longer has this recording's job",
   "unknown-audio": "the PC does not read this phone's sound format",
@@ -530,11 +531,16 @@ async function turn(s) {
   let r;
   try {
     const bytes = new Uint8Array(await s.blob.arrayBuffer());
-    r = await s.view.ctx.sendStream(bytes, s.mime, (part) => {
-      if (!current()) return;
-      s.sent = part;
-      redraw(s);
-    });
+    r = await s.view.ctx.sendStream(
+      bytes,
+      s.mime,
+      (part) => {
+        if (!current()) return;
+        s.sent = part;
+        redraw(s);
+      },
+      FILES_STREAM_MAX,
+    );
     if (r?.ok) {
       if (!current()) return;
       s.phase = "turning";

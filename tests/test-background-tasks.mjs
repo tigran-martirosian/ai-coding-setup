@@ -170,6 +170,15 @@ function run(
           "[background-tasks] Background costs two extra",
         ) &&
         !("permissionDecision" in h);
+    } else if (expect === "foreground") {
+      // the helper start is rewritten to the foreground, every other field kept, not refused
+      const h = JSON.parse(out).hookSpecificOutput;
+      const sent = JSON.parse(input).tool_input;
+      ok =
+        ok &&
+        h.hookEventName === "PreToolUse" &&
+        !("permissionDecision" in h) &&
+        J(h.updatedInput) === J({ ...sent, run_in_background: false });
     } else if (expect === "refuse") {
       const h = JSON.parse(out).hookSpecificOutput;
       ok =
@@ -394,15 +403,15 @@ run(
   tool("Bash", { command: "sleep 60", run_in_background: true }),
 );
 run(
-  "refuse-agent-background",
+  "foreground-agent-background",
   null,
-  "refuse",
+  "foreground",
   tool("Agent", { description: "S2", prompt: "x", run_in_background: true }),
 );
 run(
-  "refuse-task-background",
+  "foreground-task-background",
   null,
-  "refuse",
+  "foreground",
   tool("Task", { description: "S2", prompt: "x", run_in_background: true }),
 );
 run(
@@ -433,39 +442,53 @@ const SERVE = [
   result("toolu_v", "Command running in background with ID: bsv1"),
 ];
 run(
-  "refuse-agent-no-flag",
+  "foreground-agent-no-flag",
   null,
-  "refuse",
+  "foreground",
   tool("Agent", { description: "S2", prompt: "x" }),
 );
 // A background helper dies when the main turn ends and the app stops the idle session: refused even `beside`
 run(
-  "refuse-agent-beside",
+  "foreground-agent-beside",
   null,
-  "refuse",
+  "foreground",
   tool("Agent", { description: "S3 beside S1: shop", prompt: "x" }),
 );
 run(
-  "refuse-agent-other-running",
+  "foreground-agent-other-running",
   [...agentBg()],
-  "refuse",
+  "foreground",
   tool("Agent", { description: "S4", prompt: "x" }),
 );
+// map-brief rewrites the same worker call and only one updatedInput is used: both must hand back the same input
+// (the map lines and run_in_background: false), whichever wins. The repo's own systems map gives map-brief lines.
 {
-  const r = spawnSync(process.execPath, [HOOK], {
-    input: J({
-      hook_event_name: "PreToolUse",
-      tool_name: "Agent",
-      tool_input: { description: "S2", prompt: "x" },
-    }),
-    encoding: "utf8",
+  const repo = path.resolve(path.dirname(HOOK), "..");
+  const ev = J({
+    hook_event_name: "PreToolUse",
+    tool_name: "Agent",
+    cwd: repo,
+    tool_input: {
+      description: "S2",
+      subagent_type: "worker",
+      prompt: "Fix the next-step-gate hook's go-ask check.",
+    },
   });
-  const ok = r.stdout.includes(
-    "several Agent calls in one message, each with run_in_background: false",
-  );
+  const env = { ...process.env, CLAUDE_PROJECT_DIR: repo };
+  const got = (file) =>
+    JSON.parse(
+      spawnSync(process.execPath, [file], { input: ev, encoding: "utf8", env })
+        .stdout,
+    ).hookSpecificOutput.updatedInput;
+  const bt = got(HOOK);
+  const mb = got(path.join(path.dirname(HOOK), "map-brief.mjs"));
+  const ok =
+    J(bt) === J(mb) &&
+    bt.run_in_background === false &&
+    bt.prompt.includes("SYSTEMS MAP:");
   if (!ok) failed++;
   console.log(
-    `${ok ? "PASS" : "FAIL"}  agent-refusal-says-parallel-foreground`,
+    `${ok ? "PASS" : "FAIL"}  FAIL if background-tasks and map-brief rewrite a worker call differently (one input is lost)`,
   );
 }
 // The nudge tells how to run an Agent in the foreground: leaving run_in_background out is what is refused
@@ -495,15 +518,15 @@ run(
   );
 }
 run(
-  "refuse-agent-other-finished",
+  "foreground-agent-other-finished",
   [...agentBg(), notified("a1234", "toolu_a")],
-  "refuse",
+  "foreground",
   tool("Agent", { description: "S4", prompt: "x" }),
 );
 run(
-  "refuse-agent-other-stopped",
+  "foreground-agent-other-stopped",
   [...agentBg(), call("TaskStop", "toolu_k", { task_id: "a1234" })],
-  "refuse",
+  "foreground",
   tool("Agent", { description: "S4", prompt: "x" }),
 );
 run(
@@ -786,7 +809,7 @@ run("vscode-bash-still-refused", null, "refuse", {
   ...tool("Bash", { command: "npm test", run_in_background: true }),
   env: { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" },
 });
-run("sdk-agent-still-refused", null, "refuse", {
+run("sdk-agent-foreground", null, "foreground", {
   ...tool("Agent", { description: "S2", prompt: "x" }),
   env: { CLAUDE_CODE_ENTRYPOINT: "sdk-cli" },
 });

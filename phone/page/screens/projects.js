@@ -4,6 +4,7 @@
 // the list's last line comes into view. Each session row opens the session screen. Holding a project or session
 // row opens Pin or Unpin: a project pin is the phone's own, a session pin is Nimbalyst's (sessions.pin), and the
 // sessions Nimbalyst has pinned sit in a Pinned group on top.
+import { keep, kept as keptOnPhone } from "../frame/cache.js";
 import { el, ICONS, icon } from "../frame/dom.js";
 import { registerScreen } from "../frame/screens.js";
 import { KIND } from "./home-sessions.js";
@@ -302,10 +303,18 @@ function renderProjects(ctx) {
     if (r?.ok) {
       kept.projects = r.d;
       state.error = null;
+      keep("projects", r.d);
     } else state.error = errWord(r);
     draw();
   }
 
+  // Drawn before the first hello from the list kept on the phone (comfort design, section 3).
+  if (ctx.updating) {
+    const k = keptOnPhone("projects");
+    if (!k)
+      throw new Error("Projects is drawn as kept, but nothing is kept for it.");
+    kept.projects = k.data;
+  }
   draw();
   if (ctx.connected) load();
   return box;
@@ -317,6 +326,7 @@ registerScreen({
   title: "Projects",
   render: renderProjects,
   actions: ["projects.list", "projects.pin"],
+  keep: "projects",
 });
 
 // ---- a project's sessions

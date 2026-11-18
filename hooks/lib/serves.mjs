@@ -32,6 +32,26 @@ export const TYPES = new Set([
   "plan-reviewer",
 ]);
 const REVIEWERS = new Set(["reviewer", "plan-reviewer"]);
+
+// background-tasks rewrites a main-session helper start to the foreground (run_in_background: false) instead of
+// refusing it: each refusal cost a whole extra request (169 in 5 days, 2026-11-17 review). It runs on the same Agent
+// call as map-brief and serves-brief and only one updatedInput is used, so every brief built here carries the same
+// change. Left alone: a helper's own helper, BACKGROUND_TASKS off or warn, the desktop app and VS Code (they run
+// helpers in the background whatever the flag says) and the map builder ("Systems map:", a side job by design).
+export function foreground(event, input) {
+  const mode = String(process.env.BACKGROUND_TASKS || "").toLowerCase();
+  if (
+    isOff(mode) ||
+    mode === "warn" ||
+    event.agent_id ||
+    !["Agent", "Task"].includes(event.tool_name) ||
+    input.run_in_background === false ||
+    /^claude-(desktop|vscode)/.test(process.env.CLAUDE_CODE_ENTRYPOINT || "") ||
+    /^Systems map:/.test(String(input.description ?? ""))
+  )
+    return input;
+  return { ...input, run_in_background: false };
+}
 export const MAP_MARKER = "SYSTEMS MAP:";
 export const SERVES_MARKER = "SERVES (from";
 const MAP_JS = path.join(
@@ -607,7 +627,7 @@ export async function fullBrief(event) {
   if (serves.deny) return { ...none, deny: serves.deny };
   if (!map && !serves.text) return none;
   return {
-    input: { ...input, prompt: prompt + map + serves.text },
+    input: foreground(event, { ...input, prompt: prompt + map + serves.text }),
     notes: serves.notes,
     purposeNotes: serves.purposeNotes,
     errors,

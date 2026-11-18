@@ -8,17 +8,30 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { makeBot } from "../phone/relay/bot/bot.mjs";
 import {
+  announceTestCopy,
   BOT_DESCRIPTION,
   BOT_SHORT_DESCRIPTION,
   CI_SECRETS,
+  headersFile,
   OUT,
   OWNER_COMMANDS,
+  PROBE_HEADERS,
   pointBot,
+  preparePage,
   RELAY_SECRETS,
   START_COMMANDS,
   WRANGLER_VERSION,
 } from "../phone/relay/deploy.mjs";
+import {
+  ADDRESS_KEY,
+  deployTest,
+  HOOK_SECRET_KEY,
+  removeTopics,
+} from "../phone/relay/deploy-test.mjs";
+import { PAGE_HEADERS, startLocalRelay } from "../phone/relay/local/server.mjs";
+import { pcIdOf, toB64url } from "../phone/relay/src/hub.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) =>
@@ -189,13 +202,29 @@ try {
   const r = run(full, ["--dry-run"]);
   const text = `${r.stdout}${r.stderr}`;
   check("the dry run ends well", r.status === 0, text);
+  // Changed on purpose by row T1: a test deploy no longer points the bot at itself (it used to list setWebhook).
   check(
-    "the dry run shows the deploy, the four relay secrets and the bot step",
+    "the dry run shows the deploy, the four relay secrets and the Test copy message",
     text.includes(
       `npx wrangler@${WRANGLER_VERSION} deploy --name phone-relay-test`,
     ) &&
       RELAY_SECRETS.every((n) => text.includes(`secret put ${n} `)) &&
-      text.includes("setWebhook"),
+      text.includes('sendMessage "Test copy"'),
+    text,
+  );
+  check(
+    "a test deploy makes no bot-wide call (the real relay keeps the bot): no setWebhook, setMyCommands, " +
+      "setChatMenuButton or description; one sendMessage with a web_app button",
+    !/setWebhook|deleteMyCommands|setMyCommands|setMyDescription|setMyShortDescription|setChatMenuButton/.test(
+      text,
+    ) &&
+      text.split("sendMessage").length === 2 &&
+      text.includes("web_app button"),
+    text,
+  );
+  check(
+    "a test deploy builds the page as a test copy",
+    text.includes("test copy beside the real relay"),
     text,
   );
   const leaked = values.filter((v) => text.includes(v));
@@ -216,6 +245,14 @@ try {
     "a --checks dry run prints no secret value",
     values.filter((v) => cText.includes(v)),
     [],
+  );
+  check(
+    "a --checks test deploy serves /version.json as a download Telegram's web page may fetch",
+    cText.includes(
+      `would serve /version.json with Content-Disposition: attachment; filename="probe.json" and ` +
+        "Access-Control-Allow-Origin: https://web.telegram.org",
+    ) && !/setWebhook|setMyCommands|setChatMenuButton/.test(cText),
+    cText,
   );
 
   const part = path.join(tmp, "part.json");
@@ -274,6 +311,255 @@ check(
     Object.values(CI_SECRETS).every((n) => ci.stderr.includes(n)),
   ci.stderr,
 );
+
+// The real relay's deploy, with fake values: the same steps as before the test copy existed.
+const ciFake = spawnSync(
+  process.execPath,
+  ["phone/relay/deploy.mjs", "--name", "phone-relay", "--dry-run"],
+  {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: {
+      ...env,
+      [CI_SECRETS.apiToken]: fake.cloudflareApiToken,
+      [CI_SECRETS.accountId]: fake.cloudflareAccountId,
+      [CI_SECRETS.botToken]: fake.botToken,
+      [CI_SECRETS.ownerTgId]: fake.ownerTelegramId,
+    },
+  },
+);
+const ciText = `${ciFake.stdout}${ciFake.stderr}`;
+check(
+  "a --name phone-relay deploy still sets the webhook, menus, descriptions and Open button, and sends no " +
+    "Test copy message",
+  ciFake.status === 0 &&
+    ciText.includes(
+      "would call Telegram: setWebhook to <relay>/tg/hook with a fresh secret, the command lists, description " +
+        "and short description, the default menu button back to commands, the Open button in the owner's chat",
+    ) &&
+    !/sendMessage|Test copy|test copy|version\.json/.test(ciText),
+  ciText,
+);
+check(
+  "a --name phone-relay deploy puts no TOPIC_SUFFIX (FAIL: the real relay's topics would be named (test))",
+  !ciText.includes("TOPIC_SUFFIX"),
+  ciText,
+);
+
+// ---- a whole test deploy with a stand-in wrangler; the kept address and secret; --remove-topics ----
+
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phone-deploy-topics-"));
+  const outBefore = fs.existsSync(OUT);
+  try {
+    const file = path.join(dir, "owner-secrets.json");
+    fs.writeFileSync(file, JSON.stringify(fake));
+    const ORIGIN = "https://phone-relay-test.example-sub.workers.dev";
+    const ran = [];
+    const said = [];
+    await deployTest({
+      file,
+      say: (line) => said.push(line),
+      fetch: async () => ({ json: async () => ({ ok: true, result: true }) }),
+      wrangler: (args, { input }) => {
+        ran.push({ args, input });
+        return args[0] === "deploy"
+          ? `Deployed phone-relay-test\n  ${ORIGIN}\n`
+          : "";
+      },
+    });
+    const put = (n) => ran.find((r) => r.args[2] === n)?.input;
+    const kept = JSON.parse(fs.readFileSync(file, "utf8"));
+    same(
+      "a test deploy keeps the test relay's address and its webhook secret in the secrets file, beside the bot token",
+      [kept[ADDRESS_KEY], kept[HOOK_SECRET_KEY], kept.botToken],
+      [ORIGIN, put("WEBHOOK_SECRET"), fake.botToken],
+    );
+    check(
+      "the kept webhook secret is a real one (48 characters of A-Z a-z 0-9 _ -)",
+      /^[A-Za-z0-9_-]{48}$/.test(kept[HOOK_SECRET_KEY] ?? ""),
+    );
+    same(
+      'a test deploy puts TOPIC_SUFFIX " (test)" on the test Worker',
+      put("TOPIC_SUFFIX"),
+      " (test)",
+    );
+    same(
+      "a test deploy prints no secret value, the webhook secret included",
+      [...values, kept[HOOK_SECRET_KEY]].filter((v) =>
+        said.join("\n").includes(v),
+      ),
+      [],
+    );
+
+    const r = spawnSync(
+      process.execPath,
+      [
+        "phone/relay/deploy-test.mjs",
+        "--remove-topics",
+        "--dry-run",
+        "--secrets",
+        file,
+      ],
+      { cwd: ROOT, encoding: "utf8" },
+    );
+    const rText = `${r.stdout}${r.stderr}`;
+    check(
+      "--remove-topics --dry-run reads the kept address and names POST <address>/tg/hook",
+      r.status === 0 && rText.includes(`POST ${ORIGIN}/tg/hook`),
+      rText,
+    );
+    same(
+      "--remove-topics --dry-run prints no secret value",
+      [...values, kept[HOOK_SECRET_KEY]].filter((v) => rText.includes(v)),
+      [],
+    );
+
+    // The test relay, with the TOPIC_SUFFIX the deploy put: its topics carry "(test)", and --remove-topics,
+    // pointed at it, deletes them.
+    fs.writeFileSync(path.join(dir, "index.html"), "<!doctype html>");
+    const tgCalls = [];
+    let thread = 10;
+    const relay = await startLocalRelay({
+      port: 0,
+      pageDir: dir,
+      botId: 4206917,
+      ownerTgId: 6602207,
+      telegramKey: "00".repeat(32),
+      topicSuffix: put("TOPIC_SUFFIX"),
+      telegram: async (method, params) => {
+        tgCalls.push({ method, params });
+        if (method === "getMe")
+          return { username: "t_bot", has_topics_enabled: true };
+        if (method === "createForumTopic")
+          return { message_thread_id: ++thread };
+        return true;
+      },
+      download: async () => {
+        throw new Error("no download here");
+      },
+      now: Date.now,
+      log: () => {},
+      bot: makeBot({ webhookSecret: kept[HOOK_SECRET_KEY] }),
+    });
+    // One socket per first frame, as a PC opens a new link to sign in after its join.
+    const open = async () => {
+      const w = new WebSocket(`${relay.url.replace("http", "ws")}/ws`);
+      await new Promise((ok, no) => {
+        w.addEventListener("open", ok);
+        w.addEventListener("error", no);
+      });
+      return w;
+    };
+    let ws = await open();
+    const token = crypto.getRandomValues(new Uint8Array(32));
+    const pcId = await pcIdOf(token);
+    const frame = (f) => ws.send(JSON.stringify({ v: 1, ...f }));
+    const settle = async () => {
+      await new Promise((ok) => setTimeout(ok, 60));
+      await relay.idle();
+    };
+    frame({
+      t: "pc-join",
+      pcId,
+      token: toB64url(token),
+      inboxPub: toB64url(crypto.getRandomValues(new Uint8Array(32))),
+      pcVersion: "26.3",
+    });
+    await settle();
+    relay.map.set(`pc:${pcId}`, {
+      ...relay.map.get(`pc:${pcId}`),
+      tgId: 6602207,
+    });
+    ws.close();
+    ws = await open();
+    frame({ t: "pc-auth", pcId, token: toB64url(token) });
+    await settle();
+    same(
+      'a test relay creates its topics as "Alerts (test)" and "Files (test)"',
+      tgCalls
+        .filter((c) => c.method === "createForumTopic")
+        .map((c) => c.params.name),
+      ["Alerts (test)", "Files (test)"],
+    );
+    const local = path.join(dir, "local-secrets.json");
+    fs.writeFileSync(
+      local,
+      JSON.stringify({ ...kept, [ADDRESS_KEY]: relay.url }),
+    );
+    const n = await removeTopics({ file: local, say: () => {} });
+    same(
+      "--remove-topics sends the kept secret to the test relay, which deletes both topics",
+      [n, tgCalls.filter((c) => c.method === "deleteForumTopic").length],
+      [2, 2],
+    );
+    ws.close();
+    await relay.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (!outBefore) fs.rmSync(OUT, { recursive: true, force: true });
+  }
+}
+
+// ---- the test copy's page, headers and message ----
+
+same(
+  "the real relay's _headers hold only the page headers",
+  headersFile(),
+  `/*\n${Object.entries(PAGE_HEADERS)
+    .map(([k, v]) => `  ${k}: ${v}`)
+    .join("\n")}\n`,
+);
+check(
+  "a --checks _headers serves /version.json as probe.json to Telegram's web page",
+  headersFile({ checks: true }) ===
+    `${headersFile()}/version.json\n  Content-Disposition: ${PROBE_HEADERS["Content-Disposition"]}\n` +
+      `  Access-Control-Allow-Origin: ${PROBE_HEADERS["Access-Control-Allow-Origin"]}\n` &&
+    PROBE_HEADERS["Content-Disposition"] ===
+      'attachment; filename="probe.json"' &&
+    PROBE_HEADERS["Access-Control-Allow-Origin"] === "https://web.telegram.org",
+  headersFile({ checks: true }),
+);
+// The storage names come from row A2's build (STORE_SUFFIX); before it is in this tree there is nothing to compare.
+const plainPage = preparePage({ write: false }).files;
+const testPage = preparePage({ write: false, testCopy: true }).files;
+if (plainPage.some(([, t]) => t.includes("STORE_SUFFIX")))
+  check(
+    "the test deploy's page keeps its pairing under -test names, the real page under today's",
+    testPage.some(([, t]) => t.includes('STORE_SUFFIX = "-test"')) &&
+      !plainPage.some(([, t]) => t.includes('STORE_SUFFIX = "-test"')),
+  );
+else console.log("note the page build has no STORE_SUFFIX yet (row A2)");
+
+const sent = [];
+await announceTestCopy({
+  botToken: fake.botToken,
+  ownerTgId: fake.ownerTelegramId,
+  origin: "https://test.example.com",
+  fetch: async (url, init) => {
+    sent.push({ method: url.split("/").pop(), params: JSON.parse(init.body) });
+    return { json: async () => ({ ok: true, result: true }) };
+  },
+});
+same("a test deploy's one bot call: Test copy with a web_app button", sent, [
+  {
+    method: "sendMessage",
+    params: {
+      chat_id: 6602207,
+      text: "Test copy",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "Open the test copy",
+              web_app: { url: "https://test.example.com/" },
+            },
+          ],
+        ],
+      },
+    },
+  },
+]);
 
 // ---- the bot calls, against a fake Telegram ----
 
@@ -377,6 +663,104 @@ check(
     BOT_SHORT_DESCRIPTION.length <= 120,
   `${BOT_DESCRIPTION.length} and ${BOT_SHORT_DESCRIPTION.length} characters`,
 );
+
+// ---- the second PC program ----
+
+const PC = path.join(ROOT, "skills", "phone-bot", "pc");
+const pcTmp = fs.mkdtempSync(path.join(os.tmpdir(), "phone-deploy-pc-"));
+try {
+  const own = path.join(pcTmp, "app");
+  const pipe =
+    process.platform === "win32"
+      ? `\\\\.\\pipe\\phone-app-pc-deploy-test-${process.pid}`
+      : path.join(pcTmp, "pc.sock");
+  const base = { ...process.env };
+  for (const n of Object.keys(base))
+    if (n.startsWith("PHONE_PC_")) delete base[n];
+  const second = {
+    ...base,
+    PHONE_PC_TEST: "1",
+    PHONE_PC_APP_DIR: own,
+    PHONE_PC_PIPE: pipe,
+  };
+  const paths = (env) => {
+    const r = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `const f = await import(${JSON.stringify(new URL("../skills/phone-bot/pc/core/files.mjs", import.meta.url).href)});
+const l = await import(${JSON.stringify(new URL("../skills/phone-bot/pc/core/log.mjs", import.meta.url).href)});
+const os = await import("node:os");
+console.log(JSON.stringify({ app: f.appDir(), keys: f.keyFilePath(), log: l.logPath(), home: os.homedir() }));`,
+      ],
+      { cwd: ROOT, encoding: "utf8", env },
+    );
+    return r.status === 0
+      ? JSON.parse(r.stdout)
+      : { error: `${r.stdout}${r.stderr}` };
+  };
+  const p2 = paths(second);
+  same(
+    "the second PC program keeps its keys and its log in its own folder",
+    [p2.app, p2.keys, p2.log],
+    [own, path.join(own, "pc-keys.json"), path.join(own, "pc.log")],
+  );
+  const p1 = paths({ ...base, PHONE_PC_APP_DIR: own, PHONE_PC_PIPE: pipe });
+  const real = p1.home && path.join(p1.home, ".phone-app");
+  same(
+    "without PHONE_PC_TEST the app folder and the log stay under ~/.phone-app",
+    [p1.app, p1.log],
+    [real, real && path.join(real, "pc.log")],
+  );
+  const half = paths({ ...base, PHONE_PC_TEST: "1", PHONE_PC_APP_DIR: own });
+  check(
+    "an own folder without an own pipe stops, so the second program never talks to the real one",
+    (half.error ?? "").includes("PHONE_PC_PIPE"),
+    JSON.stringify(half),
+  );
+
+  // join in dry mode, as on Windows. A plain join (home and APPDATA in the temp folder) shows the log-on entry
+  // the second program's join must leave out.
+  const join = (env) => {
+    const r = spawnSync(
+      process.execPath,
+      [path.join(PC, "setup.mjs"), "join", "https://relay.example.com"],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: { ...env, PHONE_PC_DRY: "1", PHONE_PC_PLATFORM: "win32" },
+      },
+    );
+    return { status: r.status, text: `${r.stdout}${r.stderr}` };
+  };
+  const home = path.join(pcTmp, "home");
+  fs.mkdirSync(home);
+  const sandbox = {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: path.join(home, "AppData"),
+  };
+  const plain = join({ ...base, ...sandbox, PHONE_PC_TEST: "1" });
+  const j = join({ ...second, ...sandbox });
+  check(
+    "a plain join plans the log-on entry (so the next check means something)",
+    plain.status === 0 && plain.text.includes("phone-app-pc.vbs"),
+    plain.text,
+  );
+  check(
+    "the second program's join plans no log-on entry, no stop by command line and no old-bot removal, " +
+      "makes its keys in its own folder and starts it hidden",
+    j.status === 0 &&
+      !/phone-app-pc\.vbs|Startup|powershell|schtasks/.test(j.text) &&
+      j.text.includes(`Keys made: ${path.join(own, "pc-keys.json")}`) &&
+      j.text.includes("would start hidden:") &&
+      j.text.includes("keep.mjs"),
+    j.text,
+  );
+} finally {
+  fs.rmSync(pcTmp, { recursive: true, force: true });
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

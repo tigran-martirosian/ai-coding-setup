@@ -1,0 +1,302 @@
+/* The first paint (comfort design, section 2): the skeleton in index.html, and the frame's title row with its status
+   mark and full-screen button. This is the only style file the first paint waits for, so it stands on its own:
+   Telegram's theme variables when they are there (telegram-web-app.js writes them), the system colours before. The
+   sizes are page.css's tokens: row 60, inset 16, radius 12, title 30/36. */
+:root {
+  --sk-font: -apple-system, system-ui, "Segoe UI", sans-serif;
+  --sk-bg: var(--tg-theme-secondary-bg-color, var(--tg-theme-bg-color, Canvas));
+  --sk-text: var(--tg-theme-text-color, CanvasText);
+  --sk-muted: var(--tg-theme-hint-color, GrayText);
+  --sk-section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, Canvas));
+  --sk-primary: var(--tg-theme-button-color, LinkText);
+  --sk-tabbar: var(--tg-theme-bottom-bar-bg-color, var(--tg-theme-bg-color, Canvas));
+  --sk-sep: color-mix(in oklab, var(--sk-text) 12%, transparent);
+  --sk-fill: color-mix(in oklab, var(--sk-text) 8%, transparent);
+  /* The band always lightens: white at 60% on a light theme, the text colour at 6% on a dark one */
+  --sk-band: rgba(255, 255, 255, 0.6);
+}
+:root.dark-theme {
+  --sk-band: color-mix(in oklab, var(--sk-text) 6%, transparent);
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--sk-bg);
+  color: var(--sk-text);
+  font: 400 16px/22px var(--sk-font);
+}
+.shell[hidden],
+.sk-tab[hidden],
+.app[hidden] {
+  display: none;
+}
+.shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.sk-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 16px 24px;
+}
+.shell .large-title {
+  font: 700 30px/36px var(--sk-font);
+  margin: 12px 0 8px;
+  letter-spacing: -0.01em;
+}
+/* Read aloud only: the skeleton is one busy region called "Loading" */
+.sk-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  margin: 0;
+}
+
+/* ---- the shapes */
+.sk-block {
+  background: var(--sk-section);
+  border-radius: 12px;
+  margin: 0 0 20px;
+}
+.sk-pc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 0 16px;
+}
+.sk-head {
+  font: 600 15px/20px var(--sk-font);
+  margin: 0 16px 8px;
+}
+.sk-search {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  margin: 0 0 16px;
+  border-radius: 10px;
+  background: var(--sk-fill);
+  color: var(--sk-muted);
+  opacity: 0.6;
+}
+/* Files: the tool row's two buttons, real but greyed until the first answer */
+.sk-tools {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.sk-tool {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--sk-primary);
+  font: 500 16px/22px var(--sk-font);
+  opacity: 0.4;
+}
+.sk-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 60px;
+  padding: 10px 16px;
+}
+.sk-row:has(.sk-tile) {
+  grid-template-columns: 36px minmax(0, 1fr);
+}
+.sk-plain {
+  grid-template-columns: minmax(0, 1fr);
+}
+.sk-row + .sk-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 52px;
+  right: 0;
+  height: 1px;
+  background: var(--sk-sep);
+}
+.sk-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* Each shape carries its own copy of the band; its delay is its left edge / 487.5 px/s, so the band stands at one x
+   across all shapes (780 px in 1.6 s, then 0.4 s rest) */
+.sk-bar,
+.sk-orb,
+.sk-tile,
+.sk-circle {
+  display: block;
+  background:
+    linear-gradient(90deg, transparent, var(--sk-band), transparent) no-repeat,
+    var(--sk-fill);
+  background-size: 156px 100%;
+  background-position: -156px 0;
+  animation: sk-band 2s linear infinite backwards;
+  animation-delay: 164ms;
+}
+.sk-bar {
+  height: 10px;
+  border-radius: 5px;
+}
+.sk-orb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  justify-self: center;
+  animation-delay: 66ms;
+}
+.sk-tile {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  animation-delay: 66ms;
+}
+.sk-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex: none;
+  animation-delay: 66ms;
+}
+.sk-w30 { width: 30%; }
+.sk-w35 { width: 35%; }
+.sk-w38 { width: 38%; }
+.sk-w44 { width: 44%; }
+.sk-w48 { width: 48%; }
+.sk-w55 { width: 55%; }
+.sk-w62 { width: 62%; }
+.sk-w70 { width: 70%; }
+@keyframes sk-band {
+  0% {
+    background-position: -156px 0;
+  }
+  80%,
+  100% {
+    background-position: 624px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk-bar,
+  .sk-orb,
+  .sk-tile,
+  .sk-circle {
+    animation: none;
+  }
+}
+
+/* ---- the skeleton's tab bar, as page.css draws the real one */
+.sk-tabbar {
+  flex: none;
+  display: flex;
+  background: var(--sk-tabbar);
+  border-top: 1px solid var(--sk-sep);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.sk-tabbtn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0 4px;
+  border: 0;
+  background: none;
+  color: var(--sk-muted);
+  font: 500 12px/16px var(--sk-font);
+}
+.sk-tabbtn svg {
+  box-sizing: content-box;
+  padding: 2px 16px;
+  border-radius: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sk-tabbtn[aria-current="page"] {
+  color: var(--sk-primary);
+  font-weight: 600;
+}
+.sk-tabbtn[aria-current="page"] svg {
+  background: color-mix(in oklab, var(--sk-primary) 16%, transparent);
+}
+
+/* ---- the frame's title row: the large title, a status mark at its right end that takes no layout space, and
+   the full-screen button on Telegram Desktop */
+.title-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.title-row .large-title {
+  flex: 1;
+  min-width: 0;
+}
+.status-mark {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 400 14px/19px var(--sk-font);
+  color: var(--sk-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.status-mark:empty {
+  display: none;
+}
+.title-row:has(.full-btn) .status-mark {
+  right: 52px;
+}
+.full-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--sk-muted);
+  cursor: pointer;
+}
+.full-btn:hover {
+  background: var(--sk-fill);
+}
+/* A kept screen until fresh: relative ages count from the kept time, so they show at half strength */
+.updating .age {
+  opacity: 0.5;
+}
+/* The content replaces the skeleton with a 150 ms fade */
+.swap-in {
+  animation: sk-fade 150ms ease-out;
+}
+@keyframes sk-fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .swap-in {
+    animation: none;
+  }
+}

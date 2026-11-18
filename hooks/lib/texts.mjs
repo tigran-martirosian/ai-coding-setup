@@ -24,6 +24,15 @@ export const SETTLED_NOTE = "[background-tasks] This settled notice repeats";
 export const BIG_READ_GATE = "[big-read-gate]";
 export const VERIFY_GATE = "verify-gate:";
 
+// verify-gate.mjs --pre: the refusal of a code commit with no verify run after the last code edit, and the line in
+// the commit message that lets it pass. The line is matched on its own line, in any case, with a dash or colon typed
+// any way (— – -- - :).
+export const VERIFY_SKIPPED = "Verify: skipped —";
+export const VERIFY_SKIPPED_RE =
+  /^verify:\s*skipped\s*(?:—|–|--?|:)\s*\S.{2,}$/im;
+export const verifyGateCommit = (files, skill) =>
+  `[verify-gate] this commit changes code (${files}) and no verify run came after the last code edit. Run the verify skill (${skill}) and commit again, or add the line "${VERIFY_SKIPPED} <reason>" to the message. This refusal comes once for this commit.`;
+
 // chat-scan.mjs writes it in a digest's header, read-digests.mjs reads it back
 export const chatCounts = (chats, requests) =>
   `${chats} chats, ${requests} requests`;

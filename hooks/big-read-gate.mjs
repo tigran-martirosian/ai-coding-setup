@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync, statSync } from "node:fs";
 import { delimiter, extname, join, resolve } from "node:path";
-// big-read-gate: a PreToolUse hook that blocks whole-file dumps of large text files.
+// big-read-gate: a PreToolUse hook that blocks whole-file dumps of large text files. A too-big Read is not refused:
+// its limit is cut to what fits and a note names the rest (capRead). Shell dumps are still refused.
 // Based on the "shunt" pattern from Spotify's portal-ai-plugins: hooks enforce, the model routes.
 // Covers Read, and cat/less/more/head/tail/type/Get-Content in Bash or PowerShell (also inside
 // powershell -Command '...' and bash -c '...'). A pipe or redirect lets a command through only
@@ -23,6 +24,7 @@ const MAX_LINES = Number(process.env.BIG_READ_MAX_LINES) || 350;
 // 80000 bytes (about 20k tokens): only a file of very long lines is too big under 350 lines. 20000 refused plan
 // files of 80 lines with wide tables; 80000 stays under the Read tool's own 25k-token cap.
 const MAX_BYTES = Number(process.env.BIG_READ_MAX_BYTES) || 80000;
+const PREVIEW = 120; // lines a too-big Read with no limit returns
 const READ_CAP = 2000; // lines the Read tool returns when no limit is given
 const BINARY = new Set([
   ".png",
@@ -203,6 +205,37 @@ function deny(path, m, limit) {
     ...(extname(path).toLowerCase() === ".md" ? headings(path) : []),
   ].join("\n");
   emit.deny(reason);
+  process.exit(0);
+}
+
+// A Read that would return too much is not refused: a ranged Read gets the part of its range that fits, a Read with
+// no limit gets a PREVIEW (the gate keeps context lean: the whole fit would add ~20k tokens that stay), both through
+// updatedInput, and a note says what was left out (with an .md file's headings). A refusal cost a whole extra request each time (114 in 5 days, 2026-11-17 review), and the
+// next call was nearly always the same Read with a range. A file whose single lines are too long is still refused.
+function capRead(path, m, input, from) {
+  if (takeAllowance(path)) return; // the user named this file in the prompt
+  const perLine = m.bytes / m.lines;
+  const fit = Math.min(MAX_LINES, Math.floor(MAX_BYTES / perLine));
+  if (fit < 1) return deny(path, m, input.limit);
+  const lines = input.limit ? fit : Math.min(fit, PREVIEW);
+  const kb = Math.round(m.bytes / 1024);
+  const note = [
+    `${BIG_READ_GATE} ${path} is ${m.lines} lines (${kb} KB), too big to read at once: this Read returns only lines ${from + 1}-${from + lines}. For another part, Grep for it with line numbers, then Read with offset/limit (at most ${fit} lines).`,
+    IN_HELPER
+      ? "To understand the whole file, answer from targeted reads."
+      : `To understand or summarise the whole file, hand it to a subagent with subagent_type: "worker" (Agent tool) with one specific question, and keep only its answer.`,
+    "Before editing outside these lines, confirm them with a targeted Read.",
+    ...(extname(path).toLowerCase() === ".md" ? headings(path) : []),
+  ].join("\n");
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        updatedInput: { ...input, limit: lines },
+        additionalContext: note,
+      },
+    }),
+  );
   process.exit(0);
 }
 
@@ -520,7 +553,7 @@ runHook("big-read-gate", (event) => {
     const m = measure(path);
     const from = input.offset ? Math.max(0, input.offset - 1) : 0;
     if (m && tooBig(returned(m, from, input.limit || READ_CAP)))
-      deny(path, m, input.limit);
+      capRead(path, m, input, from);
   } else if (
     ["Bash", "PowerShell"].includes(event.tool_name) &&
     input.command

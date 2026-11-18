@@ -1,10 +1,15 @@
 {
-  "version": "26.3.3",
+  "version": "26.4",
   "claudeCodeMin": "2.1.321",
-  "projectPass": 4,
-  "date": "2026-11-17",
-  "summary": "The job hook no longer asks for a hand-off after a plan's last session row is done",
+  "projectPass": 5,
+  "date": "2026-11-18",
+  "summary": "Phone app: a Files tab to move files between PC and phone, instant open, desktop layout, easier code reading",
   "releases": {
+    "26.4": {
+      "kind": "quiet",
+      "important": true,
+      "headline": "Phone app: Files tab, instant open, desktop layout; a verify skill for each project"
+    },
     "26.3.3": {
       "kind": "files",
       "important": false,

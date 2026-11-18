@@ -40,6 +40,8 @@ Object.assign(process.env, {
   USERPROFILE: home,
   APPDATA: path.join(home, "AppData", "Roaming"),
   LOCALAPPDATA: path.join(home, "AppData", "Local"),
+  // Lets folder.send and folder.link post to the stand-in relay on http://127.0.0.1.
+  PHONE_PC_TEST: "1",
 });
 // Where the PC program looks for Nimbalyst's data (core/files.mjs nimbalystDir), on each system.
 const NIM =
@@ -787,6 +789,670 @@ try {
       `file.open: ${what} is bad-input`,
       (await open(r1.file, more)).err === "bad-input",
     );
+
+  // ---- the Files tab's folder actions (actions/folder.mjs, files contract sections 3 to 6), on ~/phone-inbox
+  const folder = await import("../skills/phone-bot/pc/actions/folder.mjs");
+  const INBOX = path.join(home, "phone-inbox");
+  fs.mkdirSync(INBOX, { recursive: true });
+  fs.mkdirSync(OUTSIDE, { recursive: true });
+  fs.writeFileSync(path.join(INBOX, "index.md"), "# saved\n");
+  fs.writeFileSync(path.join(INBOX, "note.txt"), "hello\n");
+  const ruleIs = (r, rule) =>
+    r.ok === false && r.err === "folder-refused" && r.rule === rule;
+  const NAMES = [
+    "list",
+    "make",
+    "rename",
+    "move",
+    "remove",
+    "put",
+    "send",
+    "link",
+    "copy",
+    "show",
+  ];
+  const names = registry.names();
+  check(
+    "hello offers the Files actions: the registry holds every folder.* name",
+    NAMES.every((n) => names.includes(`folder.${n}`)),
+    show(names.filter((n) => n.startsWith("folder."))),
+  );
+
+  const made = await ask("folder.make", { dir: "", name: "work" });
+  check(
+    "folder.make makes a folder in the Files folder",
+    made.ok && fs.statSync(path.join(INBOX, "work")).isDirectory(),
+    show(made),
+  );
+  check(
+    "folder.make refuses a taken name with exists",
+    (await ask("folder.make", { dir: "", name: "work" })).err === "exists",
+  );
+  const renamed = await ask("folder.rename", {
+    path: "note.txt",
+    name: "readme.txt",
+  });
+  check(
+    "folder.rename renames a file in place",
+    renamed.ok &&
+      fs.existsSync(path.join(INBOX, "readme.txt")) &&
+      !fs.existsSync(path.join(INBOX, "note.txt")),
+    show(renamed),
+  );
+  check(
+    "folder.rename refuses a taken name with exists",
+    (await ask("folder.rename", { path: "readme.txt", name: "work" })).err ===
+      "exists",
+  );
+  const listed = await ask("folder.list", { dir: "" });
+  check(
+    "folder.list gives folders first, hides index.md, and says the free bytes",
+    listed.ok &&
+      listed.d.items.map((i) => `${i.kind}:${i.name}`).join() ===
+        "folder:work,file:readme.txt" &&
+      listed.d.items[1].size === 6 &&
+      listed.d.more === false &&
+      listed.d.free > 0,
+    show(listed),
+  );
+  const moved = await ask("folder.move", { path: "readme.txt", to: "work" });
+  check(
+    "folder.move moves a file into a folder and gives its new path",
+    moved.ok &&
+      moved.d.path === "work/readme.txt" &&
+      fs.existsSync(path.join(INBOX, "work", "readme.txt")),
+    show(moved),
+  );
+  await ask("folder.make", { dir: "work", name: "sub" });
+  const counted = await ask("folder.list", { dir: "" });
+  check(
+    'folder.list gives each folder its count of files, subfolders not counted (FAIL: the Files tab shows "Folder" instead of "1 file")',
+    counted.d.items.find((i) => i.name === "work")?.count === 1,
+    show(counted.d.items),
+  );
+  check(
+    "folder.move refuses a folder into its own subfolder with into-itself",
+    (await ask("folder.move", { path: "work", to: "work/sub" })).err ===
+      "into-itself",
+  );
+  const removed = await ask("folder.remove", { path: "work/readme.txt" });
+  const bin = path.join(INBOX, ".removed");
+  check(
+    "folder.remove moves the file into .removed, not deleted, and the list hides .removed",
+    removed.ok &&
+      removed.d.removed === "work/readme.txt" &&
+      fs.readdirSync(bin).some((f) => f.endsWith("-readme.txt")) &&
+      !(await ask("folder.list", { dir: "" })).d.items.some(
+        (i) => i.name === ".removed",
+      ),
+    show(removed),
+  );
+  check(
+    "folder.remove of a missing file is not-found",
+    (await ask("folder.remove", { path: "work/gone.txt" })).err === "not-found",
+  );
+  fs.writeFileSync(path.join(INBOX, "work", "a.txt.part-0a1b"), "half");
+  folder.cleanFolder(Date.now() + 8 * 24 * 3600 * 1000);
+  check(
+    "the start clean empties .removed entries over 7 days old and .part files over 1 hour old",
+    fs.readdirSync(bin).length === 0 &&
+      !fs.existsSync(path.join(INBOX, "work", "a.txt.part-0a1b")),
+    show(fs.readdirSync(bin)),
+  );
+
+  // Each refusal names its rule.
+  fs.symlinkSync(OUTSIDE, path.join(INBOX, "work", "out"), "junction");
+  fs.writeFileSync(path.join(INBOX, "id_rsa"), "key");
+  for (const [what, a, d, rule] of [
+    [
+      "a path out of the folder by ..",
+      "folder.list",
+      { dir: "../outside" },
+      "path form",
+    ],
+    ["an absolute path", "folder.list", { dir: "/Windows" }, "path form"],
+    ["a drive path", "folder.remove", { path: "C:/x.txt" }, "path form"],
+    ["a link out of the folder", "folder.list", { dir: "work/out" }, "link"],
+    [
+      "a new folder behind a link",
+      "folder.make",
+      { dir: "work/out", name: "x" },
+      "link",
+    ],
+    [
+      "a secret file name",
+      "folder.send",
+      { path: "id_rsa" },
+      "secret file name",
+    ],
+    [
+      "a secret name made new",
+      "folder.make",
+      { dir: "", name: "token.txt" },
+      "secret file name",
+    ],
+    ["the top-level index.md", "folder.remove", { path: "index.md" }, "hidden"],
+    [
+      "index.md renamed",
+      "folder.rename",
+      { path: "index.md", name: "x.md" },
+      "hidden",
+    ],
+    ["a path into .removed", "folder.list", { dir: ".removed" }, "hidden"],
+    ["a device name", "folder.make", { dir: "", name: "con.txt" }, "bad name"],
+    ["a secret folder", "folder.list", { dir: ".git" }, "secret folder"],
+  ]) {
+    const r = await ask(a, d);
+    check(
+      `folder refuses ${what} with the rule "${rule}"`,
+      ruleIs(r, rule),
+      show(r),
+    );
+  }
+  check(
+    "folder.list leaves out a link in the folder",
+    !(await ask("folder.list", { dir: "work" })).d.items.some(
+      (i) => i.name === "out",
+    ),
+  );
+
+  // Copy file and Show in folder, with a stand-in for the programs they start (no clipboard, no window here).
+  const runs = [];
+  let runAnswer = { code: 0, words: "" };
+  folder.setCommandRunner(async (file, args, env, opts) => {
+    runs.push({ file, args, copyPath: env?.PHONE_PC_COPY_PATH, opts });
+    if (runAnswer instanceof Error) throw runAnswer;
+    return runAnswer;
+  });
+  fs.writeFileSync(path.join(INBOX, "work", "pic.txt"), "pic");
+  const picReal = fs.realpathSync.native(path.join(INBOX, "work", "pic.txt"));
+  const copied = await ask("folder.copy", { path: "work/pic.txt" });
+  const copyRun = runs.pop();
+  check(
+    "folder.copy puts the file on the clipboard: PowerShell Set-Clipboard gets the file's full path, outside the command text",
+    copied.ok &&
+      copied.d.copied === "work/pic.txt" &&
+      /powershell/i.test(copyRun?.file) &&
+      copyRun.args
+        .join(" ")
+        .includes("Set-Clipboard -LiteralPath $env:PHONE_PC_COPY_PATH") &&
+      !copyRun.args.join(" ").includes(picReal) &&
+      copyRun.copyPath === picReal,
+    show({ copied, copyRun }),
+  );
+  const shown = await ask("folder.show", { path: "work/pic.txt" });
+  const showRun = runs.pop();
+  check(
+    "folder.show opens Explorer with /select, and the file's full path, quoted and passed as written (a comma in a name stays in the path)",
+    shown.ok &&
+      shown.d.shown === "work/pic.txt" &&
+      /explorer/i.test(showRun?.file) &&
+      showRun.args.length === 1 &&
+      showRun.args[0] === `/select,"${picReal}"` &&
+      showRun.opts?.windowsVerbatimArguments === true,
+    show({ shown, showRun }),
+  );
+  for (const a of ["folder.copy", "folder.show"])
+    for (const [what, p, rule] of [
+      ["a path out of the folder by ..", "../outside/o.md", "path form"],
+      ["a link out of the folder", "work/out/o.md", "link"],
+      ["a secret file name", "id_rsa", "secret file name"],
+      ["the top-level index.md", "index.md", "hidden"],
+    ]) {
+      runs.length = 0;
+      const r = await ask(a, { path: p });
+      check(
+        `${a} refuses ${what} with the rule "${rule}" and starts no program`,
+        ruleIs(r, rule) && runs.length === 0,
+        show({ r, runs }),
+      );
+    }
+  // The real secret files (files contract: realSecretName) and the app folder: refused by name, the files there.
+  const realSecrets = [
+    ".dev.vars",
+    ".envrc",
+    ".pypirc",
+    ".mcp.json",
+    ".git-credentials",
+    "pc-keys.json",
+  ];
+  fs.mkdirSync(path.join(INBOX, "proj", ".phone-app"), { recursive: true });
+  fs.writeFileSync(path.join(INBOX, "proj", ".phone-app", "state.json"), "{}");
+  for (const n of realSecrets) {
+    fs.writeFileSync(path.join(INBOX, n), "secret");
+    fs.writeFileSync(path.join(INBOX, "proj", n), "secret");
+  }
+  const secretCases = [
+    ...realSecrets.flatMap((n) => [
+      [n, "secret file name"],
+      [`proj/${n}`, "secret file name"],
+    ]),
+    ["proj/.phone-app/state.json", "secret folder"],
+  ];
+  for (const a of ["folder.send", "folder.link", "folder.copy", "folder.show"])
+    for (const [p, rule] of secretCases) {
+      runs.length = 0;
+      const r = await ask(a, { path: p });
+      check(
+        `${a} refuses ${p} by name with the rule "${rule}" (a real secret file never leaves the Files folder)`,
+        ruleIs(r, rule) && runs.length === 0,
+        show({ r, runs }),
+      );
+    }
+  for (const [d, rule] of [
+    ["proj/.phone-app", "secret folder"],
+    ["proj/.dev.vars", "secret file name"],
+  ]) {
+    const r = await ask("folder.list", { dir: d });
+    check(
+      `folder.list refuses ${d} by name with the rule "${rule}" (a secret folder's contents are never shown)`,
+      ruleIs(r, rule),
+      show(r),
+    );
+  }
+  fs.rmSync(path.join(INBOX, "proj"), { recursive: true });
+  for (const n of realSecrets) fs.rmSync(path.join(INBOX, n));
+  // An upload still being saved is not listed.
+  fs.writeFileSync(path.join(INBOX, "work", "up.bin.part-0a1b2c"), "half");
+  const partList = await ask("folder.list", { dir: "work" });
+  check(
+    "folder.list leaves out a .part- upload still being saved",
+    partList.ok && !show(partList).includes(".part-"),
+    show(partList),
+  );
+  fs.rmSync(path.join(INBOX, "work", "up.bin.part-0a1b2c"));
+  runAnswer = { code: 1, words: "Set-Clipboard : access denied" };
+  const copyFail = await ask("folder.copy", { path: "work/pic.txt" });
+  check(
+    "folder.copy answers copy-failed with PowerShell's words when PowerShell fails",
+    copyFail.ok === false &&
+      copyFail.err === "copy-failed" &&
+      copyFail.why === "Set-Clipboard : access denied",
+    show(copyFail),
+  );
+  runAnswer = Object.assign(new Error("spawn explorer.exe ENOENT"), {
+    code: "ENOENT",
+  });
+  const showFail = await ask("folder.show", { path: "work/pic.txt" });
+  check(
+    "folder.show answers show-failed when Explorer cannot be started",
+    showFail.ok === false &&
+      showFail.err === "show-failed" &&
+      /ENOENT/.test(showFail.why),
+    show(showFail),
+  );
+  runs.length = 0;
+  // A drop-in: the real channel with this registry, a page's hello and sealed chunk frames written here.
+  const seal = await import("../phone/shared/seal.mjs");
+  const { createChannel, PIECE_BYTES, STREAM_MAX } = await import(
+    "../skills/phone-bot/pc/core/channel.mjs"
+  );
+  const K = seal.randomBytes(32);
+  const dev = seal.toB64u(seal.randomBytes(16));
+  const out = [];
+  const channel = createChannel({
+    keys: { devices: [{ device: dev, K: seal.toB64u(K) }] },
+    send: (f) => out.push(f),
+    registry,
+    context: () => ({ page: "ok", setupVersion: "0.0.0" }),
+    pcVersion: "0.0.0",
+  });
+  const hd = (n) => ({ v: seal.PROTOCOL, t: "app", dev, sid: "s1", n });
+  const np = seal.randomBytes(16);
+  await channel.onApp({
+    ...hd(0),
+    c: await seal.sealHello(K, hd(0), {
+      k: "hello",
+      np: seal.toB64u(np),
+      protocol: seal.PROTOCOL,
+      pageVersion: "0.0.0",
+    }),
+  });
+  const helloBack = await seal.openHello(K, hd(0), out.shift().c);
+  const sk = await seal.sessionKeys(K, np, seal.fromB64u(helloBack.npc));
+  let nIn = 0;
+  let nOut = 0;
+  const frame = async (body) => {
+    const h = hd(++nIn);
+    await channel.onApp({ ...h, c: await seal.sealFrame(sk.p2pc, h, body) });
+  };
+  const answers = async () => {
+    const got = [];
+    for (const f of out.splice(0))
+      got.push(await seal.openFrame(sk.pc2p, hd(++nOut), f.c));
+    return got;
+  };
+  const chunk = (id, bytes, i, total = bytes.length) => ({
+    k: "chunk",
+    stream: id,
+    i,
+    of: Math.ceil(total / PIECE_BYTES),
+    total,
+    sha256: sha(bytes),
+    mime: "application/octet-stream",
+    d: bytes
+      .subarray(i * PIECE_BYTES, (i + 1) * PIECE_BYTES)
+      .toString("base64url"),
+  });
+  const BIG = crypto.randomBytes(50 * 1024 * 1024);
+  for (let i = 0; i < Math.ceil(BIG.length / PIECE_BYTES); i++)
+    await frame(chunk("big", BIG, i));
+  const [whole] = await answers();
+  await frame({
+    k: "req",
+    id: "p1",
+    a: "folder.put",
+    d: { dir: "work", name: "big.bin", stream: "big" },
+  });
+  const [putRes] = await answers();
+  const landed = path.join(INBOX, "work", "big.bin");
+  check(
+    "a 50 MB stream lands by folder.put whole, its SHA-256 equal",
+    STREAM_MAX === 52428800 &&
+      whole.ok &&
+      putRes.ok &&
+      putRes.d.size === BIG.length &&
+      fs.existsSync(landed) &&
+      sha(fs.readFileSync(landed)) === sha(BIG),
+    show({ whole, putRes }),
+  );
+  await frame(chunk("over", BIG, 0, STREAM_MAX + 1));
+  const [over] = await answers();
+  check(
+    "a stream one byte over 50 MB is refused with stream-broken at its first piece",
+    over.ok === false &&
+      over.err === "stream-broken" &&
+      /over the 50 MB limit/.test(over.why),
+    show(over),
+  );
+  await frame({
+    k: "req",
+    id: "p2",
+    a: "folder.put",
+    d: { dir: "work", name: "big.bin", stream: "big" },
+  });
+  const [gone] = await answers();
+  check(
+    "folder.put of a stream already taken is stream-gone",
+    gone.ok === false && gone.err === "stream-gone",
+    show(gone),
+  );
+  const small = Buffer.from("again");
+  await frame(chunk("s2", small, 0));
+  await frame({
+    k: "req",
+    id: "p3",
+    a: "folder.put",
+    d: { dir: "work", name: "big.bin", stream: "s2" },
+  });
+  const [, again] = await answers();
+  check(
+    "folder.put of a taken name saves it as name_2",
+    again.ok && again.d.name === "big_2.bin",
+    show(again),
+  );
+
+  // Send to chat and the download link, to a stand-in relay that hashes what it gets.
+  const http = await import("node:http");
+  const posts = [];
+  const relay = http.createServer((req, res) => {
+    const h = crypto.createHash("sha256");
+    let bytes = 0;
+    req.on("data", (b) => {
+      h.update(b);
+      bytes += b.length;
+    });
+    req.on("end", () => {
+      posts.push({
+        url: req.url,
+        headers: req.headers,
+        bytes,
+        sha: h.digest("hex"),
+      });
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        req.headers["x-file-name"] === "no.txt"
+          ? '{"ok":false,"e":"telegram-refused","why":"Bad Request: no"}'
+          : '{"ok":true,"message_id":1}',
+      );
+    });
+  });
+  await new Promise((r) => relay.listen(0, "127.0.0.1", r));
+  const sentFrames = [];
+  folder.bindFolder({
+    keys: {
+      relay: `http://127.0.0.1:${relay.address().port}`,
+      pcId: "pc1",
+      token: "tok",
+    },
+    send(f) {
+      sentFrames.push(f);
+      setImmediate(() =>
+        folder.folderFrame({
+          v: 1,
+          t: "dl-made",
+          ref: f.ref,
+          url: "https://relay.example/dl/abc",
+          until: new Date(Date.now() + 120_000).toISOString(),
+        }),
+      );
+      return true;
+    },
+  });
+  check(
+    "folder.send to a relay that did not say files: 1 is relay-too-old, with nothing posted",
+    (await ask("folder.send", { path: "work/big.bin" })).err ===
+      "relay-too-old" && posts.length === 0,
+  );
+  folder.relayReady({ t: "pc-auth", ok: true, files: 1 });
+  // Send to chat takes 50,000,000 bytes at most (Telegram's 50 MiB counts the multipart wrapping): the biggest it sends
+  const SENDABLE = BIG.subarray(0, 50_000_000);
+  fs.writeFileSync(path.join(INBOX, "work", "send.bin"), SENDABLE);
+  const sent = await ask("folder.send", { path: "work/send.bin" });
+  const post = posts.shift();
+  check(
+    "folder.send gives the relay the whole file with its length, name and PC token; the hash is equal",
+    sent.ok &&
+      sent.d.sent === true &&
+      post?.url === "/pc/send" &&
+      post.bytes === SENDABLE.length &&
+      post.sha === sha(SENDABLE) &&
+      post.headers["content-length"] === String(SENDABLE.length) &&
+      post.headers["x-file-name"] === "send.bin" &&
+      post.headers["x-phone-pc"] === "pc1" &&
+      post.headers.authorization === "Bearer tok",
+    show({ sent, post: { ...post, headers: undefined } }),
+  );
+  fs.writeFileSync(path.join(INBOX, "no.txt"), "x");
+  const refused = await ask("folder.send", { path: "no.txt" });
+  check(
+    "folder.send passes Telegram's refusal on as telegram-refused with its text",
+    refused.err === "telegram-refused" && refused.why === "Bad Request: no",
+    show(refused),
+  );
+  posts.length = 0;
+  fs.truncateSync(path.join(INBOX, "no.txt"), 50_000_001);
+  check(
+    "folder.send of a file over 50,000,000 bytes is too-big, with nothing posted (FAIL: Telegram drops the upload, its 50 MiB counts the multipart wrapping)",
+    folder.SEND_MAX_BYTES === 50_000_000 &&
+      (await ask("folder.send", { path: "no.txt" })).err === "too-big" &&
+      posts.length === 0,
+  );
+  const linked = await ask("folder.link", { path: "work/big.bin" });
+  const dlOpen = sentFrames.shift();
+  check(
+    "folder.link sends dl-open with the name, size and mime, and answers the relay's link",
+    linked.ok &&
+      linked.d.url === "https://relay.example/dl/abc" &&
+      linked.d.size === BIG.length &&
+      dlOpen.t === "dl-open" &&
+      /^[A-Za-z0-9_-]{1,32}$/.test(dlOpen.ref) &&
+      dlOpen.name === "big.bin" &&
+      dlOpen.size === BIG.length &&
+      dlOpen.mime === "application/octet-stream",
+    show({ linked, dlOpen }),
+  );
+  await folder.folderFrame({ v: 1, t: "dl-pull", ref: dlOpen.ref, link: "L1" });
+  const pulled = posts.shift();
+  check(
+    "a dl-pull posts the whole file to the relay's /pc/dl/<link>; the hash is equal",
+    pulled?.url === "/pc/dl/L1" &&
+      pulled.bytes === BIG.length &&
+      pulled.sha === sha(BIG) &&
+      pulled.headers.authorization === "Bearer tok",
+    show({ ...pulled, headers: undefined }),
+  );
+  await folder.folderFrame({ v: 1, t: "dl-pull", ref: dlOpen.ref, link: "L1" });
+  check(
+    "a second dl-pull of the same link posts nothing (one use)",
+    posts.length === 0,
+  );
+  // ---- the same-session rule (files contract, section 8): a file outside the session's folders opens when this
+  // session's own transcript shows a Write, Edit, MultiEdit or NotebookEdit of it that did not fail.
+  const O = (n) => path.join(OUTSIDE, n);
+  for (const n of [
+    "made.md",
+    "edited.md",
+    "read.md",
+    "failed.md",
+    "shell.md",
+    "nb.ipynb",
+    "id_rsa",
+  ])
+    fs.writeFileSync(O(n), `# ${n}\n`);
+  fs.mkdirSync(O("dir.md"), { recursive: true });
+  const appFile = path.join(home, ".phone-app", "notes.md");
+  fs.writeFileSync(appFile, "x\n");
+  fs.appendFileSync(
+    path.join(tdir(PROJECT), `${T1}.jsonl`),
+    `${[
+      use("w1", "Write", { file_path: O("made.md"), content: "x" }),
+      res("w1", { type: "create" }),
+      use("w2", "Edit", { file_path: path.relative(PROJECT, O("edited.md")) }),
+      res("w2", {}),
+      use("w3", "NotebookEdit", { notebook_path: O("nb.ipynb") }),
+      res("w3", {}),
+      use("r1", "Read", { file_path: O("read.md") }),
+      res("r1", {}),
+      use("w4", "Write", { file_path: O("failed.md") }),
+      res("w4", {}, "denied", { is_error: true }),
+      use("b1", "Bash", { command: `echo x > ${O("shell.md")}` }),
+      res("b1", {}),
+      use("w5", "Write", { file_path: O("id_rsa") }),
+      res("w5", {}),
+      use("w6", "Write", { file_path: appFile }),
+      res("w6", {}),
+      use("w7", "Write", { file_path: O("dir.md") }),
+      res("w7", {}),
+    ]
+      .map((l) => JSON.stringify(l))
+      .join("\n")}\n`,
+  );
+  const rowOf = (id, provider) => ({
+    id,
+    workspace_id: PROJECT,
+    worktree_path: null,
+    provider_session_id: provider,
+  });
+  const place1 = files.sessionPlace(rowOf(S1, T1));
+  const place2 = files.sessionPlace(rowOf(S2, T2));
+  const whyOf = (place, p) => files.sessionFile(place, p).why ?? "opens";
+  for (const [what, place, p, want] of [
+    [
+      "a file the session wrote with Write opens",
+      place1,
+      O("made.md"),
+      "opens",
+    ],
+    [
+      "a file the session edited, named relative to its folder, opens",
+      place1,
+      O("edited.md"),
+      "opens",
+    ],
+    ["a notebook the session edited opens", place1, O("nb.ipynb"), "opens"],
+    [
+      "the same path asked from another session stays outside the session's folders",
+      place2,
+      O("made.md"),
+      "outside the session's folders",
+    ],
+    [
+      "a file the session only read stays outside the session's folders",
+      place1,
+      O("read.md"),
+      "outside the session's folders",
+    ],
+    [
+      "a Write that failed does not open its file",
+      place1,
+      O("failed.md"),
+      "outside the session's folders",
+    ],
+    [
+      "a file written by a shell command stays outside the session's folders",
+      place1,
+      O("shell.md"),
+      "outside the session's folders",
+    ],
+    [
+      "a secret file name the session wrote is still refused by name",
+      place1,
+      O("id_rsa"),
+      "secret file name",
+    ],
+    [
+      "a file in ~/.phone-app the session wrote is still refused as a secret folder",
+      place1,
+      appFile,
+      "secret folder",
+    ],
+    [
+      "a folder the session named is still not a file",
+      place1,
+      O("dir.md"),
+      "not a file",
+    ],
+  ])
+    check(
+      `same-session rule: ${what}`,
+      whyOf(place, p) === want,
+      whyOf(place, p),
+    );
+  // The app folder by its own rule: a second PC program's folder (test mode), not named .phone-app.
+  const app2 = path.join(tmp, "app2");
+  fs.mkdirSync(app2, { recursive: true });
+  fs.writeFileSync(path.join(app2, "state.md"), "x\n");
+  fs.appendFileSync(
+    path.join(tdir(PROJECT), `${T1}.jsonl`),
+    `${JSON.stringify(use("w8", "Write", { file_path: path.join(app2, "state.md") }))}\n${JSON.stringify(res("w8", {}))}\n`,
+  );
+  process.env.PHONE_PC_APP_DIR = app2;
+  const appWhy = whyOf(place1, path.join(app2, "state.md"));
+  delete process.env.PHONE_PC_APP_DIR;
+  check(
+    "same-session rule: a file in the app folder the session wrote is still refused as the app folder",
+    appWhy === "app folder",
+    appWhy,
+  );
+  const made1 = files.sessionFile(place1, O("made.md"));
+  const opened = await ask("file.open", {
+    session: S1,
+    file: made1.file,
+    offset: 0,
+  });
+  check(
+    "same-session rule: file.open reads a file outside the folders that the session wrote",
+    opened.ok &&
+      /made\.md/.test(Buffer.from(opened.d.bytes ?? "", "base64").toString()),
+    show(opened),
+  );
+
+  // fetch keeps its connections open: they are closed, and given time to close on the PC side too, before the
+  // process ends (an exit while one closes can stop Node on Windows with a libuv assertion).
+  relay.closeAllConnections();
+  await new Promise((r) => relay.close(r));
+  await new Promise((r) => setTimeout(r, 200));
 } finally {
   await door.close();
   (await import("../skills/phone-bot/pc/core/db.mjs")).closeDb();

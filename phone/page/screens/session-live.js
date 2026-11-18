@@ -10,7 +10,6 @@
 // remove_queued_prompt). Used by session.js; a new channel session (the page reconnects) draws the view again,
 // which watches again, and the view that is gone stops its watch (session.unwatch).
 import { el, icon } from "../frame/dom.js";
-import { markdown } from "../frame/markdown.js";
 import { timing } from "./session-cards.js";
 
 export const RENEW_MS = 9 * 60 * 1000;
@@ -249,10 +248,11 @@ export function liveItems(rows, before = null) {
 export function lastOf(rows, before = null) {
   if (!rows.length) return before;
   const items = liveItems(rows, before);
+  // Only results of calls read before (a form asked before the page opened): no item.
   const end = items[items.length - 1];
   return {
     at: rows[rows.length - 1].at,
-    open: Boolean(end.steps?.some((s) => s.kind === "tool" && s.to === null)),
+    open: Boolean(end?.steps?.some((s) => s.kind === "tool" && s.to === null)),
   };
 }
 
@@ -380,7 +380,7 @@ function workRows(steps, key, how) {
 // rows: the PC's live rows; before: the newest row ahead of them ({ at, open } or null); turnAt: the turn's start.
 export function liveRowsView(
   rows,
-  { now, running, opened, before = null, turnAt = null, files = null },
+  { now, running, opened, before = null, turnAt = null, files = null, talk },
 ) {
   const items = liveItems(rows, before);
   const thinking = running ? thinkingNow(rows, before, turnAt) : null;
@@ -393,20 +393,14 @@ export function liveRowsView(
   return items.map((it) => {
     if (it.steps) return workRows(it.steps, it.key, how);
     if (it.text.system) return systemRow(it.text);
+    // talk (session.js) draws a message with its copy icon and press area (comfort design, section 7).
     if (it.text.role === "user")
-      return el(
-        "div.you",
-        it.text.note ? el("span.you-tag", "Note") : null,
-        it.text.text,
-      );
-    return el(
-      "div.reply",
-      markdown(
-        it.text.text,
-        files && it.text.links
-          ? { links: it.text.links, open: files.openLink }
-          : null,
-      ),
+      return talk.you(it.text.text, it.text.note ? "Note" : null);
+    return talk.reply(
+      it.text.text,
+      files && it.text.links
+        ? { links: it.text.links, open: files.openLink }
+        : null,
     );
   });
 }

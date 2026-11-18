@@ -39,7 +39,10 @@ const IDLE_MS = 15 * 60 * 1000;
 const JOB_MS = 10 * 60 * 1000;
 const RESULT_WAIT_MS = 20_000;
 const KEEP_DONE_MS = 10 * 60 * 1000;
-const JOBS_WAITING_MAX = 2; // jobs of one device not yet through: each holds up to 25 MB in %TEMP%
+const JOBS_WAITING_MAX = 2; // jobs of one device not yet through: each holds up to 50 MB in %TEMP%
+const AUDIO_MAX = 50 * 1024 * 1024; // the page's FILES_STREAM_MAX, which it sends voice notes with
+const SETTING_UP =
+  "Voice is being set up on your PC. Try again in a few minutes.";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 // The formats a phone's MediaRecorder gives (platform facts, section 8) and their file endings.
 const EXT = {
@@ -54,33 +57,60 @@ const EXT = {
 
 // Written by `setup.mjs voice` once the model is downloaded.
 export const markerPath = () => path.join(appDir(), "voice.json");
+// Holds { pid } of `setup.mjs voice` while it runs.
+export const settingUpPath = () => path.join(appDir(), "voice-setup.json");
 const voiceDir = () => path.join(os.tmpdir(), "phone-app-voice");
 
-// uv on the PATH, or null.
+// uv on the PATH, or in winget's links folder (setup.mjs installs it with winget; a program started before that
+// has the old PATH), or null.
 export function findUv() {
   const names = process.platform === "win32" ? ["uv.exe"] : ["uv"];
-  for (const dir of (process.env.PATH || "").split(path.delimiter))
+  const dirs = (process.env.PATH || "").split(path.delimiter);
+  if (process.platform === "win32" && process.env.LOCALAPPDATA)
+    dirs.push(
+      path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links"),
+    );
+  for (const dir of dirs)
     for (const n of names)
       if (dir && fs.existsSync(path.join(dir, n))) return path.join(dir, n);
   return null;
 }
 
-// The program and arguments of the transcriber; ActionError voice-not-set-up with the line to run when uv or the
-// model is missing. In test mode PHONE_PC_TRANSCRIBER names a Node script speaking the same lines.
+// Whether `setup.mjs voice` runs now: its file names a process that is still there.
+export function settingUp() {
+  let pid;
+  try {
+    pid = JSON.parse(readText(settingUpPath())).pid;
+  } catch {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
+
+// The program and arguments of the transcriber; ActionError voice-setting-up while `setup.mjs voice` runs, else
+// voice-not-set-up with the line to run when uv or the model is missing. In test mode PHONE_PC_TRANSCRIBER names a
+// Node script speaking the same lines.
 function command() {
   const uv = findUv();
-  if (!uv)
-    throw new ActionError("voice-not-set-up", {
-      message: "uv is not installed",
-      run: SETUP_LINE,
-    });
-  // No marker, or one that does not read, means the setup step has not finished.
   let marker;
   try {
     marker = JSON.parse(readText(markerPath()));
   } catch {
     marker = null;
   }
+  if ((!uv || marker?.model !== MODEL) && settingUp())
+    throw new ActionError("voice-setting-up", { message: SETTING_UP });
+  if (!uv)
+    throw new ActionError("voice-not-set-up", {
+      message: "uv is not installed",
+      run: SETUP_LINE,
+    });
+  // No marker, or one that does not read, means the setup step has not finished.
   if (marker?.model !== MODEL)
     throw new ActionError("voice-not-set-up", {
       message: "the speech model is not downloaded",
@@ -240,6 +270,8 @@ export function register(registry) {
     run({ stream }, ctx) {
       const got = ctx.takeStream(stream);
       if (!got) throw new ActionError("no-stream");
+      if (got.bytes.length > AUDIO_MAX)
+        throw new ActionError("too-big", { bytes: got.bytes.length });
       const waiting = [...jobs.values()].filter(
         (j) => j.device === ctx.device && !j.done,
       ).length;

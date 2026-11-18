@@ -3,11 +3,17 @@
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { keyFile, keyIn, parsePush } from "../hooks/push-key-scan.mjs";
+import {
+  keyFile,
+  keyIn,
+  maskKeys,
+  parsePush,
+} from "../hooks/push-key-scan.mjs";
+import { writeReport } from "../skills/setup-audit/scripts/lib/reports.mjs";
 
 const hook = fileURLToPath(
   new URL("../hooks/push-key-scan.mjs", import.meta.url),
@@ -211,6 +217,33 @@ check(
   parsePush("git push --force origin feat:main")?.refs.join() === "feat",
   "parsePush: source of a refspec",
 );
+
+// Reports and digests hide keys: a chat digest once held a pasted Anthropic key in plain text
+{
+  const key = "sk-ant-api03-" + "a1B2c3D4e5F6g7H8i9J0kLmNoPqRsT";
+  const masked = maskKeys(`new key ${key} please`);
+  check(
+    masked === "new key [an Anthropic key hidden] please",
+    `maskKeys: hides an Anthropic key (got ${masked})`,
+  );
+  check(
+    maskKeys("className: sk-" + "some-long-css-class-name-here") ===
+      "className: sk-" + "some-long-css-class-name-here",
+    "maskKeys: leaves a CSS class name alone",
+  );
+  const dir = mkdtempSync(join(tmpdir(), "mask-"));
+  writeReport(
+    dir,
+    "d.md",
+    `- S19: here is the key ${key}
+`,
+  );
+  const out = readFileSync(join(dir, "d.md"), "utf8");
+  check(
+    !out.includes(key) && out.includes("[an Anthropic key hidden]"),
+    "writeReport: a digest file never holds a key from the chat",
+  );
+}
 
 console.log(fail ? `${fail} failed` : "all passed");
 process.exit(fail ? 1 : 0);

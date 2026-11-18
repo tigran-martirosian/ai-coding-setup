@@ -4,13 +4,21 @@
 // params' project, and the first Send starts it on the PC. Once the session is open the PC pushes what changes
 // (session-live.js: work rows, state, queue, helpers, context); when it cannot, the view says so and asks again
 // every few seconds while the session works or needs the user.
-import { el, icon } from "../frame/dom.js";
-import { markdown } from "../frame/markdown.js";
+import { ENTRY_MAX, keep, kept as keptOf } from "../frame/cache.js";
+import { el, ICONS, icon } from "../frame/dom.js";
+import {
+  CHECK_ICON,
+  COPIED_MS,
+  COPY_ICON,
+  copyText,
+  markdown,
+  textSize,
+} from "../frame/markdown.js";
 import { registerScreen } from "../frame/screens.js";
 import { hhmm } from "./home.js";
 import { errWord, kept as keptProjects, projectName } from "./projects.js";
 import { attachParts } from "./session-attach.js";
-import { cardFor } from "./session-cards.js";
+import { cardFor, timing } from "./session-cards.js";
 import { changesFiles, filesPart } from "./session-files.js";
 import {
   contextBar,
@@ -39,6 +47,21 @@ const MAX_LINES = 9;
 const MIN_CAP = 3;
 const QUIET_MS = 1000;
 const DRAFT_MS = 1000;
+const STILL_WAITS =
+  "The session still waits on this. Answer again, or on the PC.";
+// A sent message (comfort design, section 5): its "Sending…" turns to "Still sending…" after 10 s; a refused one
+// fades out over 150 ms.
+const SLOW_SEND_MS = 10_000;
+const FADE_MS = 150;
+// The jump-to-latest button shows when the chat's end is over 300 px below the view and goes under 100 px.
+const JUMP_SHOW = 300;
+const JUMP_HIDE = 100;
+// The last session opened is kept on the phone (cache.js, name "session"): its newest 60 rows at most, cut from the
+// oldest end until the entry fits.
+const KEPT_ROWS = 60;
+// Where each session was left, while the page lives: { y, end }, end when it was at the chat's end. The frame's
+// own place (app.js leave) is set before the conversation is read, so the session puts this one back itself.
+const places = new Map();
 
 // Drafts (design "Dictation", fix 2): the message box's words per session (per project for a new one) live outside
 // the view, so a redraw of the view or a reopen of the mini app keeps them. A field's value is saved at most once a
@@ -64,16 +87,28 @@ function keepDraft(key, text) {
     /* storage blocked: the draft in memory stays */
   }
 }
+// The draft in memory follows every keystroke; the stored copy is written at once when the page is hidden or put
+// away, so words typed in the last second outlive a close of the mini app. The page stand-ins of the screen tests
+// that only draw a session (attach, files, live) have no window or document events, hence the ?. here.
+const keepAll = () => {
+  for (const [key, text] of drafts) keepDraft(key, text);
+};
+globalThis.addEventListener?.("pagehide", keepAll);
+document.addEventListener?.("visibilitychange", keepAll);
 
 const GLYPHS = {
   // Nimbalyst's Send: a paper plane
   send: ["M22 2 15 22 11 13 2 9Z", "M22 2 11 13"],
+  clock: ["M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z", "M12 7v5l3 2"],
 };
 
 // What an error means, in words for a line under what the user pressed.
 const SAY = {
   timeout: "the PC did not answer in time",
   "not-connected": "no link to the PC right now",
+  // The channel's own words for a PC that is off or a link that dropped (as session-attach.js says them).
+  "pc-offline": "the PC is off or asleep",
+  closed: "the link to the PC closed",
   "no-prompt": "the question was already answered or is gone",
   "not-running": "the session is not working",
   "needs-door-patch": "this needs the door patch on the PC",
@@ -83,9 +118,17 @@ export const why = (r) => {
   // A Note the session could not take carries the note sender's reason.
   if (w === "note-failed")
     return `the note did not reach the session: ${r.why}`;
-  const extra = r?.extra?.message ? ` (${r.extra.message})` : "";
-  return SAY[w] ?? `the PC answered "${w}"${extra}`;
+  // errWord carries the answer's message, as "door-error (x)".
+  return SAY[w] ?? `the PC answered "${w}"`;
 };
+
+// "14:05", or "12 Nov, 14:05" when it was kept on an earlier day.
+function keptWhen(at) {
+  const d = new Date(at);
+  if (d.toDateString() === new Date().toDateString()) return hhmm(d);
+  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return `${day}, ${hhmm(d)}`;
+}
 
 const STATES = {
   waiting: { word: "Needs you", cls: "needs", mark: "span.orb.listen" },
@@ -202,24 +245,206 @@ function workGroup(work, files) {
   return box;
 }
 
-// A message the user wrote; a note the session got mid-turn carries the Note tag.
-export const youRow = (t) =>
-  el("div.you", t.note ? el("span.you-tag", "Note") : null, t.text);
+// ---- copy and the long press (comfort design, section 7, branch A: the iPhone selects text in place). A message's
+// text is the iPhone's own: a press there selects it, and nothing here listens to that press or cancels it. Every
+// message has a copy icon. Off the text, a 300 ms touch press opens the page's Copy menu in two places only: the
+// action row under an answer and the space left of your bubble.
+const PRESS_MS = 300;
+const PRESS_SLOP = 10;
+
+// The listeners of a press area: a touch held 300 ms without moving over 10 px calls onPress.
+function pressable(onPress) {
+  let timer = null;
+  let from = null;
+  const stop = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  return {
+    onpointerdown: (e) => {
+      stop();
+      // Touch only: with a mouse (Telegram Desktop) text selects as on any page and no menu opens.
+      if (e.pointerType !== "touch") return;
+      from = [e.clientX, e.clientY];
+      timer = setTimeout(() => {
+        timer = null;
+        onPress();
+      }, PRESS_MS);
+    },
+    onpointermove: (e) => {
+      if (
+        timer &&
+        Math.hypot(e.clientX - from[0], e.clientY - from[1]) > PRESS_SLOP
+      )
+        stop();
+    },
+    onpointerup: stop,
+    onpointercancel: stop,
+    // A press area holds no text: the phone's own long-press menu stays away from it.
+    oncontextmenu: (e) => e.preventDefault(),
+  };
+}
+
+// A message's copy icon: a tap puts the message as written on the clipboard, then shows a check and "Copied".
+function copyButton(ctx, text) {
+  const btn = el("button.msg-copy", { type: "button" });
+  let back = null;
+  const draw = (ok) => {
+    btn.className = `msg-copy${ok === true ? " ok" : ok === false ? " bad" : ""}`;
+    btn.setAttribute(
+      "aria-label",
+      ok === true ? "Copied" : ok === false ? "Not copied" : "Copy message",
+    );
+    fill(
+      btn,
+      icon(ok === true ? CHECK_ICON : COPY_ICON, 18),
+      ok === null ? null : el("span.msg-copied", ok ? "Copied" : "Not copied"),
+    );
+  };
+  btn.addEventListener("click", () =>
+    copyText(text, (ok) => {
+      // Telegram's success haptic waits on frame/telegram.js: the selection tick stands in.
+      if (ok) ctx.haptic("select");
+      clearTimeout(back);
+      draw(ok);
+      back = setTimeout(() => draw(null), COPIED_MS);
+    }),
+  );
+  draw(null);
+  return btn;
+}
+
+// The messages of a conversation without copy (the screen tests' plain turns).
+const PLAIN = {
+  you: (text, tag = null, cls = "") =>
+    el(`div.you${cls}`, tag ? el("span.you-tag", tag) : null, text),
+  reply: (text, links) => el("div.reply", markdown(text, links)),
+};
+
+// The messages of one session view: your message in a row with its copy icon and the press area left of it,
+// Claude's answer with its action row under it, and the Copy menu. `pill` is the "Copied" line above the dock.
+function talkParts(ctx, view, pill) {
+  let menu = null; // the open menu: { node, card, scrim, moved }
+  let pillBack = null;
+  function showPill(ok) {
+    clearTimeout(pillBack);
+    pill.className = `copied-pill${ok ? "" : " bad"}`;
+    fill(pill, ok ? "Copied" : "Not copied");
+    pill.hidden = false;
+    pillBack = setTimeout(() => {
+      pill.hidden = true;
+    }, COPIED_MS);
+  }
+  function close() {
+    if (!menu) return;
+    const m = menu;
+    menu = null;
+    m.card.remove();
+    m.scrim.remove();
+    m.node.className = m.node.className.replace(/ lifted$/, "");
+    if (m.moved) ctx.scrollBox.scrollTop -= m.moved;
+  }
+  // The held message stays lit over the dim; the card opens under it, in the chat, so it covers no message.
+  function open(node, text, mine) {
+    close();
+    // Telegram's medium haptic waits on frame/telegram.js: the light impact stands in.
+    ctx.haptic("impact");
+    const card = el(
+      `div.msg-menu${mine ? ".mine" : ""}`,
+      { role: "menu" },
+      el(
+        "button.msg-menu-item",
+        {
+          type: "button",
+          role: "menuitem",
+          onclick: () => {
+            copyText(text, showPill);
+            close();
+          },
+        },
+        "Copy",
+        icon(COPY_ICON, 20),
+      ),
+    );
+    const scrim = el("div.msg-scrim", { onclick: close });
+    node.className += " lifted";
+    node.after(card);
+    view.append(scrim);
+    menu = { node, card, scrim, moved: 0 };
+    // The chat moves up when the card does not fit above the dock (the screen tests' stand-ins lay nothing out).
+    requestAnimationFrame(() => {
+      const r = card.getBoundingClientRect?.();
+      const box = ctx.scrollBox.getBoundingClientRect?.();
+      if (!r || !box || menu?.card !== card) return;
+      const over = r.bottom + 12 - box.bottom;
+      if (over <= 0) return;
+      ctx.scrollBox.scrollTop += over;
+      menu.moved = over;
+    });
+  }
+  return {
+    close,
+    // A redraw of the part that holds the held message ends the menu.
+    holds: (box) => Boolean(menu && walkHas(box, menu.node)),
+    you(text, tag = null, cls = "") {
+      const row = el("div.you-row");
+      row.append(
+        el(
+          "div.you-gap",
+          pressable(() => open(row, text, true)),
+        ),
+        copyButton(ctx, text),
+        PLAIN.you(text, tag, cls),
+      );
+      return row;
+    },
+    reply(text, links) {
+      const node = PLAIN.reply(text, links);
+      node.append(
+        el(
+          "div.msg-acts",
+          copyButton(ctx, text),
+          el(
+            "div.acts-gap",
+            pressable(() => open(node, text, false)),
+          ),
+        ),
+      );
+      return node;
+    },
+  };
+}
+const walkHas = (box, node) =>
+  box === node || [...box.childNodes].some((c) => walkHas(c, node));
+
+// How many of a read's items are new at the end against the items drawn before it: those after the last drawn
+// item's pos (its line's byte offset). Earlier messages loaded at the top and a read that starts later are not new.
+export function newAtEnd(before, items) {
+  if (!before.length) return items.length;
+  const last = before[before.length - 1].pos;
+  return items.filter((t) => t.pos > last).length;
+}
 
 // The conversation's elements from the turns, oldest first; tool calls of turns in a row share one group. With
 // `files` (session-files.js) steps and file links open their sheets, and a finished answer that changed files ends
-// in its changed-files line; `open` is true while the newest answer still runs.
-export function turnsView(items, files = null, open = false) {
+// in its changed-files line; `open` is true while the newest answer still runs. `talk` draws the messages.
+export function turnsView(items, files = null, open = false, talk = PLAIN) {
   const out = [];
+  const at = []; // each element's turn pos, for its data-key
+  const put = (o, pos) => {
+    out.push(o);
+    at.push(pos);
+  };
   let work = null;
   let answer = []; // the assistant turns since the last prompt
   const endAnswer = (last) => {
     if (files && !(last && open) && answer.some((t) => changesFiles(t.steps)))
-      out.push(
+      put(
         files.changesLine({
           at: answer[answer.length - 1].pos,
           from: answer[0].pos,
         }),
+        answer[answer.length - 1].pos,
       );
     answer = [];
   };
@@ -228,27 +453,29 @@ export function turnsView(items, files = null, open = false) {
       // A note reaches the session mid-answer: the answer goes on after it.
       if (!t.system && !t.note) endAnswer(false);
       if (!t.system) work = null;
-      out.push(t.system ? systemRow(t) : youRow(t));
+      put(
+        t.system ? systemRow(t) : talk.you(t.text, t.note ? "Note" : null),
+        t.pos,
+      );
       continue;
     }
     answer.push(t);
     if (t.text) {
       work = null;
-      out.push(
-        el(
-          "div.reply",
-          markdown(
-            t.text,
-            files && t.links ? { links: t.links, open: files.openLink } : null,
-          ),
+      put(
+        talk.reply(
+          t.text,
+          files && t.links ? { links: t.links, open: files.openLink } : null,
         ),
+        t.pos,
       );
     }
-    if (t.cut) out.push(el("p.convo-note", "Cut here: the rest is on the PC."));
+    if (t.cut)
+      put(el("p.convo-note", "Cut here: the rest is on the PC."), t.pos);
     if (t.tools?.length) {
       if (!work) {
         work = [];
-        out.push(work);
+        put(work, t.pos);
       }
       work.push(
         ...(t.steps?.length === t.tools.length
@@ -258,7 +485,17 @@ export function turnsView(items, files = null, open = false) {
     }
   }
   endAnswer(true);
-  return out.map((o) => (Array.isArray(o) ? workGroup(o, files) : o));
+  // A row's data-key ("<pos>:<n>", n counting rows of one turn) finds it again after a redraw (keepTop).
+  const seen = new Map();
+  return out.map((o, i) => {
+    const node = Array.isArray(o) ? workGroup(o, files) : o;
+    if (at[i] !== undefined) {
+      const n = seen.get(at[i]) ?? 0;
+      seen.set(at[i], n + 1);
+      node.setAttribute("data-key", `${at[i]}:${n}`);
+    }
+    return node;
+  });
 }
 
 function render(ctx) {
@@ -271,11 +508,18 @@ function render(ctx) {
     queued: [], // queue.list's answer
     error: null, // why the session could not be read
     asOf: null, // when the PC last answered
-    sent: [], // messages sent from this page and not yet in the transcript: { text, how }
+    // messages sent from this page and not yet in the transcript: { text, how, state } with state sending, slow
+    // (over 10 s), sent or gone (refused, fading out)
+    sent: [],
+    kept: null, // while the conversation drawn is the one kept on the phone: when it was kept
+    placed: false, // the conversation was put at its place once: from then on scrolling records the place
     stopped: false,
     stopping: false,
     stopError: null,
     typeInstead: null, // { head, button, send(text) } while a card's "Type instead" is open
+    answered: null, // { id, last } the prompt the PC accepted an answer to: its card stays away while the PC is asked again
+    closed: new Set(), // prompt ids whose result line the transcript holds: their cards never come back
+    back: null, // the id of a prompt whose card came back at the last ask
     loading: false,
     sign: null,
     watching: false, // session.watch was asked
@@ -295,11 +539,14 @@ function render(ctx) {
       read: null, // the end of the read the conversation shows: rows of lines before it are drawn there
     },
   };
-  const view = el("div.session-view");
+  // The text size picked in Settings (comfort design, section 6) sets the messages' and code's size.
+  const view = el("div.session-view", { "data-text": textSize() });
   const bar = el("div.s-bar");
   const convo = el("div.convo", { onclick: () => compose.blur() });
   const liveBox = el("div.live-rows");
   const dock = el("div.dock");
+  const pill = el("p.copied-pill", { hidden: true, role: "status" });
+  const talk = talkParts(ctx, view, pill);
   const files = filesPart(v);
   view.append(bar, convo, files.box);
   const helpers = helpersPart(v);
@@ -311,6 +558,27 @@ function render(ctx) {
     "this project";
   v.projectName = name;
   const state = () => v.info?.state ?? null;
+
+  // The last session opened, kept on the phone, is drawn at once; the PC's answer replaces it (comfort design,
+  // section 3).
+  const keptSession = isNew() ? null : keptOf("session");
+  if (keptSession?.data.id === params.session) {
+    v.info = keptSession.data.info;
+    v.kept = keptSession.at;
+  }
+  function keepSession() {
+    // A view left behind may still be asked again (a recheck): only the shown one is the last session opened.
+    if (!view.isConnected) return;
+    let items = v.info.items.slice(-KEPT_ROWS);
+    const data = () => ({
+      id: params.session,
+      info: { ...v.info, items, before: null },
+    });
+    // The entry adds { at } around the data: 64 characters are left for it.
+    while (items.length > 1 && JSON.stringify(data()).length > ENTRY_MAX - 64)
+      items = items.slice(1);
+    keep("session", data());
+  }
 
   // ---- session bar
   // " · 2m 14s" after Working: the turn's time, counted each second (tick) from the start the PC sent.
@@ -333,7 +601,7 @@ function render(ctx) {
       return;
     }
     const s = STATES[state()];
-    const known = ctx.connected && !v.error;
+    const known = ctx.connected && !v.error && !v.kept;
     // The project's name opens the project: Telegram's Back goes where the user came from, which after an
     // alert's Open button is Home.
     const project = params.project ?? v.info?.project;
@@ -375,7 +643,14 @@ function render(ctx) {
       el(
         "div.who",
         el("div.s-name", v.info?.title ?? params.title ?? "Session"),
-        el("div.s-line", line),
+        // A kept conversation says so in place of the status line until the PC's answer replaces it.
+        v.kept && !v.error
+          ? el(
+              "div.s-line.s-kept",
+              el("span.spinner", { "aria-hidden": "true" }),
+              `Updating · as of ${keptWhen(v.kept)}`,
+            )
+          : el("div.s-line", line),
         v.stopError ? el("div.s-err", v.stopError) : null,
         v.live.error ? el("div.s-note", v.live.error) : null,
       ),
@@ -442,7 +717,49 @@ function render(ctx) {
     ctx.scrollBox.scrollTop += ctx.scrollBox.scrollHeight - from;
   }
 
+  // A sent message as a bubble, and under it while the PC has not answered its "Sending…" line.
+  const sentRows = (m) => [
+    talk.you(
+      m.text,
+      m.how === "send" || m.state !== "sent"
+        ? null
+        : m.how === "queue"
+          ? "Queued"
+          : "Note",
+      `${m.how === "send" || m.state !== "sent" ? "" : ".held"}${m.state === "gone" ? ".gone" : ""}`,
+    ),
+    m.state === "sending" || m.state === "slow"
+      ? el(
+          "p.sent-mark",
+          icon(GLYPHS.clock, 12),
+          m.state === "slow" ? "Still sending…" : "Sending…",
+        )
+      : null,
+  ];
+
+  // The top row in view and its height on screen, so a redraw can put it back at that height (null when nothing
+  // is laid out, as in the screen tests' stand-ins).
+  function topRow() {
+    const box = ctx.scrollBox.getBoundingClientRect?.();
+    if (!box) return null;
+    for (const n of convo.childNodes) {
+      const key = n.getAttribute?.("data-key");
+      if (!key) continue;
+      const r = n.getBoundingClientRect();
+      if (r.bottom > box.top) return { key, top: r.top };
+    }
+    return null;
+  }
+  function keepTop(row) {
+    if (!row) return;
+    const n = [...convo.childNodes].find(
+      (c) => c.getAttribute?.("data-key") === row.key,
+    );
+    if (n) ctx.scrollBox.scrollTop += n.getBoundingClientRect().top - row.top;
+  }
+
   function drawConvo(toEnd) {
+    talk.close();
     if (isNew()) {
       fill(
         convo,
@@ -451,8 +768,9 @@ function render(ctx) {
           el("b", "What should it do?"),
           `Type it. The session starts on the PC, in ${name()}, when you press Send.`,
         ),
-        ...v.sent.map((m) => el("div.you", m.text)),
+        ...v.sent.flatMap(sentRows),
       );
+      if (toEnd) toLatest();
       return;
     }
     if (!v.info) return fill(convo);
@@ -464,9 +782,11 @@ function render(ctx) {
     );
     v.sent = v.sent.filter((m) => !said.has(m.text.trim()));
     drawLive(false);
+    const top = toEnd ? null : topRow();
     fill(
       convo,
-      v.info.before !== null
+      // A kept conversation is cut: Earlier messages waits for the PC's answer.
+      v.info.before !== null && !v.kept
         ? el(
             "button.btn-quiet.older",
             { type: "button", onclick: older },
@@ -477,30 +797,114 @@ function render(ctx) {
       v.info.items.length || v.sent.length
         ? null
         : el("p.convo-note", "No messages yet."),
-      ...turnsView(v.info.items, files, state() === "running"),
+      ...turnsView(v.info.items, files, state() === "running", talk),
       liveBox,
       // While the PC pushes the queue, a queued message shows as the row above the typing box instead.
       ...v.sent
-        .filter((m) => !(v.live.on && m.how === "queue"))
-        .map((m) =>
-          el(
-            `div.you${m.how === "send" ? "" : ".held"}`,
-            m.how === "send"
-              ? null
-              : el("span.you-tag", m.how === "queue" ? "Queued" : "Note"),
-            m.text,
-          ),
-        ),
+        .filter((m) => !(v.live.on && m.how === "queue" && m.state === "sent"))
+        .flatMap(sentRows),
       v.stopped ? el("p.convo-note", "Stopped by you") : null,
     );
-    if (toEnd)
-      requestAnimationFrame(() => {
-        ctx.scrollBox.scrollTop = ctx.scrollBox.scrollHeight;
-      });
+    if (toEnd) toLatest();
+    else keepTop(top);
   }
+  function toLatest() {
+    requestAnimationFrame(() => {
+      ctx.scrollBox.scrollTop = ctx.scrollBox.scrollHeight;
+    });
+  }
+  // The conversation's first draw goes where the session was left (places), else to its end; from then on
+  // scrolling records the place.
+  function toPlace() {
+    const place = places.get(params.session);
+    requestAnimationFrame(() => {
+      ctx.scrollBox.scrollTop =
+        place && !place.end ? place.y : ctx.scrollBox.scrollHeight;
+      v.placed = true;
+      jump.update();
+    });
+  }
+
+  // ---- jump to latest (comfort design, section 5): a round button above the dock while the chat's end is far
+  // below; new messages that come meanwhile count on its badge.
+  const jump = (() => {
+    let on = false;
+    let count = 0;
+    const badge = el("span.jump-badge");
+    const btn = el(
+      "button.jump",
+      {
+        type: "button",
+        onclick: () => {
+          const b = ctx.scrollBox;
+          const far = b.scrollHeight - b.scrollTop - b.clientHeight;
+          // Node's screen tests have no matchMedia: there the jump is instant.
+          const still = globalThis.matchMedia?.(
+            "(prefers-reduced-motion: reduce)",
+          ).matches;
+          b.scrollTo({
+            top: b.scrollHeight,
+            behavior:
+              far <= 3 * b.clientHeight && !still ? "smooth" : "instant",
+          });
+          count = 0;
+          draw();
+        },
+      },
+      icon(ICONS["arrow-down"], 20),
+      badge,
+    );
+    function draw() {
+      btn.className = `jump${on ? " on" : ""}`;
+      btn.setAttribute("aria-hidden", on ? "false" : "true");
+      btn.setAttribute("tabindex", on ? "0" : "-1");
+      btn.setAttribute(
+        "aria-label",
+        count
+          ? `Jump to latest, ${count > 99 ? "99+" : count} new`
+          : "Jump to latest",
+      );
+      badge.hidden = !count;
+      fill(badge, count ? (count > 99 ? "99+" : String(count)) : "");
+    }
+    draw();
+    return {
+      btn,
+      update() {
+        const b = ctx.scrollBox;
+        const far = b.scrollHeight - b.scrollTop - b.clientHeight;
+        if (far > JUMP_SHOW) on = true;
+        else if (far < JUMP_HIDE) {
+          on = false;
+          count = 0;
+        }
+        draw();
+      },
+      // n new messages came while the user reads further up.
+      more(n) {
+        if (!on || !(n > 0)) return;
+        count += n;
+        draw();
+      },
+    };
+  })();
+  const onScroll = () => {
+    if (!view.isConnected)
+      return ctx.scrollBox.removeEventListener("scroll", onScroll);
+    if (!v.placed) return;
+    if (!isNew())
+      places.set(params.session, {
+        y: ctx.scrollBox.scrollTop,
+        end: nearEnd(),
+      });
+    jump.update();
+  };
+  // The screen tests' stand-in scroll boxes (attach, files, live) have no events, hence the ?. here.
+  ctx.scrollBox.addEventListener?.("scroll", onScroll, { passive: true });
 
   // The work rows the PC pushed since the conversation was read.
   function drawLive(toEnd) {
+    if (talk.holds(liveBox)) talk.close();
     fill(
       liveBox,
       ...liveRowsView(v.live.rows, {
@@ -510,6 +914,7 @@ function render(ctx) {
         before: v.live.before,
         turnAt: v.live.turnAt,
         files,
+        talk,
       }),
     );
     if (toEnd)
@@ -524,6 +929,8 @@ function render(ctx) {
 
   function dockState() {
     if (isNew()) return { key: "compose" };
+    // A kept conversation keeps its typing box live until the PC answers (comfort design, section 3).
+    if (v.kept && v.pending === undefined) return { key: "compose" };
     if (!ctx.connected) return { key: "off" };
     if (!v.info || v.pending === undefined) return { key: "none" };
     if (v.pending && !v.typeInstead)
@@ -543,18 +950,29 @@ function render(ctx) {
     if (d.key === "off")
       fill(
         dock,
+        jump.btn,
+        pill,
         el(
           "p.dock-line",
           "PC off or asleep. Read-only until it is back; this session comes back by itself.",
         ),
       );
-    else if (d.key === "none") fill(dock);
+    else if (d.key === "none") fill(dock, jump.btn, pill);
     else if (d.key.startsWith("card:"))
-      fill(dock, helpers.box, cardFor(v, v.pending));
+      fill(
+        dock,
+        jump.btn,
+        pill,
+        helpers.box,
+        v.back === v.pending.promptId ? el("p.dock-line", STILL_WAITS) : null,
+        cardFor(v, v.pending),
+      );
     else {
       compose.update();
       fill(
         dock,
+        jump.btn,
+        pill,
         helpers.box,
         d.key === "compose" ? queue.box : null,
         compose.box,
@@ -571,9 +989,10 @@ function render(ctx) {
     let line = null; // { text, bad }
     let shown = 1; // the field's height in lines
     let quiet = null; // the shrink that waits for 1 s with no input
-    let saving = null; // the draft's save, at most one a second
+    let saving = null; // the draft's save to storage, at most one a second
     const key = params.session ?? `new:${params.project}`;
     const saveSoon = () => {
+      if (fields.get(key) === field) drafts.set(key, field.value);
       if (saving) return;
       saving = setTimeout(() => {
         saving = null;
@@ -590,6 +1009,10 @@ function render(ctx) {
         update();
       },
       onscroll: () => fade(),
+      // Leaving the field stores the draft at once.
+      onblur: () => {
+        if (fields.get(key) === field) keepDraft(key, field.value);
+      },
       onkeydown: (e) => {
         // Telegram on a computer has a real keyboard: Enter sends, Shift+Enter is a new line.
         if (e.key === "Enter" && !e.shiftKey && DESKTOP.has(ctx.tg.platform)) {
@@ -777,6 +1200,31 @@ function render(ctx) {
       const files = !ti && attach.has() ? { attachments: attach.ids() } : {};
       sending = true;
       line = null;
+      // The message shows at once at the chat's end with "Sending…", and the box empties (comfort design,
+      // section 5). A card's typed answer is not a message: it waits in its box as before. The picked files stay
+      // in the box until the PC took them.
+      const m = ti
+        ? null
+        : {
+            text,
+            how:
+              a === "session.note"
+                ? "note"
+                : a === "session.queue"
+                  ? "queue"
+                  : "send",
+            state: "sending",
+          };
+      if (m) {
+        v.sent.push(m);
+        emptyBox();
+        m.slow = setTimeout(() => {
+          if (m.state !== "sending") return;
+          m.state = "slow";
+          drawConvo(false);
+        }, SLOW_SEND_MS);
+        drawConvo(true);
+      }
       update();
       let r;
       try {
@@ -788,36 +1236,49 @@ function render(ctx) {
         r = e;
       }
       sending = false;
+      if (m) clearTimeout(m.slow);
       if (!r?.ok) {
-        // Nothing typed is lost: the text stays in the box for Try again.
+        // Nothing typed is lost: the text goes back into the box for Try again, ahead of anything typed since.
         if (files.attachments && (r?.err ?? r?.code) === "attachment-unknown")
           attach.lost();
-        line = { text: `Not sent: ${why(r)}`, bad: true };
+        if (!m) {
+          line = { text: `Not sent: ${why(r)}`, bad: true };
+          return update();
+        }
+        m.state = "gone";
+        drawConvo(false);
+        setTimeout(() => {
+          v.sent = v.sent.filter((x) => x !== m);
+          drawConvo(false);
+        }, FADE_MS);
+        field.value = field.value ? `${text}\n\n${field.value}` : text;
+        saveSoon();
+        fit(true);
+        line = {
+          text: `Not sent: ${why(r)}. Your message is back in the box.`,
+          bad: true,
+        };
         return update();
       }
       if (files.attachments) attach.clear();
+      if (m) {
+        m.state = "sent";
+        if (m.how === "queue" && !r.d.queued) m.how = "send";
+      } else emptyBox();
+      if (a === "session.new") params.session = r.d.session;
+      v.typeInstead = null;
+      update();
+      if (ti) drawDock();
+      drawConvo(!m || nearEnd());
+      load();
+    }
+    function emptyBox() {
       field.value = "";
       clearTimeout(saving);
       saving = null;
       keepDraft(key, "");
       clearTimeout(quiet);
       fit(true);
-      if (!ti)
-        v.sent.push({
-          text,
-          how:
-            a === "session.note"
-              ? "note"
-              : a === "session.queue" && r.d.queued
-                ? "queue"
-                : "send",
-        });
-      if (a === "session.new") params.session = r.d.session;
-      v.typeInstead = null;
-      update();
-      if (ti) drawDock();
-      drawConvo(true);
-      load();
     }
 
     return {
@@ -834,13 +1295,46 @@ function render(ctx) {
         update();
         field.focus();
       },
+      say: (text) => {
+        line = { text };
+        update();
+      },
     };
   }
 
   // What the cards (session-cards.js) use.
   v.name = name;
   v.why = why;
+  // The PC accepted an answer to prompt `id`: its card leaves at once and the typing box takes its place. The PC is
+  // asked again after each of timing.recheckMs; a pending answer that still names the prompt is ignored until the
+  // last ask, where the card comes back only if no result line closed it.
+  v.accepted = (id) => {
+    v.answered = { id, last: false };
+    v.back = null;
+    v.pending = null;
+    v.typeInstead = null;
+    drawDock();
+    compose.say("Answer sent.");
+    timing.recheckMs.forEach((ms, i) => {
+      setTimeout(() => {
+        if (!view.isConnected || v.answered?.id !== id) return;
+        if (i === timing.recheckMs.length - 1) v.answered.last = true;
+        load();
+      }, ms);
+    });
+  };
+  // What session.pending names, less a prompt closed by its result line or one just answered here.
+  function shownPending(p) {
+    if (!p) return null;
+    if (!p.promptType && v.closed.has(p.promptId)) return null;
+    if (v.answered?.id === p.promptId) {
+      if (!v.answered.last) return null;
+      v.back = p.promptId;
+    }
+    return p;
+  }
   v.answer = async (kind, answer) => {
+    const id = v.pending.promptId;
     let r;
     try {
       r = await ctx.ask("session.answer", {
@@ -852,7 +1346,8 @@ function render(ctx) {
     } catch (e) {
       r = e;
     }
-    if (r?.ok || r?.err === "no-prompt") load();
+    if (r?.ok) v.accepted(id);
+    else if (r?.err === "no-prompt") load();
     return r;
   };
   v.openTypeInstead = (spec) => {
@@ -896,6 +1391,7 @@ function render(ctx) {
       return drawDock();
     }
     const first = !v.info;
+    const had = v.kept ? null : (v.info?.items ?? null);
     const last = open.d.items[open.d.items.length - 1];
     const sign = JSON.stringify([
       open.d.items.length,
@@ -905,17 +1401,20 @@ function render(ctx) {
     ]);
     v.error = null;
     v.asOf = new Date().toISOString();
+    v.kept = null;
     // Unchanged turns keep what is drawn, earlier messages loaded by the user included.
     v.info =
       sign === v.sign
         ? { ...v.info, state: open.d.state, title: open.d.title }
         : open.d;
     params.title = open.d.title;
-    v.pending = pending.d;
+    v.pending = shownPending(pending.d);
+    if (v.answered?.last) v.answered = null;
     v.queued = queued?.ok ? queued.d : [];
     drawBar();
     if (sign !== v.sign) {
-      const toEnd = first || nearEnd();
+      const toEnd = !first && nearEnd();
+      if (had !== null) jump.more(newAtEnd(had, open.d.items));
       v.sign = sign;
       // The conversation now holds every row of a line before the byte this read stopped at (open.d.end): those
       // leave the live rows, the ones after stay, so a row written while the PC was asked shows once.
@@ -925,6 +1424,8 @@ function render(ctx) {
       v.live.before = lastOf(held, v.live.before);
       v.live.rows = v.live.rows.filter((r) => !(r.pos < v.live.read));
       drawConvo(toEnd);
+      if (first) toPlace();
+      keepSession();
     }
     drawDock();
     helpers.draw();
@@ -969,10 +1470,23 @@ function render(ctx) {
       const toEnd = nearEnd();
       const fresh = d.rows.filter((r) => !(r.pos < v.live.read));
       v.live.rows.push(...fresh);
+      jump.more(fresh.filter((r) => r.kind === "text").length);
       // A user message among them can be one still shown as sent: the whole conversation is drawn again.
       if (fresh.some((r) => r.kind === "text" && r.role === "user"))
         drawConvo(toEnd);
       else drawLive(toEnd);
+    }
+    // A result line for a question's or form's call closes that card for good, also on a page that did not answer
+    // (the door's own prompts, permission and plan, end by the state change).
+    for (const r of d.rows ?? []) if (r.kind === "result") v.closed.add(r.id);
+    if (
+      v.pending &&
+      !v.pending.promptType &&
+      v.closed.has(v.pending.promptId)
+    ) {
+      v.pending = null;
+      v.back = null;
+      v.typeInstead = null;
     }
     // Stop's line belongs to the stopped turn: a session that works again has moved past it.
     if (d.state === "running") v.stopped = false;
@@ -1008,6 +1522,7 @@ function render(ctx) {
   });
   drawBar();
   drawConvo(false);
+  if (v.kept) toPlace();
   drawDock();
   if (ctx.connected || isNew()) load();
   return { content: view, bottom: dock };

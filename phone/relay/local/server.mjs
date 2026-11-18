@@ -1,14 +1,17 @@
 // The local relay: the same Hub as on Cloudflare, run in plain Node for the tests and for trying the page on the
 // PC. node:http serves the page files with the content policy of the pipe design (section 6), `/ws` goes to the
-// Hub through ws.mjs, `POST /tg/hook` to the Hub's webhook. The store is a Map the caller can dump whole; with
+// Hub through ws.mjs, `POST /tg/hook` to the Hub's webhook, the file routes (`POST /pc/send`, `POST /pc/dl/<link>`,
+// `GET` or `HEAD /dl/<token>`) to the Hub as streams. The store is a Map the caller can dump whole; with
 // `storeFile` it is also kept in that file, so a stopped and started relay has its pairings, as on Cloudflare.
 // Hub calls run one at a time, as a Cloudflare object takes its events. A PING is answered outside the Hub with
-// its time kept, as Cloudflare's auto-response does.
+// its time kept, as Cloudflare's auto-response does. opts.upload (optional): the Hub's streamed Bot API call; without
+// it a file send fails with a clear error, as every Bot API call of a relay run by hand does.
 //   node phone/relay/local/server.mjs --page <dir> --port <n> --bot-id <n> --owner <tgId> --telegram-key <hex>
 //     [--store <file>]
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { pipeline, Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import v8 from "node:v8";
 import { createHub, PING, PONG } from "../src/hub.mjs";
@@ -57,6 +60,23 @@ export function mapStore(map, save = () => {}) {
         .sort()
         .map((k) => [k, copy(map.get(k))]),
   };
+}
+
+// Cloudflare's FixedLengthStream in plain Node: passes exactly `length` bytes, errors on more or fewer.
+export function fixedLengthStream(length) {
+  let seen = 0;
+  return new TransformStream({
+    transform(chunk, out) {
+      seen += chunk.byteLength;
+      if (seen > length)
+        throw new Error(`fixed-length stream: more than ${length} bytes`);
+      out.enqueue(chunk);
+    },
+    flush() {
+      if (seen !== length)
+        throw new Error(`fixed-length stream: ${seen} of ${length} bytes`);
+    },
+  });
 }
 
 const REQUIRED = [
@@ -111,12 +131,20 @@ export async function startLocalRelay(opts) {
     store: mapStore(map, save),
     sockets,
     telegram: opts.telegram,
+    upload:
+      opts.upload ??
+      (async () => {
+        throw new Error("the local relay was given no upload (file send)");
+      }),
+    fixedStream: fixedLengthStream,
     download: opts.download,
     now: opts.now,
     log: opts.log,
     botId: opts.botId,
     ownerTgId: opts.ownerTgId,
     telegramKey: opts.telegramKey,
+    // Optional here, as on Cloudflare where only the test copy sets TOPIC_SUFFIX.
+    topicSuffix: opts.topicSuffix ?? "",
     bot: opts.bot,
   });
 
@@ -129,8 +157,44 @@ export async function startLocalRelay(opts) {
     return queue;
   };
 
+  // The file routes wait on the network for minutes, so they run beside the queue, as a Cloudflare object takes
+  // other events while it waits on a fetch. A request body becomes a stream only when the Hub reads it, so a refused
+  // body is drained by node:http.
+  async function fileRoute(req, res, pathname) {
+    const fromPc = !pathname.startsWith("/dl/");
+    if (fromPc && req.method !== "POST") return answer(res, 405, "POST only");
+    if (!fromPc && req.method !== "GET" && req.method !== "HEAD")
+      return answer(res, 405, "GET only");
+    let body = null;
+    const call = {
+      headers: req.headers,
+      get body() {
+        body ??= Readable.toWeb(req);
+        return body;
+      },
+    };
+    let r;
+    try {
+      if (pathname === "/pc/send") r = await hub.pcSend(call);
+      else if (fromPc) r = await hub.pcDl(pathname.slice(7), call);
+      else r = await hub.download(pathname.slice(4), req.method);
+    } catch (err) {
+      opts.log(`hub error: ${err.message}`);
+      return answer(res, 500, "hub error");
+    }
+    res.writeHead(r.status, r.headers);
+    if (!(r.body instanceof ReadableStream))
+      return res.end(r.body ?? undefined);
+    // The headers go at once, as a Cloudflare Response's do: a download's bytes come only after its dl-pull.
+    res.flushHeaders();
+    pipeline(Readable.fromWeb(r.body), res, () => {});
+  }
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://local");
+    const p = url.pathname;
+    if (p === "/pc/send" || p.startsWith("/pc/dl/") || p.startsWith("/dl/"))
+      return void fileRoute(req, res, p);
     if (url.pathname === "/tg/hook") {
       if (req.method !== "POST") return answer(res, 405, "POST only");
       const chunks = [];

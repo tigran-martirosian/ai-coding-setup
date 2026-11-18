@@ -747,7 +747,14 @@ const walk = (n, out = []) => {
   for (const c of n.childNodes) walk(c, out);
   return out;
 };
-const radios = (root) => walk(root).filter((n) => n.attrs?.role === "radio");
+// The alert choices only: Settings also holds the Text size choices (Small, Default, Large), which are not alerts.
+const radios = (root) =>
+  walk(root)
+    .filter(
+      (n) =>
+        n.attrs?.role === "radiogroup" && n.attrs["aria-label"] !== "Text size",
+    )
+    .flatMap((g) => walk(g).filter((n) => n.attrs?.role === "radio"));
 const marked = (root) =>
   radios(root)
     .filter((n) => n.attrs["aria-checked"] === "true")
