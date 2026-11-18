@@ -4,6 +4,10 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.4.3] - 2026-11-18
+
+- The phone app no longer says Nimbalyst is closed while it is running. Opening Nimbalyst a second time (its icon, or Start on the phone) used to cut the phone off from it; the fix takes effect the next time Nimbalyst is closed and opened.
+
 ## [26.4.2] - 2026-11-18
 
 - The phone app's New session button works again (it did nothing when a session had been opened before).
