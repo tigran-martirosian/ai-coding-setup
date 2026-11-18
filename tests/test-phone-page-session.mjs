@@ -1019,6 +1019,89 @@ try {
   sf.fire("blur");
   held1.view.isConnected = false;
 
+  // ---- a sent message never stays pinned at the chat's end (reported 2026-11-18)
+  // With files: the transcript holds the words and the block naming the saved files after them.
+  let withFiles = false;
+  const att1 = drawSession(S.running, "Works", {
+    ask: async (a, d) => {
+      if (a === "session.queue" || a === "session.send") {
+        withFiles = true;
+        return { ok: true, d: { queued: false } };
+      }
+      const r = await ask(a, d);
+      if (a === "session.open" && withFiles && r.ok)
+        r.d.items = [
+          ...r.d.items,
+          {
+            role: "user",
+            text: "Look at this\n\nAttached files (open each with your read tool):\n- C:/p/shot.png",
+            at: new Date().toISOString(),
+            pos: 999999,
+          },
+        ];
+      return r;
+    },
+  });
+  const af = await until(() => byTag(att1.dock, "textarea")[0]);
+  await until(() => byClass(att1.view, "reply").length);
+  af.value = "Look at this";
+  af.fire("input");
+  button(att1.dock, (b) => hasClass(b, "send"))?.click();
+  await until(() =>
+    byClass(att1.view, "you").some((b) => /Attached files/.test(b.textContent)),
+  );
+  await sleep(100);
+  const files1 = {
+    waiting: bubbles(att1.view, "Look at this").length,
+    you: byClass(att1.view, "you").map((b) => b.textContent.slice(0, 30)),
+  };
+  check(
+    "a message sent with files leaves its waiting bubble once the transcript holds it with its files block",
+    files1.waiting === 0,
+    show(files1),
+  );
+  af.value = "";
+  af.fire("input");
+  af.fire("blur");
+  att1.view.isConnected = false;
+
+  // To a session that handed its work on: the message goes on to the next session, which the bubble names and opens.
+  const opened = [];
+  const mv1 = drawSession(S.running, "Works", {
+    go: (screen, p) => opened.push({ screen, ...p }),
+    ask: (a, d) =>
+      a === "session.queue" || a === "session.send"
+        ? Promise.resolve({
+            ok: true,
+            d: {
+              queued: false,
+              movedTo: { session: "next-id", title: "Works (cont.)" },
+            },
+          })
+        : ask(a, d),
+  });
+  const mf = await until(() => byTag(mv1.dock, "textarea")[0]);
+  await until(() => byClass(mv1.view, "reply").length);
+  mf.value = "And now?";
+  mf.fire("input");
+  button(mv1.dock, (b) => hasClass(b, "send"))?.click();
+  await until(() => byClass(mv1.view, "sent-moved").length);
+  const line = byClass(mv1.view, "sent-moved")[0];
+  button(line, () => true)?.click();
+  const moved1 = { line: line.textContent, opened };
+  check(
+    "a message to a session that handed its work on says which session took it, and Open goes there",
+    moved1.line.includes("Works (cont.)") &&
+      opened.length === 1 &&
+      opened[0].screen === "session" &&
+      opened[0].session === "next-id",
+    show(moved1),
+  );
+  mf.value = "";
+  mf.fire("input");
+  mf.fire("blur");
+  mv1.view.isConnected = false;
+
   // ---- jump to latest and the scroll place (comfort design, section 5)
   // The views drawn so far are left, as the frame leaves a screen: from here the newest view is the one shown.
   for (const d of drawn) d.isConnected = false;
@@ -1088,6 +1171,25 @@ try {
     show(keptNow),
   );
   k1.view.isConnected = false;
+
+  // ---- New session while a session is kept on the phone: the empty new-session view draws (reported
+  // 2026-11-18: the button did nothing, the view threw before it was drawn)
+  let newView = null;
+  try {
+    const n1 = drawSession(undefined, undefined);
+    newView = {
+      hint: byClass(n1.view, "newhint").length,
+      box: byTag(n1.dock, "textarea").length,
+    };
+    n1.view.isConnected = false;
+  } catch (e) {
+    newView = { threw: String(e) };
+  }
+  check(
+    "New session opens its empty view even with a session kept on the phone",
+    stored.has("phone.kept:session") && newView.hint === 1 && newView.box === 1,
+    show(newView),
+  );
 
   // A browser writes an empty slot handed to replaceChildren as the text "null"; the stand-in does the same.
   const nulls = [q, m, f, r].filter((x) => /null/.test(x.root.textContent));

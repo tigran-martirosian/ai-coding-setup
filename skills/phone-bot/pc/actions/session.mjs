@@ -17,6 +17,7 @@ import {
   watchDoor,
 } from "../core/door.mjs";
 import { sessionPlace } from "../core/files.mjs";
+import { movedOn } from "../core/moved.mjs";
 import { ActionError } from "../core/registry.mjs";
 import { steerNote } from "../core/steer-note.mjs";
 import { readTurns, transcriptPath } from "../core/transcripts.mjs";
@@ -126,7 +127,9 @@ export function register(registry) {
       attachments: ATTACHMENTS_INPUT,
     },
     run: async (d, ctx) => {
-      const { project } = knownSession(d.session);
+      const { project, row } = knownSession(d.session);
+      // Read before the send: a session that handed its work on passes the message to the one that continues it.
+      const moved = movedOn(row, d.text);
       const r = await sendWithAttachments(
         d.attachments,
         ctx.device,
@@ -134,7 +137,10 @@ export function register(registry) {
         d.text,
         (text) => sendPrompt(project.path, d.session, text),
       );
-      return { started: r.processingTriggered === true };
+      return {
+        started: r.processingTriggered === true,
+        ...(moved ? { movedTo: moved } : {}),
+      };
     },
   });
 
@@ -149,7 +155,7 @@ export function register(registry) {
     // its next step. A session that is not busy (steer's exit 3) gets it as a normal message, which starts it.
     // Picked files go with it as with Send: the note ends in the block naming each saved file.
     run: async (d, ctx) => {
-      const { project } = knownSession(d.session);
+      const { project, row } = knownSession(d.session);
       return sendWithAttachments(
         d.attachments,
         ctx.device,
@@ -162,8 +168,12 @@ export function register(registry) {
           );
           if (r.code === 0) return { held: true };
           if (r.code === 3) {
+            const moved = movedOn(row, d.text);
             const s = await sendPrompt(project.path, d.session, text);
-            return { started: s.processingTriggered === true };
+            return {
+              started: s.processingTriggered === true,
+              ...(moved ? { movedTo: moved } : {}),
+            };
           }
           throw new ActionError("note-failed", {
             why: r.words || `steer.mjs exited with ${r.code}`,

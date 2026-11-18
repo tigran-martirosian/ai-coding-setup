@@ -1,10 +1,15 @@
 {
-  "version": "26.4.1",
+  "version": "26.4.2",
   "claudeCodeMin": "2.1.321",
   "projectPass": 5,
   "date": "2026-11-18",
-  "summary": "Bot chat: Inbox, Alerts and Files topics with an Open button in each; notes reach a busy session sooner",
+  "summary": "Phone app: New session works again; sent messages no longer stick at the bottom of the chat",
   "releases": {
+    "26.4.2": {
+      "kind": "files",
+      "important": true,
+      "headline": "Phone app: New session works again and sent messages no longer stick at the chat bottom"
+    },
     "26.4.1": {
       "kind": "quiet",
       "important": true,
