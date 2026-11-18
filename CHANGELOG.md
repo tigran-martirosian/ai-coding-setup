@@ -4,6 +4,11 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.4.2] - 2026-11-18
+
+- The phone app's New session button works again (it did nothing when a session had been opened before).
+- A message you send from the phone no longer stays at the bottom of the chat: one sent with files clears once the session has it, and one sent to a session that handed its work on says which session took it, with an Open button.
+
 ## [26.4.1] - 2026-11-18
 
 - The bot chat has three topics, Inbox, Alerts and Files, made at the PC's sign-in; a topic you delete is made again. Each topic has a pinned Open button, since Telegram on iPhone shows the bot's own Open button only in the All view. A thread Telegram opens without a name ("New Chat") is named after its first item, such as "Photo" or "Link: example.com".

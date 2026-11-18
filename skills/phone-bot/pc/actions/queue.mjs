@@ -9,6 +9,7 @@ import {
   sendPrompt,
   watchDoor,
 } from "../core/door.mjs";
+import { movedOn } from "../core/moved.mjs";
 import { ActionError } from "../core/registry.mjs";
 import { ATTACHMENTS_INPUT, takeAttachments } from "./attach.mjs";
 import { TEXT_INPUT } from "./session.mjs";
@@ -27,7 +28,10 @@ export function register(registry) {
       attachments: ATTACHMENTS_INPUT,
     },
     run: async (d, ctx) => {
-      const { project } = knownSession(d.session);
+      const { project, row } = knownSession(d.session);
+      // A session that handed its work on passes the message, once it leaves the queue, to the one that continues it.
+      const moved = movedOn(row, d.text);
+      const on = moved ? { movedTo: moved } : {};
       // The ids are taken before the first wait and given back when the send fails.
       const t = takeAttachments(
         d.attachments,
@@ -46,12 +50,12 @@ export function register(registry) {
         t.giveBack();
         throw e;
       }
-      if (r.processingTriggered === true) return { started: true };
+      if (r.processingTriggered === true) return { started: true, ...on };
       const added = (await listQueued(project.path, d.session)).filter(
         (q) => !had.has(q.queueId),
       );
       const last = added[added.length - 1];
-      return { queued: true, queueId: last ? last.queueId : null };
+      return { queued: true, queueId: last ? last.queueId : null, ...on };
     },
   });
 

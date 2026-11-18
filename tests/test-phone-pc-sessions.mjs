@@ -1040,6 +1040,92 @@ try {
     empty.err === "bad-input" && empty.field === "text",
   );
 
+  // ---- a session that handed its work on (steer.mjs moved.json): the message goes on to the newest one, so the
+  // answer names it (reported 2026-11-18: sent messages stayed at the chat's end, never answered there)
+  const [OLD_T, MID_T, NEW_T] = [
+    "88888888-1111-4111-8111-111111111111",
+    "88888888-2222-4222-8222-222222222222",
+    "88888888-3333-4333-8333-333333333333",
+  ];
+  const handed = addSession({
+    workspace_id: P.beta,
+    title: "First part",
+    status: "idle",
+    provider_session_id: OLD_T,
+  });
+  const middle = addSession({
+    workspace_id: P.beta,
+    title: "First part (cont.)",
+    status: "idle",
+    provider_session_id: MID_T,
+  });
+  const newest = addSession({
+    workspace_id: P.beta,
+    title: "First part (cont. 2)",
+    status: "idle",
+    provider_session_id: NEW_T,
+  });
+  const movedFile = path.join(home, ".claude", "steer", "moved.json");
+  fs.mkdirSync(path.dirname(movedFile), { recursive: true });
+  fs.writeFileSync(
+    movedFile,
+    JSON.stringify({
+      [OLD_T]: { to: middle, ts: Date.now() - 60e3 },
+      [MID_T]: { to: newest, ts: Date.now() - 30e3 },
+    }),
+  );
+  const onSend = await ask("session.send", {
+    session: handed,
+    text: "and now?",
+  });
+  check(
+    "a message to a session that handed its work on names the session that continues it",
+    onSend.ok &&
+      onSend.d.movedTo?.session === newest &&
+      onSend.d.movedTo?.title === "First part (cont. 2)",
+    show(onSend),
+  );
+  const own = await ask("session.send", { session: newest, text: "go" });
+  check(
+    "a message to the session that continues the work names no other",
+    own.ok && own.d.movedTo === undefined,
+    show(own),
+  );
+  st(handed).status = "running";
+  const queuedOn = await ask("session.queue", {
+    session: handed,
+    text: "after this turn",
+  });
+  check(
+    "a message queued to a running session that handed its work on names the session that continues it",
+    queuedOn.ok && queuedOn.d.movedTo?.session === newest,
+    show(queuedOn),
+  );
+  const slash = await ask("session.send", {
+    session: handed,
+    text: "/compact",
+  });
+  check(
+    "a slash command stays in its own session, as steer.mjs leaves it",
+    slash.ok && slash.d.movedTo === undefined,
+    show(slash),
+  );
+  fs.writeFileSync(
+    movedFile,
+    JSON.stringify({ [OLD_T]: { to: middle, ts: Date.now() - 25 * 3600e3 } }),
+  );
+  st(handed).status = "idle";
+  const oldHandoff = await ask("session.send", {
+    session: handed,
+    text: "later",
+  });
+  check(
+    "a handoff over 24 hours old keeps the message in its own session, as steer.mjs does",
+    oldHandoff.ok && oldHandoff.d.movedTo === undefined,
+    show(oldHandoff),
+  );
+  fs.rmSync(movedFile);
+
   // ---- Stop without the patch
   const busy = addSession({
     workspace_id: P.beta,

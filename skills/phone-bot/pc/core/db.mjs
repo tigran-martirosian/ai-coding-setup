@@ -30,7 +30,7 @@ const all = (sql, ...args) =>
   openDb()
     .prepare(sql)
     .all(...args);
-const one = (sql, ...args) =>
+export const one = (sql, ...args) =>
   openDb()
     .prepare(sql)
     .get(...args);

@@ -52,6 +52,9 @@ const STILL_WAITS =
 // A sent message (comfort design, section 5): its "Sending…" turns to "Still sending…" after 10 s; a refused one
 // fades out over 150 ms.
 const SLOW_SEND_MS = 10_000;
+// The first words of the block the PC adds after a message's words when files go with it (pc/actions/attach.mjs
+// BLOCK_HEAD).
+const FILES_HEAD = "Attached files (";
 const FADE_MS = 150;
 // The jump-to-latest button shows when the chat's end is over 300 px below the view and goes under 100 px.
 const JUMP_SHOW = 300;
@@ -562,7 +565,7 @@ function render(ctx) {
   // The last session opened, kept on the phone, is drawn at once; the PC's answer replaces it (comfort design,
   // section 3).
   const keptSession = isNew() ? null : keptOf("session");
-  if (keptSession?.data.id === params.session) {
+  if (keptSession && keptSession.data.id === params.session) {
     v.info = keptSession.data.info;
     v.kept = keptSession.at;
   }
@@ -735,6 +738,26 @@ function render(ctx) {
           m.state === "slow" ? "Still sending…" : "Sending…",
         )
       : null,
+    // The session handed its work on: its transcript never gets the message, the session that continues it does.
+    m.movedTo
+      ? el(
+          "p.sent-mark.sent-moved",
+          `Sent on to “${m.movedTo.title ?? "the next session"}”, which continues this work. `,
+          el(
+            "button.btn-quiet",
+            {
+              type: "button",
+              onclick: () =>
+                ctx.go("session", {
+                  session: m.movedTo.session,
+                  project: params.project ?? v.info?.project,
+                  title: m.movedTo.title ?? undefined,
+                }),
+            },
+            "Open",
+          ),
+        )
+      : null,
   ];
 
   // The top row in view and its height on screen, so a redraw can put it back at that height (null when nothing
@@ -774,13 +797,19 @@ function render(ctx) {
       return;
     }
     if (!v.info) return fill(convo);
-    // A sent message leaves the waiting bubbles once the transcript or the live rows hold it.
-    const said = new Set(
-      [...v.info.items, ...v.live.rows.filter((r) => r.kind === "text")]
-        .filter((t) => t.role === "user" && !t.system)
-        .map((t) => t.text.trim()),
-    );
-    v.sent = v.sent.filter((m) => !said.has(m.text.trim()));
+    // A sent message leaves the waiting bubbles once the transcript or the live rows hold it: its words alone, or
+    // followed by the block the PC adds naming the files sent with it.
+    const said = [
+      ...v.info.items,
+      ...v.live.rows.filter((r) => r.kind === "text"),
+    ]
+      .filter((t) => t.role === "user" && !t.system)
+      .map((t) => t.text.trim());
+    const holds = (m) => {
+      const t = m.text.trim();
+      return said.some((x) => x === t || x.startsWith(`${t}\n\n${FILES_HEAD}`));
+    };
+    v.sent = v.sent.filter((m) => !holds(m));
     drawLive(false);
     const top = toEnd ? null : topRow();
     fill(
@@ -1264,6 +1293,11 @@ function render(ctx) {
       if (m) {
         m.state = "sent";
         if (m.how === "queue" && !r.d.queued) m.how = "send";
+        // Gone on to the session that continues the work: shown here as sent there, never as waiting in this queue.
+        if (r.d.movedTo) {
+          m.movedTo = r.d.movedTo;
+          m.how = "send";
+        }
       } else emptyBox();
       if (a === "session.new") params.session = r.d.session;
       v.typeInstead = null;
