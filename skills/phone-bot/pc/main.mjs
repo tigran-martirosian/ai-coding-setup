@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAlerts } from "./actions/alerts.mjs";
 import { bindDevices } from "./actions/devices.mjs";
+import { bindFolder, folderFrame, relayReady } from "./actions/folder.mjs";
 import { createIntake, inboxDir } from "./actions/saved.mjs";
 import { createChannel } from "./core/channel.mjs";
 import { loadKeys, saveKeys } from "./core/keys.mjs";
@@ -106,8 +107,11 @@ const join = createJoin({
 join.register(registry);
 // The devices list and Remove (actions/devices.mjs) read the same keys and remove through the join's rule.
 bindDevices({ keys, join });
+// The Files tab's Send to chat and download link (actions/folder.mjs) post to the relay and use its socket.
+bindFolder({ keys, send: link.send });
 
 function onReady(f) {
+  relayReady(f);
   if (typeof f.botId === "number" && keys.botId !== f.botId) {
     if (keys.botId === null) {
       keys.botId = f.botId;
@@ -124,6 +128,11 @@ function onFrame(f) {
   else if (f.t === "join-cancel") done(join.onCancel(f));
   else if (f.t === "app") done(channel.onApp(f));
   else if (f.t === "held" || f.t === "file") done(intake.onFrame(f));
+  else if (
+    ["dl-made", "dl-pull", "dl-fail"].includes(f.t) ||
+    (f.t === "error" && f.e === "files-rate")
+  )
+    done(folderFrame(f));
   else if (["offline", "limit", "error"].includes(f.t))
     log(f.t, String(f.e || f.resetAt || "").slice(0, 40));
   else log("drop", `relay frame ${String(f.t).slice(0, 12)}`);

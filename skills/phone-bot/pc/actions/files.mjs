@@ -354,7 +354,7 @@ function openFile(d) {
   if (!named) throw new ActionError("stale-handle");
   let real;
   try {
-    real = checkSessionFile(named, place.folders);
+    real = checkSessionFile(named, place.folders, place.written);
   } catch (e) {
     if (e instanceof FileRefused)
       throw new ActionError("file-refused", { rule: e.rule });

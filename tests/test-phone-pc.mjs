@@ -380,6 +380,7 @@ try {
       keys: { devices: [{ device: dev, K: seal.toB64u(K) }] },
       send: (f) => sent.push(f),
       registry: {
+        names: () => ["pc.status"],
         async handle(b) {
           runs++;
           await sleep(20);
@@ -1245,6 +1246,9 @@ try {
       path.join("actions", "voice.mjs"),
       // a phone Note runs steer.mjs as the desktop Note button does: node, fixed arguments, no shell
       path.join("core", "steer-note.mjs"),
+      // Copy file and Show in folder: PowerShell and explorer by execFile, fixed arguments, the path in an
+      // environment variable, no shell
+      path.join("actions", "folder.mjs"),
     ]);
     const bad = [];
     const walk = (d) => {

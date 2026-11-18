@@ -2,7 +2,10 @@
 // sets up voice (downloads the speech model once, up front).
 // Run: node setup.mjs join <relay address> | pair | status | start-logon | start | remove | voice
 // PHONE_PC_DRY=1 writes no log-on entry, starts, stops and downloads nothing: it prints what it would do.
-import { spawnSync } from "node:child_process";
+// The second PC program (PHONE_PC_TEST=1 with PHONE_PC_APP_DIR and PHONE_PC_PIPE, core/mode.mjs) writes no log-on
+// entry and leaves the real program and the old bot alone: it is started straight from this copy's keep.mjs and
+// stopped through its own pipe only.
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -14,11 +17,13 @@ import {
   MODEL,
   MODEL_MB,
   markerPath,
+  settingUp,
+  settingUpPath,
   UV_ARGS,
 } from "./actions/voice.mjs";
 import { keyFilePath, writeText } from "./core/files.mjs";
 import { createKeys, keysExist, loadKeys } from "./core/keys.mjs";
-import { DRY, pipeName, TEST, testOverride } from "./core/mode.mjs";
+import { DRY, pipeName, SECOND, TEST, testOverride } from "./core/mode.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAIN = path.join(HERE, "main.mjs");
@@ -42,7 +47,8 @@ const USAGE = `Usage: node setup.mjs join <relay address> | pair | status | star
   start           start the program now through the Startup script (a second copy stops by itself)
   remove          stop the program and remove the start at log-on, and the old scheduled task; the keys stay
   (join and remove also take out the retired Telegram inbox bot: its process, Startup scripts, tasks, /phone skill)
-  voice           download the speech model (about ${MODEL_MB} MB) once, so the phone's record button works`;
+  voice           download the speech model (about ${MODEL_MB} MB) once, so the phone's record button works;
+                  installs uv with winget when it is missing. voice --background does it hidden and returns at once`;
 
 function fail(msg) {
   console.error(msg);
@@ -65,13 +71,18 @@ function startupScript() {
 
 const q = (a) => (/[\s"]/.test(a) ? `"${a}"` : a);
 
-// Runs a fixed program with fixed arguments, never through a shell. In dry mode only prints it.
+// Runs a fixed program with fixed arguments, never through a shell and with no console window (the voice setup runs
+// hidden). In dry mode only prints it.
 function run(cmd, args, { mayFail = false } = {}) {
   if (DRY) {
     console.log(`would run: ${[cmd, ...args].map(q).join(" ")}`);
     return { status: 0, stdout: "" };
   }
-  const r = spawnSync(cmd, args, { encoding: "utf8", shell: false });
+  const r = spawnSync(cmd, args, {
+    encoding: "utf8",
+    shell: false,
+    windowsHide: true,
+  });
   if (r.error) fail(`${cmd} failed: ${r.error.message}`);
   if (r.status !== 0 && !mayFail)
     fail(
@@ -99,6 +110,7 @@ function lockKeyFile() {
 }
 
 function startLogon() {
+  if (SECOND) fail("The second PC program has no start at log-on.");
   needWindows("Start at log-on");
   const vbs = startupScript();
   const line = `CreateObject("WScript.Shell").Run """${process.execPath}"" ""${KEEP}""", 0, False\r\n`;
@@ -110,6 +122,7 @@ function startLogon() {
 }
 
 function removeLogon() {
+  if (SECOND) return;
   needWindows("Start at log-on");
   const vbs = startupScript();
   if (DRY) console.log(`would delete ${vbs}`);
@@ -122,7 +135,7 @@ function removeLogon() {
 // again) and program by command line: a program before 26.3.2 does not know "stop", and a keep.mjs may be waiting
 // to start one again.
 async function stopProgram() {
-  needWindows("Stopping the program");
+  if (!SECOND) needWindows("Stopping the program");
   if (DRY) console.log("would ask the running PC program to stop");
   else if ((await askOnce("stop"))?.stopping === true) {
     const until = Date.now() + ASK_WAIT_MS;
@@ -132,6 +145,8 @@ async function stopProgram() {
       await new Promise((r) => setTimeout(r, 200));
     }
   }
+  // The real program may run from a copy with the same paths: the second one is stopped through its pipe only.
+  if (SECOND) return;
   const has = (p) => `$_.CommandLine.Contains('${p.replace(/'/g, "''")}')`;
   const ps = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and (${has(KEEP)} -or ${has(MAIN)}) } | Sort-Object { -not ${has(KEEP)} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
   run("powershell", ["-NoProfile", "-Command", ps]);
@@ -140,6 +155,7 @@ async function stopProgram() {
 // The old bot's process (by its path, as stopProgram does), its Startup scripts and scheduled tasks, and the /phone
 // skill it wrote (only with its marker). Its secrets folder stays and is only named.
 function removeOldBot() {
+  if (SECOND) return;
   needWindows("Removing the old bot");
   const has = `$_.CommandLine.Contains('${OLD_BOT.replace(/'/g, "''")}')`;
   run("powershell", [
@@ -178,7 +194,27 @@ function removeOldBot() {
     );
 }
 
+// Starts a Node script hidden and on its own, as the Startup script starts the real program, and returns at once.
+// It keeps this process's variables. Its output goes to `logFile`, or nowhere.
+function startHidden(script, args = [], logFile = null) {
+  if (DRY) {
+    console.log(
+      `would start hidden: ${[process.execPath, script, ...args].map(q).join(" ")}`,
+    );
+    return;
+  }
+  const out = logFile ? fs.openSync(logFile, "w") : "ignore";
+  spawn(process.execPath, [script, ...args], {
+    detached: true,
+    stdio: ["ignore", out, out],
+    windowsHide: true,
+    shell: false,
+  }).unref();
+  if (logFile) fs.closeSync(out);
+}
+
 function startProgram() {
+  if (SECOND) return startHidden(KEEP);
   needWindows("Starting the program");
   if (!DRY && !fs.existsSync(startupScript()))
     fail(
@@ -254,14 +290,16 @@ async function cmdJoin(address) {
     console.log(
       "This PC had joined before: its old keys are replaced, so pair your phone again.",
     );
-  if (PLATFORM === "win32") {
+  if (SECOND) await stopProgram();
+  else if (PLATFORM === "win32") {
     removeOldBot();
     await stopProgram();
   }
   await createKeys(u.origin);
   lockKeyFile();
   console.log(`Keys made: ${keyFilePath()}`);
-  if (PLATFORM === "win32") {
+  if (SECOND) startProgram();
+  else if (PLATFORM === "win32") {
     startLogon();
     startProgram();
   }
@@ -282,7 +320,8 @@ async function cmdStatus() {
     );
     console.log(`paired devices: ${k.devices.length} of 4`);
   }
-  if (PLATFORM === "win32") {
+  if (SECOND) console.log("startup script: none (the second PC program)");
+  else if (PLATFORM === "win32") {
     const vbs = startupScript();
     console.log(`startup script: ${fs.existsSync(vbs) ? vbs : "not set up"}`);
     const r = run("schtasks", ["/query", "/tn", OLD_TASK], { mayFail: true });
@@ -308,20 +347,73 @@ async function cmdRemove() {
 
 // Voice (PC program design, section 7): the transcriber loads the speech model from this PC only, so it is
 // downloaded here, once, and never in the middle of a recording. Done = the model loads; then the marker file
-// tells voice.warm that voice is set up.
-function cmdVoice() {
-  const uv = findUv();
-  if (!uv)
+// tells voice.warm that voice is set up. While it runs, the file settingUpPath() holds its process id, so the
+// phone hears that voice is being set up. uv comes from winget when it is missing.
+// --background: starts this same step hidden, its output in voice-setup.log, and returns at once (the install and
+// the update start it so). In test mode PHONE_PC_VOICE_SETUP names a script started in its place.
+// A second start while a setup runs (its file names a live process) only says so: two downloads would race.
+function cmdVoice(background) {
+  if (settingUp()) {
+    console.log("Voice: its setup already runs; not starting a second one.");
+    return;
+  }
+  if (background) {
+    fs.mkdirSync(path.dirname(markerPath()), { recursive: true });
+    const log = path.join(path.dirname(markerPath()), "voice-setup.log");
+    const fake = testOverride("PHONE_PC_VOICE_SETUP");
+    startHidden(
+      fake || fileURLToPath(import.meta.url),
+      fake ? [] : ["voice"],
+      log,
+    );
+    console.log(
+      `Voice: the speech model (about ${MODEL_MB} MB) downloads in the background; its output goes to ${log}.`,
+    );
+    return;
+  }
+  if (!DRY) {
+    writeText(settingUpPath(), `${JSON.stringify({ pid: process.pid })}\n`);
+    process.on("exit", () => fs.rmSync(settingUpPath(), { force: true }));
+  }
+  let uv = findUv();
+  if (!uv && PLATFORM !== "win32")
     fail(
       "Voice needs uv, which is not on the PATH. Install it (https://docs.astral.sh/uv/), then run: node setup.mjs voice",
     );
+  if (!uv) {
+    console.log("Voice needs uv: installing it with winget.");
+    // Run hidden by --background, nobody can answer winget's agreement questions: they are accepted here.
+    const r = run(
+      "winget",
+      [
+        "install",
+        "--id",
+        "astral-sh.uv",
+        "-e",
+        "--source",
+        "winget",
+        "--accept-source-agreements",
+        "--accept-package-agreements",
+      ],
+      { mayFail: true },
+    );
+    uv = DRY ? "uv" : findUv();
+    if (!uv)
+      fail(
+        `uv did not install (winget: ${(r.stderr || r.stdout || `exit code ${r.status}`).trim().split("\n").pop()}). Install it (https://docs.astral.sh/uv/), then run: node setup.mjs voice`,
+      );
+  }
   console.log(
     `Voice: downloading the speech model "${MODEL}" (about ${MODEL_MB} MB) and its Python packages, once. This takes a few minutes.`,
   );
   const args = [...UV_ARGS, "--download"];
   if (DRY) console.log(`would run: ${[uv, ...args].map(q).join(" ")}`);
   else {
-    const r = spawnSync(uv, args, { stdio: "inherit", shell: false });
+    const r = spawnSync(uv, args, {
+      stdio: "inherit",
+      shell: false,
+      windowsHide: true,
+    });
     if (r.error) fail(`uv failed: ${r.error.message}`);
     if (r.status !== 0)
       fail(
@@ -343,5 +435,5 @@ else if (cmd === "status") await cmdStatus();
 else if (cmd === "start-logon") startLogon();
 else if (cmd === "start") startProgram();
 else if (cmd === "remove") await cmdRemove();
-else if (cmd === "voice") cmdVoice();
+else if (cmd === "voice") cmdVoice(arg === "--background");
 else console.log(USAGE);

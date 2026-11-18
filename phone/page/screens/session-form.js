@@ -166,7 +166,11 @@ export function formCard(v, p) {
                       promptId: p.promptId,
                       text,
                     })
-                    .catch((e) => e),
+                    .catch((e) => e)
+                    .then((r) => {
+                      if (r?.ok) v.accepted(p.promptId);
+                      return r;
+                    }),
               }),
           },
           "Type instead",
@@ -432,17 +436,8 @@ export function formCard(v, p) {
       r = e;
     }
     busy = false;
-    if (r?.ok) {
-      open = false;
-      line = {
-        text: r.d.cleared
-          ? "Sent."
-          : "Sent, but the session still waits on it. Answer on the PC.",
-      };
-      draw();
-      v.reload();
-      return;
-    }
+    // The PC took the answer: the card leaves and the typing box says "Answer sent." (session.js accepted).
+    if (r?.ok) return v.accepted(p.promptId);
     line = { text: `Not sent: ${v.why(r)}`, bad: true };
     drawFoot();
     if (r?.err === "no-prompt") v.reload();

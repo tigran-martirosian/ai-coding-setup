@@ -8,6 +8,7 @@ import {
 } from "../../../extensions/job-tracker/src/model.js";
 import { el } from "../frame/dom.js";
 import { hasScreen, registerHomePart } from "../frame/screens.js";
+import { keepPart, keptPart } from "./home.js";
 
 // The last jobs.list answer: { d, error, key, box }. `key` is the pc.status time it was asked for, so Home asks
 // once per status answer, not on every redraw; `box` is the Jobs block drawn last, which an answer fills in.
@@ -27,6 +28,7 @@ export async function loadJobs(ctx, then) {
   if (r?.ok) {
     jobsKept.d = r.d;
     jobsKept.error = null;
+    keepPart("jobs", r.d);
   } else jobsKept.error = errWord(r);
   then();
 }
@@ -174,6 +176,14 @@ function fill(ctx) {
 function renderJobs(ctx) {
   const { home } = ctx;
   const s = home.kept.status;
+  // Drawn from what Home kept on the phone: the kept jobs, asking nothing.
+  if (ctx.updating) {
+    jobsKept.d = keptPart("jobs");
+    if (!jobsKept.d || s?.nimbalyst !== "open") return null;
+    jobsKept.box = el("div.group.jobs");
+    fill(ctx);
+    return jobsKept.box;
+  }
   if (!ctx.connected || !home.fresh || s?.nimbalyst !== "open") return null;
   if (!ctx.offered("jobs.list")) return null;
   jobsKept.box = el("div.group.jobs");

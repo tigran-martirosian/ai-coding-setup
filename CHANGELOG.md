@@ -4,6 +4,26 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.4] - 2026-11-18
+
+- The phone app has a Files tab: folders you make, files added by picking or dropping them (up to 50 MB; secret files such as `.env` are refused), and for each file Download, Send to chat, Copy, Move, Rename and Remove (removed files are kept in a `.removed` folder). Newest files show first, and each folder shows how many files it holds. Files your home PC puts there can be downloaded on another computer through Telegram Desktop.
+- The bot chat gets two topics, Alerts and Files; Send to chat puts a file in Files.
+- The phone app opens at once: the last Home shows straight away with an "Updating" line while fresh data comes in, and a screen with nothing saved yet shows its outline while it loads.
+- On a desktop the app uses the width: two or three columns of sessions and wider Files cards at 1920 and 2560 pixels, and a full-screen button that follows Telegram's own state.
+- Code in the chat is easier to read: each block names its language and has a wrap switch and a Copy button that copies the code without its fences; a Text size setting makes chat text and code larger.
+- A message you send shows at once with "Sending…", a Jump to latest button brings you back down, and the chat keeps your scroll place when you come back to it.
+- Voice notes set themselves up: the install and the update download the speech model in the background when the phone add-on is in place.
+- Connection fixes: a phone removed from the PC goes back to pairing with a plain message, retries back off properly, and errors say in plain words what happened (for example "the PC is off or asleep").
+- Two guards no longer cost a retry. A Read of a file too big to read at once now returns a 120-line preview (or the asked range, cut to what fits) with a note on the rest, instead of being refused. A helper started from the main session without `run_in_background: false` now simply runs in the foreground instead of being refused.
+- When a job is already OK'd, a reply that ends "say go and I'll start the next step" is sent back once to carry on; releases, deploys, payments, messages and deletes still ask.
+- A reply that asks you to restart the app or click something so Claude can see whether a change works is sent back once: Claude runs the check itself, and a change that loads only after a restart waits for your own next restart instead of a request. Checks only you can do, such as on a phone, still ask.
+- The read-only browser-account guard no longer refuses a command that only mentions its program in a folder path or a longer name, or asks for its help with the output redirected; writes are still caught.
+- Each project can have a verify skill that says how to start its app, what to do in it and what proof to show. `/new-project` writes one from four templates (web app, Godot game, command-line or Node tool, data or video pipeline), and `/update-project` offers one to a project with code and none (pass level 5).
+- A starter `REVIEW.md` holds a project's rules for the reviewer: what counts as Important, paths to skip, rules to check and past bugs. `/new-project` writes it in a git project and `/update-project` offers it. The reviewer reads it as it was at the commit the change started from, so a change cannot loosen its own review, and it quotes any line a change loosens.
+- The verify gate counts a run of the project's verify skill as the turn's check. In a project with a verify skill it also checks each code commit with no verify run since the last code edit; for now it only logs it (`VERIFY_GATE_COMMIT=enforce` refuses it once, and a `Verify: skipped — <reason>` line in the message lets it through). `node ~/.claude/workers/observe-log.mjs` prints the log (`--all` for every line).
+- Helpers never edit, weaken or skip a test to get green. A flaky test with no cause found may be deleted, with the reason in the project's `docs/known-failures.md`, never patched with sleeps or retries.
+- The reviewer keeps at most 5 Nits and hands a command that shows each Important finding; the lead runs it first, and a finding that does not reproduce goes to you instead of costing a fix round.
+
 ## [26.3.3] - 2026-11-17
 
 - The job hook no longer asks you to hand off after every commit once your plan row is done: it counts only the rows of the plan's job table, not a list of your own checks or an old reference table, and a session note written in another row is no longer read as that session claiming the row.

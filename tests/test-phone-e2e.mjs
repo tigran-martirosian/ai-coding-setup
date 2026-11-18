@@ -1,9 +1,10 @@
 // End to end without Telegram: the built page served by the local relay, the real PC program against it, and the
-// page's own channel code (phone/page/frame/channel.js, run in Node) pairing with a code and asking pc.status.
+// page's own channel code (phone/page/frame/channel.js, run in Node) pairing with a code and asking pc.status, then
+// the Files path: drop in, Send to chat (to a Telegram stand-in) and the one-time download link.
 // Everything lives in a temp folder; the real ~/.phone-app is never read or written.
 //   node tests/test-phone-e2e.mjs
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes as nodeRandom } from "node:crypto";
+import { createHash, randomBytes as nodeRandom } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -202,8 +203,12 @@ async function askToJoin(url, initData) {
   return { link, j };
 }
 
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
 let relay = null;
 const relayLog = [];
+// What the Telegram stand-in got by sendDocument: { method, length, chatId, fileName, hash }.
+const uploads = [];
 // The step a crash happened in, named in the failure (a timeout's stack shows only the channel's timer).
 let step = "the steps before Unpair";
 let stepAt = Date.now();
@@ -237,11 +242,35 @@ try {
     ownerTgId: OWNER,
     telegramKey: tgPubHex,
     // Only the bot line of a join is sent (and kept here); a throw would make the local relay close the PC's socket.
+    // getMe says the bot chat has no topics, so Send to chat goes to the plain chat.
     telegram: async (method, body) => {
+      if (method === "getMe") return { id: BOT_ID, has_topics_enabled: false };
       if (method !== "sendMessage")
         throw new Error("the test relay does not reach Telegram");
       botLines.push(body.text);
       return { message_id: botLines.length };
+    },
+    // Send to chat's sendDocument: the multipart body is read whole and its document part kept by hash.
+    upload: async (method, { body, length, type }) => {
+      const all = Buffer.from(await new Response(body).arrayBuffer());
+      const boundary = /boundary=(.+)$/.exec(type)?.[1];
+      const part = (name) => {
+        const at = all.indexOf(`name="${name}"`);
+        if (at < 0) return null;
+        const start = all.indexOf("\r\n\r\n", at) + 4;
+        return all.subarray(start, all.indexOf(`\r\n--${boundary}`, start));
+      };
+      const head = all
+        .subarray(0, all.indexOf("\r\n\r\n", all.indexOf('name="document"')))
+        .toString();
+      uploads.push({
+        method,
+        length: length === all.length,
+        chatId: part("chat_id")?.toString() ?? null,
+        fileName: /filename="([^"]*)"/.exec(head)?.[1] ?? null,
+        hash: part("document") ? sha256(part("document")) : null,
+      });
+      return { message_id: 900 + uploads.length };
     },
     download: async () => {
       throw new Error("the test relay downloads nothing");
@@ -367,6 +396,80 @@ try {
     await s.bye();
     l.close();
   }
+
+  // ---- the Files path (files design, sections 4 and 6): a file dropped in from the page goes to the Files folder,
+  // then out again by Send to chat (to the Telegram stand-in) and by a one-time download link (through the relay)
+  step = "the Files path";
+  stepAt = Date.now();
+  {
+    const { link: l, s } = await session(relay.url, initData, paired);
+    const bytes = new Uint8Array(nodeRandom(3 * 1024 * 1024));
+    const want = sha256(bytes);
+    const sent = await s.sendStream(
+      bytes,
+      "application/pdf",
+      () => {},
+      channel.FILES_STREAM_MAX,
+    );
+    const put = await s.ask("folder.put", {
+      dir: "",
+      name: "report.pdf",
+      stream: sent.d?.stream,
+    });
+    const onDisk = path.join(home, "phone-inbox", put.d?.name ?? "report.pdf");
+    check(
+      "drop in: a 3 MB file streamed from the page must land whole in the Files folder (folder.put)",
+      sent.ok === true &&
+        put.ok === true &&
+        fs.existsSync(onDisk) &&
+        sha256(fs.readFileSync(onDisk)) === want,
+      JSON.stringify({ sent, put, there: fs.existsSync(onDisk) }),
+    );
+    const send = await s.ask("folder.send", { path: put.d?.name }, 30000);
+    const doc = uploads.at(-1);
+    check(
+      "Send to chat: the file must reach Telegram's sendDocument as the document part, same SHA-256, to the owner",
+      send.ok === true &&
+        send.d?.sent === true &&
+        uploads.length === 1 &&
+        doc.method === "sendDocument" &&
+        doc.length === true &&
+        doc.chatId === String(OWNER) &&
+        doc.fileName === "report.pdf" &&
+        doc.hash === want,
+      `${JSON.stringify({ send, uploads })}\nrelay log: ${relayLog
+        .filter((x) => !/ (open|message|closed) #/.test(x))
+        .slice(-6)
+        .join("\n")}`,
+    );
+    const made = await s.ask("folder.link", { path: put.d?.name }, 30000);
+    let got = null;
+    if (made.ok) {
+      const r = await fetch(made.d.url);
+      got = {
+        status: r.status,
+        hash: sha256(new Uint8Array(await r.arrayBuffer())),
+      };
+    }
+    check(
+      "download link: the one-time link must give the file's bytes, same SHA-256",
+      made.ok === true &&
+        made.d.size === bytes.length &&
+        got?.status === 200 &&
+        got.hash === want,
+      JSON.stringify({ made, got }),
+    );
+    const again = made.ok ? (await fetch(made.d.url)).status : null;
+    check(
+      "download link: a second use of the same link must answer 410",
+      again === 410,
+      String(again),
+    );
+    await s.bye();
+    l.close();
+  }
+  step = "the steps before Unpair";
+  stepAt = Date.now();
 
   // ---- a second device joins by an OK on the paired one (pipe design, section 15)
   {

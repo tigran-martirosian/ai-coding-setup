@@ -23,7 +23,8 @@ const SID = /^[A-Za-z0-9_-]{1,64}$/;
 const B64U = /^[A-Za-z0-9_-]*$/;
 const SHA_HEX = /^[0-9a-f]{64}$/;
 export const PIECE_BYTES = 192 * 1024;
-export const STREAM_MAX = 25 * 1024 * 1024;
+// Every stream (a Files drop-in, a voice note, an attachment); attach.mjs keeps attachments to 25 MB per device.
+export const STREAM_MAX = 50 * 1024 * 1024;
 const STREAMS_OPEN = 2;
 // Bytes one channel session holds: streams still arriving (their full size) and whole ones no action took yet.
 export const STREAMS_HELD_MAX = 50 * 1024 * 1024;
@@ -104,6 +105,8 @@ export function createChannel({
       pcVersion,
       protocol: PROTOCOL,
       page: context().page,
+      // The action names this PC answers, so the page greys a screen whose actions are missing (26.3.3 sent none).
+      actions: registry.names(),
     };
     send({ ...h, c: await sealHello(K, h, reply) });
     end(f.dev, "hello");
@@ -185,7 +188,7 @@ export function createChannel({
       if (!Number.isSafeInteger(c.total) || c.total < 1)
         return broken("no size");
       if (c.total > STREAM_MAX)
-        return broken(`${c.total} bytes is over the 25 MB limit`);
+        return broken(`${c.total} bytes is over the 50 MB limit`);
       let held = c.total;
       for (const o of s.streams.values()) held += o.total;
       for (const w of s.whole.values()) held += w.bytes.length;

@@ -96,6 +96,9 @@ const S = {
   think: addSession("Thinks live", "running", THINK_T),
   plan: addSession("Waits on a plan", "waiting_for_input"),
 };
+// A working session followed live that asks forms; the fake door's answer_form for it writes what formMode says.
+const ASK_T = "55555555-6666-4777-8888-999999999999";
+S.asks = addSession("Asks while it works", "running", ASK_T);
 
 // The form: the newest PromptForUserInput tool call of the session, with no result yet; three fields the phone draws.
 const FORM_ID = "toolu_form_live_1";
@@ -174,7 +177,7 @@ const reply = (text, s, input = 170000) => ({
     content: [{ type: "text", text }],
   },
 });
-for (const t of [LIVE_T, LIVE_T2])
+for (const t of [LIVE_T, LIVE_T2, ASK_T])
   fs.writeFileSync(
     path.join(talkDir, `${t}.jsonl`),
     line({ type: "user", timestamp: at(0), message: { content: "Ship it" } }) +
@@ -198,6 +201,7 @@ const door = {
   [S.live]: { status: "running", pendingPrompt: null },
   [S.again]: { status: "running", pendingPrompt: null },
   [S.think]: { status: "running", pendingPrompt: null },
+  [S.asks]: { status: "running", pendingPrompt: null },
   [S.plan]: {
     status: "waiting_for_input",
     pendingPrompt: {
@@ -208,6 +212,43 @@ const door = {
   },
 };
 let refuseRemove = false; // the door refuses remove_queued_prompt while set
+let formMode = "late";
+const GAP_MS = 1; // the measured gap from the transcript's result line to the database row
+const resultLine = (id) => ({
+  type: "user",
+  timestamp: new Date().toISOString(),
+  message: {
+    content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+  },
+});
+// A one-question form call of the asking session, newest of its calls.
+const askForm = (id) =>
+  addMessage(S.asks, {
+    type: "assistant",
+    message: {
+      content: [
+        {
+          type: "tool_use",
+          id,
+          name: "mcp__nimbalyst__PromptForUserInput",
+          input: {
+            title: "Go on?",
+            fields: [
+              {
+                id: "go",
+                type: "singleSelect",
+                label: "Go on?",
+                options: [
+                  { id: "yes", label: "Yes" },
+                  { id: "no", label: "No" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    },
+  });
 function handle(name, a) {
   const s = door[a.sessionId];
   switch (name) {
@@ -249,6 +290,18 @@ function handle(name, a) {
       setStatus(a.sessionId, "idle");
       return { success: true };
     case "answer_form":
+      if (a.sessionId === S.asks) {
+        // "late": the transcript's result line at once, the database row GAP_MS + 1 s later (Nimbalyst on
+        // 2026-11-17: 0.001 s apart); "never": no result anywhere.
+        if (formMode === "late") {
+          append(ASK_T, resultLine(a.promptId));
+          setTimeout(
+            () => addMessage(S.asks, resultLine(a.promptId)),
+            GAP_MS + 1000,
+          );
+        }
+        return { success: true };
+      }
       // Nimbalyst writes the form's result; the PC reads it to know the form is closed.
       addMessage(a.sessionId, {
         type: "user",
@@ -1121,6 +1174,114 @@ ${LONG}` &&
       js.every((s) => !/\d+px|style:/.test(s)),
     show({ raw: newCss.match(RAW)?.[0], sizes }),
   );
+
+  // ---- an answered form leaves at once and stays gone; one with no result comes back after the last ask (L)
+  timing.recheckMs = [200, 500, 1000];
+  const L = timing.recheckMs[timing.recheckMs.length - 1];
+  const sheetAnswer = async (x) => {
+    const c = await until(() => byClass(x.dock, "qcard")[0]);
+    action(x.dock, "open-form")?.click();
+    button(x.dock, (b) => b.attrs["data-option"] === "yes")?.click();
+    action(x.dock, "form.answer")?.click();
+    return c;
+  };
+  const cardShown = (x) => byClass(x.dock, "qcard").length > 0;
+  // Notes when the PC's answer to each action reached the page over channel `ch`.
+  const timed = (ch) => {
+    const took = {};
+    const ask = ch.ask;
+    ch.ask = async (a, d) => {
+      const r = await ask(a, d);
+      took[a] = Date.now();
+      return r;
+    };
+    return took;
+  };
+  // (a) the result line at once, the database row G + 1 s later; the session stays running
+  askForm("toolu_ask_a");
+  formMode = "late";
+  const chA = channel();
+  let tookA = null; // when the PC's answer to form.answer reached the page
+  const askA = chA.ask;
+  chA.ask = async (a, d) => {
+    const r = await askA(a, d);
+    if (a === "form.answer") tookA = Date.now();
+    return r;
+  };
+  const fa = drawSession(S.asks, "Asks while it works", chA);
+  await sheetAnswer(fa);
+  await until(() => tookA);
+  const outA = await until(
+    () =>
+      !cardShown(fa) &&
+      byTag(fa.dock, "textarea").length === 1 &&
+      fa.dock.textContent.includes("Answer sent.") &&
+      Date.now(),
+    3000,
+  );
+  await sleep(L + 1000);
+  check(
+    "(a) a form answered while the session works leaves the dock within 1 s of the PC's answer, the typing box says 'Answer sent.', and the card does not come back",
+    Boolean(tookA && outA) && outA - tookA <= 1000 && !cardShown(fa),
+    show({ took: tookA, out: outA, dock: fa.dock.textContent }),
+  );
+  gone(fa);
+  // (b) no result anywhere: the card comes back after L with the new words, and Send works again
+  askForm("toolu_ask_b");
+  formMode = "never";
+  const chB = channel();
+  const tookB = timed(chB);
+  const fb = drawSession(S.asks, "Asks while it works", chB);
+  await sheetAnswer(fb);
+  // The PC answers form.answer after its 3 s wait for the database row.
+  const sentB = await until(() => tookB["form.answer"], 6000);
+  const leftB = await until(() => !cardShown(fb), 1000);
+  const backB = await until(
+    () =>
+      cardShown(fb) &&
+      fb.dock.textContent.includes(
+        "The session still waits on this. Answer again, or on the PC.",
+      ) &&
+      Date.now(),
+    L + 3000,
+  );
+  const beforeB = callsOf("answer_form", S.asks).length;
+  if (backB) await sheetAnswer(fb);
+  const againB = await until(
+    () => callsOf("answer_form", S.asks).length > beforeB,
+    3000,
+  );
+  check(
+    "(b) a form with no result after its answer leaves within 1 s of the PC's answer, comes back within 2 s after the last ask with 'The session still waits on this. Answer again, or on the PC.', and Send works again",
+    Boolean(sentB && leftB && backB && againB) && backB - sentB <= L + 2000,
+    show({
+      left: leftB,
+      back: backB && backB - sentB,
+      again: againB,
+      dock: fb.dock.textContent,
+    }),
+  );
+  gone(fb);
+  // (c) a page that did not answer: the result line lands while its card shows, and the card goes
+  askForm("toolu_ask_c");
+  const chC = channel();
+  const tookC = timed(chC);
+  const fc = drawSession(S.asks, "Asks while it works", chC);
+  await until(() => cardShown(fc));
+  await until(() => tookC["session.watch"]);
+  await sleep(300);
+  append(ASK_T, resultLine("toolu_ask_c"));
+  const appended = Date.now();
+  const goneC = await until(() => !cardShown(fc) && Date.now(), 8000);
+  // A later session.pending that still names the form (no database row yet) is ignored.
+  for (const fn of chC.listeners) fn({ k: "evt", e: "status" });
+  await sleep(500);
+  check(
+    "(c) on a page that did not answer, the form's result line in the transcript takes its card away within 2 s, and a later pending answer that still names it does not bring it back",
+    Boolean(goneC) && goneC - appended <= 2000 && !cardShown(fc),
+    show({ after: goneC && goneC - appended, dock: fc.dock.textContent }),
+  );
+  gone(fc);
 } catch (e) {
   failure = e;
 } finally {

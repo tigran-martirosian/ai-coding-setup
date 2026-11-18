@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isBuildCode, isSetup } from "../../hooks/lib/code-files.mjs";
 import {
   decisionFileLines,
   decisionFiles,
@@ -36,7 +37,7 @@ import {
 
 // The pass level this file's checks implement. It goes up only with a release that changes what a project folder
 // should hold (the new-project base table, the file standard, checks.md); version.json's projectPass equals it.
-export const LEVEL = 4;
+export const LEVEL = 5;
 
 const args = process.argv.slice(2);
 const stop = (why) => {
@@ -271,6 +272,7 @@ export function check(dir, kept = [], since = null) {
   checkFiles(dir, add);
   checkPaths(dir, add);
   checkFacts(dir, add);
+  checkVerify(dir, add);
   const g = checkGit(dir, add, since);
   // a GitHub HTTP error (a revoked token, a deleted repo) costs only the GitHub checks: one line names it
   if (g?.gh)
@@ -355,6 +357,89 @@ function checkClaudeFolder(dir, add) {
       if (!fm[k])
         add("P5", "fix", `.claude/agents/${a}`, `no ${k} in its frontmatter`);
   }
+}
+
+// P27: a folder with code and no verify skill (new-project's base table, row .claude/skills/verify/SKILL.md).
+// Code is what the verify gate counts (isBuildCode), outside dot folders, node_modules and setup files; a git
+// folder's own files come from git ls-files, so its ignored output is not read. A skill named verify or verify-<name>,
+// in the folder or at its repo's top, is one the gate counts.
+const VERIFY_LINE =
+  "- Before a commit that changes code: the verify skill (.claude/skills/verify/SKILL.md) starts the app and proves the change.";
+const VERIFY_TODO =
+  "- [ ] Write .claude/skills/verify/SKILL.md from new-project's preset/verify-<kind>.md once the app first starts.";
+const hasVerifySkill = (d) => {
+  const skills = path.join(d, ".claude", "skills");
+  return (
+    isDir(skills) &&
+    fs
+      .readdirSync(skills)
+      .some(
+        (n) =>
+          /^verify(-[\w-]+)?$/.test(n) &&
+          isFile(path.join(skills, n, "SKILL.md")),
+      )
+  );
+};
+const isAppCode = (rel) =>
+  !rel.split("/").some((s) => s.startsWith(".") || s === "node_modules") &&
+  isBuildCode(`/${rel}`) &&
+  !isSetup(rel);
+function hasCode(dir, inGit) {
+  if (inGit) {
+    const r = gitRead(dir, "ls-files", "-co", "--exclude-standard");
+    if (r.status !== 0)
+      throw new Error(`git ls-files failed in ${fwd(dir)}: ${r.stderr.trim()}`);
+    return r.stdout.split(/\r?\n/).some((l) => l && isAppCode(l));
+  }
+  const todo = [""];
+  while (todo.length) {
+    const rel = todo.pop();
+    for (const e of fs.readdirSync(path.join(dir, rel), {
+      withFileTypes: true,
+    })) {
+      if (e.name.startsWith(".") || e.name === "node_modules") continue;
+      const sub = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) todo.push(sub);
+      else if (isAppCode(sub)) return true;
+    }
+  }
+  return false;
+}
+// the template by what the folder shows; null when it shows no kind
+function verifyKind(dir) {
+  if (isFile(path.join(dir, "project.godot")))
+    return ["verify-godot.md", "a Godot game: project.godot"];
+  const pj = path.join(dir, "package.json");
+  if (!isFile(pj)) return null;
+  let p;
+  try {
+    p = JSON.parse(read(pj));
+  } catch (e) {
+    throw new Error(`${fwd(pj)} does not parse: ${e.message}`);
+  }
+  if (p.bin)
+    return ["verify-tool.md", "a command-line tool: package.json has bin"];
+  if (p.scripts?.dev || p.scripts?.start)
+    return [
+      "verify-web.md",
+      "a web app: package.json has a dev or start script",
+    ];
+  return null;
+}
+function checkVerify(dir, add) {
+  const top = gitTop(dir);
+  if (hasVerifySkill(dir) || (top && hasVerifySkill(top))) return;
+  if (!hasCode(dir, top !== null)) return;
+  const kind = verifyKind(dir);
+  const copy = kind
+    ? `copy ${PRESET}/${kind[0]} (${kind[1]})`
+    : `pick the kind (web app, Godot game, command-line tool or data pipeline) and copy its template, ${PRESET}/verify-<web|godot|tool|pipeline>.md,`;
+  add(
+    "P27",
+    "ask",
+    ".claude/skills/verify/SKILL.md",
+    `the folder has code and no verify skill: ${copy} to .claude/skills/verify/SKILL.md, fill every {{...}} from the folder, run it once, and add the CLAUDE.md line \`${VERIFY_LINE}\`. When nothing starts yet, no skill: add to HANDOFF.md \`${VERIFY_TODO}\``,
+  );
 }
 
 // P6: the file standard's checker; P7: untracked entries in a git folder
@@ -744,6 +829,14 @@ function checkGit(dir, add, since) {
       "ask",
       LOCAL_SETTINGS,
       `git tracks ${LOCAL_SETTINGS}: run git rm --cached ${LOCAL_SETTINGS}, then commit on the person's word without naming that file (a commit that names it takes the copy on disk and tracks it again); read git log -p -- ${LOCAL_SETTINGS} and rotate at its provider any token or password in it, because the history keeps it`,
+    );
+  // P28: the review rules. The reviewer reads REVIEW.md from git at the repo's top, so only git folders get one
+  if (!isFile(atTop("REVIEW.md")))
+    add(
+      "P28",
+      "ask",
+      topRel("REVIEW.md"),
+      `missing: copy ${PRESET}/REVIEW.md, the rules the reviewer reads for its quality findings (what counts as Important, the Nit cap, paths to skip, past bugs); it applies from the commit after it is committed`,
     );
   // P23: the changelog's headings and plain tags (only in a folder with a CHANGELOG.md or a tag)
   if (isFile(at("CHANGELOG.md"))) {

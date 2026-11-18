@@ -41,6 +41,18 @@ export function keyIn(line) {
   return null;
 }
 
+// The text with every real key replaced by "[<kind> hidden]" (reports and digests copy chat text, keys included)
+export function maskKeys(text) {
+  let out = String(text);
+  for (const [kind, re] of SHAPES)
+    out = out.replace(new RegExp(re.source, "g"), (m) =>
+      (kind === "a private key" || /\d/.test(m)) && !fake(m)
+        ? `[${kind} hidden]`
+        : m,
+    );
+  return out;
+}
+
 // A file whose being pushed at all is the problem. Examples and public keys are not.
 export function keyFile(p) {
   const name = p.split(/[\\/]/).pop();

@@ -2,10 +2,14 @@
 // to the PC. It closes the socket when the page is hidden and, when shown again, opens a new one with a new hello
 // and draws the screen again, so every screen asks for fresh state (pipe design, section 9); a live session goes
 // on from where it was instead. While the link is down it shows one calm connecting view (phone steady design,
-// section 4).
+// section 4). It opens at once (comfort design, sections 2 to 4): a tab screen kept on the phone is drawn before the
+// first hello, marked "Updating" until fresh; where nothing is kept, the skeleton from index.html stands. Only the
+// tab screens load first; the other screens load after the first draw.
 
 import { askCard } from "../screens/device-join.js";
-import { PAGE_VERSION } from "../screens.generated.js";
+import { LATER, loadRest, PAGE_VERSION } from "../screens.generated.js";
+import { shellTab, stylesLoaded, telegramLoaded } from "./boot.js";
+import { forgetAll, kept } from "./cache.js";
 import {
   ChannelError,
   join,
@@ -21,7 +25,14 @@ import {
   restorePairing,
   savePairing,
 } from "./keystore.js";
-import { hasScreen, screen, tabScreens } from "./screens.js";
+import { offers } from "./offers.js";
+import {
+  hasScreen,
+  isLoaded,
+  laterScreens,
+  screen,
+  tabScreens,
+} from "./screens.js";
 import {
   haptic,
   hasHost,
@@ -33,7 +44,9 @@ import { lockGestures, setZoom } from "./zoom.js";
 
 // The link's waits (phone steady design, section 2).
 const RETRY_CAP_S = 30; // a retry waits a random time up to 2^n s, at most this
-const UP_RESET_MS = 30_000; // a session up this long starts the retry waits over
+// A session up this long starts the retry waits over: more than ping 20 s + pong wait 10 s, so a link that dies at
+// its first ping keeps the waits growing.
+const UP_RESET_MS = 45_000;
 const QUIET_MS = 2000; // after a drop the screen stays as it was this long
 const OFFLINE_HOLD_MS = 20_000; // the relay's offline answers this long, with no good hello between: "PC off"
 const LONG_MS = 30_000; // connecting this long without reaching the relay: the internet line
@@ -46,6 +59,12 @@ const LONG_LINE =
   "Still no connection. This phone's internet or the connection service may be down.";
 const READ_ONLY =
   "You can look, not act. On the PC, run /update-setup in Claude Code.";
+const UNPAIRED = "This device is no longer paired with your PC.";
+// The first 3 s after opening, a kept screen stands at full strength with "Updating", and the skeleton without words;
+// after that the connecting look takes over (comfort design, sections 2 and 3).
+const OPEN_MARK_MS = 3000;
+// The full-screen button's icon in full screen: four inward corners (files screens design, section 2).
+const LEAVE_FULL = ["M9 4v5H4M15 4v5h5M15 20v-5h5M9 20v-5H4"];
 const between = (lo, hi) => lo + Math.random() * (hi - lo);
 const $ = (id) => document.getElementById(id);
 
@@ -78,8 +97,14 @@ const st = {
   tryAttempt: 0, // the attempt Try again started
   ever: false, // a session was up since the page opened
   shown: null, // the key of the link state drawn now
-  firstShown: false, // the first-open view stands in place of the screen
+  firstShown: false, // the skeleton stands in place of the screen
+  openedAt: Date.now(),
+  booting: true, // the pairing is not read yet: a kept screen may already show
+  keptAt: null, // before the first hello: when the screen in view was kept, or null when nothing is kept for it
+  skeleton: false, // the last draw was the skeleton: the next screen fades in
+  rest: null, // the later screens' loading
   slot: null, // the element the link state is drawn in
+  mark: null, // the status mark at the right end of the title row
   body: null, // the element the screen is drawn in
   grey: false, // the screen in view needs actions the PC does not offer
   resume: null, // the screen's way to go on after a reconnect without being drawn again
@@ -112,6 +137,7 @@ const deviceKind = () => PLATFORM_KINDS[st.tg.platform] ?? "other";
 
 function fatal(text) {
   $("app").hidden = true;
+  $("shell").hidden = true;
   const f = $("fatal");
   f.hidden = false;
   f.replaceChildren(el("p", text));
@@ -119,6 +145,33 @@ function fatal(text) {
 
 const hhmm = (t) =>
   new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// The "as of" of a kept screen: the time, and the day before it when it is not today ("12 Nov, 14:05"). Telegram
+// Desktop under 600 wide has no room for the day beside the full-screen button.
+function asOf(t) {
+  const d = new Date(t);
+  const narrow = st.tg?.platform === "tdesktop" && globalThis.innerWidth < 600;
+  if (narrow || d.toDateString() === new Date().toDateString()) return hhmm(t);
+  return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, ${hhmm(t)}`;
+}
+
+// The later screens (all but the tab screens and Home's parts), loaded once after the first draw.
+function restLoaded() {
+  st.rest ??= loadRest();
+  return st.rest;
+}
+
+// Runs `then` once screen `id` is in this page: at once for the first screens, after the later ones load otherwise.
+function whenLoaded(id, then) {
+  if (isLoaded(id)) return then();
+  restLoaded().then(
+    () => {
+      if (!isLoaded(id)) return fatal(`The app has no screen "${id}".`);
+      then();
+    },
+    (e) => fatal(`The app could not load its screens: ${e.message}`),
+  );
+}
 
 async function x25519Works() {
   try {
@@ -132,10 +185,11 @@ async function x25519Works() {
 // ---- the link to the PC
 
 // What a failed attempt or an ended session means: { stop } words, { update }, { offline } (the relay's word that
-// the PC has no link) or { retry } with the code.
+// the PC has no link), { unpaired } (the PC no longer holds this device) or { retry } with the code.
 function problemOf(e) {
   const code = e instanceof ChannelError ? e.code : "failed";
   if (STOPS[code]) return { stop: STOPS[code] };
+  if (code === "unknown-device") return { unpaired: true };
   if (code === "protocol") {
     // The relay's own answer has no numbers: it serves a newer page than this one, as does a PC that is newer.
     if (e.extra.pc === undefined || e.extra.pc > e.extra.page)
@@ -253,6 +307,14 @@ async function openAlert(s) {
 // Any other failure drops the socket and waits a random time up to 2^n s (Full Jitter).
 function later(e) {
   const p = problemOf(e);
+  // Removed at the PC or from another device: no further attempt; Unpair's steps, and pairing says why.
+  if (p.unpaired) {
+    dropLink();
+    forgetHere(UNPAIRED).catch((err) =>
+      fatal(`${UNPAIRED} The app could not forget its key: ${err.message}`),
+    );
+    return;
+  }
   if (p.stop || p.update) {
     st.stop = p.stop ?? null;
     st.update = Boolean(p.update);
@@ -475,8 +537,9 @@ function drawCards() {
 // ---- screens
 
 // Without the full set of actions the PC answers, a screen is drawn read-only: only a 26.3 PC still calls a page it
-// was not built with "unverified" and answers it pc.status alone (phone steady design, section 6).
-const offered = (action) => action === "pc.status" || st.hello?.page === "ok";
+// was not built with "unverified" and answers it pc.status alone (phone steady design, section 6). Before the first
+// hello a kept screen is drawn as it was kept, with every action. The rest is offers.js.
+const offered = (action) => !st.hello || offers(st.hello, action);
 
 function ctx(params) {
   return {
@@ -488,20 +551,28 @@ function ctx(params) {
     get connected() {
       return Boolean(st.session);
     },
+    // True while the screen is drawn from what it kept, before the first hello: it draws as if fresh, asks nothing,
+    // and the frame marks it "Updating" (comfort design, section 3).
+    get updating() {
+      return !st.ever && st.keptAt !== null;
+    },
     pairing: st.pairing,
     // fn() runs after a reconnect in place of drawing the screen again; it returns true when it went on (a live
     // session asks for what it missed), anything else draws the screen afresh.
     onResume(fn) {
       st.resume = fn;
     },
-    ask(action, data) {
+    // `ms` is how long to wait for the answer; none keeps the channel's 30 s.
+    ask(action, data, ms) {
       if (!st.session) return Promise.reject(new ChannelError("not-connected"));
-      return st.session.ask(action, data);
+      return st.session.ask(action, data, ms);
     },
-    // A recording to the PC in sealed pieces (channel.js sendStream); the PC's answer names the stream.
-    sendStream(bytes, mime, onProgress) {
+    // Bytes to the PC in sealed pieces (channel.js sendStream); the PC's answer names the stream. `max` is the
+    // caller's size limit (FILES_STREAM_MAX for files and voice notes); none keeps 25 MB. onWait(waiting) tells the
+    // caller its stream waits its turn in the channel's stream line.
+    sendStream(bytes, mime, onProgress, max, onWait) {
       if (!st.session) return Promise.reject(new ChannelError("not-connected"));
-      return st.session.sendStream(bytes, mime, onProgress);
+      return st.session.sendStream(bytes, mime, onProgress, max, onWait);
     },
     offered,
     // The box the screen scrolls in; the page itself never scrolls.
@@ -517,8 +588,9 @@ function ctx(params) {
     go,
     back,
     redraw: () => draw(),
-    mainButton: (spec) => setMainButton(st.tg, $("main-btn"), spec),
-    haptic: (kind) => haptic(st.tg, kind),
+    // A kept screen drawn before Telegram's script has run has no Telegram to call yet.
+    mainButton: (spec) => st.tg && setMainButton(st.tg, $("main-btn"), spec),
+    haptic: (kind) => st.tg && haptic(st.tg, kind),
     pairWith,
     join: joinWith,
     // The pairing screen again, with no back step; { code: true } opens it on the code's steps.
@@ -536,29 +608,36 @@ function ctx(params) {
       connect();
       return true;
     },
-    // After Settings' Unpair, once the PC forgot this device: the stored key goes, the link closes and the pairing
-    // screen shows with no back step. A key store that cannot delete throws, and Settings says so.
-    unpaired: async () => {
-      await forgetPairing(st.tg);
-      st.pairing = null;
-      st.session = null;
-      st.hello = null;
-      st.offline = null;
-      st.ever = false;
-      clearTimeout(st.timer);
-      st.attempt++;
-      st.connecting = false;
-      dropLink();
-      st.asks.clear();
-      drawCards();
-      st.stack = [];
-      st.tabY.clear();
-      st.view = { id: "pairing", params: { restorable: false }, y: 0 };
-      draw(0);
-    },
+    // After Settings' Unpair, once the PC forgot this device. A key store that cannot delete throws, and Settings
+    // says so.
+    unpaired: () => forgetHere(),
     // The Checks screen of the test build hands over to the normal start.
     startApp: () => begin(),
   };
+}
+
+// The Unpair steps, once the PC no longer holds this device: the stored key goes, the link closes and the pairing
+// screen shows with no back step, `notice` above it. What the screens kept on the phone goes too. A key store that
+// cannot delete throws.
+async function forgetHere(notice = null) {
+  await forgetPairing(st.tg);
+  forgetAll();
+  st.pairing = null;
+  st.session = null;
+  st.hello = null;
+  st.offline = null;
+  st.ever = false;
+  clearTimeout(st.timer);
+  st.attempt++;
+  st.connecting = false;
+  dropLink();
+  st.asks.clear();
+  drawCards();
+  st.stack = [];
+  st.tabY.clear();
+  st.view = { id: "pairing", params: { restorable: false }, y: 0 };
+  st.notice = notice;
+  draw(0);
 }
 
 // Every screen scrolls the frame's one box (#content), never the page: Telegram's iPhone header darkens as the page
@@ -571,6 +650,7 @@ function leave() {
 }
 
 function go(id, params = {}) {
+  if (!isLoaded(id)) return whenLoaded(id, () => go(id, params));
   st.notice = null;
   leave();
   const tab = screen(id).tab !== null;
@@ -587,18 +667,22 @@ function back() {
   draw(prev.y);
 }
 
+// The first tab, or the one the skeleton's tab bar was moved to before the frame ran.
 function goFirst() {
-  const first = tabScreens()[0];
+  const tabs = tabScreens();
+  const first = tabs.find((t) => t.tab === shellTab()) ?? tabs[0];
   st.view = first ? { id: first.screen.id, params: {}, y: 0 } : null;
   draw(0);
 }
 
 // The link as the frame shows it (phone steady design, section 4), one state at a time: null (connected, or the
-// quiet 2 s after a drop: the screen as it is), first (no screen yet), connecting (the screen kept, dimmed, with a
-// strip on top), off (the relay said the PC is gone for 20 s), update, stop. "PC off" leaves only for a good hello.
-// A kept screen stays as it was through Connecting, PC off and Update: only the top changes.
+// quiet 2 s after a drop: the screen as it is), updating (the first 3 s of a screen kept on the phone), first (the
+// skeleton: nothing kept, no hello yet), connecting (the screen kept, dimmed, with a strip on top), off (the relay
+// said the PC is gone for 20 s), update, stop. "PC off" leaves only for a good hello. A kept screen stays as it was
+// through Connecting, PC off and Update: only the top changes.
 function linkState(now = Date.now()) {
-  if (!st.pairing || st.view?.id === "checks") return null;
+  if (st.view?.id === "checks") return null;
+  if (!st.pairing && !st.booting) return null;
   if (st.stop) return { key: "stop", stop: st.stop };
   if (st.update) return { key: "update", update: true };
   if (st.session) return null;
@@ -613,7 +697,20 @@ function linkState(now = Date.now()) {
     ? `The connection service is near its free daily limit. It works again at ${hhmm(st.limitAt)}.`
     : null;
   const key = `${long} ${busy} ${limit}`;
-  if (!st.ever) return { key: `first ${key}`, first: true, long, busy, limit };
+  if (!st.ever) {
+    const late = now - st.openedAt >= OPEN_MARK_MS;
+    if (st.keptAt === null)
+      return {
+        key: `first ${late} ${key}`,
+        first: true,
+        late,
+        long,
+        busy,
+        limit,
+      };
+    if (!late) return { key: "updating", updating: true };
+    return { key: `connecting ${key}`, connecting: true, long, busy, limit };
+  }
   if (now - st.droppedAt < QUIET_MS) return null;
   return { key: `connecting ${key}`, connecting: true, long, busy, limit };
 }
@@ -649,6 +746,14 @@ const stateBlock = (pic, title, meta, ...more) =>
 // What goes in the slot above the screen for `link` (linkState); connected, the alert's notice if there is one.
 function stateView(link) {
   if (!link) return st.notice ? [el("p.frame-line.warn", st.notice)] : [];
+  if (link.updating) return [];
+  // Over the skeleton the status mark says "Connecting"; the long line and Try again come under the title.
+  if (link.first)
+    return [
+      link.limit ? el("p.frame-line", link.limit) : null,
+      link.long ? el("p.frame-line", LONG_LINE) : null,
+      link.long ? tryButton(link.busy) : null,
+    ].filter(Boolean);
   if (link.stop) return [el("p.frame-line", link.stop)];
   if (link.update)
     return [
@@ -691,7 +796,10 @@ function stateView(link) {
         "div.link-bar-top",
         el("span.spinner"),
         el("span.link-bar-title", CONNECTING),
-        el("span.link-bar-asof", `as of ${hhmm(st.liveAt)}`),
+        el(
+          "span.link-bar-asof",
+          `as of ${asOf(st.ever ? st.liveAt : st.keptAt)}`,
+        ),
       ),
       link.limit ? el("div.link-bar-line", link.limit) : null,
       link.long ? el("div.link-bar-line", LONG_LINE) : null,
@@ -700,64 +808,123 @@ function stateView(link) {
   ];
 }
 
-// Page just opened, no session yet: this stands in place of the screen.
-const firstView = (link) =>
-  el(
-    "div.connect-view",
-    { role: "status" },
-    el("span.spinner.big"),
-    el("h1.connect-title", CONNECTING),
-    link.limit ? el("p.frame-line", link.limit) : null,
-    link.long ? el("p.frame-line", LONG_LINE) : null,
-    link.long ? tryButton(link.busy) : null,
+// The status mark at the right end of the title row; it takes no layout space, so nothing moves when it goes
+// (comfort design, section 2).
+function markView(link) {
+  if (link?.updating)
+    return [el("span.spinner"), `Updating · as of ${asOf(st.keptAt)}`];
+  if (link?.first && link.late) return [el("span.spinner"), CONNECTING];
+  return [];
+}
+
+// On Telegram Desktop the top screen of every tab has a full-screen button at the right end of the title row (files
+// screens design, section 2). It never turns full screen on by itself.
+function fullButton(s) {
+  const tg = st.tg;
+  if (!tg || s.tab === null || tg.platform !== "tdesktop") return null;
+  if (!tg.isVersionAtLeast("8.0")) return null;
+  const words = tg.isFullscreen ? "Leave full screen" : "Full screen";
+  return el(
+    "button.full-btn",
+    {
+      type: "button",
+      "aria-label": words,
+      title: words,
+      onclick: () =>
+        tg.isFullscreen ? tg.exitFullscreen() : tg.requestFullscreen(),
+    },
+    icon(tg.isFullscreen ? LEAVE_FULL : ICONS["full-screen"]),
   );
+}
+
+function titleRow(title, s, link) {
+  st.mark = el("span.status-mark", { role: "status" }, ...markView(link));
+  return el(
+    "div.title-row",
+    el("h1.large-title", title),
+    st.mark,
+    fullButton(s),
+  );
+}
+
+// Before the first hello: when the screen in view was kept on the phone, or null when it keeps nothing.
+function keptAt(view) {
+  const s = screen(view.id);
+  return s.keep ? (kept(s.keep)?.at ?? null) : null;
+}
 
 // A screen kept through a drop stays as it was, dimmed a little and taking no taps, while connecting, with the PC
 // off or while only a reload helps; off and update put their own card in place of Home's PC card. Against a 26.3
-// PC the screen shows at full strength and only its controls that act are off.
+// PC the screen shows at full strength and only its controls that act are off; so does a screen drawn from what it
+// kept, until fresh.
 function bodyClass(link) {
+  if (link?.updating) return "updating read-only";
   if (link?.connecting) return "kept";
   if (link?.off || link?.update) return "kept kept-off";
   return st.grey ? "read-only" : "";
 }
 
-// Draws the link state again when it changed, keeping the screen; going to or from the first-open view, or with no
-// screen drawn, draws all. Runs every second, so the quiet time and the long line come by themselves.
+// Draws the link state again when it changed, keeping the screen; going to or from the skeleton, or with no
+// screen drawn, draws all. Runs every second, so the quiet time, the 3 s marks and the long line come by themselves.
 function drawStatus() {
   const link = linkState();
   if ((link?.key ?? null) === st.shown) return;
-  if (link?.first || st.firstShown || !st.slot) return draw();
+  if (Boolean(link?.first) !== st.firstShown || !st.slot) return draw();
   st.shown = link?.key ?? null;
   st.slot.replaceChildren(...stateView(link));
+  st.mark?.replaceChildren(...markView(link));
   if (st.body) st.body.className = bodyClass(link);
+}
+
+// A tab's shapes from index.html (#sk-<tab>), found once with the shell section they came from: the frame moves them
+// into #content while they stand for the screen and back into the shell when it draws again, so a tab drawn again
+// before the first hello (the user moved away and back) finds them. A tab with no shapes in index.html maps to null.
+const shapes = new Map();
+function shapesOf(tab) {
+  if (!shapes.has(tab)) {
+    const found = document.getElementById(`sk-${tab}`);
+    shapes.set(tab, found && { el: found, home: found.parentNode });
+  }
+  return shapes.get(tab)?.el ?? null;
+}
+function shapesBack() {
+  for (const s of shapes.values()) if (s) s.home.append(s.el);
 }
 
 // y: where the box scrolls once the screen is drawn; a redraw of the same screen (a reconnect, a notice) keeps
 // the place the user is at.
 function draw(y = $("content").scrollTop) {
+  // The shell from index.html stands until the frame knows what to draw.
+  if (!st.view && st.booting) return;
+  if (st.view && !isLoaded(st.view.id))
+    return whenLoaded(st.view.id, () => draw(y));
+  shapesBack();
   st.listeners.clear();
   st.resume = null;
-  setMainButton(st.tg, $("main-btn"), null);
+  // Before Telegram's script has run (a kept screen drawn early) there are no Telegram buttons to set.
+  if (st.tg) setMainButton(st.tg, $("main-btn"), null);
   const bottom = $("bottom-extra");
+  st.keptAt = st.ever || !st.view ? null : keptAt(st.view);
   const link = linkState();
   st.shown = link?.key ?? null;
   st.firstShown = Boolean(link?.first);
   st.slot = el("div.link-state", ...stateView(link));
   st.body = null;
   st.grey = false;
+  $("shell").hidden = true;
+  $("app").hidden = false;
   // Only the session's chat zooms (frame/zoom.js).
   setZoom(Boolean(st.view && !link?.first && st.view.id === "session"));
-  if (!st.view || link?.first) {
-    // The first-open view, or a build with no tab screens yet: the frame says where the link stands.
+  if (!st.view) {
+    // A build with no tab screens yet: the frame says where the link stands.
+    st.mark = null;
     $("content").replaceChildren(
-      link?.first
-        ? firstView(link)
-        : el(
-            "div",
-            el("h1.large-title", "Nimbalyst"),
-            st.slot,
-            st.session ? el("p.frame-line", "Connected to your PC.") : null,
-          ),
+      el(
+        "div",
+        el("h1.large-title", "Nimbalyst"),
+        st.slot,
+        st.session ? el("p.frame-line", "Connected to your PC.") : null,
+      ),
     );
     bottom.replaceChildren();
     bottom.className = "";
@@ -765,20 +932,45 @@ function draw(y = $("content").scrollTop) {
     return;
   }
   const s = screen(st.view.id);
-  const out = s.render(ctx(st.view.params));
-  const isNode = out instanceof Node;
   const title =
     typeof s.title === "function" ? s.title(st.view.params) : s.title;
+  const swap = st.skeleton;
+  st.skeleton = Boolean(link?.first);
+  if (link?.first) {
+    // Nothing kept and no hello yet: the tab's shapes from index.html stand in place of the screen (moved, not
+    // copied). A tab whose shapes index.html lacks (Files: its own row draws them) shows its title alone.
+    const tabShapes = s.tab !== null ? shapesOf(s.tab) : null;
+    $("content").replaceChildren(
+      el(
+        "div",
+        titleRow(title, s, link),
+        st.slot,
+        el(
+          "div.sk-wrap",
+          { "aria-busy": "true" },
+          el("p.sk-label", "Loading"),
+          tabShapes,
+        ),
+      ),
+    );
+    bottom.replaceChildren();
+    bottom.className = "";
+    drawBars(s);
+    return;
+  }
+  const out = s.render(ctx(st.view.params));
+  const isNode = out instanceof Node;
   st.grey = Boolean(s.actions.some((a) => !offered(a)) && st.session);
   st.body = el("div", isNode ? out : out.content);
   st.body.className = bodyClass(link);
-  // One wrapping element, as el() skips the empty slots (replaceChildren would print them as "null").
+  // One wrapping element, as el() skips the empty slots (replaceChildren would print them as "null"). A screen
+  // that names its own update line shows it in place of the frame's general words.
   $("content").replaceChildren(
     el(
-      "div",
-      el("h1.large-title", title),
+      swap ? "div.swap-in" : "div",
+      titleRow(title, s, link),
       st.slot,
-      st.grey ? el("p.frame-line.warn", READ_ONLY) : null,
+      st.grey ? el("p.frame-line.warn", s.updateLine ?? READ_ONLY) : null,
       st.body,
     ),
   );
@@ -816,7 +1008,7 @@ function drawBars(s) {
   );
   $("bottom").hidden =
     $("bottom-extra").childElementCount === 0 && $("main-btn").hidden;
-  setBackButton(st.tg, st.stack.length ? back : null);
+  if (st.tg) setBackButton(st.tg, st.stack.length ? back : null);
 }
 
 // ---- start
@@ -824,6 +1016,7 @@ function drawBars(s) {
 async function begin() {
   // A plain browser (a local look at the page on the PC) has no Telegram key store to read: it shows pairing.
   if (!hasHost()) {
+    st.booting = false;
     st.view = { id: "pairing", params: { restorable: false } };
     return draw();
   }
@@ -833,17 +1026,36 @@ async function begin() {
   } catch (e) {
     return fatal(`Could not read the key: ${e.message}. Pair again.`);
   }
+  st.booting = false;
   if (!p || p.restorable) {
+    // Kept screens belong to a pairing; without one they go.
+    forgetAll();
     st.view = { id: "pairing", params: { restorable: Boolean(p) } };
     return draw();
   }
   st.pairing = p;
-  goFirst();
+  // A kept screen drawn before the pairing was read stays in view (the user may have moved tabs meanwhile).
+  if (st.view) draw();
+  else goFirst();
   connect();
 }
 
+// A tab screen kept on the phone is drawn as soon as the style files are in, before Telegram's script and the
+// pairing (comfort design, section 4): a kept screen means this phone was paired, as Unpair clears them.
+function drawKeptEarly() {
+  const tabs = tabScreens();
+  const first = tabs.find((t) => t.tab === shellTab()) ?? tabs[0];
+  if (!first || keptAt({ id: first.screen.id }) === null) return;
+  st.view = { id: first.screen.id, params: {}, y: 0 };
+  draw(0);
+}
+
 async function main() {
+  laterScreens(LATER);
+  await stylesLoaded;
+  if (!hasScreen("checks")) drawKeptEarly();
   try {
+    await telegramLoaded;
     st.tg = startTelegram();
     lockGestures();
   } catch (e) {
@@ -864,6 +1076,8 @@ async function main() {
   if (st.tg.isVersionAtLeast("8.0")) {
     st.tg.onEvent("deactivated", sleep);
     st.tg.onEvent("activated", wake);
+    // The full-screen button's icon and words, and the Files hints, follow Telegram's own state.
+    st.tg.onEvent("fullscreenChanged", () => draw());
   }
   // A network change, or the page shown again from the browser's cache: the socket may be dead without a word.
   addEventListener("online", reconnectNow);
@@ -874,6 +1088,7 @@ async function main() {
     return draw();
   }
   await begin();
+  await restLoaded();
 }
 
 main().catch((e) => fatal(`The app stopped: ${e.message}`));

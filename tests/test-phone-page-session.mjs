@@ -288,12 +288,26 @@ class FakeNode {
     this.childNodes = [];
   }
   append(...kids) {
-    for (const k of kids)
-      this.childNodes.push(k instanceof FakeNode ? k : new FakeText(String(k)));
+    for (const k of kids) {
+      const n = k instanceof FakeNode ? k : new FakeText(String(k));
+      n.parentNode = this;
+      this.childNodes.push(n);
+    }
   }
   replaceChildren(...kids) {
     this.childNodes = [];
     this.append(...kids);
+  }
+  // after() and remove(), for the message menu that opens under a held message
+  after(n) {
+    const kids = this.parentNode.childNodes;
+    kids.splice(kids.indexOf(this) + 1, 0, n);
+    n.parentNode = this.parentNode;
+  }
+  remove() {
+    const kids = this.parentNode?.childNodes;
+    if (kids?.includes(this)) kids.splice(kids.indexOf(this), 1);
+    this.parentNode = null;
   }
   get textContent() {
     return this.childNodes.map((c) => c.textContent).join("");
@@ -390,9 +404,17 @@ class FakeElement extends FakeNode {
     if (document.activeElement === this) document.activeElement = null;
   }
 }
+// The page's own events (pagehide on the window, visibilitychange on the document), fired by the tests.
+const pageEvents = {};
+const onPage = (type, fn) => (pageEvents[type] ||= []).push(fn);
+const firePage = (type) => {
+  for (const fn of pageEvents[type] || []) fn({ type });
+};
 Object.assign(globalThis, {
   Node: FakeNode,
+  addEventListener: onPage,
   document: {
+    addEventListener: onPage,
     activeElement: null,
     createElement: (tag) => new FakeElement(tag),
     createElementNS: (_ns, tag) => new FakeElement(tag),
@@ -404,7 +426,8 @@ Object.assign(globalThis, {
   },
   requestAnimationFrame: (fn) => setTimeout(fn, 0),
 });
-// The webview's localStorage, where the message box's drafts outlive a reopen of the mini app.
+// The webview's localStorage, where the message box's drafts and the kept session (frame/cache.js) outlive a
+// reopen of the mini app.
 const stored = new Map();
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
@@ -412,8 +435,31 @@ Object.defineProperty(globalThis, "localStorage", {
     getItem: (k) => stored.get(k) ?? null,
     setItem: (k, v) => stored.set(k, String(v)),
     removeItem: (k) => stored.delete(k),
+    get length() {
+      return stored.size;
+    },
+    key: (i) => [...stored.keys()][i] ?? null,
   },
 });
+// The frame's scroll box with what the session's jump button and scroll place use: 2000 px of chat in an 800 px
+// view; scroll events are fired by the tests.
+function scrollStandIn(scrollTop = 0) {
+  const fns = [];
+  return {
+    scrollTop,
+    scrollHeight: 2000,
+    clientHeight: 800,
+    addEventListener: (type, fn) => type === "scroll" && fns.push(fn),
+    removeEventListener: () => {},
+    scrollTo({ top }) {
+      this.scrollTop = Math.min(top, this.scrollHeight - this.clientHeight);
+    },
+    scrolled(y) {
+      this.scrollTop = y;
+      for (const fn of fns) fn();
+    },
+  };
+}
 
 const walk = (n, out = []) => {
   out.push(n);
@@ -428,7 +474,9 @@ const button = (root, test) =>
 
 const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
 const screens = await import(pageUrl("frame/screens.js"));
-const { turnsView, drafts } = await import(pageUrl("screens/session.js"));
+const { turnsView, drafts, why, newAtEnd } = await import(
+  pageUrl("screens/session.js")
+);
 const { timing } = await import(pageUrl("screens/session-cards.js"));
 timing.undoMs = 100;
 
@@ -855,6 +903,191 @@ try {
     !stored.has(draftKey) && df4.value === "",
     show({ saved: stored.get(draftKey), next: df4?.value }),
   );
+  // Type, leave the session within 1 s (before the timed save), come back: nothing typed is lost.
+  df4.focus();
+  df4.value = "first words";
+  df4.fire("input");
+  await sleep(50);
+  df4.value = "first words, then the rest";
+  df4.fire("input");
+  df4.isConnected = false;
+  const d5 = drawSession(S.running, "Works");
+  const df5 = await until(() => byTag(d5.dock, "textarea")[0]);
+  check(
+    "type, leave within 1 s, return: the whole text is in the box (the draft in memory follows every keystroke)",
+    df5.value === "first words, then the rest",
+    show(df5?.value),
+  );
+  // The stored copy is written at once on pagehide, on visibilitychange and on leaving the field.
+  const storedNow = [];
+  for (const [i, act] of [
+    () => firePage("pagehide"),
+    () => firePage("visibilitychange"),
+    () => df5.fire("blur"),
+  ].entries()) {
+    const text = `stored at once ${i}`;
+    df5.value = text;
+    df5.fire("input");
+    act();
+    storedNow.push(stored.get(draftKey) === text);
+  }
+  check(
+    "pagehide, visibilitychange and leaving the field each store the draft at once, before the 1 s save",
+    storedNow.every(Boolean),
+    show(storedNow),
+  );
+  df5.value = "";
+  df5.fire("input");
+  df5.fire("blur");
+  df5.isConnected = false;
+  const failed = why({ ok: false, err: "door-error", message: "x" });
+  check(
+    "a failed send shows the answer's message once: { err: door-error, message: x } shows x",
+    failed.split("(x)").length === 2,
+    show(failed),
+  );
+  const offWords = [
+    why({ ok: false, err: "pc-offline" }),
+    why({ ok: false, err: "closed" }),
+  ];
+  check(
+    "a send while the PC is off says so in plain words, not the code word (FAIL: 'the PC answered \"pc-offline\"')",
+    offWords[0] === "the PC is off or asleep" &&
+      offWords[1] === "the link to the PC closed",
+    show(offWords),
+  );
+
+  // ---- a sent message shows at once (comfort design, section 5): with "Sending…" before the PC answers, once
+  // after, and back in the box when the PC refuses it
+  let release = null;
+  const held1 = drawSession(S.running, "Works", {
+    ask: (a, d) =>
+      a === "session.queue" || a === "session.send"
+        ? new Promise((res) => (release = res))
+        : ask(a, d),
+  });
+  const sf = await until(() => byTag(held1.dock, "textarea")[0]);
+  await until(() => byClass(held1.view, "reply").length);
+  const bubbles = (root, text) =>
+    byClass(root, "you").filter((b) => b.textContent === text);
+  sf.value = "Check the mark";
+  sf.fire("input");
+  button(held1.dock, (b) => hasClass(b, "send"))?.click();
+  const before = {
+    bubbles: bubbles(held1.view, "Check the mark").length,
+    mark: byClass(held1.view, "sent-mark")[0]?.textContent,
+    box: sf.value,
+  };
+  check(
+    "a sent message is in the chat with its Sending… mark before the PC answers, and the box is empty",
+    before.bubbles === 1 && before.mark === "Sending…" && before.box === "",
+    show(before),
+  );
+  release({ ok: true, d: { queued: false } });
+  await until(() => byClass(held1.view, "sent-mark").length === 0);
+  await sleep(100);
+  const after = {
+    bubbles: bubbles(held1.view, "Check the mark").length,
+    marks: byClass(held1.view, "sent-mark").length,
+  };
+  check(
+    "once the PC took it the message shows once, without its Sending… mark",
+    after.bubbles === 1 && after.marks === 0,
+    show(after),
+  );
+  sf.value = "This one fails";
+  sf.fire("input");
+  button(held1.dock, (b) => hasClass(b, "send"))?.click();
+  release({ ok: false, err: "timeout" });
+  await until(() => sf.value === "This one fails");
+  await sleep(250);
+  const refused = {
+    box: sf.value,
+    line: byClass(held1.dock, "dock-line").find((p) => !p.hidden)?.textContent,
+    bubbles: bubbles(held1.view, "This one fails").length,
+  };
+  check(
+    "a refused message leaves the chat and is back in the box, with the Not sent line",
+    refused.box === "This one fails" &&
+      refused.line ===
+        "Not sent: the PC did not answer in time. Your message is back in the box." &&
+      refused.bubbles === 0,
+    show(refused),
+  );
+  sf.value = "";
+  sf.fire("input");
+  sf.fire("blur");
+  held1.view.isConnected = false;
+
+  // ---- jump to latest and the scroll place (comfort design, section 5)
+  // The views drawn so far are left, as the frame leaves a screen: from here the newest view is the one shown.
+  for (const d of drawn) d.isConnected = false;
+  const box1 = scrollStandIn();
+  const j1 = drawSession(S.running, "Works", { scrollBox: box1 });
+  await until(() => byClass(j1.view, "reply").length);
+  await until(() => box1.scrollTop > 0);
+  const jumpBtn = () => byClass(j1.dock, "jump")[0];
+  const atEnd = hasClass(jumpBtn(), "on");
+  box1.scrolled(400); // one screen up: the end is 800 px below the view
+  const upShown = hasClass(jumpBtn(), "on");
+  jumpBtn()?.click();
+  box1.scrolled(box1.scrollTop);
+  const landed = box1.scrollTop + box1.clientHeight >= box1.scrollHeight;
+  check(
+    "scrolled up one screen shows Jump to latest, and a tap lands on the last message",
+    !atEnd && upShown && landed && !hasClass(jumpBtn(), "on"),
+    show({ atEnd, upShown, landed, top: box1.scrollTop }),
+  );
+  box1.scrolled(400);
+  j1.view.isConnected = false;
+  // The badge counts the messages new at the end: not the earlier ones loaded at the top, never below zero.
+  const turn = (pos) => ({ role: "assistant", text: "x", pos });
+  const shownWithEarlier = [10, 20, 30, 40, 50, 60].map(turn); // 10-30 loaded by Earlier messages
+  const newCounts = {
+    readAfterEarlier: newAtEnd(shownWithEarlier, [40, 50, 60, 70].map(turn)),
+    sameRead: newAtEnd(shownWithEarlier, [40, 50, 60].map(turn)),
+    shorterWindow: newAtEnd(shownWithEarlier, [60, 70, 80].map(turn)),
+    nothingShown: newAtEnd([], [10, 20].map(turn)),
+  };
+  check(
+    "Jump to latest counts only messages new at the end, never earlier ones loaded at the top, never below zero",
+    newCounts.readAfterEarlier === 1 &&
+      newCounts.sameRead === 0 &&
+      newCounts.shorterWindow === 2 &&
+      newCounts.nothingShown === 2,
+    show(newCounts),
+  );
+  const box2 = scrollStandIn();
+  const j2 = drawSession(S.running, "Works", { scrollBox: box2 });
+  await until(() => byClass(j2.view, "reply").length);
+  await sleep(100);
+  check(
+    "leave a session and return: it opens where it was left, not at the end",
+    box2.scrollTop === 400,
+    show(box2.scrollTop),
+  );
+  j2.view.isConnected = false;
+
+  // ---- the last session opened is kept on the phone and drawn before the first hello (comfort design, section 3)
+  const k1 = drawSession(S.running, "Works", {
+    connected: false,
+    ask: () => Promise.reject(new Error("not-connected")),
+  });
+  const keptNow = {
+    stored: stored.has("phone.kept:session"),
+    you: byClass(k1.view, "you")[0]?.textContent,
+    line: byClass(k1.view, "s-kept")[0]?.textContent,
+    box: byTag(k1.dock, "textarea").length,
+  };
+  check(
+    "a kept session is drawn before the hello, marked Updating, with its typing box",
+    keptNow.stored &&
+      keptNow.you === "Tidy the tests" &&
+      /^Updating · as of \d\d:\d\d( [AP]M)?$/.test(keptNow.line ?? "") &&
+      keptNow.box === 1,
+    show(keptNow),
+  );
+  k1.view.isConnected = false;
 
   // A browser writes an empty slot handed to replaceChildren as the text "null"; the stand-in does the same.
   const nulls = [q, m, f, r].filter((x) => /null/.test(x.root.textContent));
@@ -1026,6 +1259,274 @@ try {
     "with little room the field stops at the most lines that leave 44 px of the conversation (7 lines here)",
     heightOf(kf) === 154,
     show(heightOf(kf)),
+  );
+
+  // ---- copy and the long press (comfort design, section 7, branch A: the iPhone selects text in place)
+  const clip = [];
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      clipboard: {
+        writeText: (t) => {
+          clip.push(t);
+          return Promise.resolve();
+        },
+      },
+    },
+  });
+  const ANSWER = "Done with **two** files, see `a.mjs`.";
+  for (const d of drawn) d.isConnected = false;
+  const cp = drawSession(S.running, "Works", { scrollBox: scrollStandIn() });
+  await until(() => byClass(cp.view, "reply").length);
+  const answer = byClass(cp.view, "reply")[0];
+  const mine = byClass(cp.view, "you-row")[0];
+  clip.length = 0;
+  byClass(answer, "msg-copy")[0]?.click();
+  const tookAnswer = clip.slice();
+  byClass(mine, "msg-copy")[0]?.click();
+  const tookMine = clip.slice();
+  check(
+    "a tap on a message's copy icon puts the message as written on the clipboard inside the tap (answer in its Markdown source, your message as typed)",
+    tookAnswer.length === 1 &&
+      tookAnswer[0] === ANSWER &&
+      tookMine[1] === "Tidy the tests",
+    show({ tookAnswer, tookMine }),
+  );
+  await sleep(0);
+  const done = byClass(answer, "msg-copy")[0];
+  check(
+    "after the copy the icon shows Copied in the success colour",
+    hasClass(done, "ok") &&
+      done.textContent === "Copied" &&
+      done.attrs["aria-label"] === "Copied",
+    show({ cls: done?.className, text: done?.textContent }),
+  );
+
+  // A press goes to the node and every element around it, as an event bubbles in the page.
+  async function press(
+    node,
+    { ms = 350, pointerType = "touch", move = 0 } = {},
+  ) {
+    let prevented = 0;
+    const ev = (x) => ({
+      pointerType,
+      clientX: 10 + x,
+      clientY: 10,
+      preventDefault: () => prevented++,
+    });
+    const up = [];
+    for (let n = node; n; n = n.parentNode) if (n.fire) up.push(n);
+    const fireUp = (type, x = 0) => {
+      for (const n of up) n.fire(type, ev(x));
+    };
+    fireUp("touchstart");
+    fireUp("pointerdown");
+    if (move) fireUp("pointermove", move);
+    await sleep(ms);
+    fireUp("contextmenu");
+    fireUp("pointerup");
+    fireUp("touchend");
+    return prevented;
+  }
+  const menus = () => byClass(cp.view, "msg-menu");
+  const onText = [
+    byClass(mine, "you")[0],
+    byTag(answer, "strong")[0],
+    byClass(answer, "md-code")[0],
+    byTag(answer, "p")[0],
+  ];
+  let textPrevented = 0;
+  for (const n of onText) textPrevented += await press(n);
+  check(
+    "a 300 ms press on message text (your bubble, the answer, its code) opens no menu and prevents no default",
+    onText.every(Boolean) &&
+      menus().length === 0 &&
+      byClass(cp.view, "msg-scrim").length === 0 &&
+      textPrevented === 0,
+    show({ found: onText.map(Boolean), menus: menus().length, textPrevented }),
+  );
+  await press(byClass(answer, "acts-gap")[0], { ms: 150 });
+  const short = menus().length;
+  await press(byClass(answer, "acts-gap")[0], { move: 30 });
+  const moved = menus().length;
+  await press(byClass(answer, "acts-gap")[0], { pointerType: "mouse" });
+  const mouse = menus().length;
+  check(
+    "off the text, a shorter press, a press that moves over 10 px, or a mouse press opens no menu",
+    short === 0 && moved === 0 && mouse === 0,
+    show({ short, moved, mouse }),
+  );
+  byClass(cp.view, "msg-scrim")[0]?.click();
+  await press(byClass(answer, "acts-gap")[0]);
+  const underAnswer = menus()[0];
+  check(
+    "a 300 ms press on the action row under an answer opens the menu with Copy only, under the lit answer, over a dim",
+    menus().length === 1 &&
+      underAnswer.textContent === "Copy" &&
+      underAnswer.parentNode?.childNodes.indexOf(underAnswer) ===
+        underAnswer.parentNode?.childNodes.indexOf(answer) + 1 &&
+      hasClass(answer, "lifted") &&
+      byClass(cp.view, "msg-scrim").length === 1,
+    show({ menus: menus().map((m) => m.textContent), cls: answer.className }),
+  );
+  clip.length = 0;
+  if (underAnswer) byTag(underAnswer, "button")[0].click();
+  const fromMenu = clip.slice();
+  await sleep(0);
+  const pill = byClass(cp.dock, "copied-pill")[0];
+  check(
+    "Copy in the menu copies the answer inside the tap, closes the menu and the dim, and shows Copied above the dock",
+    fromMenu.length === 1 &&
+      fromMenu[0] === ANSWER &&
+      menus().length === 0 &&
+      byClass(cp.view, "msg-scrim").length === 0 &&
+      !hasClass(answer, "lifted") &&
+      pill?.hidden === false &&
+      pill.textContent === "Copied",
+    show({ fromMenu, menus: menus().length, pill: pill?.textContent }),
+  );
+  await press(byClass(mine, "you-gap")[0]);
+  const besideMine = menus()[0];
+  byClass(cp.view, "msg-scrim")[0]?.click();
+  check(
+    "a 300 ms press in the space left of your bubble opens Copy at the bubble's side; a tap on the dim closes it",
+    besideMine !== undefined &&
+      hasClass(besideMine, "mine") &&
+      besideMine.textContent === "Copy" &&
+      menus().length === 0 &&
+      !hasClass(mine, "lifted"),
+    show({ cls: besideMine?.className, menus: menus().length }),
+  );
+
+  const cssRules = [...noComments(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(
+    (m) => ({ sel: m[1].trim(), body: m[2] }),
+  );
+  const onMessage = (sel) =>
+    sel
+      .split(",")
+      .some((s) => /\.(you|reply|md)(?![-\w])/.test(s) && !/\.md-/.test(s));
+  const selectNone = cssRules.filter(
+    (x) => onMessage(x.sel) && /user-select:\s*none/.test(x.body),
+  );
+  const selectText = cssRules.find(
+    (x) =>
+      /(^|,)\s*\.you\s*(,|$)/.test(x.sel) &&
+      /(^|,)\s*\.md\s+\*\s*(,|$)/.test(x.sel),
+  );
+  check(
+    "message bubbles and answers carry no user-select: none, and their text is selectable over Telegram's own rule",
+    selectNone.length === 0 &&
+      /-webkit-user-select:\s*text !important/.test(selectText?.body) &&
+      /(^|[^-])user-select:\s*text !important/.test(selectText?.body),
+    show({ selectNone, selectText }),
+  );
+
+  // ---- text size (comfort design, section 6): three steps in Settings, kept on the phone
+  await import(pageUrl("screens/settings.js"));
+  const settings = screens.screen("settings").render({
+    connected: false,
+    tg: { platform: "ios" },
+    haptic: () => {},
+    ask,
+  });
+  const sizeSeg = () =>
+    walk(settings).find((n) => n.attrs?.["aria-label"] === "Text size");
+  const sample = () => byClass(settings, "text-sample")[0];
+  const steps = byTag(sizeSeg() ?? settings, "button").map(
+    (b) => b.textContent,
+  );
+  const wasDefault =
+    byTag(sizeSeg(), "button").find((b) => b.attrs["aria-checked"] === "true")
+      ?.textContent === "Default";
+  byTag(sizeSeg(), "button")
+    .find((b) => b.textContent === "Large")
+    .click();
+  const big = drawSession(S.running, "Works");
+  check(
+    "Settings' Text size has Small, Default and Large; picking Large is kept on the phone and sets the session view and the sample",
+    show(steps) === show(["Small", "Default", "Large"]) &&
+      wasDefault &&
+      stored.get("phone.text-size") === "large" &&
+      sample()?.attrs["data-text"] === "large" &&
+      big.view.attrs["data-text"] === "large" &&
+      byTag(sizeSeg(), "button").find((b) => b.attrs["aria-checked"] === "true")
+        ?.textContent === "Large",
+    show({ steps, kept: stored.get("phone.text-size"), view: big.view.attrs }),
+  );
+  big.view.isConnected = false;
+  byTag(sizeSeg(), "button")
+    .find((b) => b.textContent === "Default")
+    .click();
+  // Every rule with exactly this selector, joined (:root has several).
+  const ruleOf = (sel) =>
+    cssRules
+      .filter((x) => x.sel === sel)
+      .map((x) => x.body)
+      .join("");
+  const sizeOk = (sel, body, answer, code) =>
+    ruleOf(sel).includes(`--p-read: 400 ${body} var(--p-font)`) &&
+    ruleOf(sel).includes(`--p-read-answer: ${answer}`) &&
+    ruleOf(sel).includes(`--p-read-code: 500 ${code} var(--x-font-mono)`);
+  check(
+    "each text size changes your messages, the answers and code: Small 15/21 (23) code 12/18, Default 16/22 (25) code 13/20, Large 18/25 (28) code 15/22",
+    sizeOk('[data-text="small"]', "15px/21px", "23px", "12px/18px") &&
+      sizeOk(":root", "16px/22px", "25px", "13px/20px") &&
+      sizeOk('[data-text="large"]', "18px/25px", "28px", "15px/22px") &&
+      /font: var\(--p-read\)/.test(ruleOf(".you")) &&
+      /font: var\(--p-read\)/.test(ruleOf(".reply")) &&
+      /line-height: var\(--p-read-answer\)/.test(ruleOf(".reply")) &&
+      /font: var\(--p-read-code\)/.test(ruleOf(".md-pre")),
+    show({
+      you: ruleOf(".you"),
+      reply: ruleOf(".reply"),
+      pre: ruleOf(".md-pre"),
+    }),
+  );
+
+  // ---- code blocks: a head with the language, Wrap lines and Copy code
+  const { markdown } = await import(pageUrl("frame/markdown.js"));
+  const md = markdown("Run it:\n\n```bash\necho hi\n```\n\n```\nplain\n```");
+  const [b1, b2] = byClass(md, "md-block");
+  const tools = (b) => byClass(b, "md-tool");
+  check(
+    "a code block's head shows its language (Code when none) and starts wrapped",
+    byClass(b1, "md-lang")[0]?.textContent === "bash" &&
+      byClass(b2, "md-lang")[0]?.textContent === "Code" &&
+      hasClass(b1, "wrap") &&
+      tools(b1)[0]?.attrs["aria-label"] === "Wrap lines" &&
+      tools(b1)[0]?.attrs["aria-pressed"] === "true",
+    show({ cls: b1?.className }),
+  );
+  tools(b1)[0].click();
+  const later = markdown("```js\nlet a\n```");
+  check(
+    "the wrap switch unwraps its block and the choice is kept for code blocks drawn after it",
+    !hasClass(b1, "wrap") &&
+      tools(b1)[0].attrs["aria-pressed"] === "false" &&
+      hasClass(b2, "wrap") &&
+      stored.get("phone.code-wrap") === "scroll" &&
+      !hasClass(byClass(later, "md-block")[0], "wrap"),
+    show({ b1: b1.className, kept: stored.get("phone.code-wrap") }),
+  );
+  tools(b1)[0].click();
+  check(
+    "wrapped code breaks its lines at the block's width; unwrapped it scrolls sideways",
+    /white-space: pre-wrap/.test(ruleOf(".md-block.wrap .md-pre")) &&
+      /white-space: pre;/.test(ruleOf(".md-pre")) &&
+      /overflow-x: auto/.test(ruleOf(".md-pre")) &&
+      stored.get("phone.code-wrap") === "wrap",
+  );
+  clip.length = 0;
+  tools(b1)[1].click();
+  const code = clip.slice();
+  await sleep(0);
+  check(
+    "Copy code copies the code only, without the fence, inside the tap; the language word turns to Copied",
+    tools(b1)[1].attrs["aria-label"] === "Copy code" &&
+      show(code) === show(["echo hi"]) &&
+      byClass(b1, "md-lang")[0]?.textContent === "Copied" &&
+      hasClass(tools(b1)[1], "ok"),
+    show({ code, word: byClass(b1, "md-lang")[0]?.textContent }),
   );
 } catch (e) {
   failure = e;

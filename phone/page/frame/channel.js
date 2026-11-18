@@ -39,8 +39,13 @@ const OPEN_MS = 10_000;
 const ANSWER_MS = 30_000;
 // Large payloads in pieces (pipe design, section 4).
 const PIECE_BYTES = 192 * 1024;
-export const STREAM_MAX = 25 * 1024 * 1024;
+export const STREAM_MAX = 25 * 1024 * 1024; // a stream whose caller names no limit (message attachments)
+export const FILES_STREAM_MAX = 50 * 1024 * 1024; // the limit a caller passes for files and voice notes
 const STREAMS_OPEN = 2;
+// The PC holds at most 50 MB of one session's streams not yet taken (core/channel.mjs STREAMS_HELD_MAX), and drops
+// a whole stream no action took in 60 s (its STREAM_KEEP_MS).
+const STREAMS_HELD_MAX = 50 * 1024 * 1024;
+const STREAM_KEEP_MS = 60_000;
 const BUFFERED_MAX = 1024 * 1024;
 
 // A failure the page shows: `code` is the relay's or the PC's one word (pair-fail reasons, close reasons,
@@ -359,15 +364,20 @@ export async function join(link, { kind, initData }) {
   };
 }
 
-// Sends the hello and checks the PC's answer; resolves with the answer and the session keys.
+// Sends the hello and checks the PC's answer; resolves with the answer and the session keys. A PC that no longer
+// holds this device answers `app-fail` outside the seal: its word ("unknown-device") ends the hello.
 async function sayHello(link, { K, dev, sid, np, h0, pageVersion }) {
   const answer = link.next(
     (f) =>
       (f.t === "app" && f.dev === dev && f.sid === sid && f.n === 0) ||
+      (f.t === "app-fail" && f.dev === dev) ||
       f.t === "offline" ||
       f.t === "error",
     HELLO_MS,
   );
+  // A link that closes while the hello is sealed rejects `answer` before it is awaited; the send then throws, and
+  // that is the error the caller gets.
+  answer.catch(() => {});
   link.send({
     ...h0,
     c: await sealHello(K, h0, {
@@ -381,6 +391,7 @@ async function sayHello(link, { K, dev, sid, np, h0, pageVersion }) {
   if (r.t === "offline")
     throw new ChannelError("pc-offline", { lastSeen: r.lastSeen ?? null });
   if (r.t === "error") throw new ChannelError(String(r.e));
+  if (r.t === "app-fail") throw new ChannelError(String(r.reason));
   const hello = await openHello(K, h0, r.c);
   if (!hello || hello.k !== "hello") throw new ChannelError("bad-hello");
   if (hello.protocol !== PROTOCOL)
@@ -398,9 +409,9 @@ async function sayHello(link, { K, dev, sid, np, h0, pageVersion }) {
 }
 
 // Starts a channel session: `hello` sealed with K, then one session key per direction. Resolves with
-// { hello, ask(action, data, ms), sendStream(bytes, mime, onProgress), bye(), ended } where `hello` is the PC's
-// answer ({ pcVersion, protocol, page }) and `ended` resolves with the reason the session stopped. onEvent gets
-// every `evt` body the PC pushes.
+// { hello, ask(action, data, ms), sendStream(bytes, mime, onProgress, max, onWait), bye(), ended } where `hello` is
+// the PC's answer ({ pcVersion, protocol, page }) and `ended` resolves with the reason the session stopped. onEvent
+// gets every `evt` body the PC pushes.
 export async function openSession(link, { K, dev, pageVersion, onEvent }) {
   const sid = toB64u(randomBytes(12));
   const np = randomBytes(16);
@@ -433,6 +444,32 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
   let nIn = 0;
   let seq = 0;
   let streamsOpen = 0;
+  // The stream line (files design, section 4.1). `held` is the bytes of this session's streams the PC may still
+  // hold: a stream counts from its turn until its answer is not ok, an ask naming it is answered, or 60 s after its
+  // ok. A stream waits its turn, first in first out, while `held` would pass 50 MB or 2 streams are open. A new
+  // hello is a new session, so `held` starts at 0 (the PC ended the old session and its streams).
+  let held = 0;
+  const holding = new Map(); // stream id -> { size, timer }: counted in `held`
+  const line = []; // { size, go, fail }: streams waiting their turn, oldest first
+  const fits = (size) =>
+    streamsOpen < STREAMS_OPEN && held + size <= STREAMS_HELD_MAX;
+  // Gives the oldest waiting streams their turn while they fit; counts them at once, so no later stream passes them.
+  function pump() {
+    while (!endedWith && line.length && fits(line[0].size)) {
+      const w = line.shift();
+      streamsOpen++;
+      held += w.size;
+      w.go();
+    }
+  }
+  function release(id) {
+    const h = holding.get(id);
+    if (!h) return;
+    holding.delete(id);
+    clearTimeout(h.timer);
+    held -= h.size;
+    pump();
+  }
   let outQueue = Promise.resolve();
   let inQueue = Promise.resolve();
   let endedWith = null;
@@ -452,6 +489,10 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
       p.reject(endedWith);
     }
     pending.clear();
+    for (const w of line.splice(0)) w.fail(endedWith);
+    for (const h of holding.values()) clearTimeout(h.timer);
+    holding.clear();
+    held = 0;
     markEnded(endedWith);
   }
 
@@ -499,6 +540,8 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
       pcVersion: hello.pcVersion,
       protocol: hello.protocol,
       page: hello.page,
+      // The PC's action names, or null from a PC of 26.3.3 or older, which sends no list.
+      actions: Array.isArray(hello.actions) ? hello.actions : null,
     },
     ended,
     // Resolves with the PC's answer body: { k: "res", id, ok: true, d } or { ok: false, err }.
@@ -515,6 +558,13 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
         }, ms);
         pending.set(id, { resolve, reject, timer });
       });
+      // An ask naming a held stream: once answered, the PC took the stream or dropped it.
+      const named = data?.stream;
+      if (holding.has(named))
+        result.then(
+          () => release(named),
+          () => {},
+        );
       const body = { k: "req", id, a: action };
       if (data !== undefined) body.d = data;
       sendSealed(body).catch((e) => end("closed", { message: e.message }));
@@ -523,17 +573,37 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
     // Sends `bytes` as a stream of pieces of 192 KB, each its own sealed frame, waiting for the socket to drain
     // under 1 MB before each piece. Resolves with the PC's answer for the stream id ({ ok: true, d: { stream,
     // bytes } } or { ok: false, err: "stream-broken", why }); the caller keeps the bytes until it is ok.
-    // onProgress(part) gets 0 to 1 after each piece. Over 25 MB is refused before anything is sent.
-    async sendStream(bytes, mime, onProgress) {
+    // onProgress(part) gets 0 to 1 after each piece. Over `max` bytes is refused before anything is sent: the
+    // caller's limit (FILES_STREAM_MAX for files and voice notes), 25 MB (STREAM_MAX) when it names none.
+    // A stream that must wait its turn in the stream line calls onWait(true), and onWait(false) when the wait ends,
+    // so the calling screen can say it waits.
+    async sendStream(bytes, mime, onProgress, max = STREAM_MAX, onWait) {
       if (endedWith) throw endedWith;
+      if (max > STREAMS_HELD_MAX)
+        throw new Error(
+          `channel: a stream limit of ${max} bytes is over the ${STREAMS_HELD_MAX} the PC holds`,
+        );
       if (!(bytes instanceof Uint8Array) || !bytes.length)
         throw new ChannelError("no-bytes");
-      if (bytes.length > STREAM_MAX)
+      if (bytes.length > max)
         throw new ChannelError("too-big", { bytes: bytes.length });
-      if (streamsOpen >= STREAMS_OPEN) throw new ChannelError("busy");
-      streamsOpen++;
+      const size = bytes.length;
+      if (line.length || !fits(size)) {
+        onWait?.(true);
+        try {
+          await new Promise((go, fail) => line.push({ size, go, fail }));
+        } finally {
+          onWait?.(false);
+        }
+      } else {
+        streamsOpen++;
+        held += size;
+      }
       const id = `s-${++seq}`;
+      const kept = { size, timer: null };
+      holding.set(id, kept);
       let answered = false;
+      let r = null;
       try {
         const sum = toHex(await sha256(bytes));
         const result = new Promise((resolve, reject) => {
@@ -564,10 +634,17 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
             p.reject(new ChannelError("timeout", { action: "stream" }));
             end("timeout", { action: "stream" });
           }, ANSWER_MS);
-        return await result;
+        r = await result;
+        return r;
       } finally {
         pending.delete(id);
         streamsOpen--;
+        // A whole stream stays held until an ask names it or the PC drops it; any other end frees its bytes now.
+        if (r?.ok && holding.get(id) === kept) {
+          kept.timer = setTimeout(() => release(id), STREAM_KEEP_MS);
+          kept.timer.unref?.(); // never keeps a Node test run alive
+          pump();
+        } else release(id);
       }
     },
     // Ends the session on both sides; the link stays open.

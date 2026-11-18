@@ -27,7 +27,8 @@ jobs:
   # The limit stops a hung job, not one waiting in the queue. When GitHub has no macOS runner free, the job ends
   # red with "The job was not acquired by Runner"; that is not a test failure: re-run the failed job.
   # The checkout fetches the tags too, each with its own commit only: tests/test-phone-steady.mjs takes the released
-  # v26.3.1 phone program from git tag v26.3.1 to run it with the new one, and leaves those checks out without it.
+  # v26.3.3 phone program, page and relay from git tag v26.3.3 to run them with the new ones, and leaves those checks
+  # out without it.
   test-windows-parts:
     if: github.event_name != 'push'
     name: test (windows-latest, part ${{ matrix.part }}/2)
