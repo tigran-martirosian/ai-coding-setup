@@ -37,6 +37,24 @@ const FILE_KINDS = [
 ];
 // Kinds of message that carry nothing to save; they are kept as a note saying so.
 const OTHER_KINDS = ["location", "venue", "contact", "poll", "dice", "story"];
+// Telegram's service messages (a new thread in the bot chat, a pin, a renamed chat): nothing the user sent, so they
+// are acknowledged and saved nowhere.
+const SERVICE_KINDS = [
+  "forum_topic_created",
+  "forum_topic_edited",
+  "forum_topic_closed",
+  "forum_topic_reopened",
+  "general_forum_topic_hidden",
+  "general_forum_topic_unhidden",
+  "pinned_message",
+  "new_chat_members",
+  "left_chat_member",
+  "new_chat_title",
+  "new_chat_photo",
+  "delete_chat_photo",
+  "message_auto_delete_timer_changed",
+  "write_access_allowed",
+];
 
 export const inboxDir = () => path.join(os.homedir(), "phone-inbox");
 
@@ -228,6 +246,10 @@ export function createIntake({ keys, send, dir, albumWaitMs = ALBUM_WAIT_MS }) {
     if (!msg) {
       // Sealed to another key: no later try can open it either.
       log("drop", "held item does not open with this PC's inbox key");
+      return saved(f.id);
+    }
+    if (SERVICE_KINDS.some((k) => msg[k])) {
+      log("drop", "Telegram service message, not saved");
       return saved(f.id);
     }
     const time = stamp(msg.date);

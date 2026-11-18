@@ -98,8 +98,9 @@ export function snapshot() {
     fs.appendFileSync(`${FAKE}.calls`, "list\n");
     return JSON.parse(fs.readFileSync(FAKE, "utf8"));
   }
+  // UTF-8 out: in the console code page, “ ” and • in a command line turn into " and control characters, breaking the JSON
   const ps =
-    "Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; name = $_.Name; " +
+    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; name = $_.Name; " +
     "created = $(if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }); cmd = $_.CommandLine } } | ConvertTo-Json -Compress";
   const r = spawnSync(
     "powershell.exe",

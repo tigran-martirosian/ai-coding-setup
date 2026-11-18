@@ -541,6 +541,34 @@ check(
   !fs.existsSync(`${PROCS}.calls`) && ledger("s10") === null,
 );
 
+// The real process list survives a command line with “ ” and • (the console code page turned them into " and a
+// control character, and the JSON broke)
+if (process.platform === "win32") {
+  const odd = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => {}, 1000)", "say “hi” • done"],
+    { stdio: "ignore" },
+  );
+  await new Promise((r) => setTimeout(r, 800));
+  const prev = process.env.SESSION_CLEANUP_TEST_PROCS;
+  delete process.env.SESSION_CLEANUP_TEST_PROCS;
+  const { snapshot } = await import(
+    `../hooks/session-cleanup.mjs?real=${Date.now()}`
+  );
+  if (prev !== undefined) process.env.SESSION_CLEANUP_TEST_PROCS = prev;
+  let cmd = null;
+  try {
+    cmd = snapshot().find((p) => p.pid === odd.pid)?.cmd ?? null;
+  } catch (err) {
+    cmd = `threw: ${err.message}`;
+  }
+  odd.kill();
+  check(
+    `real: the process list reads a command line with curly quotes and a bullet (got ${cmd})`,
+    typeof cmd === "string" && cmd.includes("say “hi” • done"),
+  );
+}
+
 // The real run: real process list and taskkill, on this test's own two node processes
 if (process.platform === "win32") {
   reset();

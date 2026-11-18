@@ -1,0 +1,91 @@
+/* The wider column and grids on Telegram Desktop (files screens design, section 2). Linked last. Steps by the app's
+   own width in CSS pixels: B 600 to 1199, C 1200 to 1999, D 2000 and over; under 600 (A) is page.css alone.
+   The app spans the window, so the tab bar's background does; the column is the content's inner width (--p-col),
+   centred by the content's side padding. Type does not grow: the extra room goes to columns. The Files tab's
+   tiles and cards are in files.css. */
+
+/* ---- B: a window someone enlarged: today's 640 cap (608 inside the 16 insets) */
+@media (min-width: 600px) {
+  .app,
+  .shell {
+    --p-col: 608px;
+    max-width: none;
+  }
+  .content,
+  .sk-content,
+  .bottom {
+    padding-left: max(16px, calc((100% - var(--p-col)) / 2));
+    padding-right: max(16px, calc((100% - var(--p-col)) / 2));
+  }
+  /* The tab bar's buttons: a centred group 480 wide */
+  .tabbar,
+  .sk-tabbar {
+    justify-content: center;
+  }
+  .tab,
+  .sk-tabbtn {
+    flex: 0 1 120px;
+  }
+  /* The session screen and its full sheets keep the phone's column */
+  .app:has(.session-view) {
+    max-width: 640px;
+  }
+  .fsheet,
+  .hsheet {
+    left: max(0px, calc((100% - 640px) / 2));
+    right: max(0px, calc((100% - 640px) / 2));
+  }
+}
+
+/* ---- C: full screen at 1920x1080 (and 2560x1440 or 1920x1080 at 150%): a 1104 column, Home in 2 columns */
+@media (min-width: 1200px) {
+  .app,
+  .shell {
+    --p-col: 1104px;
+  }
+  /* The session screen: a 760 column centred in the page (lines longer than that are hard to read) */
+  .app:has(.session-view) {
+    --p-col: 760px;
+    max-width: 792px;
+  }
+  .fsheet,
+  .hsheet {
+    left: max(0px, calc((100% - 792px) / 2));
+    right: max(0px, calc((100% - 792px) / 2));
+  }
+  /* Home: the PC tile and the version line span the column; Needs you, Working, Jobs and Usage flow into the
+     columns in that order, each group with its heading, 24 between groups */
+  .home {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 24px;
+    align-items: start;
+  }
+  .home > .home-pc,
+  .home > .version {
+    grid-column: 1 / -1;
+  }
+  /* The Files tiles and cards (files.css) span the whole column: their grid box drops the card padding of .block */
+  .files-folders,
+  .files-files {
+    padding: 0;
+  }
+  /* The Files toast: 480 wide, centred */
+  .files-toast {
+    width: 480px;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* ---- D: full screen at 2560x1440 (100% and 125%): a 1440 column, Home in 3 columns */
+@media (min-width: 2000px) {
+  .app,
+  .shell {
+    --p-col: 1440px;
+  }
+  .home {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

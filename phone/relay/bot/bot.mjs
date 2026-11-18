@@ -4,6 +4,8 @@
 // a reply would tell him the bot is alive.
 //   makeBot({ webhookSecret }) -> the Hub's `bot` option: (ctx) -> { webhook, pcConnected, pcFrame }.
 // webhook({ headers, body, origin }) needs `origin`, the relay's own address, for the Open button and the join line.
+// The body `{ "relay_command": "remove-topics" }` with the webhook secret (deploy-test.mjs --remove-topics) deletes
+// every kept topic at Telegram and forgets the `topics:<chat>` keys (files contract, section 7).
 import { randomBytes, sha256, toB64u, toHex } from "../../shared/seal.mjs";
 import { createHeld } from "./held.mjs";
 
@@ -85,6 +87,7 @@ export function makeBot({ webhookSecret }) {
       } catch {
         return { status: 400, body: "not JSON" };
       }
+      if (update?.relay_command === "remove-topics") return removeTopics();
       if (!update || !Number.isSafeInteger(update.update_id))
         return { status: 400, body: "no update_id" };
       const last = await store.get("tg:last-update");
@@ -96,6 +99,30 @@ export function makeBot({ webhookSecret }) {
         handled = await onButton(update.callback_query);
       if (handled) await store.put("tg:last-update", update.update_id);
       return OK;
+    }
+
+    // Deletes each kept topic of each chat at Telegram, then its key; answers { removed: <topics deleted> }. A topic
+    // the user already deleted counts as none; any other refusal stops the run with the key kept for a second run.
+    async function removeTopics() {
+      let removed = 0;
+      for (const [key, kept] of await store.list("topics:")) {
+        const chatId = Number(key.slice("topics:".length));
+        for (const thread of [kept.alerts, kept.files]) {
+          if (thread === null) continue;
+          try {
+            await telegram("deleteForumTopic", {
+              chat_id: chatId,
+              message_thread_id: thread,
+            });
+            removed += 1;
+          } catch (e) {
+            if (!/message thread not found/i.test(e.message)) throw e;
+          }
+        }
+        await store.delete(key);
+      }
+      log(`topics removed: ${removed}`);
+      return { status: 200, body: JSON.stringify({ removed }) };
     }
 
     // Returns true when the update came from an invited user (or redeemed an invite) and was handled.

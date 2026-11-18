@@ -6,7 +6,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -440,6 +442,571 @@ check(
   existsSync(BAD_PATTERN_LOG) &&
     /verify-gate/.test(readFileSync(BAD_PATTERN_LOG, "utf8")),
   "no log line",
+);
+
+// A verify run at Stop: loading the verify skill and then a successful shell call is the turn's check
+check(
+  "a verify run (verify Skill, then a Bash call) after the edit counts as the turn's check at Stop",
+  !run([
+    typed("fix"),
+    ...edit("C:/p/a.js"),
+    tool("Skill", { skill: "verify" }),
+    result(),
+    ...bash("node .claude/skills/verify/drive.mjs"),
+    say("Done."),
+  ]),
+  "blocked",
+);
+check(
+  "loading the verify skill with no shell call after it is no check at Stop",
+  blocks(
+    run([
+      typed("fix"),
+      ...edit("C:/p/a.js"),
+      tool("Skill", { skill: "verify" }),
+      result(),
+      say("Done."),
+    ]),
+  ),
+  "not blocked",
+);
+
+// The commit check (--pre). Each case gets real git repositories, its own home (so its own observe log and state)
+// and transcripts whose entries carry times.
+let clock = Date.parse("2026-11-17T10:00:00Z");
+const timed = (e) => ({
+  ...e,
+  timestamp: new Date((clock += 1000)).toISOString(),
+});
+const tTool = (name, input) => timed(tool(name, input));
+const tResult = (ok = true, text = "done") => timed(result(ok, text));
+const tEdit = (file) => [
+  tTool("Edit", { file_path: file, old_string: "a", new_string: "b" }),
+  tResult(),
+];
+const tBash = (command, ok = true, text = "done") => [
+  tTool("Bash", { command }),
+  tResult(ok, text),
+];
+const tVerify = (proof = "PROOF page: expected 200, got 200") => [
+  tTool("Skill", { skill: "verify" }),
+  tResult(true, "loaded"),
+  ...tBash("node .claude/skills/verify/drive.mjs", true, proof),
+];
+const sh = (cwd, ...args) => {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+  return r.stdout;
+};
+const SKILL_TEXT = "---\nname: verify\ndescription: test\n---\n# Verify\n";
+// A folder (a git repository unless git: false) with staged files and maybe a verify skill
+let folders = 0;
+const folder = ({ staged = [], skill = false, git = true } = {}) => {
+  const f = join(dir, `repo${++folders}`);
+  mkdirSync(f, { recursive: true });
+  if (git) sh(f, "init", "-q");
+  for (const s of staged) {
+    mkdirSync(join(f, s, ".."), { recursive: true });
+    writeFileSync(join(f, s), "x\n");
+    sh(f, "add", s);
+  }
+  if (skill) {
+    mkdirSync(join(f, ".claude", "skills", "verify"), { recursive: true });
+    writeFileSync(
+      join(f, ".claude", "skills", "verify", "SKILL.md"),
+      SKILL_TEXT,
+    );
+  }
+  return f;
+};
+let homes = 0;
+const newHome = () => {
+  const h = join(dir, `home${++homes}`);
+  mkdirSync(h, { recursive: true });
+  return h;
+};
+const observed = (home) => {
+  const f = join(home, ".claude", "hooks", "state", "observe.jsonl");
+  return existsSync(f)
+    ? readFileSync(f, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
+    : [];
+};
+// Runs the commit check. The transcript is <session>.jsonl, as Claude Code names it; `helpers` maps an agent id to
+// its entries (its own file in <session>/subagents).
+let commits = 0;
+const pre = (
+  entries,
+  {
+    cwd,
+    command,
+    tool: toolName = "Bash",
+    toolInput,
+    helpers = {},
+    agent,
+    env = {},
+    home,
+    session = `pre${++commits}`,
+  } = {},
+) => {
+  const file = join(dir, `${session}.jsonl`);
+  const lines = (list) => `${list.map((e) => JSON.stringify(e)).join("\n")}\n`;
+  writeFileSync(file, lines(entries));
+  for (const [id, list] of Object.entries(helpers)) {
+    const sub = join(dir, session, "subagents");
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(sub, `agent-${id}.jsonl`), lines(list));
+  }
+  const h = home || newHome();
+  const r = spawnSync(process.execPath, [HOOK, "--pre"], {
+    input: JSON.stringify({
+      session_id: session,
+      transcript_path: file,
+      cwd,
+      hook_event_name: "PreToolUse",
+      tool_name: toolName,
+      tool_input: toolInput ?? { command },
+      ...(agent ? { agent_id: agent } : {}),
+    }),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      VERIFY_GATE: "",
+      VERIFY_GATE_COMMIT: "",
+      CLAUDE_PROJECT_DIR: dir,
+      HOME: h,
+      USERPROFILE: h,
+      ...env,
+    },
+  });
+  return { out: r.stdout, code: r.status, lines: observed(h), home: h };
+};
+const refused = (out) =>
+  out.includes('"permissionDecision":"deny"') && out.includes("[verify-gate]");
+const show = (r) =>
+  `exit ${r.code}, out: ${r.out || "(none)"}, log: ${JSON.stringify(r.lines)}`;
+
+const withSkill = folder({ staged: ["src/a.mjs"], skill: true });
+const A = join(withSkill, "src", "a.mjs");
+const unverifiedEdit = [typed("fix"), ...tEdit(A)];
+const commitIn = (repo, msg = "fix: a") =>
+  `git -C "${repo}" commit -m "${msg}"`;
+
+let r = pre(unverifiedEdit, { cwd: withSkill, command: commitIn(withSkill) });
+check(
+  "observe (default): a code commit with no verify run in a project with a verify skill writes one would-refuse line and is not refused",
+  !r.out &&
+    r.code === 0 &&
+    r.lines.length === 1 &&
+    r.lines[0].would === "would-refuse" &&
+    r.lines[0].arm === "commit",
+  show(r),
+);
+const line = r.lines[0] ?? {};
+check(
+  "the log line carries repository, main or helper, the code files, the last edit's time, last verify none, PROOF seen",
+  // the hook names the repository as git does (macOS: /var is /private/var), so compare with the real path
+  line.repo === realpathSync.native(withSkill).replace(/\\/g, "/") &&
+    line.by === "main" &&
+    JSON.stringify(line.files) === '["a.mjs"]' &&
+    /^2026-11-17T/.test(line.lastEdit) &&
+    line.lastVerify === "none" &&
+    line.proof === false,
+  JSON.stringify(line),
+);
+
+r = pre([...unverifiedEdit, ...tVerify()], {
+  cwd: withSkill,
+  command: commitIn(withSkill),
+});
+check(
+  "a verify run after the last code edit: the commit is logged verified, with the run's time and the PROOF line seen",
+  !r.out &&
+    r.lines[0]?.would === "verified" &&
+    /^2026-11-17T/.test(r.lines[0].lastVerify) &&
+    r.lines[0].proof === true,
+  show(r),
+);
+
+// Enforce: refused once per commit; the same commit again passes and is logged
+const enforceHome = newHome();
+const ENFORCE = { VERIFY_GATE_COMMIT: "enforce" };
+const again = (entries) =>
+  pre(entries, {
+    cwd: withSkill,
+    command: commitIn(withSkill),
+    env: ENFORCE,
+    home: enforceHome,
+    session: "enf",
+  });
+r = again(unverifiedEdit);
+check(
+  "enforce: a due code commit is refused, naming the files and the verify skill",
+  refused(r.out) &&
+    r.out.includes("a.mjs") &&
+    r.out.includes(".claude/skills/verify/SKILL.md"),
+  show(r),
+);
+r = again(unverifiedEdit);
+check(
+  "enforce: the same commit sent again passes and is logged passed-after-refusal",
+  !r.out && r.lines.at(-1)?.would === "passed-after-refusal",
+  show(r),
+);
+r = again([...unverifiedEdit, ...tEdit(A)]);
+check(
+  "enforce: a new code edit makes a new commit, refused again",
+  refused(r.out),
+  show(r),
+);
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: commitIn(withSkill),
+  env: { VERIFY_GATE: "enforce" },
+});
+check(
+  "VERIFY_GATE=enforce turns the commit refusal on too",
+  refused(r.out),
+  show(r),
+);
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: commitIn(withSkill),
+  env: { VERIFY_GATE: "off" },
+});
+check(
+  "VERIFY_GATE=off turns the commit check off: no refusal, no line",
+  !r.out && !r.lines.length,
+  show(r),
+);
+
+// The reason line
+for (const [dash, label] of [
+  ["—", "a long dash"],
+  ["-", "a typed hyphen"],
+]) {
+  r = pre(unverifiedEdit, {
+    cwd: withSkill,
+    command: `git -C "${withSkill}" commit -m "fix: a" -m "Verify: skipped ${dash} comment-only change"`,
+    env: ENFORCE,
+  });
+  check(
+    `a reason line with ${label} lets a due commit pass in enforce, logged as reason`,
+    !r.out && r.lines[0]?.would === "reason",
+    show(r),
+  );
+}
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: `git -C "${withSkill}" commit -m "$(cat <<'EOF'\nfix: a\n\nVerify: skipped — comment-only change\nEOF\n)"`,
+  env: ENFORCE,
+});
+check(
+  "a reason line inside a heredoc message passes",
+  !r.out && r.lines[0]?.would === "reason",
+  show(r),
+);
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: commitIn(withSkill, "fix: a, Verify: skipped — inline"),
+  env: ENFORCE,
+});
+check(
+  "a reason that is not on a line of its own does not pass",
+  refused(r.out),
+  show(r),
+);
+
+// Which commits are checked
+const docsOnly = folder({ staged: ["README.md"], skill: true });
+r = pre([typed("fix"), ...tEdit(join(docsOnly, "src", "b.mjs"))], {
+  cwd: docsOnly,
+  command: commitIn(docsOnly),
+});
+check(
+  "a docs-only commit is not checked: no line",
+  !r.lines.length && !r.out,
+  show(r),
+);
+const noSkill = folder({ staged: ["src/a.mjs"] });
+r = pre([typed("fix"), ...tEdit(join(noSkill, "src", "a.mjs"))], {
+  cwd: noSkill,
+  command: commitIn(noSkill),
+  env: ENFORCE,
+});
+check(
+  "neither the repository nor the session folder has a verify skill: untouched, no line",
+  !r.lines.length && !r.out,
+  show(r),
+);
+const workshop = folder({ skill: true, git: false });
+r = pre([typed("fix"), ...tEdit(join(noSkill, "src", "a.mjs"))], {
+  cwd: workshop,
+  command: commitIn(noSkill),
+});
+check(
+  "a repository without a skill, committed from a session folder with one: logged, naming the session folder's skill",
+  r.lines.length === 1 &&
+    r.lines[0].would === "would-refuse" &&
+    r.lines[0].reason.includes(
+      join(workshop, ".claude", "skills", "verify", "SKILL.md").replace(
+        /\\/g,
+        "/",
+      ),
+    ),
+  show(r),
+);
+const other = folder({ staged: ["src/c.mjs"] });
+r = pre([typed("fix"), ...tEdit(join(other, "src", "c.mjs"))], {
+  cwd: withSkill,
+  command: commitIn(withSkill),
+});
+check(
+  "an unverified edit in another repository than the commit's: no line",
+  !r.lines.length && !r.out,
+  show(r),
+);
+
+// The same state through the Nimbalyst commit tool and through PowerShell
+const NIMBALYST = "mcp__nimbalyst__developer_git_commit_proposal";
+const viaTool = (entries, env) =>
+  pre(entries, {
+    cwd: withSkill,
+    tool: NIMBALYST,
+    toolInput: {
+      filesToStage: [{ path: "src/a.mjs", status: "modified" }],
+      commitMessage: "fix: a",
+    },
+    env,
+  });
+for (const [name, entries] of [
+  ["no verify run", unverifiedEdit],
+  ["a verify run", [...unverifiedEdit, ...tVerify()]],
+]) {
+  const bashR = pre(entries, { cwd: withSkill, command: commitIn(withSkill) });
+  const toolR = viaTool(entries);
+  check(
+    `a Bash git commit and the Nimbalyst commit tool give the same verdict (${name})`,
+    bashR.lines[0]?.would && bashR.lines[0].would === toolR.lines[0]?.would,
+    `${show(bashR)} | ${show(toolR)}`,
+  );
+}
+r = viaTool(unverifiedEdit, ENFORCE);
+check(
+  "enforce: the Nimbalyst commit tool is refused like a Bash commit",
+  refused(r.out),
+  show(r),
+);
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  tool: "PowerShell",
+  command: commitIn(withSkill),
+  env: ENFORCE,
+});
+check(
+  "enforce: a PowerShell git commit is refused like a Bash one",
+  refused(r.out),
+  show(r),
+);
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: `cd "${withSkill}" && git commit -m "fix: a"`,
+});
+check(
+  "a leading cd names the commit's repository",
+  r.lines[0]?.would === "would-refuse",
+  show(r),
+);
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: `git -C "${withSkill}" commit-graph write`,
+});
+check("git commit-graph is not a commit: no line", !r.lines.length, show(r));
+
+// Helpers
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: commitIn(withSkill),
+  helpers: { h1: [typed("verify it"), ...tVerify()] },
+});
+check(
+  "at commit time, a helper's verify run after the main session's last edit covers the commit",
+  r.lines[0]?.would === "verified",
+  show(r),
+);
+r = pre([typed("fix"), ...tVerify()], {
+  cwd: withSkill,
+  command: commitIn(withSkill),
+  helpers: { h1: [typed("edit it"), ...tEdit(A)] },
+});
+check(
+  "a helper's unverified edit after the main session's verify run is seen",
+  r.lines[0]?.would === "would-refuse",
+  show(r),
+);
+r = pre([typed("fix"), ...tVerify()], {
+  cwd: withSkill,
+  command: commitIn(withSkill),
+  agent: "h2",
+  helpers: { h2: [typed("edit it"), ...tEdit(A)] },
+});
+check(
+  "a helper's commit counts its own file alone and is logged as a helper's",
+  r.lines[0]?.would === "would-refuse" && r.lines[0].by === "helper",
+  show(r),
+);
+
+// Failures fail open with a crash line
+const CRASH_LOG = join(dir, "commit-crash.log");
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: `git -C "${join(dir, "no-such-folder")}" commit -m "fix: a"`,
+  env: { HOOK_ERRORS_LOG: CRASH_LOG },
+});
+check(
+  "a failed git call writes a crash line and lets the commit through (exit 0, no output)",
+  r.code === 0 &&
+    !r.out &&
+    existsSync(CRASH_LOG) &&
+    /verify-gate/.test(readFileSync(CRASH_LOG, "utf8")),
+  show(r),
+);
+
+// The commit's folder as the shell reads it: ~, $VAR set in the same command, a variable set elsewhere
+const tildeHome = newHome();
+const tildeRepo = join(tildeHome, "proj");
+mkdirSync(join(tildeRepo, "src"), { recursive: true });
+sh(tildeRepo, "init", "-q");
+writeFileSync(join(tildeRepo, "src", "a.mjs"), "x\n");
+sh(tildeRepo, "add", "src/a.mjs");
+mkdirSync(join(tildeRepo, ".claude", "skills", "verify"), { recursive: true });
+writeFileSync(
+  join(tildeRepo, ".claude", "skills", "verify", "SKILL.md"),
+  SKILL_TEXT,
+);
+const tildeEdit = [typed("fix"), ...tEdit(join(tildeRepo, "src", "a.mjs"))];
+const FOLDER_LOG = join(dir, "folder-crash.log");
+for (const [label, command] of [
+  ["git -C ~/<repo> commit", 'git -C ~/proj commit -m "fix: a"'],
+  ["cd ~/<repo> && git commit", 'cd ~/proj && git commit -m "fix: a"'],
+  [
+    'R=<repo>; git -C "$R" commit',
+    `R="${tildeRepo.replace(/\\/g, "/")}"; git -C "$R" commit -m "fix: a"`,
+  ],
+]) {
+  r = pre(tildeEdit, {
+    cwd: dir,
+    command,
+    home: tildeHome,
+    env: { HOOK_ERRORS_LOG: FOLDER_LOG },
+  });
+  check(
+    `${label}: the folder is read as the shell reads it, so the unverified code commit is logged would-refuse with no crash`,
+    r.lines.at(-1)?.would === "would-refuse" && !existsSync(FOLDER_LOG),
+    show(r),
+  );
+}
+r = pre(tildeEdit, {
+  cwd: dir,
+  command: 'git -C "$NO_SUCH_VERIFY_VAR" commit -m "fix: a"',
+  env: { HOOK_ERRORS_LOG: FOLDER_LOG },
+});
+check(
+  "a -C folder naming a variable with no value here is logged folder-unknown, not a crash",
+  r.lines[0]?.would === "folder-unknown" &&
+    r.lines[0].folder === "$NO_SUCH_VERIFY_VAR" &&
+    !existsSync(FOLDER_LOG),
+  show(r),
+);
+
+// The words after git commit: a redirection or a message's words are not paths
+for (const [label, command] of [
+  ["2>&1 | tail -1 after the commit", `${commitIn(withSkill)} 2>&1 | tail -1`],
+  ["> /dev/null after the commit", `${commitIn(withSkill)} > /dev/null`],
+  [
+    "a two-line -m message",
+    `git -C "${withSkill}" commit -m "fix: gate reads paths\n\nbody line"`,
+  ],
+]) {
+  r = pre(unverifiedEdit, { cwd: withSkill, command });
+  check(
+    `${label}: the staged code file is still the commit's, so it is logged would-refuse`,
+    r.lines[0]?.would === "would-refuse",
+    show(r),
+  );
+}
+
+// -F - with a heredoc: its reason line lets the commit through in enforce
+r = pre(unverifiedEdit, {
+  cwd: withSkill,
+  command: `git -C "${withSkill}" commit -F - <<'EOF'\nfix: a\n\nVerify: skipped — only a comment changed\nEOF`,
+  env: ENFORCE,
+});
+check(
+  "a reason line in a -F - heredoc message passes in enforce (logged reason, not refused)",
+  !refused(r.out) && r.lines[0]?.would === "reason",
+  show(r),
+);
+
+// The verify skill's own script: written and fixed during a run, run again after a fix
+const SKILL_DIR = join(withSkill, ".claude", "skills", "verify");
+const drive = (proof = "PROOF ok") =>
+  tBash("node .claude/skills/verify/drive.mjs", true, proof);
+r = pre(
+  [
+    ...unverifiedEdit,
+    tTool("Skill", { skill: "verify" }),
+    tResult(true, "loaded"),
+    tTool("Write", { file_path: join(SKILL_DIR, "drive.mjs"), content: "x" }),
+    tResult(),
+    ...drive(),
+  ],
+  { cwd: withSkill, command: commitIn(withSkill) },
+);
+check(
+  "writing the verify skill's script during the run does not make the commit due (logged verified)",
+  r.lines[0]?.would === "verified",
+  show(r),
+);
+r = pre(
+  [
+    ...unverifiedEdit,
+    tTool("Skill", { skill: "verify" }),
+    tResult(true, "loaded"),
+    ...drive("FAIL page"),
+    ...tEdit(A),
+    ...drive(),
+  ],
+  { cwd: withSkill, command: commitIn(withSkill) },
+);
+check(
+  "a code fix after a verify run, then the skill's script run again, counts as verified",
+  r.lines[0]?.would === "verified",
+  show(r),
+);
+r = pre([...unverifiedEdit, ...drive()], {
+  cwd: withSkill,
+  command: commitIn(withSkill),
+});
+check(
+  "the skill's script run with no load of the skill in the session is not a verify run",
+  r.lines[0]?.would === "would-refuse",
+  show(r),
+);
+
+// One repository under two spellings: a link (a junction on Windows) to it
+const linked = join(dir, "linked");
+symlinkSync(withSkill, linked, "junction");
+r = pre([typed("fix"), ...tEdit(join(linked, "src", "a.mjs"))], {
+  cwd: linked,
+  command: commitIn(linked),
+});
+check(
+  "an edit spelled through a link to the repository counts as inside it (git names the real folder)",
+  r.lines[0]?.would === "would-refuse",
+  show(r),
 );
 
 rmSync(dir, { recursive: true, force: true });

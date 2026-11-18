@@ -57,7 +57,7 @@ const gitBashDir =
 const cases = [
   [
     "Read big whole",
-    "deny",
+    "cap",
     { tool_name: "Read", tool_input: { file_path: B } },
   ],
   [
@@ -70,7 +70,7 @@ const cases = [
   ],
   [
     "Read big offset-only",
-    "deny",
+    "cap",
     { tool_name: "Read", tool_input: { file_path: B, offset: 100 } },
   ],
   [
@@ -135,7 +135,7 @@ const cases = [
   ],
   [
     "relative Read big",
-    "deny",
+    "cap",
     { tool_name: "Read", tool_input: { file_path: "big.txt" } },
   ],
   [
@@ -322,7 +322,7 @@ const cases = [
   ["bash -c with an absolute path", "deny", bash(`bash -c "cat ${F}"`)],
   [
     "Read 100 lines of 1000 bytes (100 KB) whole",
-    "deny",
+    "cap",
     { tool_name: "Read", tool_input: { file_path: MID } },
   ],
   [
@@ -347,19 +347,26 @@ for (const [name, want, ev] of cases) {
   const r = spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({ cwd: dir, ...ev }),
   });
-  const got = r.stdout.toString().includes('"deny"') ? "deny" : "pass";
+  // cap: a too-big Read runs with its limit cut to what fits (updatedInput), not refused
+  const out = r.stdout.toString();
+  const got = out.includes('"deny"')
+    ? "deny"
+    : out.includes("updatedInput")
+      ? "cap"
+      : "pass";
   if (got !== want) fail++;
   console.log(`${got === want ? "ok  " : "FAIL"} ${name}: ${got}`);
 }
-// The refusal text: a worker subagent on its own model with a type, no Codex, no free worker, and a line count that fits the byte limit
-const denyText = JSON.parse(
+// The cap note: a worker subagent with a type, no Codex, no free worker, and a limit that fits the byte limit
+const capOut = JSON.parse(
   spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({
       tool_name: "Read",
       tool_input: { file_path: MID },
     }),
   }).stdout.toString(),
-).hookSpecificOutput.permissionDecisionReason;
+).hookSpecificOutput;
+const denyText = capOut.additionalContext;
 // A ranged Read whose limit is over 350 lines: the text names the range, not a whole-file read
 const rangeText = JSON.parse(
   spawnSync(process.execPath, [HOOK], {
@@ -368,15 +375,30 @@ const rangeText = JSON.parse(
       tool_input: { file_path: B, offset: 100, limit: 600 },
     }),
   }).stdout.toString(),
-).hookSpecificOutput.permissionDecisionReason;
+).hookSpecificOutput;
 for (const [name, ok] of [
   [
-    "text: ranged Read over 350 lines says its limit is too big, not 'whole'",
-    /asks for 600 lines, more than the 350 lines/.test(rangeText) &&
-      /smaller range/.test(rangeText) &&
-      !/Reading it whole/.test(rangeText),
+    "FAIL if a ranged Read over 350 lines is refused, not cut to lines 100-449",
+    rangeText.updatedInput?.limit === 350 &&
+      rangeText.updatedInput?.offset === 100 &&
+      /returns only lines 100-449/.test(rangeText.additionalContext),
   ],
-  ["text: whole Read still says whole", /Reading it whole/.test(denyText)],
+  [
+    "FAIL if a whole Read of the 100 KB file is not cut to the 80 lines that fit",
+    capOut.updatedInput?.limit === 80 &&
+      /returns only lines 1-80/.test(denyText),
+  ],
+  [
+    "FAIL if a whole Read of a big file returns more than the 120-line preview",
+    JSON.parse(
+      spawnSync(process.execPath, [HOOK], {
+        input: JSON.stringify({
+          tool_name: "Read",
+          tool_input: { file_path: B },
+        }),
+      }).stdout.toString(),
+    ).hookSpecificOutput.updatedInput?.limit === 120,
+  ],
   [
     "text: subagent_type worker on its own model (Opus), no sonnet",
     /subagent_type: "worker" \(Agent tool\)/.test(denyText) &&
@@ -384,14 +406,6 @@ for (const [name, ok] of [
   ],
   ["text: no ask.mjs or free worker", !/ask.mjs|free worker/.test(denyText)],
   ["text: no Codex", !/codex/i.test(denyText)],
-  [
-    "text: suggests a read that fits under 80 KB (80 lines)",
-    /at most 8\d lines/.test(denyText),
-  ],
-  [
-    "text: a helper saves context, not cost",
-    /saves this session's context, not cost/.test(denyText),
-  ],
 ]) {
   if (!ok) fail++;
   console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
@@ -405,7 +419,7 @@ const reasonFor = (file) =>
         tool_input: { file_path: file },
       }),
     }).stdout.toString(),
-  ).hookSpecificOutput.permissionDecisionReason;
+  ).hookSpecificOutput.additionalContext;
 const filler = "text\n".repeat(200);
 const MD = join(dir, "doc.md");
 writeFileSync(
@@ -437,7 +451,7 @@ for (const [name, ok] of [
   [
     "txt: no headings list",
     !/Headings:/.test(reasonFor(B)) &&
-      reasonFor(B).endsWith("Never edit from a summary alone."),
+      reasonFor(B).endsWith("confirm them with a targeted Read."),
   ],
 ]) {
   if (!ok) fail++;

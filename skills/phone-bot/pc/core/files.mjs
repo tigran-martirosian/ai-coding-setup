@@ -5,7 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { log } from "./log.mjs";
+import { appDir } from "./mode.mjs";
 import { ActionError } from "./registry.mjs";
+// A cycle (transcripts.mjs reads files through this file); only function declarations cross it.
+import { writtenPaths } from "./transcripts.mjs";
 
 const WIN = process.platform === "win32";
 
@@ -17,7 +20,8 @@ export class FileRefused extends Error {
   }
 }
 
-export const appDir = () => path.join(os.homedir(), ".phone-app");
+// ~/.phone-app, or the second PC program's own folder (core/mode.mjs).
+export { appDir };
 export const keyFilePath = () => path.join(appDir(), "pc-keys.json");
 
 export function nimbalystDir() {
@@ -99,7 +103,12 @@ export function places() {
   ];
 }
 
-const SECRET_PARTS = new Set([".git", ".ssh", ".gnupg", ".telegram-control"]);
+export const SECRET_PARTS = new Set([
+  ".git",
+  ".ssh",
+  ".gnupg",
+  ".telegram-control",
+]);
 const SECRET_NAMES = new Set([
   ".env",
   ".credentials.json",
@@ -199,8 +208,8 @@ const REAL_SECRET_PATTERNS = [
   /\.p12$/,
   /\.pfx$/,
 ];
-const SESSION_SECRET_PARTS = new Set([...SECRET_PARTS, ".phone-app"]);
-const DEVICE = /^(con|nul|prn|aux|com[1-9]|lpt[1-9])(\..*)?$/i;
+export const SESSION_SECRET_PARTS = new Set([...SECRET_PARTS, ".phone-app"]);
+export const DEVICE = /^(con|nul|prn|aux|com[1-9]|lpt[1-9])(\..*)?$/i;
 const MAX_HANDLES = 2000;
 const hasControl = (s) =>
   [...s].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
@@ -250,11 +259,17 @@ function insideDir(dir, p) {
 }
 
 // The session's folders from its database row: its worktree (when it has one) and its project folder. `base` is
-// where a relative link starts.
+// where a relative link starts. `written()` gives the paths this session's transcript shows it wrote or edited.
 export function sessionPlace(row) {
   const folders = [row.worktree_path, row.workspace_id].filter(Boolean);
   if (!folders.length) throw new Error(`session ${row.id} has no folder`);
-  return { session: row.id, folders, base: folders[0] };
+  const base = folders[0];
+  return {
+    session: row.id,
+    folders,
+    base,
+    written: () => writtenPaths(row, base),
+  };
 }
 
 const tooWide = (f) => {
@@ -293,8 +308,10 @@ function linkOnTheWay(folder, p) {
 }
 
 // The file rule for a file of a session: returns the real path, or throws FileRefused naming the rule (logged,
-// never the content). `p` is absolute; `folders` come from the database row, never from the phone.
-export function checkSessionFile(p, folders) {
+// never the content). `p` is absolute; `folders` come from the database row, never from the phone. A file outside
+// the folders passes only when `written()` (the session's own written paths, sessionPlace) holds a path of the same
+// real path; every other rule runs first (files contract, section 8).
+export function checkSessionFile(p, folders, written = null) {
   const refuse = (rule) => {
     log("file-refused", rule);
     throw new FileRefused(rule);
@@ -307,15 +324,18 @@ export function checkSessionFile(p, folders) {
   const textRule = secretRuleOf(abs);
   if (textRule) refuse(textRule);
   const home = folders.find((f) => insideDir(path.resolve(f), abs));
-  if (!home) refuse("outside the session's folders");
-  if (linkOnTheWay(home, abs)) refuse("path form");
+  if (!home && !written) refuse("outside the session's folders");
+  // Outside the folders, links are checked from the drive's root down.
+  if (linkOnTheWay(home ?? path.parse(abs).root, abs)) refuse("path form");
   const real = realPath(abs);
-  if (!folders.some((f) => insideDir(realPath(f), real)))
-    refuse("outside the session's folders");
+  const inside = folders.some((f) => insideDir(realPath(f), real));
+  if (!inside && !written) refuse("outside the session's folders");
   if (insideDir(realPath(appDir()), real)) refuse("app folder");
   const realRule = secretRuleOf(real);
   if (realRule) refuse(realRule);
   if (fs.existsSync(real) && !fs.statSync(real).isFile()) refuse("not a file");
+  if (!inside && ![...written()].some((w) => same(realPath(w), real)))
+    refuse("outside the session's folders");
   return real;
 }
 
@@ -350,7 +370,7 @@ export const handlePath = (session, handle) =>
 export function sessionFile(place, p) {
   const abs = badPathForm(p) ? p : path.resolve(place.base, fixDrive(p));
   try {
-    checkSessionFile(abs, place.folders);
+    checkSessionFile(abs, place.folders, place.written);
     return { path: abs, file: fileHandle(place.session, abs), why: null };
   } catch (e) {
     if (e.code !== "file-refused") throw e;

@@ -404,8 +404,15 @@ const els = Object.fromEntries(
     "bottom-extra",
     "tabbar",
     "main-btn",
+    "shell",
+    "sk-home",
+    "sk-projects",
+    "sk-settings",
   ].map((id) => [id, new FakeElement("div")]),
 );
+// Each tab's shapes sit in their own section of the shell, as in index.html; the frame moves them back there.
+for (const tab of ["home", "projects", "settings"])
+  els[`sk-${tab}`].parentNode = new FakeElement("section");
 const shownRows = () => byClass(els.content, "row");
 const pageEnd = () => Math.max(0, 400 + ROW_PX * shownRows().length - 700);
 const box = els.content;
@@ -441,9 +448,18 @@ async function scrollToEnd() {
 
 const APP_URL = pageUrl("frame/app.js");
 const STAND_INS = {
-  [pageUrl("screens.generated.js")]: 'export const PAGE_VERSION = "test";',
+  [pageUrl("screens.generated.js")]: `export const PAGE_VERSION = "test";
+export const LATER = [];
+export const loadRest = async () => [];`,
+  // The first steps of index.html's own module: the style files and Telegram's script are in at once; f.shellTab is
+  // the tab the skeleton's tab bar was moved to before the frame ran.
+  [pageUrl("frame/boot.js")]: `const f = globalThis.frameFake;
+export const stylesLoaded = Promise.resolve();
+export const telegramLoaded = Promise.resolve();
+export const shellTab = () => f.shellTab ?? "home";`,
   [pageUrl("frame/telegram.js")]: `const f = globalThis.frameFake;
 export const startTelegram = () => ({ initData: "signed", isVersionAtLeast: () => true,
+  get platform() { return f.platform ?? "ios"; }, get isFullscreen() { return !!f.fullscreen; },
   onEvent: (name, fn) => { f.events[name] = fn; } });
 export const hasHost = () => true;
 export const haptic = () => {};
@@ -487,8 +503,9 @@ export const openSession = async () => {
 };
 registerHooks({
   resolve(specifier, context, next) {
+    // A new open of the page imports app.js again under "app.js?<name>": its imports get the same stand-ins.
     const code =
-      context.parentURL === APP_URL &&
+      context.parentURL?.split("?")[0] === APP_URL &&
       STAND_INS[new URL(specifier, APP_URL).href];
     if (code)
       return {
@@ -925,6 +942,33 @@ try {
   // A project row: the hold pins it through projects.pin, into the Pinned group at once.
   frameFake.back();
   await tick();
+  // ---- Telegram Desktop's full-screen button follows Telegram's own state (it kept "Full screen" in full screen)
+  frameFake.platform = "tdesktop";
+  frameFake.events.deactivated();
+  await tick();
+  frameFake.events.activated();
+  for (let i = 0; i < 3; i++) await tick();
+  const fullTitle = () => {
+    const b = byClass(els.content, "full-btn")[0];
+    return b ? (b.attrs.title ?? b.title) : "no button";
+  };
+  const fsBefore = fullTitle();
+  frameFake.fullscreen = true;
+  frameFake.events.fullscreenChanged?.();
+  await tick();
+  const fsIn = fullTitle();
+  frameFake.fullscreen = false;
+  frameFake.events.fullscreenChanged?.();
+  await tick();
+  check(
+    'after Telegram goes full screen the button reads "Leave full screen", and "Full screen" again after it leaves',
+    fsBefore === "Full screen" &&
+      fsIn === "Leave full screen" &&
+      fullTitle() === "Full screen",
+    show({ fsBefore, fsIn, fsOut: fullTitle() }),
+  );
+  frameFake.platform = undefined;
+
   await holdRow("data-project", "p3");
   pin.answer = { ok: true, d: { pinned: true } };
   menuPick().click();
@@ -1156,9 +1200,190 @@ try {
       !/^\.read-only\s*\{/m.test(css),
     show({ cls: screenBody.className, rule: readOnlyCss?.[0] }),
   );
+  // A screen that names its own update line (the Files line) shows it in place of the general read-only words. A Home
+  // part that draws nothing hands the test the frame's ctx, to open that screen.
+  let frameCtx = null;
+  screens.registerHomePart({
+    id: "test-ctx",
+    order: 99,
+    render: (c) => {
+      frameCtx = c;
+      return null;
+    },
+  });
+  screens.registerScreen({
+    id: "line-test",
+    tab: null,
+    title: "Line test",
+    render: () => new FakeElement("div"),
+    actions: ["files.list"],
+    updateLine: "Files need the newer PC program.",
+  });
+  walk(els.tabbar)
+    .find((n) => n.tagName === "button" && n.textContent === "Home")
+    .click();
+  await tick();
+  frameCtx.go("line-test");
+  await tick();
+  const lineView = els.content.childNodes[0].textContent;
+  check(
+    "update line: a screen registered with updateLine shows its own line, not the general read-only words, when the PC lacks its actions",
+    lineView.includes("Files need the newer PC program.") &&
+      !lineView.includes("You can look, not act"),
+    show(lineView),
+  );
+  frameFake.back();
+  await tick();
   frameFake.helloPage = null;
   await attempt(1000);
   Date.now = realNow;
+
+  // ---- the instant open (comfort design, sections 2 and 3): each case is a new open of the page (app.js again under
+  // its own address) on a stand-in localStorage, with the link held until release() so what the frame draws before
+  // the first hello can be read. The frames opened before stay connected and draw nothing more.
+  const keptStore = await import(pageUrl("frame/cache.js"));
+  const keptItems = new Map();
+  globalThis.localStorage = {
+    get length() {
+      return keptItems.size;
+    },
+    key: (i) => [...keptItems.keys()][i] ?? null,
+    getItem: (k) => keptItems.get(k) ?? null,
+    setItem: (k, v) => keptItems.set(k, String(v)),
+    removeItem: (k) => keptItems.delete(k),
+  };
+  screens.registerScreen({
+    id: "pairing",
+    tab: null,
+    title: "Pairing",
+    render: () => new FakeElement("div"),
+    actions: [],
+  });
+  async function openAgain(name, tab = "home") {
+    frameFake.shellTab = tab;
+    frameFake.helloFail = null;
+    frameFake.linkFail = null;
+    let release;
+    frameFake.linkWait = new Promise((r) => {
+      release = r;
+    });
+    els.fatal.hidden = true;
+    frameFake.asked = [];
+    await import(`${APP_URL}?${name}`);
+    for (let i = 0; i < 5; i++) await tick();
+    if (!els.fatal.hidden)
+      throw new Error(`the frame stopped: ${els.fatal.textContent}`);
+    return async () => {
+      frameFake.linkWait = null;
+      release();
+      for (let i = 0; i < 6; i++) await tick();
+    };
+  }
+  const markText = () =>
+    byClass(els.content, "status-mark")[0]?.textContent ?? "";
+  const minuteAgo = Date.now() - 60_000;
+
+  // Home kept, no link yet: Home's rows are drawn from what was kept, marked "Updating", and nothing is asked.
+  keptItems.clear();
+  keptItems.set(
+    "phone.kept:home",
+    JSON.stringify({
+      data: {
+        home: {
+          status: answers.open,
+          statusAt: answers.open.asOf,
+          sessions: answers.sessions,
+          names: null,
+          sessionsAt: answers.open.asOf,
+        },
+        parts: {},
+      },
+      at: minuteAgo,
+    }),
+  );
+  let release = await openAgain("kept-home");
+  const keptRows = shownRows().length;
+  const keptMark = markText();
+  const keptBody = els.content.childNodes[0]?.childNodes.at(-1)?.className;
+  check(
+    "instant open: with Home kept and no link, Home's rows are in the page before the first hello, marked Updating, asking nothing",
+    keptRows > 0 &&
+      keptMark.startsWith("Updating · as of") &&
+      /\bupdating\b/.test(keptBody ?? "") &&
+      frameFake.asked.length === 0 &&
+      els.shell.hidden &&
+      !els.app.hidden,
+    show({ keptRows, keptMark, keptBody, asked: frameFake.asked }),
+  );
+  await release();
+  check(
+    "instant open: after the first hello the Updating mark goes, Home asks the PC and keeps its fresh answer",
+    markText() === "" &&
+      frameFake.asked.includes("home.sessions") &&
+      keptStore.kept("home")?.data.home.status.asOf === answers.open.asOf &&
+      keptStore.kept("home").at > minuteAgo,
+    show({
+      mark: markText(),
+      asked: frameFake.asked,
+      kept: keptStore.kept("home")?.at,
+    }),
+  );
+
+  // Nothing kept: the tab's shapes stand in place of the screen, and the old spinner view is gone.
+  keptItems.clear();
+  release = await openAgain("nothing-kept");
+  const skeleton = walk(els.content);
+  check(
+    "instant open: with nothing kept, Home's shapes show before the first hello and the spinner view does not",
+    skeleton.includes(els["sk-home"]) &&
+      byClass(els.content, "connect-view").length === 0 &&
+      byClass(els.content, "big").length === 0 &&
+      shownRows().length === 0,
+    show(els.content.textContent),
+  );
+  await release();
+
+  // A kept tab screen other than Home: Projects, opened on the Projects tab, is drawn from its kept list.
+  keptItems.clear();
+  keptStore.keep("projects", [
+    {
+      project: "k1",
+      name: "kept project one",
+      lastUsed: new Date(minuteAgo).toISOString(),
+      pinned: false,
+      needsYou: 0,
+      working: 0,
+    },
+  ]);
+  release = await openAgain("kept-projects", "projects");
+  const keptProjects = els.content.textContent;
+  check(
+    "instant open: a kept screen other than Home (Projects) is drawn from what it kept before the first hello",
+    keptProjects.includes("kept project one") &&
+      markText().startsWith("Updating · as of") &&
+      frameFake.asked.length === 0,
+    show({ keptProjects, asked: frameFake.asked }),
+  );
+  await release();
+  check(
+    "instant open: Projects keeps its fresh list once the PC answers",
+    keptStore.kept("projects")?.data.length === 40 &&
+      !els.content.textContent.includes("kept project one"),
+    show(keptStore.kept("projects")?.data.length),
+  );
+
+  // Unpair: when the PC no longer holds this device, what the screens kept on the phone goes with the key.
+  keptStore.keep("home", { home: null, parts: {} });
+  release = await openAgain("unpair", "projects");
+  frameFake.helloFail = { code: "unknown-device" };
+  await release();
+  check(
+    "instant open: Unpair empties what the screens kept on the phone",
+    keptItems.size === 0,
+    show([...keptItems.keys()]),
+  );
+  frameFake.helloFail = null;
+  delete globalThis.localStorage;
 
   // ---- The zoom lock itself (frame/zoom.js) on a stand-in document, and the page's own start state
   const zoom = await import(pageUrl("frame/zoom.js"));
@@ -1234,6 +1459,194 @@ try {
       /html \{\s*touch-action: pan-x pan-y;/.test(pageCss) &&
       /html\.zoomable \{\s*touch-action: auto;/.test(pageCss),
   );
+
+  // ---- groundwork for the second wave: style files, icons, the test copy's storage names, the kept-data store
+  const { buildPage, writePage } = await import(pageUrl("build.mjs"));
+  const plain = new Map(buildPage().files);
+  const servedIndex = plain.get("/").toString("utf8");
+  const sheets = ["page", "shell", "files", "wide"].map((n) =>
+    servedIndex.indexOf(`href="page/${n}.css"`),
+  );
+  check(
+    "the build serves shell.css, files.css and wide.css, and index.html links them after page.css in that order (FAIL: a new style file is not loaded on the phone)",
+    ["shell", "files", "wide"].every((n) => plain.has(`/page/${n}.css`)) &&
+      sheets.every((at, i) => at >= 0 && (i === 0 || at > sheets[i - 1])),
+    show({
+      sheets,
+      served: [...plain.keys()].filter((p) => p.endsWith(".css")),
+    }),
+  );
+
+  // The instant open: the shapes are in the first paint, which only shell.css holds; no script before them holds it.
+  const shapesAt = servedIndex.indexOf('id="sk-home"');
+  const blocking = [...servedIndex.matchAll(/<script\b[^>]*>/g)].filter(
+    (m) => !/\basync\b|\bdefer\b|type="module"/.test(m[0]),
+  );
+  const paintSheets = [
+    ...servedIndex.matchAll(/<link rel="stylesheet" href="([^"]+)"/g),
+  ].map((m) => m[1]);
+  check(
+    "instant open: the served index.html holds the tabs' shapes ahead of any script that blocks the first paint, and only shell.css is a style sheet before them",
+    shapesAt > 0 &&
+      ["sk-projects", "sk-settings"].every((id) =>
+        servedIndex.includes(`id="${id}"`),
+      ) &&
+      blocking.every((m) => m.index > shapesAt) &&
+      paintSheets.join() === "page/shell.css",
+    show({ shapesAt, blocking: blocking.map((m) => m[0]), paintSheets }),
+  );
+  const preloads = [
+    ...servedIndex.matchAll(/<link rel="modulepreload" href="([^"]+)"/g),
+  ].map((m) => m[1]);
+  const generatedJs = plain.get("/page/screens.generated.js").toString("utf8");
+  check(
+    "instant open: the build writes one modulepreload line per module of the first wave (Home's files, not the session screens), and the session screens load later",
+    preloads.includes("page/screens/home.js") &&
+      preloads.includes("page/frame/screens.js") &&
+      new Set(preloads).size === preloads.length &&
+      !preloads.some((p) => p.includes("screens/session")) &&
+      !servedIndex.includes("<!-- modulepreload -->") &&
+      /LATER = \[[^\]]*"session"/.test(generatedJs) &&
+      generatedJs.includes('import("./screens/session.js")'),
+    show({ preloads, generatedJs: generatedJs.slice(0, 400) }),
+  );
+
+  const { ICONS } = await import(pageUrl("frame/dom.js"));
+  const wanted = [
+    "files",
+    "folder",
+    "copy",
+    "select-text",
+    "full-screen",
+    "download",
+    "send",
+    "arrow-down",
+    "trash",
+    "plus",
+  ];
+  check(
+    "dom.js has the line icons the new screens draw (FAIL: a new screen's icon is missing)",
+    wanted.every(
+      (n) =>
+        Array.isArray(ICONS[n]) &&
+        ICONS[n].length &&
+        ICONS[n].every((d) => typeof d === "string" && d.startsWith("M")),
+    ),
+    show(wanted.filter((n) => !ICONS[n])),
+  );
+
+  // The storage key names a built keystore.js uses: forgetPairing removes the item from both Telegram stores and
+  // opens the IndexedDB database by name (the stand-in fails it, which ends the call). The built
+  // screens.generated.js is used without its screen imports, so only keystore.js runs.
+  const keyNames = async (opts, dir) => {
+    writePage(dir, buildPage(opts));
+    const gen = path.join(dir, "page", "screens.generated.js");
+    fs.writeFileSync(
+      gen,
+      fs
+        .readFileSync(gen, "utf8")
+        .split("\n")
+        .filter((l) => !l.startsWith("import "))
+        .join("\n"),
+    );
+    const names = { items: [], db: [] };
+    const store = {
+      removeItem: (name, cb) => {
+        names.items.push(name);
+        cb(null, true);
+      },
+    };
+    globalThis.indexedDB = {
+      open(name) {
+        names.db.push(name);
+        const req = { error: { message: "stand-in" } };
+        setTimeout(() => req.onerror());
+        return req;
+      },
+    };
+    const ks = await import(
+      pathToFileURL(path.join(dir, "page", "frame", "keystore.js")).href
+    );
+    await ks
+      .forgetPairing({ SecureStorage: store, DeviceStorage: store })
+      .catch(() => {});
+    delete globalThis.indexedDB;
+    return names;
+  };
+  const realNames = await keyNames({}, path.join(tmp, "build-plain"));
+  check(
+    "a plain build's storage key names equal today's: phone-app-pairing and the phone-app database (FAIL: the real app loses its pairing)",
+    show(realNames) ===
+      show({
+        items: ["phone-app-pairing", "phone-app-pairing"],
+        db: ["phone-app"],
+      }),
+    show(realNames),
+  );
+  const testNames = await keyNames(
+    { testCopy: true },
+    path.join(tmp, "build-test"),
+  );
+  check(
+    "a test-copy build's storage key names end in -test (FAIL: the test copy reads or overwrites the real pairing)",
+    testNames.items.length === 2 &&
+      testNames.db.length === 1 &&
+      [...testNames.items, ...testNames.db].every((n) => n.endsWith("-test")),
+    show(testNames),
+  );
+
+  // The kept-data store on a stand-in localStorage, with a clock that moves 1 ms per call.
+  const stored = new Map();
+  globalThis.localStorage = {
+    get length() {
+      return stored.size;
+    },
+    key: (i) => [...stored.keys()][i] ?? null,
+    getItem: (k) => (stored.has(k) ? stored.get(k) : null),
+    setItem: (k, v) => stored.set(k, String(v)),
+    removeItem: (k) => stored.delete(k),
+  };
+  const clockBefore = Date.now;
+  let clock = 1000;
+  Date.now = () => clock++;
+  const cache = await import(pageUrl("frame/cache.js"));
+  stored.set("phone.draft:s1", "my draft");
+  const keptOk = cache.keep("home", { rows: [1, 2] });
+  const keptHome = cache.kept("home");
+  check(
+    "cache.js keeps data under phone.kept:<name> and returns it with its time (FAIL: a kept screen cannot be drawn before the hello)",
+    keptOk &&
+      stored.has("phone.kept:home") &&
+      show(keptHome?.data) === show({ rows: [1, 2] }) &&
+      typeof keptHome?.at === "number" &&
+      cache.kept("nothing") === null,
+    show({ keptOk, keptHome }),
+  );
+  const tooBig = cache.keep("big", "x".repeat(cache.ENTRY_MAX));
+  const chunk = "x".repeat(195_000);
+  for (let i = 0; i < 11; i++) cache.keep(`e${i}`, chunk);
+  const total = [...stored]
+    .filter(([k]) => k.startsWith("phone.kept:"))
+    .reduce((n, [, v]) => n + v.length, 0);
+  check(
+    "cache.js refuses an entry over 200 KB and keeps all entries under 2 MB by dropping the oldest (FAIL: kept data can fill the phone's storage)",
+    !tooBig &&
+      cache.kept("big") === null &&
+      cache.kept("home") === null &&
+      cache.kept("e0") === null &&
+      cache.kept("e1")?.data === chunk &&
+      cache.kept("e10")?.data === chunk &&
+      total <= cache.ALL_MAX,
+    show({ tooBig, total, keys: [...stored.keys()] }),
+  );
+  cache.forgetAll();
+  check(
+    "cache.js forgetAll removes every kept entry and nothing else (FAIL: Unpair leaves kept data, or wipes drafts)",
+    [...stored.keys()].join() === "phone.draft:s1",
+    show([...stored.keys()]),
+  );
+  Date.now = clockBefore;
+  delete globalThis.localStorage;
 } catch (e) {
   failure = e;
 }

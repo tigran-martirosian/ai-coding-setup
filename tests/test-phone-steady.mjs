@@ -6,11 +6,13 @@
 // Short timers: the page's and the relay's clock run 10 times as fast (the page's timers and Date, the relay's
 // `now`), and the PC program gets its link's waits 10 times as short (core/link.mjs TIMING). Every time in a message
 // is on that scaled clock: "within 5 s" is half a second of real time. The PC program's own start-up is not scaled.
-// The old-with-new pairs use the released 26.3.1 page channel and PC program from the git tag v26.3.1; a clone
-// without that tag (a shallow CI checkout) says so on a "skip" line and leaves those pairs out.
+// The old-with-new pairs use the released 26.3.3 page channel, PC program and relay from the git tag v26.3.3 (the
+// user's own app until the next release); a clone without that tag (a shallow CI checkout) says so on a "skip" line
+// and leaves those pairs out. A 30 MB recording goes from this page's channel through the PC program to
+// voice.transcribe, with a stand-in transcriber.
 //   node tests/test-phone-steady.mjs
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes as nodeRandom } from "node:crypto";
+import { createHash, randomBytes as nodeRandom } from "node:crypto";
 import fs from "node:fs";
 import { registerHooks } from "node:module";
 import os from "node:os";
@@ -24,7 +26,7 @@ const SETUP = path.join(ROOT, "skills", "phone-bot", "pc", "setup.mjs");
 const VERSION = JSON.parse(
   fs.readFileSync(path.join(ROOT, "version.json"), "utf8"),
 ).version;
-const OLD_TAG = "v26.3.1";
+const OLD_TAG = "v26.3.3";
 const BOT_ID = 7000001;
 const OWNER = 111;
 // The scale: the page's and the relay's clock run this many times as fast; the PC's link waits are this many times
@@ -76,10 +78,12 @@ const SCALED_PREFIX =
   "const { setTimeout, setInterval, Date } = globalThis.steadyClock;\n";
 
 // ---- the PC program, as keep.mjs starts it, with its link's waits scaled (`node test-phone-steady.mjs --pc`)
-async function runPc() {
-  const { TIMING } = await import("../skills/phone-bot/pc/core/link.mjs");
+// `--pc <dir>` runs the PC program in `dir` (the released one) the same way.
+async function runPc(dir = path.join(ROOT, "skills", "phone-bot", "pc")) {
+  const at = (rel) => pathToFileURL(path.join(dir, rel)).href;
+  const { TIMING } = await import(at("core/link.mjs"));
   for (const k of Object.keys(TIMING)) if (k.endsWith("Ms")) TIMING[k] /= K;
-  await import("../skills/phone-bot/pc/main.mjs");
+  await import(at("main.mjs"));
 }
 
 // ---- a DOM stand-in with what frame/app.js and frame/dom.js use
@@ -158,8 +162,15 @@ const els = Object.fromEntries(
     "bottom-extra",
     "tabbar",
     "main-btn",
+    "shell",
+    "sk-home",
+    "sk-projects",
+    "sk-settings",
   ].map((id) => [id, new FakeElement("div")]),
 );
+// Each tab's shapes sit in their own section of the shell, as in index.html; the frame moves them back there.
+for (const tab of ["home", "projects", "settings"])
+  els[`sk-${tab}`].parentNode = new FakeElement("section");
 const pageStore = new Map();
 
 // Every socket the frame opens, with when (real ms) it was made, opened and closed: the reconnect count.
@@ -252,7 +263,13 @@ const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
 const APP_URL = pageUrl("frame/app.js");
 const STAND_INS = {
   [pageUrl("screens.generated.js")]:
-    `export const PAGE_VERSION = ${JSON.stringify(VERSION)};`,
+    `export const PAGE_VERSION = ${JSON.stringify(VERSION)};
+export const LATER = [];
+export const loadRest = async () => [];`,
+  // index.html's own first module: the style files and Telegram's script are in at once.
+  [pageUrl("frame/boot.js")]: `export const stylesLoaded = Promise.resolve();
+export const telegramLoaded = Promise.resolve();
+export const shellTab = () => "home";`,
   [pageUrl("frame/telegram.js")]: `const p = globalThis.steadyPage;
 export const startTelegram = () => ({ initData: p.initData, platform: "ios", isVersionAtLeast: () => true,
   onEvent: (name, fn) => { p.tgEvents[name] = fn; } });
@@ -334,7 +351,43 @@ function pcEnvFor(home) {
         : path.join(home, "pc.sock"),
     PHONE_PC_TG_KEY: w.tgPubHex,
     NIMBALYST_ENDPOINT_FILE: path.join(w.tmp, "no-endpoint.json"),
+    // Voice: a stand-in uv on the PATH and the stand-in transcriber (the speech model's marker is in the home).
+    PATH: `${w.bin}${path.delimiter}${process.env.PATH}`,
+    PHONE_PC_TRANSCRIBER: w.transcriber,
   };
+}
+
+// What `setup.mjs voice` leaves once the speech model loads, so voice.transcribe runs the stand-in.
+function markVoice(home) {
+  fs.mkdirSync(path.join(home, ".phone-app"), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, ".phone-app", "voice.json"),
+    JSON.stringify({ model: "small" }),
+  );
+}
+
+// A PC paired with a code from the PC program run with `env`, by the page channel `ch`, on the relay at `url`.
+async function pairWith(ch, url, setup, env, kind) {
+  const out = setupRun(setup, ["pair"], env);
+  const m = /Pairing code[^\n]*\n\s*([A-Z2-7 .]+)/.exec(out);
+  if (!m) throw new Error(`setup pair gave no code:\n${out}`);
+  // Right after its join the PC program connects again: a pair that finds it offline never reached it, so the
+  // one-use code is still good.
+  for (const end = Date.now() + 5000; ; await sleep(50)) {
+    const link = await ch.openLink({
+      url: ch.socketUrl(url),
+      initData: w.initData,
+      WebSocket: RealSocket,
+    });
+    const paired = await ch
+      .pair(link, { code: m[1].trim(), initData: w.initData, kind })
+      .catch((e) => {
+        if (e.code !== "pc-offline" || Date.now() > end) throw e;
+        return null;
+      });
+    link.close();
+    if (paired) return paired;
+  }
 }
 
 function startProgram(args, env) {
@@ -374,33 +427,14 @@ function setupRun(setup, args, env) {
 }
 
 // A new device paired with a code from the running PC program.
-async function pairDevice(kind) {
-  const out = setupRun(SETUP, ["pair"], w.pcEnv);
-  const m = /Pairing code[^\n]*\n\s*([A-Z2-7 .]+)/.exec(out);
-  if (!m) throw new Error(`setup pair gave no code:\n${out}`);
-  // Right after its join the PC program connects again: a pair that finds it offline never reached it, so the
-  // one-use code is still good.
-  for (const end = Date.now() + 5000; ; await sleep(50)) {
-    const link = await w.channel.openLink({
-      url: w.channel.socketUrl(w.relay.url),
-      initData: w.initData,
-      WebSocket: RealSocket,
-    });
-    const paired = await w.channel
-      .pair(link, { code: m[1].trim(), initData: w.initData, kind })
-      .catch((e) => {
-        if (e.code !== "pc-offline" || Date.now() > end) throw e;
-        return null;
-      });
-    link.close();
-    if (paired) return paired;
-  }
-}
+const pairDevice = (kind) =>
+  pairWith(w.channel, w.relay.url, SETUP, w.pcEnv, kind);
 
-// A device's session through the page's channel code (`ch`: this page's or the old one), straight to the relay.
-async function deviceSession(ch, p, onEvent = () => {}) {
+// A device's session through the page's channel code (`ch`: this page's or the old one), straight to the relay at
+// `url` (the main one when none is given).
+async function deviceSession(ch, p, onEvent = () => {}, url = w.relay.url) {
   const link = await ch.openLink({
-    url: ch.socketUrl(w.relay.url),
+    url: ch.socketUrl(url),
     initData: w.initData,
     WebSocket: RealSocket,
   });
@@ -424,8 +458,8 @@ async function openWatcher() {
   return link;
 }
 
-// The released 26.3.1 PC program and page channel in `dir`, or false when this clone has no tag v26.3.1. The old
-// PC pings once a minute: that wait is scaled like the others.
+// The released PC program, page and relay of OLD_TAG in `dir`, or false when this clone has no such tag. The old PC
+// runs through `--pc <dir>`, so its link's waits are scaled like the new one's.
 function extractOld(dir) {
   const has = spawnSync(
     "git",
@@ -442,7 +476,8 @@ function extractOld(dir) {
       OLD_TAG,
       "skills/phone-bot",
       "phone/shared",
-      "phone/page/frame/channel.js",
+      "phone/page",
+      "phone/relay",
       "version.json",
     ],
     { maxBuffer: 1 << 28 },
@@ -453,12 +488,6 @@ function extractOld(dir) {
   const x = spawnSync("tar", ["-x", "-C", dir], { input: tar.stdout });
   if (x.status !== 0) throw new Error(`tar failed: ${x.stderr}`);
   fs.writeFileSync(path.join(dir, "package.json"), '{"type":"module"}\n');
-  const link = path.join(dir, "skills", "phone-bot", "pc", "core", "link.mjs");
-  const text = fs.readFileSync(link, "utf8");
-  const PING = "const PING_MS = 60_000;";
-  if (!text.includes(PING))
-    throw new Error(`the ${OLD_TAG} link.mjs has no "${PING}" to scale`);
-  fs.writeFileSync(link, text.replace(PING, `const PING_MS = ${60_000 / K};`));
   return true;
 }
 
@@ -466,6 +495,29 @@ async function startWorld() {
   w.tmp = fs.mkdtempSync(path.join(os.tmpdir(), "phone-steady-"));
   w.home = path.join(w.tmp, "home");
   fs.mkdirSync(w.home);
+  // The real transcriber's lines: {"ready":true} once loaded, then {"text"} per {"file"}: here the file's size and
+  // SHA-256, so the test sees the bytes that arrived.
+  w.bin = path.join(w.tmp, "bin");
+  fs.mkdirSync(w.bin);
+  fs.writeFileSync(
+    path.join(w.bin, process.platform === "win32" ? "uv.exe" : "uv"),
+    "",
+  );
+  w.transcriber = path.join(w.tmp, "fake-transcriber.mjs");
+  fs.writeFileSync(
+    w.transcriber,
+    `import fs from "node:fs";
+import { createHash } from "node:crypto";
+import readline from "node:readline";
+process.stdout.write(JSON.stringify({ ready: true }) + "\\n");
+for await (const line of readline.createInterface({ input: process.stdin })) {
+  const bytes = fs.readFileSync(JSON.parse(line).file);
+  const text = "heard " + bytes.length + " bytes " + createHash("sha256").update(bytes).digest("hex");
+  process.stdout.write(JSON.stringify({ text }) + "\\n");
+}
+`,
+  );
+  markVoice(w.home);
   Object.assign(process.env, {
     HOME: w.home,
     USERPROFILE: w.home,
@@ -547,6 +599,16 @@ async function startPage() {
     render: (c) => {
       page.ctx = c;
       if (c.connected) page.sessions++;
+      return new FakeElement("div");
+    },
+  });
+  // The pairing screen, drawn when the PC no longer holds the page's device: the time it was first drawn.
+  screens.registerScreen({
+    id: "pairing",
+    title: "Pair",
+    actions: [],
+    render: () => {
+      page.pairingAt ??= Date.now();
       return new FakeElement("div");
     },
   });
@@ -646,7 +708,7 @@ async function caseLongOutage() {
 }
 
 // The page's socket is held only once its first ping (20 s after it opened) had its pong, so the dead link is found
-// at the second ping, 50 s after the open: the session ended after more than the page's 30 s (UP_RESET_MS), and the
+// at the second ping, 50 s after the open: the session ended after more than the page's 45 s (UP_RESET_MS), and the
 // retry waits the long outage grew start over (the first wait at most 1 s). Held earlier, the drop came 30 s after
 // the open, the session's up time a few ms either side of 30 s, and on a slow machine the grown waits (up to 30 s)
 // stayed.
@@ -665,7 +727,7 @@ async function caseHalfOpenPage() {
   );
   const back = await within(pageUp, 10);
   check(
-    "after a session up over 30 s the phone must reconnect within 10 s once it dropped a half-open link (its retry waits start over)",
+    "after a session up over 45 s the phone must reconnect within 10 s once it dropped a half-open link (its retry waits start over)",
     back !== null,
     `page sockets +${pageSockets.length - from}`,
   );
@@ -880,6 +942,154 @@ async function caseRelayRestart() {
 }
 
 // ---- old with new (design section 6): the released 26.3.1 page channel and PC program
+// The page's link is held right after each hello, so it dies at its first ping (20 s + pong wait 10 s), three times
+// in a row. Each session was up under 45 s, so the retry waits keep growing: the third wait is longer than the first.
+// Math.random is held near 1 here, so each wait is its full 2^n s and the two waits compare without chance.
+async function caseDeadAtFirstPing() {
+  const random = Math.random;
+  Math.random = () => 0.999;
+  const waits = [];
+  try {
+    // A wake starts the retry waits over, whatever the cases before left; the page goes back to its first way to the
+    // relay (the network switch moved it to the second).
+    w.pageProxy.heal();
+    page.url = `${w.pageProxy.url}/`;
+    page.win.online();
+    if ((await within(pageUp, 10)) === null)
+      throw new Error("the page did not connect after a wake");
+    for (let i = 0; i < 3; i++) {
+      w.pageProxy.hold();
+      if ((await within(() => !pageUp(), 35)) === null)
+        throw new Error(
+          "the page did not drop a link held before its first ping",
+        );
+      const droppedAt = Date.now();
+      const n = pageSockets.length;
+      w.pageProxy.heal();
+      if ((await within(pageUp, 20)) === null)
+        throw new Error("the page did not reconnect after a held link");
+      waits.push(secs(pageSockets[n].at - droppedAt));
+    }
+  } finally {
+    Math.random = random;
+  }
+  check(
+    "a link that dies at its first ping, again and again, must make the third retry wait longer than the first (a session up 30 s does not start the waits over)",
+    waits[2] > waits[0],
+    `waits ${waits.join(" ")} s`,
+  );
+  timings.push(`dead at first ping, 3 times: waits ${waits.join(" ")} s`);
+  page.win.online();
+  await within(pageUp, 10);
+  await steady("links that died at their first ping");
+}
+
+// The link closes while the hello is being sealed: the caller gets the error, and no promise is left rejected with
+// no one listening (in a browser, an "Uncaught (in promise)" line; in Node, a crash).
+async function caseHelloClosed() {
+  const unhandled = [];
+  const record = (e) => unhandled.push(e?.message ?? String(e));
+  process.on("unhandledRejection", record);
+  try {
+    const link = await w.channel.openLink({
+      url: w.channel.socketUrl(w.relay.url),
+      initData: w.initData,
+      WebSocket: RealSocket,
+    });
+    const opening = w.channel.openSession(link, {
+      K: w.B.K,
+      dev: w.B.dev,
+      pageVersion: VERSION,
+      onEvent: () => {},
+    });
+    link.drop("test");
+    const err = await opening.then(
+      () => null,
+      (e) => e,
+    );
+    await sleep(100);
+    check(
+      "a link closed during the hello must give the caller an error and leave no unhandled rejection",
+      err !== null && unhandled.length === 0,
+      `error ${err?.code}, unhandled: ${unhandled.join("; ")}`,
+    );
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+}
+
+// sendStream's size limit: none given keeps 25 MB (message attachments), FILES_STREAM_MAX (50 MB) lets a bigger
+// stream out. Device B's own session, straight to the relay; every frame it sends is counted.
+async function caseStreamLimit() {
+  const { link, s } = await deviceSession(w.channel, w.B);
+  const sent = [];
+  const send = link.send;
+  link.send = (f) => {
+    sent.push(f);
+    return send(f);
+  };
+  const over = new Uint8Array(w.channel.STREAM_MAX + 1);
+  const err = await s.sendStream(over, "application/octet-stream").then(
+    () => null,
+    (e) => e,
+  );
+  check(
+    "a stream one byte over 25 MB with no limit given must be refused with too-big before any piece is sent",
+    err?.code === "too-big" && sent.length === 0,
+    `error ${err?.code}, frames sent ${sent.length}`,
+  );
+  let pieces = 0;
+  const big = s
+    .sendStream(
+      over,
+      "application/octet-stream",
+      () => pieces++,
+      w.channel.FILES_STREAM_MAX,
+    )
+    .catch((e) => e);
+  const out = await within(() => pieces > 0, 50);
+  check(
+    "the same stream with FILES_STREAM_MAX (50 MB) must send its first piece",
+    out !== null && w.channel.FILES_STREAM_MAX === 50 * 1024 * 1024,
+    `pieces ${pieces}, FILES_STREAM_MAX ${w.channel.FILES_STREAM_MAX}`,
+  );
+  link.drop("test");
+  await big;
+}
+
+// The page's own device is removed at the PC (as Settings' Remove on another device does). On the next hello the PC
+// answers app-fail unknown-device: the page shows pairing with the reason within 2 s and tries no more.
+async function caseUnknownDevice() {
+  const removed = await page.ctx
+    .ask("devices.remove", { device: w.A.dev })
+    .catch((e) => ({ ok: false, err: e.code ?? e.message }));
+  if (!removed.ok)
+    throw new Error(`devices.remove failed: ${JSON.stringify(removed)}`);
+  page.pairingAt = null;
+  // A wake: the page says hello again at once.
+  page.win.online();
+  const shown = await within(
+    () =>
+      page.pairingAt !== null &&
+      els.content.textContent.includes(
+        "This device is no longer paired with your PC.",
+      ),
+    2,
+  );
+  check(
+    'a device the PC no longer holds must show pairing with "This device is no longer paired with your PC." within 2 s of its hello',
+    shown !== null,
+    `pairing drawn ${page.pairingAt !== null}; the page shows: ${els.content.textContent.slice(0, 200)}`,
+  );
+  const n = pageSockets.length;
+  await wait(6);
+  check(
+    "a device the PC no longer holds must make no further connect attempt",
+    pageSockets.length === n,
+    `page sockets +${pageSockets.length - n}`,
+  );
+}
+
 async function startOld() {
   const dir = path.join(w.tmp, "old");
   if (!extractOld(dir)) {
@@ -907,19 +1117,214 @@ async function startOld() {
     st.ok === true,
     JSON.stringify(st).slice(0, 200),
   );
-  // An old PC joins the same relay with its own keys (unpaired: one PC per Telegram user).
+  // This page with an old PC: the old PC on a relay of its own (one PC per Telegram user), paired by this page's
+  // channel.
   old.home = path.join(w.tmp, "old-home");
   fs.mkdirSync(old.home);
   old.env = pcEnvFor(old.home);
   const oldPc = path.join(dir, "skills", "phone-bot", "pc");
-  setupRun(path.join(oldPc, "setup.mjs"), ["join", w.relay.url], old.env);
-  old.pc = startProgram([path.join(oldPc, "main.mjs")], old.env);
+  const oldSetup = path.join(oldPc, "setup.mjs");
+  old.relay = await w.startRelay({
+    ...w.relayOpts,
+    port: 0,
+    storeFile: path.join(w.tmp, "old-pc-relay-store.bin"),
+  });
+  setupRun(oldSetup, ["join", old.relay.url], old.env);
+  old.pc = startProgram([SELF, "--pc", oldPc], old.env);
   if (
     (await within(() => / connect pc-/.test(logText(old.home)), 100)) === null
   )
     throw new Error(`the old PC program did not connect:\n${old.pc.out}`);
   old.pcAt = Date.now();
+  const paired = await pairWith(
+    w.channel,
+    old.relay.url,
+    oldSetup,
+    old.env,
+    "iphone",
+  );
+  const mine = await deviceSession(w.channel, paired, () => {}, old.relay.url);
+  const st2 = await mine.s.ask("pc.status", {});
+  check(
+    `this page / ${OLD_TAG} PC: a session must open and pc.status must answer`,
+    mine.s.hello.page === "ok" && st2.ok === true,
+    JSON.stringify({ hello: mine.s.hello, st2 }).slice(0, 300),
+  );
+  const list = await mine.s.ask("folder.list", { dir: "" });
+  check(
+    `this page / ${OLD_TAG} PC: folder.list must be refused with not-offered (the PC has no Files actions)`,
+    list.ok === false && list.err === "not-offered",
+    JSON.stringify(list).slice(0, 200),
+  );
+  // The frame's rule (frame/app.js `offered`, through frame/offers.js): a screen whose actions are not all
+  // offered is greyed with its update line.
+  check(
+    `this page / ${OLD_TAG} PC: the Files tab must be greyed with its update line (the frame must not offer folder.list to a PC without it, and must still offer its old actions)`,
+    !(await offersRule())(mine.s.hello, "folder.list") &&
+      (await offersRule())(mine.s.hello, "sessions.list"),
+    JSON.stringify(mine.s.hello).slice(0, 300),
+  );
+  await mine.s.bye();
+  mine.link.close();
+  old.r = await startOldRelay(dir, old.channel);
   return old;
+}
+
+// This PC program with the old relay and page: the old relay (local/server.mjs of the tag) serving the old page,
+// the old page channel paired with this PC program. The PC's home holds a stand-in Nimbalyst (endpoint file and
+// database, as tests/test-phone-alerts.mjs) with one running session, so a finished session gives an alert.
+async function startOldRelay(dir, oldChannel) {
+  const r = { home: path.join(w.tmp, "old-relay-home"), tg: [], dbs: [] };
+  fs.mkdirSync(r.home);
+  const { startLocalRelay } = await import(
+    pathToFileURL(path.join(dir, "phone", "relay", "local", "server.mjs")).href
+  );
+  r.relay = await startLocalRelay({
+    ...w.relayOpts,
+    port: 0,
+    pageDir: path.join(dir, "phone", "page"),
+    storeFile: path.join(w.tmp, "old-relay-store.bin"),
+    telegram: async (method, params) => {
+      r.tg.push({ method, params });
+      if (method === "getMe") return { id: BOT_ID, has_topics_enabled: false };
+      return method === "sendMessage" ? { message_id: r.tg.length } : true;
+    },
+  });
+  const project = path.join(w.tmp, "alpha-web");
+  r.env = pcEnvFor(r.home);
+  // Where the PC looks for Nimbalyst (core/files.mjs nimbalystDir): APPDATA on Windows, else under the home. Both
+  // get the fixture, so the case does not hang on which one PHONE_PC_PLATFORM picks.
+  const nims = [
+    path.join(r.env.APPDATA, "@nimbalyst", "electron"),
+    process.platform === "darwin"
+      ? path.join(
+          r.home,
+          "Library",
+          "Application Support",
+          "@nimbalyst",
+          "electron",
+        )
+      : path.join(r.home, ".config", "@nimbalyst", "electron"),
+  ];
+  r.env.NIMBALYST_ENDPOINT_FILE = path.join(nims[0], "mcp-endpoint.json");
+  const { DatabaseSync } = await import("node:sqlite");
+  const at = new Date().toISOString();
+  for (const nim of nims) {
+    fs.mkdirSync(path.join(nim, "sqlite-db"), { recursive: true });
+    fs.writeFileSync(
+      path.join(nim, "mcp-endpoint.json"),
+      JSON.stringify({
+        port: 1,
+        token: "test-token",
+        pid: process.pid,
+        workspaces: [{ name: "alpha-web", path: project }],
+      }),
+    );
+    const db = new DatabaseSync(
+      path.join(nim, "sqlite-db", "nimbalyst.sqlite"),
+    );
+    db.exec(`
+      CREATE TABLE ai_sessions (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT,
+        provider_session_id TEXT, worktree_id TEXT, model TEXT, metadata TEXT NOT NULL DEFAULT '{}',
+        is_archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE worktrees (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, path TEXT NOT NULL);
+      CREATE TABLE ai_agent_messages (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, created_at TEXT NOT NULL,
+        direction TEXT NOT NULL, content TEXT NOT NULL, message_kind TEXT);
+    `);
+    db.prepare(
+      "INSERT INTO ai_sessions (id, workspace_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      "00000000-0000-4000-8000-000000000001",
+      project,
+      "Fix the login page",
+      "running",
+      at,
+      at,
+    );
+    r.dbs.push(db);
+  }
+  setupRun(SETUP, ["join", r.relay.url], r.env);
+  r.pc = startProgram([SELF, "--pc"], r.env);
+  if ((await within(() => / connect pc-/.test(logText(r.home)), 100)) === null)
+    throw new Error(
+      `the PC program did not connect to the old relay:\n${r.pc.out}`,
+    );
+  r.pcAt = Date.now();
+  const paired = await pairWith(
+    oldChannel,
+    r.relay.url,
+    SETUP,
+    r.env,
+    "iphone",
+  );
+  r.page = await deviceSession(oldChannel, paired, () => {}, r.relay.url);
+  const st = await r.page.s.ask("pc.status", {});
+  check(
+    `${OLD_TAG} relay and page / this PC: a session must open and pc.status must answer`,
+    r.page.s.hello.page === "ok" &&
+      st.ok === true &&
+      st.d?.setupVersion === VERSION,
+    JSON.stringify({ hello: r.page.s.hello, st }).slice(0, 300),
+  );
+  // The watcher's first look (which sends nothing) saw the session running; now it finishes.
+  await sleep(1500);
+  for (const db of r.dbs)
+    db.prepare("UPDATE ai_sessions SET status = ?, updated_at = ?").run(
+      "completed",
+      new Date().toISOString(),
+    );
+  const alert = () =>
+    r.tg.find(
+      (c) => c.method === "sendMessage" && /finished/.test(c.params?.text),
+    );
+  await within(alert, 150);
+  check(
+    `${OLD_TAG} relay and page / this PC: a finished session's alert must reach the bot chat through the old relay`,
+    String(alert()?.params.chat_id) === String(OWNER) &&
+      /Fix the login page/.test(alert()?.params.text),
+    `${JSON.stringify(r.tg).slice(0, 300)}\npc.log: ${logText(r.home).slice(-600)}`,
+  );
+  return r;
+}
+
+// A 30 MB recording from this page's channel (its own copy on the real clock: the scaled one's waits are 10 times
+// as short) through the real PC program to voice.transcribe and the stand-in transcriber.
+// The frame's rule for which PC actions a screen may use (frame/offers.js, as the page serves it).
+async function offersRule() {
+  return (await import(pageUrl("frame/offers.js"))).offers;
+}
+
+async function caseVoice30() {
+  const ch = await import(`${pageUrl("frame/channel.js")}?real-clock`);
+  const { link, s } = await deviceSession(ch, w.B);
+  check(
+    "this page / this PC: the hello must name the PC's actions, so the frame offers the Files tab (folder.list)",
+    Array.isArray(s.hello.actions) &&
+      (await offersRule())(s.hello, "folder.list"),
+    JSON.stringify(s.hello).slice(0, 300),
+  );
+  const bytes = new Uint8Array(nodeRandom(30 * 1024 * 1024));
+  const want = createHash("sha256").update(bytes).digest("hex");
+  const started = Date.now();
+  const sent = await s
+    .sendStream(bytes, "audio/mp4", () => {}, ch.FILES_STREAM_MAX)
+    .catch((e) => ({ ok: false, err: e.code ?? e.message }));
+  const job = sent.ok
+    ? await s.ask("voice.transcribe", { stream: sent.d.stream })
+    : null;
+  let r = null;
+  for (let i = 0; i < 3 && job?.ok && !r?.d?.done; i++)
+    r = await s.ask("voice.result", { job: job.d.job });
+  check(
+    "a 30 MB recording must go from this page's channel through the PC program to voice.transcribe whole (size and SHA-256 at the transcriber)",
+    r?.ok === true &&
+      r.d.done &&
+      r.d.text === `heard ${bytes.length} bytes ${want}`,
+    JSON.stringify({ sent, job, r }).slice(0, 300),
+  );
+  timings.push(`30 MB recording to its text: ${Date.now() - started} ms real`);
+  await s.bye();
+  link.close();
 }
 
 // Checked once 135 s (more than the relay's 130 s for a socket that does not say `ping`) have passed.
@@ -931,26 +1336,61 @@ async function checkOld(old) {
   // A phone socket opening wakes the relay, which then sweeps.
   (await openWatcher()).close();
   check(
-    "old page / new relay: a page that never pings must not be closed (and pc-online did not upset it)",
+    "old page / new relay: an idle old page's link must not be closed (and pc-online did not upset it)",
     !old.page.link.closed,
     JSON.stringify(old.page.link.closed),
   );
-  const st = await old.page.s.ask("pc.status", {}).catch((e) => e);
+  // Since 26.3.2 the page's channel ends its session on the relay's pc-online (a restarted PC forgot it) and the
+  // frame says hello again; the 26.3.1 channel kept the session, so this check asked the old session itself.
+  const ended = await Promise.race([
+    old.page.s.ended,
+    sleep(2000).then(() => null),
+  ]);
+  const again = await old.channel
+    .openSession(old.page.link, {
+      K: w.O.K,
+      dev: w.O.dev,
+      pageVersion: VERSION,
+      onEvent: () => {},
+    })
+    .catch((e) => e);
+  const st = again?.ask
+    ? await again.ask("pc.status", {}).catch((e) => e)
+    : again;
   check(
-    "old page / new relay: after 135 s and a PC reconnect, its session must still answer",
-    st?.ok === true,
-    String(st?.code ?? JSON.stringify(st)).slice(0, 200),
+    "old page / new relay: after 135 s and a PC reconnect, its session must end with pc-online and a new hello must answer",
+    ended?.code === "pc-online" && st?.ok === true,
+    JSON.stringify({ ended: ended?.code ?? ended, st: st?.code ?? st }).slice(
+      0,
+      200,
+    ),
   );
   const text = logText(old.home);
   check(
-    "old PC / new relay: a PC that pings once a minute with no ping field must stay connected (one connect, no close)",
+    "old PC / new relay: the old PC must stay connected (one connect, no close)",
     count(text, / connect pc-/g) === 1 && count(text, / closed /g) === 0,
-    text.slice(-600),
+    text
+      .split("\n")
+      .filter((l) => / connect pc-| closed | dead| ping/.test(l))
+      .join("\n")
+      .slice(-1200),
+  );
+  const r = old.r;
+  const st2 = await r.page.s.ask("pc.status", {}).catch((e) => e);
+  const text2 = logText(r.home);
+  check(
+    `${OLD_TAG} relay and page / this PC: after 135 s the session must still answer and the PC must have connected once, with no close`,
+    st2?.ok === true &&
+      !r.page.link.closed &&
+      count(text2, / connect pc-/g) === 1 &&
+      count(text2, / closed /g) === 0,
+    `${String(st2?.code ?? JSON.stringify(st2)).slice(0, 200)}\n${text2.slice(-600)}`,
   );
   timings.push(
-    `old pairs: old page idle ${secs(Date.now() - old.openedAt)} s, old PC ${secs(Date.now() - old.pcAt)} s, neither closed`,
+    `old pairs: old page idle ${secs(Date.now() - old.openedAt)} s, old PC ${secs(Date.now() - old.pcAt)} s, this PC on the old relay ${secs(Date.now() - r.pcAt)} s, none closed`,
   );
   old.page.link.close();
+  r.page.link.close();
 }
 
 async function runAll() {
@@ -969,13 +1409,23 @@ async function runAll() {
     if (old) await checkOld(old);
     await casePcRestart();
     await caseRelayRestart();
+    await caseDeadAtFirstPing();
+    await caseHelloClosed();
+    await caseStreamLimit();
+    await caseVoice30();
+    // Last: it removes the page's device at the PC.
+    await caseUnknownDevice();
   } catch (e) {
     check("the run finished", false, e.stack);
   } finally {
     await stopProgram(w.pc);
     await stopProgram(old?.pc);
+    await stopProgram(old?.r?.pc);
+    for (const db of old?.r?.dbs ?? []) db.close();
     for (const p of [w.pageProxy, w.pageProxy2, w.pcProxy]) await p?.close();
     await w.relay?.close();
+    await old?.relay?.close();
+    await old?.r?.relay?.close();
     if (w.tmp)
       fs.rmSync(w.tmp, { recursive: true, force: true, maxRetries: 5 });
   }
@@ -985,5 +1435,5 @@ async function runAll() {
   process.exit(failed ? 1 : 0);
 }
 
-if (process.argv[2] === "--pc") await runPc();
+if (process.argv[2] === "--pc") await runPc(process.argv[3]);
 else await runAll();

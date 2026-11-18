@@ -11,7 +11,6 @@ import { el, icon } from "../frame/dom.js";
 const MB = 1024 * 1024;
 const MAX_FILES = 8;
 const MAX_ALL = 25 * MB; // the stream cap: all files of one message together
-const STREAMS = 2; // the channel takes 2 streams at once
 // The PC's caps per kind (actions/attach.mjs).
 const CAP = { picture: 20 * MB, pdf: 10 * MB, text: 10 * MB };
 const PICTURES = new Set([
@@ -58,7 +57,6 @@ const SAY = {
   "not-connected": "no link to the PC right now",
   closed: "the link to the PC closed",
   "pc-offline": "the PC is off or asleep",
-  busy: "the link was busy",
   "stream-broken": "it did not arrive whole",
   "no-stream": "it did not arrive whole",
   "attachment-unknown": "the PC no longer has it",
@@ -105,19 +103,6 @@ function stateFor(key) {
 function redraw(s) {
   s.view?.draw();
   s.view?.changed();
-}
-
-// At most 2 streams at once (the channel answers "busy" past that); the others wait their turn.
-let open = 0;
-const waiting = [];
-const slot = () =>
-  open < STREAMS
-    ? (open++, Promise.resolve())
-    : new Promise((ok) => waiting.push(ok));
-function free() {
-  const next = waiting.shift();
-  if (next) next();
-  else open--;
 }
 
 // The attach parts of one typing box: the paperclip `button` for the button row, the `chips` row and the `lines`
@@ -418,7 +403,8 @@ async function toJpeg(file) {
   });
 }
 
-// Sends one file and keeps its id; Retry runs it once more.
+// Sends one file and keeps its id; Retry runs it once more. The channel's stream line keeps at most 2 streams
+// going at once; the others wait their turn there, the chip still "uploading".
 async function upload(s, f) {
   const run = ++f.run;
   f.phase = "uploading";
@@ -426,11 +412,10 @@ async function upload(s, f) {
   f.line = null;
   f.retry = false;
   redraw(s);
-  await slot();
   let r;
   try {
-    if (f.removed || run !== f.run) return;
     const bytes = new Uint8Array(await f.file.arrayBuffer());
+    if (f.removed || run !== f.run) return;
     const { ctx, target } = s.view;
     r = await ctx.sendStream(bytes, f.file.type || "text/plain", (part) => {
       if (run !== f.run || f.removed) return;
@@ -445,8 +430,6 @@ async function upload(s, f) {
       });
   } catch (e) {
     r = e;
-  } finally {
-    free();
   }
   if (run !== f.run) return;
   if (f.removed) {

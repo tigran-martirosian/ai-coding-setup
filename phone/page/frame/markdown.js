@@ -4,10 +4,137 @@
 // italic, strikethrough and links. A web link opens only for http and https. A link with no URL scheme is a file
 // link (files design, "File link in an answer"): when `files.links` (the PC's links of this text) has its target,
 // it draws as a link and a tap calls files.open(link); any other link stays plain text.
-import { el } from "./dom.js";
+// A fenced code block has a head with its language, a wrap switch and a copy icon (comfort design, section 6).
+import { el, icon } from "./dom.js";
 
 // The file links of the text being drawn: { links, open } while markdown() runs, else null.
 let files = null;
+
+// ---- reading choices (comfort design, section 6): the text size and the code blocks' wrap, kept on the phone
+// beside the drafts. They belong to the phone, not to a PC, so Unpair leaves them (cache.js clears only kept
+// screens). localStorage can be blocked in a webview: a choice then lasts while the page does.
+export const TEXT_SIZES = [
+  { size: "small", word: "Small" },
+  { size: "default", word: "Default" },
+  { size: "large", word: "Large" },
+];
+const SIZE_KEY = "phone.text-size";
+const WRAP_KEY = "phone.code-wrap";
+const chosen = new Map(); // key -> value picked in this page; wins over storage, which may refuse the write
+function choice(key, values, first) {
+  // A choice made here stands over storage: when only the write failed, storage still holds the old one.
+  if (chosen.has(key)) return chosen.get(key);
+  let v;
+  try {
+    v = localStorage.getItem(key);
+  } catch {
+    v = null;
+  }
+  if (v === null) return first;
+  if (values.includes(v)) return v;
+  console.error(
+    `reading: dropped a kept ${key} that does not read: ${v.slice(0, 40)}`,
+  );
+  return first;
+}
+function choose(key, v) {
+  chosen.set(key, v);
+  try {
+    localStorage.setItem(key, v);
+  } catch {
+    /* storage blocked: the choice in memory stays */
+  }
+}
+export const textSize = () =>
+  choice(
+    SIZE_KEY,
+    TEXT_SIZES.map((t) => t.size),
+    "default",
+  );
+export const setTextSize = (size) => choose(SIZE_KEY, size);
+// Code wraps at first, so code reads on the iPhone without sideways scrolling.
+const wrapsNow = () => choice(WRAP_KEY, ["wrap", "scroll"], "wrap") === "wrap";
+
+// ---- copying (comfort design, section 7). The write starts inside the tap: the iPhone allows the clipboard only
+// there. done(true) once the text is on it; done(false) when the webview refused, said on the console.
+export const COPIED_MS = 1500;
+export const COPY_ICON = [
+  "M10.8 7.8h6a3 3 0 0 1 3 3v7.2a3 3 0 0 1-3 3h-6a3 3 0 0 1-3-3v-7.2a3 3 0 0 1 3-3z",
+  "M16.2 5.4v-.6a1.8 1.8 0 0 0-1.8-1.8H6a2.4 2.4 0 0 0-2.4 2.4v9.6a1.8 1.8 0 0 0 1.8 1.8H6",
+];
+export const CHECK_ICON = ["M4.8 12.6l4.8 4.8 9.6-10.8"];
+const WRAP_ICON = [
+  "M3.6 6h16.8M3.6 12h13.2a3.6 3.6 0 0 1 0 7.2h-4.8M3.6 18h4.8",
+  "M14.4 16.8l-2.4 2.4 2.4 2.4",
+];
+export function copyText(text, done) {
+  let write;
+  try {
+    write = navigator.clipboard.writeText(text);
+  } catch (e) {
+    write = Promise.reject(e);
+  }
+  write.then(
+    () => done(true),
+    (e) => {
+      console.error(`copy: the clipboard refused: ${e?.message ?? e}`);
+      done(false);
+    },
+  );
+}
+
+// A fenced block: the head (language or "Code", Wrap lines, Copy code) over the code. A tap on the wrap switch
+// changes this block and becomes the default for every code block drawn after it.
+function codeBlock(lang, code) {
+  let wrap = wrapsNow();
+  const pre = el("pre.md-pre", el("code", code));
+  const word = el("span.md-lang", lang || "Code");
+  const wrapBtn = el(
+    "button.md-tool",
+    {
+      type: "button",
+      "aria-label": "Wrap lines",
+      onclick: () => {
+        wrap = !wrap;
+        choose(WRAP_KEY, wrap ? "wrap" : "scroll");
+        drawWrap();
+      },
+    },
+    icon(WRAP_ICON, 18),
+  );
+  const copyBtn = el("button.md-tool", {
+    type: "button",
+    "aria-label": "Copy code",
+  });
+  let back = null;
+  const drawCopy = (ok) => {
+    copyBtn.className = `md-tool${ok === true ? " ok" : ok === false ? " bad" : ""}`;
+    copyBtn.replaceChildren(icon(ok === true ? CHECK_ICON : COPY_ICON, 18));
+    word.className = `md-lang${ok === true ? " ok" : ok === false ? " bad" : ""}`;
+    word.replaceChildren(
+      ok === true ? "Copied" : ok === false ? "Not copied" : lang || "Code",
+    );
+  };
+  copyBtn.addEventListener("click", () =>
+    copyText(code, (ok) => {
+      clearTimeout(back);
+      drawCopy(ok);
+      back = setTimeout(() => drawCopy(null), COPIED_MS);
+    }),
+  );
+  drawCopy(null);
+  const block = el(
+    "div.md-block",
+    el("div.md-block-head", word, wrapBtn, copyBtn),
+    pre,
+  );
+  function drawWrap() {
+    block.className = `md-block${wrap ? " wrap" : ""}`;
+    wrapBtn.setAttribute("aria-pressed", String(wrap));
+  }
+  drawWrap();
+  return block;
+}
 
 const FENCE = /^\s*(`{3,}|~{3,})/;
 const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
@@ -51,6 +178,7 @@ function blocks(lines) {
     }
     const fence = line.match(FENCE);
     if (fence) {
+      const lang = line.trim().slice(fence[1].length).trim().split(/\s/)[0];
       const body = [];
       i++;
       while (i < lines.length && !lines[i].trim().startsWith(fence[1])) {
@@ -58,7 +186,7 @@ function blocks(lines) {
         i++;
       }
       i++;
-      out.push(el("pre.md-pre", el("code", body.join("\n"))));
+      out.push(codeBlock(lang, body.join("\n")));
       continue;
     }
     const h = line.match(HEADING);

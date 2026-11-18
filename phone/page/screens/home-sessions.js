@@ -25,7 +25,8 @@ export function age(since, now = Date.now()) {
 // "live", "closed" (Nimbalyst not open), "pc-off" (no link to the PC) or null (nothing to show).
 function modeOf(ctx) {
   const { kept, fresh } = ctx.home;
-  if (!ctx.connected) return kept.sessions ? "pc-off" : null;
+  // Drawn from what Home kept on the phone (ctx.updating), the rows show as fresh.
+  if (!ctx.connected && !ctx.updating) return kept.sessions ? "pc-off" : null;
   if (!fresh) return null;
   if (kept.status.nimbalyst !== "open") return kept.sessions ? "closed" : null;
   if (!ctx.offered("home.sessions") || !kept.sessions) return null;

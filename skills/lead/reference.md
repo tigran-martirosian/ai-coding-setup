@@ -31,13 +31,13 @@ DONE WHEN: the one check that proves it
 Budget: about N tool calls
 ```
 
-Add the project's commands and its rule for checks when the step needs them: the worker doesn't see CLAUDE.md, and reads it only when the brief leaves out something it needs.
+Add the project's commands and its rule for checks when the step needs them: the worker doesn't see CLAUDE.md, and reads it only when the brief leaves out something it needs. When the project has a verify skill (`.claude/skills/verify/SKILL.md`), every helper's brief for a step that changes code names that path as the step's check: most helpers have no Skill tool, so they read the file and follow it.
 
 **Decisions in a brief are evidence, not conclusions.** Only an explicit go is a decision: a tick, "yes", "do it", "decided", or a plain choice between offered options. "I think", "what if", "let's redesign" is talk: it goes under "Talked about, not decided" in a brief, and into the topic's design note (`docs/<date>-<topic>-design.md`) or else HANDOFF.md under the topic, marked "talk, not decided"; when unsure, ask one line. A decided item holds the user's words in quotes, cleaned: only the words that carry the decision, misheard words fixed, fillers cut with "…", meaning unchanged; a form's field label and the full text of its ticked option (and anything typed with it) stay word for word. Each item says where it came from. What the user said against a proposal comes first. An item with no quote, and anything you worked out from a decision, goes under "Proposed by Claude, not confirmed". A worker told to write DECISIONS.md or a rule file writes only the quoted items and reports the rest back.
 
 **The purpose record.** When the user says what a thing is for, write it into the first section of `DECISIONS.md`, `## What each thing is for`, one line per thing: `- **<thing>** (also: <name>, …): "<cleaned words>" · *<YYYY-MM-DD>* · from "<raw phrase>"`, and show the line to the user. A hook refuses a worker start on a row that names a recorded thing without that entry's words in Serves, or with a limit not marked `NARROWED: <what>, because <why>`: fix the row, not the hook.
 
-**A reviewer's brief carries the purposes.** A plan-reviewer or reviewer brief quotes the Serves cell of each row it covers. A focus list adds to the agent's own checklist and never replaces it. A build review's request is the purpose decision plus the card the user ticked, never the card alone.
+**A reviewer's brief carries the purposes.** A plan-reviewer or reviewer brief quotes the Serves cell of each row it covers. A focus list adds to the agent's own checklist and never replaces it. A build review's request is the purpose decision plus the card the user ticked, never the card alone. A build reviewer's brief has one `Base: <commit>` line per repository the change touches: the commit the job's work started from (the plan's "Plan read: … at <commits>" line, or a worktree's branch point). The reviewer reads the project's `REVIEW.md` from that commit, so a change cannot loosen its own review.
 
 **What no helper sees.** No helper loads auto-memory, so a memory note that bears on the step is pasted into its brief. The project's systems map reaches every brief by itself as `SYSTEMS MAP:` lines; a planner, plan-reviewer or reviewer reads what the change reaches from those lines, and runs `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>` only for a part they don't cover or whose links they cut, never when the brief has no `SYSTEMS MAP:` line.
 
@@ -65,6 +65,18 @@ The `blind-reviewer` has only the Read tool and loads no project rules: what it 
 3. **Triage.** Mark each finding against the picture or file: fixed / disagree (with the evidence) / out of scope. Fix 3s and 4s, a 2 only when cheap. A claim marked FALSE or UNVERIFIED is checked against the newest source before any text is cut.
 4. **The one more look.** Fix, reshoot the same pictures and open them yourself. Then SendMessage the same blind reviewer the BEFORE and AFTER pictures or files and the list of claimed fixes; it answers in its follow-up form. That ends the loop: a 4 still open means the layout or the approach is wrong, so report it to the user as open. When a round's findings mostly undo the last round's fixes, that is taste: keep the last version that passed.
 5. Delete the temp folder of pictures after the report.
+
+## Review findings
+
+Read when the build review arrives, before any fix round.
+
+1. **Relay the rules line.** The reviewer's report opens with `Review rules:`. A `Changed in this change` line goes into your report to the user word for word, with its quoted lines, under the review's findings: the user decides whether a loosened `REVIEW.md` stands. A `Not applied` line goes with it.
+2. **Reproduce first.** Each Important finding comes with a proof: a command and the output it gives now. Run it yourself before you spend a fix round on it.
+   - **Reproduced:** the fix brief starts with that command. The worker runs it and sees the failure, fixes the cause, then runs it again and shows it pass. The brief names the problem and says: fix only this; report anything else you notice instead of fixing it.
+   - **Not reproduced** (the command passes, or shows something else): the finding costs no fix round. It is reported to the user as not reproduced, with the command and its output, and not fixed.
+   - **No command can show it** (a wrong text, a missing record): check the quoted lines against the file yourself, then fix or answer it.
+
+Done when: every Important finding is marked reproduced, not reproduced or checked by hand, and each `Changed in this change` line is in your report to the user.
 
 ## Claiming a row
 
@@ -99,3 +111,4 @@ Reference for `SKILL.md`, read when a default is questioned. Not steps. Sources 
 - **Plain tracker texts.** The user reads the tracker on a phone, without the plan open; titles and comments full of row codes, hashes and paths were "not readable by a human" (DECISIONS 2026-11-14), and steps made for work found mid-run kept the list growing. The rules are in `where-are-we/tracker-texts.md`.
 - **A job, not only a release.** The user checks all his work in the tracker, in every project, and work over several sessions is often no version at all: "it's not a release … it's like a video name" (DECISIONS 2026-11-14). So any such work gets one `release` item named after the work, with no kind word; the built-in `version` field marks the one that ships as a version, and only that one waits for its tag. In-review is the user's read, so it counts as waiting for him, not as running.
 - **Only an explicit go is a decision.** "I think we should only do it for big updates" was once written as decided and re-edited twice; the user said it was only talk. Quotes carried raw dictation, so they are cleaned to the words that carry the decision; a form's ticked option is not dictation and stays word for word. Talk goes to files that already exist (the design note or HANDOFF.md), so no new file kind.
+- **Reproduce first, no new agent** (DECISIONS 2026-11-17). The reviewer hands a command with each Important finding and the lead runs it, in place of an added agent that checks findings; a finding that does not reproduce goes to the user, not to a worker.

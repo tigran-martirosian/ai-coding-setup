@@ -1,4 +1,5 @@
-// Tests for hooks/lib: hook-io (runHook, isMain, inNimbalyst, emit), paths, state, settings-env.
+// Tests for hooks/lib: hook-io (runHook, isMain, inNimbalyst, emit, log-only mode), paths, state, settings-env,
+// and workers/observe-log.mjs, which prints the log-only mode's log.
 // Run: node tests/test-hook-lib.mjs
 import { spawnSync } from "node:child_process";
 import {
@@ -7,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -346,6 +348,308 @@ report(
       readFileSync(badLog, "utf8"),
     ),
   "and logs which file it skipped",
+);
+
+// Log-only mode (observe): each run gets its own home, so its observe log is its own
+let homes = 0;
+const freshHome = () => {
+  const h = join(dir, `obs-home-${++homes}`);
+  mkdirSync(h);
+  return h;
+};
+const stateOf = (h) => join(h, ".claude", "hooks", "state");
+const obsLines = (h) => {
+  const f = join(stateOf(h), "observe.jsonl");
+  return existsSync(f) && statSync(f).isFile()
+    ? readFileSync(f, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => {
+          try {
+            return JSON.parse(l);
+          } catch {
+            return null; // the cap case's filler line
+          }
+        })
+    : [];
+};
+const obsEvent = JSON.stringify({
+  session_id: "s1",
+  cwd: "C:\\Projects\\demo",
+  agent_id: "a7",
+});
+const obs = (call, { opts = "", env = {}, h = freshHome() } = {}) => {
+  const r = run(
+    `import { runHook, emit, hookMode } from ${JSON.stringify(url("hook-io.mjs"))};\nawait runHook("demo-hook", (e) => { ${call} }${opts});\n`,
+    { input: obsEvent, env: { HOME: h, USERPROFILE: h, ...env } },
+  );
+  return { ...r, log: obsLines(h), home: h };
+};
+const BLOCKED = '{"decision":"block","reason":"stop it"}';
+const block = `emit.block("stop it");`;
+
+const o1 = obs(block, { env: { DEMO_HOOK: "observe" } });
+const l1 = o1.log[0] || {};
+report(
+  o1.status === 0 &&
+    o1.stdout === "" &&
+    o1.log.length === 1 &&
+    l1.hook === "demo-hook" &&
+    l1.session === "s1" &&
+    l1.agent === "a7" &&
+    l1.cwd === "C:/Projects/demo" &&
+    l1.arm === null &&
+    l1.would === "block" &&
+    l1.reason === "stop it" &&
+    !Number.isNaN(Date.parse(l1.t)),
+  "observe: emit.block writes nothing on stdout and logs one line with hook, session, would, reason",
+);
+const o1d = obs(`emit.deny("no");`, { env: { DEMO_HOOK: "Observe" } });
+report(
+  o1d.stdout === "" && o1d.log.length === 1 && o1d.log[0].would === "deny",
+  "observe (any case): emit.deny is logged as would deny, not written",
+);
+const o2 = obs(block);
+report(
+  o2.stdout === BLOCKED && !existsSync(join(stateOf(o2.home), "observe.jsonl")),
+  "variable unset: the block is written as before and no observe log is made",
+);
+const o3 = obs(block, { opts: `, { mode: "observe" }` });
+const o3e = obs(block, {
+  opts: `, { mode: "observe" }`,
+  env: { DEMO_HOOK: "enforce" },
+});
+report(
+  o3.stdout === "" &&
+    o3.log.length === 1 &&
+    o3e.stdout === BLOCKED &&
+    o3e.log.length === 0,
+  "runHook {mode: observe} makes observe the default; DEMO_HOOK=enforce refuses",
+);
+const armed = `emit.block("stop it", { arm: "commit", mode: "observe" });`;
+const a4 = obs(armed);
+const a4e = obs(armed, { env: { DEMO_HOOK_COMMIT: "enforce" } });
+const a4off = obs(armed, { env: { DEMO_HOOK: "off" } });
+const a4armOff = obs(armed, { env: { DEMO_HOOK_COMMIT: "off" } });
+report(
+  a4.stdout === "" &&
+    a4.log.length === 1 &&
+    a4.log[0].arm === "commit" &&
+    a4e.stdout === BLOCKED &&
+    a4e.log.length === 0 &&
+    a4off.stdout === "" &&
+    a4off.log.length === 0 &&
+    a4armOff.stdout === "" &&
+    a4armOff.log.length === 0,
+  "an arm default observe logs with the arm; DEMO_HOOK_COMMIT=enforce refuses; hook or arm off: no output, no log",
+);
+const a4hook = obs(armed, { env: { DEMO_HOOK: "enforce" } });
+const a4led = obs(armed, { env: { DEMO_HOOK: "led" } });
+report(
+  a4hook.stdout === BLOCKED && a4led.stdout === "" && a4led.log.length === 1,
+  "for an arm, the hook variable counts before the arm default only when it is observe or enforce",
+);
+const o5 = obs(block, {
+  opts: `, { mode: "observe" }`,
+  env: { DEMO_HOOK: "led" },
+});
+report(
+  o5.stdout === BLOCKED && o5.log.length === 0,
+  "a value that is not a mode (DEMO_HOOK=led) is enforce, even over an observe default",
+);
+const o6 = obs(`emit.context("SessionStart", "hi");`, {
+  env: { DEMO_HOOK: "observe" },
+});
+report(
+  o6.stdout ===
+    '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"hi"}}' &&
+    o6.log.length === 0,
+  "observe: emit.context still writes the note",
+);
+const hm = obs(
+  `console.log(hookMode("demo-hook"), hookMode("demo-hook", { arm: "commit", mode: "observe" }), hookMode("other"));`,
+  { opts: `, { mode: "observe" }`, env: { DEMO_HOOK_COMMIT: "ENFORCE" } },
+);
+report(
+  hm.stdout.trim() === "observe enforce enforce",
+  "hookMode returns the running hook's default, an arm's own variable, enforce for a hook with no settings",
+);
+
+const capHome = freshHome();
+mkdirSync(stateOf(capHome), { recursive: true });
+writeFileSync(
+  join(stateOf(capHome), "observe.jsonl"),
+  `${"x".repeat(1024 * 1024 - 1)}\n`,
+);
+const o7 = obs(block, { env: { DEMO_HOOK: "observe" }, h: capHome });
+report(
+  existsSync(join(stateOf(capHome), "observe.1.jsonl")) &&
+    readFileSync(join(stateOf(capHome), "observe.1.jsonl")).length ===
+      1024 * 1024 &&
+    o7.log.length === 1,
+  "a log of 1 MB is renamed to observe.1.jsonl before the append; observe.jsonl starts again with 1 line",
+);
+const failHome = freshHome();
+mkdirSync(join(stateOf(failHome), "observe.jsonl"), { recursive: true });
+const failLog = join(dir, "observe-fail.log");
+const o7f = obs(block, {
+  env: { DEMO_HOOK: "observe", HOOK_ERRORS_LOG: failLog },
+  h: failHome,
+});
+report(
+  o7f.status === 0 &&
+    o7f.stdout === "" &&
+    existsSync(failLog) &&
+    /demo-hook: /.test(readFileSync(failLog, "utf8")),
+  "a failed append is crash-logged and the hook still ends quietly (fail open)",
+);
+
+// observeLine: a line the hook chooses, with its own fields, in observe and enforce
+report(
+  JSON.stringify(Object.keys(l1)) ===
+    '["t","hook","arm","session","agent","cwd","would","reason"]',
+  "a refusal's log line keeps exactly the usual fields, in their order",
+);
+const logged = `observeLine("verified", "all good", { arm: "commit", mode: "observe", fields: { repo: "C:/x", files: ["a.mjs"] } });`;
+const obsLine = (call, opts) =>
+  obs(
+    `return import(${JSON.stringify(url("hook-io.mjs"))}).then(({ observeLine }) => { ${call} });`,
+    opts,
+  );
+const ol = obsLine(logged);
+const olEnf = obsLine(logged, { env: { DEMO_HOOK_COMMIT: "enforce" } });
+const olOff = obsLine(logged, { env: { DEMO_HOOK_COMMIT: "off" } });
+report(
+  ol.stdout === "" &&
+    ol.log.length === 1 &&
+    JSON.stringify(Object.keys(ol.log[0])) ===
+      '["t","hook","arm","session","agent","cwd","would","reason","repo","files"]' &&
+    ol.log[0].would === "verified" &&
+    ol.log[0].arm === "commit" &&
+    ol.log[0].files[0] === "a.mjs" &&
+    olEnf.stdout === "" &&
+    olEnf.log.length === 1 &&
+    olOff.log.length === 0,
+  "observeLine writes one line with its fields after the usual ones, in observe and in enforce, none when off",
+);
+const clashLog = join(dir, "observe-clash.log");
+const olClash = obsLine(`observeLine("x", "y", { fields: { would: "z" } });`, {
+  env: { HOOK_ERRORS_LOG: clashLog },
+});
+report(
+  olClash.status === 0 &&
+    olClash.log.length === 0 &&
+    /usual field/.test(readFileSync(clashLog, "utf8")),
+  "observeLine refuses a field with a usual name (crash-logged, no line)",
+);
+
+// workers/observe-log.mjs
+const WORKER = fileURLToPath(
+  new URL("../workers/observe-log.mjs", import.meta.url),
+);
+const printLog = (h, args = []) =>
+  spawnSync(process.execPath, [WORKER, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: h, USERPROFILE: h },
+  });
+const noLog = printLog(freshHome());
+report(
+  noLog.status === 0 &&
+    noLog.stdout.trim() ===
+      "no observe log yet (~/.claude/hooks/state/observe.jsonl)",
+  "observe-log with no log says so and exits 0",
+);
+const fixHome = freshHome();
+mkdirSync(stateOf(fixHome), { recursive: true });
+const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+const entry = (hook, arm, session, would, min, cwd = "C:/Projects/one") =>
+  JSON.stringify({
+    t: ago(min),
+    hook,
+    arm,
+    session,
+    agent: null,
+    cwd,
+    would,
+    reason: `${hook} says no`,
+  });
+writeFileSync(
+  join(stateOf(fixHome), "observe.1.jsonl"),
+  `${entry("sample-gate", "stop", "s1", "block", 30)}\n${entry("sample-gate", "stop", "s1", "block", 20 * 24 * 60)}\n`,
+);
+writeFileSync(
+  join(stateOf(fixHome), "observe.jsonl"),
+  [
+    entry("sample-gate", "stop", "s2", "block", 20, "C:/Projects/two"),
+    entry("verify-gate", "commit", "s3", "deny", 10),
+    "not json",
+    entry("sample-gate", "stop", "s2", "block", 5),
+    entry("verify-gate", "commit", "s3", "deny", 1),
+  ].join("\n"),
+);
+const printed = printLog(fixHome);
+const heads = printed.stdout.split("\n").filter((l) => /^\S/.test(l));
+report(
+  printed.status === 0 &&
+    heads[0] ===
+      "verify-gate/commit  2 would-deny in 7 days, 1 session, 1 project" &&
+    heads[1] ===
+      "sample-gate/stop  3 would-block in 7 days, 2 sessions, 2 projects" &&
+    heads[2] === "bad lines: 1" &&
+    /^ {2}\d{4}-\d\d-\d\d \d\d:\d\d {2}one {2}verify-gate says no$/m.test(
+      printed.stdout,
+    ),
+  "observe-log prints one block per hook, newest first, with counts in the window and bad lines",
+);
+const onlyOne = printLog(fixHome, ["--hook", "sample-gate"]);
+report(
+  /sample-gate\/stop/.test(onlyOne.stdout) &&
+    !/verify-gate/.test(onlyOne.stdout),
+  "observe-log --hook shows only that hook",
+);
+const ownHome = freshHome();
+mkdirSync(stateOf(ownHome), { recursive: true });
+const own = (would, min) =>
+  JSON.stringify({
+    ...JSON.parse(entry("verify-gate", "commit", "s4", would, min)),
+    repo: "C:/r",
+    files: ["a.mjs", "b.mjs"],
+    lastVerify: "none",
+  });
+writeFileSync(
+  join(stateOf(ownHome), "observe.jsonl"),
+  `${own("would-refuse", 3)}\n${own("verified", 2)}\n`,
+);
+const ownPrinted = printLog(ownHome).stdout;
+report(
+  /^verify-gate\/commit {2}1 verified, 1 would-refuse in 7 days/m.test(
+    ownPrinted,
+  ) &&
+    /^ {2}\S+ \S+ {2}one {2}verified {2}verify-gate says no$/m.test(
+      ownPrinted,
+    ) &&
+    /^ {6}repo=C:\/r files=a\.mjs,b\.mjs lastVerify=none$/m.test(ownPrinted),
+  "observe-log counts a hook's own verdicts as they are and shows each line's verdict and own fields",
+);
+const manyHome = freshHome();
+mkdirSync(stateOf(manyHome), { recursive: true });
+writeFileSync(
+  join(stateOf(manyHome), "observe.jsonl"),
+  Array.from({ length: 8 }, (_, i) =>
+    entry("verify-gate", "commit", `m${i}`, "would-refuse", 10 + i),
+  ).join("\n"),
+);
+const timeLines = (out) =>
+  out.split("\n").filter((l) => /^ {2}\d{4}-/.test(l)).length;
+report(
+  timeLines(printLog(manyHome).stdout) === 5 &&
+    timeLines(printLog(manyHome, ["--all"]).stdout) === 8,
+  "observe-log shows the last 5 lines per hook, and every line in the window with --all",
+);
+report(
+  (readFileSync(join(LIB, "hook-io.mjs"), "utf8").match(/observe/g) || [])
+    .length > 0,
+  "hook-io.mjs has the observe mode",
 );
 
 rmSync(dir, { recursive: true, force: true });
