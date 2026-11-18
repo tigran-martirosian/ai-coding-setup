@@ -2086,6 +2086,12 @@ const WANT = [
   ["Stop", "", "", "code-review-gate.mjs"],
   ["Stop", "", "", "verify-gate.mjs"],
   ["PreToolUse", "Bash|PowerShell", "", "code-review-gate.mjs --pre"],
+  [
+    "PreToolUse",
+    "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal",
+    "",
+    "verify-gate.mjs --pre",
+  ],
   ["PreToolUse", "Bash|PowerShell", "", "opencli-readonly.mjs"], // the user's own, from another folder
   ["PreToolUse", "Bash|PowerShell", "Bash(*opencli*)", "opencli-readonly.mjs"],
   [

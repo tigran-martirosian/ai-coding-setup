@@ -42,12 +42,28 @@ shows the pairing screen and goes no further. Two other ways go further:
 
 - `node tests/test-phone-e2e.mjs` runs the whole path without Telegram: the built page served by the local relay,
   the real PC program joined to it, and the page's channel code pairing and asking the PC.
-- `node phone/page/pictures.mjs [pairing] [home] [settings]` takes pictures with Playwright's headless Chromium
-  shell (it must be installed, e.g. `npx playwright install chromium-headless-shell`, or named in
-  `PHONE_PAGE_BROWSER`) into `%TEMP%/phone-app-shots/`: the pairing screen at 390 and 900 px, Home at 390 px against
-  a fake PC (Nimbalyst open, Nimbalyst closed, PC off), and Settings at 390 px, dark and light. For Home and Settings
-  it swaps in a fake Telegram host, a stored pairing and a channel that answers from fixed answers, in a temp build
-  only.
+- `node phone/page/pictures.mjs [pairing] [wide] [filestab] [comfort] [home] [settings] …` (no word: every set; the
+  list is at the top of the script) takes pictures with Playwright's headless Chromium shell, muted, with no window
+  on the screen (it must be installed, e.g. `npx playwright install chromium-headless-shell`, or named in
+  `PHONE_PAGE_BROWSER`) into `%TEMP%/phone-app-shots/`, dark and light, with Telegram's theme colours in the page
+  address. It swaps in a fake Telegram host, a stored pairing and a fake PC that answers from fixed answers, in a
+  temp build only. The sizes: 390x844 (iPhone), 384x694 (Telegram Desktop as it opens), 1920x1080 and 2560x1440
+  (Desktop full screen at 100%).
+  - `wide`: every tab screen and the session view (Home, Projects, a project, Files, a Files folder, Settings, a
+    session) at the four sizes. At 1920 and 2560 it prints the column, Home's columns, the tab group and the Files
+    tiles and cards it measured beside the design's widths, and fails when one differs.
+  - `filestab`: the Files tab's states at 390 and 1920: empty, an empty folder, drag over (also too big),
+    uploading and waiting, failed and too big, the file menu, the move sheet, sending, sent and send failed, the PC
+    without the folder actions, the PC off.
+  - `comfort`: the skeletons of Home, Projects and Files, a reply's Copy menu and a sent message's "Sending…" mark,
+    at the four sizes.
+  - After each picture it prints a line with the shot's name and "no overflow", or the elements that reach past the
+    window's sides. The run fails at its end when any shot overflows.
+
+`wide.css`, linked last, holds every width rule (files screens design, section 2): from 600 px the app spans the
+window and its column is 640 (608 inside); from 1200 px 1104 with Home in 2 columns; from 2000 px 1440 with Home in
+3; the session view stays a 760 column; the tab bar's buttons are a centred group 480 wide. The Files tiles and
+cards are in `files.css`.
 
 ## The link
 
@@ -56,7 +72,13 @@ screen says about the link.
 
 - The page pings every 20 seconds. If no pong comes within 10 seconds, it drops the socket and connects again.
 - A failed attempt waits a random time between 0.25 seconds and 2^n seconds, at most 30 seconds. A session that
-  stayed up 30 seconds starts the waits over.
+  stayed up 45 seconds starts the waits over. A link that dies at its first ping (after 30 seconds) keeps the
+  waits growing.
+- When the PC no longer holds this device (it was removed at the PC or from another device), the PC answers the
+  hello with `unknown-device`. The page tries no more: it forgets the pairing as Settings' Unpair does and shows
+  pairing with "This device is no longer paired with your PC."
+- `sendStream` refuses a stream over its caller's size limit before any piece goes out. With no limit it is 25 MB
+  (message attachments); files and voice notes pass `FILES_STREAM_MAX`, 50 MB.
 - The phone's `online` event and a page shown from the cache drop the old socket and open a new one at once: a
   socket that may have died silently on the old network is not trusted. A hidden page closes its link, and it
   connects again when it is shown.
@@ -78,13 +100,17 @@ not check the reload, the cache or sleep.
 ## Screens
 
 Each file in `screens/` registers what it draws when it is imported (`frame/screens.js`). The build writes
-`screens.generated.js` with one import per file in `screens/`, so a new screen is a new file and no frame file
-changes.
+`screens.generated.js`: an import per first-wave file (one that registers a tab screen or a Home part), `LATER` (the
+ids of the screens in the other files) and `loadRest()`, which imports the other files after the first draw. A new
+screen is a new file and no frame file changes. Every `registerScreen` call starts with `id` and `tab`, as the build
+reads them from the text.
 
-- `registerScreen({ id, tab, title, render, actions })`: `tab` is `"home"`, `"projects"` or `"settings"` for that
-  tab's top screen, or `null`; `title` is text or `(params) => text`; `render(ctx)` returns an element, or
-  `{ content, bottom }` where `bottom` sits above Telegram's main button; `actions` lists the PC actions the screen
-  uses, so the frame greys it when the PC does not offer them.
+- `registerScreen({ id, tab, title, render, actions, updateLine, keep })`: `tab` is `"home"`, `"projects"` or
+  `"settings"` for that tab's top screen, or `null`; `title` is text or `(params) => text`; `render(ctx)` returns an
+  element, or `{ content, bottom }` where `bottom` sits above Telegram's main button; `actions` lists the PC actions
+  the screen uses, so the frame greys it when the PC does not offer them; `updateLine` is the screen's own words in
+  place of the frame's read-only line then; `keep` is the `frame/cache.js` name the screen keeps its last answer
+  under, so the frame draws it before the first hello.
 - `registerHomePart({ id, order, render })`: one block on Home, drawn in `order` (PC status 10, version 20, needs
   you 30, working 40, jobs 50, usage 60). `render(ctx)` returns an element or `null`; `ctx.home` holds what the
   Home screen asked the PC.
@@ -109,6 +135,27 @@ dock take their places.
 
 An alert's Open button opens the page as `/?o=<handle>`. Once linked, the frame asks the PC `alerts.resolve` for the
 handle's project and session and opens the session view; a handle older than 7 days gives a line that says so.
+
+## The instant open
+
+The page shows something at once and the content as soon as it can (`docs/2026-11-17-phone-comfort-design.md`,
+sections 2 to 4):
+
+- `index.html` holds each tab's skeleton shapes (`#sk-home`, `#sk-projects`, `#sk-settings`) and a tab bar, styled
+  by `shell.css`, the only style file that holds the first paint. The other style files load as preloads, Telegram's
+  script is `async`, and the build writes one `<link rel="modulepreload">` per first-wave module.
+- `frame/boot.js` runs first (the content policy allows no inline script): it sets Telegram's theme colours from the
+  page address, turns the preloads into style sheets, calls `ready()` once Telegram's script ran, and lets the
+  skeleton's tab bar switch tabs until the frame takes over.
+- Home and Projects keep their last answer on the phone (`frame/cache.js`, names `home` and `projects`; Home's parts
+  keep theirs with `keepPart` in `home.js`). On the next open a kept tab screen is drawn before Telegram's script
+  and the pairing are read, with `ctx.updating` true: it draws as if fresh, asks nothing, and the title row says
+  "Updating · as of 14:05" until the first hello. Where nothing is kept, the tab's shapes stand in its place.
+- Unpair, and a missing pairing, clear everything kept.
+
+    node phone/page/timing.mjs [--ref <tag>]
+
+measures first paint and first content, cold and warm (`docs/research/2026-11-17-phone-load-times.md`).
 
 ## Telegram's script
 

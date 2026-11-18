@@ -307,6 +307,62 @@ export function readForward(fd, from, reach, visit) {
   return { cut: false };
 }
 
+// ---- the files a session wrote (files contract, section 8: the same-session rule)
+
+const WRITE_TOOLS = new Set([...EDIT_TOOLS, "NotebookEdit"]);
+// session -> { file, from, done, pending: id -> path, paths: Set }: the transcript read so far. `from` is the start
+// of the last whole line read and `done` says it was taken, so the next read starts there and skips it.
+// Kept for the last WRITTEN_SESSIONS sessions asked about; an older one is read again from the start when asked.
+const written = new Map();
+const WRITTEN_SESSIONS = 50;
+
+// The absolute paths this session's own transcript shows a Write, Edit, MultiEdit or NotebookEdit of, whose result
+// is not an error; a relative path starts at the session's base folder. Helper transcripts are separate files
+// (<session>/subagents/) and do not count. Each call reads only the lines added since the last one.
+export function writtenPaths(row, base) {
+  const file = transcriptPath(row);
+  if (!file || !fs.existsSync(checkPath(file))) return new Set();
+  let w = written.get(row.id);
+  if (!w || w.file !== file) {
+    w = { file, from: 0, done: false, pending: new Map(), paths: new Set() };
+  }
+  written.delete(row.id);
+  written.set(row.id, w);
+  if (written.size > WRITTEN_SESSIONS)
+    written.delete(written.keys().next().value);
+  const fd = openTranscript(file);
+  try {
+    // A transcript shorter than what was read was written anew: read it again from the start.
+    if (fs.fstatSync(fd).size < w.from) {
+      w.from = 0;
+      w.done = false;
+      w.pending.clear();
+      w.paths.clear();
+    }
+    readForward(fd, w.from, Number.MAX_SAFE_INTEGER, ({ at, line }) => {
+      if (w.done && at === w.from) return false;
+      w.from = at;
+      w.done = true;
+      const content = line?.message?.content;
+      for (const p of Array.isArray(content) ? content : []) {
+        const named = namedFile(p?.input);
+        if (p?.type === "tool_use" && WRITE_TOOLS.has(p.name) && named)
+          w.pending.set(String(p.id), path.resolve(base, named));
+      }
+      for (const [id, r] of resultsOf(line)) {
+        const p = w.pending.get(id);
+        if (!p) continue;
+        w.pending.delete(id);
+        if (!r.error) w.paths.add(p);
+      }
+      return false;
+    });
+  } finally {
+    fs.closeSync(fd);
+  }
+  return w.paths;
+}
+
 // An `at` the phone sent: a whole number from 0 up to the size that starts a line, else bad-input.
 function checkAt(fd, at) {
   const size = fs.fstatSync(fd).size;

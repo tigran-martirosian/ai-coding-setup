@@ -219,6 +219,16 @@
         ]
       },
       {
+        "matcher": "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/verify-gate.mjs --pre",
+            "timeout": 15
+          }
+        ]
+      },
+      {
         "matcher": "Bash|PowerShell",
         "hooks": [
           {

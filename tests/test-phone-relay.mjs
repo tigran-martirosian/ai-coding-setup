@@ -3,6 +3,7 @@
 // (docs/2026-11-16-phone-steady-design.md, section 3) at the end. The sealed blobs are AES-GCM under a key only the test holds,
 // so the Hub sees what it sees on Cloudflare: bytes it cannot open. Telegram's initData key is a key pair the
 // test makes. Checks: pipe design section 12, row B1.   node tests/test-phone-relay.mjs
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -71,7 +72,9 @@ const relayOpts = {
   ownerTgId: OWNER,
   telegramKey: tgKeyHex,
   // Like Telegram: a sent message has an id; the method named in `refuseTelegram` fails as Telegram refuses it.
+  // getMe (the topic mode read at a paired PC's sign-in) answers topic mode off and is not kept in telegramCalls.
   telegram: async (method, params) => {
+    if (method === "getMe") return { id: BOT_ID, has_topics_enabled: false };
     telegramCalls.push({ method, params });
     if (method === refuseTelegram)
       throw new Error(
@@ -329,9 +332,11 @@ same("an unknown protocol version is refused", owner.takeJson(), [
 // ---- PC join (section 3) ----
 
 const pc1 = await newPc();
-same("pc-join answers ok with the bot id", pc1.takeJson(), [
-  { v: 1, t: "pc-join", ok: true, botId: BOT_ID },
-]);
+same(
+  "pc-join answers ok with the bot id and files: 1 (FAIL: a newly joined PC refuses Send to chat as relay-too-old)",
+  pc1.takeJson(),
+  [{ v: 1, t: "pc-join", ok: true, botId: BOT_ID, files: 1 }],
+);
 {
   const record = JSON.stringify(relay.map.get(`pc:${pc1.pcId}`));
   const c = await connect();
@@ -687,7 +692,7 @@ same(
   back.send({ v: 1, t: "pc-auth", pcId: pc1.pcId, token: pc1.token });
   await settle();
   same("the PC signs in again with its token", back.takeJson(), [
-    { v: 1, t: "pc-auth", ok: true, botId: BOT_ID, paired: true },
+    { v: 1, t: "pc-auth", ok: true, botId: BOT_ID, paired: true, files: 1 },
   ]);
   same("a PC's sign-in tells its user's pages pc-online", friend.takeJson(), [
     { v: 1, t: "pc-online" },
@@ -1174,7 +1179,7 @@ await relay.close();
   same(
     "after a restart the local relay still knows the PC (its store is kept in its file)",
     back.takeJson(),
-    [{ v: 1, t: "pc-auth", ok: true, botId: BOT_ID, paired: false }],
+    [{ v: 1, t: "pc-auth", ok: true, botId: BOT_ID, paired: false, files: 1 }],
   );
 
   const proxy = await startCutProxy({ port: Number(new URL(relay.url).port) });
@@ -1231,6 +1236,566 @@ await relay.close();
   );
   raw.destroy();
   await relay.close();
+}
+
+// ---- topics (files contract, section 7): the bot, a fake Telegram with topic mode, a kept store ----
+
+{
+  const { makeBot } = await import("../phone/relay/bot/bot.mjs");
+  const HOOK_SECRET = toB64url(random(36));
+  let topicsOn = true;
+  let nextThread = 50;
+  const gone = new Set(); // thread ids the "user" deleted: a call into one is refused as Telegram does
+  const calls = [];
+  const topicTelegram = async (method, params) => {
+    calls.push({ method, params });
+    if (gone.has(params.message_thread_id))
+      throw new Error(
+        `telegram ${method}: Bad Request: message thread not found`,
+      );
+    if (method === "getMe")
+      return { id: BOT_ID, username: "test_bot", has_topics_enabled: topicsOn };
+    if (method === "createForumTopic")
+      return { message_thread_id: ++nextThread, name: params.name };
+    if (method === "sendMessage") return { message_id: ++tgMessageId };
+    return true;
+  };
+  const opts = {
+    ...relayOpts,
+    telegram: topicTelegram,
+    bot: makeBot({ webhookSecret: HOOK_SECRET }),
+    storeFile: path.join(tmp, "topics.bin"),
+  };
+  const made = () =>
+    calls.filter((c) => c.method === "createForumTopic").map((c) => c.params);
+  const lastAlert = () =>
+    calls.filter((c) => c.method === "sendMessage").at(-1)?.params;
+  const signIn = async (pc) => {
+    const c = await connect();
+    c.send({ v: 1, t: "pc-auth", pcId: pc.pcId, token: pc.token });
+    await settle();
+    c.take();
+    return c;
+  };
+  const alert = async (c, open) => {
+    c.send({ v: 1, t: "alert", text: "proj: needs you", open, silent: false });
+    await settle();
+    return c.takeJson();
+  };
+  const hook = async (update) => {
+    const r = await fetch(`${relay.url}/tg/hook`, {
+      method: "POST",
+      headers: { "x-telegram-bot-api-secret-token": HOOK_SECRET },
+      body: JSON.stringify(update),
+    });
+    const text = await r.text();
+    await settle();
+    return [r.status, text];
+  };
+
+  relay = await startLocalRelay(opts);
+  const pc = await newPc();
+  // Paired as the pairing leaves it: the PC record names the owner and the owner's record names the PC.
+  relay.map.set(`pc:${pc.pcId}`, {
+    ...relay.map.get(`pc:${pc.pcId}`),
+    tgId: OWNER,
+  });
+  relay.map.set(`user:${OWNER}`, {
+    invitedAt: clock,
+    firstName: "Owner",
+    pcId: pc.pcId,
+  });
+  let pcA = await signIn(pc);
+  same(
+    "topic mode on: a paired PC's sign-in creates Alerts and Files once in its chat (FAIL: no topics, or made twice)",
+    made(),
+    [
+      { chat_id: OWNER, name: "Alerts" },
+      { chat_id: OWNER, name: "Files" },
+    ],
+  );
+  same(
+    "the topic ids are kept as topics:<chat> (FAIL: a restart could not find them)",
+    (({ alerts, files }) => ({ alerts, files }))(
+      relay.map.get(`topics:${OWNER}`),
+    ),
+    { alerts: 51, files: 52 },
+  );
+  await alert(pcA, "t1");
+  same(
+    "topic mode on: an alert carries the Alerts topic's id",
+    lastAlert().message_thread_id,
+    51,
+  );
+
+  await relay.close();
+  relay = await startLocalRelay(opts);
+  pcA = await signIn(pc);
+  await alert(pcA, "t2");
+  same(
+    "after a relay restart nothing is created again and alerts still go to Alerts (FAIL: the kept ids were lost)",
+    [made().length, lastAlert().message_thread_id],
+    [2, 51],
+  );
+
+  gone.add(51);
+  const answer = await alert(pcA, "t3");
+  same(
+    "an Alerts topic the user deleted is made again once and the alert sent into the new one",
+    [answer, made().length, made().at(-1).name, lastAlert().message_thread_id],
+    [[], 3, "Alerts", 53],
+  );
+
+  const [, fwd] = await hook({
+    update_id: 1,
+    message: {
+      message_id: 9,
+      date: Math.floor(clock / 1000),
+      from: { id: OWNER, first_name: "Owner" },
+      chat: { id: OWNER, type: "private" },
+      message_thread_id: 52,
+      is_topic_message: true,
+      document: { file_id: "FileIdF1", file_size: 10, file_name: "a.txt" },
+    },
+  });
+  const held = pcA.takeJson().filter((f) => f.t === "held");
+  check(
+    "a file sent into the Files topic reaches the PC as a held item with its fetch key (FAIL: topic forwards are lost)",
+    fwd === "ok" &&
+      held.length === 1 &&
+      relay.map.has(`file:${pc.pcId}:FileIdF1`),
+    `${fwd} ${JSON.stringify(held)}`,
+  );
+
+  const removed = await hook({ relay_command: "remove-topics" });
+  const deleted = calls
+    .filter((c) => c.method === "deleteForumTopic")
+    .map((c) => c.params);
+  same(
+    "remove-topics deletes both kept topics at Telegram and forgets their ids",
+    [removed, deleted, relay.map.has(`topics:${OWNER}`)],
+    [
+      [200, '{"removed":2}'],
+      [
+        { chat_id: OWNER, message_thread_id: 53 },
+        { chat_id: OWNER, message_thread_id: 52 },
+      ],
+      false,
+    ],
+  );
+  const again = await hook({ relay_command: "remove-topics" });
+  same(
+    "a second remove-topics changes nothing",
+    [again, calls.filter((c) => c.method === "deleteForumTopic").length],
+    [[200, '{"removed":0}'], 2],
+  );
+  await relay.close();
+
+  // Topic mode off: the same alert as before topics existed.
+  topicsOn = false;
+  calls.length = 0;
+  relay = await startLocalRelay({ ...opts, storeFile: undefined });
+  const pc2 = await newPc();
+  relay.map.set(`pc:${pc2.pcId}`, {
+    ...relay.map.get(`pc:${pc2.pcId}`),
+    tgId: OWNER,
+  });
+  const pcB = await signIn(pc2);
+  await alert(pcB, "t1");
+  same(
+    "topic mode off: no topic is created and the alert's sendMessage is exactly today's",
+    [made().length, lastAlert()],
+    [
+      0,
+      {
+        chat_id: OWNER,
+        text: "proj: needs you",
+        disable_notification: false,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Open", web_app: { url: `${relay.url}/?o=t1` } }],
+          ],
+        },
+      },
+    ],
+  );
+  await relay.close();
+}
+
+// ---- Send to chat and the one-time download link (files contract, section 6): fakes only, nothing stored ----
+
+{
+  const MB = 1024 * 1024;
+  const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  let topicsOn = true;
+  let refuseUpload = null;
+  let reading = null; // the PC body being sent, so the fake Telegram sees how much of it was read
+  const uploads = [];
+  const fileTelegram = async (method, params) => {
+    if (method === "getMe") return { id: BOT_ID, has_topics_enabled: topicsOn };
+    if (method === "createForumTopic")
+      return { message_thread_id: params.name === "Alerts" ? 61 : 62 };
+    return true;
+  };
+  // Like Telegram's sendDocument: reads the multipart body to its end, then answers.
+  const fileUpload = async (method, { body, length, type }) => {
+    const boundary = /boundary=(\S+)$/.exec(type)[1];
+    const chunks = [];
+    let firstAt = null;
+    for await (const chunk of body) {
+      firstAt ??= reading?.pulled ?? 0;
+      chunks.push(chunk);
+    }
+    const all = Buffer.concat(chunks);
+    const start = all.indexOf("\r\n\r\n", all.indexOf('name="document"')) + 4;
+    const tail = `\r\n--${boundary}--\r\n`;
+    const end = all.length - tail.length;
+    const head = all.subarray(0, start).toString();
+    uploads.push({
+      method,
+      length,
+      got: all.length,
+      firstAt,
+      fields: Object.fromEntries(
+        [...head.matchAll(/name="(\w+)"\r\n\r\n([^\r]*)\r\n/g)].map((m) => [
+          m[1],
+          m[2],
+        ]),
+      ),
+      filename: /filename="([^"]*)"/.exec(head)?.[1],
+      fileType: /Content-Type: (\S+)\r\n\r\n$/.exec(head)?.[1],
+      hash: sha(all.subarray(start, end)),
+      tailOk: all.subarray(end).toString() === tail,
+    });
+    if (refuseUpload) throw new Error(`telegram ${method}: ${refuseUpload}`);
+    return { message_id: ++tgMessageId };
+  };
+  // A file on the fake PC: random bytes made as they are read, hashed on the way.
+  function pcFile(size) {
+    const hash = createHash("sha256");
+    const file = { size, pulled: 0, hash: null };
+    file.body = new ReadableStream({
+      pull(out) {
+        const n = Math.min(size - file.pulled, MB);
+        if (n === 0) {
+          file.hash = hash.digest("hex");
+          return out.close();
+        }
+        const bytes = randomBytes(n);
+        hash.update(bytes);
+        file.pulled += n;
+        out.enqueue(bytes);
+      },
+    });
+    return file;
+  }
+  const pcHeaders = (pc, size) => ({
+    "X-Phone-Pc": pc.pcId,
+    Authorization: `Bearer ${pc.token}`,
+    "Content-Length": String(size),
+  });
+  const send = async (pc, body, size, name = "big.bin") => {
+    const r = await fetch(`${relay.url}/pc/send`, {
+      method: "POST",
+      headers: {
+        ...pcHeaders(pc, size),
+        "Content-Type": "application/octet-stream",
+        "X-File-Name": encodeURIComponent(name),
+      },
+      body,
+      duplex: "half",
+    });
+    const text = await r.text();
+    return [r.status, text ? JSON.parse(text) : text];
+  };
+  const signIn = async (pc) => {
+    const c = await connect();
+    c.send({ v: 1, t: "pc-auth", pcId: pc.pcId, token: pc.token });
+    await settle();
+    return [c, c.takeJson()];
+  };
+  const openLink = async (c, file) => {
+    const ref = toB64url(random(9));
+    c.send({ v: 1, t: "dl-open", ref, ...file });
+    await settle();
+    return [ref, c.takeJson()];
+  };
+  const keys = () => [...relay.map.keys()].sort();
+
+  relay = await startLocalRelay({
+    ...relayOpts,
+    telegram: fileTelegram,
+    upload: fileUpload,
+  });
+  const pc = await newPc();
+  const loose = await newPc(); // stays unpaired, its socket open
+  loose.take();
+  relay.map.set(`pc:${pc.pcId}`, {
+    ...relay.map.get(`pc:${pc.pcId}`),
+    tgId: OWNER,
+  });
+  relay.map.set(`user:${OWNER}`, {
+    invitedAt: clock,
+    firstName: "Owner",
+    pcId: pc.pcId,
+  });
+  let [pcA, auth] = await signIn(pc);
+  same(
+    "a paired PC's sign-in answer carries files: 1 (FAIL: the PC refuses Send to chat and links as relay-too-old)",
+    auth,
+    [{ v: 1, t: "pc-auth", ok: true, botId: BOT_ID, paired: true, files: 1 }],
+  );
+  const keysBefore = keys();
+  let stored = dump();
+
+  // 50,000,000 bytes, the most Send to chat takes: Telegram's 50 MiB counts the whole multipart body (live trial).
+  const big = pcFile(50_000_000);
+  reading = big;
+  const sent = await send(pc, big.body, big.size);
+  const up = uploads[0];
+  check(
+    "Send to chat: a 50,000,000-byte file from the PC reaches Telegram as one sendDocument into the Files topic, hash equal (FAIL: lost, split, changed or in the wrong place)",
+    JSON.stringify(sent) ===
+      JSON.stringify([200, { ok: true, message_id: tgMessageId }]) &&
+      uploads.length === 1 &&
+      up.method === "sendDocument" &&
+      JSON.stringify(up.fields) ===
+        JSON.stringify({ chat_id: String(OWNER), message_thread_id: "62" }) &&
+      up.filename === "big.bin" &&
+      up.hash === big.hash &&
+      up.tailOk &&
+      up.got === up.length,
+    JSON.stringify({ sent, up }),
+  );
+  check(
+    "Send to chat streams: Telegram's first bytes came before the PC's body was read whole (FAIL: the relay held the file in memory)",
+    up.firstAt < big.size,
+    `first bytes after ${up.firstAt} of ${big.size} bytes`,
+  );
+  reading = null;
+  same(
+    "Send to chat refuses a file over 50,000,000 bytes by name, and Telegram gets nothing (FAIL: too-big not checked, or a 50 MiB file reaches Telegram, which drops it with its multipart wrapping)",
+    [await send(pc, Buffer.alloc(50_000_001), 50_000_001), uploads.length],
+    [[413, { ok: false, e: "too-big" }], 1],
+  );
+  same(
+    "Send to chat refuses a wrong token and an unpaired PC with a bare 401 (FAIL: anyone can post to the chat)",
+    [
+      await send({ ...pc, token: toB64url(random(32)) }, "abc", 3),
+      await send(loose, "abc", 3),
+      uploads.length,
+    ],
+    [[401, ""], [401, ""], 1],
+  );
+  refuseUpload = "Bad Request: file is too big";
+  same(
+    "Send to chat passes Telegram's refusal to the PC as telegram-refused with Telegram's words",
+    await send(pc, "abc", 3),
+    [
+      502,
+      { ok: false, e: "telegram-refused", why: "Bad Request: file is too big" },
+    ],
+  );
+  refuseUpload = null;
+  check(
+    "Send to chat writes nothing to the store (FAIL: a file or its trace was kept)",
+    dump() === stored,
+    JSON.stringify(keys().filter((k) => !keysBefore.includes(k))),
+  );
+
+  // Topic mode off: the plain chat, as before topics.
+  topicsOn = false;
+  [pcA] = await signIn(pc);
+  stored = dump();
+  await send(pc, "hello", 5, 'a "b".txt');
+  same(
+    "topic mode off: the document goes to the plain chat with no thread id, the quote in its name escaped",
+    [uploads.at(-1).fields, uploads.at(-1).filename],
+    [{ chat_id: String(OWNER) }, "a %22b%22.txt"],
+  );
+
+  const NAME = 'отчёт "1".txt';
+  const data = randomBytes(300_000);
+  const [ref, [made]] = await openLink(pcA, {
+    name: NAME,
+    size: data.length,
+    mime: "text/plain",
+  });
+  check(
+    "dl-open from the paired PC answers dl-made with a /dl/ link that ends in 2 minutes",
+    made?.t === "dl-made" &&
+      made.ref === ref &&
+      made.url.startsWith(`${relay.url}/dl/`) &&
+      made.until === new Date(clock + 2 * MINUTE).toISOString(),
+    JSON.stringify(made),
+  );
+  const head = await fetch(made.url, { method: "HEAD" });
+  const get = await fetch(made.url);
+  await settle();
+  const [pull] = pcA.takeJson();
+  check(
+    "a HEAD leaves the link unused: the GET after it still gets the file (FAIL: Telegram's look-ahead would use up the link)",
+    head.status === 200 &&
+      get.status === 200 &&
+      pull?.t === "dl-pull" &&
+      pull.ref === ref,
+    `${head.status} ${get.status} ${JSON.stringify(pull)}`,
+  );
+  const shown = Object.fromEntries(
+    [
+      "content-type",
+      "content-length",
+      "content-disposition",
+      "access-control-allow-origin",
+      "cache-control",
+    ].map((h) => [h, get.headers.get(h)]),
+  );
+  same(
+    "the download carries the attachment and Telegram origin headers (FAIL: the download box cannot save it)",
+    shown,
+    {
+      "content-type": "text/plain",
+      "content-length": "300000",
+      "content-disposition": `attachment; filename="_____ _1_.txt"; filename*=UTF-8''${encodeURIComponent(NAME)}`,
+      "access-control-allow-origin": "https://web.telegram.org",
+      "cache-control": "no-store",
+    },
+  );
+  const [got, posted] = await Promise.all([
+    get.arrayBuffer(),
+    fetch(`${relay.url}/pc/dl/${pull.link}`, {
+      method: "POST",
+      headers: pcHeaders(pc, data.length),
+      body: data,
+    }),
+  ]);
+  check(
+    "the download ends with the PC's bytes, hash equal, and the PC's post is answered 200",
+    sha(Buffer.from(got)) === sha(data) && posted.status === 200,
+    `${got.byteLength} bytes, post ${posted.status}`,
+  );
+  const again = await fetch(made.url);
+  same(
+    "a link is once-only: a second GET gets 410 with the words to make a new one",
+    [
+      again.status,
+      again.status === 410
+        ? await again.text()
+        : (again.body.cancel(), "a download started"),
+    ],
+    [410, "This link has expired. Make a new one in the app."],
+  );
+
+  const [, [late]] = await openLink(pcA, {
+    name: "a.txt",
+    size: 3,
+    mime: "text/plain",
+  });
+  clock += 2 * MINUTE;
+  same(
+    "a link opened after 2 minutes gets 410",
+    (await fetch(late.url)).status,
+    410,
+  );
+
+  const [looseRef, looseAnswer] = await openLink(loose, {
+    name: "a.txt",
+    size: 3,
+    mime: "text/plain",
+  });
+  same(
+    "dl-open from an unpaired PC is refused and makes no link (FAIL: a link without the paired user's ask)",
+    looseAnswer,
+    [{ v: 1, t: "dl-fail", ref: looseRef, e: "not-paired" }],
+  );
+
+  const [shortRef, [short]] = await openLink(pcA, {
+    name: "a.txt",
+    size: 10,
+    mime: "text/plain",
+  });
+  const cut = await fetch(short.url);
+  await settle();
+  const [shortPull] = pcA.takeJson();
+  const [cutBody, cutPost] = await Promise.all([
+    cut.arrayBuffer().then(
+      () => "whole",
+      () => "broken off",
+    ),
+    fetch(`${relay.url}/pc/dl/${shortPull.link}`, {
+      method: "POST",
+      headers: pcHeaders(pc, 9),
+      body: Buffer.alloc(9),
+    }).then((r) => r.json()),
+  ]);
+  await settle();
+  same(
+    "a pull of the wrong length breaks the download off and tells the PC dl-fail aborted",
+    [cutBody, cutPost, pcA.takeJson()],
+    [
+      "broken off",
+      { ok: false, e: "aborted" },
+      [{ v: 1, t: "dl-fail", ref: shortRef, e: "aborted" }],
+    ],
+  );
+  check(
+    "the download links write nothing to the store (FAIL: a link or its trace was kept)",
+    dump() === stored,
+    JSON.stringify(keys().filter((k) => !keysBefore.includes(k))),
+  );
+
+  // A fresh sign-in starts the hour's count at 0, as alerts do.
+  [pcA] = await signIn(pc);
+  const refs = [];
+  for (let i = 0; i < 31; i++) {
+    refs.push(toB64url(random(9)));
+    pcA.send({
+      v: 1,
+      t: "dl-open",
+      ref: refs[i],
+      name: "a.txt",
+      size: 3,
+      mime: "text/plain",
+    });
+  }
+  await settle();
+  const answers = pcA.takeJson();
+  const urls = answers.filter((f) => f.t === "dl-made").map((f) => f.url);
+  same(
+    "the 31st send or link in an hour is refused files-rate (FAIL: no limit on files)",
+    [urls.length, answers.at(-1)],
+    [30, { v: 1, t: "error", e: "files-rate" }],
+  );
+  same(
+    "a PC keeps at most 4 links: the oldest goes",
+    [
+      (await fetch(urls[25], { method: "HEAD" })).status,
+      (await fetch(urls[26], { method: "HEAD" })).status,
+    ],
+    [410, 200],
+  );
+  await relay.close();
+}
+
+// ---- the Worker's own file (Cloudflare loads it; no test above does) must at least parse
+{
+  const { spawnSync } = await import("node:child_process");
+  const worker = path.join(
+    import.meta.dirname,
+    "..",
+    "phone",
+    "relay",
+    "src",
+    "worker.mjs",
+  );
+  const parsed = spawnSync(process.execPath, ["--check", worker], {
+    encoding: "utf8",
+  });
+  check(
+    "the relay's worker.mjs parses (FAIL: the deploy's build would stop on it)",
+    parsed.status === 0,
+    parsed.stderr.trim().split("\n").slice(0, 4).join(" "),
+  );
 }
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed`);

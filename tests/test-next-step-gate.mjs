@@ -91,7 +91,7 @@ const PASSES = [
   ["'Next, I ran' is narration", "Next, I ran the full suite and it passed."],
   [
     "a Needs you section",
-    "## Next\nR1 (after the restart)\n\n### Needs you\n- restart Nimbalyst",
+    "## Next\nR1 (after your pick)\n\n### Needs you\n- pick the palette: warm or cold",
   ],
   ["waits on running work", "Next: R1 once the build finishes."],
 ];
@@ -116,6 +116,84 @@ for (const [name, text] of PASSES)
     `passes: ${name}`,
     stopVerdict(turn(said("", ["Bash"]), said(text)), null) === null,
     ownNextStep(text),
+  );
+
+// Go-asks for Claude's own work, from the 2026-11-17 chat review: blocked even under "Needs you"
+const { goAsk } = await import(pathToFileURL(HOOK).href);
+const GO_BLOCKS = [
+  "Next is the merge step. I'll start it in a new session when you say go.",
+  "### Needs you\n- Say go and I'll open a fresh session to continue the build from the plan.",
+  "### Needs you\n- Say go and I'll start the planner on step 2 now.",
+  "### Needs you\n- **Say go** for the phone re-plan.",
+  "Nothing is built. Say the word and I start step 1.",
+];
+for (const text of GO_BLOCKS)
+  check(
+    `FAIL if a go-ask for own work passes (go-ask block): ${text.slice(0, 50)}`,
+    /say go/.test(
+      stopVerdict(turn(said("", ["Bash"]), said(text)), null) || "",
+    ),
+    String(goAsk(text)),
+  );
+const GO_PASSES = [
+  "### Needs you\n- Say go to release 26.4 and push the tag.",
+  "### Needs you\n- Say go and I'll send the message to the friend.",
+  "### Needs you\n- Restart Nimbalyst.",
+  "The tests go through the relay first, then go back to the PC.",
+  "Done; the hook lets the call go on.",
+];
+for (const text of GO_PASSES)
+  check(
+    `FAIL if a release/message ask or plain 'go' is blocked (go-ask pass): ${text.slice(0, 50)}`,
+    goAsk(text) === null,
+    String(goAsk(text)),
+  );
+
+// Restart and click-test asks, real reply endings from the 2026-11-17 chat review: blocked even under "Needs you"
+const { testAsk } = await import(pathToFileURL(HOOK).href);
+const TEST_BLOCKS = [
+  "### Needs you\n- Restart Nimbalyst, or switch to another theme and back to Ink Neon, to load it. Then tell me if it's right.",
+  "### Needs you\n- At your next Nimbalyst restart: click Done on a test row in the tracker.",
+  '- **T6:** say "restart" and I\'ll restart Nimbalyst (this chat closes when it does). Then click Done on a test row and tell me whether it moved.',
+  '- Either "restart" so I run the launcher, or restart Nimbalyst yourself when it suits you; then do the T6 click and tell me what happened.',
+  "- Click Done on the Job Tracker step that's waiting for you, the next time you restart Nimbalyst.",
+  "### Needs you\n- **Restart Nimbalyst** so the wakeup fix loads.",
+  "- **Done button:** restart Nimbalyst and click Done on a test row in the tracker. Tell the new session whether the row moved.",
+  "Please restart Nimbalyst so the fix loads.",
+  "You need to restart Nimbalyst to load it.",
+  "- **Wakeup fix:** restart Nimbalyst so it loads.",
+  "Quit and reopen Nimbalyst to load the fix.",
+  "After the restart, click Done on a test row and let me know if it moved.",
+  "- [ ] Restart Nimbalyst",
+  "> Restart Nimbalyst so the fix loads.",
+  "- Restart Nimbalyst so the phone relay fix loads.",
+];
+for (const text of TEST_BLOCKS)
+  check(
+    `FAIL if a restart or click-test ask passes (test-ask block): ${text.slice(0, 50)}`,
+    /restart the app or click/.test(
+      stopVerdict(turn(said("", ["Bash"]), said(text)), null) || "",
+    ),
+    String(testAsk(text)),
+  );
+const TEST_PASSES = [
+  "The fix loads at the next Nimbalyst restart; it is under Check later in HANDOFF.md.",
+  "- Open the app on your phone, tap Files and tell me whether the list shows.",
+  "I clicked Done on the test row through the inspector and the row moved.",
+  "Restarting the relay took 4 s.",
+  "Restart is not needed: the hook is read on every call.",
+  "    restart: unless-stopped",
+  "I did not restart Nimbalyst; you never have to do that yourself.",
+  "Click Save in the dialog; the toast will say Saved.",
+  "I would say restarting is not needed here.",
+  "Restart Claude Code so the new MCP server loads.",
+  '- **The restart check missed common wordings.** "Please restart Nimbalyst", "Quit and reopen…", a bold label before the ask and checkbox lines all got through. They\'re caught now.',
+];
+for (const text of TEST_PASSES)
+  check(
+    `FAIL if a report or phone-only check is blocked (test-ask pass): ${text.slice(0, 50)}`,
+    testAsk(text) === null,
+    String(testAsk(text)),
   );
 
 check(

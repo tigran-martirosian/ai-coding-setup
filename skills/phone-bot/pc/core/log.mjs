@@ -1,13 +1,14 @@
-// ~/.phone-app/pc.log: one line per connect, pairing, refused action, alert kind or error.
+// pc.log in the app folder (~/.phone-app, or the second PC program's own folder): one line per connect, pairing,
+// refused action, alert kind or error.
 // Never a secret, a key, the relay address, session text or a prompt. 1 MB per file, two files kept.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { appDir } from "./mode.mjs";
 
 const MAX = 1024 * 1024;
 
 export function logPath() {
-  return path.join(os.homedir(), ".phone-app", "pc.log");
+  return path.join(appDir(), "pc.log");
 }
 
 export function log(kind, text = "") {

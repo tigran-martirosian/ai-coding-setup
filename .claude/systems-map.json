@@ -54,15 +54,18 @@
     {
       "id": "verify-gate",
       "name": "Build and test gate",
-      "what": "Stops a reply when code was edited and nothing was built or tested after it.",
+      "what": "Stops a reply when code was edited and nothing was built or tested after it (a run of the project's verify skill counts). With --pre it checks each code commit with no verify run since the last code edit, in a project with a verify skill: logs it by default, refuses once with VERIFY_GATE_COMMIT=enforce.",
       "files": [
         "hooks/verify-gate.mjs",
         "hooks/lib/code-files.mjs",
-        "tests/test-verify-gate.mjs"
+        "tests/test-verify-gate.mjs",
+        "tests/test-verify-gate-unit.mjs"
       ],
       "group": "hooks",
       "words": [
-        "verify.gate"
+        "verify.gate",
+        "VERIFY_GATE_COMMIT",
+        "commit check"
       ]
     },
     {
@@ -780,6 +783,49 @@
         "restic",
         "backblaze",
         "backup\\.mjs"
+      ]
+    },
+    {
+      "id": "verify-templates",
+      "name": "Verify skill templates",
+      "what": "The four verify skill templates (web app, Godot game, command-line or Node tool, data or video pipeline) that /new-project writes and /update-project offers: how to start the app, what to do in it, what proof to show.",
+      "files": [
+        "skills/new-project/preset/verify-web.md",
+        "skills/new-project/preset/verify-godot.md",
+        "skills/new-project/preset/verify-tool.md",
+        "skills/new-project/preset/verify-pipeline.md"
+      ],
+      "group": "skills",
+      "words": [
+        "verify skill",
+        "verify template"
+      ]
+    },
+    {
+      "id": "review-rules",
+      "name": "Review rules (REVIEW.md)",
+      "what": "A project's rules for the reviewer's quality findings (what counts as Important, paths to skip, rules to check, past bugs): the repo's own REVIEW.md and the starter copy /new-project writes. The reviewer reads it from git at the commit the change started from.",
+      "files": [
+        "REVIEW.md",
+        "skills/new-project/preset/REVIEW.md"
+      ],
+      "group": "agents",
+      "words": [
+        "REVIEW.md",
+        "review rules"
+      ]
+    },
+    {
+      "id": "observe-log",
+      "name": "Log-only mode log printer",
+      "what": "Prints what hooks in log-only mode (observe) would have refused, and each code commit verify-gate's commit check looked at, from hooks/state/observe.jsonl.",
+      "files": [
+        "workers/observe-log.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "observe-log",
+        "log-only"
       ]
     }
   ],
@@ -1660,6 +1706,110 @@
         {
           "file": "workers/backup.mjs",
           "token": "setup-state.json"
+        }
+      ]
+    },
+    {
+      "from": "verify-gate",
+      "to": "observe-log",
+      "type": "feeds",
+      "says": "The commit check writes one log line per checked code commit; observe-log prints it with its verdict.",
+      "evidence": [
+        {
+          "file": "hooks/verify-gate.mjs",
+          "token": "observeLine"
+        },
+        {
+          "file": "workers/observe-log.mjs",
+          "token": "verdict"
+        }
+      ]
+    },
+    {
+      "from": "hook-frame",
+      "to": "observe-log",
+      "type": "feeds",
+      "says": "hook-io's observe mode appends to observe.jsonl, which observe-log reads.",
+      "evidence": [
+        {
+          "file": "hooks/lib/hook-io.mjs",
+          "token": "observe.jsonl"
+        },
+        {
+          "file": "workers/observe-log.mjs",
+          "token": "observe.jsonl"
+        }
+      ]
+    },
+    {
+      "from": "verify-gate",
+      "to": "verify-templates",
+      "type": "uses",
+      "says": "A load of the project's verify skill counts as a run, and the commit check runs only in a project that has one.",
+      "evidence": [
+        {
+          "file": "hooks/verify-gate.mjs",
+          "token": "SKILL.md"
+        }
+      ]
+    },
+    {
+      "from": "workflow-skills",
+      "to": "verify-templates",
+      "type": "uses",
+      "says": "/new-project copies a template into .claude/skills/verify.",
+      "evidence": [
+        {
+          "file": "skills/new-project/SKILL.md",
+          "token": "verify-web.md"
+        }
+      ]
+    },
+    {
+      "from": "workflow-skills",
+      "to": "review-rules",
+      "type": "uses",
+      "says": "/new-project copies preset/REVIEW.md into a git project.",
+      "evidence": [
+        {
+          "file": "skills/new-project/SKILL.md",
+          "token": "preset/REVIEW.md"
+        }
+      ]
+    },
+    {
+      "from": "update-project",
+      "to": "verify-templates",
+      "type": "uses",
+      "says": "Check P27 offers a verify skill from the templates to a folder with code and none.",
+      "evidence": [
+        {
+          "file": "skills/update-project/checks.md",
+          "token": "verify-godot.md"
+        }
+      ]
+    },
+    {
+      "from": "update-project",
+      "to": "review-rules",
+      "type": "uses",
+      "says": "Check P28 offers the starter REVIEW.md to a git project without one.",
+      "evidence": [
+        {
+          "file": "skills/update-project/checks.md",
+          "token": "preset/REVIEW.md"
+        }
+      ]
+    },
+    {
+      "from": "helper-agents",
+      "to": "review-rules",
+      "type": "uses",
+      "says": "The reviewer reads REVIEW.md from git at the change's base commit.",
+      "evidence": [
+        {
+          "file": "agents/reviewer.md",
+          "token": "REVIEW.md"
         }
       ]
     }

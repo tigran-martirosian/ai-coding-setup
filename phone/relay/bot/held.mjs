@@ -45,6 +45,15 @@ export function createHeld(ctx) {
   const { store, telegram, download, now, log, sendToPc } = ctx;
   const say = (chatId, text) =>
     telegram("sendMessage", { chat_id: chatId, text });
+  // The short reply to a forward goes into the forward's topic (files contract, section 7); with no topic, today's.
+  const answer = (msg, text) =>
+    Number.isSafeInteger(msg.message_thread_id)
+      ? telegram("sendMessage", {
+          chat_id: msg.chat.id,
+          text,
+          message_thread_id: msg.message_thread_id,
+        })
+      : say(msg.chat.id, text);
   const heldFrame = (id, c) => JSON.stringify({ v: 1, t: "held", id, c });
   const fileFrame = (fields) => JSON.stringify({ v: 1, t: "file", ...fields });
 
@@ -53,7 +62,7 @@ export function createHeld(ctx) {
     const chatId = msg.chat.id;
     const pc = user.pcId ? await store.get(`pc:${user.pcId}`) : null;
     if (!pc || pc.tgId !== msg.from.id) {
-      await say(chatId, "Not saved: pair your PC first");
+      await answer(msg, "Not saved: pair your PC first");
       return;
     }
     const pcId = user.pcId;
@@ -68,8 +77,8 @@ export function createHeld(ctx) {
     );
     if (held.length >= MAX_HELD || bytes + sealed.length > MAX_HELD_BYTES) {
       log("forward refused: held limit");
-      await say(
-        chatId,
+      await answer(
+        msg,
         "Not saved: your PC has been away too long and 1,000 items are waiting.",
       );
       return;
@@ -80,8 +89,8 @@ export function createHeld(ctx) {
     await store.put(`held:${pcId}:${id}`, c);
     const file = fileOf(msg);
     if (file && file.size !== null && file.size > FILE_LIMIT) {
-      await say(
-        chatId,
+      await answer(
+        msg,
         "Saved as a note. The file is over 20 MB, so it stays here; open it from this chat.",
       );
     } else {

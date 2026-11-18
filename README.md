@@ -6,9 +6,9 @@ It's in use at work by people in finance, data engineering and government IT.
 
 On 16 real code changes, my reviewer agent found 5 of 8 known bugs, matching a plain "review this change" prompt, with 40% fewer tokens. Replayed on real past sessions and made-up cases, the hooks ran 12,000+ times without a crash.
 
-https://github.com/user-attachments/assets/95705585-1526-4cd4-8db3-65d7c13bb9ea
+https://github.com/user-attachments/assets/9de3696e-cfde-4024-a7a3-7710bf9ebdb5
 
-If the video doesn't load (the GitHub app sometimes won't play it), [watch it here](https://github.com/user-attachments/assets/95705585-1526-4cd4-8db3-65d7c13bb9ea).
+If the video doesn't load (the GitHub app sometimes won't play it), [watch it here](https://github.com/user-attachments/assets/9de3696e-cfde-4024-a7a3-7710bf9ebdb5).
 
 ## Test results
 
@@ -22,7 +22,7 @@ How each test ran: [docs/test-results.md](docs/test-results.md).
 
 Nimbalyst is a desktop editor for Claude Code sessions. The setup adds its own screens to it as extensions, built from source when you install. Without Nimbalyst the rules, hooks and skills still work.
 
-![The Job Tracker with a made-up job: 17 of 27 steps done, then what needs you, what is running and what is left](docs/img/job-tracker.png)
+![The Job Tracker on a real job: 38 of 50 steps done, then what needs you, what is running and what is left](docs/img/job-tracker.png)
 
 *The Job Tracker on its test page. The job and its steps are made up.*
 

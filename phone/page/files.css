@@ -1,0 +1,419 @@
+/* The Files tab (files screens design). Rows under 1200 px; tiles and cards at 1200 and over (the column width is
+   wide.css's). Linked after page.css and shell.css; the tokens are page.css's. */
+.files {
+  position: relative;
+}
+.files-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.files-tools .btn-quiet,
+.files-new,
+.files-retry,
+.files-send,
+.files-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+.files-folder-menu {
+  margin-left: auto;
+}
+.files-folder-menu,
+.files-more,
+.files-x {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--nim-text-muted);
+  cursor: pointer;
+}
+.files-picker {
+  display: none;
+}
+
+/* ---- the drop strip, the big drop area and the hint (Telegram Desktop) */
+.files-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  margin: 0 0 20px;
+  border: 1.5px dashed var(--p-sep);
+  border-radius: 12px;
+  color: var(--nim-text-muted);
+}
+.files-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--nim-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.files-drop-big {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 240px;
+  box-sizing: border-box;
+  padding: 24px;
+  margin: 0 0 16px;
+  border: 1.5px dashed var(--p-sep);
+  border-radius: 16px;
+  color: var(--nim-text-muted);
+  text-align: center;
+}
+.files-drop-big p {
+  margin: 0;
+}
+.files-hint {
+  margin: 4px 16px 20px;
+  font-size: 14px;
+  line-height: 19px;
+  color: var(--nim-text-muted);
+}
+.files-hint .hint-wide {
+  display: none;
+}
+
+/* ---- rows: folders, files and uploads */
+.files .row.file-row,
+.files .row.files-folder {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+}
+.files-folder {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.files-folder .name {
+  font-weight: 500;
+}
+.ftile {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--nim-primary) 14%, transparent);
+  color: var(--nim-primary);
+  font: 700 10px/1 var(--p-font);
+  letter-spacing: 0.02em;
+}
+.ftile-mark {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--nim-error);
+  color: #fff;
+  font-size: 11px;
+}
+.cut {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+}
+.cut-start {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cut-end {
+  flex: none;
+}
+.files .row-text > .name,
+.files .row-text > .meta {
+  display: block;
+}
+.files .meta {
+  font-variant-numeric: tabular-nums;
+}
+/* a failure reason wraps under the name, clear of Try again and the X */
+.files .meta.files-bad {
+  color: var(--nim-error);
+  white-space: normal;
+}
+.files-sent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--nim-success);
+}
+.files-done {
+  color: var(--nim-success);
+}
+.files-bar {
+  display: block;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--p-sep);
+  overflow: hidden;
+}
+.files-bar > span {
+  display: block;
+  width: calc(var(--sent, 0) * 100%);
+  height: 100%;
+  background: var(--nim-primary);
+  transition: width 150ms linear;
+}
+.files .right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.files-send,
+.files-download {
+  display: none;
+}
+
+/* ---- drag over: the whole content area takes the drop */
+.files-drop-over {
+  position: fixed;
+  inset: 8px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 2px dashed var(--nim-primary);
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--nim-primary) 10%, var(--nim-bg));
+  color: var(--nim-primary);
+  pointer-events: none;
+}
+.files-drop-over p {
+  margin: 0;
+}
+.files-drop-title {
+  font-weight: 600;
+  font-size: 17px;
+}
+
+/* ---- the sheets (file menu, folder menu, folder name) and the toast */
+.files-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--p-shade);
+}
+.files-sheet {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 31;
+  width: min(100%, 640px);
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  padding: 12px 16px calc(16px + var(--p-safe-bottom));
+  border-radius: 16px 16px 0 0;
+  background: var(--p-raised);
+  border-top: 1px solid var(--p-raised-edge);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.files-sheet-head {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0 12px;
+}
+.files-choice {
+  min-height: 50px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--p-section);
+  color: var(--nim-primary);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.files-choice.danger {
+  color: var(--nim-error);
+}
+.files-cancel {
+  margin-top: 6px;
+  font-weight: 600;
+}
+.files-sheet-title {
+  margin: 4px 0 8px;
+  font-weight: 600;
+  font-size: 17px;
+  text-align: center;
+}
+.files-name {
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--p-sep);
+  border-radius: 10px;
+  background: var(--p-section);
+  color: inherit;
+  font: inherit;
+}
+.files-sheet-err {
+  margin: 4px 0 0;
+  color: var(--nim-error);
+  font-size: 14px;
+}
+.files-sheet .btnrow {
+  margin-top: 12px;
+}
+/* The Move sheet: the folder tree, rows 52 high, a sub-folder indented 36 */
+.files-move-sub {
+  margin: -4px 0 8px;
+  text-align: center;
+}
+.files-move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.files-move-to {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--p-section);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.files-move-to:disabled {
+  color: var(--nim-text-muted);
+  cursor: default;
+}
+.files-depth-1 {
+  padding-left: 52px;
+}
+.files-depth-2 {
+  padding-left: 88px;
+}
+.files-depth-3 {
+  padding-left: 124px;
+}
+.files-depth-4 {
+  padding-left: 160px;
+}
+.files-toast {
+  position: sticky;
+  bottom: 8px;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 8px 4px 8px 16px;
+  border-radius: 12px;
+  background: var(--p-raised);
+  border: 1px solid var(--p-raised-edge);
+}
+.files-toast.error .name {
+  color: var(--nim-error);
+}
+
+/* ---- wide (C, 1200 and over): folders as tiles, files as cards with Send to chat in a bottom action row */
+@media (min-width: 1200px) {
+  .files-hint .hint-narrow {
+    display: none;
+  }
+  .files-hint .hint-wide {
+    display: inline;
+  }
+  .files-folders,
+  .files-files {
+    display: grid;
+    gap: 16px;
+    background: none;
+  }
+  .files-folders {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .files-files {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .files .row.files-folder,
+  .files .row.file-row {
+    border-radius: 12px;
+    background: var(--p-section);
+  }
+  .files .row.files-folder {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+  .files-folder .chev {
+    display: none;
+  }
+  .files .row.file-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-areas: "tile text" "acts acts";
+    row-gap: 12px;
+    padding: 14px 16px 8px;
+  }
+  .file-row > .ftile {
+    grid-area: tile;
+  }
+  .file-row > .row-text {
+    grid-area: text;
+  }
+  .file-row > .right {
+    grid-area: acts;
+    justify-content: space-between;
+    border-top: 1px solid var(--p-sep);
+    padding-top: 4px;
+  }
+  .files-send,
+  .files-download {
+    display: inline-flex;
+  }
+  .files .row + .row::before {
+    display: none;
+  }
+}
+/* D, 2000 and over */
+@media (min-width: 2000px) {
+  .files-folders {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .files-files {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .files-bar > span {
+    transition: none;
+  }
+}

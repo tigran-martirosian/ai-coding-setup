@@ -9,11 +9,16 @@
 //   sockets    accept(ws), all() -> open sockets, attachment(ws), setAttachment(ws, value), send(ws, text),
 //              close(ws, code, reason), lastPing(ws) -> Date of the last ping answered on it, or null
 //   telegram   async (method, params) -> result of the Bot API call
+//   upload     async (method, { body, length, type }) -> result of a Bot API call whose body is the stream `body` of
+//              `length` bytes of Content-Type `type` (sendDocument's multipart); a refusal throws "telegram <method>: …"
+//   fixedStream  (length) -> { readable, writable } that passes exactly `length` bytes and errors on more or fewer
+//              (Cloudflare's FixedLengthStream)
 //   download   async (filePath) -> bytes of a Telegram file (only the bot uses it)
 //   now        () -> milliseconds since 1970
 //   log        (line) -> void; never given a token, a key or a frame's contents
 //   botId, ownerTgId   numbers; telegramKey   hex of Telegram's Ed25519 public key for initData
-//   bot        null until the bot is built (row B5), else makeBot(ctx) -> { webhook, pcConnected, pcFrame }:
+//   topicSuffix   text added to the topic names: "" on the real relay, " (test)" on the test copy (TOPIC_SUFFIX)
+//   bot       null until the bot is built (row B5), else makeBot(ctx) -> { webhook, pcConnected, pcFrame }:
 //              webhook({ headers, body }) -> { status, body }; pcConnected(pcId) on each good pc-auth (send the
 //              held forwards); pcFrame(pcId, frame) for `held-ack` and `fetch`. ctx is { store, telegram,
 //              download, now, log, botId, ownerTgId, sendToPc(pcId, text) -> bool, closeUser(tgId, code,
@@ -53,6 +58,30 @@ const ALERT_OPEN = /^[A-Za-z0-9_-]{1,16}$/;
 // deletes a message only while it is under 48 hours old, so older ones are dropped. bot.mjs reads the same keys.
 const ALERT_LIFE = 2 * DAY;
 const alertKey = (tgId, open) => `alert:${tgId}:${open}`;
+// Topics (files contract, section 7): with the bot's topic mode on, alerts go to an "Alerts" topic and documents to
+// a "Files" topic of each chat. Their thread ids are kept as `topics:<chat>` -> { alerts, files, at }; bot.mjs
+// removes them on the `remove-topics` command.
+const TOPIC_NAMES = { alerts: "Alerts", files: "Files" };
+const topicKey = (tgId) => `topics:${tgId}`;
+const THREAD_GONE = /message thread not found/i;
+// Files to Telegram and to a browser (files contract, section 6): kept in the Hub's memory and the PC socket's
+// attachment only, never in the store.
+const FILE_MAX = 50 * 1024 * 1024;
+// Send to chat: Telegram caps the whole sendDocument body at 50 MiB, multipart wrapping included (a 52,428,800-byte
+// file failed, 52,428,300 went; trial 2026-11-17), so the file itself stops at 50,000,000 bytes.
+export const SEND_MAX = 50_000_000;
+const FILES_PER_HOUR = 30; // sends and links together, per PC
+const LINK_LIFE = 2 * MINUTE;
+const LINKS_PER_PC = 4;
+const PULL_WAIT = 20_000; // a link opened: the PC's bytes must start within this
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the class names control characters to refuse them in a file name
+const FILE_NAME = /^[^\u0000-\u001f\u007f]{1,120}$/u;
+const MIME = /^[\w.+-]{1,64}\/[\w.+-]{1,64}$/;
+const SIZE = /^[1-9][0-9]{0,15}$/;
+const REF = /^[A-Za-z0-9_-]{1,32}$/;
+const LINK_TOKEN = /^[A-Za-z0-9_-]{43}$/; // 32 bytes
+const EXPIRED = "This link has expired. Make a new one in the app.";
+const TELEGRAM_REFUSED = /^telegram \w+: /;
 const PC_ID = /^[A-Z2-7]{26}$/;
 const B64URL = /^[A-Za-z0-9_-]+$/;
 const VERSION = /^[0-9A-Za-z.+-]{1,32}$/;
@@ -92,6 +121,8 @@ export function createHub(env) {
     "store",
     "sockets",
     "telegram",
+    "upload",
+    "fixedStream",
     "download",
     "now",
     "log",
@@ -106,6 +137,9 @@ export function createHub(env) {
     throw new Error("hub: bot must be given, as null until it is built");
   if (typeof env.sockets.lastPing !== "function")
     throw new Error("hub: sockets.lastPing(ws) is missing");
+  if (typeof env.topicSuffix !== "string")
+    throw new Error('hub: topicSuffix must be given, "" on the real relay');
+  const { topicSuffix } = env;
   for (const name of ["botId", "ownerTgId"]) {
     if (!Number.isSafeInteger(env[name]) || env[name] <= 0)
       throw new Error(`hub: ${name} must be a positive whole number`);
@@ -345,6 +379,7 @@ export function createHub(env) {
     if (f.t === "app") return pcApp(ws, a, f, text);
     if (f.t === "alert") return pcAlert(ws, a, f);
     if (f.t === "alert-done") return pcAlertDone(ws, f);
+    if (f.t === "dl-open") return pcDlOpen(ws, a, f);
     if (f.t === "held-ack" || f.t === "fetch") {
       if (!bot) return fail(ws, "no-bot");
       return bot.pcFrame(a.pcId, f);
@@ -392,8 +427,17 @@ export function createHub(env) {
       joins: [],
       asks: [],
       alerts: null,
+      files: null,
+      topics: null,
     });
-    reply(ws, { t: "pc-auth", ok: true, botId, paired: pc.tgId !== null });
+    // files: 1 says this relay has Send to chat and the download link over one HTTP body (files contract, 6.2).
+    reply(ws, {
+      t: "pc-auth",
+      ok: true,
+      botId,
+      paired: pc.tgId !== null,
+      files: 1,
+    });
     // A page waiting on "PC off" says hello at once (steady design, section 1).
     if (pc.tgId !== null) {
       for (const p of live())
@@ -401,6 +445,69 @@ export function createHub(env) {
           reply(p, { t: "pc-online" });
     }
     if (bot) await bot.pcConnected(f.pcId);
+    // Topic mode and the topics, after the answer has gone. An unpaired PC has no chat: its mode is read at its
+    // first alert. A refusal here only costs the topics until the next alert, so the PC stays signed in.
+    if (pc.tgId === null) return;
+    try {
+      if (await topicMode(ws)) {
+        await topicId(pc.tgId, "alerts");
+        await topicId(pc.tgId, "files");
+      }
+    } catch (e) {
+      log(`topics at sign-in refused: ${e.message}`);
+    }
+  }
+
+  // ---- topics (files contract, section 7) ----
+
+  // The topic mode of the PC on ws: getMe's has_topics_enabled, read once per sign-in and kept in the attachment.
+  async function topicMode(ws) {
+    if (typeof att(ws).topics === "boolean") return att(ws).topics;
+    const me = await telegram("getMe", {});
+    const on = me?.has_topics_enabled === true;
+    sockets.setAttachment(ws, { ...att(ws), topics: on });
+    return on;
+  }
+
+  // The kept thread id of topic `which` ("alerts" or "files") in the chat tgId; made once when none is kept.
+  async function topicId(tgId, which) {
+    const kept = (await store.get(topicKey(tgId))) ?? {
+      alerts: null,
+      files: null,
+      at: null,
+    };
+    if (kept[which] !== null) return kept[which];
+    const made = await telegram("createForumTopic", {
+      chat_id: tgId,
+      name: `${TOPIC_NAMES[which]}${topicSuffix}`,
+    });
+    if (!Number.isSafeInteger(made?.message_thread_id))
+      throw new Error(
+        "hub: Telegram's createForumTopic gave no message_thread_id",
+      );
+    await store.put(topicKey(tgId), {
+      ...kept,
+      [which]: made.message_thread_id,
+      at: now(),
+    });
+    log(`topic made: ${which}`);
+    return made.message_thread_id;
+  }
+
+  // Calls `method` in topic `which` of the chat tgId. A topic the user deleted is forgotten, made again once and
+  // the call sent again once; any other refusal, or a second one, is thrown.
+  async function inTopic(tgId, which, method, params) {
+    for (let again = false; ; again = true) {
+      const thread = await topicId(tgId, which);
+      try {
+        return await telegram(method, { ...params, message_thread_id: thread });
+      } catch (e) {
+        if (again || !THREAD_GONE.test(e.message)) throw e;
+        log(`topic gone: ${which}`);
+        const kept = await store.get(topicKey(tgId));
+        await store.put(topicKey(tgId), { ...kept, [which]: null });
+      }
+    }
   }
 
   async function pcJoin(ws, a, f) {
@@ -452,7 +559,8 @@ export function createHub(env) {
       alerts: null,
     });
     log("pc joined");
-    reply(ws, { t: "pc-join", ok: true, botId });
+    // files: 1 here too: a PC that just joined keeps this socket, so without it Send to chat stays off till a reconnect.
+    reply(ws, { t: "pc-join", ok: true, botId, files: 1 });
   }
 
   // ---- pairing (section 2): the Hub passes the messages and records a pair only when it saw it ----
@@ -720,7 +828,7 @@ export function createHub(env) {
     const sent = a.alerts && a.alerts.hour === hour ? a.alerts.n : 0;
     if (sent >= ALERTS_PER_HOUR) return fail(ws, "alert-rate");
     sockets.setAttachment(ws, { ...a, alerts: { hour, n: sent + 1 } });
-    const msg = await telegram("sendMessage", {
+    const params = {
       chat_id: pc.tgId,
       text: f.text,
       disable_notification: f.silent,
@@ -729,7 +837,17 @@ export function createHub(env) {
           [{ text: "Open", web_app: { url: `${a.origin}/?o=${f.open}` } }],
         ],
       },
-    });
+    };
+    let msg;
+    if (await topicMode(ws)) {
+      // Mode on: no fall-back to the plain chat; a refusal is the PC's `telegram-refused`.
+      try {
+        msg = await inTopic(pc.tgId, "alerts", "sendMessage", params);
+      } catch (e) {
+        log(`alert refused: ${e.message}`);
+        return fail(ws, "telegram-refused");
+      }
+    } else msg = await telegram("sendMessage", params);
     if (!Number.isSafeInteger(msg?.message_id))
       throw new Error("hub: Telegram's sendMessage gave no message_id");
     await store.put(alertKey(pc.tgId, f.open), {
@@ -762,6 +880,270 @@ export function createHub(env) {
     }
   }
 
+  // ---- files to Telegram and to a browser (files contract, section 6): nothing is written to the store ----
+
+  // A download link lives here only: lost when the object sleeps, and then the link answers 410 (section 6.3).
+  const links = new Map(); // SHA-256 hex of the link's token -> { pcId, ref, name, size, mime, until }
+  const pulls = new Map(); // pull id (the `link` of dl-pull) -> { pcId, ref, size, writable, timer }
+
+  const json = (status, value) => ({
+    status,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  const refused = (status, e, why) =>
+    json(status, why === undefined ? { ok: false, e } : { ok: false, e, why });
+  const NOBODY = { status: 401, headers: {}, body: "" };
+
+  // The PC behind an HTTP file call (section 6.1): its id and token checked as pcAuth checks them, paired, its
+  // socket open. Returns { ws, pc, pcId }, or null for any miss.
+  async function fileCaller(headers) {
+    const pcId = headers["x-phone-pc"];
+    const bearer = /^Bearer (\S+)$/.exec(headers.authorization ?? "");
+    const pc = PC_ID.test(pcId ?? "") ? await store.get(`pc:${pcId}`) : null;
+    const token = bearer ? keyBytes(bearer[1]) : null;
+    if (!pc || !token || !sameText(await sha256Hex(token), pc.tokenHash))
+      return null;
+    if (pc.tgId === null) return null;
+    const ws = pcSocket(pcId);
+    return ws ? { ws, pc, pcId } : null;
+  }
+
+  // Counts one send or link in the hour of the PC on ws (in its attachment, as alerts are); false over the limit.
+  function fileCount(ws) {
+    const a = att(ws);
+    const hour = Math.floor(now() / HOUR);
+    const n = a.files && a.files.hour === hour ? a.files.n : 0;
+    if (n >= FILES_PER_HOUR) return false;
+    sockets.setAttachment(ws, { ...a, files: { hour, n: n + 1 } });
+    return true;
+  }
+
+  // POST /pc/send (section 6.2): the PC's file, as the request's body, goes to the paired user's chat as one
+  // sendDocument, into the Files topic in topic mode. The body is piped into a multipart body of fixed length,
+  // never held whole. req is { headers (lower-case names), body } and body is read only when the send starts.
+  async function pcSend(req) {
+    const caller = await fileCaller(req.headers);
+    if (!caller) return NOBODY;
+    const { ws, pc } = caller;
+    let name = null;
+    try {
+      name = decodeURIComponent(req.headers["x-file-name"] ?? "");
+    } catch {}
+    if (name === null || !FILE_NAME.test(name)) return refused(400, "bad-name");
+    const sizeText = req.headers["content-length"] ?? "";
+    if (!SIZE.test(sizeText)) return refused(411, "bad-size");
+    const size = Number(sizeText);
+    if (size > SEND_MAX) return refused(413, "too-big");
+    if (!fileCount(ws)) return refused(429, "rate");
+    const given = req.headers["content-type"] ?? "";
+    const type = MIME.test(given) ? given : "application/octet-stream";
+
+    // Topic mode: the topic is tried first with a chat action, so a topic the user deleted is made again (inTopic)
+    // before the body starts; a streamed body cannot be sent twice.
+    let thread = null;
+    if (await topicMode(ws)) {
+      try {
+        await inTopic(pc.tgId, "files", "sendChatAction", {
+          chat_id: pc.tgId,
+          action: "upload_document",
+        });
+        thread = await topicId(pc.tgId, "files");
+      } catch (e) {
+        log(`file send refused: ${e.message}`);
+        return refused(
+          502,
+          "telegram-refused",
+          e.message.replace(TELEGRAM_REFUSED, ""),
+        );
+      }
+    }
+
+    const boundary = `relay-${randomB64url(18)}`;
+    const field = (n, v) =>
+      `--${boundary}\r\nContent-Disposition: form-data; name="${n}"\r\n\r\n${v}\r\n`;
+    const head = enc.encode(
+      field("chat_id", pc.tgId) +
+        (thread === null ? "" : field("message_thread_id", thread)) +
+        `--${boundary}\r\nContent-Disposition: form-data; name="document"; ` +
+        `filename="${name.replace(/"/g, "%22")}"\r\nContent-Type: ${type}\r\n\r\n`,
+    );
+    const tail = enc.encode(`\r\n--${boundary}--\r\n`);
+    const length = head.length + size + tail.length;
+    const pipe = env.fixedStream(length);
+    const stop = new AbortController();
+    const copy = (async () => {
+      let w = pipe.writable.getWriter();
+      await w.write(head);
+      w.releaseLock();
+      await req.body.pipeTo(pipe.writable, {
+        preventClose: true,
+        signal: stop.signal,
+      });
+      w = pipe.writable.getWriter();
+      await w.write(tail);
+      await w.close();
+    })();
+    copy.catch(() => {}); // its failure shows as the upload's
+
+    let msg;
+    try {
+      msg = await env.upload("sendDocument", {
+        body: pipe.readable,
+        length,
+        type: `multipart/form-data; boundary=${boundary}`,
+      });
+    } catch (e) {
+      stop.abort();
+      if (!TELEGRAM_REFUSED.test(e.message)) {
+        // The PC's body ended early or failed, or the bytes did not reach Telegram.
+        log(`file send aborted: ${e.message}`);
+        return refused(400, "aborted");
+      }
+      log(`file send refused: ${e.message}`);
+      if (thread !== null && THREAD_GONE.test(e.message)) {
+        const kept = await store.get(topicKey(pc.tgId));
+        await store.put(topicKey(pc.tgId), { ...kept, files: null });
+      }
+      return refused(
+        502,
+        "telegram-refused",
+        e.message.replace(TELEGRAM_REFUSED, ""),
+      );
+    }
+    await copy;
+    if (!Number.isSafeInteger(msg?.message_id))
+      throw new Error("hub: Telegram's sendDocument gave no message_id");
+    log("file sent to chat");
+    return json(200, { ok: true, message_id: msg.message_id });
+  }
+
+  // dl-open (section 6.3): a one-time link to the PC's file, made on the paired user's ask at the PC.
+  async function pcDlOpen(ws, a, f) {
+    if (typeof f.ref !== "string" || !REF.test(f.ref))
+      return fail(ws, "bad-frame");
+    const no = (e) => reply(ws, { t: "dl-fail", ref: f.ref, e });
+    const pc = await store.get(`pc:${a.pcId}`);
+    if (!pc) return shut(ws, CLOSE.removed, "removed");
+    if (pc.tgId === null) return no("not-paired");
+    if (typeof f.name !== "string" || !FILE_NAME.test(f.name))
+      return no("bad-name");
+    if (!Number.isSafeInteger(f.size) || f.size < 1 || f.size > FILE_MAX)
+      return no("limit");
+    if (typeof f.mime !== "string" || !MIME.test(f.mime)) return no("bad-mime");
+    if (!fileCount(ws)) return fail(ws, "files-rate");
+    const t = now();
+    for (const [key, l] of links) if (t >= l.until) links.delete(key);
+    const mine = [...links].filter(([, l]) => l.pcId === a.pcId);
+    if (mine.length >= LINKS_PER_PC) links.delete(mine[0][0]); // the oldest goes
+    const token = randomB64url(32);
+    const until = t + LINK_LIFE;
+    links.set(await sha256Hex(enc.encode(token)), {
+      pcId: a.pcId,
+      ref: f.ref,
+      name: f.name,
+      size: f.size,
+      mime: f.mime,
+      until,
+    });
+    reply(ws, {
+      t: "dl-made",
+      ref: f.ref,
+      url: `${a.origin}/dl/${token}`,
+      until: new Date(until).toISOString(),
+    });
+    log("download link made");
+  }
+
+  // The headers of a download (section 6.3, step 4): an attachment, readable by Telegram's web page.
+  function downloadHeaders(l) {
+    const ascii = l.name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+    const utf8 = encodeURIComponent(l.name).replace(
+      /['()*]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
+    return {
+      "Content-Type": l.mime,
+      "Content-Length": String(l.size),
+      "Content-Disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`,
+      "Access-Control-Allow-Origin": "https://web.telegram.org",
+      "Cache-Control": "no-store",
+    };
+  }
+
+  // GET or HEAD /dl/<token>. A HEAD leaves the link unused. A GET uses it, answers at once with a body of the
+  // file's length, and asks the PC for the bytes (dl-pull); the token itself is never logged.
+  async function download(token, method) {
+    const plain = { "Content-Type": "text/plain; charset=utf-8" };
+    const say = (status, text) => ({
+      status,
+      headers: plain,
+      body: method === "HEAD" ? null : text,
+    });
+    if (typeof token !== "string" || !LINK_TOKEN.test(token))
+      return say(410, EXPIRED);
+    const key = await sha256Hex(enc.encode(token));
+    const l = links.get(key);
+    if (!l || now() >= l.until) {
+      links.delete(key);
+      return say(410, EXPIRED);
+    }
+    const ws = pcSocket(l.pcId);
+    if (!ws) return say(503, "Your PC is offline.");
+    const headers = downloadHeaders(l);
+    if (method === "HEAD") return { status: 200, headers, body: null };
+    links.delete(key);
+    const pipe = env.fixedStream(l.size);
+    const link = randomB64url(16);
+    pulls.set(link, {
+      pcId: l.pcId,
+      ref: l.ref,
+      size: l.size,
+      writable: pipe.writable,
+      timer: setTimeout(() => endPull(link, null), PULL_WAIT),
+    });
+    reply(ws, { t: "dl-pull", ref: l.ref, link });
+    log("download link used");
+    return { status: 200, headers, body: pipe.readable };
+  }
+
+  // A pull that cannot finish: the browser's download is broken off and the PC told dl-fail aborted. `why` is the
+  // error that broke the pipe, or null when the PC's bytes never came.
+  function endPull(link, why) {
+    const p = pulls.get(link);
+    if (!p) return;
+    pulls.delete(link);
+    clearTimeout(p.timer);
+    if (!why)
+      p.writable.abort(new Error("no bytes from the PC")).catch(() => {});
+    const ws = pcSocket(p.pcId);
+    if (ws) reply(ws, { t: "dl-fail", ref: p.ref, e: "aborted" });
+    log(`download aborted${why ? `: ${why.message}` : ""}`);
+  }
+
+  // POST /pc/dl/<link> (section 6.3, step 5): the PC's bytes for an opened link, piped into the waiting download.
+  async function pcDl(link, req) {
+    const caller = await fileCaller(req.headers);
+    if (!caller) return NOBODY;
+    const p = pulls.get(link);
+    if (!p || p.pcId !== caller.pcId) return refused(410, "gone");
+    clearTimeout(p.timer);
+    if (req.headers["content-length"] !== String(p.size)) {
+      endPull(link, null);
+      return refused(400, "aborted");
+    }
+    p.timer = null;
+    try {
+      await req.body.pipeTo(p.writable);
+    } catch (e) {
+      endPull(link, e);
+      return refused(400, "aborted");
+    }
+    pulls.delete(link);
+    log("download sent");
+    return json(200, { ok: true });
+  }
+
   // ---- a socket gone; the bot's webhook ----
 
   // A socket the Hub closed itself keeps the lastSeen it set (a dead link's is its last ping, not now).
@@ -780,7 +1162,7 @@ export function createHub(env) {
     return bot.webhook(req);
   }
 
-  return { open, message, closed, webhook };
+  return { open, message, closed, webhook, pcSend, pcDl, download };
 }
 
 // ---- bytes ----

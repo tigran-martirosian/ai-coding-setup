@@ -10,7 +10,8 @@
 //   A turn that follows a task notification answered "No response requested." (Claude Code marks the wake-up
 //   "NOT USER INPUT") is sent back on Stop to carry on, because the settled prompt carries the job's next steps.
 // PreToolUse (main session only): refuses a background launch, which costs a notification turn plus a settled turn.
-//   Agent/Task are background unless `run_in_background: false`, and a background helper is always refused: when the
+//   Agent/Task are background unless `run_in_background: false`, and a background helper is always rewritten to the
+//   foreground (updatedInput, the same full brief map-brief and serves-brief build; no refusal, no retry): when the
 //   main turn ends while it runs, the app may end the idle process and the helper with it ("Background agent ...
 //   didn't finish before the previous session ended", seen mid-build in Nimbalyst). Helpers that run side by side go
 //   as several foreground Agent calls in one message: they run in parallel and the turn waits for all of them.
@@ -49,6 +50,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { emit, runHook } from "./lib/hook-io.mjs";
+import { foreground, fullBrief } from "./lib/serves.mjs";
 import { SETTLED_NOTE, STAND_IN_RE } from "./lib/texts.mjs";
 import {
   agentLaunches,
@@ -100,8 +102,6 @@ const NUDGE =
   "[background-tasks] Background costs two extra full-context turns (the notification and the settled notice) plus every check-in read, and a background helper can die when this turn ends. Run it in the foreground (several helpers side by side: several calls in one message) (Bash: `timeout` up to 600000 ms; Agent: pass `run_in_background: false`, since leaving it out runs the helper in the background) and read the result once." +
   OUTSIDE_WAIT +
   " When its notification comes while other work for the same ask still runs, write no reply for it: carry on, and answer once, completely, when everything has finished (a server or watcher that never ends doesn't count) (a string of small updates doesn't read like an answer). A wait loop on a background command ends on success, and also when the process is gone or its log shows an error: silence is not success.";
-const REFUSE_AGENT =
-  '[background-tasks] Refused: this helper would run in the background (the default unless run_in_background is false). A background helper dies when this turn ends and the app stops the idle session ("didn\'t finish before the previous session ended"), and its finish re-sends the whole conversation twice. Re-send the same call with run_in_background: false. Helpers that should run side by side go as several Agent calls in one message, each with run_in_background: false: they run in parallel and this turn waits for all of them.';
 const DENIED = "The user doesn't want to take this action";
 const RETRY_DENIED =
   "[background-tasks] A tool call in this turn came back \"The user doesn't want to take this action\", but the user did not start this turn and refused nothing: the app denies the first call of a turn it starts itself (a settled notice, a task's notice, hook feedback). Send that call again now and carry on with the work it was part of; this new turn's first call may be denied the same way, so when it is, send it once more (the second try runs). Report the work as if that first call had run.";
@@ -378,7 +378,7 @@ function waitMs(input) {
   return ms;
 }
 
-runHook("background-tasks", (event) => {
+runHook("background-tasks", async (event) => {
   const mode = (process.env.BACKGROUND_TASKS || "").toLowerCase();
   if (event.hook_event_name === "PreToolUse") {
     const input = event.tool_input || {};
@@ -411,8 +411,30 @@ runHook("background-tasks", (event) => {
       // the next session's nudge starts it again
       if (/^Systems map:/.test(String(input.description ?? ""))) return;
       if (mode === "warn" || alwaysBackground)
-        emit.context("PreToolUse", NUDGE);
-      else emit.deny(REFUSE_AGENT);
+        return void emit.context("PreToolUse", NUDGE);
+      // Rewritten to the foreground, not refused. map-brief and serves-brief rewrite the same call and only one
+      // updatedInput is used, so this one is the same full brief theirs is (lib/serves.mjs foreground). A brief they
+      // refuse is left to them.
+      const built = await fullBrief(event);
+      // A brief map-brief or serves-brief refuses is refused by them; this still moves it to the foreground, in case
+      // they only observe or are not wired (a deny from any hook wins over this input).
+      if (built?.deny)
+        return void process.stdout.write(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              updatedInput: foreground(event, input),
+            },
+          }),
+        );
+      process.stdout.write(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            updatedInput: built?.input ?? foreground(event, input),
+          },
+        }),
+      );
       return;
     }
     if (BESIDE.test(String(input.description ?? ""))) return;

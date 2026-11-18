@@ -124,7 +124,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **Reading back while Claude works.** Scroll up in the chat and it stays there while new text
   arrives (also from the `agents-panel` extension). Scroll back to the end, press the round arrow at
   the bottom, or send a message, and it follows the newest text again.
-- **Big files.** `big-read-gate` refuses to read a whole file of more than 350 lines or about 80 KB,
+- **Big files.** `big-read-gate` cuts a Read of a file over 350 lines or about 80 KB to a part (120 lines, or the asked range up to what fits),
   so Claude reads the part it needs. To move the limits, set `BIG_READ_MAX_LINES`
   (default 350) and `BIG_READ_MAX_BYTES` (default 80000) in the environment. A file you name in your
   own message is let through once. A Word, PowerPoint or Excel file is turned into Markdown first

@@ -4,10 +4,14 @@
 // K is stored wrapped: a non-extractable AES-KW key made at pairing lives in this page's own IndexedDB (bound to
 // the relay's address), and only K wrapped with it goes to Telegram's store. Another page that reads the store
 // gets bytes it cannot unwrap.
+// Every storage key name ends in the build's STORE_SUFFIX ("-test" in a test copy, empty in a plain build), so a
+// test copy opened from the same bot keeps its own pairing beside the real one. The names are read at call time:
+// screens.generated.js may still be loading when this file is first evaluated.
 import { fromB64u, toB64u } from "../../shared/seal.mjs";
+import { STORE_SUFFIX } from "../screens.generated.js";
 
-const ITEM = "phone-app-pairing";
-const DB = "phone-app";
+const itemName = () => `phone-app-pairing${STORE_SUFFIX}`;
+const dbName = () => `phone-app${STORE_SUFFIX}`;
 const DB_STORE = "keys";
 const WRAP_ID = "wrap";
 const ANSWER_MS = 8000;
@@ -54,7 +58,7 @@ function call(store, method, ...args) {
 
 function openDb() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
+    const req = indexedDB.open(dbName(), 1);
     req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () =>
@@ -127,12 +131,12 @@ export async function savePairing(tg, { K, pcId, dev }) {
     wrapped: toB64u(await wrap(wrapKey, K)),
   });
   try {
-    await call(tg.SecureStorage, "setItem", ITEM, value);
+    await call(tg.SecureStorage, "setItem", itemName(), value);
     return "secure";
   } catch (e) {
     if (e.code !== "unsupported") throw e;
   }
-  await call(tg.DeviceStorage, "setItem", ITEM, value);
+  await call(tg.DeviceStorage, "setItem", itemName(), value);
   return "device";
 }
 
@@ -142,11 +146,11 @@ export async function loadPairing(tg) {
   let got = null;
   let where = "secure";
   try {
-    got = await call(tg.SecureStorage, "getItem", ITEM);
+    got = await call(tg.SecureStorage, "getItem", itemName());
   } catch (e) {
     if (e.code !== "unsupported") throw e;
     where = "device";
-    got = await call(tg.DeviceStorage, "getItem", ITEM);
+    got = await call(tg.DeviceStorage, "getItem", itemName());
   }
   if (!got.value) return got.canRestore ? { restorable: true } : null;
   let item;
@@ -167,7 +171,7 @@ export async function loadPairing(tg) {
 }
 
 export async function restorePairing(tg) {
-  await call(tg.SecureStorage, "restoreItem", ITEM);
+  await call(tg.SecureStorage, "restoreItem", itemName());
   return loadPairing(tg);
 }
 
@@ -175,7 +179,7 @@ export async function restorePairing(tg) {
 export async function forgetPairing(tg) {
   for (const store of [tg.SecureStorage, tg.DeviceStorage]) {
     try {
-      await call(store, "removeItem", ITEM);
+      await call(store, "removeItem", itemName());
     } catch (e) {
       if (e.code !== "unsupported") throw e;
     }

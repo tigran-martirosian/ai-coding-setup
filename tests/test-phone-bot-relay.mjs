@@ -512,6 +512,29 @@ check(
   JSON.stringify(neutral),
 );
 
+// ---- a Telegram service message (a new thread in the bot chat): acknowledged, nothing saved ----
+
+const filesBefore = fs.readdirSync(inbox).sort();
+await hook(
+  message(FRIEND, {
+    message_thread_id: 7,
+    is_topic_message: true,
+    forum_topic_created: { name: "New thread", icon_color: 7322096 },
+  }),
+);
+same("the service message is held", keysOf("held:").length, 1);
+await until(
+  "the service message is acknowledged",
+  () => keysOf("held:").length === 0,
+);
+check(
+  "a held forum_topic_created service message writes no file and no index line",
+  indexCount() === 22 &&
+    JSON.stringify(fs.readdirSync(inbox).sort()) ===
+      JSON.stringify(filesBefore),
+  JSON.stringify(fs.readdirSync(inbox).filter((f) => !filesBefore.includes(f))),
+);
+
 // ---- an alert with the silent flag as asked (the Hub sends it; section 5) ----
 
 take();

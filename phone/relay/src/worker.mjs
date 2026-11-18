@@ -1,5 +1,6 @@
 // The relay on Cloudflare: wiring only, all rules are in hub.mjs. The page files are Workers static assets and
-// never reach this code; `/ws` and `/tg/hook` go to the one Hub object. Needs the binding HUB (this file's Hub
+// never reach this code; `/ws`, `/tg/hook` and the file routes (`/pc/send`, `/pc/dl/<link>`, `/dl/<token>`) go to
+// the one Hub object. Needs the binding HUB (this file's Hub
 // class, SQLite-backed) and the secrets BOT_TOKEN, BOT_ID, OWNER_TG_ID and WEBHOOK_SECRET.
 import { DurableObject } from "cloudflare:workers";
 import { makeBot } from "../bot/bot.mjs";
@@ -41,12 +42,16 @@ export class Hub extends DurableObject {
         lastPing: (ws) => ctx.getWebSocketAutoResponseTimestamp(ws),
       },
       telegram: api.telegram,
+      upload: api.upload,
+      fixedStream: (length) => new FixedLengthStream(length),
       download: api.download,
       now: Date.now,
       log: (line) => console.log(line),
       botId: Number(secret(env, "BOT_ID")),
       ownerTgId: Number(secret(env, "OWNER_TG_ID")),
       telegramKey: TELEGRAM_KEY,
+      // Set only on the test copy (deploy-test.mjs): " (test)" after the topic names.
+      topicSuffix: env.TOPIC_SUFFIX ?? "",
       bot: makeBot({ webhookSecret: secret(env, "WEBHOOK_SECRET") }),
     });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
@@ -61,12 +66,25 @@ export class Hub extends DurableObject {
       await this.hub.open(server, { origin: url.origin });
       return new Response(null, { status: 101, webSocket: client });
     }
-    const r = await this.hub.webhook({
+    // The file routes keep their bodies as streams: a file passes through, never held whole.
+    const fileCall = {
+      headers: Object.fromEntries(request.headers),
+      body: request.body,
+    };
+    let r = null;
+    if (url.pathname === "/pc/send") r = await this.hub.pcSend(fileCall);
+    else if (url.pathname.startsWith("/pc/dl/"))
+      r = await this.hub.pcDl(url.pathname.slice(7), fileCall);
+    else if (url.pathname.startsWith("/dl/"))
+      r = await this.hub.download(url.pathname.slice(4), request.method);
+    if (r)
+      return new Response(r.body, { status: r.status, headers: r.headers });
+    const hook = await this.hub.webhook({
       headers: Object.fromEntries(request.headers),
       body: await request.text(),
       origin: url.origin,
     });
-    return new Response(r.body, { status: r.status });
+    return new Response(hook.body, { status: hook.status });
   }
 
   webSocketMessage(ws, message) {
@@ -81,8 +99,14 @@ export class Hub extends DurableObject {
 export default {
   fetch(request, env) {
     const { pathname } = new URL(request.url);
-    const hookCall = pathname === "/tg/hook" && request.method === "POST";
-    if (pathname !== "/ws" && !hookCall)
+    const { method } = request;
+    const hookCall = pathname === "/tg/hook" && method === "POST";
+    const pcFile =
+      (pathname === "/pc/send" || pathname.startsWith("/pc/dl/")) &&
+      method === "POST";
+    const download =
+      pathname.startsWith("/dl/") && (method === "GET" || method === "HEAD");
+    if (pathname !== "/ws" && !hookCall && !pcFile && !download)
       return new Response("not found", { status: 404 });
     return env.HUB.get(env.HUB.idFromName("hub")).fetch(request);
   },

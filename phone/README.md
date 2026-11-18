@@ -55,13 +55,50 @@ Rules that keep this true: a new frame type must be one an old part can ignore. 
 for a page it accepts. The relay never closes a phone socket that has not pinged. A change of the protocol number is
 a break, and the release notes must say so.
 
-## Two relays, one at a time
+## A test copy beside the real relay
 
-| | Test relay | Real relay |
+| | Test copy | Real relay |
 |---|---|---|
 | Worker name | `phone-relay-test` | `phone-relay` |
 | Deployed by | `node phone/relay/deploy-test.mjs` on your PC | The release workflow, on a pushed `v*` tag |
 | Tokens from | Your secrets file | The `phone-relay` GitHub environment |
+| The bot | Untouched: one "Test copy" message with a button | Webhook, command menus, descriptions, Open button |
+| PC program | A second one, in its own folder with its own pipe | The one started at log-on, in `~/.phone-app` |
+
+Both run at the same time, on the same bot, so a test never takes the app away from anyone who uses it. The test
+deploy puts up the Worker and the page only. It makes no bot-wide call: the real relay keeps the webhook, the
+menus and the Open button. The test page is built as a test copy, so it keeps its pairing under its own names and
+never reads or overwrites the real app's pairing on the same phone. You open it from the "Test copy" message in
+the bot chat.
+
+    node phone/relay/deploy-test.mjs --dry-run
+    node phone/relay/deploy-test.mjs
+    node phone/relay/deploy-test.mjs --checks
+
+`--checks` adds the Checks screen and serves `/version.json` as a download (`probe.json`) that Telegram's web page
+may fetch. A plain test deploy afterwards takes both away.
+
+    node phone/relay/deploy-test.mjs --remove-topics
+
+`--remove-topics` deletes the test relay's "Alerts (test)" and "Files (test)" topics, with their messages, in every
+chat. It uses the two keys each test deploy saves in your secrets file: `testRelayAddress` and
+`testRelayWebhookSecret`.
+
+The second PC program runs from this repository, in its own folder `~/.phone-app-test` (keys, state, `pc.log`)
+with its own pipe. It writes no start at log-on, does not touch the real program or its folder, and is stopped
+through its own pipe only. In Git Bash, from the repository's root (the address is the one the test deploy
+printed):
+
+    export PHONE_PC_TEST=1 PHONE_PC_APP_DIR="$USERPROFILE/.phone-app-test" PHONE_PC_PIPE='\\.\pipe\phone-app-pc-test'
+    node skills/phone-bot/pc/setup.mjs join https://phone-relay-test.<your subdomain>.workers.dev
+    node skills/phone-bot/pc/setup.mjs status
+    node skills/phone-bot/pc/setup.mjs start
+    node skills/phone-bot/pc/setup.mjs remove
+
+`join` makes the second program's keys, starts it hidden and shows a pairing code for the test copy. `start`
+starts it again after a restart of the PC, `remove` stops it; its keys stay. Both variables must be set together:
+`PHONE_PC_APP_DIR` without `PHONE_PC_PIPE` stops with an error, so the second program never talks to the real
+one. Voice in the second program looks for its own `voice.json` in the test folder.
 
 The test relay lives until the first release with the phone app. Then it is deleted and both tokens are replaced
 (step 6), so the copies that sat in a file on your PC stop working and only GitHub can deploy.
@@ -103,9 +140,9 @@ limits the file to your Windows user. Add `botToken` and `ownerTelegramId` to th
     node phone/relay/deploy-test.mjs
 
 The dry run checks the file and the page and shows each step; it writes nothing and calls nobody. The real run
-builds the page into `phone/relay/dist/` (git ignores it), deploys `phone-relay-test`, puts the relay secrets, sets
-the bot's webhook, its command menu, description and short description, and your chat's Open button, and prints
-the relay's address and "webhook set". It never prints a secret value. A missing key in the file stops it with the
+builds the page as a test copy into `phone/relay/dist/` (git ignores it), deploys `phone-relay-test`, puts the
+relay secrets, sends your chat one "Test copy" message with a button to the test address, and prints the relay's
+address. It changes nothing bot-wide (see "A test copy beside the real relay"). It never prints a secret value. A missing key in the file stops it with the
 key's name.
 
 If the bot was used before for something else, its old messages stay in your chat: Telegram lets a bot delete a

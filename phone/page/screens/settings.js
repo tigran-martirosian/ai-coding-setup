@@ -5,6 +5,7 @@
 // forgets the stored key and shows pairing (ctx.unpaired).
 import { KINDS } from "../../shared/seal.mjs";
 import { el, ICONS, icon } from "../frame/dom.js";
+import { setTextSize, TEXT_SIZES, textSize } from "../frame/markdown.js";
 import { registerScreen } from "../frame/screens.js";
 
 // The kinds the PC watches, named with the state word; `words` end the alert line
@@ -101,7 +102,12 @@ function render(ctx) {
     unpairError: null,
   };
   const draw = () =>
-    box.replaceChildren(alertsGroup(), pcGroup(), accountGroup());
+    box.replaceChildren(
+      alertsGroup(),
+      pcGroup(),
+      readingGroup(),
+      accountGroup(),
+    );
 
   function loadDevices() {
     ctx
@@ -235,6 +241,51 @@ function render(ctx) {
   }
 
   // Remove on another device: the first tap opens one line that asks, its Remove asks the PC.
+  // Reading (comfort design, section 6): the text size of messages, answers and code, kept on the phone. The
+  // sample line under it shows the picked size.
+  function readingGroup() {
+    const size = textSize();
+    return el(
+      "div.group",
+      el("div.g-head", "Reading"),
+      el(
+        "div.block",
+        el(
+          "div.set",
+          el("div.set-name", "Text size"),
+          el(
+            "div.seg",
+            { role: "radiogroup", "aria-label": "Text size" },
+            TEXT_SIZES.map((t) =>
+              el(
+                "button",
+                {
+                  type: "button",
+                  role: "radio",
+                  "aria-checked": String(t.size === size),
+                  onclick:
+                    t.size === size
+                      ? null
+                      : () => {
+                          ctx.haptic("select");
+                          setTextSize(t.size);
+                          draw();
+                        },
+                },
+                t.word,
+              ),
+            ),
+          ),
+          el(
+            "p.text-sample",
+            { "data-text": size },
+            "Claude's answers and your messages show at this size.",
+          ),
+        ),
+      ),
+    );
+  }
+
   async function remove(device) {
     if (dv.removing) return;
     ctx.haptic("select");

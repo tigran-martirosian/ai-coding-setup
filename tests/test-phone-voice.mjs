@@ -3,11 +3,14 @@
 // voice.warm, voice.transcribe and voice.result (skills/phone-bot/pc/actions/voice.mjs) run a stand-in
 // transcriber that speaks the real one's JSON lines, and the page's voice parts of the typing box
 // (phone/page/screens/session-voice.js) put the text in the box unsent, or show the error and keep the recording.
-// `setup.mjs voice` runs in dry mode only. No speech model is downloaded and nothing real is transcribed.
+// `setup.mjs voice`, the install and the update run in dry mode only; `setup.mjs voice --background` runs for real
+// with a stand-in script (PHONE_PC_VOICE_SETUP) in place of the download. No speech model is downloaded, no
+// winget runs and nothing real is transcribed.
 // Run: node tests/test-phone-voice.mjs
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -35,6 +38,15 @@ async function until(fn, ms = 8000) {
 }
 
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+// A Node script's output, run without blocking this process (the update asks a server in it).
+const runNode = (args, env) =>
+  new Promise((resolve) => {
+    const c = spawn(process.execPath, args, { env, windowsHide: true });
+    let out = "";
+    c.stdout.on("data", (d) => (out += d));
+    c.stderr.on("data", (d) => (out += d));
+    c.on("close", () => resolve(out));
+  });
 
 // ---- the page's stand-ins: a DOM with what frame/dom.js and session-voice.js use, and a microphone whose
 // recorder makes MP4 only (as iPhones before Safari 18.4) and gives `mic.next` as the recording on stop
@@ -319,16 +331,177 @@ try {
       !fs.existsSync(voice.markerPath()),
     dryOut,
   );
-  const noUvSetup = spawnSync(
-    process.execPath,
-    [path.join(PC, "setup.mjs"), "voice"],
-    { encoding: "utf8", env: { ...process.env, PATH: "", PHONE_PC_DRY: "1" } },
-  );
+  const noUvOn = (platform) =>
+    spawnSync(process.execPath, [path.join(PC, "setup.mjs"), "voice"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: "",
+        PHONE_PC_DRY: "1",
+        PHONE_PC_PLATFORM: platform,
+      },
+    });
+  const noUvWin = noUvOn("win32");
   check(
-    "setup.mjs voice without uv stops with a clear error",
+    "setup.mjs voice (dry) on Windows without uv installs uv with winget, then would run the download",
+    noUvWin.status === 0 &&
+      noUvWin.stdout.includes(
+        "would run: winget install --id astral-sh.uv -e --source winget",
+      ) &&
+      /transcribe-server\.py"? --download/.test(noUvWin.stdout),
+    `${noUvWin.stdout}${noUvWin.stderr}`,
+  );
+  const noUvSetup = noUvOn("linux");
+  check(
+    "setup.mjs voice without uv off Windows stops with a clear error",
     noUvSetup.status === 1 && /needs uv/.test(noUvSetup.stderr),
     noUvSetup.stderr,
   );
+
+  // The voice setup runs hidden (--background), so every program it starts (winget, uv) gets no console window.
+  // setup.mjs runs in a child process here, so its spawn options are read from the source: each spawn( and
+  // spawnSync( call up to its closing "})" must hold windowsHide: true.
+  const setupSrc = fs.readFileSync(path.join(PC, "setup.mjs"), "utf8");
+  const spawnCalls = setupSrc
+    .split(/\bspawn(?:Sync)?\(/)
+    .slice(1)
+    .map((c) => c.slice(0, c.indexOf("})")));
+  const unhidden = spawnCalls.filter((c) => !/windowsHide: true/.test(c));
+  check(
+    "every program setup.mjs starts (winget, uv, the hidden setup) opens no console window: windowsHide: true",
+    spawnCalls.length >= 3 && unhidden.length === 0,
+    show(unhidden),
+  );
+
+  // ---- while `setup.mjs voice` runs (its file names a live process): the phone hears it is being set up
+  fs.mkdirSync(path.dirname(voice.settingUpPath()), { recursive: true });
+  fs.writeFileSync(voice.settingUpPath(), JSON.stringify({ pid: process.pid }));
+  const busy = await ask("voice.warm");
+  check(
+    "while the model downloads, voice.warm answers voice-setting-up with the new words and no command line",
+    busy.err === "voice-setting-up" &&
+      busy.message ===
+        "Voice is being set up on your PC. Try again in a few minutes." &&
+      busy.run === undefined,
+    show(busy),
+  );
+  const second = spawnSync(
+    process.execPath,
+    [path.join(PC, "setup.mjs"), "voice", "--background"],
+    { encoding: "utf8", env: { ...process.env, PHONE_PC_DRY: "1" } },
+  );
+  check(
+    "a second voice setup while one runs says so and starts nothing (two downloads would race)",
+    second.status === 0 &&
+      second.stdout.includes("its setup already runs") &&
+      !second.stdout.includes("would start hidden"),
+    `${second.stdout}${second.stderr}`,
+  );
+  const ended = spawnSync(process.execPath, ["-e", ""]);
+  fs.writeFileSync(voice.settingUpPath(), JSON.stringify({ pid: ended.pid }));
+  const stale = await ask("voice.warm");
+  check(
+    "a setup file left by a process that has ended counts as not set up, with the setup line",
+    stale.err === "voice-not-set-up" && /setup\.mjs voice$/.test(stale.run),
+    show(stale),
+  );
+  fs.rmSync(voice.settingUpPath());
+
+  // ---- the install and the update start the voice setup once when the add-on is there and voice is not set up
+  // (dry: --dry-run and --check). Run in a home of their own, without --home (with --home they never start it).
+  const home2 = path.join(tmp, "home2");
+  const pcSetup2 = path.join(
+    home2,
+    ".claude",
+    "skills",
+    "phone-bot",
+    "pc",
+    "setup.mjs",
+  );
+  fs.mkdirSync(path.dirname(pcSetup2), { recursive: true });
+  fs.writeFileSync(pcSetup2, "");
+  const server = http.createServer((q, a) =>
+    a.end(JSON.stringify({ version: "1.0.0" })),
+  );
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  fs.writeFileSync(
+    path.join(home2, ".claude", "setup-state.json"),
+    JSON.stringify({ version: "1.0.0" }),
+  );
+  const env2 = {
+    ...process.env,
+    HOME: home2,
+    USERPROFILE: home2,
+    SETUP_CC_CHECK: "off",
+    SETUP_UPDATE_BASE: `http://127.0.0.1:${server.address().port}`,
+  };
+  const starts = (out) =>
+    out.split("would start its setup in the background").length - 1;
+  const installRun = () =>
+    runNode([path.join(ROOT, "install.mjs"), "--dry-run"], env2);
+  const updateRun = () =>
+    runNode(
+      [path.join(ROOT, "skills", "update-setup", "update.mjs"), "--check"],
+      env2,
+    );
+  const [inst1, upd1] = [await installRun(), await updateRun()];
+  check(
+    "the install (dry) with the phone add-on and no voice marker starts the voice setup once",
+    starts(inst1) === 1 && inst1.includes("voice --background"),
+    inst1.split("\n").slice(-15).join("\n"),
+  );
+  check(
+    "the update (dry) with the phone add-on and no voice marker starts the voice setup once",
+    starts(upd1) === 1 && upd1.includes("voice --background"),
+    upd1,
+  );
+  fs.mkdirSync(path.join(home2, ".phone-app"));
+  fs.writeFileSync(path.join(home2, ".phone-app", "voice.json"), "{}");
+  const [inst2, upd2] = [await installRun(), await updateRun()];
+  check(
+    "with the voice marker in place the install and the update do not start the voice setup",
+    starts(inst2) === 0 &&
+      starts(upd2) === 0 &&
+      /Already on the newest/.test(upd2),
+    upd2,
+  );
+  server.close();
+
+  // ---- `setup.mjs voice --background`, not dry, with a stand-in for the download: it returns at once and the
+  // stand-in carries on after the caller has ended
+  if (process.platform === "win32") {
+    const standIn = path.join(tmp, "stand-in-setup.mjs");
+    const standInDone = path.join(tmp, "stand-in-done");
+    fs.writeFileSync(
+      standIn,
+      `import fs from "node:fs";\nsetTimeout(() => fs.writeFileSync(${JSON.stringify(standInDone)}, "done"), 1500);\n`,
+    );
+    const t0 = Date.now();
+    const bg = spawnSync(
+      process.execPath,
+      [path.join(PC, "setup.mjs"), "voice", "--background"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, PHONE_PC_VOICE_SETUP: standIn },
+        timeout: 10000,
+      },
+    );
+    const took = Date.now() - t0;
+    const notYet = !fs.existsSync(standInDone);
+    const appeared = await until(() => fs.existsSync(standInDone), 10000);
+    check(
+      "setup.mjs voice --background returns within 5 s and the started setup ends its work after the caller has exited",
+      bg.status === 0 && took < 5000 && notYet && appeared,
+      show({
+        status: bg.status,
+        took,
+        notYet,
+        appeared,
+        out: bg.stdout,
+        err: bg.stderr,
+      }),
+    );
+  }
 
   // What the real setup step leaves once the model loads.
   fs.mkdirSync(path.dirname(voice.markerPath()), { recursive: true });
@@ -414,24 +587,28 @@ try {
     show(other),
   );
 
-  // ---- limits before sending
-  const before2 = pageFrames.length;
-  let tooBig = null;
-  try {
-    await session.sendStream(
-      new Uint8Array(pageChannel.STREAM_MAX + 1),
-      "audio/mp4",
+  // ---- voice notes may be 50 MB: voice.transcribe with a stand-in stream (the PC channel's own limit aside)
+  const MB = 1024 * 1024;
+  const transcribeOf = (size) =>
+    registry.handle(
+      { k: "req", id: "big", a: "voice.transcribe", d: { stream: "s1" } },
+      {
+        page: "ok",
+        device: "big-device",
+        takeStream: () => ({ bytes: Buffer.alloc(size), mime: "audio/mp4" }),
+      },
     );
-  } catch (e) {
-    tooBig = e;
-  }
+  const take30 = await transcribeOf(30 * MB);
+  const take51 = await transcribeOf(51 * MB);
   check(
-    "a recording over 25 MB is refused before a piece is sent, with its size",
-    tooBig?.code === "too-big" &&
-      tooBig.extra.bytes === pageChannel.STREAM_MAX + 1 &&
-      pageFrames.length === before2,
-    show({ code: tooBig?.code, sent: pageFrames.length - before2 }),
+    "voice.transcribe takes a 30 MB recording and refuses 51 MB with too-big",
+    take30.ok === true &&
+      typeof take30.d?.job === "string" &&
+      take51.ok === false &&
+      take51.err === "too-big",
+    show({ take30, take51 }),
   );
+
   const odd = await session.sendStream(new Uint8Array(10), "video/mp4");
   const t3 = await ask("voice.transcribe", { stream: odd.d?.stream });
   check(
@@ -474,9 +651,24 @@ try {
       asked.push(a);
       return session.ask(a, d);
     },
-    sendStream: (bytes, mime, onProgress) => {
-      streamed.push({ sha: sha(bytes), mime });
-      return session.sendStream(bytes, mime, onProgress);
+    sendStream: (bytes, mime, onProgress, max) => {
+      const entry = {
+        sha: sha(bytes),
+        mime,
+        bytes: bytes.length,
+        max,
+        parts: 0,
+      };
+      streamed.push(entry);
+      return session.sendStream(
+        bytes,
+        mime,
+        (p) => {
+          entry.parts++;
+          onProgress?.(p);
+        },
+        max,
+      );
     },
     offered: () => true,
     haptic: () => {},
@@ -585,6 +777,40 @@ try {
       heard().length === heardBefore + 2 &&
       /no speech found/.test(b.parts.chip.textContent),
     show({ streamed, heard: heard().length - heardBefore }),
+  );
+
+  // ---- the voice screen sends with the 50 MB limit: one byte over is refused before any piece, 30 MB goes out
+  const c = box("session-c", "");
+  act(c.root, "voice.record").click();
+  const stopC = await until(() => act(c.root, "voice.stop"));
+  mic.next = new Uint8Array(pageChannel.FILES_STREAM_MAX + 1);
+  const framesC = pageFrames.length;
+  stopC.click();
+  const overLine = await until(() =>
+    /Not turned into text/.test(c.parts.chip.textContent),
+  );
+  check(
+    'a recording one byte over 50 MB is refused before a piece is sent, in the words "the recording is over 50 MB"',
+    overLine &&
+      /the recording is over 50 MB/.test(c.parts.chip.textContent) &&
+      streamed.at(-1).bytes === pageChannel.FILES_STREAM_MAX + 1 &&
+      streamed.at(-1).parts === 0 &&
+      pageFrames.length === framesC,
+    show({ chip: c.parts.chip.textContent, last: streamed.at(-1) }),
+  );
+  const d = box("session-d", "");
+  act(d.root, "voice.record").click();
+  const stopD = await until(() => act(d.root, "voice.stop"));
+  mic.next = new Uint8Array(30 * MB);
+  stopD.click();
+  const firstPiece = await until(
+    () => streamed.at(-1).bytes === 30 * MB && streamed.at(-1).parts > 0,
+    15000,
+  );
+  check(
+    "the voice screen sends a 30 MB recording with the 50 MB limit and its first piece goes out",
+    firstPiece && streamed.at(-1).max === pageChannel.FILES_STREAM_MAX,
+    show({ last: streamed.at(-1), chip: d.parts.chip.textContent }),
   );
 } catch (e) {
   failure = e;
