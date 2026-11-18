@@ -42,3 +42,4 @@ export const CHAT_COUNTS_RE = /chats, (\d+) requests/;
 export const STOP_HOOK_FEEDBACK = "Stop hook feedback:"; // the app's prefix on a Stop hook's block message
 export const REPORT_FOLLOWS = "The report follows:"; // the app's frame around a helper's report
 export const TURN_LIMIT_RE = /stopped at its \d+-turn limit/; // the app's note on a helper cut at its turn limit
+export const NOTE_STOP = "Stopped early for a user note:"; // how steer.mjs has a helper start its report when a note stops it

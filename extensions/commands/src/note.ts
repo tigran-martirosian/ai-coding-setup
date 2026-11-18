@@ -104,7 +104,13 @@ export async function sendNote(
         text.trim() || note,
         files,
       );
-      return { ok: true, message: t.note.queued };
+      // steer says this when Nimbalyst still shows the reply running: the queue waits for it to end
+      return {
+        ok: true,
+        message: /has finished its reply/.test(r.stdout ?? "")
+          ? t.note.queuedAfterReply
+          : t.note.queued,
+      };
     }
     const why = (r.stdout || r.stderr || "")
       .trim()

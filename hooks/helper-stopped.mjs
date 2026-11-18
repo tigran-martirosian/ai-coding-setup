@@ -7,11 +7,15 @@
 // SendMessage (whose own result is only "Resuming agent ..."), arrive as task notifications, which no hook sees.
 // The app's "[harness: ...]" lines in front of a report are not report. Main session only. HELPER_STOPPED=off disables it.
 import { emit, runHook } from "./lib/hook-io.mjs";
-import { TURN_LIMIT_RE } from "./lib/texts.mjs";
+import { NOTE_STOP, TURN_LIMIT_RE } from "./lib/texts.mjs";
 
 const HELPER_STOPPED_NOTE =
   "[helper-stopped] This helper stopped before it finished: SendMessage it once for what is done and what is left, " +
   "then compare the files yourself. A cut or empty reviewer is NOT RUN.";
+// steer.mjs has a helper stop at a user note that is not about its job, so the session answers the user first
+const NOTE_STOPPED_NOTE =
+  "[helper-stopped] This helper stopped early for the user's note: answer the user now, then SendMessage it once to " +
+  "finish what is left. A reviewer stopped this way is NOT RUN until it finishes.";
 
 // The report's text: a string, or the blocks of tool_response.content
 function reportText(response) {
@@ -46,4 +50,7 @@ runHook("helper-stopped", (event) => {
   const firstLine = report.split("\n").find((line) => line.trim()) ?? "";
   if (TURN_LIMIT_RE.test(firstLine) || !report)
     emit.context("PostToolUse", HELPER_STOPPED_NOTE);
+  // A line of its own: the app's frame lines can come before the report
+  else if (report.split("\n").some((line) => line.trim().startsWith(NOTE_STOP)))
+    emit.context("PostToolUse", NOTE_STOPPED_NOTE);
 });

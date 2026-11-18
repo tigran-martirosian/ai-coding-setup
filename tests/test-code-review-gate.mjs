@@ -2204,6 +2204,13 @@ const assessCases = [
     (r) => r.due === false,
   ],
   [
+    "a reviewer a user note stopped early is no review yet: due",
+    reviewedTurn(
+      "Stopped early for a user note: how long?\n**Against the request:** half read",
+    ),
+    (r) => r.due && r.notRun === 1,
+  ],
+  [
     "a short last message without the phrase is no review: due",
     reviewedTurn("No diff to review."),
     (r) => r.due && r.notRun === 1,

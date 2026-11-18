@@ -450,6 +450,13 @@ ok(
   o?.hookSpecificOutput?.additionalContext.includes("for the main session") &&
     o.hookSpecificOutput.additionalContext.includes("User note received:"),
 );
+ok(
+  "a note not about the helper's task does not stop it; one that tells it to stop does (user, 2026-11-18)",
+  o?.hookSpecificOutput?.additionalContext.includes("otherwise carry on") &&
+    o.hookSpecificOutput.additionalContext.includes(
+      "Stopped early for a user note:",
+    ),
+);
 ok("only once per subagent", hook("PostToolUse", sub("sub-1")) === null);
 ok(
   "another subagent gets its own copy",
@@ -720,12 +727,29 @@ ok(
 );
 childT("end_turn");
 before = left().length;
-r = run(["send", "--to", "e13360ea", "wine ages faster"], nimb);
+const endNimb = { env: { ...nimb.env, STEER_ENDING_WAIT: "3" } };
+// A stand-in for a live --watch: marks the note seen within a second
+const watcher = spawn(process.execPath, [
+  "-e",
+  `const fs=require("fs"),f=${JSON.stringify(inbox)},t=Date.now();
+   const i=setInterval(()=>{try{const a=fs.readFileSync(f,"utf8").split("\\n").filter(Boolean).map(JSON.parse);
+   if(a.some(e=>e.msg==="watched note"&&!e.seen)){fs.writeFileSync(f,a.map(e=>JSON.stringify(e.msg==="watched note"?{...e,seen:Date.now()}:e)).join("\\n")+"\\n");clearInterval(i);}}catch{}
+   if(Date.now()-t>8000)clearInterval(i);},100);`,
+]);
+r = run(["send", "--to", "e13360ea", "watched note"], endNimb);
+watcher.kill();
 ok(
-  "reply ended, no background job, Nimbalyst still says running: not queued, send_prompt it (the Note button does)",
+  "reply ended, Nimbalyst still says running, a watcher takes it: sent as a note (the Note button never queues it as a message)",
+  r.code === 0 &&
+    r.out.includes("its reply is ending") &&
+    left().length === before + 1,
+);
+before = left().length;
+r = run(["send", "--to", "e13360ea", "nobody watches"], endNimb);
+ok(
+  "reply ended and no watcher takes the note: taken back, send_prompt it instead",
   r.code === 3 &&
-    r.out.includes("has finished its reply") &&
-    r.out.includes("send_prompt") &&
+    r.out.includes("nothing is watching") &&
     left().length === before,
 );
 status("waiting_for_input");
@@ -1839,6 +1863,10 @@ ok("STEER_MAX_K lowers the limit", r.code === 4);
     HOME: home,
     STEER_WATCH_TICK: "0.05",
     STEER_WATCH_MAX: "1",
+    // No job: ends at once unless a test sets a window
+    STEER_WATCH_IDLE: "0",
+    // never the real Nimbalyst database
+    STEER_NIMBALYST_DB: path.join(home, "no-nimbalyst.sqlite"),
     STEER_WATCH_ARGS: "claude --input-format stream-json --print",
   };
   const payload = (extra = {}) =>
@@ -2035,6 +2063,59 @@ ok("STEER_MAX_K lowers the limit", r.code === 4);
     line({ type: "assistant", message: { content: "plain reply" } }),
   );
   ok("watch: no job at all, no watcher", watch().code === 0 && !left()[0].seen);
+  // 2026-11-18: Nimbalyst kept a finished reply's session busy a median 39 s; a note sent then waited.
+  ok(
+    "watch: no job, a note sent as the reply ends wakes the session within its idle window",
+    watch(payload(), { STEER_WATCH_IDLE: "1" }).code === 2 && !!left()[0].seen,
+  );
+  fs.rmSync(path.join(inboxDir, "outbox.jsonl"), { force: true });
+  put([note("app stopped it", { id: "w8" })]);
+  const wdb = new DatabaseSync(dbPath);
+  wdb
+    .prepare("INSERT INTO ai_sessions VALUES (?, ?, ?, ?, ?, ?)")
+    .run("b0b0b0b0-nimb", "watched", "idle", "busy-1", work, "2026-11-18");
+  wdb.close();
+  const deadPid = spawnSync(process.execPath, ["-e", "0"]).pid;
+  // only a session with a job left running gets the outbox wake: with none, send takes the note back and queues it
+  fs.writeFileSync(
+    tp,
+    line({
+      type: "user",
+      toolUseResult: {
+        isAsync: true,
+        status: "async_launched",
+        agentId: "ag0",
+      },
+    }),
+  );
+  w = watch(payload(), {
+    STEER_WATCH_IDLE: "5",
+    CLAUDE_PID: String(deadPid),
+    STEER_NIMBALYST_DB: dbPath,
+  });
+  const wake = left(path.join(inboxDir, "outbox.jsonl"));
+  ok(
+    "watch: the app stopped the session with a note unread, so its queue starts it through the outbox",
+    w.code === 0 &&
+      wake.length === 1 &&
+      wake[0].session === "b0b0b0b0-nimb" &&
+      !left()[0].seen,
+  );
+  fs.rmSync(path.join(inboxDir, "outbox.jsonl"), { force: true });
+  fs.writeFileSync(
+    tp,
+    line({ type: "assistant", message: { content: "plain reply" } }),
+  );
+  w = watch(payload(), {
+    STEER_WATCH_IDLE: "0",
+    CLAUDE_PID: String(deadPid),
+    STEER_NIMBALYST_DB: dbPath,
+  });
+  ok(
+    "watch: with no job it writes no outbox wake, since send takes the note back and queues it (no double prompt)",
+    w.code === 0 && left(path.join(inboxDir, "outbox.jsonl")).length === 0,
+  );
+  fs.rmSync(path.join(inboxDir, "outbox.jsonl"), { force: true });
   fs.writeFileSync(
     tp,
     line({

@@ -4,6 +4,11 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.4.1] - 2026-11-18
+
+- The bot chat has three topics, Inbox, Alerts and Files, made at the PC's sign-in; a topic you delete is made again. Each topic has a pinned Open button, since Telegram on iPhone shows the bot's own Open button only in the All view. A thread Telegram opens without a name ("New Chat") is named after its first item, such as "Photo" or "Link: example.com".
+- Notes reach a session sooner. A note that comes while a helper runs reaches the helper too: about its job, it adapts; anything else, it stops early and reports, so the session answers you instead of after the whole helper run. A note sent just as a reply ends wakes the session within seconds, instead of waiting in the message queue while the app finishes the turn (often half a minute or more). The Note button only queues a message when nothing can wake the session, and then says it starts when the reply ends.
+
 ## [26.4] - 2026-11-18
 
 - The phone app has a Files tab: folders you make, files added by picking or dropping them (up to 50 MB; secret files such as `.env` are refused), and for each file Download, Send to chat, Copy, Move, Rename and Remove (removed files are kept in a `.removed` folder). Newest files show first, and each folder shows how many files it holds. Files your home PC puts there can be downloaded on another computer through Telegram Desktop.
