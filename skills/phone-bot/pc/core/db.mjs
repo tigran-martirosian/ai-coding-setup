@@ -128,6 +128,13 @@ export function sessionsCreatedSince(projectPath, since) {
   );
 }
 
+// Every project folder with a session that is not archived, newest use first.
+export const sessionProjectPaths = () =>
+  all(
+    `SELECT workspace_id AS p FROM ai_sessions WHERE is_archived = 0
+     GROUP BY workspace_id ORDER BY MAX(updated_at) DESC`,
+  ).map((r) => r.p);
+
 export const projectHasSessions = (projectPath) =>
   !!one(
     "SELECT 1 AS x FROM ai_sessions WHERE workspace_id = ? LIMIT 1",

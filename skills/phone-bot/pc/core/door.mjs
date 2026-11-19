@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { toBase32 } from "../../../../phone/shared/seal.mjs";
 import { PHONE_NOTE } from "../../bot/nimbalyst.mjs";
+import { sessionProjectPaths } from "./db.mjs";
 import { checkPath, nimbalystDir, readText } from "./files.mjs";
 import { ActionError } from "./registry.mjs";
 
@@ -268,13 +269,23 @@ export const SESSION_INPUT = {
 export const projectHandle = (projectPath) =>
   toBase32(createHash("sha256").update(projectPath).digest()).slice(0, 12);
 
+// The projects open in Nimbalyst when it wrote the endpoint file, then every other project that has sessions:
+// the endpoint file alone lists only the windows open at that moment, and the door opens any project on use.
+// A project known only from its sessions counts while its folder is there.
 export function listProjects() {
   const d = readEndpoint();
-  return (d.workspaces || []).map((w) => ({
-    project: projectHandle(w.path),
-    name: w.name || path.basename(w.path),
-    path: w.path,
-  }));
+  const out = new Map();
+  const add = (p, name) => {
+    if (!out.has(p))
+      out.set(p, {
+        project: projectHandle(p),
+        name: name || path.basename(p),
+        path: p,
+      });
+  };
+  for (const w of d.workspaces || []) add(w.path, w.name);
+  for (const p of sessionProjectPaths()) if (fs.existsSync(p)) add(p);
+  return [...out.values()];
 }
 
 export function projectByHandle(handle) {
