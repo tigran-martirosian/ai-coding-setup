@@ -1,9 +1,9 @@
 {
-  "version": "26.4.3",
+  "version": "26.4.4",
   "claudeCodeMin": "2.1.321",
   "projectPass": 5,
   "date": "2026-11-18",
-  "summary": "Phone app no longer says Nimbalyst is closed while it is running",
+  "summary": "Phone Projects tab shows every project, not only open windows",
   "releases": {
     "26.4.2": {
       "kind": "files",
@@ -84,6 +84,11 @@
       "kind": "files",
       "important": true,
       "headline": "Phone app no longer says Nimbalyst is closed while it runs"
+    },
+    "26.4.4": {
+      "kind": "files",
+      "important": true,
+      "headline": "Phone Projects tab shows every project, not only open windows"
     }
   }
 }

@@ -55,6 +55,8 @@ const P = {
 };
 for (const p of Object.values(P)) fs.mkdirSync(p, { recursive: true });
 const GONE = inTmp("moved-away");
+const CLOSED = inTmp("no-window");
+fs.mkdirSync(CLOSED, { recursive: true });
 
 // ---- the fixture database: the columns the reads use
 const DB_FILE = path.join(NIM, "sqlite-db", "nimbalyst.sqlite");
@@ -171,6 +173,11 @@ const S = {
   stranger: addSession({
     workspace_id: "C:\\Projects\\not-listed",
     title: "Other",
+  }),
+  // A project with no Nimbalyst window open (so not in the endpoint file) whose folder is there.
+  closedWindow: addSession({
+    workspace_id: CLOSED,
+    title: "In a project with no window",
   }),
   // Waits for the user since 3 days ago: past 48 hours, so only Projects counts it, Home leaves it off.
   old: addSession({
@@ -566,7 +573,7 @@ try {
   check(
     "projects.list gives a 12-character handle per project and no path",
     projects.ok &&
-      projects.d.length === WORKSPACES.length &&
+      projects.d.length === WORKSPACES.length + 1 &&
       projects.d.every((p) => /^[A-Z2-7]{12}$/.test(p.project)) &&
       !JSON.stringify(projects.d).includes("Projects"),
     show(projects),
@@ -576,6 +583,11 @@ try {
     "projects.list counts the sessions that need you and that work",
     beta.needsYou === 4 && beta.working === 2,
     show(beta),
+  );
+  check(
+    "projects.list shows a project that has sessions but no Nimbalyst window open (quick-tasks was missing on the phone)",
+    projects.d.some((p) => p.name === "no-window"),
+    show(projects.d.map((p) => p.name)),
   );
   check(
     "projects.list leaves out a project whose folder is gone",
