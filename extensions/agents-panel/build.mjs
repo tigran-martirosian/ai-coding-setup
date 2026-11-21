@@ -81,7 +81,7 @@ const RUSSIAN_STRINGS = `const STRINGS = {
     running: 'работает',
   },
   helperCard: {
-    roles: { helper: 'Помощник', reviewer: 'Проверяющий', planner: 'Планировщик' },
+    roles: { helper: 'Помощник', reviewer: 'Проверяющий' },
     finished: '{role}: готово',
     doingLine: '{role} {doing}',
     still: '{role} всё ещё {doing}',

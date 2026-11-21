@@ -23,7 +23,6 @@
 
 const HC_WAIT_MS = 2 * 60 * 1000;
 const HC_REVIEW = /review/i;
-const HC_PLAN = /plan/i;
 const HC_SVG = "http://www.w3.org/2000/svg";
 const HC_TICK = "M3.5 8.5l3 3 6-7";
 const HC_CHEV = "M6 4l4 4-4 4";
@@ -46,10 +45,9 @@ function hcMissing(what) {
 const hcFill = (text, map) =>
   text.replace(/\{(\w+)\}/g, (m, k) => (k in map ? String(map[k]) : m));
 
-/** The role word from the agent type: Reviewer, Planner, else Helper. */
+/** The role word from the agent type: Reviewer (reviewer, plan-reviewer), else Helper. */
 function helperRole(type, s) {
   if (HC_REVIEW.test(type || "")) return s.roles.reviewer;
-  if (HC_PLAN.test(type || "")) return s.roles.planner;
   return s.roles.helper;
 }
 

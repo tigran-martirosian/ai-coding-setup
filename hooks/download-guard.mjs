@@ -12,9 +12,12 @@
 // command-explain runs on the same call at the same time and also returns updatedInput, each from the command
 // Claude sent; Claude Code takes one whole input, so one rewrite would be lost. This hook therefore adds the same
 // stand-in "# WHAT THIS DOES:" line command-explain would add (same check, same text), unless COMMAND_EXPLAIN=off.
+// Auto mode (permission_mode "auto", lib/hook-io.mjs autoMode): an updatedInput would void the classifier's review,
+// so the hook rewrites nothing (no stand-in line either). Its additionalContext, starting "[download-guard]", names
+// each big file with its size and the `node "<workers/download.mjs>" <url> <out>` command to use instead.
 
 import { fileURLToPath } from "node:url";
-import { runHook } from "./lib/hook-io.mjs";
+import { autoMode, runHook } from "./lib/hook-io.mjs";
 import { NO_NOTE, NOTE_LINE_RE, WHAT_THIS_DOES } from "./lib/texts.mjs";
 
 const BIG = 50e6;
@@ -240,16 +243,31 @@ runHook("download-guard", async (event) => {
     .filter((f) => f.bytes > BIG);
   if (!big.length) return;
 
+  // The downloader command that stands in for one download
+  const instead = (dl) =>
+    `node "${WORKER}" ${dl.url.raw} ${dl.out ? (dl.out.raw ?? quote(dl.out.value)) : quote(dl.outName)}`;
+  const what = big
+    .map((f) => `${f.dl.url.value} (${(f.bytes / 1e6).toFixed(0)} MB)`)
+    .join(", ");
+  if (autoMode(event)) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: `[download-guard] The download of ${what} goes ahead as sent, in one slow stream: in auto mode this hook rewrites nothing. For a big file use workers/download.mjs, which fetches byte ranges side by side and prints the sha256. Here that is: ${big.map((f) => instead(f.dl)).join("; ")}. In general: node "${WORKER}" <url> <out> [--sha256 <hex>].`,
+        },
+      }),
+    );
+    return;
+  }
+
   let rewritten = command;
   for (const { start, end, dl } of [...big].reverse()) {
     const text = command.slice(start, end);
     const lead = text.match(/^\s*/)[0];
-    const out = dl.out
-      ? (dl.out.raw ?? quote(dl.out.value))
-      : quote(dl.outName);
     rewritten =
       rewritten.slice(0, start) +
-      `${lead}node "${WORKER}" ${dl.url.raw} ${out}` +
+      `${lead}${instead(dl)}` +
       rewritten.slice(end);
   }
   // command-explain's check: a last line of at least 3 words after an empty line, else its stand-in
@@ -263,9 +281,6 @@ runHook("download-guard", async (event) => {
   if (!noted && (process.env.COMMAND_EXPLAIN || "").toLowerCase() !== "off") {
     rewritten = `${rewritten.trimEnd()}\n\n${WHAT_THIS_DOES} ${NO_NOTE} ${command.replace(/\s+/g, " ").trim().slice(0, 60)}`;
   }
-  const what = big
-    .map((f) => `${f.dl.url.value} (${(f.bytes / 1e6).toFixed(0)} MB)`)
-    .join(", ");
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {

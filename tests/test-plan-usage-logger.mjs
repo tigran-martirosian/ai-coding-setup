@@ -156,6 +156,80 @@ check(
   ],
   [1, true],
 );
+
+// D4 (hooks cut, plan 2.8): the logger runs on Stop only, and one turn still gives its sample. Every command
+// settings.example.json wires is run, the way it is wired (a `dispatch.mjs <group>` entry runs its whole group), with
+// that event on stdin and a fresh log folder; the events whose run saves a sample must be Stop alone.
+const REPO = fileURLToPath(new URL("..", import.meta.url));
+const example = JSON.parse(
+  fs.readFileSync(path.join(REPO, "settings.example.json"), "utf8"),
+);
+const groupsFile = path.join(REPO, "hooks", "dispatch-groups.json");
+const groups = fs.existsSync(groupsFile)
+  ? JSON.parse(fs.readFileSync(groupsFile, "utf8"))
+  : {};
+const runsLogger = (command) => {
+  if (command.includes("hooks/plan-usage-logger.mjs")) return true;
+  const g = /hooks\/dispatch\.mjs\s+(\S+)/.exec(command)?.[1];
+  return Boolean(
+    g &&
+      (groups[g] ?? []).some((e) => e.hook === "hooks/plan-usage-logger.mjs"),
+  );
+};
+const runWired = (command, event, logDir) =>
+  new Promise((done) => {
+    const p = spawn(
+      command.replace(
+        /~\/\.claude\/(\S+)/g,
+        (_, rel) => `"${path.join(REPO, rel)}"`,
+      ),
+      {
+        shell: true,
+        env: {
+          ...process.env,
+          HOME: tmp,
+          USERPROFILE: tmp,
+          ...env,
+          PLAN_USAGE_DIR: logDir,
+        },
+        stdio: ["pipe", "ignore", "ignore"],
+      },
+    );
+    p.on("exit", done);
+    p.stdin.end(
+      JSON.stringify({
+        session_id: "d4",
+        cwd: tmp,
+        transcript_path: "",
+        hook_event_name: event,
+        ...(event === "Stop"
+          ? { stop_hook_active: false, last_assistant_message: "Done." }
+          : {}),
+        ...(event === "UserPromptSubmit" ? { prompt: "hello" } : {}),
+        ...(/ToolUse$/.test(event)
+          ? { tool_name: "Read", tool_input: { file_path: "a.txt" } }
+          : {}),
+      }),
+    );
+  });
+const logged = new Set();
+let wiredRuns = 0;
+for (const [event, list] of Object.entries(example.hooks))
+  for (const g of list)
+    for (const h of g.hooks) {
+      if (!runsLogger(h.command)) continue;
+      const logDir = path.join(tmp, `wired-${++wiredRuns}`);
+      await runWired(h.command, event, logDir);
+      const file = path.join(logDir, "plan-usage.jsonl");
+      for (let i = 0; i < 50 && !fs.existsSync(file); i++) await sleep(100);
+      if (fs.existsSync(file) && readSamples(file).length === 1)
+        logged.add(event);
+    }
+check(
+  "D4 through the example's wiring, only Stop runs the logger, and that turn saves one sample",
+  [...logged].sort(),
+  ["Stop"],
+);
 server.close();
 
 fs.rmSync(tmp, { recursive: true, force: true });

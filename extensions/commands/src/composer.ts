@@ -1,6 +1,6 @@
-// Puts a Note button next to the Send button of every chat composer in the page, and runs the wake
-// bridge. This reaches into the app's own markup (see find.ts), so an app update may break it; when
-// it does the button just does not appear, and the reason is in the console.
+// Puts a Note button and a Try it button next to the Send button of every chat composer in the page,
+// and runs the wake bridge. This reaches into the app's own markup (see find.ts), so an app update may
+// break it; when it does the buttons just do not appear, and the reason is in the console.
 
 import type { Invoke } from "../../shared/host.ts";
 import { newState, POLL_MS, pollOutbox } from "./bridge.ts";
@@ -9,6 +9,8 @@ import { findComposers, readFiles, removeFiles } from "./find.ts";
 import type { Pending } from "./note.ts";
 import { endMessage, homeDir, noteEnds, sendNote } from "./note.ts";
 import { t } from "./strings.ts";
+import type { PageNews, PageWatch } from "./try-it.ts";
+import { PAGE_POLL_MS, pollPages, pressTryIt, workspaceOf } from "./try-it.ts";
 
 const TAG = "[commandbuttons]";
 const WRAP = "data-note-wrap";
@@ -16,11 +18,14 @@ const NOTE_POLL_MS = 2000;
 export const RESCAN_MS = 150;
 
 type Say = (kind: "ok" | "bad" | "busy" | "held", message: string) => void;
-/** One chat box's Note button, as the code outside it needs it. */
+/** One chat box's Note and Try it buttons, as the code outside them needs them. */
 interface Handle {
   say: Say;
+  /** Good news that must show even over a held message: it is added to that message. */
+  news: (message: string) => void;
   dot: HTMLElement;
   button: HTMLElement;
+  tryIt: HTMLElement;
 }
 
 function clearTextarea(row: Element) {
@@ -38,6 +43,8 @@ function clearTextarea(row: Element) {
 function build(
   invoke: Invoke,
   sent: (note: Pending) => void,
+  tried: () => void,
+  watches: Map<string, PageWatch>,
 ): { wrap: HTMLElement; handle: Handle } {
   const wrap = document.createElement("span");
   wrap.className = "cb-note-wrap";
@@ -130,8 +137,39 @@ function build(
       button.disabled = false;
     }
   });
-  wrap.append(status, button, dot);
-  return { wrap, handle: { say, dot, button } };
+  const news = (message: string) => say(held ? "held" : "ok", message);
+  // Try it sends its own fixed note: what is typed in the box and its files stay where they are. It is
+  // not in Note's list of notes on their way: its own waiting is the page watch, named in its tooltip
+  const tryIt = document.createElement("button");
+  tryIt.type = "button";
+  tryIt.className = "cb-note-btn cb-try-btn";
+  tryIt.textContent = t.tryIt.button;
+  tryIt.title = t.tryIt.hint;
+  tryIt.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sessionId = wrap
+      .closest("[data-session-id]")
+      ?.getAttribute("data-session-id");
+    if (!sessionId) return say("bad", t.note.noSession);
+    tryIt.disabled = true;
+    say("busy", t.note.sending);
+    try {
+      const { outcome } = await pressTryIt(sessionId, invoke, watches);
+      if (outcome.ok) tried();
+      // "Note on its way" promises a delivery message that a Try it press does not give
+      say(
+        outcome.ok ? "ok" : "bad",
+        outcome.noteId ? t.tryIt.sent : outcome.message,
+      );
+    } catch (err) {
+      say("bad", t.note.notSent(String((err as Error)?.message ?? err)));
+    } finally {
+      tryIt.disabled = false;
+    }
+  });
+  wrap.append(status, tryIt, button, dot);
+  return { wrap, handle: { say, news, dot, button, tryIt } };
 }
 
 /** Starts watching the page. Returns a function that stops it and removes the buttons. */
@@ -144,6 +182,8 @@ export function startNoteButtons(invoke: Invoke): () => void {
   // What could not be said because the session's tab was shut: said when its chat box is back
   const unseen = new Map<string, string>();
   let stopped = false;
+  // Try it presses whose page file is watched, by session; kept here for the same reason as `pending`
+  const watches = new Map<string, PageWatch>();
   // The nearest session panel, the same way a press finds its session: panels can hold one another
   const live = (session: string) =>
     [...document.querySelectorAll(`[${WRAP}]`)].find(
@@ -157,6 +197,63 @@ export function startNoteButtons(invoke: Invoke): () => void {
     const waiting = pending.filter((p) => p.session === session).length;
     h.dot.hidden = !waiting;
     h.button.title = waiting ? t.note.waitingTip(waiting) : t.note.hint;
+    h.tryIt.title = watches.has(session) ? t.tryIt.watchingTip : t.tryIt.hint;
+  };
+  let pagePoll: ReturnType<typeof setInterval> | undefined;
+  let pagePolling = false;
+  const tell = ({ session, kind, url, why }: PageNews) => {
+    const message =
+      kind === "opened"
+        ? t.tryIt.opened(url)
+        : kind === "refused"
+          ? t.tryIt.notLocal(url)
+          : t.tryIt.openFailed(why ?? "");
+    const wrap = live(session);
+    const h = wrap && handles.get(wrap);
+    if (wrap) showDot(wrap, session);
+    if (h && kind === "opened") h.news(message);
+    else if (h) h.say("held", message);
+    else if (kind !== "opened")
+      unseen.set(
+        session,
+        [unseen.get(session), message].filter(Boolean).join("\n"),
+      );
+  };
+  const pollTried = async () => {
+    if (pagePolling) return;
+    pagePolling = true;
+    try {
+      const workspacePath = workspaceOf(
+        window as unknown as Parameters<typeof workspaceOf>[0],
+      );
+      for (const news of await pollPages(watches, invoke, workspacePath))
+        tell(news);
+    } catch (err) {
+      console.error(
+        `${TAG} Try it page watch: ${String((err as Error)?.message ?? err)}`,
+      );
+    } finally {
+      pagePolling = false;
+      if (!watches.size) {
+        clearInterval(pagePoll);
+        pagePoll = undefined;
+        showAll();
+      }
+    }
+  };
+  // Try it's tooltip says while its page is watched
+  const showAll = () => {
+    for (const wrap of document.querySelectorAll(`[${WRAP}]`)) {
+      const session = wrap
+        .closest("[data-session-id]")
+        ?.getAttribute("data-session-id");
+      if (session) showDot(wrap, session);
+    }
+  };
+  const tried = () => {
+    if (stopped) return;
+    showAll();
+    pagePoll ??= setInterval(pollTried, PAGE_POLL_MS);
   };
   let notePoll: ReturnType<typeof setInterval> | undefined;
   let polling = false;
@@ -215,7 +312,7 @@ export function startNoteButtons(invoke: Invoke): () => void {
         const send = c.button as unknown as HTMLElement;
         let wrap = row.querySelector<HTMLElement>(`:scope > [${WRAP}]`);
         if (!wrap) {
-          const built = build(invoke, track);
+          const built = build(invoke, track, tried, watches);
           wrap = row.insertBefore(built.wrap, send);
           handles.set(wrap, built.handle);
         }
@@ -255,6 +352,7 @@ export function startNoteButtons(invoke: Invoke): () => void {
     observer.disconnect();
     clearTimeout(rescan);
     clearInterval(notePoll);
+    clearInterval(pagePoll);
     document.querySelectorAll(`[${WRAP}]`).forEach((n) => n.remove());
   };
 }

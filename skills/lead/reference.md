@@ -1,114 +1,171 @@
 # Lead: reference
 
-Detail for `SKILL.md`, used at one step each; `SKILL.md` says when to read each section.
+Detail for `SKILL.md`, read at the step that needs it.
 
-## The planner's brief
+## The plan file
 
-Its brief gives context and leaves the approach open; save it in the plan file's head as **Brief**, so a later planner can start from it:
-- **The request, in the user's own words.** Quoted, not paraphrased, the outcome the person wants first (what their day looks like when it works), since the planner plans toward it.
-- **The folders.** Every folder the work reads or changes, each with its commit (`git -C <folder> rev-parse --short HEAD`) and whether it has uncommitted changes, so it reads the copies the workers will change.
-- **The situation.** What exists today, which files matter, what was already tried and how it went. What you found goes in as plain observations (what the log or the code shows), and the planner draws its own conclusions.
-- **Decisions the user has made.** Only real ones (an explicit go, as the lead skill defines it), each with its reason and the user's words in quotes; what they said against a proposal comes first; what has no quote goes under "Proposed by Claude, not confirmed". Name the path of `DECISIONS.md` and quote the lines the job touches (the purpose record's entries for the things the job names, the topic files and the job files of the newest date in `docs/decisions/` (in a project not yet split, the newest dated section), and a grep of `DECISIONS.md` and `docs/decisions/` for the topic).
-- **What is still open.** The user's choices nobody has made yet (scope, money, people, timing). Design questions stay with the planner: a question that names a part ("how do A and B coexist") tells it to keep that part.
-- **Which pass.** The first brief asks for the approach page (pass 1, no rows). The job list (pass 2) is asked for only with the user's OK on that page, quoted, plus any change they asked for.
+Read the spec whole: every **Done when** line gets a slice that proves it, every slice keeps the limits in **Your
+words** as the user said them, and the **Decided** lines are settled. In the project folder, read
+`git -C <folder> status --short`, the recent log, its CLAUDE.md, its `verify` skill and the code the slices will
+touch: enough to name each slice's files and the riskiest unknown. No folder yet means a new project.
 
-Keep out of the brief: your own idea of the solution (even as a suggestion), your guesses dressed up as constraints, step lists and "do X, not Y" rules, and leading questions ("should we use A for this?").
+1. **Slice 0, for a new project only,** done by you: `/new-project` (folder, git, CLAUDE.md), the job branch, the
+   project's `verify` skill with the run and test commands, one passing test.
+2. **Probe first.** Name the riskiest unknown: the fact that, if wrong, changes the rest of the plan. One cheap
+   throwaway slice settles it. When quality is judged by eye (clips, a design), the probe makes a real sample and the
+   plan names the user's look at it as the one stop after the OK. Later slices stay thin until the probe reports.
+3. **Check slice,** right after the probe and before any build slice: it writes and commits every check the done-when
+   lines name. That commit is the spec's version of each check. A check of a screen not built yet is written against
+   the spec and counts as seen failing then. On a small job the probe and the checks can be one worker's first steps.
+4. **Slices** split only at a clean interface or for real parallel work (SKILL.md section 1). Each delivers a working
+   piece and proves at least one done-when line. When the whole job is one coupled unit, it is one slice.
+5. **Edges.** List the files each slice will touch. Two slices that share a file, or that name the same new thing, get
+   a blocking edge. A name a later slice relies on (a function, a field, a route, a file) is fixed in the plan word for
+   word.
+6. **How it runs.** Slices whose blockers are done run side by side, each in its own worktree. Coupled slices run in
+   one session, one after the other; say which and why. Workers go to independent parts or to reading that returns a
+   summary; coupled edits stay with one strong model.
+
+The plan holds what a worker can't decide alone, plus the constraints and what must not change; the worker owns the
+how. Write no code. Guessed causes and numbers go under Assumptions for the user's OK, not into a slice as facts; a
+fix slice states the outcome and its check, starts by reproducing the defect, and leaves the cause to the worker.
+
+**Risky: yes** when a slice touches a guard, a delete path or secrets, or the user named it. Give the reason. A data
+migration is handled by order: it goes last.
+
+**The spec looks wrong** (a done-when line no slice can reach inside the user's words, or a spec that contradicts the
+code): put it under "Open for the user" with your recommendation, and plan no slice on it.
+
+| Helper | Model | For |
+|---|---|---|
+| `worker` | Sonnet at medium | reading, gathering, summarising, drafting; edits that need no judgement |
+| `worker-code` | Opus at high | code changes |
+| `worker-full` | Opus at high | a slice that needs the browser, Nimbalyst, an MCP tool or a skill |
+| `worker-refactor` | Fable at high | a big refactor or migration, in expand-contract steps |
+
+```
+# <Job> plan (<date>)
+Spec: docs/<date>-<job>-spec.md
+Open for the user: <each question, with your recommendation> / none
+Assumptions: <guessed causes and numbers, for the user's OK> / none
+Riskiest unknown: <one line>; settled by S1.
+How it runs: <which slices side by side in worktrees, which in one session, and why>.
+Size: <N slices, M worker sessions>.
+
+## Slices
+### S1: <name>
+Goal: <one sentence>.
+Proves: D2, D4.
+Files: <every file it creates or changes>.
+Uses: <what it takes from earlier slices>. Gives: <what later slices rely on, names word for word>.
+Helper: `worker-code`, Opus at high.
+Size: <worker sessions, a count>.
+Risky: yes, <reason> / no.
+Blocked by: S0; S2 (shares <file>) / none.
+
+## Coverage
+D1: S3. D2: S1, S4. <every done-when line; one no slice proves is named here with the reason>
+
+## Progress
+The lead fills this in. A new session picks the job up from here.
+| Slice | State | Commit | Worker sessions | Surprises |
+```
+
+The plan is ready for the plan-reviewer when every done-when line appears under Coverage, every slice has all eight
+fields, and every file two slices share has its edge.
 
 ## A worker's brief
 
-**A worker's brief.** Agent tool, `subagent_type` and `model` from the row's Helper (`description: "S3: what exactly"`). A `worktree` row whose files are in another repository gets its worktree from you before the call, `git -C <repo> worktree add <path> -b <branch> main`, and the brief's FILES name that path; its Agent call carries no `isolation`, which would branch the session's own folder, the wrong repository. Parallel rows in the session's own folder may still use `isolation: "worktree"`. Every worktree brief says: never `git stash`; a repository has one stash list, so workers side by side take each other's entries; commit unfinished work on the worktree's branch instead. A `worker`, model `fable` row passes `model: "fable"`; a `worker-code` or `worker-refactor` row passes that `subagent_type` and no model; a Sonnet row carries its `SONNET BECAUSE: <reason>` line into the brief.
+Agent tool, `subagent_type` and `model` from the slice row, `description: "S3: what exactly"`. Short:
 
 ```
 JOB GOAL: the whole job, one sentence
-JOB LIST: the plan file's path
-STEP: S3 of 5, what this step does
-DECIDES: the row's Decides cell (a build step: "nothing, follow <design file>")
-SERVES: the row's Serves cell, pasted unchanged (the user's words and DECISIONS date)
-EXPECT: what must already be true when it starts
+PLAN: the plan file's path
+SLICE: S3 of 5, what it does
+DONE WHEN: the slice's done-when lines, each with its check
 FILES: to read, to change
 NOT: what must not change
-DONE WHEN: the one check that proves it
-Budget: about N tool calls
+YOUR WORDS: the spec's quotes that bear on this slice, word for word
+COMMANDS: run, test, and the project's verify skill
+WORKTREE: the path, when slices run side by side
 ```
 
-Add the project's commands and its rule for checks when the step needs them: the worker doesn't see CLAUDE.md, and reads it only when the brief leaves out something it needs. When the project has a verify skill (`.claude/skills/verify/SKILL.md`), every helper's brief for a step that changes code names that path as the step's check: most helpers have no Skill tool, so they read the file and follow it.
+While the setup rebuild runs, add its three lines. No old decision quotes, no systems-map dump, no approach of
+yours. When the project has a verify skill (`.claude/skills/verify/SKILL.md`), every helper's brief for a slice that
+changes code names that path: most helpers have no Skill tool, so they read the file and follow it. No helper loads
+auto-memory: a memory note that bears on the slice is pasted in.
 
-**Decisions in a brief are evidence, not conclusions.** Only an explicit go is a decision: a tick, "yes", "do it", "decided", or a plain choice between offered options. "I think", "what if", "let's redesign" is talk: it goes under "Talked about, not decided" in a brief, and into the topic's design note (`docs/<date>-<topic>-design.md`) or else HANDOFF.md under the topic, marked "talk, not decided"; when unsure, ask one line. A decided item holds the user's words in quotes, cleaned: only the words that carry the decision, misheard words fixed, fillers cut with "…", meaning unchanged; a form's field label and the full text of its ticked option (and anything typed with it) stay word for word. Each item says where it came from. What the user said against a proposal comes first. An item with no quote, and anything you worked out from a decision, goes under "Proposed by Claude, not confirmed". A worker told to write DECISIONS.md or a rule file writes only the quoted items and reports the rest back.
+**The hand-back** has a fixed shape (the worker files say it too): done; what differed from the brief; what it
+found; worries; each check's command and output, run after the last edit, with the run before the change that
+failed; `Not verified`; `Outside the brief`. A `BLOCKED` last line instead: answer it in the same conversation
+(SendMessage) when the plan holds the answer; when it shows the plan or the spec is wrong, see SKILL.md section 3.
 
-**The purpose record.** When the user says what a thing is for, write it into the first section of `DECISIONS.md`, `## What each thing is for`, one line per thing: `- **<thing>** (also: <name>, …): "<cleaned words>" · *<YYYY-MM-DD>* · from "<raw phrase>"`, and show the line to the user. A hook refuses a worker start on a row that names a recorded thing without that entry's words in Serves, or with a limit not marked `NARROWED: <what>, because <why>`: fix the row, not the hook.
+## Worktrees
 
-**A reviewer's brief carries the purposes.** A plan-reviewer or reviewer brief quotes the Serves cell of each row it covers. A focus list adds to the agent's own checklist and never replaces it. A build review's request is the purpose decision plus the card the user ticked, never the card alone. A build reviewer's brief has one `Base: <commit>` line per repository the change touches: the commit the job's work started from (the plan's "Plan read: … at <commits>" line, or a worktree's branch point). The reviewer reads the project's `REVIEW.md` from that commit, so a change cannot loosen its own review.
-
-**What no helper sees.** No helper loads auto-memory, so a memory note that bears on the step is pasted into its brief. The project's systems map reaches every brief by itself as `SYSTEMS MAP:` lines; a planner, plan-reviewer or reviewer reads what the change reaches from those lines, and runs `node ~/.claude/skills/systems-map/map.mjs --near <thing> --project <folder>` only for a part they don't cover or whose links they cut, never when the brief has no `SYSTEMS MAP:` line.
-
-**Worktree steps** need a project whose CLAUDE.md allows local git; you merge each one. After the stage commit and the full suites pass, remove the worktree, `git worktree remove <path>` without `--force`, then delete its branch with `git branch -D <branch>` (after a squash, `-d` always refuses: git does not see the branch as merged). When `git worktree remove` refuses, the worktree holds uncommitted files: name them to the user and leave it. A failed full run is followed by a rerun of only the failed tests (`node tests/run-all.mjs --failed` in a setup repo), not a second full run. A worktree left behind costs up to a gigabyte, and Claude Code only clears it after its chat-retention days.
+- Every slice that needs a worktree gets it from you before the call, in the session's own folder too:
+  `git -C <repo> worktree add <path> -b <job>/s<N> <job branch>`, and the brief's WORKTREE names that path. The
+  Agent call carries no `isolation`: it is never `isolation: "worktree"`, whose branch names come from the harness,
+  so the end sweep (SKILL.md section 4) cannot find them under `<job>/`.
+- Every worktree brief says: never `git stash` (one stash list per repository: workers side by side take each
+  other's entries); commit unfinished work on the worktree's branch instead.
+- **After the merge,** `git worktree remove <path>` without `--force`, then `git branch -D <branch>` (after a squash
+  `-d` always refuses). When the remove refuses, the worktree holds uncommitted files: name them to the user and
+  leave it. A worktree left behind costs up to a gigabyte; 58 were found left over on 2026-11-19.
 
 ## A stopped worker
 
-- **A worker that stopped is not done.** A notice "stopped at its N-turn limit" or an empty report: SendMessage it once, "report what is done and what is left", then compare the files yourself. A cut or empty reviewer is NOT RUN. Reuse a worker only when its tool calls so far (`tool_uses` in its notice) plus the new step's budget stay under 80, and under about 150k context; otherwise start a fresh worker and paste the old one's report into the brief (a 70-call step once used 115, and the next step sent to that worker was refused).
+A notice "stopped at its N-turn limit" or an empty report is not done: SendMessage it once, "report what is done and
+what is left", then compare the files yourself. Reuse a worker only while its tool calls plus the new work stay
+under 80 and its context under about 150k; otherwise a fresh worker with the old one's report in its brief.
 
-## Re-plans and size-line stops
+## The end reviews
 
-- **A helper stopped by the size line (`[worker-size]`, 180k) is followed by a fresh worker** whose brief carries its report, not by SendMessage: SendMessage would re-send its 180k.
-- **A block that shows the plan itself is wrong goes back to the planner** with the plan file and the `BLOCKED` line: SendMessage to the same planner when its report shows turns to spare, otherwise a new planner run with the Brief and the plan file. It rewrites the saved rows in place, adds one `Changed <date>: <row>: <what>` line at the end per change, and keeps the State column; `/where-are-we` then brings the changed rows' steps in the tracker up to date and adds the new ones. A re-plan that changes only the blocked row and the rows that depend on it gets no plan review; one that adds or removes steps, or moves a file to another owner, goes to the `plan-reviewer`, told to check only the changed rows.
+**The reviewer's brief:** the spec path, the full diff from the job's base commit (one `Base: <commit>` line per
+repository the change touches), the check slice's commit (it diffs the check files from there), the end-check
+outputs, and the user's words from the spec. Never the chat, never your view of the change.
+
+**Review findings.** The reviewer marks each done-when line met, missing, looks wrong or not asked for, with a
+proof: a command and the output it gives now. Run the proof of each missing or looks-wrong line yourself before
+spending a fix round on it.
+- **Reproduced:** the fix brief starts with that command. The worker runs it and sees the failure, fixes the cause,
+  runs it again and shows it pass. Fix only this; report anything else noticed instead of fixing it.
+- **Not reproduced** (the command passes, or shows something else): the finding costs no fix round. It goes to the
+  user as not reproduced, with the command and its output.
+- **No command can show it** (a wrong text, a missing record): check the quoted lines against the file yourself.
+
+**`/code-review` on a risky slice** follows the project's CLAUDE.md and no separate rules file
+(https://code.claude.com/docs/en/code-review-local). Check each finding before acting on it, the same way.
 
 ## A blind look's brief
 
-The `blind-reviewer` has only the Read tool and loads no project rules: what it judges is what its brief hands it. Its checks, severity levels, report format and follow-up round are in the agent itself.
+The `blind-reviewer` has only the Read tool; what it judges is what its brief hands it.
 
-1. **Make the material.** For a screen, the author builds it first.
-   - A web page, with the impeccable plugin installed (`~/.claude/plugins/cache/impeccable/impeccable/<version>/skills/impeccable/scripts/impeccable`, `impeccable.cmd` from cmd or PowerShell): run `"<scripts>/impeccable" detect <file>`, then `"<scripts>/impeccable" detect --viewport 390x844 <url>`. Findings print to stderr; read them instead of the exit code (2 means findings, but the `.cmd` can print `exit 0` under Git Bash). Fix every finding before the screenshots, so the blind look goes to what a scanner cannot see; a finding that is the project's deliberate choice goes into its `DESIGN.md`.
-   - Screenshots go to one folder in the system temp folder, never into the project. Shoot the complete set the agent's "Screens" section lists (two sizes, zooms of small parts, every state). Name each picture's scale in its file name, as in `phone-390x844-3x.png`, or the GUI scale for a game or desktop UI.
-   - Text or a command: the page or message as a person reads it, or the command's docs and the output it printed, saved to a temp file or pasted.
-   Done when: you opened each picture or file yourself and it shows what it should (a blank or wrong-state shot is a failed shot).
-2. **Write the brief.** A neutral question ("a friend asks: does this look good?" or "is this clear?"), every picture or file by full path with its scale, and a short word list for the product's own terms. No code, no reasoning, no description of what changed, no suspected problems, and for the final look nothing from the build review. The last line is `SYSTEMS MAP: none`: the map hooks add a project's connections to a helper's brief, and that line keeps them out.
-3. **Triage.** Mark each finding against the picture or file: fixed / disagree (with the evidence) / out of scope. Fix 3s and 4s, a 2 only when cheap. A claim marked FALSE or UNVERIFIED is checked against the newest source before any text is cut.
-4. **The one more look.** Fix, reshoot the same pictures and open them yourself. Then SendMessage the same blind reviewer the BEFORE and AFTER pictures or files and the list of claimed fixes; it answers in its follow-up form. That ends the loop: a 4 still open means the layout or the approach is wrong, so report it to the user as open. When a round's findings mostly undo the last round's fixes, that is taste: keep the last version that passed.
-5. Delete the temp folder of pictures after the report.
+1. **Make the material.** Screenshots of every state, two sizes, zooms of small parts, each file named with its
+   scale (`phone-390x844-3x.png`), in one folder in the system temp folder. Text or a command: the page or message
+   as a person reads it, or the command's docs and its output. Open each picture yourself: a blank or wrong-state
+   shot is a failed shot. For a web page with the impeccable plugin, run `impeccable detect` first and fix its
+   findings, so the blind look goes to what a scanner can't see.
+2. **The brief:** a neutral question ("a friend asks: is this clear?"), every file by full path with its scale, a
+   short word list for the product's own terms. No code, no reasoning, no list of changes, nothing from the build
+   review. Last line `SYSTEMS MAP: none`.
+3. **Triage** each finding: fixed / disagree (with evidence) / out of scope. Fix every `[blocks]`, a `[slows]`
+   when the fix is small, a `[nit]` only when cheap.
+4. **After the fixes,** reshoot the same states and open them yourself; a `[blocks]` you could not fix goes to the
+   user as open. No second blind round. Delete the temp folder after the report.
 
-## Review findings
+## Why these defaults
 
-Read when the build review arrives, before any fix round.
-
-1. **Relay the rules line.** The reviewer's report opens with `Review rules:`. A `Changed in this change` line goes into your report to the user word for word, with its quoted lines, under the review's findings: the user decides whether a loosened `REVIEW.md` stands. A `Not applied` line goes with it.
-2. **Reproduce first.** Each Important finding comes with a proof: a command and the output it gives now. Run it yourself before you spend a fix round on it.
-   - **Reproduced:** the fix brief starts with that command. The worker runs it and sees the failure, fixes the cause, then runs it again and shows it pass. The brief names the problem and says: fix only this; report anything else you notice instead of fixing it.
-   - **Not reproduced** (the command passes, or shows something else): the finding costs no fix round. It is reported to the user as not reproduced, with the command and its output, and not fixed.
-   - **No command can show it** (a wrong text, a missing record): check the quoted lines against the file yourself, then fix or answer it.
-
-Done when: every Important finding is marked reproduced, not reproduced or checked by hand, and each `Changed in this change` line is in your report to the user.
-
-## Claiming a row
-
-Before it starts a row, a session claims it with one line in that row's State cell (a side session: in its lane's state file), `session <id>: S3, ends with commit + handoff`, where `<id>` is the 8 characters the job-done note "This session's id starts with …" gives at its first message. When it marks the row done, it keeps the claim in the cell: `done <hash>, session <id>: S3`. The hook then refuses its next commit or its helper for another row once and holds its turn end until it hands off. The claim and the done mark stay in the State cell because the hook reads them there; the step's status, proof and comment go on its tracker item (`SKILL.md` section 4).
-
-## Release review
-
-A release that puts together pieces already reviewed gets one reviewer on what the pieces did not cover (merge points, version, changelog, docs), not a second pass over them. Once per release, `/setup-audit full` runs the blind look at the whole setup: the person's setup files and recent chats, read as the person who works with them, without the reasoning behind them.
-
-## The reasons behind the defaults
-
-Reference for `SKILL.md`, read when a default is questioned. Not steps. Sources for the planning and review defaults: the planning-review design and the memory-systems design (§3) of 2026-11-09, approved by the user on the 2026-11-09 form "Wave 1 designs: your review".
-
-- **Worker start cost.** A `worker` starts small because it loads no CLAUDE.md; `worker-full` loads every tool and the CLAUDE.md files and costs much more. `worker-code` starts as small as a `worker` and runs Opus at high for code. `worker-refactor` starts as small as a `worker` but runs Fable at high, so each step costs far more.
-- **Reuse.** A follow-up to a worker that just finished, while its cache is warm, costs a few hundred tokens against several thousand for a new worker.
-- **Late follow-up.** Once the cache has expired, the whole context is paid for again, so a follow-up long after a worker stopped goes to a fresh worker with a written brief.
-- **No agent teams.** Experimental, more tokens, no nesting, and they change how ordinary helpers start.
-- **The stages.** They are the user's own order (DECISIONS 2026-11-09). The plan review is the new one: the rules had none, and the first single plan review found 6 Important faults. Research comes first when facts are missing, because a form built from guesses sends the user options with nothing behind them.
-- **Lanes.** "Yes, three lanes" (user, 2026-11-16; `docs/2026-11-16-pipeline-redesign.md`): every outside tool draws a size line and lets obvious fixes skip planning, and the phone hotfix went to the planner although the rules already said a fix with a clear cause skips it. Naming the lane in one line makes that routing call visible, so the user can overrule it. Research is its own step before the planner, not a planner that browses: the planner reads the file, and the user sees the facts before the options.
-- **When a job is big.** The triggers (2 or more helper steps; a hook, rule, agent, skill, settings or CI change) are the code-review-gate's own, so the plan review and the build review fire on the same jobs. The decision is made from the plan, because the request is often one loose line and the row count is a fact. A one-step plan skips the plan review: it has no ownership, ordering or sizing conflicts between steps, three of the four kinds of fault plan reviews find ("Reviews can add a lot of value, but they are also a dangerous trap of overhead", Google design-doc practice).
-- **Fixes go to the same planner.** Its context holds the reading, which is what makes the fix round cheap; a subagent can be resumed after it stops. `fixed` / `kept` per finding is the rule's "each Important finding is fixed or answered". A `kept` you disagree with goes to the user, as any difference between you and the planner does.
-- **What the user sees of the review.** Counts and the kept findings only: the user decides on the plan, and the fixed findings are in the plan file's Review section.
-- **One plan file per job, in the project.** Two homes (a job list and a plan file) let rows and their fixes drift apart; only 9 job lists existed in `~/.claude/job-lists/` against 1,349 worker briefs, so most jobs never used that folder. The project is where the user reads, where git keeps history and where the next session looks first.
-- **The Review section is written as the report arrives.** So the file, not the session, holds the fix round's state, and a handover mid-round loses nothing; the Stage word in the handoff says where it stopped.
-- **Re-plans rewrite rows in place with `Changed <date>`.** When the build proves the plan wrong, "It is strongly recommended to update the design doc" (Google). A re-plan that adds or removes steps or moves a file to another owner can bring in the same ownership and ordering faults as a first plan, so it gets the plan-reviewer on the changed rows. No top block that "wins over the rest": on 2026-11-12 two plans carried the user's changes only in such a block while their rows still showed the old version, and a session that builds from the rows builds the old version.
-- **`plan cause` on BLOCKED lines.** It grows a replay set of real plan faults from the runs themselves instead of a one-off transcript scan. Fewer BLOCKED lines is expected from the planner's `git status` and the plan-reviewer's Expect checks, but it is not a target: a BLOCKED line is the worker doing its job.
-- **The reviewer pipeline.** The review plan of 2026-11-10, approved on 2026-11-11, replaced "one reviewer at most". 2-3 reviewers only for a change with separate parts one reviewer can't read whole, each with its own part: Anthropic runs many reviewers only for "substantial changes", and a reviewer that sees only its part costs mostly its own start, not more reading. A second pass over the same piece stays out: fixing every finding of a second pass ends in "extra abstraction layers" (Anthropic), so the one more look comes only after a serious finding, once.
-- **Named focus areas and the re-check.** Practice notes recommend "one reviewer with split, named focus areas plus a validate-before-report step"; the re-check before reporting follows the code-review command ("If you are not certain an issue is real, do not flag it").
-- **The blind look.** It finds a different kind of fault: "once you know how something works, you cannot reliably simulate not knowing" (NN/g), and a reviewer "that never saw your conversation... isn't swayed by the reasoning" (Anthropic). It cannot take its own screenshots: anything that could open the app could also read the code, and then it is not blind. So the brief hands it the material.
-- **The claim links the chat.** Nimbalyst shows a chat's Trackers section only when the chat is linked to an item, so the claim sets the status and the link in one call.
-- **A handoff keeps a build running.** The handoff skill opens the fresh session with its prompt queued, so a build without check-ins goes on after each piece.
-- **Plain tracker texts.** The user reads the tracker on a phone, without the plan open; titles and comments full of row codes, hashes and paths were "not readable by a human" (DECISIONS 2026-11-14), and steps made for work found mid-run kept the list growing. The rules are in `where-are-we/tracker-texts.md`.
-- **A job, not only a release.** The user checks all his work in the tracker, in every project, and work over several sessions is often no version at all: "it's not a release … it's like a video name" (DECISIONS 2026-11-14). So any such work gets one `release` item named after the work, with no kind word; the built-in `version` field marks the one that ships as a version, and only that one waits for its tag. In-review is the user's read, so it counts as waiting for him, not as running.
-- **Only an explicit go is a decision.** "I think we should only do it for big updates" was once written as decided and re-edited twice; the user said it was only talk. Quotes carried raw dictation, so they are cleaned to the words that carry the decision; a form's ticked option is not dictation and stays word for word. Talk goes to files that already exist (the design note or HANDOFF.md), so no new file kind.
-- **Reproduce first, no new agent** (DECISIONS 2026-11-17). The reviewer hands a command with each Important finding and the lead runs it, in place of an added agent that checks findings; a finding that does not reproduce goes to the user, not to a worker.
+- **One OK, not three stops** (user, 2026-11-19, phase 1 of `docs/2026-11-19-setup-review.md`): the grill settles
+  the what, the spec writes it down, the user OKs the spec and the plan together.
+- **The lead plans, no separate planner:** the model that writes the plan is the one that carries it out, as the
+  vendors do it; a successor with no notes does 20-59% more work.
+- **Sizes as counts, not time:** model time estimates run about 3x over; one plan here said 2 hours for 6 minutes
+  of work.
+- **Checks before the build:** a check written after the code by the same author tends to pass on whatever was built;
+  committing it first and seeing it fail is what makes it a judge.
+- **Three fix rounds:** Anthropic's number for a failing check before a person looks.
+- **Merge one at a time and remove the worktree in the same step:** the 2026-11-19 git research found 58 left-over
+  worktrees (1.8 GB) and 63 of 70 branches merged but not deleted.
+- **Reproduce first, no extra checking agent** (2026-11-17): the reviewer hands a command, the lead runs it.
+- **The blind look** finds what the builder can't: "once you know how something works, you cannot reliably simulate
+  not knowing" (NN/g).

@@ -25,10 +25,10 @@ const inside = (root, file) => {
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 };
 
-const keep = (project, file) => {
+// The copy in <project>/shown/. A failure here is the hook's own and fails open for that picture only; only an
+// unreadable picture is named.
+const keep = (project, file, bytes) => {
   const folder = join(project, "shown");
-  if (inside(folder, file)) return file;
-  const bytes = readFileSync(file);
   const hash = createHash("sha1").update(bytes).digest("hex").slice(0, 8);
   const ext = extname(file);
   const copy = join(folder, `${basename(file, ext)}-${hash}${ext}`);
@@ -49,11 +49,18 @@ runHook("picture-in-project", (event) => {
   for (const item of items) {
     const path = item && item.image && item.image.path;
     if (typeof path !== "string" || !isAbsolute(path)) continue;
+    if (inside(join(project, "shown"), path)) continue;
+    let bytes;
     try {
-      const copy = keep(project, path);
-      if (copy !== path) moved.push(`${path} -> ${copy}`);
+      bytes = readFileSync(path);
     } catch {
       if (!inside(project, path)) missing.push(path); // inside the project it is the tool's own per-picture error
+      continue;
+    }
+    try {
+      moved.push(`${path} -> ${keep(project, path, bytes)}`);
+    } catch {
+      continue; // the hook's own failure: this picture goes through as it is, the others are still handled
     }
   }
   const lines = [];

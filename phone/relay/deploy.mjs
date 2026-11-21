@@ -1,7 +1,9 @@
 // The relay's deploy (pipe design, section 10), shared by the test deploy on the owner's PC (deploy-test.mjs) and
 // the release workflow (.github/workflows/phone-deploy.yml). In order: the page into ./dist with its _headers,
-// `wrangler deploy`, the four relay secrets with `wrangler secret put` (each value on standard input), then the bot:
-// the webhook with a fresh secret, its command lists, description and short description (which replace whatever
+// `wrangler deploy`, the live probe (liveCheck of workers/ship-check.mjs: /.env, /.git/HEAD and the other hidden
+// paths give 404 or 403 or the page itself, the page's security headers are there; asked again for up to about 60 s
+// while Cloudflare may still serve the old version; the test copy too), the four relay secrets with
+// `wrangler secret put` (each value on standard input), then the bot: the webhook with a fresh secret, its command lists, description and short description (which replace whatever
 // the bot showed before), the default menu button back to the command list, the owner's Open button.
 // A deploy `beside` (the test copy, deploy-test.mjs) makes no bot-wide call, so the real relay keeps the bot: it
 // builds the page with `testCopy`, puts TOPIC_SUFFIX (the "(test)" after its topic names) and sends the owner one
@@ -14,6 +16,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { liveCheck } from "../../workers/ship-check.mjs";
 import { buildPage, writePage } from "../page/build.mjs";
 import { telegramApi } from "./bot/telegram.mjs";
 import { PAGE_HEADERS } from "./local/server.mjs";
@@ -194,6 +197,53 @@ export async function announceTestCopy({ botToken, ownerTgId, origin, fetch }) {
   });
 }
 
+// How long the live probe keeps asking, and its first pause between tries (each next pause doubles, up to 30 s).
+// Just after `wrangler deploy` Cloudflare may still serve the old version for a while, and a new workers.dev
+// address may not answer yet.
+export const PROBE_LIMIT_MS = 60000;
+const PROBE_FIRST_PAUSE_MS = 2000;
+const PROBE_MAX_PAUSE_MS = 30000;
+const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// The live probe of the relay just deployed. It runs before the secrets and the bot: a probe that fails stops the
+// deploy while the relay keeps its old secrets, which match the webhook the bot still has. It asks again until a try
+// finds nothing, for up to limitMs (the time counted is the longer of the clock and the pauses asked of `wait`, so a
+// test's `wait` that returns at once still ends the tries); the deploy fails when the last try still finds a problem
+// or cannot finish. The new version is then live already: the message says so and how to go back. The test copy
+// (`beside`) is probed as well (spec D7: the relay's deploy runs the live probe after its own deploy).
+async function probeRelay(origin, { fetch, say, limitMs, wait }) {
+  const start = Date.now();
+  let waited = 0;
+  let next = PROBE_FIRST_PAUSE_MS;
+  for (let tries = 1; ; tries++) {
+    const { problems, cannot, lines } = await liveCheck(origin, { fetch });
+    const found = [...problems, ...cannot].map((p) => `  ${p.where}: ${p.why}`);
+    if (!found.length) {
+      say(`live probe: no problems (try ${tries}); each path and its status:`);
+      for (const line of lines) say(`  ${line}`);
+      return;
+    }
+    const spent = Math.max(Date.now() - start, waited);
+    const left = limitMs - spent;
+    if (left <= 0)
+      throw new Error(
+        `deploy: the live probe of the relay ${problems.length ? "found problems" : "could not finish"} after ` +
+          `${tries} tries in about ${Math.round(spent / 1000)} s:\n${found.join("\n")}\n` +
+          "The new version is live and serving this now. The secrets and the bot are left as they were. Take the " +
+          `problem out and deploy again, or go back to the last version: in phone/relay run ` +
+          `npx wrangler@${WRANGLER_VERSION} rollback --name <worker>.`,
+      );
+    const ms = Math.min(next, left);
+    say(
+      `live probe: ${found.length} problem(s) on try ${tries}; Cloudflare may still serve the old version, ` +
+        `asking again in ${Math.round(ms / 1000)} s`,
+    );
+    await wait(ms);
+    waited += ms;
+    next = Math.min(next * 2, PROBE_MAX_PAUSE_MS);
+  }
+}
+
 // The test copy's topic names end in this (files contract, section 7). It is put as the Worker secret TOPIC_SUFFIX,
 // value on standard input, as a `--var` argument would pass cmd unquoted on Windows.
 export const TEST_TOPIC_SUFFIX = " (test)";
@@ -201,6 +251,7 @@ export const TEST_TOPIC_SUFFIX = " (test)";
 // Deploys the Worker `name` with the page; returns { origin, webhookSecret } (the relay's address and the secret its
 // webhook checks), or null on a dry run. `beside`: the test copy beside the real relay (see the top of this file);
 // it also puts TOPIC_SUFFIX. `wrangler`: a stand-in for the npx call, (args, { env, input }) -> its output, for tests.
+// `probeLimitMs` and `probeWait` (ms -> a promise): how long the live probe keeps asking and its pause, for tests.
 export async function deployRelay({
   name,
   values,
@@ -210,6 +261,8 @@ export async function deployRelay({
   say = console.log,
   fetch = globalThis.fetch,
   wrangler = runWrangler,
+  probeLimitMs = PROBE_LIMIT_MS,
+  probeWait = pause,
 }) {
   if (!WORKER_NAME.test(name ?? ""))
     throw new Error(
@@ -247,6 +300,10 @@ export async function deployRelay({
     say(
       `would run in ${RELAY}: ${wr} deploy --name ${name} (Cloudflare token and account id in its environment only)`,
     );
+    say(
+      "would probe <relay>: /.env, /.git/HEAD and the other hidden paths give 404 or 403 or the page itself, " +
+        `the page's security headers (asked again for up to ${PROBE_LIMIT_MS / 1000} s)`,
+    );
     for (const s of Object.keys(secrets))
       say(
         `would run: ${wr} secret put ${s} --name ${name} (the value on standard input)`,
@@ -274,6 +331,12 @@ export async function deployRelay({
         "(Cloudflare dashboard, Workers and Pages, opened once)?",
     );
   mask(origin);
+  await probeRelay(origin, {
+    fetch,
+    say,
+    limitMs: probeLimitMs,
+    wait: probeWait,
+  });
   for (const s of Object.keys(secrets))
     wrangler(["secret", "put", s, "--name", name], {
       env,

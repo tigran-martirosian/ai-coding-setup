@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320" role="img" aria-labelledby="t d">
+  <title id="t">AI coding setup for Claude Code</title>
+  <desc id="d">A dark editor-style card. On the left, a session list: a New job button, then the steps of a job with their state: questions and spec done, the plan done, workers running, the review waiting. On the right, the title.</desc>
+  <defs>
+    <clipPath id="card"><rect width="1280" height="320" rx="20"/></clipPath>
+    <style>
+      text { font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; }
+      .row { fill: #e9e7f2; font-size: 17px; font-weight: 500; }
+      .sub { fill: #8b889b; font-size: 13px; }
+    </style>
+  </defs>
+  <g clip-path="url(#card)">
+    <rect width="1280" height="320" fill="#16151a"/>
+    <rect width="340" height="320" fill="#100f13"/>
+    <rect x="340" width="940" height="4" fill="#49d742"/>
+    <rect x="340" width="1" height="320" fill="#26242d"/>
+
+    <rect x="28" y="30" width="284" height="40" rx="8" fill="#6d60bd"/>
+    <text x="52" y="56" fill="#ffffff" font-size="16" font-weight="500">+  New job</text>
+
+    <circle cx="40" cy="106" r="5" fill="#6b6879"/>
+    <text x="58" y="112" class="row">Questions and spec</text>
+    <text x="58" y="131" class="sub">done</text>
+
+    <circle cx="40" cy="160" r="5" fill="#6b6879"/>
+    <text x="58" y="166" class="row">Plan and plan review</text>
+    <text x="58" y="185" class="sub">done</text>
+
+    <rect x="20" y="198" width="300" height="50" rx="8" fill="#1f1d26"/>
+    <circle cx="40" cy="214" r="5" fill="#49d742"/>
+    <text x="58" y="220" class="row">Workers, one per slice</text>
+    <text x="58" y="239" class="sub" style="fill:#49d742">running</text>
+
+    <circle cx="40" cy="268" r="5" fill="none" stroke="#a99cf5" stroke-width="2"/>
+    <text x="58" y="274" class="row">End review</text>
+    <text x="58" y="293" class="sub">waiting</text>
+
+    <text x="404" y="166" fill="#f4f3f8" font-size="60" font-weight="600" letter-spacing="-1">AI coding setup</text>
+    <text x="406" y="214" fill="#a99cf5" font-size="28" font-weight="500">for Claude Code</text>
+  </g>
+  <rect x="0.75" y="0.75" width="1278.5" height="318.5" rx="19.5" fill="none" stroke="#3a3745" stroke-width="1.5"/>
+</svg>

@@ -1,0 +1,91 @@
+{
+  "pre-tool": [
+    {
+      "hook": "hooks/delete-guard.mjs",
+      "args": [],
+      "guard": true,
+      "tools": "Bash|PowerShell"
+    },
+    {
+      "hook": "hooks/find-guard.mjs",
+      "args": [],
+      "guard": true,
+      "tools": "Bash|PowerShell"
+    },
+    {
+      "hook": "hooks/sql-guard.mjs",
+      "args": [],
+      "guard": true,
+      "tools": "Bash|PowerShell"
+    },
+    {
+      "hook": "hooks/push-key-scan.mjs",
+      "args": [],
+      "guard": true,
+      "tools": "Bash|PowerShell"
+    },
+    {
+      "hook": "hooks/workflow-fence.mjs",
+      "args": [],
+      "guard": true,
+      "tools": "Workflow"
+    },
+    {
+      "hook": "hooks/download-guard.mjs",
+      "args": [],
+      "guard": false,
+      "tools": "Bash|PowerShell"
+    },
+    {
+      "hook": "hooks/command-explain.mjs",
+      "args": [],
+      "guard": false,
+      "tools": "Bash|PowerShell"
+    },
+    {
+      "hook": "hooks/verify-gate.mjs",
+      "args": ["--pre"],
+      "guard": false,
+      "tools": "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal"
+    },
+    {
+      "hook": "hooks/session-cleanup.mjs",
+      "args": [],
+      "guard": false,
+      "tools": "Bash|PowerShell"
+    },
+    { "hook": "skills/steer/steer.mjs", "args": ["--hook"], "guard": false },
+    {
+      "hook": "hooks/repeat-guard.mjs",
+      "args": ["--near-cap-only"],
+      "guard": false,
+      "tools": "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch|mcp__.*"
+    },
+    {
+      "hook": "hooks/map-brief.mjs",
+      "args": [],
+      "guard": false,
+      "tools": "Agent|Task"
+    },
+    {
+      "hook": "hooks/file-name-note.mjs",
+      "args": [],
+      "guard": false,
+      "tools": "Write"
+    }
+  ],
+  "prompt": [
+    { "hook": "hooks/usage-dashboard-hook.mjs", "args": [], "guard": false },
+    { "hook": "hooks/no-response-gate.mjs", "args": [], "guard": false },
+    { "hook": "skills/steer/steer.mjs", "args": ["--hook"], "guard": false },
+    { "hook": "hooks/session-cleanup.mjs", "args": [], "guard": false },
+    { "hook": "hooks/map-nudge.mjs", "args": [], "guard": false }
+  ],
+  "stop": [
+    { "hook": "hooks/plan-usage-logger.mjs", "args": [], "guard": false },
+    { "hook": "hooks/verify-gate.mjs", "args": [], "guard": false },
+    { "hook": "hooks/no-response-gate.mjs", "args": [], "guard": false },
+    { "hook": "hooks/file-link-gate.mjs", "args": [], "guard": false },
+    { "hook": "skills/steer/steer.mjs", "args": ["--hook"], "guard": false }
+  ]
+}

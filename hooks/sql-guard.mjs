@@ -2,7 +2,7 @@
 // it runs: DROP (table, database, view...), TRUNCATE, DELETE or UPDATE without WHERE, and ALTER TABLE
 // ... DROP/DETACH (partitions, columns). It only looks at commands that call a database client
 // (clickhouse, psql, mysql, sqlite3, duckdb, sqlcmd, ...) plus any .sql file the command passes in.
-// SQL run from inside a Python or other script is not seen. Fails open. SQL_GUARD=off disables it.
+// SQL run from inside a Python or other script is not seen. Fails closed (wired with onFailure "block"). SQL_GUARD=off disables it.
 
 import { existsSync, readFileSync, writeSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -34,35 +34,39 @@ function findings(sql) {
   return [...new Set(hits)];
 }
 
-runHook("sql-guard", (event) => {
-  const command = String((event.tool_input || {}).command || "");
-  if (
-    !["Bash", "PowerShell"].includes(event.tool_name) ||
-    !CLIENT.test(command)
-  )
-    return;
+runHook(
+  "sql-guard",
+  (event) => {
+    const command = String((event.tool_input || {}).command || "");
+    if (
+      !["Bash", "PowerShell"].includes(event.tool_name) ||
+      !CLIENT.test(command)
+    )
+      return;
 
-  // Also read .sql files the command passes in (-f, --queries-file, < file.sql, ...)
-  let sql = command;
-  for (const m of command.matchAll(/["']?([^\s"'<>|;]+\.sql)\b["']?/gi)) {
-    const file = isAbsolute(m[1])
-      ? m[1]
-      : join(event.cwd || process.cwd(), m[1]);
-    if (existsSync(file)) sql += ";\n" + readFileSync(file, "utf8");
-  }
-  // Drop SQL comments ("-- text"), but not command-line flags like --query
-  const hits = findings(sql.replace(/(^|[\s"'])--(?=\s)[^\n]*/g, "$1"));
-  if (!hits.length) return;
+    // Also read .sql files the command passes in (-f, --queries-file, < file.sql, ...)
+    let sql = command;
+    for (const m of command.matchAll(/["']?([^\s"'<>|;]+\.sql)\b["']?/gi)) {
+      const file = isAbsolute(m[1])
+        ? m[1]
+        : join(event.cwd || process.cwd(), m[1]);
+      if (existsSync(file)) sql += ";\n" + readFileSync(file, "utf8");
+    }
+    // Drop SQL comments ("-- text"), but not command-line flags like --query
+    const hits = findings(sql.replace(/(^|[\s"'])--(?=\s)[^\n]*/g, "$1"));
+    if (!hits.length) return;
 
-  // "ask" is the one verdict emit has no helper for
-  writeSync(
-    1,
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "ask",
-        permissionDecisionReason: `[sql-guard] This command contains ${hits.join(", ")}. It can delete data for good. Run it only if you meant to, on the right database.`,
-      },
-    }),
-  );
-});
+    // "ask" is the one verdict emit has no helper for
+    writeSync(
+      1,
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "ask",
+          permissionDecisionReason: `[sql-guard] This command contains ${hits.join(", ")}. It can delete data for good. Run it only if you meant to, on the right database.`,
+        },
+      }),
+    );
+  },
+  { failClosed: true },
+);

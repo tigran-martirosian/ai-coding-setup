@@ -61,12 +61,27 @@ Each `by hand:` line is a bare file name or a path built in code that names a mo
 person why it stays. Each `outside the project:` line is a file under `~/.claude` naming the old absolute path: fix it
 on the person's yes.
 
+Scheduled tasks name files by their full path and the apply does not see them: for each moved file run
+`node ~/.claude/skills/file-upkeep/move-project.mjs --tasks <its old absolute path>`. Each task it lists is shown to
+the person with its new path; the task is changed only on their yes.
+
 ## 7. After
 
 - Run the project's test command when its `CLAUDE.md` names one; a failure from a moved path gets fixed now.
 - In git, one commit: `File standard: <n> moves, <d> deletes (ledger <path>)`.
 - Summary: the counts, every delete, the kept asks, and the undo: `FC --undo <saved ledger>` (in git, `git revert` of
   that commit does the same).
+
+## The projects folder
+
+`FC --root [<folder>]` (`--json` too) reports the projects folder by P10: loose files, families of
+`<name>-<part>` entries for one folder (two entries sharing the first word count, or a name in the root's `.claude/file-standard.json` `"families"`), `_worktrees` and `-old` folders, folders that are no project. Report only:
+nothing is applied. Show it to the person; a project folder moves only with their yes.
+
+A whole project folder moves through `node ~/.claude/skills/file-upkeep/move-project.mjs <from> <to>`, never a plain
+move: it also fixes the git worktrees, Claude Code's and Nimbalyst's records of the project, the files under
+`~/.claude` naming it and the scheduled tasks. Run it with `--dry` first and show its list. With Nimbalyst open it
+refuses; add `--queue` and the move runs at Nimbalyst's next quit (tell the person so; no restart is asked for).
 
 ## The update's offer
 

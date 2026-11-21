@@ -44,6 +44,17 @@ const english = {
     untracked:
       "Note sent, but it cannot be followed to the end. Update the setup to see when it arrives",
   },
+  tryIt: {
+    button: "Try it",
+    hint: "Ask this session to run the project's verify skill on its last change; a local page it starts opens beside the chat",
+    watchingTip:
+      "Try it was pressed: the page opens beside the chat when the session gives one",
+    sent: "Try it sent, the session reads it before its next step",
+    opened: (url: string) => `Opened ${url} beside the chat`,
+    notLocal: (url: string) =>
+      `Try it: not opened, the page is not on this PC: ${url}`,
+    openFailed: (why: string) => `Try it: the page did not open: ${why}`,
+  },
   copy: {
     button: "Copy",
     done: "Copied",
@@ -135,6 +146,59 @@ const english = {
       note: "Install the newest version of the setup",
     },
   },
+  /** Comments on the lines of the Review panel diff, sent to the session as one message. */
+  diff: {
+    add: "Comment on this line. Shift+click another line to cover a range",
+    placeholder: "A comment for the agent",
+    save: "Save",
+    saveHint: "Save (Ctrl+Enter)",
+    cancel: "Cancel",
+    edit: "Edit",
+    remove: "Remove",
+    rangeHint: "Shift+click another line to cover a range",
+    count: (n: number) => (n === 1 ? "1 comment" : `${n} comments`),
+    sendAll: "Send all",
+    sendHint: "Send all comments to this session as one message",
+    clear: "Clear",
+    clearHint: "Remove all comments of this session",
+    none: "No comments to send",
+    /** The first line of the message the agent gets. */
+    header: (n: number) =>
+      `Review comments on your changes (${n}), each on a line of the diff:`,
+    line: (n: number) => `line ${n}`,
+    lines: (a: number, b: number) => `lines ${a}-${b}`,
+    oldLine: (n: number) => `old line ${n}`,
+    oldLines: (a: number, b: number) => `old lines ${a}-${b}`,
+    blank: "(blank line)",
+    /** What a note that was not confirmed is called in its message. */
+    pending: (n: number) => `review comments (${n})`,
+    /** After the line or range of a comment whose line no longer reads as when it was written. */
+    movedLabel: "(line has changed since)",
+    countMoved: (n: number, m: number) =>
+      `${n === 1 ? "1 comment" : `${n} comments`}, ${m} moved`,
+    removeMoved: "Remove moved",
+    removeMovedHint: "Remove the comments whose lines have changed since",
+    gone: "This comment was sent or removed meanwhile; Save keeps the text as a new comment",
+    rangeGone:
+      "The first line of the range is no longer shown; click + on it again",
+    /** Asked on the bar before Clear removes them. */
+    clearAsk: (n: number) =>
+      n === 1 ? "Clear 1 comment?" : `Clear ${n} comments?`,
+    keep: "Keep",
+    /** After a send: how many went, before what became of them. */
+    sent: (n: number) => (n === 1 ? "1 comment sent" : `${n} comments sent`),
+    // The batch's own outcome lines, in place of the Note button's (note.ts)
+    waiting: "Comments on their way…",
+    untracked:
+      "They cannot be followed to the end. Update the setup to see when they arrive",
+    oddId: "Not sent: this session cannot take comments",
+    delivered: "Comments delivered: the agent reads them at its next step",
+    notConfirmed: "Not confirmed: your comments are back in the list",
+    notBack: (why: string) =>
+      `Not confirmed, and the comments could not be put back (${why}): write them again if needed`,
+    /** Send all while a comment box holds text not saved yet. */
+    saveFirst: "Save or cancel the open comment first",
+  },
 };
 
 type Strings = typeof english;
@@ -172,6 +236,17 @@ const russian: Strings = {
       `Нет подтверждения, при необходимости отправьте ещё раз: «${text}»`,
     untracked:
       "Заметка отправлена, но проследить её до конца нельзя. Обновите настройку, чтобы видеть, когда она дойдёт",
+  },
+  tryIt: {
+    button: "Проверить",
+    hint: "Попросить эту сессию запустить навык verify проекта на её последнем изменении; локальная страница, которую она запустит, откроется рядом с чатом",
+    watchingTip:
+      "Проверка запрошена: страница откроется рядом с чатом, когда сессия её даст",
+    sent: "Проверка отправлена, сессия прочтёт её перед следующим шагом",
+    opened: (url: string) => `${url} открыта рядом с чатом`,
+    notLocal: (url: string) =>
+      `Проверка: не открыто, страница не на этом компьютере: ${url}`,
+    openFailed: (why: string) => `Проверка: страница не открылась: ${why}`,
   },
   copy: {
     button: "Копировать",
@@ -266,6 +341,49 @@ const russian: Strings = {
       label: "Входящие с телефона",
       note: "Что вы отправили с телефона",
     },
+  },
+  diff: {
+    add: "Комментарий к этой строке. Shift+клик по другой строке охватит диапазон",
+    placeholder: "Комментарий для агента",
+    save: "Сохранить",
+    saveHint: "Сохранить (Ctrl+Enter)",
+    cancel: "Отмена",
+    edit: "Изменить",
+    remove: "Удалить",
+    rangeHint: "Shift+клик по другой строке охватит диапазон",
+    count: (n: number) => `Комментариев: ${n}`,
+    sendAll: "Отправить все",
+    sendHint: "Отправить все комментарии в эту сессию одним сообщением",
+    clear: "Очистить",
+    clearHint: "Удалить все комментарии этой сессии",
+    none: "Нет комментариев для отправки",
+    header: (n: number) =>
+      `Комментарии к вашим изменениям (${n}), каждый к строке диффа:`,
+    line: (n: number) => `строка ${n}`,
+    lines: (a: number, b: number) => `строки ${a}-${b}`,
+    oldLine: (n: number) => `старая строка ${n}`,
+    oldLines: (a: number, b: number) => `старые строки ${a}-${b}`,
+    blank: "(пустая строка)",
+    pending: (n: number) => `комментарии к изменениям (${n})`,
+    movedLabel: "(строка с тех пор изменилась)",
+    countMoved: (n: number, m: number) => `Комментариев: ${n}, сдвинуто: ${m}`,
+    removeMoved: "Удалить сдвинутые",
+    removeMovedHint: "Удалить комментарии, строки которых с тех пор изменились",
+    gone: "Этот комментарий тем временем отправлен или удалён; Сохранить сделает текст новым комментарием",
+    rangeGone:
+      "Первая строка диапазона больше не видна; нажмите + на ней ещё раз",
+    clearAsk: (n: number) => `Удалить все комментарии (${n})?`,
+    keep: "Оставить",
+    sent: (n: number) => `Отправлено комментариев: ${n}`,
+    waiting: "Комментарии в пути…",
+    untracked:
+      "Проследить их до конца нельзя. Обновите настройку, чтобы видеть, когда они дойдут",
+    oddId: "Не отправлено: эта сессия не принимает комментарии",
+    delivered: "Комментарии доставлены: агент прочтёт их на следующем шаге",
+    notConfirmed: "Нет подтверждения: ваши комментарии снова в списке",
+    notBack: (why: string) =>
+      `Нет подтверждения, и вернуть комментарии не удалось (${why}): при необходимости напишите их снова`,
+    saveFirst: "Сначала сохраните или отмените открытый комментарий",
   },
 };
 

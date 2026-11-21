@@ -16,14 +16,15 @@ const HELPERS = new Set(["Agent", "Task"]);
 const PLANNING = new Set(["EnterPlanMode", "ExitPlanMode", "TodoWrite"]);
 // A command that runs a check: its text (the command, or its "# WHAT THIS DOES" line) names one of these
 const CHECK = /\b(?:tests?|checks?|lint|verify|pytest|vitest|jest)\b/i;
-// The helper's role: the run log's agent type, else a "Reviewer:" / "Planner:" prefix on its description
+// The helper's role: the run log's agent type, else a "Reviewer:" prefix on its description. A type with "review"
+// in it (reviewer, plan-reviewer) is a reviewer; another with "plan" in it is the app's own Plan agent.
 const REVIEW = /review/i;
 const PLAN = /plan/i;
-const ROLE_PREFIX = /^\s*(reviewer|planner)\s*:/i;
+const ROLE_PREFIX = /^\s*(reviewer)\s*:/i;
 
 /** The orb state of a running row. `kind` is the app's kind word ("Sub-agent", "Command", ...), `tool` the app's last
  *  tool name ('' before the first), `role` the run log's agent type ('' when unknown), `text` the app's description.
- *  Waiting on its helpers beats the role; a reviewer's or planner's own work shows their role; then the tool. */
+ *  Waiting on its helpers beats the role; a reviewer's or the Plan agent's own work shows their role; then the tool. */
 function stageOf({ kind, tool = "", role = "", text = "" }) {
   if (kind === "Command") return CHECK.test(text) ? "solving" : "working";
   if (HELPERS.has(tool)) return "connecting";

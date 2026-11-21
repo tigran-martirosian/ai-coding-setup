@@ -58,11 +58,14 @@ const PLAN = { x: 580, y: MID - 55, w: 240, h: 110 };
 const STEP = { x: 900, w: 560, h: 110, gap: 180 };
 const REVIEW = { x: 1560, y: MID - 55, w: 1920 - MARGIN - 1560, h: 110 };
 
-/** A plain chat message types in; a wire carries it to the planner, which fans the job out into numbered steps; a
+/** A plain chat message types in; a wire carries it to the plan, which fans the job out into numbered steps; a
  * helper's dot leaves each step for the reviewer, and the reviewer ticks the result. */
 export const Lead: React.FC<{ shot: Shot }> = ({ shot }) => {
   const t = useTick();
-  const { label, ask, steps, helper, reviewer, done } = need(shot.body, "lead");
+  const { label, ask, plan, steps, helper, reviewer, done } = need(
+    shot.body,
+    "lead",
+  );
   const typed = sec(0.3) + ask.length / 0.9;
   const toPlan = glide(t, typed + sec(0.2), sec(0.6));
   const planned = typed + sec(0.8);
@@ -113,7 +116,7 @@ export const Lead: React.FC<{ shot: Shot }> = ({ shot }) => {
         lit={ease(t, planned - sec(0.2), FADE)}
         style={{ justifyContent: "center" }}
       >
-        Planner
+        {plan}
       </Node>
       <div
         style={{

@@ -49,11 +49,6 @@ const cases = [
     MISSING,
   ],
   [
-    "labelled note with no empty line before it gets a stand-in note",
-    B(`ls -la\n${LINE}`),
-    MISSING,
-  ],
-  [
     "note on the first line only gets a stand-in note",
     B(`${LINE}\n\nls -la`),
     MISSING,
@@ -186,8 +181,10 @@ const added = (out, input) => {
     return false;
   }
 };
-let fail = 0;
+let fail = 0,
+  ran = 0;
 const report = (ok, name) => {
+  ran++;
   if (!ok) fail++;
   console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
 };
@@ -221,6 +218,32 @@ report(
   run(B(fixed)) === "",
   "a command with the stand-in note passes unchanged",
 );
+// A good note written straight under the command keeps its words; the hook adds the empty line, no reminder
+// (until 2026-11-19 it was replaced by the stand-in, so the popup said "no note given" for a command that had one)
+for (const [name, cmd, want] of [
+  [
+    "labelled note with no empty line before it: empty line added, note kept",
+    `ls -la\n${LINE}`,
+    `ls -la\n\n${LINE}`,
+  ],
+  [
+    "several lines, note with no empty line: empty line added, note kept",
+    `cd app\nnpm test\n${LINE}\n`,
+    `cd app\nnpm test\n\n${LINE}`,
+  ],
+]) {
+  let h;
+  try {
+    h = JSON.parse(run(B(cmd))).hookSpecificOutput;
+  } catch {}
+  report(
+    h?.updatedInput?.command === want &&
+      h.updatedInput.description === "List files" &&
+      !("additionalContext" in h) &&
+      !("permissionDecision" in h),
+    name,
+  );
+}
 const helper = JSON.parse(
   run({ ...B("ls -la"), agent_id: "sub-1" }),
 ).hookSpecificOutput;
@@ -271,5 +294,54 @@ report(
   !("permissionDecision" in soft) && !("updatedInput" in soft),
   "soft check never refuses or rewrites the command",
 );
-console.log(fail ? `${fail} failed` : `all ${cases.length + 10} passed`);
+// Auto mode (permission_mode "auto"): Nimbalyst's classifier reviews each call, and an updatedInput voids that
+// review, so the hook rewrites nothing and tells Claude in additionalContext instead
+const auto = (command, extra = {}) => {
+  const out = run({ ...B(command), permission_mode: "auto", ...extra });
+  if (out === "") return null;
+  try {
+    return JSON.parse(out).hookSpecificOutput;
+  } catch {
+    return { unreadable: out };
+  }
+};
+const told = (h) =>
+  h &&
+  !("updatedInput" in h) &&
+  !("permissionDecision" in h) &&
+  String(h.additionalContext).startsWith("command-explain:");
+const bare = auto("ls -la");
+report(
+  told(bare) && bare.additionalContext.includes("# WHAT THIS DOES:"),
+  "auto: a command with no note is not rewritten; the missing note is told in additionalContext",
+);
+const tight = auto(`ls -la\n${LINE}`);
+report(
+  told(tight) && /empty line/.test(tight.additionalContext),
+  "auto: a note with no empty line before it is not rewritten; the missing empty line is told in additionalContext",
+);
+// In auto mode the classifier decides and a popup seldom shows, so the reason given is the one that holds there
+for (const [what, h] of [
+  ["no note", bare],
+  ["no empty line", tight],
+])
+  report(
+    /agents panel/.test(h?.additionalContext) &&
+      !/popup (explained nothing|showed)/.test(h?.additionalContext),
+    `auto, ${what}: the context names the agents panel and any popup that shows, not a popup that always shows`,
+  );
+report(auto(`ls -la${NOTE}`) === null, "auto: a good note: no output");
+for (const cmd of ["ls -la", `ls -la\n${LINE}`])
+  report(
+    !("updatedInput" in (auto(cmd, { agent_id: "sub-1" }) ?? {})),
+    `auto: a helper's command (${JSON.stringify(cmd)}) is not rewritten`,
+  );
+// Any other mode: the output is byte for byte the one with no mode in the event
+for (const mode of ["default", "acceptEdits", "bypassPermissions", "plan"])
+  for (const cmd of ["ls -la", `ls -la\n${LINE}`, `ls -la${NOTE}`])
+    report(
+      run({ ...B(cmd), permission_mode: mode }) === run(B(cmd)),
+      `mode ${mode}: the same output as now for ${JSON.stringify(cmd)}`,
+    );
+console.log(fail ? `${fail} failed` : `all ${ran} passed`);
 process.exit(fail ? 1 : 0);

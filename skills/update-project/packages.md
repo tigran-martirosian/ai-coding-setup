@@ -1,6 +1,6 @@
 # Package upkeep (monthly)
 
-The upkeep-note hook sends a project here once every 30 days, after a commit. Goal: nothing goes stale, and
+A pass, or the person, sends a project here to update its packages. Goal: nothing goes stale, and
 the person hears about it only when a choice is theirs. Work in each package folder the note names.
 
 **Skip a folder** whose package files already show in `git status --porcelain` (someone's change in

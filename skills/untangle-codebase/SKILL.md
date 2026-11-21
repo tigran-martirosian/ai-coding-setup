@@ -87,7 +87,7 @@ If the user chose Tests, do this last, because tests are your regression safety 
 
 **5. Check, and repeat until done**
 
-Have subagents search for special cases, hidden links, needless links and surplus. **Do not stop until there is nothing worth fixing left.**
+Have subagents search for special cases, hidden links, needless links and surplus.
 
 You're done when:
 

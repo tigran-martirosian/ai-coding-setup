@@ -86,20 +86,14 @@ const differ = (a, b) =>
   [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(
     (k) => a[k] !== b[k],
   );
-const FABLE_AGENTS = [
-  "blind-reviewer",
-  "plan-reviewer",
-  "planner",
-  "reviewer",
-  "stuck-advisor",
-  "worker-refactor",
-].map((n) => `agents/${n}.md`);
+// 2026-11-20, decision D1: the planner agent is retired, so it left this list
+const FABLE_AGENTS = ["plan-reviewer", "reviewer", "worker-refactor"].map(
+  (n) => `agents/${n}.md`,
+);
 const modelLine = (files, rel) => files[rel].match(/^model: (\w+)$/m)?.[1];
-// What tells Claude to use Fable: a model line or argument, or a "Fable at <effort>" (a benchmark's "Fable at medium's" score is a fact, not a choice)
+// What tells Claude to use Fable: a model line or argument, or a "Fable at <effort>"
 const fableChoice = (text) =>
-  /model: fable|model: "fable"|model `fable`|Fable at (?!medium's 54)/i.test(
-    text,
-  );
+  /model: fable|model: "fable"|model `fable`|Fable at /i.test(text);
 
 // ---- no record of the plan: the files as shipped
 const plain = homeWith("no-record", null);
@@ -149,9 +143,10 @@ ok(
   FABLE_AGENTS.map(() => "opus"),
 );
 ok(
-  "on Pro the rules name Opus for the planner and reviewers",
+  // 2026-11-20, decision D1: the rules name the two reviewers, no planner
+  "on Pro the rules name Opus for the plan-reviewer and the reviewer",
   proFiles["CLAUDE.md"].includes(
-    "The planner and both reviewers run Opus at high",
+    "The `plan-reviewer` and the `reviewer` run Opus at high",
   ),
 );
 ok(
