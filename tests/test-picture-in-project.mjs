@@ -166,6 +166,29 @@ check(
     out.permissionDecisionReason.includes("gone2.png"),
   out,
 );
+// The hook's own failure fails open: a picture it read but could not copy (a file named "shown" is in the way)
+const BLOCKED = join(ROOT, "no-room");
+mkdirSync(BLOCKED);
+writeFileSync(join(BLOCKED, "shown"), "a file, not a folder");
+out = run(show([pic(file(join(ROOT, "readable.png")))], undefined, BLOCKED));
+check(
+  "a readable picture the hook can't copy goes through (the hook fails open), not refused as unreadable",
+  out === null,
+  out,
+);
+// One picture it can't copy (the copy's name, with its hash added, is past the 255-character limit) skips only that
+// picture: the others in the same call are still copied and named
+const longName = file(join(ROOT, `${"a".repeat(247)}.png`), "long");
+out = run(
+  show([pic(longName), pic(file(join(ROOT, "other-one.png"), "other"))]),
+);
+check(
+  "a picture the hook can't copy is skipped, the others in the call are still copied",
+  out?.permissionDecision === "deny" &&
+    out.permissionDecisionReason.includes("other-one-") &&
+    !out.permissionDecisionReason.includes(`${longName} ->`),
+  out,
+);
 
 out = run(show([pic(join(ROOT, "same.png"))], "mcp__other__display_to_user"));
 check(

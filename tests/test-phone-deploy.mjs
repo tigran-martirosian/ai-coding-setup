@@ -14,6 +14,7 @@ import {
   BOT_DESCRIPTION,
   BOT_SHORT_DESCRIPTION,
   CI_SECRETS,
+  deployRelay,
   headersFile,
   OUT,
   OWNER_COMMANDS,
@@ -357,10 +358,29 @@ check(
     const ORIGIN = "https://phone-relay-test.example-sub.workers.dev";
     const ran = [];
     const said = [];
+    // The relay answers as a healthy one: the root page with the page headers, every hidden path 404. The fake
+    // once had only json(), for Telegram: it could not answer the live probe the spec (D7) asks of the test copy too.
+    const relayFetch = async (input, init) => {
+      const url = String(input?.url ?? input);
+      if (url.startsWith("https://api.telegram.org/"))
+        return new Response(JSON.stringify({ ok: true, result: true }));
+      const headers = {
+        "Content-Type": "text/html; charset=utf-8",
+        ...PAGE_HEADERS,
+      };
+      if (new URL(url).pathname === "/")
+        return new Response(
+          init?.method === "HEAD"
+            ? null
+            : "<!doctype html><title>Phone</title>",
+          { status: 200, headers },
+        );
+      return new Response("not found", { status: 404, headers });
+    };
     await deployTest({
       file,
       say: (line) => said.push(line),
-      fetch: async () => ({ json: async () => ({ ok: true, result: true }) }),
+      fetch: relayFetch,
       wrangler: (args, { input }) => {
         ran.push({ args, input });
         return args[0] === "deploy"
@@ -498,6 +518,166 @@ check(
     await relay.close();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+    if (!outBefore) fs.rmSync(OUT, { recursive: true, force: true });
+  }
+}
+
+// ---- job 9 D7 (docs/2026-11-20-safe-deploys-spec.md): the page sends HSTS, and the relay's deploy probes its live
+// address after `wrangler deploy` (liveCheck of workers/ship-check.mjs) and fails on what the probe finds ----
+
+check(
+  "job 9 D7 the page headers hold Strict-Transport-Security (the live probe fails an address without it)",
+  /max-age=\d+/.test(PAGE_HEADERS["Strict-Transport-Security"] ?? ""),
+  JSON.stringify(PAGE_HEADERS),
+);
+{
+  const outBefore = fs.existsSync(OUT);
+  const ORIGIN = "https://phone-relay.example-sub.workers.dev";
+  const PAGE = "<!doctype html><title>Phone</title>";
+  // The page's headers before job 9 (no HSTS): what Cloudflare may still serve just after `wrangler deploy`.
+  const OLD_HEADERS = Object.fromEntries(
+    Object.entries(PAGE_HEADERS).filter(
+      ([k]) => k !== "Strict-Transport-Security",
+    ),
+  );
+  // One real deploy with stand-ins: `events` lists the wrangler calls and the requests to the relay, in order;
+  // `waits` the probe's pauses (ms) between its tries, which return at once; `said` what the deploy printed.
+  // `leaky`: the relay serves a .env file with KEY= lines at /.env, as a host that uploaded one would.
+  // `staleRoots`: the first this many requests for the root get the old headers (Infinity: it never changes).
+  // `beside`: the test copy's deploy (deploy-test.mjs) instead of the release's.
+  const deployOnce = async ({
+    leaky = false,
+    staleRoots = 0,
+    beside = false,
+  }) => {
+    const events = [];
+    const waits = [];
+    const said = [];
+    let roots = 0;
+    const fetch = async (input, init) => {
+      const url = String(input?.url ?? input);
+      if (url.startsWith("https://api.telegram.org/")) {
+        events.push("telegram");
+        return new Response(JSON.stringify({ ok: true, result: true }));
+      }
+      const at = new URL(url);
+      if (at.origin !== ORIGIN)
+        throw new Error(`the deploy fetched an unknown address: ${url}`);
+      events.push(`probe ${at.pathname}`);
+      const stale = at.pathname === "/" && roots++ < staleRoots;
+      const headers = {
+        "Content-Type": "text/html; charset=utf-8",
+        ...(stale ? OLD_HEADERS : PAGE_HEADERS),
+      };
+      if (at.pathname === "/")
+        return new Response(init?.method === "HEAD" ? null : PAGE, {
+          status: 200,
+          headers,
+        });
+      if (leaky && at.pathname === "/.env")
+        return new Response("API_" + "KEY=not-real\nPORT=8787\n", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        });
+      return new Response("not found", { status: 404, headers });
+    };
+    let error = null;
+    try {
+      await deployRelay({
+        name: beside ? "phone-relay-test" : "phone-relay",
+        beside,
+        values: {
+          apiToken: fake.cloudflareApiToken,
+          accountId: fake.cloudflareAccountId,
+          botToken: fake.botToken,
+          ownerTgId: fake.ownerTelegramId,
+        },
+        say: (line) => said.push(line),
+        fetch,
+        probeWait: async (ms) => {
+          waits.push(ms);
+        },
+        wrangler: (args) => {
+          events.push(`wrangler ${args.slice(0, 2).join(" ")}`);
+          return args[0] === "deploy"
+            ? `Deployed phone-relay\n  ${ORIGIN}\n`
+            : "";
+        },
+      });
+    } catch (e) {
+      error = e;
+    }
+    return { events, waits, said, error };
+  };
+  try {
+    const clean = await deployOnce({ leaky: false });
+    const deployed = clean.events.indexOf("wrangler deploy --name");
+    const probed = clean.events.indexOf("probe /.env");
+    check(
+      "job 9 D7 the relay's deploy probes /.env and /.git/HEAD on the relay address after wrangler deploy",
+      deployed >= 0 &&
+        probed > deployed &&
+        clean.events.includes("probe /.git/HEAD"),
+      clean.events.join(", "),
+    );
+    check(
+      "job 9 D7 a probe that finds nothing lets the deploy finish",
+      clean.error === null,
+      String(clean.error?.message),
+    );
+    const leaky = await deployOnce({ leaky: true });
+    check(
+      "job 9 D7 /.env answering 200 with KEY= lines fails the deploy run, with the probe's problem naming /.env",
+      leaky.error !== null && /\/\.env\b/.test(String(leaky.error.message)),
+      leaky.error
+        ? String(leaky.error.message)
+        : `no error; ${leaky.events.join(", ")}`,
+    );
+    check(
+      "job 9 D7 a failed deploy's message says the new version is live and how to go back (wrangler rollback)",
+      /new version is live/.test(String(leaky.error?.message)) &&
+        /wrangler@?\S* rollback/.test(String(leaky.error?.message)),
+      String(leaky.error?.message),
+    );
+    check(
+      "job 9 D7 a probe that passes prints each path it asked with its status (a 403 or a page fallback passes too)",
+      clean.said.some((l) => /\/\.env 404\b/.test(l)) &&
+        clean.said.some((l) => /\/\.git\/HEAD 404\b/.test(l)),
+      clean.said.join("\n"),
+    );
+    const leakyCopy = await deployOnce({ leaky: true, beside: true });
+    check(
+      "end review of job 9: the test copy's deploy is probed too; /.env answering 200 fails it, naming /.env",
+      leakyCopy.error !== null &&
+        /\/\.env\b/.test(String(leakyCopy.error.message)) &&
+        !leakyCopy.events.includes("telegram"),
+      leakyCopy.error
+        ? String(leakyCopy.error.message)
+        : `no error; ${leakyCopy.events.join(", ")}`,
+    );
+    const late = await deployOnce({ staleRoots: 2 });
+    const lateRoots = late.events.filter((e) => e === "probe /").length;
+    check(
+      "job 9 D7 a relay that serves the old headers (no HSTS) for its first 2 answers passes: the probe asks again",
+      late.error === null &&
+        lateRoots === 3 &&
+        late.events.includes("telegram"),
+      `${late.error?.message ?? "no error"}; root asked ${lateRoots} times; waits ${late.waits.join(", ")}`,
+    );
+    const never = await deployOnce({ staleRoots: Number.POSITIVE_INFINITY });
+    const waited = never.waits.reduce((a, b) => a + b, 0);
+    check(
+      "job 9 D7 a relay that keeps the old headers fails the deploy after about 60 s of tries, naming the missing header",
+      never.error !== null &&
+        /Strict-Transport-Security/.test(String(never.error.message)) &&
+        never.waits.length >= 2 &&
+        waited >= 50000 &&
+        waited <= 70000 &&
+        !never.events.includes("telegram") &&
+        !never.events.some((e) => e.startsWith("wrangler secret")),
+      `${never.error?.message ?? "no error"}; waits ${never.waits.join(", ")}`,
+    );
+  } finally {
     if (!outBefore) fs.rmSync(OUT, { recursive: true, force: true });
   }
 }

@@ -91,7 +91,7 @@ From `<repo>`:
 node install.mjs --projects "<projects>" --codex <yes|no> --language <english|russian> --handy <yes|no> --backup <yes|no>
 ```
 
-On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. `--handy` and `--backup` are only put on record: the run neither installs nor removes Handy or a backup. The run also puts Obscura, the headless browser the page reader `peek.mjs` falls back on, in `~/.claude/obscura` (one pinned release of about 70 MB, its SHA-256 checked). The rules file `~/.claude/CLAUDE.md` is written whole. If it says `rules: brought up to this version` with some `of yours moved to`, the user already had rules of their own: tell them in one line that those now sit in `~/.claude/rules/my-rules.md`, which every chat loads too, and that a dated copy of the old file is kept.
+On a Mac add `--node "$(command -v node)"` (with the PATH prefix): the hooks are then started with Node by its full path, which an app opened from the Dock needs. The run prints one line per file and ends with `Done.` It remembers these answers, so a later update asks nothing. `--handy` and `--backup` are only put on record: the run neither installs nor removes Handy or a backup. The rules file `~/.claude/CLAUDE.md` is written whole. If it says `rules: brought up to this version` with some `of yours moved to`, the user already had rules of their own: tell them in one line that those now sit in `~/.claude/rules/my-rules.md`, which every chat loads too, and that a dated copy of the old file is kept.
 
 When Nimbalyst is already installed, this run also builds the editor extensions and puts them into Nimbalyst (`extension installed: <name>`). While Nimbalyst is open it keeps them in a side folder until it closes (`extension waiting: <name>`); that is fine too. The extensions step further down is then only for one that says `extension failed` or `extension not built`. The same run adds the Claude Code settings of step 5 and installs the plugins of step 4 (`plugin installed: <name>`), so those two steps are only for what it reports as failed or not installed. Its line `Left for a chat, once` means steps 8 and 9 below: you are that chat. Only this first run prints it; a later run or an update does not, and never opens a folder or asks about a theme or voice typing.
 
@@ -162,13 +162,12 @@ Run each check once; fix an obvious failure, report any other with its output. B
 
 1. `node install.mjs --projects "<projects>" --codex <yes|no> --dry-run` prints no line starting with `[dry run] copied`, `replaced`, `wrote` or `hook added`.
 2. Pipe `{"tool_name":"Bash","tool_input":{"command":"ls -la"}}` into `node ~/.claude/hooks/command-explain.mjs`: the output contains `(no note given)`.
-3. Write a temp text file of 400 lines and pipe `{"tool_name":"Read","tool_input":{"file_path":"<that file>"}}` into `node ~/.claude/hooks/big-read-gate.mjs`: the output contains `"limit":120` (the Read is cut to a preview, not refused). Delete the file.
-4. `permissions.deny` in `~/.claude/settings.json` holds `Agent(Explore)` and `Agent(general-purpose)`.
-5. `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
-6. `node "<projects>/quick-tasks/tools/test-finder.mjs"` ends with `all passed`.
-7. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON. One that said `extension waiting:` is not there yet: look for it under `extensions-pending/` beside `<extensions>` instead (same folder name).
-8. `node ~/.claude/skills/update-setup/update.mjs --check` prints `Already on the newest version`.
-9. On a Mac: `zsh -lic 'command -v node uvx'` prints two paths, and every hook command in `~/.claude/settings.json` starts with a Node that exists.
+3. `permissions.deny` in `~/.claude/settings.json` holds `Agent(Explore)` and `Agent(general-purpose)`.
+4. `node ~/.claude/skills/setup-audit/scripts/usage-scan.mjs --days 1` prints a report that starts with `# Usage`.
+5. `node "<projects>/quick-tasks/tools/test-finder.mjs"` ends with `all passed`.
+6. `<extensions>/usageplan/manifest.json`, `<extensions>/commandbuttons/manifest.json` and `<extensions>/inktheme/manifest.json` parse as JSON. One that said `extension waiting:` is not there yet: look for it under `extensions-pending/` beside `<extensions>` instead (same folder name).
+7. `node ~/.claude/skills/update-setup/update.mjs --check` prints `Already on the newest version`.
+8. On a Mac: `zsh -lic 'command -v node uvx'` prints two paths, and every hook command in `~/.claude/settings.json` starts with a Node that exists.
 
 Then reply in the user's language, in short lines:
 

@@ -22,7 +22,8 @@ Paths are from the project folder.
 - **The gate acts only in a hunt chat:** one that used the finder skill, ran a `tools/` page or limits
   script, or wrote under `finds/`. A plain answer or a file job in this folder is never checked.
 - Plain fetches are blocked by many shops; the hidden browser session usually gets through.
-  `https://r.jina.ai/<full URL>` returns any public page as plain text.
+  `node ~/.claude/workers/read-page.mjs <full URL>` saves any public page's words as markdown and prints
+  the file's path; read that file.
 - A price typed inside double quotes on a command line can lose its currency sign and first digit:
   Codex tasks go in a file and are passed as `"$(cat file)"`.
 - WebSearch and WebFetch are for a quick look only.

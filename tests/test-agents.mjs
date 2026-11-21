@@ -22,8 +22,7 @@ const planRev = parts(read("plan-reviewer")),
   rev = parts(read("reviewer")),
   high = parts(read("worker-refactor"));
 const code = parts(read("worker-code")),
-  blind = parts(read("blind-reviewer")),
-  advisor = parts(read("stuck-advisor"));
+  blind = parts(read("blind-reviewer"));
 const desc = (head) => head.match(/^description:\s*(.*)$/m)?.[1] || "";
 const rest = (head) =>
   head
@@ -31,27 +30,11 @@ const rest = (head) =>
     .filter((l) => !/^(name|description|model|effort):/.test(l))
     .join("\n");
 const WRITE_TOOLS = ["Edit", "Write", "NotebookEdit", "Agent", "PowerShell"];
-const PLAN_ITEMS = [
-  "Agrees with the user's words and the decisions",
-  "Does what the user said it is for",
-  "One owning step per file",
-  "Everything placed",
-  "Sizes from facts",
-  "Expect before is true now; Done when can run",
-  "The right copy",
-  "Order holds",
-  "Nothing invented in a build row",
-  "Reuse before new",
-  "Scope",
-  "Tests, risks, review lines",
-  "The self-check is honest",
-];
-const numbered = (body, items) =>
-  items.every((s, i) => body.includes(`${i + 1}. **${s}`));
 const SLIM =
   /\n\nYou start without the CLAUDE\.md files[\s\S]*?in plain words>`\./;
 // worker-refactor alone gets the shape line (user, 2026-11-13: it replaces the ownership line), the refactor section
-// and Anthropic's "Finishing work" block (user, 2026-11-10); the rest is the worker's body
+// and Anthropic's "Finishing work" block (user, 2026-11-10) without its "be persistent" line (setup review
+// 2026-11-19, 2.6); the rest is the worker's body
 const OWN_OLD = /^- This codebase is yours:[^\n]*\n/m;
 const OWN =
   /^- Inside your FILES the shape of the code is your call[^\n]*what the code does stays the same\.\n/m;
@@ -66,8 +49,8 @@ const newProject = readFileSync(
   fileURLToPath(new URL("../skills/new-project/SKILL.md", import.meta.url)),
   "utf8",
 );
-// /new-project's base table and its verify and review presets (designs 2026-11-17: verify skill section 1 and 5,
-// review rules section 1 and 3). A missing preset reads as null, so its check FAILs instead of crashing.
+// /new-project's base table and its verify presets (design 2026-11-17: verify skill section 1 and 5). A missing
+// preset reads as null, so its check FAILs instead of crashing.
 const baseTable = (
   newProject
     .replace(/\r\n/g, "\n")
@@ -109,14 +92,7 @@ const VERIFY_HEADS = [
   "## 4. Clean up",
   "## 5. Report",
 ];
-const REVIEW_HEADS = [
-  "## What Important means here",
-  "## Nits",
-  "## Do not report",
-  "## Always check",
-  "## Past bugs",
-];
-const reviewPreset = preset("REVIEW.md");
+const gitignorePreset = preset("gitignore.txt");
 const leadRef = readFileSync(
   fileURLToPath(new URL("../skills/lead/reference.md", import.meta.url)),
   "utf8",
@@ -160,27 +136,23 @@ const checks = [
       rest(high.head) === rest(worker.head),
   ],
   [
-    "worker-refactor swaps the ownership line for the shape line and adds Anthropic's Finishing work text",
+    "worker-refactor swaps the ownership line for the shape line and adds Anthropic's Finishing work text, with no be-persistent line",
     OWN.test(highBody) &&
       !OWN_OLD.test(highBody) &&
       FINISH.test(high.body) &&
-      high.body.includes(
-        "Please avoid stopping while you still owe work the user asked for.",
-      ) &&
+      !/be persistent|Please avoid stopping/i.test(high.body) &&
       high.body.includes(
         "This does not override the need for confirmation on risky or destructive actions.",
       ),
   ],
   [
-    "every worker, the planner and both reviewers carry Anthropic's Communicating clearly text",
+    // 2026-11-20, decision D1: the planner agent is retired, so it is no longer read here
+    "every worker and both reviewers carry Anthropic's Communicating clearly text",
     [worker, code, full, high, planRev, rev].every(
       (a) =>
         a.body.includes("# Communicating clearly") &&
         a.body.includes("Write for an intelligent but low-context reader."),
     ) &&
-      read("planner").includes(
-        "Write for an intelligent but low-context reader.",
-      ) &&
       [worker, code, full, high].every((a) =>
         a.body.includes(
           "the last `Outside the brief:` line, or the one `BLOCKED` line",
@@ -211,6 +183,17 @@ const checks = [
     desc(high.head) !== "" &&
       desc(high.head) !== desc(worker.head) &&
       /rename[^.]*never a reason/i.test(desc(high.head)),
+  ],
+  // 2026-11-09 model table (setup review 2026-11-19, 2.6): a helper on another model does not inherit effort
+  [
+    "worker is on sonnet at medium effort",
+    has(worker.head, "model", "sonnet") && has(worker.head, "effort", "medium"),
+  ],
+  [
+    "every agent file sets its effort",
+    readdirSync(AGENTS)
+      .filter((f) => f.endsWith(".md"))
+      .every((f) => /^effort:\s*\S/m.test(parts(read(f.slice(0, -3))).head)),
   ],
   [
     "worker-full is on opus at high effort",
@@ -245,82 +228,82 @@ const checks = [
     "plan-reviewer has a turn cap of 40 or fewer",
     Number(planRev.head.match(/^maxTurns:\s*(\d+)/m)?.[1]) <= 40,
   ],
+  // rewritten on purpose (2026-11-19, pipeline design sections 2 and 6): the plan-reviewer checks a plan against the
+  // spec and the user's words in one pass, the reviewer is the spec reviewer at the end, the blind-reviewer sees
+  // screens and text only; these checks guard the new key lines
   [
-    "plan-reviewer has the 13 checklist items in order",
-    PLAN_ITEMS.length === 13 &&
-      numbered(planRev.body, PLAN_ITEMS) &&
-      PLAN_ITEMS.map((s) => planRev.body.indexOf(s)).every(
-        (p, i, a) => i === 0 || p > a[i - 1],
-      ) &&
-      !/\n14\. \*\*/.test(planRev.body),
-  ],
-  // Intent-drift fix I2 (docs/2026-11-12-intent-drift-fix-plan.md): the user's purpose travels with each row and both gates check it
-  [
-    "plan-reviewer item 2 greps DECISIONS itself and flags narrower, safer or opposite rows, a missing or pointer-only Serves, a Done when that passes with the purpose unmet",
-    /2\. \*\*Does what the user said it is for\.\*\*[^\n]*Grep `DECISIONS\.md` and `docs\/decisions\/` yourself[^\n]*whatever the brief quotes[^\n]*narrower than, safer than or opposite[^\n]*missing or only a pointer[^\n]*Done when that passes while the purpose is unmet[^\n]*user ticked[^\n]*no finding/.test(
+    "plan-reviewer's input is the user's ask in their own words, the spec and the plan",
+    /the user's ask in their own words, the spec \(`docs\/<date>-<job>-spec\.md`\), the plan/.test(
       planRev.body,
     ),
   ],
-  // Fix round (I5 missed R1, R3): the purpose of the tool or agent a row uses sits in another decision
   [
-    "plan-reviewer item 2 goes one level up to what the row's tool or agent is for, and reports the line found",
-    /2\. \*\*Does what the user said it is for\.\*\*[^\n]*each tool, agent or model it builds that for or runs it with[^\n]*asks you to focus on or budgets[^\n]*Go one level up[^\n]*different decision/.test(
-      planRev.body,
-    ) &&
-      /\*\*Checks run:\*\*[^\n]*for item 2, each tool or agent[^\n]*none found/.test(
+    // 2026-11-20, decision D10: check 7 (the size fits the work, a named time limit as the ceiling) is undone; the
+    // lead folds sequential steps itself (D3) and check 2 already guards the user's limits
+    "plan-reviewer has its six checks in order: done-when proved, the user's words, nothing dropped, runs as written, shared edges, risky",
+    [
+      "1. **Every done-when line is proved.**",
+      "2. **The user's words hold.**",
+      "3. **Nothing dropped quietly.**",
+      "4. **Each slice runs as written.**",
+      "5. **Shared files and names have edges.**",
+      "6. **Risky is marked.**",
+    ]
+      .map((s) => planRev.body.indexOf(s))
+      .every((p, i, a) => p >= 0 && (i === 0 || p > a[i - 1])) &&
+      !/\n7\. \*\*/.test(planRev.body) &&
+      !/size fits the work|time limit/i.test(planRev.body) &&
+      /all six checks ran/.test(planRev.body),
+  ],
+  [
+    "plan-reviewer reports findings per spec line, quoted, each with its proof",
+    /D2 "<the done-when line, quoted>"/.test(planRev.body) &&
+      /Your words "<the quote>"/.test(planRev.body) &&
+      /Prove each finding/.test(planRev.body),
+  ],
+  [
+    // 2026-11-20, decision D11 and setup review 2.5: one pass, no rerun mid-run; the lead maps a cut to its
+    // done-when line instead, so the old "runs once more after a cut" check is reversed
+    "plan-reviewer runs once on the lead's plan and is not run again after a mid-run cut",
+    /You check a big job's plan once/.test(planRev.body) &&
+      /The lead wrote the plan and\s+fixes what you find, one round; you do not run again/.test(
         planRev.body,
-      ),
+      ) &&
+      /a mid-run cut is not reviewed again/.test(desc(planRev.head)) &&
+      !/Mid-run, after a cut/.test(planRev.body) &&
+      !/planner\b/.test(planRev.body),
   ],
   [
-    "reviewer item 4 goes one level up to what the build's tool or agent is for, and reports the line found",
-    /4\. Does what the user said it is for\.[^\n]*each tool, agent or model it makes that for or runs it with[^\n]*Go one level up[^\n]*different decision/.test(
-      rev.body,
-    ) && /\*\*Purposes checked:\*\*[^\n]*none found/.test(rev.body),
-  ],
-  // Second fix round (R1, R3 missed again): the agent the row itself runs; a tick covers only the limit it names
-  [
-    "plan-reviewer item 2 checks the agent the row itself runs and lets a tick clear only the limit it names",
-    /2\. \*\*Does what the user said it is for\.\*\*[^\n]*each agent, model or tool the row's own task runs[^\n]*besides the helper[^\n]*no finding for the limit the tick names; a cut of a decided purpose that no tick names stays Important/.test(
-      planRev.body,
-    ),
-  ],
-  [
-    "reviewer item 4 checks the agent the build itself runs and lets a tick clear only the limit it names",
-    /4\. Does what the user said it is for\.[^\n]*each agent, model or tool the build itself runs[^\n]*no finding for the limit the tick names; a cut of a decided purpose that no tick names stays Important/.test(
-      rev.body,
-    ),
-  ],
-  [
-    "reviewer checks the build against the user's stated purpose and names each part of the quote it cannot do",
-    /\*\*Against the request and the plan\*\*[\s\S]*Does what the user said it is for\.[^\n]*Grep `DECISIONS\.md` and `docs\/decisions\/` yourself[^\n]*name each part of the quote the build cannot do[\s\S]*\*\*Quality\*\*/.test(
-      rev.body,
-    ) &&
-      /\*\*Against the request:\*\*[^\n]*each part of the user's stated purpose the build cannot do/.test(
-        rev.body,
-      ),
-  ],
-  [
-    "the four workers carry the same SERVES stop line",
-    [worker, code, full, high].every((a) =>
-      a.body.includes(
-        "When what you find contradicts the goal, SERVES or EXPECT:",
-      ),
-    ) &&
-      [worker, code, full, high].every((a) =>
-        /what it SERVES \(the user's words on what its result is for; a step that cannot do that stops and asks, and builds no safer stand-in\)/.test(
-          a.body,
+    "plan-reviewer and reviewer look for no purpose record, Serves cell, NARROWED line or PURPOSE CHECK line",
+    [planRev.body, rev.body].every(
+      (t) =>
+        !/purpose record|What each thing is for|Serves|NARROWED|PURPOSE CHECK/.test(
+          t,
         ),
-      ),
-  ],
-  [
-    "plan-reviewer has the do-not-flag list and proves Important findings",
-    /\*\*Do not flag:\*\*/.test(planRev.body) && /Unsure/.test(planRev.body),
-  ],
-  [
-    "plan-reviewer runs only checks that read or test",
-    /never run one that deploys, pushes or writes outside a scratch folder/i.test(
-      planRev.body,
     ),
+  ],
+  [
+    "the four workers carry the same stop line and the no-stand-in rule, with no SERVES field",
+    [worker, code, full, high].every(
+      (a) =>
+        a.body.includes(
+          "When what you find contradicts the goal or the brief:",
+        ) &&
+        a.body.includes(
+          "A slice that cannot do what it is for stops and asks, and builds no safer stand-in.",
+        ) &&
+        // the brief fields and hand-back the lead's reference.md uses (pipeline design section 5, 2026-11-19)
+        a.body.includes("your SLICE of the PLAN file, its DONE WHEN lines") &&
+        a.body.includes("YOUR WORDS") &&
+        a.body.includes(
+          "what differed from the brief; what you found; worries",
+        ) &&
+        !/SERVES/.test(a.body),
+    ),
+  ],
+  [
+    "plan-reviewer runs only read-only checks",
+    /Run only read-only checks/.test(planRev.body),
   ],
   [
     "plan-reviewer's Bash runs under the planner-readonly hook",
@@ -328,24 +311,38 @@ const checks = [
       planRev.head,
     ),
   ],
+  // D2 (hooks cut): planner-readonly leaves the global hook table, so reviewer's shell guard is its own frontmatter
   [
-    "plan-reviewer reads DECISIONS and docs/decisions by grep and the map",
-    /a Grep of `DECISIONS\.md` and `docs\/decisions\/`/.test(planRev.body) &&
-      /map\.mjs --near/.test(planRev.body),
+    "reviewer has plan-reviewer's planner-readonly hooks block in its frontmatter",
+    (() => {
+      const block = (head) =>
+        head.match(/^hooks:\n(?:[ ]+.*\n?)+/m)?.[0].trimEnd();
+      const want = block(planRev.head);
+      return (
+        Boolean(want) &&
+        /planner-readonly\.mjs/.test(want) &&
+        block(rev.head) === want
+      );
+    })(),
   ],
   [
-    "reviewer tags a request item Important only when a realistic use fails, and a guard bypass always",
-    /\*\*Against the request:\*\*[^\n]*Tag such an item Important when a realistic use fails[^\n]*stays listed here untagged/.test(
-      rev.body,
-    ) &&
-      /\*\*Quality:\*\*[^\n]*A guard bypass the change brings in is Important whatever the input[^\n]*fail open/.test(
-        rev.body,
+    "reviewer's and plan-reviewer's planner-readonly hook stays fail-closed (onFailure block)",
+    [rev.head, planRev.head].every((head) =>
+      /command: "node ~\/\.claude\/hooks\/planner-readonly\.mjs"\n(?:[ ]+.*\n)*?[ ]+onFailure: "block"/.test(
+        head,
       ),
+    ),
   ],
   [
-    "reviewer reads every changed file whole, no fixed small budget",
-    /Read every changed file whole/i.test(rev.body) &&
-      !/about 20 tool calls/.test(rev.body),
+    "reviewer's input is the spec, the full diff and the end-check outputs, never the chat",
+    /the full diff of the job, and the lead's end-check outputs\. You never see the chat/.test(
+      rev.body,
+    ) && /never the chat/.test(desc(rev.head)),
+  ],
+  [
+    "reviewer runs the checks itself where it can, and marks one it could not run",
+    /Run its check yourself where you can/.test(rev.body) &&
+      /marked "from the lead's output"/.test(rev.body),
   ],
   [
     "reviewer is read-only with a turn cap of 60",
@@ -353,70 +350,59 @@ const checks = [
       has(rev.head, "maxTurns", "60"),
   ],
   [
-    "reviewer keeps its two headings and re-checks Important findings",
-    /\*\*Against the request:\*\*/.test(rev.body) &&
-      /\*\*Quality:\*\*/.test(rev.body) &&
-      /Re-check each Important finding/i.test(rev.body) &&
-      /\*\*Do not flag\*\*/.test(rev.body),
+    "reviewer gives each done-when line met, missing, looks wrong or not asked for, quoted with its proof",
+    ["**met**", "**missing**", "**looks wrong**", "**not asked for**"].every(
+      (s) => rev.body.includes(s),
+    ) && /D1 "<the done-when line, quoted>": met\. Proof:/.test(rev.body),
   ],
   [
-    "reviewer reads DECISIONS and docs/decisions by grep and the map",
-    /a Grep of `DECISIONS\.md` and `docs\/decisions\/`/.test(rev.body) &&
-      /map\.mjs --near/.test(rev.body),
+    "reviewer calls out every change to a check file after the check slice; a changed expected value is always a finding",
+    /diff it from the check slice's commit/.test(rev.body) &&
+      /A changed expected value[^.]*is always a finding/.test(rev.body) &&
+      /Check files changed after the check slice:/.test(rev.body),
   ],
   [
-    "reviewer no longer says one is enough, and splits a big job into parts",
-    !/one is enough/i.test(rev.head + rev.body) &&
-      /each briefed with its own part/.test(desc(rev.head)),
+    "reviewer says what it did not read, gives no scores and keeps a word cap",
+    /Not read: /.test(rev.body) &&
+      /No scores/.test(rev.body) &&
+      /At most 400 words/.test(rev.body),
+  ],
+  [
+    // 2026-11-20, decision D4: the end reviewer is scoped to correctness, not told to find problems in general
+    "reviewer's scope is correctness: every gap that makes the result wrong, no style, nothing the project's tools enforce",
+    /Your scope is correctness: report every gap that makes the result wrong against the spec, whatever its size\. Skip\s+style, naming, and what the project's tools \(linter, formatter, type checker\) already enforce\./.test(
+      rev.body,
+    ) && /correctness only \(no style\)/.test(desc(rev.head)),
+  ],
+  [
+    // 2026-11-20, decision D5: the checks are tests, the run and CI, not stacked self-check lines
+    "no agent file carries a stacked self-check line (double-check, verify with a subagent)",
+    readdirSync(AGENTS)
+      .filter((f) => f.endsWith(".md"))
+      .every(
+        (f) =>
+          !/double[- ]check|verify (it )?with a (sub)?agent/i.test(
+            read(f.slice(0, -3)),
+          ),
+      ),
+  ],
+  [
+    "reviewer no longer says one is enough",
+    !/one is enough/i.test(rev.head + rev.body),
   ],
   [
     "reviewer sends a newcomer's look to the blind-reviewer",
     /blind-reviewer/.test(desc(rev.head)) &&
       !/blind screen review/i.test(desc(rev.head)),
   ],
-  // Review rules design (docs 2026-11-17): a change cannot loosen its own review
   [
-    "reviewer reads REVIEW.md from the base commit (<base>:REVIEW.md) and opens its report with Review rules:, so a change cannot loosen its own review",
-    rev.body.includes("<base>:REVIEW.md") && rev.body.includes("Review rules:"),
+    "reviewer reads no REVIEW.md (local /code-review follows CLAUDE.md; pipeline design section 8)",
+    !/REVIEW\.md/.test(rev.body),
   ],
   [
-    "reviewer reads the parent-folder REVIEW.md copies, never falls back to the working copy, and applies the base copy when the change edits REVIEW.md",
-    rev.body.includes("<base>:<folder>/REVIEW.md") &&
-      /never fall back to the working copy/.test(rev.body) &&
-      /changed in the change\*\*[^\n]*the base copy still applies/.test(
-        rev.body,
-      ),
-  ],
-  [
-    "reviewer has one sentence: a REVIEW.md cannot switch off the request, decisions or guard bypass checks; an obsolete decision changes in DECISIONS.md",
-    /A `REVIEW\.md`(?:[^.\n]|\.md)*cannot switch off(?:[^.\n]|\.md)*request(?:[^.\n]|\.md)*decision(?:[^.\n]|\.md)*guard bypass/.test(
-      rev.body,
-    ) && /obsolete decision[^.\n]*`DECISIONS\.md`/.test(rev.body),
-  ],
-  [
-    "reviewer always reviews test files: a REVIEW.md line putting them under Do not report is set aside and named",
-    /test files are always reviewed/.test(rev.body) &&
-      /test files under `Do not report`, is not applied and is named/.test(
-        rev.body,
-      ),
-  ],
-  [
-    "reviewer keeps at most 5 Nits, gives a runnable proof with each Important, checks a bug fix's cause and the same kind elsewhere, and flags a CLAUDE.md line made untrue",
-    /Keep at most 5 Nits/.test(rev.body) &&
-      /Important finding[^\n]*runnable proof: the command and the output/.test(
-        rev.body,
-      ) &&
-      /bug fix fixes the cause[^\n]*Grep the codebase for the same kind elsewhere/.test(
-        rev.body,
-      ) &&
-      /no `CLAUDE\.md` line is made untrue/.test(rev.body),
-  ],
-  [
-    "lead gives the reviewer a Base line, relays Changed in this change, reproduces before a fix, and a not-reproduced finding costs no fix round",
-    /`Base: <commit>` line per repository/.test(leadRef) &&
-      /`Changed in this change` line goes into your report to the user word for word/.test(
-        leadRef,
-      ) &&
+    // "Changed in this change" left 2026-11-19: it relayed a loosened review-rules file, and the pipeline reads none (design section 8)
+    "lead gives the reviewer a Base line, reproduces before a fix, and a not-reproduced finding costs no fix round",
+    /`Base: <commit>` line per[\s\S]{0,4}repository/.test(leadRef) &&
       /fix brief starts with that command/.test(leadRef) &&
       /\*\*Not reproduced\*\*[^\n]*costs no fix round/.test(leadRef) &&
       /verify skill[^\n]*every helper's brief/.test(leadRef),
@@ -432,10 +418,10 @@ const checks = [
     ),
   ],
   [
-    "blind-reviewer is named, on fable at high effort, starts without CLAUDE.md",
+    "blind-reviewer is named, on opus at medium effort, starts without CLAUDE.md",
     has(blind.head, "name", "blind-reviewer") &&
-      has(blind.head, "model", "fable") &&
-      has(blind.head, "effort", "high") &&
+      has(blind.head, "model", "opus") &&
+      has(blind.head, "effort", "medium") &&
       has(blind.head, "omitClaudeMd", "true"),
   ],
   [
@@ -447,23 +433,20 @@ const checks = [
     /SYSTEMS MAP: none/.test(desc(blind.head)),
   ],
   [
-    "blind-reviewer has the screen checks 1-39 in order, the text checks and the whole-setup look",
-    Array.from({ length: 39 }, (_, i) =>
-      blind.body.indexOf(`\n${i + 1}. [`),
-    ).every((p, i, a) => p > 0 && (i === 0 || p > a[i - 1])) &&
-      ["T1.", "T6."].every((s) => blind.body.includes(s)) &&
-      /## The whole setup/.test(blind.body),
+    "blind-reviewer gets only screenshots with their scale, or the text, and a word list",
+    /Screenshots of every state, each with its scale/.test(blind.body) &&
+      /A short word list/.test(blind.body) &&
+      /Nothing else\./.test(blind.body),
   ],
   [
-    "blind-reviewer checks the screenshot set and names a missing state",
-    /## Screens: is the set complete\?/.test(blind.body) &&
-      /state X not shown/.test(blind.body),
+    "blind-reviewer names a missing state and ranks what a newcomer trips over, worst first",
+    /state X not shown/.test(blind.body) &&
+      /worst first/.test(blind.body) &&
+      ["[blocks]", "[slows]", "[nit]"].every((s) => blind.body.includes(s)),
   ],
   [
-    "blind-reviewer reports the whole approach, findings and a follow-up round",
-    /WHOLE APPROACH:/.test(blind.body) &&
-      /FINDINGS \(worst first\)/.test(blind.body) &&
-      /## A follow-up round/.test(blind.body),
+    "blind-reviewer is for screens and text only: no command checks, no whole-setup look",
+    !/command/i.test(desc(blind.head)) && !/whole setup/i.test(blind.body),
   ],
   [
     "blind-reviewer carries Anthropic's Communicating clearly text",
@@ -471,59 +454,10 @@ const checks = [
       blind.body.includes("Write for an intelligent but low-context reader."),
   ],
   [
-    "stuck-advisor is named, on fable at high effort, starts without CLAUDE.md",
-    has(advisor.head, "name", "stuck-advisor") &&
-      has(advisor.head, "model", "fable") &&
-      has(advisor.head, "effort", "high") &&
-      has(advisor.head, "omitClaudeMd", "true"),
-  ],
-  [
-    "stuck-advisor only reads: Read, Grep and Glob are its tools",
-    tools(advisor.head).sort().join(",") === "Glob,Grep,Read",
-  ],
-  [
-    "stuck-advisor's description has the tests-pass-but-wrong trigger, the 3-call budget and leaves a long refactor to worker-refactor",
-    /tests pass but the behaviour is still wrong/.test(desc(advisor.head)) &&
-      /At most 3 calls a session/.test(desc(advisor.head)) &&
-      /long refactor[^.]*worker-refactor[^.]*never both/.test(
-        desc(advisor.head),
-      ),
-  ],
-  [
-    "stuck-advisor's brief is at most 300 words, its answer under 200, with one follow-up that names wrong advice",
-    /at most 300 words/.test(desc(advisor.head)) &&
-      /Under 200 words/.test(advisor.body) &&
-      [
-        "CAUSE:",
-        "CONFIDENCE:",
-        "STEPS:",
-        "CHECK:",
-        "RISK:",
-        "EARLIER ADVICE WAS WRONG:",
-      ].every((s) => advisor.body.includes(s)),
-  ],
-  [
-    "worker-refactor's description does not name the stuck-advisor (each piece keeps its own job)",
-    !/advisor/i.test(desc(high.head)),
-  ],
-  ...[
-    ["plan-reviewer", planRev.body],
-    ["reviewer", rev.body],
-  ].map(([name, text]) => [
-    `${name} reads the purpose record and the index, topic files and newest job files, and holds a failing PURPOSE CHECK row Important as it stands`,
-    /then the topic file for each topic the plan touches and the job files of the newest date/.test(
-      text,
-    ) &&
-      !/the top section of the project's `DECISIONS\.md`/.test(text) &&
-      text.includes(
-        "The brief's `FOR` and `PURPOSE CHECK` lines are code results from the purpose record: a row they fail is Important as it stands",
-      ),
-  ]),
-  [
-    "new-project starts DECISIONS.md with the purpose record, then dated sections newest first",
-    /\| `DECISIONS\.md` \| The index: first `## What each thing is for` \(the purpose record, empty at the start\), then decisions in dated sections, newest first/.test(
+    "new-project starts DECISIONS.md with dated sections newest first, no purpose record",
+    /\| `DECISIONS\.md` \| The index: decisions in dated sections, newest first/.test(
       newProject,
-    ),
+    ) && !/What each thing is for|purpose record/.test(newProject),
   ],
   [
     "new-project's base table writes the verify skill from the four kind templates, with the CLAUDE.md line and, when nothing starts yet, the HANDOFF item instead",
@@ -541,8 +475,17 @@ const checks = [
       ),
   ],
   [
-    "new-project's base table writes the starter REVIEW.md from preset/REVIEW.md",
-    !!baseRow("REVIEW.md")?.includes("`preset/REVIEW.md`"),
+    "new-project writes no REVIEW.md and ships no preset for one (the pipeline reads none, pipeline design section 8)",
+    !baseRow("REVIEW.md") &&
+      !/REVIEW\.md/.test(newProject) &&
+      preset("REVIEW.md") === null,
+  ],
+  [
+    "new-project's gitignore preset names no setup folder (no .claude/ line), keeps the \"don't ask again\" file out with **/settings.local.json and the editor's folder with .nimbalyst/",
+    !!gitignorePreset &&
+      !gitignorePreset.split("\n").some((l) => l.includes(".claude/")) &&
+      gitignorePreset.split("\n").includes("**/settings.local.json") &&
+      gitignorePreset.split("\n").includes(".nimbalyst/"),
   ],
   ...Object.entries(VERIFY_KINDS).map(([kind, quiet]) => [
     `new-project's preset/verify-${kind}.md exists as a verify skill: frontmatter, the five steps in order, the PROOF line a program checks, and headless, muted runs (${quiet})`,
@@ -553,20 +496,6 @@ const checks = [
       t.includes("`PROOF <what>: expected <x>, got <y>`") &&
       t.includes(quiet))(preset(`verify-${kind}.md`)),
   ]),
-  [
-    "new-project's preset/REVIEW.md exists with the five headings in order, the sentence on what it cannot switch off, the line that test files are always reviewed, at most 40 lines, and no test files skipped",
-    !!reviewPreset &&
-      inOrder(reviewPreset, REVIEW_HEADS) &&
-      reviewPreset.includes(
-        "It cannot switch off the check against the request, the check against the current decisions, or the rule that a guard bypass is Important.",
-      ) &&
-      reviewPreset.includes("Test files are always reviewed") &&
-      reviewPreset.trimEnd().split("\n").length <= 40 &&
-      !/test/i.test(
-        reviewPreset.match(/\n## Do not report\n([\s\S]*?)\n## /)?.[1] ??
-          "test",
-      ),
-  ],
 ];
 // Claude Code drops an agent whose frontmatter is not valid YAML; its quoting retry works only on LF files, and
 // installed copies can be CRLF (blind-reviewer went missing that way). So no plain value may hold ": " or " #",

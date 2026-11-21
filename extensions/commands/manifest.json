@@ -2,7 +2,7 @@
   "id": "com.local.commandbuttons",
   "name": "Commands",
   "version": "0.1.0",
-  "description": "The setup's utility commands as buttons. Each one starts a new session in the open project. Also a Note button in the chat box, and long lines in tool cards wrap.",
+  "description": "The setup's utility commands as buttons. Each one starts a new session in the open project. Also a Note button and a Try it button (runs verify, opens a local page beside the chat) in the chat box, long lines in tool cards wrap, and comments on the Review panel's diff lines go to the session as one message.",
   "author": "Local",
   "main": "dist/index.js",
   "styles": "dist/index.css",

@@ -57,9 +57,8 @@ A hook's name ends with what kind of hook it is:
 | `-gate` | Checks a step or a reply against the session log, and refuses it or sends it back with what to do | `link-gate`, `verify-gate` |
 | `-guard` | Stops or rewrites a risky or wasteful command before it runs; some ask you first | `delete-guard`, `sql-guard` |
 | `-check` | Looks at something when a session starts or a message arrives, and tells you about it | `update-check`, `transcript-check` |
-| `-nudge` | Suggests or starts something useful and never blocks | `map-nudge`, `pc-tidy-nudge` |
-| `-alert` | Tells you about something that changed | `experiment-alert` |
+| `-nudge` | Suggests or starts something useful and never blocks | `map-nudge` |
 | `-logger` | Records numbers for later, with nothing shown | `plan-usage-logger` |
-| `-brief` | Writes a brief: the handoff note, or the lines added to a helper's brief | `handoff-brief`, `map-brief` |
+| `-brief` | Writes the lines added to a helper's brief | `map-brief` |
 
-A hook with another name does one job that fits none of these, such as `session-cleanup` or `cold-cache`.
+A hook with another name does one job that fits none of these, such as `session-cleanup` or `command-explain`.

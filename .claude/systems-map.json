@@ -16,6 +16,14 @@
         "\\bhook-io\\b",
         "\\bcrash-log\\b",
         "off switch"
+      ],
+      "rules": [
+        "A hook never imports another hook; shared code goes in hooks/lib/.",
+        "A hook's error never blocks the call: its outermost catch calls crashLog and it exits 0. The dispatcher's guards (guard: true) are the exception.",
+        "A refusal still exits 0: never let a hook's return value become its exit code (out and emit in hook-io.mjs).",
+        "Never save a state or JSON file with a bare fs.writeFileSync: go through state.mjs (its own .part file, rename with retries).",
+        "Never read a hook's switch only from process.env: settings env may not reach a hook process, so settings-env.mjs reads the files too.",
+        "Never compare or open a path from a tool input, the temp folder or a worktree without paths.mjs."
       ]
     },
     {
@@ -32,23 +40,10 @@
       "words": [
         "\\btranscript\\b",
         "hook message"
-      ]
-    },
-    {
-      "id": "code-review-gate",
-      "name": "Automatic code review gate",
-      "what": "Asks for a reviewer agent (split by part on a big job, with a blind-reviewer when a person will see the result) after enough code files change in a session.",
-      "files": [
-        "hooks/code-review-gate.mjs",
-        "hooks/lib/review-evidence.mjs",
-        "hooks/lib/review-decide.mjs",
-        "hooks/lib/code-files.mjs",
-        "tests/test-code-review-gate.mjs"
       ],
-      "group": "hooks",
-      "words": [
-        "code.review",
-        "reviewer agent"
+      "rules": [
+        "A text one file writes and another greps for lives only in texts.mjs, so a reworded text cannot leave a scanner counting nothing.",
+        "The last section of texts.mjs is app text (Claude Code, Nimbalyst): never ours to change, only named there once."
       ]
     },
     {
@@ -66,121 +61,132 @@
         "verify.gate",
         "VERIFY_GATE_COMMIT",
         "commit check"
+      ],
+      "rules": [
+        "Never runs a command itself: it only asks for the build or test.",
+        "Block once is remembered in the hook's own state for each session, never by stop_hook_active alone (any Stop hook's block sets it).",
+        "Only the main session's edits count; a helper's brief carries its own check."
       ]
     },
     {
       "id": "reply-format-gates",
       "name": "Reply-format gates",
-      "what": "Stop hooks that check the reply before it goes out: links opened, file links clickable, no idle next step, every question answered, no commands left to the user, web claims checked. no-response-gate also runs on PreToolUse: in the turn after the user stopped the session it refuses work calls (helpers, edits, new sessions) until the user says go or start.",
+      "what": "Hooks that check the reply before it goes out: links opened, file links clickable, and after the user stopped the session the next reply checked against the stop.",
       "files": [
         "hooks/link-gate.mjs",
         "hooks/file-link-gate.mjs",
-        "hooks/next-step-gate.mjs",
-        "hooks/no-response-gate.mjs",
-        "hooks/run-yourself.mjs",
-        "hooks/web-answer-gate.mjs"
+        "hooks/no-response-gate.mjs"
       ],
       "group": "hooks",
       "words": [
         "\\blink-gate\\b",
         "no-response"
+      ],
+      "rules": [
+        "Never refuse in the terminal: file-link-gate acts only under an app's CLAUDE_CODE_ENTRYPOINT (sdk-...), the same test command-explain uses.",
+        "A link the user typed is never questioned by link-gate, and neither is a local or example address."
       ]
     },
     {
       "id": "helper-brief-gates",
       "name": "Helper brief gates",
-      "what": "PreToolUse and PostToolUse checks on subagent calls: budget, quoted decisions, a plan row's Serves cell pasted into the brief, context size, a helper that stopped cut or empty, and the read-only shell of the planner, plan-reviewer and reviewer.",
+      "what": "Checks on subagent calls: the systems map lines added to a brief (serves.mjs builds it), a helper that stopped cut or empty, and the read-only shell of the plan-reviewer and reviewer.",
       "files": [
-        "hooks/budget-gate.mjs",
-        "hooks/decided-quote.mjs",
-        "hooks/serves-brief.mjs",
         "hooks/lib/serves.mjs",
-        "hooks/worker-size.mjs",
         "hooks/helper-stopped.mjs",
         "hooks/planner-readonly.mjs"
       ],
       "group": "hooks",
       "words": [
-        "budget.gate",
         "helper-stopped",
-        "serves-brief"
+        "planner-readonly"
+      ],
+      "rules": [
+        "A helper cut at its turn limit or with an empty report is never finished; a cut or empty reviewer counts as not run.",
+        "The reviewer and plan-reviewer never change a file: planner-readonly runs from those two agents' frontmatter only, with no entry in settings.json."
       ]
     },
     {
       "id": "command-guards",
       "name": "Shell command guards",
-      "what": "Hooks that read a Bash or PowerShell command or a big file read before it runs: explanation line, destructive SQL, bulk deletes, long sleeps, drive-wide searches, big downloads sent to the range downloader, slow pipes, read-only browser CLI, whole-file dumps, keys in a git push.",
+      "what": "Hooks that read a Bash or PowerShell command before it runs: explanation line, destructive SQL, bulk deletes, drive-wide searches, big downloads sent to the range downloader, read-only browser CLI, keys in a git push.",
       "files": [
         "hooks/command-explain.mjs",
         "hooks/sql-guard.mjs",
         "hooks/delete-guard.mjs",
-        "hooks/long-sleep-guard.mjs",
         "hooks/find-guard.mjs",
         "hooks/download-guard.mjs",
-        "hooks/slow-output-gate.mjs",
         "hooks/opencli-readonly.mjs",
-        "hooks/big-read-gate.mjs",
         "hooks/push-key-scan.mjs"
       ],
       "group": "hooks",
       "words": [
         "destructive sql",
         "WHAT THIS DOES"
+      ],
+      "rules": [
+        "The explanation line goes last, never first: Nimbalyst builds its Always allow rule from the command's first word, and a leading # would allow everything.",
+        "delete-guard, find-guard and sql-guard are the dispatcher's guards (guard: true): when one throws, cannot load or runs out of time, the call stops.",
+        "opencli-readonly lets only [read] site commands through: the person's signed-in accounts are never posted to, liked, followed or deleted from.",
+        "push-key-scan uses rules only: no model, no network."
+      ]
+    },
+    {
+      "id": "workflow-fence",
+      "name": "Deep-research fence",
+      "what": "A pre-tool hook that refuses a Workflow call named deep-research in an app or headless run (Nimbalyst, claude -p), where /deep-research skips its approval stop and can't be stopped; it says to run it in the terminal. Other workflows and the terminal pass.",
+      "files": [
+        "hooks/workflow-fence.mjs",
+        "tests/test-workflow-fence.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "deep.research",
+        "workflow.fence",
+        "WORKFLOW_FENCE"
+      ],
+      "rules": [
+        "A guard of the dispatcher's pre-tool group (guard: true, tools: Workflow): when it throws, cannot load or runs out of time, only Workflow calls stop.",
+        "WORKFLOW_FENCE=off is read from the environment and from the env of settings.local.json or settings.json in ~/.claude only, not from a folder above home."
       ]
     },
     {
       "id": "nimbalyst-tool-gates",
       "name": "Nimbalyst tool gates",
-      "what": "Hooks for Nimbalyst's own tools: a typing box on every question (the card first), the form-answer note, pictures kept in the project, visible browser, session notes.",
+      "what": "Hooks for Nimbalyst's own tools: a typing box on every question (the card first), pictures kept in the project, visible browser, session notes.",
       "files": [
         "hooks/question-other.mjs",
         "hooks/picture-in-project.mjs",
         "hooks/browser-visible-gate.mjs",
         "hooks/nimbalyst-notes.mjs",
-        "projects/shared/hooks/picture-gate.mjs",
-        "hooks/form-answer.mjs"
+        "projects/shared/hooks/picture-gate.mjs"
       ],
       "group": "hooks",
       "words": [
         "allowOther",
         "display_to_user"
+      ],
+      "rules": [
+        "Never fix a Nimbalyst tool call with updatedInput: the card keeps what Claude wrote, so the gate refuses or notes instead.",
+        "A picture is shown only from <project>/shown/, a folder nothing cleans up.",
+        "picture-gate is registered per project (quick-tasks), never globally."
       ]
     },
     {
       "id": "context-cost-hooks",
-      "name": "Context cost and loop hooks",
-      "what": "Hooks that keep a long session cheap: compact focus, cold cache warning, background wake-ups, repeated calls, finished-job nudge. background-tasks also refuses a main-session foreground wait over 2 min (a CI watch, a poll loop, a sleep); a background wait that polls or watches passes.",
+      "name": "Loop guard",
+      "what": "repeat-guard stops looping inside one turn; wired with --near-cap-only, it only tells a helper near its turn cap to finish and report.",
       "files": [
-        "hooks/context-guard.mjs",
-        "hooks/cold-cache.mjs",
-        "hooks/background-tasks.mjs",
-        "hooks/repeat-guard.mjs",
-        "hooks/job-done.mjs"
+        "hooks/repeat-guard.mjs"
       ],
       "group": "hooks",
       "words": [
-        "prompt cache",
-        "autoCompactWindow"
-      ]
-    },
-    {
-      "id": "housekeeping-nudges",
-      "name": "Housekeeping nudges",
-      "what": "One-line prompts at a message or session start (the chat archive every 3 days, the patch list, new Claude Code experiments and feature flags, facts past their recheck date), and after a commit or a HANDOFF.md edit, a once-a-day note that has the agent fix the project's records: HANDOFF.md over 120 lines, dead paths, replaced decisions.",
-      "files": [
-        "hooks/pc-tidy-nudge.mjs",
-        "hooks/patch-next.mjs",
-        "hooks/experiment-alert.mjs",
-        "hooks/recheck-dates.mjs",
-        "tests/test-recheck-dates.mjs",
-        "hooks/upkeep-note.mjs",
-        "hooks/lib/upkeep-checks.mjs",
-        "tests/test-upkeep-note.mjs"
+        "repeat-guard",
+        "near-cap"
       ],
-      "group": "hooks",
-      "words": [
-        "patch list",
-        "upkeep"
+      "rules": [
+        "Only the repeat-error part refuses; the same-file, same-call and near-cap parts never refuse.",
+        "Injected text (a background-task notice, a note) is not a new turn: it never resets the counts."
       ]
     },
     {
@@ -195,6 +201,10 @@
       "words": [
         "session.cleanup",
         "what a session opened"
+      ],
+      "rules": [
+        "Never touches a process it did not start, and never removes a worktree: it only names them.",
+        "Windows only; elsewhere it does nothing."
       ]
     },
     {
@@ -206,13 +216,15 @@
         "hooks/map-drift.mjs",
         "hooks/map-generated.mjs",
         "hooks/map-nudge.mjs",
-        "hooks/map-prompt.mjs",
         "hooks/lib/map-file.mjs"
       ],
       "group": "map",
       "words": [
         "map-brief",
         "map-drift"
+      ],
+      "rules": [
+        "map-generated is the only map hook that refuses (an edit of a file listed under generated); the others never block and fail open."
       ]
     },
     {
@@ -255,6 +267,11 @@
       "words": [
         "agents panel",
         "agent-runs"
+      ],
+      "rules": [
+        "Writes nothing to stdout, so it never touches the Agent input map-brief rewrites.",
+        "extensions/agents-panel/src/runs.js imports nothing: build.mjs inlines it into dist/index.js.",
+        "The panel never changes the app's own elements (the split's two heights aside): it adds only data-ap-* attributes and its own .ap-* elements."
       ]
     },
     {
@@ -272,6 +289,11 @@
       "words": [
         "plan usage",
         "usage dashboard"
+      ],
+      "rules": [
+        "The saved login is sent only to api.anthropic.com and never written to the log.",
+        "Sessions never wait for the request: the hook checks a timestamp and starts a detached --fetch copy.",
+        "Inside Nimbalyst the dashboard hook never opens a browser: it refreshes the data and names the click."
       ]
     },
     {
@@ -289,6 +311,9 @@
       "group": "usage",
       "words": [
         "setup.audit"
+      ],
+      "rules": [
+        "review-scan calls no model and sends nothing anywhere."
       ]
     },
     {
@@ -296,12 +321,16 @@
       "name": "Session handoff",
       "what": "Writes a short brief of a session so work continues in a fresh one; the session comes from CLAUDE_CODE_SESSION_ID (or --session), and the brief is built from that session's own transcript and summary.",
       "files": [
-        "hooks/handoff-brief.mjs",
+        "skills/handoff/brief.mjs",
         "skills/handoff/SKILL.md"
       ],
       "group": "skills",
       "words": [
         "\\bhandoff\\b"
+      ],
+      "rules": [
+        "The brief comes only from this session's own transcript, never another session's file: two chats in one folder can hand off in the same minute.",
+        "No summary file, no brief: an empty summary leaves the next session to guess."
       ]
     },
     {
@@ -316,6 +345,10 @@
       "group": "skills",
       "words": [
         "\\bsteer\\b"
+      ],
+      "rules": [
+        "A note counts as delivered only once its [note id] marker is in the session's transcript.",
+        "/compact never lands in a busy session: compact-self waits for the turn to end."
       ]
     },
     {
@@ -331,6 +364,10 @@
       "group": "skills",
       "words": [
         "phone.bot"
+      ],
+      "rules": [
+        "Every call to Nimbalyst's local MCP endpoint lives only in bot/nimbalyst.mjs; its token is never written, logged or put in an error message.",
+        "The scheduled task of earlier versions is only deleted, never made (Windows Defender flagged it)."
       ]
     },
     {
@@ -352,6 +389,13 @@
         "\\bnewer? release\\b",
         "files-only release",
         "version check"
+      ],
+      "rules": [
+        "The version check never downloads or installs anything itself; the self-install runs detached, so the prompt never waits.",
+        "Only a release that needs the person's answer waits for /update-setup; every other one installs itself.",
+        "An update never asks what is already set up or answered, and opens no project window.",
+        "version.json is written by scripts with JSON.stringify: never format it by hand (Biome leaves it out).",
+        "skills/update-setup/update.mjs is left out of the formatter: the privacy word list allows a word on one line number."
       ]
     },
     {
@@ -362,12 +406,18 @@
         "skills/update-project/SKILL.md",
         "skills/update-project/checks.md",
         "skills/update-project/pass.mjs",
-        "tests/test-update-project.mjs"
+        "tests/test-update-project.mjs",
+        "skills/update-project/recheck-dates.mjs",
+        "skills/update-project/upkeep-checks.mjs"
       ],
       "group": "skills",
       "words": [
         "update-project",
         "project pass"
+      ],
+      "rules": [
+        "The pass level (LEVEL in pass.mjs, projectPass in version.json) goes up only with a release that changes what a project folder should hold.",
+        "The gh calls of checks P20-P22 and P26 are GETs only."
       ]
     },
     {
@@ -385,6 +435,11 @@
       "words": [
         "install\\.mjs",
         "installer"
+      ],
+      "rules": [
+        "A file the person changed is theirs: an update replaces a hook, skill, rules file or a folder's CLAUDE.md only while it is exactly what an earlier run wrote.",
+        "profile.md and finds/INDEX.md are written only when missing.",
+        "A replaced file is kept first in ~/.claude/setup-logs/<date>-install-backup/."
       ]
     },
     {
@@ -401,6 +456,31 @@
       "words": [
         "wiring",
         "settings\\.example"
+      ],
+      "rules": [
+        "settings.example.json is the one hook table; its _setup key is never written into a settings.json.",
+        "A new hook is wired in settings.example.json (or a group of hooks/dispatch-groups.json) and covered by tests/test-wiring.mjs.",
+        "A retired entry with arguments unwires only that exact entry: repeat-guard.mjs takes the bare entry and leaves repeat-guard.mjs --near-cap-only."
+      ]
+    },
+    {
+      "id": "hook-dispatcher",
+      "name": "Hook dispatcher",
+      "what": "Runs one group of hooks (pre-tool, prompt, stop) in one Node process and joins their answers into one.",
+      "files": [
+        "hooks/dispatch.mjs",
+        "hooks/dispatch-groups.json",
+        "tests/test-dispatch.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "\\bdispatcher\\b",
+        "\\bdispatch-groups\\b"
+      ],
+      "rules": [
+        "A file is listed once per group: Node runs a module once per process, so a second entry of it does nothing.",
+        "A guard (guard: true) that throws, exits non-zero, cannot load or runs out of time stops the call; any other hook is crash-logged and the rest still run.",
+        "DISPATCH=off ends every group at once, the guards included."
       ]
     },
     {
@@ -418,6 +498,9 @@
       "group": "installer",
       "words": [
         "CLAUDE\\.md rules"
+      ],
+      "rules": [
+        "~/.claude/CLAUDE.md is replaced only when the person never changed it; the person's own rules move to rules/my-rules.md."
       ]
     },
     {
@@ -450,12 +533,17 @@
       "group": "installer",
       "words": [
         "nimbalyst"
+      ],
+      "rules": [
+        "A build never goes into Nimbalyst's extension folders: it goes to extensions-pending and is swapped in only while Nimbalyst is closed.",
+        "Nimbalyst's settings file is written only while Nimbalyst is closed: it rewrites the file from memory.",
+        "A theme the person picked stays."
       ]
     },
     {
       "id": "nimbalyst-patcher",
       "name": "Nimbalyst patcher",
-      "what": "Puts fixes into Nimbalyst's app.asar and takes them out again: status, apply, skip on a changed anchor, retire, restore. Tests point it at other program folders with NIMBALYST_PATCH_PROGRAM_DIRS. patches/updater-block.mjs turns Nimbalyst's own updater off: requiredFirst (applied before all others; without it no patch is applied), upstream: null (never retires), and a quit listener that reads staged.json from the delivery's data folder, logs to quit-hook.log and answers the quit word --ai-coding-setup-quit. patches/1944.mjs requires 1558; its upstream marker is `function answersPushedMessage(`. patches/settled-repeat.mjs requires 1944: a closed-process settled prompt leaves out results a transcript proves Claude already read (helper reads count; any doubt sends all), and the background test reads only a tool result's first line. patches/ask-line.mjs rewrites the question block of Nimbalyst's built-in system prompt (a card only for a quick yes/no or pick-one; never retires). patches/wakeup-note.mjs: a schedule_wakeup that fires while its session is mid-turn goes in as a note through skills/steer/steer.mjs send (the Note button's path); when steer does not take it, or the session is idle, it is queued as before. pin.json pins the Nimbalyst version the setup delivers and its patch list; deliver.mjs (Windows) downloads, checks, installs and patches the pinned version, with --off/--on and NIMBALYST_FOLLOW=off; restart.mjs closes Nimbalyst, installs, patches and reopens it.",
+      "what": "Puts the setup's fixes into Nimbalyst's app.asar and takes them out again; pin.json pins the Nimbalyst version the setup delivers, deliver.mjs downloads, installs and patches it, restart.mjs closes, installs, patches and reopens it.",
       "files": [
         "tools/nimbalyst-patch/patch.mjs",
         "tools/nimbalyst-patch/patches/updater-block.mjs",
@@ -484,34 +572,43 @@
       "words": [
         "nimbalyst-patch",
         "app\\.asar"
+      ],
+      "rules": [
+        "updater-block is requiredFirst and never retires: when it is skipped no patch is applied, or the next Nimbalyst update would wipe every fix.",
+        "All edits of a patch apply together or not at all, and each anchor must occur exactly once, else the patch is SKIPPED.",
+        "A replace text must never occur in the unpatched file: its presence is what marks the patch applied.",
+        "Only packed files change: an entry in app.asar.unpacked is never touched.",
+        "deliver.mjs installs and swaps panels only while Nimbalyst is closed (--install-now, --after-quit), never while it runs.",
+        "The quit listener never runs process.execPath (that is Nimbalyst.exe) and never holds up the app's quit."
       ]
     },
     {
       "id": "helper-agents",
-      "name": "Worker, reviewer and planner agents",
-      "what": "The agent definitions the main session hands work to, the stuck-advisor a stuck session asks, and the version checker worker.",
+      "name": "Worker and reviewer agents",
+      "what": "The agent definitions the main session hands work to, and the version checker worker.",
       "files": [
         "agents/worker.md",
         "agents/worker-full.md",
         "agents/worker-code.md",
         "agents/worker-refactor.md",
         "agents/reviewer.md",
-        "agents/planner.md",
         "agents/plan-reviewer.md",
-        "agents/stuck-advisor.md",
         "workers/versions.mjs",
         "workers/download.mjs"
       ],
       "group": "agents",
       "words": [
-        "\\bworker\\b",
-        "planner"
+        "\\bworker\\b"
+      ],
+      "rules": [
+        "An agent file's frontmatter must be valid YAML: Claude Code drops a bad one without a word (tests/test-agents.mjs).",
+        "versions.mjs: a NO means only not in this list, never that the version does not exist."
       ]
     },
     {
       "id": "quick-tasks",
       "name": "Quick tasks project",
-      "what": "The side-work folder for questions, finding things online and one-off file jobs: the finder skill and its link gate, and tools/peek.mjs, which reads pages in Nimbalyst's browser or Obscura and with --save keeps each page's whole text in a file.",
+      "what": "The side-work folder for questions, finding things online and one-off file jobs: the finder skill and its link gate, and tools/peek.mjs, which reads pages in Nimbalyst's browser and with --save keeps each page's whole text in a file.",
       "files": [
         "projects/quick-tasks"
       ],
@@ -539,17 +636,39 @@
       ]
     },
     {
+      "id": "read-page",
+      "name": "Page reader",
+      "what": "workers/read-page.mjs saves the exact words of web pages as markdown files and says what read each one: Firecrawl Local first when it is installed (its cloud hand-off for pages that block it), defuddle otherwise. Exit 0 all read, 1 a page failed, 2 a usage error.",
+      "files": [
+        "workers/read-page.mjs",
+        "tests/test-read-page.mjs"
+      ],
+      "group": "skills",
+      "words": [
+        "read.page",
+        "firecrawl",
+        "defuddle"
+      ],
+      "rules": [
+        "A host that is or resolves to a private or local address is refused before any reader runs.",
+        "Firecrawl Local always runs with --public-only and never its init; defuddle is pinned at 0.19.7 and runs in an empty folder of its own."
+      ]
+    },
+    {
       "id": "pc-tidy",
       "name": "PC tidy",
       "what": "Shows and frees memory held by finished sessions.",
       "files": [
         "skills/pc-tidy/SKILL.md",
-        "workers/pc-tidy.ps1",
-        "hooks/pc-tidy-nudge.mjs"
+        "workers/pc-tidy.ps1"
       ],
       "group": "skills",
       "words": [
         "pc.tidy"
+      ],
+      "rules": [
+        "Never stops Nimbalyst, the Nimbalyst delivery, the phone app's PC program, a terminal, ssh or gpg agents, a visible browser, or anything whose starter still runs.",
+        "An orphaned node or python it does not know is listed as MAYBE WANTED, never stopped."
       ]
     },
     {
@@ -567,6 +686,10 @@
         "chat archive",
         "keep-forever",
         "disk.tidy"
+      ],
+      "rules": [
+        "Acts only on what the report listed; the person's own items only with their yes, item by item.",
+        "Never passes --force to git, never removes a dirty worktree or one with commits not on main, never removes ~/.claude/scratch, never writes a Nimbalyst file."
       ]
     },
     {
@@ -584,6 +707,9 @@
         "file standard",
         "reorganize",
         "file.check"
+      ],
+      "rules": [
+        "Only files git shows are read: git-ignored data is never flagged, moved or deleted."
       ]
     },
     {
@@ -597,6 +723,9 @@
       "group": "extensions",
       "words": [
         "session board"
+      ],
+      "rules": [
+        "Pinned sessions are never archived and nothing is deleted; pick.mjs reads Nimbalyst's database read-only."
       ]
     },
     {
@@ -605,6 +734,8 @@
       "what": "Planning and design skills: lead, next-move, btw, new-project, design-system, untangle.",
       "files": [
         "skills/lead/SKILL.md",
+        "skills/lead/scripts/leftover-worktrees.mjs",
+        "tests/test-leftover-worktrees.mjs",
         "skills/next-move/SKILL.md",
         "skills/btw/SKILL.md",
         "skills/new-project/SKILL.md",
@@ -614,6 +745,9 @@
       "group": "skills",
       "words": [
         "next.move"
+      ],
+      "rules": [
+        "leftover-worktrees.mjs never lists the main checkout and never touches a locked worktree or the one with the base branch; --remove takes only merged and clean ones."
       ]
     },
     {
@@ -630,6 +764,10 @@
       "group": "extensions",
       "words": [
         "design tokens"
+      ],
+      "rules": [
+        "CSS is never run through the formatter: tests read it as text and match the hand layout.",
+        "extensions/shared/orbs/orbs.js is a generated, minified bundle: Biome leaves it out entirely."
       ]
     },
     {
@@ -645,6 +783,10 @@
       "group": "extensions",
       "words": [
         "slash command"
+      ],
+      "rules": [
+        "A button only starts a new session: the app has no call into a running one, so /handoff and /btw are not buttons.",
+        "A button for a skill that exists only on this computer goes in own.ts, which the shared build (build:share) leaves out."
       ]
     },
     {
@@ -658,6 +800,9 @@
       "group": "extensions",
       "words": [
         "read.aloud"
+      ],
+      "rules": [
+        "Built only with --with read-aloud or where it is installed already: it needs a speech program of its own."
       ]
     },
     {
@@ -672,6 +817,10 @@
       "group": "extensions",
       "words": [
         "ink theme"
+      ],
+      "rules": [
+        "extensions/ink-themes/manifest.json is written by a script with JSON.stringify: never format it by hand.",
+        "The themes may use !important: they must beat the host app's own CSS."
       ]
     },
     {
@@ -689,22 +838,12 @@
       "group": "release",
       "words": [
         "privacy check"
-      ]
-    },
-    {
-      "id": "promo-film",
-      "name": "Homepage film",
-      "what": "The Remotion film and stills for the repo page.",
-      "files": [
-        "promo/render.mjs",
-        "promo/src/index.ts",
-        "promo/src/Root.tsx",
-        "promo/README.md"
       ],
-      "group": "promo",
-      "words": [
-        "promo",
-        "remotion"
+      "rules": [
+        "Every test file runs with an empty home folder, as on GitHub's runners: never lean on files installed in ~/.claude.",
+        "Build hook JSON in Node or in a file, never inside a shell string: the shell mangles backslashes.",
+        "Run Biome pinned (npx @biomejs/biome@2.6.7), never a bare npx biome.",
+        "Real names belong in the privacy word list, never in privacy-check.mjs itself."
       ]
     },
     {
@@ -719,6 +858,9 @@
         "blind review",
         "review the screen",
         "blind-reviewer"
+      ],
+      "rules": [
+        "Never sees the code or the chat: only what a person will see."
       ]
     },
     {
@@ -739,20 +881,6 @@
       ]
     },
     {
-      "id": "obscura",
-      "name": "Obscura headless browser",
-      "what": "The install puts one pinned Obscura release (SHA-256 checked) in ~/.claude/obscura (--obscura no leaves it out); peek.mjs reads with it when Nimbalyst's browser can't be reached or with --engine obscura; --uninstall removes the folder.",
-      "files": [
-        "scripts/obscura.mjs",
-        "tests/test-obscura.mjs"
-      ],
-      "group": "installer",
-      "words": [
-        "obscura",
-        "headless browser"
-      ]
-    },
-    {
       "id": "install-opt-ins",
       "name": "Install opt-ins (voice typing, backup)",
       "what": "The first install's chat asks once about voice typing with Handy and the encrypted backup; install.mjs --handy and --backup only keep the answers in setup-state.json, and an update never asks voice typing again and asks the backup only while no answer is on record.",
@@ -766,6 +894,10 @@
         "opt.in",
         "voice typing",
         "handy"
+      ],
+      "rules": [
+        "install.mjs --handy and --backup only record the answers; the asking is the first install's chat.",
+        "An update never asks voice typing, and asks the backup only while no answer is on record."
       ]
     },
     {
@@ -783,6 +915,10 @@
         "restic",
         "backblaze",
         "backup\\.mjs"
+      ],
+      "rules": [
+        "A restore goes into a new folder, never over the original.",
+        "The restic password reaches restic only as RESTIC_PASSWORD_FILE and the B2 key only as env vars: never on a command line or printed."
       ]
     },
     {
@@ -802,20 +938,6 @@
       ]
     },
     {
-      "id": "review-rules",
-      "name": "Review rules (REVIEW.md)",
-      "what": "A project's rules for the reviewer's quality findings (what counts as Important, paths to skip, rules to check, past bugs): the repo's own REVIEW.md and the starter copy /new-project writes. The reviewer reads it from git at the commit the change started from.",
-      "files": [
-        "REVIEW.md",
-        "skills/new-project/preset/REVIEW.md"
-      ],
-      "group": "agents",
-      "words": [
-        "REVIEW.md",
-        "review rules"
-      ]
-    },
-    {
       "id": "observe-log",
       "name": "Log-only mode log printer",
       "what": "Prints what hooks in log-only mode (observe) would have refused, and each code commit verify-gate's commit check looked at, from hooks/state/observe.jsonl.",
@@ -832,18 +954,6 @@
   "links": [
     {
       "from": "hook-frame",
-      "to": "code-review-gate",
-      "type": "feeds",
-      "says": "Every hook runs inside the frame's runHook.",
-      "evidence": [
-        {
-          "file": "hooks/code-review-gate.mjs",
-          "token": "hook-io"
-        }
-      ]
-    },
-    {
-      "from": "hook-frame",
       "to": "reply-format-gates",
       "type": "feeds",
       "says": "The Stop hooks run inside the same frame and read its state.",
@@ -851,18 +961,6 @@
         {
           "file": "hooks/link-gate.mjs",
           "token": "hook-io"
-        }
-      ]
-    },
-    {
-      "from": "hook-frame",
-      "to": "context-cost-hooks",
-      "type": "feeds",
-      "says": "These hooks keep their counters in the shared state.",
-      "evidence": [
-        {
-          "file": "hooks/context-guard.mjs",
-          "token": "state.mjs"
         }
       ]
     },
@@ -882,11 +980,23 @@
       "from": "hook-frame",
       "to": "command-guards",
       "type": "feeds",
-      "says": "The command hooks run inside the frame and read the settings switches.",
+      "says": "The command hooks run inside the frame.",
       "evidence": [
         {
-          "file": "hooks/big-read-gate.mjs",
-          "token": "settings-env.mjs"
+          "file": "hooks/find-guard.mjs",
+          "token": "hook-io"
+        }
+      ]
+    },
+    {
+      "from": "hook-frame",
+      "to": "workflow-fence",
+      "type": "feeds",
+      "says": "The fence runs inside the frame and tells an app run from the terminal with its inNimbalyst.",
+      "evidence": [
+        {
+          "file": "hooks/workflow-fence.mjs",
+          "token": "inNimbalyst"
         }
       ]
     },
@@ -912,7 +1022,8 @@
           "file": "skills/setup-audit/scripts/chat-scan.mjs",
           "token": "texts.mjs"
         }
-      ]
+      ],
+      "why": "texts.mjs is the one home of each such text, so a reworded hook message cannot leave a scanner counting nothing."
     },
     {
       "from": "hook-texts",
@@ -927,66 +1038,14 @@
       ]
     },
     {
-      "from": "hook-texts",
-      "to": "helper-brief-gates",
-      "type": "feeds",
-      "says": "The helper notes are texts.mjs strings.",
-      "evidence": [
-        {
-          "file": "hooks/worker-size.mjs",
-          "token": "WORKER_SIZE_NOTE"
-        }
-      ]
-    },
-    {
-      "from": "hook-texts",
-      "to": "context-cost-hooks",
-      "type": "feeds",
-      "says": "The background-tasks notice text lives in the shared lib.",
-      "evidence": [
-        {
-          "file": "hooks/background-tasks.mjs",
-          "token": "SETTLED_NOTE"
-        }
-      ]
-    },
-    {
-      "from": "code-review-gate",
-      "to": "helper-agents",
-      "type": "uses",
-      "says": "Asks for a reviewer agent and counts the helpers' edits.",
-      "evidence": [
-        {
-          "file": "hooks/code-review-gate.mjs",
-          "token": "reviewer"
-        }
-      ]
-    },
-    {
-      "from": "code-review-gate",
-      "to": "verify-gate",
-      "type": "uses",
-      "says": "Both use the code-file extension lists.",
-      "evidence": [
-        {
-          "file": "hooks/lib/code-files.mjs",
-          "token": "BUILD_CODE_EXT"
-        },
-        {
-          "file": "hooks/verify-gate.mjs",
-          "token": "code-files.mjs"
-        }
-      ]
-    },
-    {
       "from": "helper-brief-gates",
       "to": "helper-agents",
       "type": "limits",
-      "says": "The gates refuse briefs over budget and cap the worker agents.",
+      "says": "planner-readonly keeps the reviewer and plan-reviewer to a read-only shell.",
       "evidence": [
         {
-          "file": "hooks/budget-gate.mjs",
-          "token": "worker"
+          "file": "hooks/planner-readonly.mjs",
+          "token": "reviewer"
         }
       ]
     },
@@ -1010,7 +1069,7 @@
       "from": "map-hooks",
       "to": "helper-agents",
       "type": "feeds",
-      "says": "map-brief appends the map lines to every helper's brief.",
+      "says": "map-brief appends the map lines of the things a helper's brief names by file.",
       "evidence": [
         {
           "file": "hooks/map-brief.mjs",
@@ -1022,12 +1081,8 @@
       "from": "helper-brief-gates",
       "to": "map-hooks",
       "type": "uses",
-      "says": "serves-brief and map-brief build the same full brief (map lines, then Serves lines), because only one updatedInput per call is used.",
+      "says": "map-brief builds the helper brief through serves.mjs fullBrief.",
       "evidence": [
-        {
-          "file": "hooks/serves-brief.mjs",
-          "token": "fullBrief"
-        },
         {
           "file": "hooks/map-brief.mjs",
           "token": "fullBrief"
@@ -1048,19 +1103,21 @@
           "file": "hooks/lib/map-file.mjs",
           "token": "MAP_REL"
         }
-      ]
+      ],
+      "why": "The panel keeps its own copy of MAP_REL in map.ts, so moving the map file means changing both."
     },
     {
       "from": "systems-map-skill",
-      "to": "code-review-gate",
+      "to": "verify-gate",
       "type": "uses",
-      "says": "The map scan counts code through the shared code-file list.",
+      "says": "The map scan counts code through verify-gate's shared code-file list.",
       "evidence": [
         {
           "file": "skills/systems-map/map.mjs",
           "token": "code-files.mjs"
         }
-      ]
+      ],
+      "why": "code-files.mjs is the one list of what counts as code, so the map's code count and verify-gate agree."
     },
     {
       "from": "agent-run-log",
@@ -1121,22 +1178,11 @@
       "says": "The handoff brief reads only the transcript.",
       "evidence": [
         {
-          "file": "hooks/handoff-brief.mjs",
+          "file": "skills/handoff/brief.mjs",
           "token": "transcript.mjs"
         }
-      ]
-    },
-    {
-      "from": "steer",
-      "to": "context-cost-hooks",
-      "type": "uses",
-      "says": "Steer runs as a hook beside the context guard.",
-      "evidence": [
-        {
-          "file": "settings.example.json",
-          "token": "steer.mjs --hook"
-        }
-      ]
+      ],
+      "why": "Two chats in one folder can hand off in the same minute, so the brief trusts only this session's own transcript."
     },
     {
       "from": "steer",
@@ -1160,7 +1206,8 @@
           "file": "tools/nimbalyst-patch/patches/wakeup-note.mjs",
           "token": "\"send\", \"--to\""
         }
-      ]
+      ],
+      "why": "steer's hook labels every note as one the user sent, so the patch starts the note with a line naming it the session's own wakeup; a change to that label or to send's exit codes changes what the patch does."
     },
     {
       "from": "phone-bot",
@@ -1208,7 +1255,8 @@
           "file": "skills/update-setup/SKILL.md",
           "token": "restart.mjs"
         }
-      ]
+      ],
+      "why": "Nimbalyst's own updater is off (updater-block), so the setup's update is the only way a new Nimbalyst arrives."
     },
     {
       "from": "hook-wiring",
@@ -1220,7 +1268,8 @@
           "file": "scripts/uninstall.mjs",
           "token": "tools/nimbalyst-patch/patch.mjs"
         }
-      ]
+      ],
+      "why": "patch.mjs does not export paths(), so uninstall.mjs repeats its resources folder layout: a layout change in patch.mjs needs uninstall.mjs changed too."
     },
     {
       "from": "update-flow",
@@ -1232,7 +1281,8 @@
           "file": "skills/update-setup/update.mjs",
           "token": "--leave-out"
         }
-      ]
+      ],
+      "why": "The person's own rules must survive an update."
     },
     {
       "from": "installer-core",
@@ -1344,7 +1394,8 @@
           "file": "hooks/opencli-readonly.mjs",
           "token": "opencli"
         }
-      ]
+      ],
+      "why": "The browser CLI works in the person's signed-in accounts, so only read commands may pass."
     },
     {
       "from": "web-skills",
@@ -1367,42 +1418,6 @@
         {
           "file": "scripts/extensions.mjs",
           "token": "sourceText"
-        }
-      ]
-    },
-    {
-      "from": "pc-tidy",
-      "to": "housekeeping-nudges",
-      "type": "feeds",
-      "says": "The nudge points to the skill.",
-      "evidence": [
-        {
-          "file": "hooks/pc-tidy-nudge.mjs",
-          "token": "pc-tidy"
-        }
-      ]
-    },
-    {
-      "from": "context-cost-hooks",
-      "to": "workflow-skills",
-      "type": "limits",
-      "says": "job-done holds a session that claimed a plan row (lead reference, \"Claiming a row\": session <id>: <row>) to that one piece until it hands off.",
-      "evidence": [
-        {
-          "file": "skills/lead/reference.md",
-          "token": "This session's id starts with"
-        }
-      ]
-    },
-    {
-      "from": "context-cost-hooks",
-      "to": "handoff",
-      "type": "uses",
-      "says": "job-done's held turn end ends with the handoff skill; its step 3 has the new session claim its row with the id job-done gives.",
-      "evidence": [
-        {
-          "file": "skills/handoff/SKILL.md",
-          "token": "This session's id starts with"
         }
       ]
     },
@@ -1476,52 +1491,18 @@
           "file": "scripts/privacy-check.mjs",
           "token": "privacy"
         }
-      ]
-    },
-    {
-      "from": "promo-film",
-      "to": "update-flow",
-      "type": "uses",
-      "says": "The film shows features and the version.",
-      "evidence": [
-        {
-          "file": "promo/README.md"
-        }
-      ]
+      ],
+      "why": "The repo is public: whatever a shipped file holds goes out to everyone."
     },
     {
       "from": "nimbalyst-tool-gates",
-      "to": "command-guards",
+      "to": "hook-frame",
       "type": "uses",
-      "says": "Both groups read tool input in the same frame.",
+      "says": "The Nimbalyst tool gates run inside the hook frame.",
       "evidence": [
         {
           "file": "hooks/question-other.mjs",
           "token": "hook-io.mjs"
-        }
-      ]
-    },
-    {
-      "from": "code-review-gate",
-      "to": "blind-reviewer",
-      "type": "uses",
-      "says": "When a person will see the result, the block asks for a blind-reviewer beside the reviewer.",
-      "evidence": [
-        {
-          "file": "hooks/code-review-gate.mjs",
-          "token": "blind-reviewer"
-        }
-      ]
-    },
-    {
-      "from": "housekeeping-nudges",
-      "to": "disk-tidy",
-      "type": "uses",
-      "says": "pc-tidy-nudge runs the chat archive every 3 days once the person has turned it on.",
-      "evidence": [
-        {
-          "file": "hooks/pc-tidy-nudge.mjs",
-          "token": "--archive-only"
         }
       ]
     },
@@ -1553,35 +1534,11 @@
       "from": "context-cost-hooks",
       "to": "helper-agents",
       "type": "uses",
-      "says": "repeat-guard names the stuck-advisor after a second identical error and warns each agent near its turn cap.",
+      "says": "repeat-guard warns each helper agent near its turn cap, by the cap in its agent file.",
       "evidence": [
         {
           "file": "hooks/repeat-guard.mjs",
-          "token": "stuck-advisor"
-        }
-      ]
-    },
-    {
-      "from": "session-cleanup",
-      "to": "context-cost-hooks",
-      "type": "uses",
-      "says": "Copies background-tasks SERVER pattern of commands that do not end by themselves.",
-      "evidence": [
-        {
-          "file": "hooks/session-cleanup.mjs",
-          "token": "SERVER"
-        }
-      ]
-    },
-    {
-      "from": "update-project",
-      "to": "housekeeping-nudges",
-      "type": "uses",
-      "says": "Check P9 lists the dated facts with recheck-dates --list.",
-      "evidence": [
-        {
-          "file": "skills/update-project/pass.mjs",
-          "token": "recheck-dates.mjs"
+          "token": "blind-reviewer"
         }
       ]
     },
@@ -1610,42 +1567,54 @@
       ]
     },
     {
-      "from": "installer-core",
-      "to": "obscura",
+      "from": "web-skills",
+      "to": "quick-tasks",
       "type": "uses",
-      "says": "The install puts the pinned Obscura into ~/.claude/obscura and --uninstall takes that folder out.",
+      "says": "The reading ladder sends a signed-in or script-built page to quick-tasks' peek.mjs.",
       "evidence": [
         {
-          "file": "install.mjs",
-          "token": "await obscura(ctx)"
-        },
-        {
-          "file": "scripts/uninstall.mjs",
-          "token": "\"obscura\""
-        }
-      ]
-    },
-    {
-      "from": "quick-tasks",
-      "to": "obscura",
-      "type": "uses",
-      "says": "peek.mjs falls back on the Obscura in ~/.claude/obscura when Nimbalyst's browser can't be reached, and says so.",
-      "evidence": [
-        {
-          "file": "projects/quick-tasks/tools/peek.mjs",
-          "token": "obscuraExe"
+          "file": "skills/web-research/SKILL.md",
+          "token": "quick-tasks/tools/peek.mjs"
         }
       ]
     },
     {
       "from": "web-skills",
-      "to": "quick-tasks",
+      "to": "read-page",
       "type": "uses",
-      "says": "The reading ladder sends a script-built or signed-in page to quick-tasks' peek.mjs, and a page a decision rests on to peek.mjs --save.",
+      "says": "The reading ladder saves a page a quote or a decision rests on with read-page.mjs, and a worker reads the file.",
       "evidence": [
         {
           "file": "skills/web-research/SKILL.md",
-          "token": "peek.mjs --save"
+          "token": "workers/read-page.mjs"
+        }
+      ]
+    },
+    {
+      "from": "web-skills",
+      "to": "workflow-fence",
+      "type": "limits",
+      "says": "The skill says /deep-research runs only from the terminal; the fence refuses it elsewhere.",
+      "evidence": [
+        {
+          "file": "skills/web-research/SKILL.md",
+          "token": "/deep-research"
+        }
+      ]
+    },
+    {
+      "from": "quick-tasks",
+      "to": "read-page",
+      "type": "uses",
+      "says": "When Nimbalyst's browser can't be reached, peek.mjs stops and names read-page.mjs for a public page; the finder and read-web skills read public pages with it.",
+      "evidence": [
+        {
+          "file": "projects/quick-tasks/tools/peek.mjs",
+          "token": "workers/read-page.mjs"
+        },
+        {
+          "file": "projects/quick-tasks/.claude/skills/read-web/SKILL.md",
+          "token": "workers/read-page.mjs"
         }
       ]
     },
@@ -1695,7 +1664,8 @@
           "file": "skills/update-setup/update.mjs",
           "token": "Backup: not asked"
         }
-      ]
+      ],
+      "why": "An update asks nothing that is already set up or answered."
     },
     {
       "from": "backup",
@@ -1766,18 +1736,6 @@
       ]
     },
     {
-      "from": "workflow-skills",
-      "to": "review-rules",
-      "type": "uses",
-      "says": "/new-project copies preset/REVIEW.md into a git project.",
-      "evidence": [
-        {
-          "file": "skills/new-project/SKILL.md",
-          "token": "preset/REVIEW.md"
-        }
-      ]
-    },
-    {
       "from": "update-project",
       "to": "verify-templates",
       "type": "uses",
@@ -1790,26 +1748,74 @@
       ]
     },
     {
-      "from": "update-project",
-      "to": "review-rules",
-      "type": "uses",
-      "says": "Check P28 offers the starter REVIEW.md to a git project without one.",
+      "from": "steer",
+      "to": "helper-brief-gates",
+      "type": "feeds",
+      "says": "A helper a note stopped starts its report with \"Stopped early for a user note:\"; helper-stopped reads that line and has the session answer the user first.",
+      "why": "steer.mjs writes the marker as its own literal, not from texts.mjs, so a reworded marker on either side stops helper-stopped from seeing a note stop.",
       "evidence": [
         {
-          "file": "skills/update-project/checks.md",
-          "token": "preset/REVIEW.md"
+          "file": "skills/steer/steer.mjs",
+          "token": "Stopped early for a user note:"
+        },
+        {
+          "file": "hooks/helper-stopped.mjs",
+          "token": "NOTE_STOP"
         }
       ]
     },
     {
-      "from": "helper-agents",
-      "to": "review-rules",
-      "type": "uses",
-      "says": "The reviewer reads REVIEW.md from git at the change's base commit.",
+      "from": "hook-wiring",
+      "to": "hook-dispatcher",
+      "says": "A dispatch.mjs entry in the settings counts every hook of its group as wired on that event.",
       "evidence": [
         {
-          "file": "agents/reviewer.md",
-          "token": "REVIEW.md"
+          "file": "scripts/wiring.mjs",
+          "token": "dispatch-groups.json"
+        },
+        {
+          "file": "tests/test-wiring.mjs",
+          "token": "dispatch-groups.json"
+        }
+      ]
+    },
+    {
+      "from": "hook-dispatcher",
+      "to": "command-guards",
+      "type": "feeds",
+      "says": "The pre-tool group runs the shell guards in order, and an updatedInput goes on to the next hooks' event.",
+      "why": "download-guard is listed before command-explain so its rewritten command still gets the explanation check.",
+      "evidence": [
+        {
+          "file": "hooks/dispatch-groups.json",
+          "token": "hooks/download-guard.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-dispatcher",
+      "to": "workflow-fence",
+      "type": "feeds",
+      "says": "The pre-tool group runs workflow-fence as a guard for Workflow calls only.",
+      "evidence": [
+        {
+          "file": "hooks/dispatch-groups.json",
+          "token": "hooks/workflow-fence.mjs"
+        }
+      ]
+    },
+    {
+      "from": "hook-dispatcher",
+      "to": "hook-frame",
+      "says": "Each hook runs in the one process as if it were the script being run; process.exit ends only that hook (HookExit in hook-io.mjs).",
+      "evidence": [
+        {
+          "file": "hooks/dispatch.mjs",
+          "token": "HookExit"
+        },
+        {
+          "file": "hooks/lib/hook-io.mjs",
+          "token": "HookExit"
         }
       ]
     }

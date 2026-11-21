@@ -7,7 +7,6 @@
 //   disk-tidy.mjs --auto              the setup's own leftovers (class S) go, chat folders of deleted projects are
 //                                     archived, and the chat archive runs when it is on; prints a `disk: freed` line and
 //                                     `offer:` lines for the person's own things. Nothing to do prints nothing.
-//   disk-tidy.mjs --auto --archive-only [--note-file <f>]   only the chat archive (the pc-tidy-nudge hook, every 3 days)
 //   disk-tidy.mjs --apply <ledger> --only <ids|categories>  acts on those ledger items, re-checking each first
 //   disk-tidy.mjs --archive-on [--days 60] | --archive-off | --keep-forever <cwd glob>
 //   disk-tidy.mjs --archive-list [--project <text>] | --restore <id-prefix> | --restore --project <text> | --restore --all
@@ -59,7 +58,6 @@ export const TEMP_PREFIXES = [
   "map-file-",
   "map-generated-test-",
   "map-nudge-test-",
-  "map-prompt-test-",
   "next-step-gate-test-",
   "nimbalyst-notes-",
   "opencli-fake-",
@@ -1535,7 +1533,7 @@ async function applyLedger(C, file, only) {
   return { results, freed };
 }
 
-// ---- the chat archive step alone: --auto runs it, and so does the pc-tidy-nudge hook every 3 days
+// ---- the chat archive step: --auto runs it (each setup update runs --auto)
 async function archiveStep(C) {
   const cfg = readConfig(C);
   if (!archiveOn(cfg)) return { lines: [] };
@@ -1744,15 +1742,6 @@ async function main() {
         .map((s) => s.trim())
         .filter(Boolean),
     );
-  }
-  if (has("--auto") && has("--archive-only")) {
-    const { lines } = await archiveStep(C);
-    if (has("--note-file") && lines.length) {
-      fs.mkdirSync(path.dirname(opt("--note-file")), { recursive: true });
-      fs.writeFileSync(opt("--note-file"), lines.join(" "));
-    }
-    if (lines.length) console.log(lines.join("\n"));
-    return 0;
   }
   if (has("--auto")) return auto(C);
   const rep = await report(C);

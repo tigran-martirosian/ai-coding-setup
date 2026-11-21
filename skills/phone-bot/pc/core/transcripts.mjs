@@ -117,7 +117,9 @@ const AFTER_NOTES =
 
 // The notes steer.mjs handed the session (a Note from the desktop button or the phone, /btw):
 // "[btw] <rules>\n- [note <id>] <text>", one "- [note" line per note, before what AFTER_NOTES names. Each note is a
-// user turn marked `note: true`, without the line the phone adds, so the page finds its own words again.
+// user turn marked `note: true`, without the line the phone adds nor the time label steer.mjs puts at the end of
+// the note's first line (its noteLine), so the page finds its own words again.
+const SENT_LABEL = /^([^\n]*?) \(the user's note, sent \d\d:\d\d\)(?=\r?\n|$)/;
 export function notesOf(line) {
   const out = [];
   for (const part of steerTexts(line)) {
@@ -125,7 +127,7 @@ export function notesOf(line) {
     if (from < 0) continue;
     const body = part.slice(from + 6).split(AFTER_NOTES)[0];
     for (const piece of body.split(/\n- \[note [a-z0-9]+\] /).slice(1)) {
-      const text = withoutNote(piece.trim());
+      const text = withoutNote(piece.replace(SENT_LABEL, "$1").trim());
       if (text)
         out.push({
           role: "user",

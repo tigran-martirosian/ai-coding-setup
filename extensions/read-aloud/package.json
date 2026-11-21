@@ -13,6 +13,7 @@
     "@nimbalyst/extension-sdk": "^0.7.2",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vite": "^7.3.7"
   },

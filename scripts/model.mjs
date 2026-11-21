@@ -41,7 +41,7 @@ export function onProPlan({ home, say }) {
   }
 }
 
-// The Fable choices, each an exact phrase: the agents' model line, a model an Agent call passes, the planner's
+// The Fable choices, each an exact phrase: the agents' model line, a model an Agent call passes, a plan's
 // table and the texts that say what a helper runs on. Prices, benchmark scores and the advisor the person turns
 // on themselves stay as they are.
 export const FABLE_TO_OPUS = [
@@ -62,7 +62,27 @@ export const fableToOpus = (text) =>
 export function claudeSettings(ctx) {
   const { settings, settingsFile, state, CLAUDE, WIN, LANG, say } = ctx;
   const settingsWas = JSON.stringify(settings);
-  const retiredHooks = retire(ctx, settings, CLAUDE, ctx.RETIRED);
+  let retiredHooks = retire(ctx, settings, CLAUDE, ctx.RETIRED);
+  // Entries dropped from one event while the hook stays (no-response-gate off PreToolUse, plain repeat-guard)
+  for (const [event, names] of Object.entries(ctx.RETIRED_ENTRIES))
+    retiredHooks += retire(ctx, settings, CLAUDE, names, "", {
+      event,
+      exact: true,
+    });
+  // The groups hooks/dispatch.mjs runs: the file in ~/.claude after the file copy, which keeps a copy the user
+  // changed. A dry run copied nothing, so there it is the repo's unless the user's changed copy stays.
+  const groupsFile = path.join(CLAUDE, "hooks", "dispatch-groups.json");
+  if (ctx.DRY && !ctx.tally.yours.includes(ctx.short(groupsFile)))
+    ctx.INSTALLED_GROUPS = ctx.GROUPS;
+  else
+    try {
+      ctx.INSTALLED_GROUPS = JSON.parse(fs.readFileSync(groupsFile, "utf8"));
+    } catch (e) {
+      say(
+        `hooks: ${fwd(groupsFile)} can't be read (${e.message}), so the dispatcher runs no group; each hook keeps its own entry`,
+      );
+      ctx.INSTALLED_GROUPS = {};
+    }
   const wired = wire(ctx, settings, ctx.example.hooks, CLAUDE) + retiredHooks;
   if (!wired) say(`hooks already wired in ${fwd(settingsFile)}`);
   // Before 1.0.74 the installer set "model": "sonnet", and an update keeps the settings a person has, so

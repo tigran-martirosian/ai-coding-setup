@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { crashLog } from "./lib/crash-log.mjs";
 // session-cleanup: a session closes what it opened (dev servers, watchers, headless browsers, background shells,
-// llama-server, Gradle daemons) and lists the git worktrees it made; it never touches a process it did not start.
+// llama-server, Gradle daemons) and records the git worktrees it made; it never touches a process it did not start.
 // Design: docs/2026-11-12-session-cleanup-design.md (D4) in the setup project.
 //   PreToolUse Bash|PowerShell: a call that can start something that stays (LAUNCH) saves its start time;
 //     `git worktree add` records the worktree (path, branch) at once, with no process list.
@@ -19,9 +19,8 @@ import { crashLog } from "./lib/crash-log.mjs";
 //   SessionEnd: starts a detached closer and returns. Reasons clear, logout, prompt_input_exit close the ledger;
 //     `other` closes it outside Nimbalyst (a `claude -p` run) and keeps it inside (a turn's process ended). Each
 //     SessionEnd leaves one line in closed.log with its reason, entry point and host.
-//   SessionStart, UserPromptSubmit: at most every 10 min, a detached sweep closes the ledgers whose transcript was
-//     not written for SESSION_CLEANUP_IDLE_HOURS (default 3). SessionStart also names this project's leftover
-//     worktrees of other sessions, with the remove command; worktrees are never removed.
+//   UserPromptSubmit: at most every 10 min, a detached sweep closes the ledgers whose transcript was not written for
+//     SESSION_CLEANUP_IDLE_HOURS (default 3). The SessionStart branch is not wired.
 // Closing one entry: a fresh process list; only a PID alive with the same creation time and command line is closed
 // (taskkill /T /F, a Gradle daemon too: `gradlew --stop` would stop every daemon of that Gradle version, another
 // session's or the IDE's). A PID another ledger also names is kept.
@@ -59,7 +58,7 @@ const idleHours = () => {
   return n;
 };
 
-// A command that doesn't end by itself: the same list as background-tasks.mjs' SERVER (hooks don't import hooks)
+// A command that doesn't end by itself: a server, a watcher, a follow or an endless loop
 const SERVER =
   /\b(runServer|runClient|nodemon|http-server|live-server|webpack-dev-server|http\.server|uvicorn|gunicorn)\b|\bflask\s+run\b|\bmanage\.py\s+runserver\b|\bnode\s[^|;&\n]*server|\bnpx\s+(serve|vite)\b|\bserve\s+-s\b|\bdocker[ -]compose\s+up\b(?![^|;&\n]*\s-\w*d)|\b(npm|pnpm|yarn)\s+run\s+preview\b|\bstreamlit\s+run\b|\brails\s+(s|server)\b|--watch\b|\btsc\b[^|;&\n]*\s-w\b|-Wait\b|\btail\b[^|;&\n]*\s-\w*[fF]\b|(^|[\s;&|(])(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b|(^|[\s;&|(])(vite|next|nuxt|astro)(\s+dev)?\s*$|(^|[\s;&|(])watch\s|\bwhile\s+(true|:)/im;
 // ...and the other ways to start something that stays: a trailing & (not && or 2>&1), a detached start, the tools

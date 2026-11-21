@@ -107,7 +107,7 @@ const ALL: Command[] = [
   {
     id: "grill-me",
     label: t.commands.grillMe.label,
-    prompt: "/grill-me",
+    prompt: "/grilling",
     note: t.commands.grillMe.note,
     icon: "quiz",
     group: 1,

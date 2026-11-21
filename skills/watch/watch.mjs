@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 // computer: ffmpeg's whisper filter with the model in ~/.claude/video-cache/models (WATCH_WHISPER_MODEL
 // names another file), else faster-whisper through uv on the CPU. Audio over 10 minutes runs as pieces
 // side by side when the engine gains from it (WATCH_STT_JOBS sets how many). WATCH_STT names a .mjs
-// stand-in engine (the test's): node <it> <audio> <srt out> <language>.
+// stand-in engine (the test's): node <it> <audio> <srt out> <language>; WATCH_STT=off turns listening off.
 // Needs ffmpeg, and for links yt-dlp (on PATH, or it is run through uvx). YT_DLP names another yt-dlp.
 // On a Mac it needs Homebrew's ffmpeg-full: the plain ffmpeg there cannot write the time on a still.
 import fs from "node:fs";
@@ -279,6 +279,8 @@ function engine() {
       `WATCH_STT_JOBS=${process.env.WATCH_STT_JOBS}: a whole number, 1 or more`,
       2,
     );
+  if (process.env.WATCH_STT === "off")
+    return { missing: "speech-to-text is off (WATCH_STT=off)" };
   if (process.env.WATCH_STT) {
     return {
       label: `stand-in ${path.basename(process.env.WATCH_STT)}`,
@@ -323,6 +325,23 @@ function engine() {
     const n =
       jobs || Math.max(1, Math.min(4, Math.floor(os.cpus().length / 4)));
     const threads = String(Math.max(1, Math.floor(os.cpus().length / n)));
+    // It fetches its speech model from Hugging Face on first use: said before, while it is not in that cache
+    const hub =
+      process.env.HF_HUB_CACHE ||
+      path.join(
+        process.env.HF_HOME ||
+          path.join(
+            process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"),
+            "huggingface",
+          ),
+        "hub",
+      );
+    if (
+      !fs.existsSync(path.join(hub, `models--Systran--faster-whisper-${name}`))
+    )
+      console.log(
+        `Downloading first: faster-whisper and its ${name} speech model (${MODEL_SIZES[name] ? `about ${MODEL_SIZES[name]}` : "size not known here"}) into ${hub}, once; --model tiny is smaller (78 MB), WATCH_STT=off listens to nothing`,
+      );
     return {
       label: `faster-whisper ${name} on the CPU (it fetches the model on first use)`,
       jobs: n,

@@ -224,7 +224,7 @@ function transcriptSay(input) {
   }
   return (
     `transcript-check: Claude Code ${version} changed its transcript: ${gone.join(", ")} not found in ${path.basename(newest.p)}${bad ? ` (${bad} lines did not parse)` : ""}. ` +
-    `The hooks that read it (code-review-gate, repeat-guard, question-other and others) may be doing nothing. Tell the user before relying on them.`
+    `The hooks that read it (repeat-guard, question-other and others) may be doing nothing. Tell the user before relying on them.`
   );
 }
 

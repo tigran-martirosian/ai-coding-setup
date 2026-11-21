@@ -28,10 +28,11 @@ import { isBuildCode as isCode } from "./lib/code-files.mjs";
 // It counts the main transcript and its helpers' files (<transcript>/subagents/*.jsonl) by entry time; a helper
 // counts its own file alone. After any load, a successful shell call naming a file in .claude/skills/verify*/ (the
 // skill's script, run again after a fix) is a run at its own place; files in that folder are not code here. The
-// commit's folder reads ~ and $VAR as the shell would; a variable set in an earlier call leaves the folder unknown,
-// logged as "folder-unknown". Only a project with a verify skill (.claude/skills/verify*/SKILL.md) is checked: in the
-// commit's repository, else in the session's folder (a session in one folder that commits another repository). A
-// due commit whose message has the line "Verify: skipped — <reason>" passes. The check is the "commit" arm: it logs
+// commit's folder reads ~ and $VAR as the shell would; a variable set in an earlier call, a command's output ($(...)
+// or a backtick) or a folder that does not exist leaves the folder unknown, logged as "folder-unknown". Only a
+// project with a verify skill (.claude/skills/verify*/SKILL.md) is checked: in the commit's repository, else in the
+// session's folder (a session in one folder that commits another repository). A due commit whose message has the
+// line "Verify: skipped — <reason>" passes. The check is the "commit" arm: it logs
 // only by default (VERIFY_GATE_COMMIT=enforce or VERIFY_GATE=enforce turns the refusal on), one line per checked code
 // commit with its verdict (workers/observe-log.mjs prints them). In enforce a due commit is refused once: the same
 // repository and last code edit (kept in the session's state file) pass the next time. VERIFY_GATE=off disables both.
@@ -316,8 +317,11 @@ function gitCommit(command) {
 
 // A folder word as the shell would read it: $VAR and ${VAR} from an assignment before it in the command
 // (R=...; or export R=...) or else the hook's environment, then a leading ~ as the home folder. null when a
-// variable has no value here (set in an earlier call, say): the folder is unknown.
+// variable has no value here (set in an earlier call, say) or the word or a variable's value is a command's output
+// ($(...) or `...`, which the hook does not run): the folder is unknown.
+const RUNS_COMMAND = /\$\(|`/;
 function shellPath(word, before) {
+  if (RUNS_COMMAND.test(word)) return null;
   let unknown = false;
   const expanded = word.replace(/\$\{?(\w+)\}?/g, (_, name) => {
     const set = [
@@ -329,7 +333,7 @@ function shellPath(word, before) {
       ),
     ].pop();
     const value = set ? (set[2] ?? set[3] ?? set[4]) : process.env[name];
-    if (value === undefined) unknown = true;
+    if (value === undefined || RUNS_COMMAND.test(value)) unknown = true;
     return value ?? "";
   });
   if (unknown) return null;
@@ -359,7 +363,8 @@ const isCommitCall = (input) =>
   (SHELL_TOOLS.test(input.tool_name) && GIT_COMMIT.test(commandOf(input)));
 
 // The folder the commit runs in: the Nimbalyst tool's is the session's; for a shell call the -C of the commit's own
-// git call, else the last `cd <dir>` before it, else the session's cwd. { dir } or { unknown: <the word> }.
+// git call, else the last `cd <dir>` before it, else the session's cwd. { dir } or { unknown: <the word>, why }: a
+// word the hook cannot read, or a folder that does not exist (yet: made earlier in the same command, say).
 function commitDir(input) {
   const cwd = String(input.cwd || process.cwd());
   if (input.tool_name === COMMIT_TOOL) return { dir: cwd };
@@ -377,10 +382,17 @@ function commitDir(input) {
   const parts = [];
   for (const w of written) {
     const p = shellPath(w, before);
-    if (p === null) return { unknown: w };
+    if (p === null)
+      return {
+        unknown: w,
+        why: "names a variable set outside this command or a command's output",
+      };
     parts.push(p);
   }
-  return { dir: path.resolve(cwd, ...parts) };
+  const dir = path.resolve(cwd, ...parts);
+  if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory())
+    return { unknown: written.join(" ") || dir, why: "is no folder here yet" };
+  return { dir };
 }
 
 // git in a folder: its output, or null when the folder is in no repository; any other failure throws
@@ -582,13 +594,12 @@ function commitCheck(input) {
     return;
   const mode = hookMode(NAME, COMMIT);
   if (mode === "off") return;
-  const { dir, unknown } = commitDir(input);
+  const { dir, unknown, why } = commitDir(input);
   if (unknown !== undefined) {
-    observeLine(
-      "folder-unknown",
-      `the commit's folder ${unknown} names a variable set outside this command`,
-      { ...COMMIT, fields: { folder: unknown } },
-    );
+    observeLine("folder-unknown", `the commit's folder ${unknown} ${why}`, {
+      ...COMMIT,
+      fields: { folder: unknown },
+    });
     return;
   }
   const repo = topOf(dir);

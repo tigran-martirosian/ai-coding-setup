@@ -164,7 +164,7 @@ try {
   const real = await loadPatches(path.join(path.dirname(PATCHER), "patches"));
   const ids = real.map((p) => p.id).sort();
   check(
-    "real patches: updater-block, 1558, 1758, 1792, 1836, 1867, 1944, ask-line, files-and-agents, right-panel-menu, settings-batch, settled-repeat, tool-rows-stay, files-chat-follows, wakeup-note, endpoint-keep load with the right shape",
+    "real patches: updater-block, 1558, 1758, 1792, 1836, 1867, 1944, ask-line, files-and-agents, right-panel-menu, settings-batch, settled-repeat, tool-rows-stay, files-chat-follows, chat-smooth, wakeup-note, endpoint-keep load with the right shape",
     [
       "updater-block",
       "1558",
@@ -180,10 +180,18 @@ try {
       "settled-repeat",
       "tool-rows-stay",
       "files-chat-follows",
+      "chat-smooth",
       "wakeup-note",
       "endpoint-keep",
     ].every((id) => ids.includes(id)),
     ids.join(", "),
+  );
+  check(
+    "real patches: chat-smooth requires 1758 and is sorted after it",
+    real.find((p) => p.id === "chat-smooth")?.requires.includes("1758") &&
+      real.findIndex((p) => p.id === "chat-smooth") >
+        real.findIndex((p) => p.id === "1758"),
+    real.map((p) => p.id).join(", "),
   );
   check(
     "real patches: 1944 requires 1558",
@@ -242,6 +250,7 @@ try {
     "settled-repeat": "out/main/index.js",
     "tool-rows-stay": "out/renderer/assets/registerExtensionSystem-D6mrEjei.js",
     "files-chat-follows": "out/renderer/assets/index-BIbaJj7C.js",
+    "chat-smooth": "out/renderer/assets/registerExtensionSystem-D6mrEjei.js",
     "wakeup-note": "out/main/index.js",
     "endpoint-keep": "out/main/index.js",
   };

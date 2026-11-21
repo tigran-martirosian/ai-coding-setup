@@ -128,8 +128,6 @@ const pre = (entries, name) =>
   run(entries, {
     input: { hook_event_name: "PreToolUse", tool_name: name, tool_input: {} },
   });
-const denies = (out) =>
-  out.includes('"permissionDecision":"deny"') && out.includes("[stop]");
 
 const cases = [
   [
@@ -575,139 +573,19 @@ const cases = [
         ),
       ),
   ],
-  // After a stop: the next turn answers and starts no work until the user says to go on
+  // After a stop: the next prompt gets a note to answer and start no work until the user says to go on
   [
     "stop: next prompt gets the [stop] note",
     () => prompt(stoppedTurn, ASK).includes("[stop] The user stopped"),
   ],
   [
-    "stop: re-sent helper is refused",
-    () => denies(pre([...stoppedTurn, typed(ASK)], "Agent")),
-  ],
-  [
-    "stop: refused again after a compact",
-    () =>
-      denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(ASK),
-            { type: "system", subtype: "compact_boundary" },
-            {
-              type: "user",
-              isCompactSummary: true,
-              message: {
-                role: "user",
-                content: "This session is being continued …",
-              },
-            },
-          ],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: an Edit is refused too",
-    () => denies(pre([...stoppedTurn, typed(ASK)], "Edit")),
-  ],
-  [
-    "stop: a Nimbalyst spawn_session is refused too",
-    () =>
-      denies(
-        pre([...stoppedTurn, typed(ASK)], "mcp__nimbalyst-host__spawn_session"),
-      ),
-  ],
-  [
-    "stop: a read call runs",
-    () => !denies(pre([...stoppedTurn, typed(ASK)], "Bash")),
-  ],
-  [
-    "stop: 'go on, finish W3' lets work run",
-    () => !denies(pre([...stoppedTurn, typed("ok go on, finish W3")], "Agent")),
-  ],
-  [
-    "stop: a plain new instruction to start lets work run, with no [stop] note (an app restart writes the same result)",
-    () =>
-      !denies(
-        pre(
-          [...stoppedTurn, typed(START)],
-          "mcp__nimbalyst-host__spawn_session",
-        ),
-      ) && !prompt(stoppedTurn, START).includes("[stop]"),
-  ],
-  [
-    "stop: the turn after the answered one is free",
-    () =>
-      !denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(ASK),
-            say("Stopped. Done: … Left: …"),
-            typed("thanks, now do S9"),
-          ],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: '[Request interrupted by user]' counts as a stop",
-    () =>
-      denies(
-        pre(
-          [
-            typed("build it"),
-            tool("Bash", {}),
-            result("x"),
-            {
-              type: "user",
-              message: {
-                role: "user",
-                content: [
-                  { type: "text", text: "[Request interrupted by user]" },
-                ],
-              },
-            },
-            typed(ASK),
-          ],
-          "Agent",
-        ),
-      ),
+    "stop: a plain new instruction to start gets no [stop] note (an app restart writes the same result)",
+    () => !prompt(stoppedTurn, START).includes("[stop]"),
   ],
   // Only a message that says to stop holds: the stop button and a message sent mid-turn write the same interrupted
   // result 0.2-0.4 s before the message (the real stops of session c779e67d, 2026-11-11 00:47:58Z and 00:50:51Z)
   [
-    "stop: the real stop 'Yo, what is going on? I stopped you, …' is held",
-    () =>
-      denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(
-              "Yo, what is going on? I stopped you, this is getting ridiculous. You've been on step W3 for, bro, how long you have left until you actually released?",
-            ),
-          ],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: the real stop 'Bro, stop, bro, stop, …' is held",
-    () =>
-      denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(
-              "Bro, stop, bro, stop, I literally stopped you, you keep working, what's wrong with you, what?",
-            ),
-          ],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: a correction sent mid-turn ('fix this contraption at the bottom as well') is not held, no [stop] note",
+    "stop: a correction sent mid-turn ('fix this contraption at the bottom as well') gets no [stop] note",
     () => {
       const cut = [
         typed("Fix the shop layout."),
@@ -716,133 +594,11 @@ const cases = [
         typed("[Request interrupted by user for tool use]"),
         synthetic(),
       ];
-      return (
-        !denies(
-          pre(
-            [...cut, typed("fix this contraption at the bottom as well")],
-            "Edit",
-          ),
-        ) &&
-        !prompt(cut, "fix this contraption at the bottom as well").includes(
-          "[stop]",
-        )
-      );
+      return !prompt(
+        cut,
+        "fix this contraption at the bottom as well",
+      ).includes("[stop]");
     },
-  ],
-  [
-    "stop: an added ask sent mid-turn ('Also for some reason when you select the themes…') is not held",
-    () =>
-      !denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(
-              "Also for some reason when you select the themes, you select the theme, and it doesn't apply until you restart.",
-            ),
-          ],
-          "Edit",
-        ),
-      ),
-  ],
-  [
-    "stop: 'No, do not continue with W3. What is left?' stays held",
-    () =>
-      denies(
-        pre(
-          [...stoppedTurn, typed("No, do not continue with W3. What is left?")],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: 'Don't start anything, just tell me what is left.' stays held",
-    () =>
-      denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed("Don't start anything, just tell me what is left."),
-          ],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: 'Ok what is going on, I stopped you' stays held",
-    () =>
-      denies(
-        pre(
-          [...stoppedTurn, typed("Ok what is going on, I stopped you")],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: a later typed 'ok go on, finish W3' lifts the hold",
-    () =>
-      !denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(ASK),
-            say("Stopped. Done: … Left: …"),
-            typed("ok go on, finish W3"),
-          ],
-          "Agent",
-        ),
-      ),
-  ],
-  // Form answers and turns the app starts are not typed messages: they neither set nor lift a hold
-  [
-    "stop: a form's answer after a hold keeps it",
-    () =>
-      denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(ASK),
-            say("Stopped. Which part next?"),
-            typed(
-              '[Resuming after the user submitted a PromptForUserInput form] { "answers": { "next": "W3" } }',
-            ),
-          ],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: a form's answer right after an interrupted call holds nothing",
-    () =>
-      !denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(
-              '[Resuming after the user submitted a PromptForUserInput form] { "answers": {} }',
-            ),
-          ],
-          "Agent",
-        ),
-      ),
-  ],
-  [
-    "stop: a turn the app starts (task notification) after a hold stays held",
-    () =>
-      denies(
-        pre(
-          [
-            ...stoppedTurn,
-            typed(ASK),
-            say("Stopped. Done: … Left: …"),
-            {
-              ...typed("<task-notification>task done</task-notification>"),
-              promptSource: "system",
-              origin: { kind: "task-notification" },
-            },
-          ],
-          "Agent",
-        ),
-      ),
   ],
   [
     "stop: the stop note and the cut-off reminder come as one output",
@@ -863,6 +619,12 @@ const cases = [
       }
       return out.includes("[stop]") && reminds(out);
     },
+  ],
+  // D5 (hooks cut, plan 2.8): the PreToolUse part is cut, so a PreToolUse event gets nothing, even for a held
+  // stop's work call; the prompt and Stop parts above work as before
+  [
+    "D5 PreToolUse: no output, not even for an Agent call after a held stop",
+    () => pre([...stoppedTurn, typed(ASK)], "Agent") === "",
   ],
   // Off switch, subagents, errors
   [

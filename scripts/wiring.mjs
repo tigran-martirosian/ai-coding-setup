@@ -1,6 +1,7 @@
 // The hook wiring of a settings.json: wire adds the example's hooks, retire takes out the ones the setup
 // retired, unwire takes out every hook that starts one of the setup's scripts (--uninstall). Each works
-// on a settings object over the run's ctx (home, CLAUDE, NODE, say, OLD_MATCHERS) and says what it did.
+// on a settings object over the run's ctx (home, CLAUDE, NODE, say, OLD_MATCHERS, GROUPS, INSTALLED_GROUPS) and
+// says what it did.
 import path from "node:path";
 import { fwd, SCRIPT_PATHS } from "./files.mjs";
 
@@ -13,7 +14,16 @@ export const scriptsOf = (h, home) =>
 // Hooks the setup retired (their files are gone): an install that has one wired from ~/.claude loses
 // that entry on the next run. The same script from another folder is the user's own and stays.
 // `folder` is the .claude folder the hooks sit in, `names` the retired file names, `where` the suffix of the message.
-export function retire({ home, say }, target, folder, names, where = "") {
+// {event, exact} (the example's _setup.retiredEntries): only that event's entries, and only those whose arguments
+// are exactly the name's ("repeat-guard.mjs" takes the bare entry and leaves `repeat-guard.mjs --near-cap-only`).
+export function retire(
+  { home, say },
+  target,
+  folder,
+  names,
+  where = "",
+  { event: only, exact = false } = {},
+) {
   const root = fwd(folder).toLowerCase();
   // A name may carry the arguments of one retired entry ("file-link-gate.mjs --remind"): quotes are dropped
   // before matching, so `node "<claude>/hooks/file-link-gate.mjs" --remind` matches and the bare Stop entry does not.
@@ -24,22 +34,26 @@ export function retire({ home, say }, target, folder, names, where = "") {
       .replace(/\s+/g, " ")
       .toLowerCase();
   const nameOf = (h) =>
-    names.find(
-      (name) =>
-        (plain(h) + " ").includes(`${root}/hooks/${name.toLowerCase()} `) ||
-        plain(h).endsWith(`${root}/hooks/${name.toLowerCase()}`),
-    );
+    names.find((name) => {
+      const [file, ...args] = name.split(" ");
+      return exact
+        ? (plain(h) + " ").includes(`${root}/hooks/${file.toLowerCase()} `) &&
+            argsOf(h.command, file) === args.join(" ")
+        : (plain(h) + " ").includes(`${root}/hooks/${name.toLowerCase()} `) ||
+            plain(h).endsWith(`${root}/hooks/${name.toLowerCase()}`);
+    });
   const retired = (h) => nameOf(h) !== undefined;
   let removed = 0;
   for (const [event, groups] of Object.entries(target.hooks || {})) {
-    if (!Array.isArray(groups)) continue;
+    if (!Array.isArray(groups) || (only && event !== only)) continue;
+    const why = only
+      ? `no longer run on ${event}`
+      : "no longer part of the setup";
     target.hooks[event] = groups.filter((group) => {
       const before = (group.hooks || []).length;
       if (!before) return true;
       for (const h of group.hooks.filter(retired))
-        say(
-          `hook removed: ${event} ${nameOf(h)}${where} (no longer part of the setup)`,
-        );
+        say(`hook removed: ${event} ${nameOf(h)}${where} (${why})`);
       group.hooks = group.hooks.filter((h) => !retired(h));
       removed += before - group.hooks.length;
       return group.hooks.length > 0;
@@ -47,8 +61,8 @@ export function retire({ home, say }, target, folder, names, where = "") {
   }
   return removed;
 }
-// A command's arguments after the script (null when it does not start that script): "--start" in
-// `node "<claude>/hooks/code-review-gate.mjs" --start`
+// A command's arguments after the script (null when it does not start that script): "--pre" in
+// `node "<claude>/hooks/verify-gate.mjs" --pre`
 const nameIn = (base) => base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const argsOf = (command, base) =>
   String(command || "")
@@ -64,7 +78,7 @@ const argsOf = (command, base) =>
 // A hook whose example matcher changed: an install that still has exactly the old one gets the new one.
 // A matcher the user changed themselves is not in OLD_MATCHERS and is left alone.
 export function wire(
-  { home, CLAUDE, NODE, say, OLD_MATCHERS },
+  { home, CLAUDE, NODE, say, OLD_MATCHERS, GROUPS, INSTALLED_GROUPS },
   target,
   hooks,
   folder,
@@ -93,11 +107,69 @@ export function wire(
         const at = fwd(path.join(global ? CLAUDE : folder, script));
         const command = `${NODE} "${at}"${extra}`;
         const wanted = extra.trim().replace(/\s+/g, " ");
-        // One script can be wired several times with different arguments (code-review-gate.mjs plain,
-        // --start, --pre) and, with an `if`, once for each tool: an entry counts as this one only when
+        // One script can be wired several times with different arguments (steer.mjs --hook and --watch,
+        // verify-gate.mjs plain and --pre) and, with an `if`, once for each tool: an entry counts as this one only when
         // the arguments are the same, and the `if` too where the example has one.
         const same = (h) =>
           argsOf(h.command, base) === wanted && (!hook.if || h.if === hook.if);
+        // A dispatcher entry (`hooks/dispatch.mjs <group>`) runs the hooks of that group of the groups file in
+        // ~/.claude (INSTALLED_GROUPS: an update keeps a copy the user changed): an older entry of one of them on
+        // this event, started from ~/.claude with the same arguments, goes, so the hook does not run twice (spec D18:
+        // steer and session-cleanup have side effects if run twice). One the user added a redirect to (`2>/dev/null`)
+        // goes too, and the update says its output is no longer hidden. A copy from elsewhere is the user's own and
+        // stays. A hook of the repo's group the installed file does not list keeps its own entry, and the update
+        // says so.
+        const dispatcher = global && base === "dispatch.mjs";
+        if (dispatcher && !Array.isArray(GROUPS?.[wanted]))
+          throw new Error(
+            `wire: ${hook.command} names no group of hooks/dispatch-groups.json`,
+          );
+        if (dispatcher && !INSTALLED_GROUPS)
+          throw new Error(
+            "wire: a dispatcher entry needs INSTALLED_GROUPS, the groups file in ~/.claude",
+          );
+        const installed = (
+          dispatcher && Array.isArray(INSTALLED_GROUPS[wanted])
+            ? INSTALLED_GROUPS[wanted]
+            : []
+        ).filter((m) => typeof m?.hook === "string");
+        const key = (m) =>
+          `${m.hook.toLowerCase()} ${(m.args ?? []).join(" ")}`;
+        const runner = `dispatch.mjs ${wanted}`;
+        // Where an entry of this hook from ~/.claude, with these arguments, is: an old entry of a group's hook
+        const memberOf = (member) => {
+          const mBase = path.basename(member.hook);
+          const mAt = fwd(path.join(CLAUDE, member.hook)).toLowerCase();
+          const mArgs = (member.args ?? []).join(" ");
+          return {
+            name: `${event} ${mBase}${mArgs ? ` ${mArgs}` : ""}${where}`,
+            ours: (h) =>
+              argsOf(h.command, mBase) === mArgs &&
+              scriptOf(h.command, mBase)?.toLowerCase() === mAt,
+          };
+        };
+        for (const member of dispatcher ? GROUPS[wanted] : []) {
+          if (installed.some((m) => key(m) === key(member))) continue;
+          const { name, ours } = memberOf(member);
+          if (list.some((g) => (g.hooks || []).some(ours)))
+            say(
+              `hook kept: ${name} (${fwd(path.join(CLAUDE, "hooks", "dispatch-groups.json"))} does not list it in group ${wanted}, so it keeps its own entry)`,
+            );
+        }
+        for (const member of installed) {
+          const { name, ours } = memberOf(member);
+          const redirected = (h) => /\s\d?>>?\s*\S/.test(String(h.command));
+          for (const g of [...list]) {
+            const gone = (g.hooks || []).filter(ours);
+            if (!gone.length) continue;
+            g.hooks = g.hooks.filter((h) => !ours(h));
+            if (!g.hooks.length) list.splice(list.indexOf(g), 1);
+            say(
+              `hook moved: ${name} (now run by ${runner}, in one process${gone.some(redirected) ? "; the redirect you added is gone with its entry, so its output is no longer hidden" : ""})`,
+            );
+            added++;
+          }
+        }
         // An older wiring of this hook ran for every command; the `if` handlers replace it, not join it.
         // Only the one started from ~/.claude is the setup's; a script from elsewhere is the user's own.
         if (hook.if && global) {

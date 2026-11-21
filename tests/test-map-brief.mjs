@@ -98,11 +98,49 @@ const MAPDATA = {
 };
 const dir = project("main", FILES, MAPDATA);
 
+// The hook acts only while ~/.claude/state/map-brief-trial.json is unexpired (memory-and-map spec D4): each test home
+// is a temp folder; trial is the file's text, or null for none.
+const localDay = (offsetDays = 0) => {
+  const d = new Date(Date.now() + offsetDays * 864e5);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+const testHome = (name, trial) => {
+  const h = path.join(tmp, "homes", name);
+  fs.mkdirSync(path.join(h, ".claude", "state"), { recursive: true });
+  if (trial !== null)
+    fs.writeFileSync(
+      path.join(h, ".claude", "state", "map-brief-trial.json"),
+      trial,
+    );
+  return h;
+};
+const trialLog = (h) => {
+  const f = path.join(h, ".claude", "state", "map-brief-trial.jsonl");
+  return fs.existsSync(f)
+    ? fs
+        .readFileSync(f, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
+    : [];
+};
+const onHome = testHome("on", JSON.stringify({ until: localDay(14) }));
+
+// Every case below the trial section runs in the map arm of an unexpired trial
 const hook = (cwd, input, env = {}) =>
   spawnSync("node", [HOOK], {
     input: typeof input === "string" ? input : JSON.stringify(input),
     encoding: "utf8",
-    env: { ...process.env, MAP_BRIEF: "", CLAUDE_PROJECT_DIR: cwd, ...env },
+    env: {
+      ...process.env,
+      MAP_BRIEF: "",
+      CLAUDE_PROJECT_DIR: cwd,
+      HOME: onHome,
+      USERPROFILE: onHome,
+      MAP_BRIEF_ARM: "map",
+      ...env,
+    },
   });
 const agent = (prompt, type = "worker", extra = {}) => ({
   tool_name: "Agent",
@@ -124,6 +162,170 @@ const updated = (r) => {
 const cli = (args, { cwd = dir, input = "" } = {}) =>
   spawnSync("node", [MAP, ...args], { cwd, input, encoding: "utf8" });
 
+// ---- the trial (memory-and-map spec D4): the hook acts only while the trial file is unexpired; each eligible call gets
+// an arm, map or none, and one line in ~/.claude/state/map-brief-trial.jsonl
+const TRIAL_BRIEF =
+  "Fix the rounding bug in src/billing/invoice.js and add a test.";
+const trialCall = (prompt = TRIAL_BRIEF, extra = {}) => ({
+  session_id: "sess-1",
+  tool_use_id: "toolu_1",
+  cwd: dir,
+  ...agent(prompt),
+  ...extra,
+});
+const onHomeEnv = (h, arm = "map") => ({
+  HOME: h,
+  USERPROFILE: h,
+  MAP_BRIEF_ARM: arm,
+});
+for (const [name, trial] of [
+  ["no trial file", null],
+  ["a trial that ended yesterday", JSON.stringify({ until: localDay(-1) })],
+]) {
+  const h = testHome(name.replace(/\W+/g, "-"), trial);
+  const outs = [
+    trialCall(),
+    trialCall(TRIAL_BRIEF, { permission_mode: "auto" }),
+  ].map((c) => hook(dir, c, onHomeEnv(h)));
+  check(
+    `trial: ${name}: no output in any mode, nothing logged (the hook acts only during the trial)`,
+    outs.every((r) => r.stdout === "" && r.status === 0 && r.stderr === "") &&
+      trialLog(h).length === 0,
+    outs.map((r) => r.stdout + r.stderr).join(" | "),
+  );
+}
+{
+  const h = testHome("broken", "{ not json");
+  const r = hook(dir, trialCall(), onHomeEnv(h));
+  check(
+    "trial: a broken trial file counts as no trial: no output, exit 0, one line on stderr",
+    r.stdout === "" &&
+      r.status === 0 &&
+      r.stderr.trim().split("\n").length === 1 &&
+      /trial file/.test(r.stderr) &&
+      trialLog(h).length === 0,
+    r.stdout + r.stderr,
+  );
+}
+{
+  const h = testHome("today", JSON.stringify({ until: localDay(0) }));
+  const r = hook(dir, trialCall(), onHomeEnv(h));
+  check(
+    "trial: a trial whose until is today still acts (the map arm rewrites)",
+    updated(r)?.prompt.includes("## Invoice billing [billing]"),
+    r.stdout + r.stderr,
+  );
+}
+{
+  const h = testHome("map-arm", JSON.stringify({ until: localDay(14) }));
+  const r = hook(dir, trialCall(), onHomeEnv(h, "map"));
+  const u = updated(r);
+  const log = trialLog(h);
+  check(
+    "trial: the map arm rewrites the brief as before",
+    u?.prompt.startsWith(`${TRIAL_BRIEF}\n\nSYSTEMS MAP:`) &&
+      u.prompt.includes("## Invoice billing [billing]"),
+    r.stdout + r.stderr,
+  );
+  check(
+    "trial: the map arm logs one line with ts, session, toolUseId, cwd, type, arm, mode and the brief as sent",
+    log.length === 1 &&
+      Object.keys(log[0]).sort().join() ===
+        "arm,brief,cwd,mode,session,toolUseId,ts,type" &&
+      !Number.isNaN(Date.parse(log[0].ts)) &&
+      log[0].session === "sess-1" &&
+      log[0].toolUseId === "toolu_1" &&
+      log[0].cwd === dir &&
+      log[0].type === "worker" &&
+      log[0].arm === "map" &&
+      log[0].mode === "rewrite" &&
+      log[0].brief === TRIAL_BRIEF,
+    JSON.stringify(log),
+  );
+}
+{
+  const h = testHome("none-arm", JSON.stringify({ until: localDay(14) }));
+  const outs = [
+    trialCall(),
+    trialCall(TRIAL_BRIEF, { permission_mode: "auto" }),
+  ].map((c) => hook(dir, c, onHomeEnv(h, "none")));
+  const log = trialLog(h);
+  check(
+    "trial: the none arm gives no output in either mode and logs each call with arm none",
+    outs.every((r) => r.stdout === "" && r.status === 0) &&
+      log.length === 2 &&
+      log.every((l) => l.arm === "none") &&
+      log.map((l) => l.mode).join() === "rewrite,auto",
+    outs.map((r) => r.stdout + r.stderr).join(" | ") + JSON.stringify(log),
+  );
+}
+{
+  const h = testHome("auto", JSON.stringify({ until: localDay(14) }));
+  const r = hook(
+    dir,
+    trialCall(TRIAL_BRIEF, { permission_mode: "auto" }),
+    onHomeEnv(h, "map"),
+  );
+  let o = null;
+  try {
+    o = JSON.parse(r.stdout).hookSpecificOutput;
+  } catch {}
+  const log = trialLog(h);
+  check(
+    "trial: auto mode, map arm: no updatedInput, the map lines as context, logged with mode auto",
+    o &&
+      !("updatedInput" in o) &&
+      o.additionalContext.includes("## Invoice billing [billing]") &&
+      log.length === 1 &&
+      log[0].mode === "auto" &&
+      log[0].arm === "map",
+    r.stdout + JSON.stringify(log),
+  );
+}
+{
+  const h = testHome("long", JSON.stringify({ until: localDay(14) }));
+  const long = `${TRIAL_BRIEF} ${"word ".repeat(3000)}`;
+  const u = updated(hook(dir, trialCall(long), onHomeEnv(h)));
+  const log = trialLog(h);
+  check(
+    "trial: the logged brief is the prompt as sent, cut to its first 8,000 characters; the helper still gets all of it",
+    log.length === 1 &&
+      log[0].brief === long.slice(0, 8000) &&
+      u?.prompt.startsWith(long),
+    `${log[0]?.brief.length}`,
+  );
+}
+{
+  const h = testHome("not-eligible", JSON.stringify({ until: localDay(14) }));
+  hook(dir, { ...trialCall(), ...agent(TRIAL_BRIEF, "Explore") }, onHomeEnv(h));
+  hook(project("trial-nomap", FILES, null), trialCall(), onHomeEnv(h));
+  hook(
+    dir,
+    trialCall(`${TRIAL_BRIEF}\n\nSYSTEMS MAP: already here.`),
+    onHomeEnv(h),
+  );
+  check(
+    "trial: an uncovered type, a project with no map and a brief that already holds map lines are not logged",
+    trialLog(h).length === 0,
+    JSON.stringify(trialLog(h)),
+  );
+}
+{
+  const h = testHome("random", JSON.stringify({ until: localDay(14) }));
+  const r = hook(dir, trialCall(), {
+    HOME: h,
+    USERPROFILE: h,
+    MAP_BRIEF_ARM: "",
+  });
+  const log = trialLog(h);
+  check(
+    "trial: with no MAP_BRIEF_ARM the arm is map or none, and the output follows it",
+    log.length === 1 &&
+      (log[0].arm === "map" ? updated(r) !== null : r.stdout === ""),
+    r.stdout + JSON.stringify(log),
+  );
+}
+
 // ---- the hook
 let u = updated(
   hook(
@@ -139,12 +341,11 @@ check(
     ) &&
     u.prompt.includes("## Invoice billing [billing]"),
 );
+// changed on purpose (job 6 S1): the brief gives a thing's rules and links, no start files
 check(
-  "named file: the thing starts in that file first, and its links follow",
+  "named file: the thing's links follow, and no 'Start in' line",
   u &&
-    /Start in: src\/billing\/invoice\.js, src\/billing\/pricing\.js/.test(
-      u.prompt,
-    ) &&
+    !/Start in/.test(u.prompt) &&
     u.prompt.includes(
       "- from User login: Billing reads the signed-in account",
     ) &&
@@ -164,6 +365,30 @@ check(
     u.subagent_type === "worker" &&
     u.run_in_background === false,
 );
+// The trial's map arm differs from its none arm only by the map lines: the rewrite keeps run_in_background as sent
+// (a terminal session, where serves.mjs foreground would set it to false)
+{
+  const term = { CLAUDE_CODE_ENTRYPOINT: "cli", BACKGROUND_TASKS: "" };
+  const bg = updated(
+    hook(
+      dir,
+      agent("Fix src/billing/invoice.js", "worker", {
+        run_in_background: true,
+      }),
+      term,
+    ),
+  );
+  const call = agent("Fix src/billing/invoice.js");
+  delete call.tool_input.run_in_background;
+  const absent = updated(hook(dir, call, term));
+  check(
+    "map arm: run_in_background stays as sent (true stays true, absent stays absent), so the arms differ only by the map lines",
+    bg?.run_in_background === true &&
+      absent !== null &&
+      !("run_in_background" in absent),
+    JSON.stringify({ bg: bg?.run_in_background, absent }),
+  );
+}
 const out = hook(dir, agent("x src/billing/invoice.js")).stdout;
 check(
   "the output is one PreToolUse updatedInput object",
@@ -171,11 +396,11 @@ check(
 );
 
 u = updated(hook(dir, agent("Look at how the user login works.")));
+// changed on purpose (job 6 S1): only things matched by file are shown; a name alone gives none
 check(
-  "a thing's name as whole words matches",
-  u &&
-    u.prompt.includes("## User login [auth]") &&
-    !u.prompt.includes("## Invoice billing"),
+  "a thing's name alone, with no file of it, gets the nothing matched line",
+  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
+  u?.prompt,
 );
 u = updated(hook(dir, agent("Change Dashboard.tsx", "reviewer")));
 check(
@@ -187,9 +412,9 @@ check(
   "a Windows-style path matches",
   u && u.prompt.includes("## Invoice billing [billing]"),
 );
-u = updated(hook(dir, agent("Review the planned change", "planner")));
+u = updated(hook(dir, agent("Review the planned change", "plan-reviewer")));
 check(
-  "planner is a covered type (nothing matched line)",
+  "a covered type whose brief matches nothing gets the nothing matched line",
   u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
 u = updated(
@@ -213,11 +438,11 @@ check(
 );
 
 u = updated(hook(dir, agent("Fix the rounding in src/billing/tax.js")));
+// changed on purpose (job 6 S1): a thing found through the folder of an unlisted file is not matched by file, so it is not shown
 check(
-  "folder fallback: a file no thing lists, in a thing's folder, finds that thing",
-  u &&
-    u.prompt.includes("## Invoice billing [billing]") &&
-    !u.prompt.includes("## User login"),
+  "folder fallback: a file no thing lists, in a thing's folder, gets the nothing matched line",
+  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
+  u?.prompt,
 );
 u = updated(hook(dir, agent("Add a line to README.md about the install.")));
 check(
@@ -326,6 +551,71 @@ check(
     /map-brief hook skipped/.test(broken.stderr) &&
     broken.stderr.trim().split("\n").length === 1,
 );
+// Auto mode (permission_mode "auto"): an updatedInput would void Nimbalyst's classifier review, so the map lines go
+// to the calling session as additionalContext, with a line telling it to paste them into the brief itself. Without
+// the rewrite run_in_background is not forced either.
+const autoCall = (prompt, extra = {}) => ({
+  ...agent(prompt, "worker", extra),
+  permission_mode: "auto",
+});
+for (const [name, call] of [
+  ["auto", autoCall("Fix the rounding bug in src/billing/invoice.js.")],
+  [
+    "auto, a background helper",
+    autoCall("Fix the rounding bug in src/billing/invoice.js.", {
+      run_in_background: true,
+    }),
+  ],
+]) {
+  const r = hook(dir, call);
+  let h = null;
+  try {
+    h = JSON.parse(r.stdout).hookSpecificOutput;
+  } catch {}
+  // the helper has already started with the brief as sent: the line asks for what can still be done
+  check(
+    `${name}: no updatedInput; the map lines go to the caller's context with a line to send them to the helper now`,
+    h &&
+      !("updatedInput" in h) &&
+      !("permissionDecision" in h) &&
+      h.additionalContext.includes("SYSTEMS MAP:") &&
+      h.additionalContext.includes("## Invoice billing [billing]") &&
+      /SendMessage/.test(h.additionalContext) &&
+      /already returned, check its result/.test(h.additionalContext) &&
+      /later helper/.test(h.additionalContext),
+    r.stdout,
+  );
+}
+check(
+  "auto: a brief that already holds the marker: no output",
+  hook(dir, { ...done, permission_mode: "auto" }).stdout === "",
+);
+const autoNone = hook(
+  dir,
+  autoCall("Do something unrelated to anything listed."),
+).stdout;
+check(
+  "auto: a brief the map matches nothing in: no output (no 'nothing matched' line to send)",
+  autoNone === "",
+  autoNone,
+);
+// Any other mode: the output is byte for byte the one with no mode in the event
+for (const mode of ["default", "acceptEdits", "bypassPermissions", "plan"])
+  check(
+    `mode ${mode}: the same output as now`,
+    hook(dir, {
+      ...agent("Fix src/billing/invoice.js", "worker", {
+        run_in_background: true,
+      }),
+      permission_mode: mode,
+    }).stdout ===
+      hook(
+        dir,
+        agent("Fix src/billing/invoice.js", "worker", {
+          run_in_background: true,
+        }),
+      ).stdout,
+  );
 const junk = hook(dir, "not json at all");
 check("fails open on bad hook input", junk.stdout === "" && junk.status === 0);
 check(
@@ -337,10 +627,8 @@ check(
   }).stdout === "",
 );
 
-// ---- serves-brief runs on the same call and only one updatedInput is used: both hooks build the same full brief
-const SERVES_HOOK = fileURLToPath(
-  new URL("../hooks/serves-brief.mjs", import.meta.url),
-);
+// ---- changed on purpose (purpose record retired 2026-11-19): map-brief no longer adds the plan row's Serves lines
+// nor runs the purpose check; it gives the map lines only and refuses nothing.
 const plan = [
   "| Step | Job | Serves |",
   "|---|---|---|",
@@ -348,59 +636,26 @@ const plan = [
   "",
 ].join("\n");
 const both = project("both", { ...FILES, "docs/plan.md": plan }, MAPDATA);
-const servesHook = (input, env = {}) =>
-  spawnSync("node", [SERVES_HOOK], {
-    input: JSON.stringify(input),
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      MAP_BRIEF: "",
-      SERVES_BRIEF: "",
-      CLAUDE_PROJECT_DIR: both,
-      ...env,
-    },
-  });
 const call = agent(
   "STEP: B1 of docs/plan.md. Fix the rounding in src/billing/invoice.js.",
 );
-const fromMap = updated(hook(both, call, { SERVES_BRIEF: "" })),
-  fromServes = updated(servesHook(call));
-// changed on purpose (purpose check): the Serves part now ends with the PURPOSE CHECK result line
-const servesLine =
-  '\n\nSERVES (from docs/plan.md B1): "rounding must match the tax office" (DECISIONS)' +
-  `\nPURPOSE CHECK: not run: no DECISIONS.md in ${both.replace(/\\/g, "/")}.`;
+const fromMap = updated(hook(both, call, { SERVES_BRIEF: "" }));
 check(
-  "both hooks: the same brief, map lines then the Serves line, whichever output is used",
-  fromMap &&
-    JSON.stringify(fromMap) === JSON.stringify(fromServes) &&
-    fromMap.prompt.endsWith(servesLine) &&
-    fromMap.prompt.indexOf("## Invoice billing [billing]") <
-      fromMap.prompt.indexOf("SERVES (from"),
+  "map-brief adds the map lines and no Serves line or purpose check (the purpose record is retired)",
+  fromMap?.prompt.includes("## Invoice billing [billing]") &&
+    !fromMap.prompt.includes("SERVES (from") &&
+    !fromMap.prompt.includes("PURPOSE CHECK"),
   fromMap?.prompt,
 );
-const mapOff = updated(servesHook(call, { MAP_BRIEF: "off" }));
-check(
-  "MAP_BRIEF=off: map-brief says nothing, serves-brief still gives the Serves line and no map lines",
-  hook(both, call, { MAP_BRIEF: "off" }).stdout === "" &&
-    mapOff?.prompt === call.tool_input.prompt + servesLine,
-);
-const servesOff = updated(hook(both, call, { SERVES_BRIEF: "off" }));
-check(
-  "SERVES_BRIEF=off: serves-brief says nothing, map-brief still gives the map lines and no Serves line",
-  servesHook(call, { SERVES_BRIEF: "off" }).stdout === "" &&
-    servesOff?.prompt.includes("## Invoice billing [billing]") &&
-    !servesOff.prompt.includes("SERVES (from"),
-);
-// a worker start on a row that fails the purpose check: both hooks refuse with the same text, so the refusal holds
-// whichever output is used; the off switches still work
+// a row that names a thing in an old purpose record, with no Serves words for it and a limit not marked NARROWED
 const refusedDir = project(
   "refused",
   {
     ...FILES,
     "docs/plan.md": [
-      "| Step | Job | Serves |",
+      "| Step | Job | Files |",
       "|---|---|---|",
-      '| B2 | Run the invoice billing, read-only | "rounding must match the tax office" (DECISIONS) |',
+      "| B2 | Run the invoice billing, read-only | src/billing/invoice.js |",
       "",
     ].join("\n"),
     "DECISIONS.md": [
@@ -419,73 +674,35 @@ const refusedDir = project(
   MAPDATA,
 );
 const refusedCall = agent("STEP: B2 of docs/plan.md. Run it.");
-const denyOf = (r) => {
-  try {
-    const o = JSON.parse(r.stdout).hookSpecificOutput;
-    return o.permissionDecision === "deny" ? o.permissionDecisionReason : null;
-  } catch {
-    return null;
-  }
-};
-const mapDeny = denyOf(hook(refusedDir, refusedCall, { SERVES_BRIEF: "" })),
-  servesDeny = denyOf(
-    servesHook(refusedCall, { CLAUDE_PROJECT_DIR: refusedDir }),
-  );
+const startOld = hook(refusedDir, refusedCall, { SERVES_BRIEF: "" });
 check(
-  "both hooks refuse a worker start on a failing row, with the same text",
-  !!mapDeny &&
-    mapDeny === servesDeny &&
-    mapDeny.includes('"Invoices that match the tax office."') &&
-    mapDeny.includes('"read-only"'),
-  `${mapDeny}\n     ${servesDeny}`,
-);
-check(
-  "MAP_BRIEF=off: map-brief says nothing, serves-brief still refuses",
-  hook(refusedDir, refusedCall, { MAP_BRIEF: "off" }).stdout === "" &&
-    !!denyOf(
-      servesHook(refusedCall, {
-        CLAUDE_PROJECT_DIR: refusedDir,
-        MAP_BRIEF: "off",
-      }),
-    ),
-);
-check(
-  "SERVES_BRIEF=off: no refusal from either hook, map-brief gives the map lines",
-  !denyOf(hook(refusedDir, refusedCall, { SERVES_BRIEF: "off" })) &&
-    updated(
-      hook(refusedDir, refusedCall, { SERVES_BRIEF: "off" }),
-    )?.prompt.includes("SYSTEMS MAP:") &&
-    servesHook(refusedCall, {
-      CLAUDE_PROJECT_DIR: refusedDir,
-      SERVES_BRIEF: "off",
-    }).stdout === "",
+  "map-brief does not refuse a worker start on a row without Serves words (the purpose check is retired)",
+  !startOld.stdout.includes('"deny"') &&
+    updated(startOld)?.prompt.includes("SYSTEMS MAP:"),
+  startOld.stdout,
 );
 
 // ---- deleted files are dropped
+// changed on purpose (job 6 S1): the brief lists no start files or notes, so the "note that exists is kept" case went
 u = updated(hook(dir, agent("Fix src/auth/login.js")));
 check(
-  "deleted file dropped: not in Start in, and no gone notes",
+  "deleted file dropped: the thing is shown, with no gone file or note",
   u &&
-    u.prompt.includes("Start in: src/auth/login.js, src/auth/session.js") &&
+    u.prompt.includes("## User login [auth]") &&
     !u.prompt.includes("removed") &&
     !u.prompt.includes("auth-removed"),
-);
-check(
-  "a listed note that exists is kept",
-  updated(hook(dir, agent("Fix src/billing/invoice.js"))).prompt.includes(
-    "Read: docs/billing.md",
-  ),
+  u?.prompt,
 );
 u = updated(hook(dir, agent("Fix src/auth/removed.js")));
 check(
-  "a brief naming a deleted file: found by its folder, the deleted file is not listed",
-  u &&
-    u.prompt.includes("## User login [auth]") &&
-    !/Start in:.*removed/.test(u.prompt.split("Fix src/auth/removed.js")[1]),
+  "a brief naming a deleted file: the file is no listed file, so nothing matched",
+  u && u.prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
+  u?.prompt,
 );
 
-// ---- the cap: 2,000 characters, 3 full entries, one line for each further match
-// changed on purpose (B1): the cap went from 7,000 to 2,000 characters, and the "more links" line no longer repeats the command
+// ---- the cap: 2,000 characters, at most 3 full entries, the rest named on one "Also matched by file" line
+// changed on purpose (job 6 S1): things are matched by file, not by name; a further thing is named on one line with no start
+// files, so the start-file cut and the one-line entries (with their "more matches left out" count) went
 const big = { nodes: [], links: [] };
 for (let k = 0; k < 5; k++)
   big.nodes.push({
@@ -508,8 +725,17 @@ const bigDir = project(
   big,
 );
 const five =
-  "Work on Area number 0, Area number 1, Area number 2, Area number 3 and Area number 4.";
+  "Work on src/a0.js, src/a1.js, src/a2.js, src/a3.js and src/a4.js.";
 const rb = cli(["--brief"], { cwd: bigDir, input: five });
+const linkCounts = (s) =>
+  s
+    .split(/^## /m)
+    .slice(1)
+    .map((e) => (e.match(/^- (to|from|<-|\w+ ->) /gm) ?? []).length);
+const alsoNames = (s) =>
+  (/^Also matched by file \(--near <id>\): (.*)$/m.exec(s)?.[1] ?? "")
+    .split(", ")
+    .filter(Boolean);
 check(
   "cap: at most 2,000 characters",
   rb.status === 0 &&
@@ -518,12 +744,11 @@ check(
   `length ${rb.stdout.length}`,
 );
 check(
-  "cap: 5 matches give 3 full entries and one line each for the other 2",
-  (rb.stdout.match(/^## /gm) ?? []).length === 3 &&
-    /Also matched/.test(rb.stdout) &&
-    (rb.stdout.match(/^- Area number \d \[area\d\]: src\/a\d\.js$/gm) ?? [])
-      .length === 2,
-  rb.stdout.slice(-300),
+  "cap: 5 file-matched things: at most 3 full entries, every other one named on the 'Also matched by file' line",
+  linkCounts(rb.stdout).length >= 1 &&
+    linkCounts(rb.stdout).length <= 3 &&
+    linkCounts(rb.stdout).length + alsoNames(rb.stdout).length === 5,
+  rb.stdout,
 );
 check(
   "cap: links cut with a '- (<k> more: --near <id>)' line, no command in it",
@@ -531,73 +756,95 @@ check(
     !rb.stdout.includes('node "'),
   rb.stdout,
 );
+check(
+  "cap: a full entry moved to the Also line keeps every entry left at 3 links or more",
+  linkCounts(rb.stdout).every((c) => c >= 3),
+  `${linkCounts(rb.stdout)}`,
+);
 const hb = updated(hook(bigDir, agent(five)));
 check(
   "cap: the hook adds at most 2,000 characters of map lines",
   hb && hb.prompt.length - five.length < 2000 + 700,
 );
 
-// ---- trim order: over the cap, start files are cut to 3 before any link is cut
-const WORDS = 0; // link text length: full output is a little over 2,000 characters, and fits once the start files are cut to 3
-const fat = { nodes: [], links: [] };
-const fatFiles = (k) =>
-  [0, 1, 2, 3, 4, 5].map((j) => `src/area${k}/module-with-a-long-name-${j}.js`);
+// cut order: links are cut, one at a time from the entry with the most, before any full entry moves
+const cutMap = { nodes: [], links: [] };
 for (let k = 0; k < 3; k++)
-  fat.nodes.push({
-    id: `area${k}`,
-    name: `Area number ${k}`,
-    what: `Thing ${k} does its job.`,
-    files: fatFiles(k),
+  cutMap.nodes.push({
+    id: `c${k}`,
+    name: `Cut part ${k}`,
+    what: `Part ${k}.`,
+    files: [`src/c${k}.js`],
   });
 for (let k = 0; k < 3; k++)
   for (let j = 0; j < 6; j++)
-    fat.links.push({
-      from: `area${k}`,
-      to: `area${(k + 1 + (j % 2)) % 3}`,
-      says: `Link ${j} of area ${k}: ` + "words ".repeat(WORDS),
-      evidence: [fatFiles(k)[0]],
+    cutMap.links.push({
+      from: `c${k}`,
+      to: `c${(k + 1 + (j % 2)) % 3}`,
+      says: `Link ${j} of part ${k}: ` + "w ".repeat(15),
+      evidence: [`src/c${k}.js`],
     });
-const fatDir = project(
-  "fat",
-  Object.fromEntries(fat.nodes.flatMap((n) => n.files).map((f) => [f, "x"])),
-  fat,
-);
-const threeNames = "Work on Area number 0, Area number 1 and Area number 2.";
-const noCap = cli(["--brief"], { cwd: fatDir, input: threeNames });
-const startCounts = (s) =>
-  (s.match(/^Start in: .*$/gm) ?? []).map(
-    (l) => l.slice(10).split(", ").length,
-  );
+const rc = cli(["--brief"], {
+  cwd: project(
+    "cut-links",
+    { "src/c0.js": "x", "src/c1.js": "x", "src/c2.js": "x" },
+    cutMap,
+  ),
+  input: "Fix src/c0.js, src/c1.js and src/c2.js.",
+});
 check(
-  "trim order: just over the cap, every thing keeps only 3 start files",
-  startCounts(noCap.stdout).length === 3 &&
-    startCounts(noCap.stdout).every((c) => c === 3),
-  `counts ${startCounts(noCap.stdout)}, length ${noCap.stdout.length}`,
-);
-check(
-  "trim order: with the files cut, no link is cut (36 link lines, no 'more' line)",
-  !/ more: --near|^Links: \d/m.test(noCap.stdout) &&
-    (noCap.stdout.match(/^- (to|from) /gm) ?? []).length === 36,
-  noCap.stdout.slice(-200),
-);
-check(
-  "under the cap nothing is cut: a thing with 6 files lists all 6",
-  startCounts(
-    cli(["--brief"], { cwd: fatDir, input: "Work on Area number 0." }).stdout,
-  )[0] === 6,
+  "cut order: just over the cap, all 3 full entries stay and only links are cut",
+  rc.stdout.trimEnd().length <= 2000 &&
+    linkCounts(rc.stdout).length === 3 &&
+    linkCounts(rc.stdout).every((c) => c >= 3) &&
+    / more: --near c\d\)$/m.test(rc.stdout) &&
+    !/^Also matched/m.test(rc.stdout),
+  `length ${rc.stdout.length}, links ${linkCounts(rc.stdout)}\n${rc.stdout}`,
 );
 
-// ---- more matches than fit: one-liners cut at the cap, with the count left out
+// refill: three 600-character entries; the third moves to the Also line and the links cut before that come back
+const refMap = { nodes: [], links: [] };
+for (let k = 0; k < 3; k++)
+  refMap.nodes.push({
+    id: `r${k}`,
+    name: `Refill part ${k}`,
+    what: "z".repeat(600),
+    files: [`src/r${k}.js`],
+  });
+for (let k = 0; k < 3; k++)
+  for (let j = 0; j < 4; j++)
+    refMap.links.push({
+      from: `r${k}`,
+      to: `r${(k + 1 + (j % 2)) % 3}`,
+      says: `Link ${j} of part ${k}.`,
+      evidence: [`src/r${k}.js`],
+    });
+const rr = cli(["--brief"], {
+  cwd: project(
+    "refill-links",
+    { "src/r0.js": "x", "src/r1.js": "x", "src/r2.js": "x" },
+    refMap,
+  ),
+  input: "Fix src/r0.js, src/r1.js and src/r2.js.",
+});
+check(
+  "refill: after the third entry moved to the Also line, the two left show all their links again",
+  rr.stdout.trimEnd().length <= 2000 &&
+    linkCounts(rr.stdout).length === 2 &&
+    !/ more: --near/.test(rr.stdout) &&
+    alsoNames(rr.stdout).length === 1,
+  `length ${rr.stdout.length}, links ${linkCounts(rr.stdout)}\n${rr.stdout.slice(-400)}`,
+);
+
+// many file-matched things: the Also line names 8 and counts the rest
 const wide = { nodes: [], links: [] };
 for (let k = 0; k < 120; k++)
   wide.nodes.push({
     id: `part${k}`,
     name: `Part number ${k}`,
     what: `Part ${k} does its job.`,
-    files: [
-      `lib/part${k}/a-fairly-long-file-name-${k}.js`,
-      `lib/part${k}/another-long-file-name-${k}.js`,
-    ],
+    files: [`lib/part${k}/a-fairly-long-file-name-${k}.js`],
+    rules: [`Part ${k} never writes to disk.`],
   });
 const wideDir = project(
   "wide",
@@ -606,32 +853,18 @@ const wideDir = project(
 );
 const rw = cli(["--brief"], {
   cwd: wideDir,
-  input: wide.nodes.map((n) => n.name).join(", "),
+  input: wide.nodes.map((n) => n.files[0]).join(", "),
 });
 const wl = rw.stdout.trimEnd();
 check(
-  "cap: 120 matches stay within 2,000 characters, every line whole",
+  "cap: 120 file-matched things: 3 full entries, the Also line names 8 and counts the other 109",
   rw.status === 0 &&
     wl.length <= 2000 &&
-    wl.length > 1800 &&
-    wl
-      .split("\n")
-      .filter((l) => l.startsWith("- Part"))
-      .every((l) =>
-        /^- Part number (\d+) \[part\1\]: lib\/part\1\/a-fairly-long-file-name-\1\.js, lib\/part\1\/another-long-file-name-\1\.js$/.test(
-          l,
-        ),
-      ),
-  `length ${wl.length}`,
-);
-check(
-  "cap: the cut ends with the count of matches left out",
-  (() => {
-    const m = /\n- \((\d+) more matches left out\)$/.exec(wl);
-    const shown = (wl.match(/^- Part number \d+ \[part\d+\]: /gm) ?? []).length;
-    return m && Number(m[1]) + shown + 3 === 120;
-  })(),
-  wl.slice(-120),
+    (wl.match(/^## /gm) ?? []).length === 3 &&
+    /\nAlso matched by file \(--near <id>\): Part number 3 \[part3\], .*Part number 10 \[part10\] and 109 more$/.test(
+      wl,
+    ),
+  wl.slice(-300),
 );
 
 // ---- ordinary words and written folders
@@ -670,39 +903,43 @@ check(
     "Reviewing this change before the release and precision.",
   ).prompt.includes("SYSTEMS MAP: nothing in this brief matched ("),
 );
+// changed on purpose (job 6 S1): a name or folder match no longer reaches the brief (only file matches do); it still ranks things,
+// so these cases read briefFind's match kinds
+const { briefFind } = await import(pathToFileURL(MAP).href);
+const kindOf = (text, nodes, id) =>
+  briefFind(
+    text,
+    nodes.map((n) => ({ ...n, words: [] })),
+    [],
+    topicDir,
+  )[2].get(id);
 check(
-  '"Release Beacon" still matches',
-  hookOn("Look at the Release Beacon.").prompt.includes(
-    "## Release Beacon [release]",
-  ),
+  '"Release Beacon" still matches, by name',
+  kindOf("Look at the Release Beacon.", topics.nodes, "release") === "name",
 );
 check(
   '"recall" is an ordinary word no more: it matches a thing whose id it is',
-  updated(
-    hook(
-      project(
-        "recall",
-        { "src/recall/beacon.js": "x" },
-        {
-          nodes: [
-            {
-              id: "recall",
-              name: "Recall Beacon",
-              what: "Brings a player home.",
-              files: ["src/recall/beacon.js"],
-            },
-          ],
-          links: [],
-        },
-      ),
-      agent("Reviewing this change for recall and precision."),
-    ),
-  ).prompt.includes("## Recall Beacon [recall]"),
+  kindOf(
+    "Reviewing this change for recall and precision.",
+    [
+      {
+        id: "recall",
+        name: "Recall Beacon",
+        what: "Brings a player home.",
+        files: ["src/recall/beacon.js"],
+      },
+    ],
+    "recall",
+  ) === "name",
 );
-u = hookOn("Review target: src/quest");
 check(
-  "a named narrow folder matches the things with files in it",
-  u.prompt.includes("## Quest board [quest]"),
+  "a named narrow folder matches the things with files in it, by folder",
+  // the id is renamed here so the written "src/quest" does not also match it by id
+  kindOf(
+    "Review target: src/quest",
+    topics.nodes.map((n) => (n.id === "quest" ? { ...n, id: "qb" } : n)),
+    "qb",
+  ) === "folder",
 );
 u = hookOn("Review target: src/wide and src/wide/");
 check(
@@ -842,6 +1079,171 @@ r = cli(["--check"], { cwd: handled });
 check(
   "--check on a handledBy file: says who keeps it, exit 0",
   r.status === 0 && /kept by \.claude\/hooks\/map-brief\.py/.test(r.stdout),
+);
+
+// ---- rules on a thing, why on a link: --check validates them, --brief and --near show them
+const RFILES = {
+  "src/cart/cart.js": "x",
+  "src/cart/total.js": "x",
+  "src/pricing/price.js": "x",
+  "src/mail/send.js": "x",
+  "src/lonely.js": "x",
+};
+const RULE_CART = "Never round the total here; pricing rounds it.";
+const WHY_PRICE =
+  "The cart must never work out a price itself, so a price change lands in one place.";
+const RMAP = {
+  nodes: [
+    {
+      id: "cart",
+      name: "Shopping cart",
+      what: "Holds what the buyer picked.",
+      files: ["src/cart/cart.js", "src/cart/total.js"],
+      rules: [RULE_CART],
+    },
+    {
+      id: "pricing",
+      name: "Pricing",
+      what: "Works out each price.",
+      files: ["src/pricing/price.js"],
+      rules: ["Prices are whole cents only."],
+    },
+    {
+      id: "mail",
+      name: "Receipt mail",
+      what: "Sends the receipt.",
+      files: ["src/mail/send.js"],
+    },
+    {
+      id: "lonely",
+      name: "Lonely part",
+      what: "Has no rules and no links.",
+      files: ["src/lonely.js"],
+    },
+  ],
+  links: [
+    {
+      from: "pricing",
+      to: "cart",
+      type: "feeds",
+      says: "Pricing gives the cart its prices.",
+      why: WHY_PRICE,
+      evidence: ["src/cart/total.js"],
+    },
+    {
+      from: "cart",
+      to: "mail",
+      says: "The cart sends the receipt mail.",
+      evidence: ["src/mail/send.js"],
+    },
+  ],
+};
+const rdir = project("rules", RFILES, RMAP);
+r = cli(["--check"], { cwd: rdir });
+check(
+  "--check: a map with rules (list of lines) and why (a sentence) passes, exit 0",
+  r.status === 0 && /^ok: 4 things, 2 links/m.test(r.stdout),
+  r.stdout + r.stderr,
+);
+const badRules = project("badrules", RFILES, {
+  nodes: [
+    { ...RMAP.nodes[0], rules: RULE_CART },
+    { ...RMAP.nodes[1], rules: ["Prices are whole cents only.", ""] },
+    { ...RMAP.nodes[2], rules: [7] },
+    RMAP.nodes[3],
+  ],
+  links: [
+    { ...RMAP.links[0], why: "" },
+    { ...RMAP.links[1], why: 3 },
+  ],
+});
+r = cli(["--check"], { cwd: badRules });
+const badLines = (r.stdout.match(/^BAD\s.*$/gm) ?? [])
+  .map((l) => l.replace(/^BAD\s+/, "BAD "))
+  .join("\n");
+check(
+  "--check refuses rules that is a string, not a list: exit 1",
+  r.status === 1 && /BAD thing 1 \(cart\): rules must be a list/.test(badLines),
+  r.stdout,
+);
+check(
+  "--check refuses an empty rules line and a rules line that is no string",
+  /BAD thing 2 \(pricing\): rules must be a list/.test(badLines) &&
+    /BAD thing 3 \(mail\): rules must be a list/.test(badLines),
+  r.stdout,
+);
+check(
+  "--check refuses a why that is empty or no string",
+  /BAD link 1 \(pricing -> cart\): why must be/.test(badLines) &&
+    /BAD link 2 \(cart -> mail\): why must be/.test(badLines),
+  r.stdout,
+);
+check(
+  "--check: a thing with no rules and a link with no why are fine (no BAD line for lonely)",
+  !/lonely/.test(badLines),
+  r.stdout,
+);
+
+r = cli(["--brief"], { cwd: rdir, input: "Fix the sum in src/cart/total.js" });
+check(
+  "--brief: a thing matched by file shows its rules",
+  r.status === 0 &&
+    r.stdout.includes(`## Shopping cart [cart]`) &&
+    r.stdout.includes(`Rules:\n- ${RULE_CART}`),
+  r.stdout,
+);
+check(
+  "--brief: a link of a file-matched thing shows its why after what it says",
+  r.stdout.includes(
+    `- <- feeds from Pricing: Pricing gives the cart its prices. Why: ${WHY_PRICE}`,
+  ),
+  r.stdout,
+);
+check(
+  "--brief: no plain part-and-files lines (no 'Start in', no 'Also matched')",
+  !/Start in/.test(r.stdout) && !/Also matched/.test(r.stdout),
+  r.stdout,
+);
+r = cli(["--brief"], {
+  cwd: rdir,
+  input: "Change how the Shopping cart and the Receipt mail work",
+});
+check(
+  "--brief: things matched by name alone, not by file, are left out",
+  r.status === 0 && r.stdout === "",
+  r.stdout,
+);
+r = cli(["--brief"], { cwd: rdir, input: "Fix src/lonely.js" });
+check(
+  "--brief: a file-matched thing with no rules and no links is left out",
+  r.status === 0 && r.stdout === "",
+  r.stdout,
+);
+r = cli(["--brief"], {
+  cwd: rdir,
+  input: "Fix src/cart/cart.js and src/mail/send.js",
+});
+const cartPart = r.stdout.split("## Shopping cart [cart]")[1] ?? "";
+check(
+  "--brief: the link nearest the brief's files comes first",
+  cartPart.indexOf("- to Receipt mail:") >= 0 &&
+    cartPart.indexOf("- to Receipt mail:") <
+      cartPart.indexOf("- <- feeds from Pricing:"),
+  r.stdout,
+);
+
+r = cli(["--near", "cart"], { cwd: rdir });
+check(
+  "--near shows a thing's rules",
+  r.status === 0 && r.stdout.includes(`Rules:\n- ${RULE_CART}`),
+  r.stdout,
+);
+check(
+  "--near shows a link's why",
+  /- <- feeds from Pricing: Pricing gives the cart its prices\. Why: The cart must never/.test(
+    r.stdout,
+  ),
+  r.stdout,
 );
 
 // ---- --scan
@@ -1141,13 +1543,16 @@ check(
   r.status === 0 && r.stdout === "",
   r.stdout,
 );
+// changed on purpose (job 6 S1): the brief names a file, since a name alone shows nothing; the dispatch part may still show as the far
+// end of a cart link, so the check is that it gets no entry of its own
 r = cli(["--brief"], {
   cwd: tdir,
-  input: "Fix the Pricing table.\nBudget: keep shipping costs out of it.",
+  input: "Fix src/cart/cart.js.\nBudget: keep shipping costs out of it.",
 });
 check(
-  "--brief: beside a thing the brief names, a code part matched by words alone is not shown",
-  /## Pricing \[pricing\]/.test(r.stdout) && !/Parcel dispatch/.test(r.stdout),
+  "--brief: beside a thing matched by file, a code part matched by words alone gets no entry",
+  /## Shopping cart \[cart\]/.test(r.stdout) &&
+    !/## Parcel dispatch/.test(r.stdout),
   r.stdout,
 );
 check(
@@ -1180,6 +1585,7 @@ const SFILES = {
 };
 for (const s of skillIds) SFILES[`skills/${s}/SKILL.md`] = "x";
 SFILES["tools/solo.mjs"] = "x";
+// each skill carries a rule (job 6 S1): a file-matched thing with no rules and no links is left out of the brief
 const SMAP = {
   nodes: skillIds.map((s) => ({
     id: s,
@@ -1187,6 +1593,7 @@ const SMAP = {
     what: "A skill.",
     files: [`skills/${s}/SKILL.md`, "docs/index.md"],
     words: ["\\bskill rule\\b"],
+    rules: [`Skill ${s} is edited in the repo only.`],
   })),
   links: [],
 };
@@ -1275,7 +1682,8 @@ check(
   r.stdout,
 );
 
-// ---- match kind: words alone give a how-to thing one line, a code part nothing; shared folders; cut order
+// ---- match kind: words alone show nothing; a thing matched by file shows, and a words hit beside it adds no line
+// changed on purpose (job 6 S1): the "(by words)" lines for how-to things went with the other plain part-and-files lines
 const KFILES = {
   "src/billing/invoice.js": "x",
   "docs/a.md": "x",
@@ -1298,33 +1706,21 @@ const KMAP = {
       what: "Issues the invoice.",
       files: ["src/billing/invoice.js"],
       words: ["\\bpayment run\\b"],
+      rules: ["Never issue two invoices for one order."],
     },
     howTo("do-a", "How to: alpha", ["\\balpha step\\b"]),
     howTo("do-b", "How to: bravo", ["\\bbravo step\\b"]),
-    howTo("do-c", "How to: charlie", [
-      "\\bcharlie step\\b",
-      "\\bcharlie go\\b",
-    ]),
   ],
   links: [],
 };
 const kdir = project("kinds", KFILES, KMAP);
-r = cli(["--brief"], { cwd: kdir, input: "Do the alpha step once." });
-check(
-  "words: a how-to thing matched by words alone is one line ending ' (by words)', no full entry",
-  r.stdout ===
-    "Also matched (name, where to start):\n- How to: alpha [do-a]: docs/a.md (by words)\n",
-  r.stdout,
-);
 r = cli(["--brief"], {
   cwd: kdir,
-  input: "The alpha step, the bravo step, the charlie step, charlie go.",
+  input: "Do the alpha step once, then the bravo step.",
 });
 check(
-  "words: of three how-to things matched by words alone, the best 2 by rank are shown",
-  /\[do-c\][^\n]*\(by words\)\n- How to: alpha \[do-a\]/.test(r.stdout) &&
-    !/do-b/.test(r.stdout) &&
-    !/left out/.test(r.stdout),
+  "words: how-to things matched by words alone give no lines",
+  r.status === 0 && r.stdout === "",
   r.stdout,
 );
 r = cli(["--brief"], { cwd: kdir, input: "Start the payment run." });
@@ -1340,11 +1736,9 @@ r = cli(["--brief"], {
   input: "Fix src/billing/invoice.js, then the alpha step.",
 });
 check(
-  "words: a thing matched by file is a full entry, the words line comes last",
-  r.stdout.startsWith("## Invoice billing [billing]") &&
-    r.stdout.endsWith(
-      "\n\nAlso matched (name, where to start):\n- How to: alpha [do-a]: docs/a.md (by words)\n",
-    ),
+  "words: a thing matched by file is shown with its rule, the words hit beside it adds nothing",
+  r.stdout ===
+    "## Invoice billing [billing]\nIssues the invoice.\nRules:\n- Never issue two invoices for one order.\nLinks: none\n",
   r.stdout,
 );
 r = cli(["--brief"], {
@@ -1352,14 +1746,12 @@ r = cli(["--brief"], {
   input: "Add src/billing/new.ts for the alpha step.",
 });
 check(
-  "fallback: an unlisted file's folder still counts beside a words hit (full entry, then the words line)",
-  r.stdout.startsWith("## Invoice billing [billing]") &&
-    /\n- How to: alpha \[do-a\]: docs\/a\.md \(by words\)\n$/.test(r.stdout),
+  "fallback: an unlisted file's folder and a words hit give no lines (neither is a file match)",
+  r.status === 0 && r.stdout === "",
   r.stdout,
 );
 
 // a one-word folder names nothing in the fallback; a folder with a slash does, as kind "folder"
-const { briefFind } = await import(pathToFileURL(MAP).href);
 const fnodes = [
   { id: "top", name: "Top hooks", files: ["hooks/y.mjs"], words: [] },
   { id: "deep", name: "Deep hooks", files: ["lib/hooks/y.mjs"], words: [] },
@@ -1437,76 +1829,9 @@ for (const [t, want, d = rroot, n = spnodes] of [
     rfind(t, d, n),
   );
 
-// a long absolute folder that every file of a line starts with is written once
-const abs = path
-  .join(tmp, "shared-abs-map", "shared-abs", "some", "folder")
-  .replace(/\\/g, "/");
-const other = process.execPath.replace(/\\/g, "/");
-const AFILES = {};
-for (const f of ["a.js", "b.js", "c.js", "d.js", "e.js"])
-  AFILES[`shared-abs/some/folder/${f}`] = "x";
-const part = (id, files) => ({ id, name: `Part ${id}`, what: "x", files });
-const adir = project("shared-abs-map", AFILES, {
-  nodes: [
-    part("x", [`${abs}/a.js`, `${abs}/b.js`, `${abs}/c.js`]),
-    part("y", [`${abs}/d.js`]),
-    part("z", [`${abs}/e.js`, other]),
-    part("w", [`${abs}/d.js`, `${abs}/e.js`]),
-  ],
-  links: [],
-});
-r = cli(["--brief"], {
-  cwd: adir,
-  input: "Part x, Part y, Part z and Part w.",
-});
-check(
-  "shared folder: three files under one long folder read 'Start in <folder>/: a, b, c'",
-  r.stdout.includes(`\nStart in ${abs}/: a.js, b.js, c.js\n`),
-  r.stdout,
-);
-check(
-  "shared folder: one file, or files in two folders, keep their whole paths",
-  r.stdout.includes(`\nStart in: ${abs}/d.js\n`) &&
-    r.stdout.includes(`\nStart in: ${abs}/e.js, ${other}\n`),
-  r.stdout,
-);
-check(
-  "shared folder: a one-line entry reads '- <name> [<id>] in <folder>/: a, b'",
-  r.stdout.includes(`\n- Part w [w] in ${abs}/: d.js, e.js`),
-  r.stdout,
-);
-
-// cut order: one-line entries go before a full entry loses its head, words lines before the others
-const WHAT = 560; // characters of each `what`: the output is just over 2,000 and fits once the words line is cut
-const OFILES = { "docs/w.md": "x" };
-const ONODES = [];
-for (const k of [1, 2, 3, 4, 5]) {
-  OFILES[`src/o${k}.js`] = "x";
-  ONODES.push({
-    id: `o${k}`,
-    name: `Order part ${k}`,
-    what: `Part ${k} ` + "x".repeat(WHAT),
-    files: [`src/o${k}.js`],
-  });
-}
-ONODES.push({ ...howTo("do-w", "How to: whistle", ["\\bwhistle loud\\b"]) });
-const odir = project("cut-order", OFILES, { nodes: ONODES, links: [] });
-r = cli(["--brief"], {
-  cwd: odir,
-  input:
-    "Order part 1, Order part 2, Order part 3, Order part 4, Order part 5; whistle loud.",
-});
-check(
-  "cut order: the words line is cut first; the file-matched one-line entries and all 3 full entries stay",
-  r.stdout.trimEnd().length <= 2000 &&
-    (r.stdout.match(/^## /gm) ?? []).length === 3 &&
-    /\n- Order part 4 \[o4\]: src\/o4\.js\n- Order part 5 \[o5\]: src\/o5\.js\n- \(1 more matches left out\)\n$/.test(
-      r.stdout,
-    ),
-  `length ${r.stdout.length}\n${r.stdout.slice(-200)}`,
-);
-
-// a top entry with a 2,500-character `what`: its name, what and start files stay; its links shrink to one line
+// changed on purpose (job 6 S1): the shared-folder "Start in" form, the words-line cut and the one-line refill went with the start
+// files and the one-line entries; the cut order and the link refill are tested with the cap above
+// a top entry with a 2,500-character `what`: its name and what stay; its links shrink to one line; the others move to the Also line
 const LFILES = { "src/l1.js": "x", "src/l2.js": "x", "src/l3.js": "x" };
 const LNODES = [1, 2, 3].map((k) => ({
   id: `l${k}`,
@@ -1521,50 +1846,19 @@ const ldir2 = project("long-what", LFILES, {
     { from: "l1", to: "l3", says: "One feeds three.", evidence: ["src/l1.js"] },
   ],
 });
-r = cli(["--brief"], {
-  cwd: ldir2,
-  input: "Long part 1, Long part 2 and Long part 3.",
-});
+r = cli(["--brief"], { cwd: ldir2, input: "Fix src/l1.js only." });
 check(
-  "long what: the top entry keeps its name, what and start files; every link cut reads 'Links: <k> (--near <id>)'",
+  "long what: the top entry keeps its name and what; every link cut reads 'Links: <k> (--near <id>)'",
   r.stdout.startsWith(
-    `## Long part 1 [l1]\n${"y".repeat(2500)}\nStart in: src/l1.js\nLinks: 2 (--near l1)`,
+    `## Long part 1 [l1]\n${"y".repeat(2500)}\nLinks: 2 (--near l1)`,
   ),
   r.stdout.slice(2500),
 );
 check(
-  "long what: the second and third full entries became one-line entries, then were left out",
+  "long what: the second and third full entries moved to the Also line, then were counted",
   (r.stdout.match(/^## /gm) ?? []).length === 1 &&
-    r.stdout.endsWith(
-      "\n\nAlso matched (name, where to start):\n- (2 more matches left out)\n",
-    ),
+    r.stdout.endsWith("\n\nAlso matched by file (--near <id>): 2 more\n"),
   r.stdout.slice(2500),
-);
-
-// three 700-character entries: the third becomes one line, and the one-line entries cut before it come back into the freed room
-const WFILES = {};
-const WNODES = [1, 2, 3, 4, 5, 6, 7].map((k) => {
-  WFILES[`src/w${k}.js`] = "x";
-  return {
-    id: `w${k}`,
-    name: `Wide part ${k}`,
-    what: k <= 3 ? "z".repeat(700) : `Part ${k}.`,
-    files: [`src/w${k}.js`],
-  };
-});
-r = cli(["--brief"], {
-  cwd: project("refill", WFILES, { nodes: WNODES, links: [] }),
-  input: WNODES.map((n) => n.name).join(", ") + ".",
-});
-check(
-  "refill: after the third full entry became one line, all five one-line entries are shown",
-  (r.stdout.match(/^## /gm) ?? []).length === 2 &&
-    [3, 4, 5, 6, 7].every((k) =>
-      r.stdout.includes(`\n- Wide part ${k} [w${k}]`),
-    ) &&
-    !r.stdout.includes("left out") &&
-    r.stdout.length <= 2000,
-  `length ${r.stdout.length}\n${r.stdout.slice(1400)}`,
 );
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

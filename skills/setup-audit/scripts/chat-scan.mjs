@@ -9,7 +9,8 @@
 //   - the chats in short: every request (cut to --chars) with the end of Claude's reply to it
 // and an index is printed: project, chats, requests, signals, digest file.
 // Options: --days N (default 14)   --project TEXT (only folders whose path contains it)
-//          --top N projects, busiest first (default 4)   --chars N per request (default 400)
+//          --top N projects, busiest first (default: every project with --min requests, at most 8)
+//          --min N requests for a project to count when --top is not given (default 10)   --chars N per request (default 400)
 //          --max-kb N per digest (default 120)   --out DIR (default ~/.claude/reports/chat-review/<date>)
 //          --root DIR (default ~/.claude/projects)
 import fs from "node:fs";
@@ -33,7 +34,9 @@ import { reportDir, writeReport } from "./lib/reports.mjs";
 const root = opt("root", defaultRoot());
 const { days, since } = daysWindow();
 const only = String(opt("project", "")).toLowerCase();
-const top = Number(opt("top", 4));
+// A fixed top 4 left out a busy project in a review (2026-11-19), so by default every busy one counts.
+const top = Number(opt("top", 8));
+const minRequests = opt("top") === undefined ? Number(opt("min", 10)) : 0;
 const chars = Number(opt("chars", 400));
 const maxBytes = Number(opt("max-kb", 120)) * 1024;
 const out = opt("out", reportDir("chat-review"));
@@ -237,6 +240,7 @@ const rows = [...projects.entries()]
     requests: sum(chats, (c) => c.turns.length),
   }))
   .sort((a, b) => b.requests - a.requests)
+  .filter((r, i) => i === 0 || r.requests >= minRequests)
   .slice(0, top);
 if (!rows.length) {
   console.log(

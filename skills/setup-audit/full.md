@@ -1,8 +1,8 @@
 # Full review
 
-The one review that ends in choices. `/setup-audit usage` gives numbers only, `/setup-audit` checks that the
-setup is healthy, `/setup-audit chat` fits skills to the work; this runs their scanners together, adds what
-they don't measure, and turns the result into options with a number behind each.
+The one review that ends in choices. Claude Code's `/usage` gives numbers only (`/setup-audit usage` points to
+it), `/setup-audit` checks that the setup is healthy, `/setup-audit chat` fits skills to the work; this runs the
+setup's scanners together, adds what they don't measure, and turns the result into options with a number behind each.
 
 Scripts and `worker` subagents do the reading; you judge and ask. **Change nothing until the
 user has ticked it.** Never open chat records yourself. The `worker` subagents
@@ -55,7 +55,7 @@ C (questions that missed), G (reasoning) and H (pace: LONG or SHORT) are the one
 
 In the same message, start one `blind-reviewer` agent for the blind look at the whole setup, the
 once-per-release look of the `lead` skill. It has only the Read tool, so its brief names every file by
-full path: `~/.claude/CLAUDE.md`, each file in `~/.claude/rules/`, and each digest of this run. Paste
+full path: `~/.claude/CLAUDE.md`, each file in `~/.claude/rules/` when that folder exists, and each digest of this run. Paste
 the `description:` line of every `~/.claude/skills/*/SKILL.md` (one Grep) as the list of skills. Ask:
 "Read these as the person who works with this setup each day: where does the way they work fight it?"
 Leave out `DECISIONS.md`, `docs/decisions/`, `HANDOFF.md`, design notes and every reason behind the setup. End the brief
@@ -64,7 +64,7 @@ with `SYSTEMS MAP: none`.
 ## 4. Health
 
 Step 3 of `audit.md` (next to SKILL.md), in as few shell calls as possible: every test suite
-(`bash audits/run-all-suites.sh`; `HANDOFF.md` says which failures are expected), the hook files that
+(the test commands that project's `CLAUDE.md` names; `HANDOFF.md` or a known-failures note there says which failures are expected), the hook files that
 `~/.claude/settings.json` names exist, `~/.claude/agents/worker.md` exists. Then
 `claude plugin validate ~/.claude/skills`: name every skill it reports with "frontmatter fields silently
 dropped" (that skill loads with no description, so Claude never matches it) and any other error it shows.

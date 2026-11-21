@@ -339,10 +339,15 @@
   let sessionHeard = null;
   // The clicks the page makes into the app: the open-file call and the open-session and open-item events
   window.fxCalls = [];
+  // A slow session list (ms; the app's took 20 s, 2026-11-19), and a change report that starts a read
+  window.fxSlowList = 0;
+  window.fxChange = () => heard && heard({ type: "updated" });
   for (const type of ["open-ai-session", "nimbalyst:navigate-tracker-item"])
     window.addEventListener(type, (e) => window.fxCalls.push({ channel: type, ...e.detail }));
   window.electronAPI = {
     invoke: async (channel, ...args) => {
+      if (channel === "sessions:list" && window.fxSlowList)
+        await new Promise((ok) => setTimeout(ok, window.fxSlowList));
       if (channel === "sessions:list")
         return { success: true, sessions: args[1] && args[1].includeArchived ? sessions : sessions.filter((x) => !x.archived) };
       if (channel === "transcript:get-tail-messages") return tails[args[0]].slice();

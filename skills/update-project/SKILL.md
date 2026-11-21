@@ -28,6 +28,9 @@ Folder: the one the user names, else the current one. `PASS` below is
    of the accounts tried needs access to it) and keep them out of the list. A `GitHub` note means
    GitHub answered an error (a revoked token, a deleted repo): show it and the checks it names as
    not run, and keep those out of the list.
+   P6 and P30 are the file checker's findings, each with its id (`F1`, `F2` …). P30 lists the files in the wrong
+   folder by the "Folder roles" table of `~/.claude/skills/file-upkeep/standard.md`: a picture or preview in `docs/`
+   moves to `shown/` (git-ignored, for the person to look at); code in `docs/` asks where it goes.
    Done when every line of the check output has either a proposed change or "keep, because …".
 3. **Show.** Write `audits/<yyyy-mm-dd>-project-pass.md` in the project: the check output, then a
    numbered list, each item the file, what is wrong with its evidence, and the change (for an edit,
@@ -38,7 +41,7 @@ Folder: the one the user names, else the current one. `PASS` below is
    numbers to do.
    Nothing found: say so, run `PASS --done "<folder>"`, stop.
 4. **Do what was ticked**, in this order: new files, edits to existing files, moves and renames
-   (through `node ~/.claude/skills/file-upkeep/file-check.mjs --apply <ledger>`, which has its own
+   (P6 and P30, through `node ~/.claude/skills/file-upkeep/file-check.mjs --apply <ledger>`, which has its own
    undo), deletes last. Done when every ticked item is done or its failure is written down.
 5. **Close.** `PASS --done "<folder>" --kept <ids>`, the ids of the unticked items (comma-separated,
    as the check printed them), so the next check leaves them out. One line in the project's
@@ -46,24 +49,23 @@ Folder: the one the user names, else the current one. `PASS` below is
    session's work is already in it. Reply: a short table of what changed and what was kept, the
    audit file's link, and "start a new chat here so the changes load".
 
+A project's package upkeep (updating its packages) is its own task: [`packages.md`](packages.md).
+
 ## What needs the user's yes
 
-- **Listed in the reply, no tick needed:** only the base files and folders P1 creates (a `fix` line,
+- **Listed in the reply, no tick needed:** the base files and folders P1 creates, P13 starting git (below) (a `fix` line,
   such as a missing `docs/` folder), and the stamp `pass.mjs` writes in `~/.claude/project-pass.json`.
 - **A tick:** every item the check prints as `ask`, a new file among them (the preset files of P15
-  and P17-P18), every edit to an existing file, every move or rename, every `.gitignore` line, every
+  and P17-P18), every edit to an existing file, every move or rename, every `.gitignore` line (P13 start-git aside), every
   decision archive move, and every `decisions.mjs --split` or `--apply`.
-- **A tick per item, its command shown:** every `git init` (only through P13) and every GitHub setting
+- **Done without a tick, listed:** P13's `git init` in a folder with no git (every project folder has
+  local git), with its `.gitignore` from new-project's `preset/gitignore.txt`. The pass's finished changes,
+  committed as one commit (P13's first commit is its own).
+- **A tick per item, its command shown:** every GitHub setting
   (P16 rename, P20-P22). A setting is read back with a `GET` after it is set, and the reply shows
   the value read.
 - **A tick per item, its full path shown:** every delete (untracked scratch, a stale memory note).
-- **Done without a tick, outside a pass:** after a commit or a `HANDOFF.md` edit, the `upkeep-note`
-  hook has Claude trim a `HANDOFF.md` over 120 lines (P3), fix or drop dead paths (P8), and archive
-  the older decision entry (in `DECISIONS.md` or `docs/decisions/`) that a newly added line says it replaces (P4, that entry only). In a
-  pass the same changes still need a tick, and older "Replaces" lines are archived only here.
-  Once every 30 days, on a commit, it also has Claude update the packages as [`packages.md`](packages.md)
-  says: small updates silently when the tests pass, big ones on one card, security problems at once.
-- **Outside a pass:** a git commit or push (only when the user asks), a change outside the folder
+- **Outside a pass:** a push, a change outside the folder
   (its memory folder under `~/.claude/projects/` and the stamp are the exceptions), a plugin turned
   on in every folder.
 

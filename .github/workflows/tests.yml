@@ -162,6 +162,58 @@ jobs:
           node-version: 24
       - run: node scripts/privacy-check.mjs .
 
+  # gitleaks over every commit, not only the new ones: a key added in one commit and deleted in a later one is still
+  # in the history GitHub serves. The repo's .gitleaks.toml allows the public and fake values, each with its reason.
+  # The release download, not gitleaks-action: on a pull request the action scans only that pull request's commits.
+  # Pinned by version and by the sha256 of the download (from the release's gitleaks_8.30.1_checksums.txt).
+  secret-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks 8.30.1
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+      # --redact: a finding shows the file, line, rule and commit, never the value.
+      - run: $RUNNER_TEMP/gitleaks git --config .gitleaks.toml --redact --no-banner .
+
+  # npm audit reads each package-lock.json and needs no install. Each folder in its own step. The release waits on
+  # every check of this run, so a step that fails (a new advisory on a package the release did not touch, or npm
+  # not answering) only warns: continue-on-error keeps the job green, and a ::warning:: line names the folder.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: commands
+        continue-on-error: true
+        working-directory: extensions/commands
+        run: |
+          npm audit --audit-level=high || { echo "::warning::npm audit failed in extensions/commands (a high advisory, or npm did not answer)"; exit 1; }
+      - name: read-aloud
+        continue-on-error: true
+        working-directory: extensions/read-aloud
+        run: |
+          npm audit --audit-level=high || { echo "::warning::npm audit failed in extensions/read-aloud (a high advisory, or npm did not answer)"; exit 1; }
+      - name: systems-map
+        continue-on-error: true
+        working-directory: extensions/systems-map
+        run: |
+          npm audit --audit-level=high || { echo "::warning::npm audit failed in extensions/systems-map (a high advisory, or npm did not answer)"; exit 1; }
+      - name: usage-plan
+        continue-on-error: true
+        working-directory: extensions/usage-plan
+        run: |
+          npm audit --audit-level=high || { echo "::warning::npm audit failed in extensions/usage-plan (a high advisory, or npm did not answer)"; exit 1; }
+
   # Type and length only; the ids of open plan rows are checked on the PC by the commit hook.
   pr-title:
     if: github.event_name == 'pull_request'

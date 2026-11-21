@@ -36,6 +36,7 @@ import {
   dataDir,
   downloadRunning,
   installDir,
+  isMarker,
   missingText,
   RETRY,
   running,
@@ -83,10 +84,11 @@ function log(line) {
   );
 }
 
-// status.json in deliver.mjs's shape; a marker job (panels only) writes none: no Nimbalyst update stopped
+// status.json in deliver.mjs's shape; a marker job (panels or queued moves only) writes none: no Nimbalyst update
+// stopped
 function fail(error) {
   const job = readJson(D().staged);
-  if (job?.extensions && !job.version) {
+  if (isMarker(job)) {
     log(`failed (marker job, no status.json): ${error}`);
     return 1;
   }
