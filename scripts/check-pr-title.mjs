@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // check-pr-title: the pull-request title check of CI. The title becomes the squash commit's subject on main, so it
 // follows the commit rule: "<type>: <what the person gains>", type from the list below, at most 72 characters.
-// The length comes from the commit hook's own rule file; open plan rows and session ids are checked on the PC only.
+// The length comes from the shared rule file, commit-subject.mjs.
 //   node scripts/check-pr-title.mjs "<title>"
 // Exit code 1 with the reason when the title breaks the rule, 2 when no title is given.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkSubject } from "../hooks/lib/commit-subject.mjs";
+import { checkSubject } from "./commit-subject.mjs";
 
 export const TYPES = [
   "feat",

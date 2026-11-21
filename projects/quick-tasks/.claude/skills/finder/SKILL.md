@@ -72,15 +72,15 @@ hangs on) and get each one for every candidate.
 
 - **The sites in `profile.md` first.** For each marketplace or classifieds site that fits, open its
   search page for the query: `node tools/peek.mjs "<search address>" 4000 --find "<a word of the product>"`.
-  If the script says the browser session could not be used, use the `browser_*` tools, or
-  `https://r.jina.ai/<full address>` for a public page.
+  If the script says the browser session could not be used, use the `browser_*` tools, or for a public
+  page `node ~/.claude/workers/read-page.mjs <full address>` (it prints the saved file; read that file).
 - **Shops, reviews, owners' reports: Codex `--search` sweeps in parallel**, in the background, each from
   a different angle (shops, the profile's sites, complaints, second-hand). Copy `tools/codex-task-template.md`
   to `finds/sources/<topic>/q<N>-<angle>.txt`, fill it in, and run:
   `codex --search exec --skip-git-repo-check -s read-only -c 'windows.sandbox="unelevated"' -c model_reasoning_effort="low" -o finds/sources/<topic>/a<N>.md "$(cat finds/sources/<topic>/q<N>-<angle>.txt)" < /dev/null > finds/sources/<topic>/log<N>.txt 2>&1`
   Read only the `a<N>.md` file, never the log. Its leads are leads: prices and links in them are often wrong.
 - **Social media and forums from `profile.md`:** public posts and groups through a Codex `--search`
-  sweep and `r.jina.ai`; a site behind a login only as `tools.md` says ("Sites behind a login").
+  sweep and `read-page.mjs`; a site behind a login only as `tools.md` says ("Sites behind a login").
 - Videos, blocked pages and feeds: skill `read-web`.
 
 ## 4. Check every page before it is listed

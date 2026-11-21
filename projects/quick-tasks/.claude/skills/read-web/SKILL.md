@@ -25,10 +25,10 @@ Subtitles only; never download the video or the audio.
 
 ## Any public page as clean text
 
-`curl -s "https://r.jina.ai/<the full address, with https://>"`
+`node ~/.claude/workers/read-page.mjs "<the full address, with https://>"`
 
-Use it when WebFetch is blocked or returns scripts instead of text. For a long page, send the output
-to a file and search the file.
+Use it when WebFetch is blocked or returns scripts instead of text. It saves the page's words as
+markdown and prints the file's path; read that file, and for a long page search it with Grep.
 
 ## A feed (blog, news, podcast)
 

@@ -56,7 +56,6 @@ const MAP_TYPES = new Set([
   "worker-code",
   "worker-refactor",
   "reviewer",
-  "planner",
   "plan-reviewer",
 ]);
 const INJECTED =

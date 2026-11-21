@@ -18,10 +18,10 @@ export const POWERSHELL_TOOL = "PowerShell tool"; // a retired refusal ("don't u
 export const RETIRED_TOO_LONG = "too long";
 export const RETIRED_NO_LINE = "no explanation line";
 
-// Notes other hooks put in front of Claude
+// Notes retired hooks put in front of Claude, still in old transcripts (setup-audit's usage-scan.mjs counts them)
 export const WORKER_SIZE_NOTE = "[worker-size] This helper's context is";
 export const SETTLED_NOTE = "[background-tasks] This settled notice repeats";
-export const BIG_READ_GATE = "[big-read-gate]";
+
 export const VERIFY_GATE = "verify-gate:";
 
 // verify-gate.mjs --pre: the refusal of a code commit with no verify run after the last code edit, and the line in

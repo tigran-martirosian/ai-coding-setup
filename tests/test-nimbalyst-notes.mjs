@@ -34,10 +34,7 @@ let ctx = "";
 try {
   ctx = JSON.parse(sdk.stdout).hookSpecificOutput.additionalContext;
 } catch {}
-check(
-  "sdk: quirks note",
-  ctx.includes("UnknownVizError") && ctx.includes("`shown` folder"),
-);
+check("sdk: quirks note", ctx.includes("UnknownVizError"));
 check(
   "sdk: board note",
   ctx.includes("Keep the Nimbalyst board honest") &&
@@ -51,32 +48,20 @@ check(
   "sdk: board call goes with another call",
   ctx.includes("never alone before the final reply"),
 );
+// Lines a hook enforces left (plan 2.8): the shown folder is picture-in-project's, the browser window is
+// browser-visible-gate's (it refuses headless: false and gives the same advice)
 check(
-  "sdk: browser note stays",
-  ctx.includes("The Nimbalyst browser never shows a window") &&
-    ctx.includes("site-login"),
+  "sdk: no shown-folder or browser-window line",
+  !ctx.includes("`shown` folder") &&
+    !ctx.includes("display_to_user") &&
+    !ctx.includes("never shows a window") &&
+    !ctx.includes("headless"),
 );
-// One question line (user, 2026-11-12): a card for a quick yes/no or pick-one, the big form for a draft, a reorder or
-// many fields, anything else in the reply; the card layout rule stays in the same line
-const questionLines = ctx
-  .split("\n")
-  .filter((l) => l.includes("AskUserQuestion") || l.includes("wall of text"));
+// The question-card line left 2026-11-19 (setup rebuild): card rules live in the grilling step, nowhere else
 check(
-  "sdk: question note: a card for a quick yes/no or pick-one, the form only for a draft, a reorder or many fields, the rest in the reply",
-  ctx.includes(
-    "quick yes/no or pick-one goes on `mcp__nimbalyst__AskUserQuestion`",
-  ) &&
-    ctx.includes("only for a draft to edit, a reorder or many fields") &&
-    ctx.includes("Anything else is written in the reply"),
-);
-check(
-  "sdk: question note: a typing box on every form question",
-  ctx.includes("allowOther: true") &&
-    ctx.includes("right after each multiSelect"),
-);
-check(
-  "sdk: the card and layout notes are one line now",
-  questionLines.length === 1 &&
+  "sdk: no question-card line",
+  !ctx.includes("AskUserQuestion") &&
+    !ctx.includes("allowOther") &&
     !ctx.includes("Ask on the question card") &&
     !ctx.includes("Lay a card out"),
 );
@@ -86,12 +71,6 @@ check(
   !ctx.includes("is refused") &&
     !ctx.includes("sees it twice") &&
     !/at most \d+ questions/.test(ctx),
-);
-check(
-  "sdk: card layout: a short question line, context in a few short sentences, never a wall of text, no bullets promised",
-  ctx.includes("never a wall of text") &&
-    ctx.includes("one short sentence") &&
-    ctx.includes("a card shows no line breaks or bullets"),
 );
 
 // The unrelated-requests note: the home path from the folder holding quick-tasks, found from a worktree inside a project

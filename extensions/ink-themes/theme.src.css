@@ -95,7 +95,10 @@ __S__ {
   .session-list-item-content > .session-list-item-title { display: -webkit-box !important; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal !important; overflow-wrap: anywhere; }
   /* The icons before the title (provider mark, branch or worktree mark) share one fixed slot, so every title starts at the same x */
   /* The pin sits in the left margin of the row, out of the flow, so a pinned row's title does not move */
-  .session-list-item-pin-icon { position: absolute; left: var(--x-space-2); top: var(--x-space-3); margin: 0 !important; }
+  .session-list-item-pin-icon { position: absolute; left: var(--x-space-2); top: var(--x-space-3); margin: 0 !important; pointer-events: none; }
+  /* A tree row with children has its collapse arrow in that margin: there the pin moves to the empty right part of the
+     icon slot (4 px row padding + 14 px arrow + 10 px gap + 16 px mark + 2 px), so the arrow stays visible and clickable */
+  .session-list-item:has(> .session-tree-chevron) .session-list-item-pin-icon { left: 46px; }
   .session-list-item-icon { flex: none; min-width: 36px; color: var(--x-text-muted) !important; opacity: 1 !important; }
   /* Meta line: age, then the phase, then the model; whatever does not fit ends in an ellipsis, and a narrow panel drops the model */
   .session-list-item-meta { font: var(--x-meta) !important; color: var(--x-text-muted); margin-top: 0 !important; container-type: inline-size; overflow: hidden; }

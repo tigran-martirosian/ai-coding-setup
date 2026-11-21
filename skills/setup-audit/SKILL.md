@@ -9,8 +9,8 @@ The first word of the arguments picks the sub-command; the rest are its options 
 
 | Word | What it gives | File |
 |---|---|---|
-| (none) | the health audit of the whole setup, saved and compared with the last one | `audit.md` |
-| `usage` | token numbers per session and helper, the plan forecast, the dashboard | `usage.md` |
+| (none) | the monthly health audit of the whole setup, saved and compared with the last one | `audit.md` |
+| `usage` | where the tokens went, by pointing to Claude Code's `/usage`; the plan forecast; the dashboard | `usage.md` |
 | `chat` | the recent chats reviewed, then a tick list of setup changes | `chat.md` |
 | `full` | one review of how the work went, ending in measured options to tick | `full.md` |
 | `scan` | one project's own Claude setup checked | `scan.md` |

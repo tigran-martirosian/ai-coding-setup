@@ -35,6 +35,8 @@ chat box's nearest ancestor. This reads the app's own page markup (`src/find.ts`
 app update may break it: then the button does not appear and the console says why. It needs
 `~/.claude/skills/steer/steer.mjs`; without it the status shows the error.
 
+A **Try it** button sits beside Note (`src/try-it.ts`). It sends, the way Note does, a fixed note asking the session to run the project's `verify` skill and, when the change has a local page, to run `node ~/.claude/workers/try-page.mjs <url> --session <id>`. For 130 minutes after the press (as long as Note waits) it polls `~/.claude/state/try-it/<session id>.browser.json`, and opens a newer file on `localhost`, `127.0.0.1` or `[::1]` with `workspace:open-file`, so the page shows in a browser tab beside the chat. A successful open ends the watch; a failed one is said in the bubble, and a newer file can still open. What is typed in the box stays, and a press does not light Note's dot.
+
 The same component polls `~/.claude/steer/outbox.jsonl` every 3 seconds. Each line
 `{"id","ts","session","prompt"}` newer than 10 minutes and not yet delivered goes to `ai:createQueuedPrompt`
 (up to 3 tries; failures are logged to the console). Delivered ids are kept in `outbox-done.json` (2 hours),
@@ -48,6 +50,10 @@ call, the pop-up shows the app's error under the list.
 The button calls the app's `extensions:ai-send-prompt` directly, the same call the SDK's `sendPrompt`
 makes, because the pop-up is drawn outside a panel (see `src/popover.tsx`). If an app update changes that
 call, the pop-up shows the app's error under the list.
+
+### Diff line comments
+
+In the Agent view's Review panel, a "+" by a diff line opens a comment box (Shift+click a second "+" for a range); the bar at the panel's foot sends all comments of the shown session as one message through the Note button's send, and keeps them per session in localStorage until sent or cleared (`src/diff-comments.ts`).
 
 ## Build and install
 

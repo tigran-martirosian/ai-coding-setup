@@ -432,10 +432,23 @@ check(
   "no reminder function is left",
   !("remindText" in (await import(pathToFileURL(HOOK).href))),
 );
+// It runs in the stop group of hooks/dispatch.mjs, which settings.example.json wires on Stop
+const GROUPS = JSON.parse(
+  fs.readFileSync(
+    fileURLToPath(new URL("../hooks/dispatch-groups.json", import.meta.url)),
+    "utf8",
+  ),
+);
+const inGroup = (name) =>
+  GROUPS[name].some((e) => e.hook === "hooks/file-link-gate.mjs");
 check(
-  "settings.example.json wires it on Stop only",
-  JSON.stringify(SETTINGS.hooks.Stop).includes("file-link-gate.mjs") &&
-    !JSON.stringify(SETTINGS.hooks.UserPromptSubmit).includes("file-link-gate"),
+  "settings.example.json wires it on Stop only (in the dispatcher's stop group)",
+  JSON.stringify(SETTINGS.hooks.Stop).includes("dispatch.mjs stop") &&
+    inGroup("stop") &&
+    Object.keys(GROUPS)
+      .filter((name) => name !== "stop")
+      .every((name) => !inGroup(name)) &&
+    !JSON.stringify(SETTINGS.hooks).includes("file-link-gate"),
 );
 check(
   "no cwd: still blocks, says to use the absolute path",

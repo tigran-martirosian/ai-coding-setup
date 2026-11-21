@@ -977,6 +977,325 @@ try {
     r.code === 0 && !w.staged() && fs.existsSync(pan.pending),
     `${r.out}\n${JSON.stringify(w.staged())}\n${w.log()}`,
   );
+
+  // 14. queued project moves (skills/file-upkeep/move-project.mjs --queue writes <data>\moves.json): the close's
+  // own work first, then `move-project.mjs --run-queued`; a queued move alone keeps a marker job
+  const { DatabaseSync } = await import("node:sqlite");
+  const gitConfig = path.join(T, "gitconfig");
+  write(gitConfig, "");
+  const gitEnv = { GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_NOSYSTEM: "1" };
+  const gitIn = (cwd, ...args) => {
+    const g = spawnSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, ...gitEnv },
+    });
+    if (g.status !== 0) throw new Error(`git ${args.join(" ")}: ${g.stderr}`);
+  };
+  // fake schtasks (run with node in place of schtasks.exe): no tasks; each call is recorded with the app.asar
+  // version at that moment, so a move that ran before the install shows
+  const FAKE_SCHTASKS = `import fs from "node:fs";
+import path from "node:path";
+const args = process.argv.slice(2), has = (f) => args.some((a) => a.toLowerCase() === f);
+const asar = fs.readFileSync(path.join(process.env.FAKE_INSTALL_DIR, "resources", "app.asar"), "latin1");
+const version = (asar.match(/"version":"([^"]+)"/) || [])[1];
+fs.appendFileSync(path.join(import.meta.dirname, "calls.jsonl"), JSON.stringify({ args, version }) + "\\n");
+if (has("/create")) process.exitCode = 1;
+else if (has("/xml")) process.stdout.write('<?xml version="1.0" encoding="UTF-16"?>\\r\\n<Tasks>\\r\\n</Tasks>\\r\\n');
+else if (args.some((a) => /csv/i.test(a)))
+  process.stdout.write('"HostName","TaskName","Next Run Time","Status","Task To Run","Start In"\\r\\n');
+`;
+  // a made-up project (a git repo) at <root>\P\fam-port, Nimbalyst's records naming it, a home for Claude Code,
+  // and a moves.json that queues its move to <root>\P\fam\port
+  const queueMove = (w) => {
+    const from = path.join(w.root, "P", "fam-port"),
+      to = path.join(w.root, "P", "fam", "port"),
+      nim = path.join(w.root, "appdata", "@nimbalyst", "electron"),
+      tasks = path.join(w.root, "tasks");
+    write(path.join(from, "README.md"), "# fam-port\n");
+    gitIn(from, "init", "-q", "-b", "main");
+    gitIn(from, "add", ".");
+    gitIn(
+      from,
+      "-c",
+      "user.name=test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-q",
+      "-m",
+      "start",
+    );
+    write(
+      path.join(nim, "app-settings.json"),
+      JSON.stringify({
+        recent: [{ path: from, name: "fam-port" }],
+        docSyncEnabledProjects: [from],
+      }),
+    );
+    write(path.join(nim, "workspace-settings.json"), "{}");
+    fs.mkdirSync(path.join(nim, "sqlite-db"), { recursive: true });
+    const db = new DatabaseSync(
+      path.join(nim, "sqlite-db", "nimbalyst.sqlite"),
+    );
+    db.exec(
+      "PRAGMA journal_mode=WAL; CREATE TABLE ai_sessions (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, title TEXT);",
+    );
+    db.prepare("INSERT INTO ai_sessions VALUES (?, ?, ?)").run("s1", from, "x");
+    db.close();
+    write(
+      path.join(w.home, ".claude.json"),
+      JSON.stringify({ projects: { [from.replace(/\\/g, "/")]: {} } }),
+    );
+    fs.mkdirSync(path.join(w.home, ".claude"), { recursive: true });
+    write(path.join(tasks, "schtasks.mjs"), FAKE_SCHTASKS);
+    const movesFile = path.join(w.data, "moves.json");
+    write(
+      movesFile,
+      JSON.stringify({ moves: [{ from, to, at: new Date().toISOString() }] }),
+    );
+    const sameAs = (a, b) =>
+      typeof a === "string" && a.toLowerCase() === b.toLowerCase();
+    return {
+      env: {
+        ...gitEnv,
+        MOVE_PROJECT_NIMBALYST_DATA: nim,
+        MOVE_PROJECT_SCHTASKS: path.join(tasks, "schtasks.mjs"),
+        MOVE_PROJECT_RUNNING: "0",
+      },
+      moved: () =>
+        !fs.existsSync(from) && fs.existsSync(path.join(to, "README.md")),
+      recordsFixed: () =>
+        sameAs(
+          readJson(path.join(nim, "app-settings.json"))?.recent?.[0]?.path,
+          to,
+        ),
+      queued: () => readJson(movesFile)?.moves?.length ?? 0,
+      calls: () =>
+        fs.existsSync(path.join(tasks, "calls.jsonl"))
+          ? fs
+              .readFileSync(path.join(tasks, "calls.jsonl"), "utf8")
+              .trim()
+              .split("\n")
+              .map((l) => JSON.parse(l))
+          : [],
+      show: () =>
+        `moves.json: ${fs.existsSync(movesFile) ? fs.readFileSync(movesFile, "utf8") : "none"}\n${from}: ${fs.existsSync(from)}, ${to}: ${fs.existsSync(to)}`,
+    };
+  };
+
+  // a Nimbalyst job staged on a patched open app: the close installs and patches, then the queued move runs
+  w = world("moves-after-quit", { blocked: true, running: true });
+  w.stage();
+  let mv = queueMove(w);
+  w.setRunning(false);
+  r = w.run("--after-quit", mv.env);
+  check(
+    "queued move: --after-quit installs and patches, then runs move-project.mjs --run-queued: the project is moved, Nimbalyst's records name the new place, the queue is empty",
+    r.code === 0 &&
+      asarVersion(w.asar) === "0.84.0" &&
+      patchedText(w.asar) &&
+      !w.staged() &&
+      mv.moved() &&
+      mv.recordsFixed() &&
+      mv.queued() === 0,
+    `${r.out}\n${mv.show()}\n${w.log()}`,
+  );
+  check(
+    "queued move: --after-quit runs the move after its own work (the new version is in at the move's first task lookup)",
+    mv.calls().length > 0 && mv.calls()[0].version === "0.84.0",
+    JSON.stringify(mv.calls()),
+  );
+
+  // --install-now (restart.mjs) on a closed app: the install first, then the queued move
+  w = world("moves-install-now", { running: true });
+  w.stage();
+  mv = queueMove(w);
+  w.setRunning(false);
+  r = w.run("--install-now", mv.env);
+  check(
+    "queued move: --install-now installs and patches, then runs move-project.mjs --run-queued: the project is moved, the queue is empty",
+    r.code === 0 &&
+      asarVersion(w.asar) === "0.84.0" &&
+      patchedText(w.asar) &&
+      mv.moved() &&
+      mv.recordsFixed() &&
+      mv.queued() === 0,
+    `${r.out}\n${mv.show()}\n${w.log()}`,
+  );
+  check(
+    "queued move: --install-now runs the move after its own work (the new version is in at the move's first task lookup)",
+    mv.calls().length > 0 && mv.calls()[0].version === "0.84.0",
+    JSON.stringify(mv.calls()),
+  );
+
+  // a patched app at the pin with every fix, open, and only a queued move: a marker job makes the close run it
+  w = world("moves-marker", { version: "0.84.0", running: true });
+  buildAsar(w.asar, "0.84.0", COMPLETE);
+  const asarAtPin = sha256(w.asar);
+  mv = queueMove(w);
+  r = w.stage(mv.env);
+  const moveJob = w.staged();
+  check(
+    "queued move, patched app with every fix, open: --stage keeps a marker job (no version, no installer, atClose true) so the close starts --after-quit; nothing moves while Nimbalyst is open",
+    r.code === 0 &&
+      !!moveJob &&
+      !("version" in moveJob) &&
+      moveJob.installer === null &&
+      moveJob.atClose === true &&
+      !mv.moved() &&
+      mv.queued() === 1,
+    `${r.out}\n${JSON.stringify(moveJob)}\n${mv.show()}\n${w.log()}`,
+  );
+  w.setRunning(false);
+  r = w.run("--after-quit", mv.env);
+  check(
+    "marker job for a queued move: --after-quit carries the move out, drops the marker, installs and patches nothing",
+    r.code === 0 &&
+      mv.moved() &&
+      mv.recordsFixed() &&
+      mv.queued() === 0 &&
+      !w.staged() &&
+      w.installerRuns().length === 0 &&
+      sha256(w.asar) === asarAtPin,
+    `${r.out}\n${JSON.stringify(w.staged())}\n${mv.show()}\n${w.log()}`,
+  );
+  // ---- cases from the S4b review ----
+  // 15. queued moves are never left with no word: --status says the waiting and the refused ones
+  const movesOf = (w, value) =>
+    write(
+      path.join(w.data, "moves.json"),
+      typeof value === "string" ? value : JSON.stringify(value),
+    );
+  const movesMarker = (w) =>
+    write(
+      path.join(w.data, "staged.json"),
+      JSON.stringify({
+        moves: true,
+        installer: null,
+        node: process.execPath,
+        deliver: DELIVER,
+        at: new Date().toISOString(),
+        atClose: true,
+      }),
+    );
+  const refusedWhy =
+    "move-project refused: C:\\Q\\done-b already exists: pick a target that does not exist.";
+  w = world("moves-status", { version: "0.84.0", running: true });
+  buildAsar(w.asar, "0.84.0", COMPLETE);
+  movesOf(w, {
+    moves: [
+      {
+        from: "C:\\Q\\wait-a",
+        to: "C:\\Q\\wait-b",
+        at: new Date().toISOString(),
+      },
+    ],
+    refused: [
+      {
+        from: "C:\\Q\\done-a",
+        to: "C:\\Q\\done-b",
+        at: new Date().toISOString(),
+        when: new Date().toISOString(),
+        exit: 1,
+        why: refusedWhy,
+      },
+    ],
+  });
+  r = w.line();
+  check(
+    "--status adds the queued project moves: the one waiting for the close, and the refused one with its reason",
+    /^nimbalyst: /.test(r) &&
+      /1 project move waits for Nimbalyst to close/.test(r) &&
+      r.includes("C:\\Q\\done-a -> C:\\Q\\done-b was refused") &&
+      r.includes("already exists"),
+    r,
+  );
+
+  // --off while a move waits and Nimbalyst is closed: nothing would carry it out, so --off is refused
+  w = world("moves-off-closed", { version: "0.84.0" });
+  buildAsar(w.asar, "0.84.0", COMPLETE);
+  movesOf(w, {
+    moves: [{ from: "C:\\Q\\a", to: "C:\\Q\\b", at: new Date().toISOString() }],
+  });
+  movesMarker(w);
+  r = w.run("--off");
+  check(
+    "--off with a queued move and Nimbalyst closed: exit 1, says the move waits and how to run it, the delivery stays on, the marker job stays",
+    r.code === 1 &&
+      /project move/.test(r.out) &&
+      /--run-queued/.test(r.out) &&
+      !fs.existsSync(path.join(w.data, "off.json")) &&
+      w.staged()?.moves === true,
+    `${r.out}\n${JSON.stringify(w.staged())}`,
+  );
+
+  // the delivery off by NIMBALYST_FOLLOW (the app stays patched, its quit listener there): a moves marker stays
+  w = world("moves-follow-off", { version: "0.84.0", running: true });
+  buildAsar(w.asar, "0.84.0", COMPLETE);
+  movesOf(w, {
+    moves: [{ from: "C:\\Q\\a", to: "C:\\Q\\b", at: new Date().toISOString() }],
+  });
+  movesMarker(w);
+  r = w.run("--stage", { NIMBALYST_FOLLOW: "off" });
+  check(
+    "--stage with the delivery off, a queued move and a patched open app: the marker job for the move stays (moves only, atClose true)",
+    r.code === 0 &&
+      w.staged()?.moves === true &&
+      w.staged()?.atClose === true &&
+      !w.staged()?.extensions,
+    `${r.out}\n${JSON.stringify(w.staged())}\n${w.log()}`,
+  );
+
+  // a stage run whose download fails, with a queued move: a marker job still makes the close run the move
+  w = world("moves-download-fails", { blocked: true, running: true });
+  movesOf(w, {
+    moves: [{ from: "C:\\Q\\a", to: "C:\\Q\\b", at: new Date().toISOString() }],
+  });
+  r = w.stage({ FAKE_DOWNLOAD_CORRUPT: "1" });
+  check(
+    "a failed download with a queued move: status.json says the failure, and a marker job (moves, atClose true) makes the close run the move",
+    w.status()?.ok === false &&
+      w.staged()?.moves === true &&
+      w.staged()?.atClose === true &&
+      !w.staged()?.version,
+    `${r.out}\n${JSON.stringify(w.staged())}\n${JSON.stringify(w.status())}\n${w.log()}`,
+  );
+
+  // a moves.json that can't be read: the marker job stays and the status line says it
+  w = world("moves-broken", { version: "0.84.0", running: true });
+  buildAsar(w.asar, "0.84.0", COMPLETE);
+  movesOf(w, "{ not json");
+  movesMarker(w);
+  r = w.run("--stage");
+  const brokenLine = w.line();
+  check(
+    "a moves.json that can't be read: --stage keeps the marker job, deliver.log and --status say the file can't be read",
+    w.staged()?.moves === true &&
+      /moves\.json/.test(w.log()) &&
+      /can't be read/.test(brokenLine) &&
+      /moves\.json/.test(brokenLine),
+    `${r.out}\n${JSON.stringify(w.staged())}\n${brokenLine}\n${w.log()}`,
+  );
+
+  // restart.mjs failing on a moves-only marker job writes no status.json: no Nimbalyst update stopped
+  w = world("moves-restart-fail", { running: false });
+  movesOf(w, {
+    moves: [{ from: "C:\\Q\\a", to: "C:\\Q\\b", at: new Date().toISOString() }],
+  });
+  movesMarker(w);
+  const restartRun = spawnSync(
+    process.execPath,
+    [path.join(path.dirname(DELIVER), "restart.mjs"), "--run"],
+    {
+      encoding: "utf8",
+      env: w.env({ NIMBALYST_DELIVER_APP: path.join(w.root, "no-install") }),
+    },
+  );
+  check(
+    "restart.mjs failing with a moves-only marker job staged: exit 1, no status.json (no update stopped), the marker stays",
+    restartRun.status === 1 && !w.status() && w.staged()?.moves === true,
+    `${restartRun.stdout}${restartRun.stderr}\n${JSON.stringify(w.status())}`,
+  );
 } finally {
   fs.rmSync(T, { recursive: true, force: true });
 }

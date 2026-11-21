@@ -101,12 +101,12 @@ const clean = check(
   folder({
     "a.md":
       "Copy to C:\\Users\\<you>\\.claude or ~/.claude. Commits as 1+" +
-      "user@users.noreply.github.com.",
+      "user@users.noreply.github.com. Icons Logo@2x.png and logo@3x.webp.",
     ".env.example": "API_KEY=",
   }),
 );
 ok(
-  "placeholders, noreply addresses and .env.example pass",
+  "placeholders, noreply addresses, @2x image names and .env.example pass",
   [clean.code, clean.out.includes("nothing found")],
   [0, true],
 );

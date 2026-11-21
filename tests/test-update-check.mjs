@@ -820,6 +820,83 @@ check(
 );
 check("NB4. the error is said once", (await nbSay()) === "");
 
+// D4: project moves queued while Nimbalyst runs (move-project.mjs --queue writes moves.json in the same data folder)
+const mvHome = home("nb-moves", "1.0.7");
+const mvFile = path.join(dataOf(mvHome), "moves.json");
+const mvWrite = (text) => {
+  fs.mkdirSync(dataOf(mvHome), { recursive: true });
+  fs.writeFileSync(mvFile, text);
+};
+const mvRun = async () => {
+  const r = await run(mvHome);
+  return { code: r.code, said: JSON.parse(r.out || "{}").systemMessage || "" };
+};
+check("D4. no moves.json: no moves line", (await mvRun()).said === "");
+const queued = [
+  { from: "C:\\Projects\\old-a", to: "C:\\Projects\\new-a", at: ago(1) },
+  { from: "C:\\Projects\\old-b", to: "C:\\Projects\\new-b", at: ago(1) },
+];
+mvWrite(JSON.stringify({ moves: queued }));
+check(
+  "D4. moves waiting for Nimbalyst to close are said, each named",
+  (await mvRun()).said ===
+    "2 project moves wait for Nimbalyst to close: C:\\Projects\\old-a -> C:\\Projects\\new-a; C:\\Projects\\old-b -> C:\\Projects\\new-b.",
+);
+check(
+  "D4. the waiting moves are said once, not again with the same moves.json",
+  (await mvRun()).said === "",
+);
+mvWrite(JSON.stringify({ moves: queued }, null, 2));
+check(
+  "D4. moves.json written again with the same moves: not said again",
+  (await mvRun()).said === "",
+);
+mvWrite(
+  JSON.stringify({
+    moves: [],
+    refused: [
+      {
+        ...queued[0],
+        when: ago(0),
+        exit: 1,
+        why: "move-project refused: C:\\Projects\\new-a exists already.",
+      },
+    ],
+  }),
+);
+check(
+  "D4. a refused move is said with the reason and where it is kept",
+  (await mvRun()).said ===
+    `The queued move C:\\Projects\\old-a -> C:\\Projects\\new-a was refused: C:\\Projects\\new-a exists already (kept in ${mvFile} until that project is queued again or moved; delete it there to drop it).`,
+);
+mvWrite(JSON.stringify({ moves: [] }));
+check("D4. an empty moves list: no moves line", (await mvRun()).said === "");
+fs.rmSync(mvFile);
+check("D4. moves.json gone: no moves line", (await mvRun()).said === "");
+mvWrite(JSON.stringify({ moves: queued.slice(0, 1) }));
+check(
+  "D4. a move queued again after the file was gone is said again",
+  (await mvRun()).said ===
+    "1 project move waits for Nimbalyst to close: C:\\Projects\\old-a -> C:\\Projects\\new-a.",
+);
+mvWrite("{ not json");
+const mvBroken = await mvRun();
+check(
+  "D4. a moves.json that is not JSON: no crash, a short note naming the file",
+  mvBroken.code === 0 &&
+    mvBroken.said.startsWith(
+      `The queued project moves in ${mvFile} can't be read: `,
+    ) &&
+    mvBroken.said.endsWith("; fix or delete it."),
+);
+check("D4. the broken file is said once", (await mvRun()).said === "");
+mvWrite(JSON.stringify({ moves: "x" }));
+check(
+  "D4. a moves.json with no moves list: the short note",
+  (await mvRun()).said ===
+    `The queued project moves in ${mvFile} can't be read: it has no "moves" list; fix or delete it.`,
+);
+
 // ---- T5: `quiet` releases (plan 2026-11-15-quiet-updates). The stand-in update.mjs above writes what it was started
 // with; one missed release or two, as the changelog lists them
 const quietKinds = (...kinds) => {

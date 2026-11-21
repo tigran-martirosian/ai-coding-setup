@@ -1,20 +1,19 @@
 #!/usr/bin/env node
-// planner-readonly: a PreToolUse hook for Bash and PowerShell that keeps the planner agent's shell to reading.
-// The planner may look at live state (git status, git log, file listings, the systems map) but never change a
-// file: a plan is trusted as read-only. Acts only when the event names the planner, the plan-reviewer or the reviewer
-// (agent_type, which a subagent's PreToolUse event carries; probe 2026-11-08, Claude Code 2.1.318).
-// It is wired twice, in the
-// planner's frontmatter and in settings.json, so a skipped frontmatter hook still leaves a guard.
+// planner-readonly: a PreToolUse hook for Bash and PowerShell that keeps the plan-reviewer and reviewer agents'
+// shell to reading and running tests. They may look at live state (git status, git log, file listings, the systems
+// map) and run the project's tests, but never change a file. Acts only when the event names the plan-reviewer or the
+// reviewer (agent_type, which a subagent's PreToolUse event carries; probe 2026-11-08, Claude Code 2.1.318).
+// It runs from those two agents' frontmatter (agents/plan-reviewer.md, agents/reviewer.md); it has no global entry
+// in settings.json. The name is kept from the retired planner agent it was first written for.
 // Each segment of the command (split on && || ; | and new lines) must be one of the allowed commands below;
 // everything else is denied, and so is anything the hook cannot read: $(...), backticks, redirects other than
 // 2>&1 and >/dev/null, a lone &, an env assignment before a command (a variable set on its own passes unless it is
 // PATH, GIT_* and the like), and an error inside the hook (it fails closed).
 // Flags that make an allowed command run another program (rg --pre, git grep -O, git -c, --ext-diff,
 // --textconv, sort --compress-program) or write a file (--output, sort -o) are denied too.
-// The plan-reviewer (agent_type "plan-reviewer") gets the same reading list plus test runs, since it runs a plan's
-// Expect before and Done when checks: node on a file whose name has "test" in it, npm test / npm run test*, pytest,
-// python on a test file (user, 2026-11-09: "Hook like the planner's, plus the project's test commands"; a test may
-// still write caches).
+// Test runs, since the reviewers run a plan's or a spec's checks: node on a file whose name has "test" in it,
+// npm test / npm run test*, pytest, python on a test file (user, 2026-11-09: "Hook like the planner's, plus the
+// project's test commands"; a test may still write caches).
 // Off switch: PLANNER_READONLY=off.
 import { emit, runHook } from "./lib/hook-io.mjs";
 
@@ -22,27 +21,20 @@ const ALLOWED_TEXT =
   "git status/diff/log/show/rev-parse/ls-files/ls-tree/blame/grep/merge-base/rev-list/for-each-ref, git branch and git tag (list), git worktree list, " +
   'git remote -v, git stash list, cd, pwd, echo, a plain variable on its own (R="C:/x"), ls, dir, wc, stat, du, file, head, tail, sort, uniq, cut, tr, grep, rg, and node <...>/skills/systems-map/map.mjs';
 const TEST_TEXT =
-  "; and test runs: node <a file named *test* or in a tests folder>.mjs/.js, npm test, npm run test*, pytest, python [-m pytest | <a file named *test*>.py]";
+  "; and test runs: node <a file named *test* or in a tests folder>.mjs/.js, npm test, npm run test*, pytest, python [-m pytest | <a file named *test*>.py], and the same through uv run";
 const agentName = (event) =>
   String(event.agent_type || "")
     .split(":")
     .pop()
     .toLowerCase();
-const denyPlanner = (reason) =>
-  emit.deny(
-    `planner-readonly: ${reason}. The planner reads only (allowed: ${ALLOWED_TEXT}). ` +
-      "To have a check run, name it in the row's Expect before; the plan-reviewer runs it.",
-  );
-const denyReviewer = (reason, who) =>
+const deny = (reason, who) =>
   emit.deny(
     `planner-readonly: ${reason}. The ${who} reads and runs tests only (allowed: ${ALLOWED_TEXT}${TEST_TEXT}). ` +
       "A check that deploys, installs, pushes or writes: list it as not run, with why.",
   );
 
-// The planner reads only; plan-reviewer and reviewer also run tests (user, 2026-11-12, D7 item 1).
-const isPlanner = (event) =>
-  /(^|:)planner$/i.test(String(event.agent_type || ""));
-const isPlanReviewer = (event) =>
+// The plan-reviewer and the reviewer read and run tests (user, 2026-11-12, D7 item 1).
+const isGuarded = (event) =>
   /(^|:)(plan-reviewer|reviewer)$/i.test(String(event.agent_type || ""));
 const NULL_TARGETS = new Set(["/dev/null", "$null", "nul"]);
 
@@ -304,7 +296,7 @@ const PYTEST_OK =
 const pytestOk = (args) =>
   args.every((a) => !a.startsWith("-") || PYTEST_OK.test(a));
 
-// A test run the plan-reviewer may start; null when the segment is not one.
+// A test run the reviewers may start; null when the segment is not one.
 function isTestRun(name, args) {
   if (name === "node") return isTestFile(args[0], /\.(m?js|cjs)$/i); // no node flags at all (--eval, --watch, --require)
   if (name === "npm")
@@ -315,6 +307,17 @@ function isTestRun(name, args) {
         /^test(:[\w:-]+)?$/.test(args[1]))
     );
   if (name === "pytest") return pytestOk(args);
+  // uv run [--frozen|--no-sync|--offline|-q] <pytest | python -m pytest | python test_x.py>: Python projects
+  // that keep their tools in a uv environment run their tests this way; other uv flags (--with) add packages.
+  if (name === "uv" && args[0] === "run") {
+    const rest = args.slice(1);
+    while (
+      /^(--frozen|--no-sync|--offline|--locked|-q|--quiet)$/.test(rest[0] || "")
+    )
+      rest.shift();
+    if (!["pytest", "python", "python3", "py"].includes(rest[0])) return false;
+    return isTestRun(rest[0], rest.slice(1));
+  }
   if (name === "python" || name === "python3" || name === "py") {
     const rest = args.filter((a) => a !== "-I" && a !== "-u" && a !== "-B");
     if (rest[0] === "-m")
@@ -328,7 +331,7 @@ function isTestRun(name, args) {
 const RISKY_VAR =
   /^(PATH|IFS|CDPATH|ENV|BASH_ENV|PS4|PROMPT_COMMAND|SHELLOPTS|BASHOPTS|HOME|GIT_\w*|NODE_\w*|NPM_\w*|PYTHON\w*|LD_\w*|RG_\w*)$/i;
 
-export function checkSegment(words, { tests = false } = {}) {
+export function checkSegment(words) {
   const [first, ...args] = words;
   if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(first)) {
     const name = first.split("=")[0];
@@ -340,7 +343,7 @@ export function checkSegment(words, { tests = false } = {}) {
   if (/[\\/]/.test(first))
     return `${first} is a command with a path (only the plain names below are allowed)`;
   const name = first.replace(/\.exe$/i, "").toLowerCase();
-  if (tests && isTestRun(name, args)) return null;
+  if (isTestRun(name, args)) return null;
   if (name === "git") return checkGit(args);
   if (SIMPLE.has(name)) return null;
   if (name === "tail") {
@@ -379,10 +382,10 @@ export function checkSegment(words, { tests = false } = {}) {
       ? null
       : "node runs only the systems map reader (skills/systems-map/map.mjs)";
   }
-  return `${first} is not a reading command the planner may run`;
+  return `${first} is not a reading or test command`;
 }
 
-export function decide(command, opts) {
+export function decide(command) {
   const { segments, unquoted, error } = lex(command);
   if (error) return `the command has ${error}`;
   // Each later $R is checked as its value, so a flag hidden in a variable is seen (R=--open=vi; git grep "$R").
@@ -391,7 +394,7 @@ export function decide(command, opts) {
     w.replace(/\$([A-Za-z_]\w*)/g, (m, n) => (n in vars ? vars[n] : m));
   for (const raw of segments) {
     const words = raw.map(expand);
-    const why = checkSegment(words, opts);
+    const why = checkSegment(words);
     if (why) return why;
     const set = /^([A-Za-z_]\w*)=([\s\S]*)$/.exec(words[0]);
     if (set && words.length === 1) {
@@ -405,15 +408,12 @@ export function decide(command, opts) {
 
 runHook("planner-readonly", (event) => {
   if (!["Bash", "PowerShell"].includes(event.tool_name)) return;
-  const reviewer = isPlanReviewer(event);
-  if (!reviewer && !isPlanner(event)) return;
+  if (!isGuarded(event)) return;
   let why;
   try {
-    why = decide(String((event.tool_input || {}).command || ""), {
-      tests: reviewer,
-    });
+    why = decide(String((event.tool_input || {}).command || ""));
   } catch (err) {
     why = `the hook could not read the command (${err.message})`;
-  } // fails closed inside a planner
-  if (why) (reviewer ? denyReviewer : denyPlanner)(why, agentName(event));
+  } // fails closed inside a reviewer
+  if (why) deny(why, agentName(event));
 });

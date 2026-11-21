@@ -131,6 +131,56 @@ check(
   "deny",
 );
 check("own command: doctor", run("opencli doctor"), "allow");
+check(
+  "page driving for an asked job: opencli browser click passes",
+  run("opencli browser click --ref 12"),
+  "allow",
+);
+check(
+  "page driving for an asked job: opencli browser fill passes",
+  run('opencli --profile me browser fill --ref 3 "hello"'),
+  "allow",
+);
+check(
+  "page driving with a session: opencli browser me click passes",
+  run("opencli browser me click --ref 12"),
+  "allow",
+);
+check(
+  "page reading: opencli browser me state passes",
+  run("opencli browser me state"),
+  "allow",
+);
+for (const cmd of [
+  "opencli browser me eval \"fetch('/api/like', {method: 'POST'})\"",
+  'opencli browser eval "document.forms[0].submit()"',
+  "opencli browser me init myadapter",
+  "opencli browser me verify myadapter --write-fixture",
+  "opencli browser me nuke",
+  "opencli browser eval click",
+  "opencli browser me click --ref 1; opencli reddit comment abc hi",
+])
+  check(
+    `page step outside the allowed list, or a write after one, is denied: ${cmd}`,
+    run(cmd),
+    "deny",
+  );
+const raw = (command) =>
+  spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
+    encoding: "utf8",
+    env: withPath(bin, {}),
+  }).stdout;
+check(
+  "a click carries the confirm-before-publishing reminder",
+  /wait for their yes/.test(raw("opencli browser me click --ref 4")),
+  true,
+);
+check(
+  "reading the page carries no reminder",
+  raw("opencli browser me state"),
+  "",
+);
 check("site help", run("opencli reddit --help"), "allow");
 check("no opencli at all", run("ls -la"), "allow");
 check(

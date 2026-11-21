@@ -1764,6 +1764,30 @@ async function pictures() {
             back.foldsUnder,
         );
         await waitFor(page, foldsScript(), "the four folds again");
+        // A click while a slow read runs is drawn at once (the app's session list took 20 s and the picker looked
+        // dead, 2026-11-19): the picker opens and closes within a second while the 6 s read is still under way
+        await page.send("Runtime.evaluate", {
+          expression: "window.fxSlowList = 6000; window.fxChange()",
+        });
+        await new Promise((ok) => setTimeout(ok, 300));
+        const slowAt = Date.now();
+        await click(".rt-name");
+        await waitFor(page, pickerScript(), "the picker during a slow read");
+        await click(".rt-name");
+        await waitFor(
+          page,
+          `document.querySelector(".rt-picker").hidden`,
+          "the picker closed during a slow read",
+        );
+        const slowMs = Date.now() - slowAt;
+        check(
+          `${name}: during a 6 s read the picker opens and closes at once (${slowMs} ms)`,
+          slowMs < 1500,
+        );
+        await page.send("Runtime.evaluate", {
+          expression: "window.fxSlowList = 0",
+        });
+        await new Promise((ok) => setTimeout(ok, 6000));
         // A click on Done's heading opens it: its 18 rows, the finished session's link on S15; a second click closes it
         await click(".rt-fold-done .rt-fold-head");
         const done = await waitFor(page, doneScript(true), "Done open");

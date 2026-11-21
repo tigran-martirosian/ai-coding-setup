@@ -293,7 +293,7 @@ check(
 );
 check(
   "plan-reviewer is a map helper type",
-  out.includes("planner, plan-reviewer that have a record"),
+  out.includes("reviewer, plan-reviewer that have a record"),
   true,
 );
 check(

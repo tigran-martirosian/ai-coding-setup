@@ -1,7 +1,7 @@
 // Tests for skills/update-project/pass.mjs: --check on a made-up folder raises each check id (P1 to P12, and P13 to
 // P15 for a local git folder), the git and GitHub checks (P13 to P26) on folders of each kind with a fake gh (an
 // organisation's repo, an owner in another case, a 401 and a 404, slow, fast and too few CI runs among them), a folder inside a bigger repo,
-// the verify-skill and REVIEW.md offers (P27, P28), and the
+// the verify-skill offer (P27), retired P28 offering nothing, the ship-check switch-on offer (P29), and the
 // stamp modes (--done with --kept, --skip, --skip-all, --list) write ~/.claude/project-pass.json as the design says,
 // and version.json's projectPass equals pass.mjs's LEVEL.
 // Everything happens in a temporary home folder (--home, and HOME and USERPROFILE for what pass.mjs imports), so the
@@ -69,8 +69,8 @@ write(path.join(dir, ".claude", "settings.json"), "{ not json"); // P5
 write(path.join(dir, "docs", "HOW-TO.md"), "# How to\n"); // P6: an upper-case name
 write(
   path.join(dir, "docs", "facts.md"),
-  "# Facts\n\n- A fact with no date.\n",
-); // P11
+  "# Facts\n\n- A fact. (recheck 2026-01-01)\n- Another. (recheck 2099-01-01)\n",
+); // P11 (no recheck-date line in its header); P9: line 3 is past, line 4 is not
 // no .claude/rules/: P1
 spawnSync("git", ["init", "-q", dir]); // P7: all untracked
 write(
@@ -83,11 +83,6 @@ write(
   ),
   "a memory note\n",
 ); // P8.memory
-// P9 reads the recheck-dates hook (row C4); a stand-in prints one past and one ok line in its --list form
-write(
-  path.join(claude, "hooks", "recheck-dates.mjs"),
-  'console.log("docs/facts.md:3  2026-01-01  past  - A fact.\\nCLAUDE.md:2  2099-01-01  ok  - Another.\\n1 past their recheck date, 1 within it");\n',
-);
 
 const first = run("--check", dir);
 const lines = first.out.trim().split(/\r?\n/);
@@ -104,11 +99,11 @@ check(
   first.out,
 );
 // a local git folder without the preset also raises P13 (no Git: line), P14 (no commit line), P15 (no .gitattributes),
-// P25 (no .gitignore for .claude/settings.local.json) and P28 (no REVIEW.md); it has no code, so no P27
+// and P25 (no .gitignore for .claude/settings.local.json); it has no code, so no P27, and P28 is retired
 check(
-  "--check raises every check id, P1 to P15, P25 and P28",
+  "--check raises every check id, P1 to P15 and P25, and no retired P28",
   top.join() ===
-    [...Array.from({ length: 15 }, (_, i) => `P${i + 1}`), "P25", "P28"].join(),
+    [...Array.from({ length: 15 }, (_, i) => `P${i + 1}`), "P25"].join(),
   top.join(),
 );
 check(
@@ -367,6 +362,13 @@ check(
     !/^P24/m.test(hubOff.out),
   hubOff.out,
 );
+check(
+  "P29 asks a repo with a remote and no .claude/ship-check.json to run ship-check init, then push --full once",
+  /^P29\s+ask\s+\.claude\/ship-check\.json\s+missing: .*ship-check\.mjs init.*ship-check\.mjs push --full once/m.test(
+    hubOff.out,
+  ),
+  hubOff.out,
+);
 write(
   path.join(hub, "CLAUDE.md"),
   "# Hub\n\nGit: GitHub (public); main holds merged work only; each change goes on a branch <type>/<topic> and reaches main as one squash-merged pull request whose title follows the commit rule.\n" +
@@ -380,7 +382,11 @@ write(
 write(path.join(hub, ".github", "workflows", "ci.yml"), preset("ci-node.yml"));
 write(path.join(hub, "CHANGELOG.md"), preset("CHANGELOG.md"));
 write(path.join(hub, ".gitignore"), ".claude/settings.local.json\n");
-write(path.join(hub, "REVIEW.md"), preset("REVIEW.md"));
+// what `ship-check init` writes (P29): the safety baseline is switched on
+write(
+  path.join(hub, ".claude", "ship-check.json"),
+  '{ "build": null, "url": null }\n',
+);
 spawnSync("git", [
   "-C",
   hub,
@@ -669,6 +675,13 @@ check(
     ),
   got.join("\n"),
 );
+check(
+  "P25's fix adds the tool-neutral line **/settings.local.json, the one new-project's preset carries",
+  got.length === 1 &&
+    got[0].includes("add the line `**/settings.local.json`") &&
+    !got[0].includes("add the line `.claude/"),
+  got.join("\n"),
+);
 // a global excludes file named .gitignore (an absolute path) is still this computer's own
 const globalIgnore = path.join(tmp, "global-home", ".gitignore");
 write(globalIgnore, ".claude/settings.local.json\n");
@@ -691,6 +704,14 @@ check(
   got.length === 0,
   got.join("\n"),
 );
+write(path.join(sec, ".gitignore"), "**/settings.local.json\n");
+got = p25();
+check(
+  "P25 is quiet when the repo's .gitignore holds only the tool-neutral line **/settings.local.json",
+  got.length === 0,
+  got.join("\n"),
+);
+write(path.join(sec, ".gitignore"), ".claude/settings.local.json\n");
 // this computer's ".claude/" rule is the one git names, but the repo's own line still travels with a clone
 write(path.join(sec, ".git", "info", "exclude"), ".claude/\n");
 got = p25();
@@ -742,25 +763,47 @@ check(
 const noGit = path.join(tmp, "nogit");
 write(path.join(noGit, "CLAUDE.md"), "# No git\n\nA made-up project.\n");
 const noGitOut = run("--check", noGit).out;
-check(
-  "a folder without git prints only P13 of the git checks",
-  gitIds(noGitOut)
+const startsGit = (out) =>
+  gitIds(out)
     .map(([id]) => id)
     .join() === "P13" &&
-    /^P13\s+ask\s+CLAUDE\.md\s+no Git: line \(the folder is not a git folder\)/m.test(
-      noGitOut,
-    ),
+  /^P13\s+fix\s+CLAUDE\.md\s+not a git folder: .*gitignore\.txt.*git init -b main/m.test(
+    out,
+  );
+check(
+  "every project folder gets local git: a folder without git gets only P13, a fix (no tick) that starts git",
+  startsGit(noGitOut),
   noGitOut,
 );
 write(path.join(noGit, "CLAUDE.md"), "# No git\n\nGit: none.\n");
+const noneOut = run("--check", noGit).out;
 check(
-  "a folder without git and a Git: none line prints no git check",
-  gitIds(run("--check", noGit).out).length === 0,
+  "every project folder gets local git: an old Git: none line no longer opts a folder out",
+  startsGit(noneOut),
+  noneOut,
+);
+const oldCopy = path.join(tmp, "thing-old");
+write(path.join(oldCopy, "CLAUDE.md"), "# Old copy\n");
+const archived = path.join(tmp, "kept");
+write(path.join(archived, "CLAUDE.md"), "# Kept\n\nGit: none (archive).\n");
+check(
+  "archives and scratch get no git: a *-old folder and a Git: none (archive) line print no git check",
+  gitIds(run("--check", oldCopy).out).length === 0 &&
+    gitIds(run("--check", archived).out).length === 0,
+);
+const holder = path.join(tmp, "holder");
+write(path.join(holder, "CLAUDE.md"), "# Holder\n");
+fs.mkdirSync(path.join(holder, "inner", ".git"), { recursive: true });
+const holderOut = run("--check", holder).out;
+check(
+  "a folder holding its own repo is named in the start-git fix, so git add does not record it as an empty link",
+  /^P13\s+fix\s+.*folders holding their own repo: inner\//m.test(holderOut),
+  holderOut,
 );
 
 // P27: a folder with code and no verify skill is offered one as ask, the template named by what the folder shows;
-// with a skill, nothing. P28: a git folder with no REVIEW.md is offered the starter copy; with one, or without git,
-// nothing. (New-project writes both; these offer them once to folders made before.)
+// with a skill, nothing. (New-project writes it; this offers it once to folders made before.) P28 is retired: it
+// offers nothing to any folder.
 const linesOf = (id, folder) =>
   run("--check", folder)
     .out.split(/\r?\n/)
@@ -799,21 +842,11 @@ check(
 );
 got = linesOf("P28", app);
 check(
-  "P28 offers the starter REVIEW.md as ask to a git folder without one",
-  got.length === 1 &&
-    /^P28\s+ask\s+REVIEW\.md\s+missing: copy \S+\/new-project\/preset\/REVIEW\.md/.test(
-      got[0],
-    ),
-  got.join("\n"),
-);
-write(path.join(app, "REVIEW.md"), preset("REVIEW.md"));
-got = linesOf("P28", app);
-check(
-  "P28 offers nothing once the git folder has a REVIEW.md",
+  "retired P28 offers nothing to a git folder (the reviewer reads no review-rules file)",
   got.length === 0,
   got.join("\n"),
 );
-// a folder without git: its files are walked; project.godot names the Godot template; no REVIEW.md is offered
+// a folder without git: its files are walked; project.godot names the Godot template
 const game = path.join(tmp, "game");
 write(path.join(game, "CLAUDE.md"), "# Game\n");
 write(path.join(game, "project.godot"), "[application]\n");
@@ -824,12 +857,6 @@ check(
   got.length === 1 && /copy \S+\/preset\/verify-godot\.md/.test(got[0]),
   got.join("\n"),
 );
-got = linesOf("P28", game);
-check(
-  "P28 offers no REVIEW.md to a folder without git (the reviewer reads it from git)",
-  got.length === 0,
-  got.join("\n"),
-);
 fs.rmSync(path.join(game, "project.godot"));
 got = linesOf("P27", game);
 check(
@@ -838,9 +865,11 @@ check(
     /pick the kind .*verify-<web\|godot\|tool\|pipeline>\.md/.test(got[0]),
   got.join("\n"),
 );
+// 6, not 5: level 5 shipped in v26.4.4, so a folder already passed at 5 would never be offered P29 (the
+// ship-check switch-on line); raising the level offers each folder the pass once more.
 check(
-  "the pass level is 5, so each folder is offered the verify skill and REVIEW.md pass once (raise this with the next level)",
-  LEVEL === 5,
+  "the pass level is 6, so each folder passed at 5 is offered the ship-check (P29) pass once (raise this with the next level)",
+  LEVEL === 6,
   `LEVEL ${LEVEL}`,
 );
 check(
@@ -925,6 +954,75 @@ check(
   released === LEVEL,
   `version.json projectPass ${released}, pass.mjs LEVEL ${LEVEL}: raise both`,
 );
+
+// P5 finds a missing hook script in an exec-form entry too (script in args, its path with a space and the project variable)
+{
+  const ex = path.join(tmp, "exec-form");
+  write(path.join(ex, "CLAUDE.md"), "# Exec\n\nA made-up project.\n");
+  write(
+    path.join(ex, ".claude", "settings.json"),
+    JSON.stringify({
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "node",
+                args: [
+                  "${CLAUDE_PROJECT_DIR}/.claude/hooks/gone hook.mjs",
+                  "--x",
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+  fs.rmSync(path.join(claude, "project-pass.json"), { force: true }); // an earlier case leaves it broken on purpose
+  const r = run("--check", ex);
+  check(
+    "P5 names a missing script of an exec-form hook entry (args), path with a space",
+    /^P5\s.*registers a hook whose file is missing: .*\/\.claude\/hooks\/gone hook\.mjs$/m.test(
+      r.out,
+    ),
+    r.out,
+  );
+}
+
+// P30 (P29 in this check's first version; job 9 took P29 for the ship-check offer first): files in the wrong role folder (a picture in docs/, which is for text). P6 reads the checker's --json: a
+// finding with long rule ids (N2+N8+P8) and a path with spaces reach P6 whole (spec 2026-11-20-file-names D8).
+{
+  const roles = path.join(tmp, "roles");
+  write(path.join(roles, "CLAUDE.md"), "# Roles\n");
+  write(path.join(roles, "docs", "preview.png"), "png\n");
+  write(path.join(roles, "docs", "july-rewrite.py"), "");
+  write(path.join(roles, "docs", "Meeting Notes.md"), "# Notes\n");
+  const out = run("--check", roles).out;
+  check(
+    "P30 lists a picture in docs/ as a file in the wrong role folder",
+    /^P30\s+(fix|ask|note)\s+docs\/preview\.png\s/m.test(out),
+    out,
+  );
+  const p30 = out.match(/^P30\s+\S+\s+docs\/july-rewrite\.py\s.*$/m)?.[0] || "";
+  check(
+    "P30 passes on a finding whose rule ids are long (N2+N8+P8)",
+    ["N2", "N8", "P8"].every((id) => p30.includes(id)),
+    out,
+  );
+  check(
+    "a finding with naming rules and P8 is listed once, under P30, not under P6 as well",
+    !/^P6\s+\S+\s+docs\/july-rewrite\.py\s/m.test(out) &&
+      out.match(/^P\d+\s+\S+\s+docs\/july-rewrite\.py\s/gm)?.length === 1,
+    out,
+  );
+  check(
+    "P6 names a path with spaces whole (docs/Meeting Notes.md)",
+    /^P6\s+\S+\s+docs\/Meeting Notes\.md\s/m.test(out),
+    out,
+  );
+}
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fail ? `${fail} failed, ${pass} passed` : `all ${pass} passed`);
