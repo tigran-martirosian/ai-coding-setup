@@ -89,18 +89,33 @@ const files = args.length
       .readdirSync(path.join(ROOT, "skills"))
       .map((n) => path.join(ROOT, "skills", n, "SKILL.md"))
       .filter((f) => fs.existsSync(f));
+// Skills only the user starts: rarely used, so their description stays out of every session's context
+const USER_ONLY = ["next-move", "board-cleanup"];
 check("there are skills to check", files.length > 0);
 for (const f of files) {
   const name = path.relative(ROOT, f).replace(/\\/g, "/");
   const { errors, fields } = problems(fs.readFileSync(f, "utf8"));
   for (const e of errors) console.log(`      ${name}: ${e}`);
   check(`${name}: frontmatter parses strictly`, errors.length === 0);
-  if (!args.length)
+  if (!args.length) {
     check(
       `${name}: name matches its folder`,
       fields.name === path.basename(path.dirname(f)),
     );
+    if (USER_ONLY.includes(fields.name))
+      check(
+        `${name}: has disable-model-invocation: true, so its description costs no context in every session`,
+        fields["disable-model-invocation"] === "true",
+      );
+  }
 }
+if (!args.length)
+  check(
+    "every user-only skill is in skills/",
+    USER_ONLY.every((n) =>
+      fs.existsSync(path.join(ROOT, "skills", n, "SKILL.md")),
+    ),
+  );
 
 // The checker itself catches what it is for.
 const bad = (desc) =>

@@ -94,7 +94,7 @@ const STRINGS = {
   // A running row with no report from its helper for over 2 minutes: its last step and how long it has
   // been on it ({step} is the step, else `thinking`; {n} is the time, "4m")
   waiting: "{step} for {n}",
-  // A running helper before its first tool: "thinking", or "planning" for a planner; a command the app marks as
+  // A running helper before its first tool: "thinking", or "planning" for the app's Plan agent; a command the app marks as
   // sent to the background
   thinking: "thinking",
   planning: "planning",
@@ -243,7 +243,7 @@ const STRINGS = {
   // "Failed · <reason>"; a background helper the agents list does not show: "In the background". Opened:
   // "worker-full · Opus high · started 8:09 pm" (the time in timeLocale's clock)
   helperCard: {
-    roles: { helper: "Helper", reviewer: "Reviewer", planner: "Planner" },
+    roles: { helper: "Helper", reviewer: "Reviewer" },
     finished: "{role} finished",
     doingLine: "{role} {doing}",
     still: "{role} still {doing}",

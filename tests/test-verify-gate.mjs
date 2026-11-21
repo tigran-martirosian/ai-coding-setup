@@ -858,11 +858,14 @@ check(
   show(r),
 );
 
-// Failures fail open with a crash line
+// Failures fail open with a crash line (git fails in a folder whose .git file is broken)
 const CRASH_LOG = join(dir, "commit-crash.log");
+const brokenGit = join(dir, "broken-git");
+mkdirSync(brokenGit);
+writeFileSync(join(brokenGit, ".git"), "not a gitfile\n");
 r = pre(unverifiedEdit, {
   cwd: withSkill,
-  command: `git -C "${join(dir, "no-such-folder")}" commit -m "fix: a"`,
+  command: `git -C "${brokenGit}" commit -m "fix: a"`,
   env: { HOOK_ERRORS_LOG: CRASH_LOG },
 });
 check(
@@ -920,6 +923,43 @@ check(
     !existsSync(FOLDER_LOG),
   show(r),
 );
+// The shapes that crashed the gate in real sessions: a command substitution the hook does not run, a folder that
+// does not exist (or not yet: made earlier in the same command)
+for (const [label, command] of [
+  [
+    "cd $(mktemp -d) && git commit",
+    'cd $(mktemp -d) && git commit -m "fix: a"',
+  ],
+  ["cd `mktemp -d` && git commit", 'cd `mktemp -d` && git commit -m "fix: a"'],
+  [
+    "S=$(mktemp -d); cd $S/repo && git commit",
+    'S=$(mktemp -d); mkdir -p $S/repo; cd $S/repo && git init -q && git commit -m "fix: a"',
+  ],
+  [
+    'S="$(mktemp -d)"; git -C "$S" commit',
+    'S="$(mktemp -d)"; git -C "$S" commit -m "fix: a"',
+  ],
+  [
+    "cd <a folder that does not exist> && git commit",
+    `cd "${join(dir, "no-such-folder").replace(/\\/g, "/")}" && git commit -m "fix: a"`,
+  ],
+  [
+    "mkdir r && cd r && git init && git commit",
+    'mkdir r && cd r && git init && git commit -m "fix: a"',
+  ],
+]) {
+  r = pre(tildeEdit, {
+    cwd: dir,
+    command,
+    env: { HOOK_ERRORS_LOG: FOLDER_LOG },
+  });
+  check(
+    `${label}: a commit folder the hook cannot resolve is logged folder-unknown, with no crash line`,
+    r.lines[0]?.would === "folder-unknown" && !existsSync(FOLDER_LOG),
+    show(r),
+  );
+  rmSync(FOLDER_LOG, { force: true });
+}
 
 // The words after git commit: a redirection or a message's words are not paths
 for (const [label, command] of [

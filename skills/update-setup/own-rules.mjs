@@ -379,9 +379,14 @@ function covers() {
   for (const groups of Object.values(s.hooks || {}))
     for (const g of groups)
       for (const h of g.hooks || []) {
-        const m = (h.command || "").match(
-          /([^"\s]*[\\/]hooks[\\/]([\w.-]+)\.(?:mjs|cjs|js|sh|py|ps1))/,
-        );
+        // exec form keeps the script in `args`, shell form in `command`
+        const m = [h.command, ...(Array.isArray(h.args) ? h.args : [])]
+          .map((t) =>
+            String(t || "").match(
+              /([^"\s]*[\\/]hooks[\\/]([\w.-]+)\.(?:mjs|cjs|js|sh|py|ps1))/,
+            ),
+          )
+          .find(Boolean);
         if (m && !seen.has(m[2])) seen.set(m[2], m[1]);
       }
   console.log(

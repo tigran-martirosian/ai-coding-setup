@@ -1,5 +1,6 @@
 // install.mjs --uninstall: takes the setup out again. Its hook wiring leaves settings.json, its files go
-// unless changed, the oldest copy in setup-logs on record as the user's is put back; the project
+// unless changed, the oldest copy in setup-logs on record as the user's is put back, the versions the updater
+// downloaded into ~/.claude/setup-source go; the project
 // folders, plugins and extensions stay, and the run says how to remove them. A backup with its schedule on is turned
 // off first (workers/backup.mjs off), so no scheduled task is left starting a deleted script; the backup's folder stays.
 import { spawnSync } from "node:child_process";
@@ -22,6 +23,36 @@ import {
 } from "./files.mjs";
 import { EXT_FOLDER, nimbalystHome } from "./nimbalyst-paths.mjs";
 import { scriptsOf, unwire } from "./wiring.mjs";
+
+// The copy of Obscura (the headless browser tools/peek.mjs once fell back on) that older installs put in
+// ~/.claude/obscura. install.mjs removes it with these two, and so does the uninstall below. It is the setup's
+// only when it is a real folder (not a link) whose VERSION file reads as that install wrote it: its release tag and
+// then "sha256 <hash> <archive>". Any other folder there stays, and the PATH is never looked at.
+const OLD_OBSCURA_VERSION = /^v\d+(\.\d+)*\nsha256 [0-9a-f]{64} obscura-\S+\n$/;
+
+// The old copy's folder, or null when there is none or it is not the setup's. A VERSION file that can't be read
+// (a folder, no access) is not taken as the setup's: unreadable(dir, message) is called and null comes back.
+export function oldObscuraDir(claude, unreadable) {
+  const dir = path.join(claude, "obscura");
+  const versionFile = path.join(dir, "VERSION");
+  if (!fs.existsSync(versionFile) || !fs.lstatSync(dir).isDirectory())
+    return null;
+  let text;
+  try {
+    text = fs.readFileSync(versionFile, "utf8");
+  } catch (e) {
+    unreadable(dir, e.message);
+    return null;
+  }
+  return OLD_OBSCURA_VERSION.test(text) ? dir : null;
+}
+
+// The program files go before VERSION, so a locked obscura.exe leaves VERSION and the next run tries again
+export function removeOldObscura(dir) {
+  for (const f of fs.readdirSync(dir).filter((f) => f !== "VERSION"))
+    fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 
 // Nimbalyst's resources folder as patch.mjs lays it out (its paths() is not exported): the patched app.asar, the
 // original it keeps as app.asar.orig, its marker file, and the install folder its running check looks in
@@ -310,13 +341,74 @@ export function uninstall(ctx) {
       );
     }
   }
-  // 4d. Obscura, which the install put in ~/.claude/obscura (scripts/obscura.mjs); only that folder, never one on the PATH
-  const obscura = path.join(CLAUDE, "obscura");
-  if (fs.existsSync(path.join(obscura, "VERSION"))) {
-    if (!DRY) fs.rmSync(obscura, { recursive: true, force: true });
-    say(
-      `removed ${fwd(obscura)} (Obscura, the headless browser peek.mjs fell back on)`,
-    );
+  // 4d. Obscura, which older installs put in ~/.claude/obscura: only the copy oldObscuraDir above knows as
+  // the setup's, the check install.mjs makes too; never another folder there, a link, or one on the PATH
+  const obscura = oldObscuraDir(CLAUDE, (d, why) =>
+    kept.push(
+      `${fwd(d)}: its VERSION file can't be read (${why}), so it can't be told to be the old Obscura the setup put there; delete it by hand if it is`,
+    ),
+  );
+  if (obscura) {
+    try {
+      if (!DRY) removeOldObscura(obscura);
+      say(
+        `removed ${fwd(obscura)} (Obscura, the headless browser peek.mjs fell back on)`,
+      );
+    } catch (e) {
+      kept.push(
+        `${fwd(obscura)} (the old Obscura): removing it failed (${e.message}); close any Obscura that runs, then delete the folder by hand`,
+      );
+    }
+  }
+  // 4e. the versions the updater downloaded (skills/update-setup/update.mjs): ~/.claude/setup-source/v<version>, and
+  // a v<version>.part a stopped download left, each with the Nimbalyst extensions built in it (hundreds of MB). Any
+  // other entry there stays. The folder this run comes from (its install.mjs, or the current folder inside it) stays and
+  // is named, as do the .part folders while a self-install holds ~/.claude/update-auto.lock (hooks/update-check.mjs).
+  const sources = path.join(CLAUDE, "setup-source");
+  if (fs.existsSync(sources)) {
+    // real paths: Node gives this script's own path through links resolved (macOS /var is /private/var), the home
+    // may be named through one
+    const norm = (p) => {
+      const abs = path.resolve(p);
+      const r = fwd(fs.existsSync(abs) ? fs.realpathSync.native(abs) : abs);
+      return WIN ? r.toLowerCase() : r;
+    };
+    const inside = (p, dir) => p === dir || p.startsWith(`${dir}/`);
+    const repo = norm(REPO);
+    const cwd = norm(process.cwd());
+    const locked = fs.existsSync(path.join(CLAUDE, "update-auto.lock"));
+    for (const name of fs
+      .readdirSync(sources)
+      .filter((n) => /^v\d+(\.\d+)*(\.part)?$/.test(n))) {
+      const dir = path.join(sources, name);
+      if (inside(repo, norm(dir)) || inside(cwd, norm(dir))) {
+        kept.push(
+          `${fwd(dir)}: the setup's download this uninstall runs from; delete it by hand after this run (and after any command above that runs from it)`,
+        );
+        continue;
+      }
+      if (locked && name.endsWith(".part")) {
+        kept.push(
+          `${fwd(dir)}: a download an update running now is making (${fwd(path.join(CLAUDE, "update-auto.lock"))} is there); delete it by hand once that update ended`,
+        );
+        continue;
+      }
+      try {
+        if (!DRY) fs.rmSync(dir, { recursive: true, force: true });
+        say(`removed ${fwd(dir)} (a version the update downloaded)`);
+      } catch (e) {
+        kept.push(
+          `${fwd(dir)} (a version the update downloaded): removing it failed (${e.message}); delete the folder by hand`,
+        );
+      }
+    }
+    try {
+      if (!DRY && !fs.readdirSync(sources).length) fs.rmdirSync(sources);
+    } catch (e) {
+      kept.push(
+        `${fwd(sources)}: removing the empty folder failed (${e.message}); delete it by hand`,
+      );
+    }
   }
   if (!DRY) fs.rmSync(stateFile);
   say(`removed ${fwd(stateFile)} (the record of this install)`);

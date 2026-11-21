@@ -9,7 +9,10 @@ const HOOK = fileURLToPath(
 );
 let pass = 0,
   fail = 0;
-function run(command, { tool = "Bash", agent = "planner", env = {} } = {}) {
+function run(
+  command,
+  { tool = "Bash", agent = "plan-reviewer", env = {} } = {},
+) {
   const event = {
     hook_event_name: "PreToolUse",
     tool_name: tool,
@@ -75,7 +78,7 @@ allow("git status --short 2>&1");
 allow("git log --oneline -5 2>/dev/null");
 allow("git status --short && git log --oneline -3; git worktree list");
 allow("grep -n 'planner' agents/planner.md | head -20");
-// The harmless ones planners and reviewers kept being refused (2026-11-13)
+// The harmless ones the reviewers kept being refused (2026-11-13)
 allow('cd "C:/Projects/my x" && git log --oneline -3');
 allow("echo === && ls; pwd");
 allow('R="C:/Projects/my folder/x"; ls "$R"; git -C "$R" status');
@@ -126,7 +129,7 @@ allow("git grep -n -e planner");
 // The plan-reviewer: the same reading list plus test runs (user, 2026-11-09)
 const R = { agent: "plan-reviewer" };
 allow("git status --short", R);
-allow("node tests/test-planner.mjs", R);
+allow("node tests/test-x.mjs", R);
 allow("node C:/Projects/x/tests/run-all.mjs", R);
 allow("node test-rules-size.mjs && node run-private-tests.mjs", R);
 allow("npm test", R);
@@ -152,9 +155,15 @@ deny("pytest -p evil", R);
 deny("python -m pytest --junitxml=C:/x.xml", R);
 deny("pytest -o cache_dir=C:/x", R);
 allow("pytest -q -k slow tests/test_a.py", R);
+// Python projects kept in a uv environment run their tests through uv run.
+allow("uv run pytest tests -q", R);
+allow("uv run --frozen python -m pytest -x", R);
+allow("uv run python tests/test_a.py", R);
+deny("uv run --with evil pytest", R);
+deny("uv run pytest -p evil", R);
+deny("uv run python scripts/deploy.py", R);
+deny("uv pip install x", R);
 allow("node app.test.mjs", R);
-deny("node tests/test-planner.mjs"); // the planner itself runs no tests
-deny("npm test");
 const rr = spawnSync(process.execPath, [HOOK], {
   input: JSON.stringify({
     tool_name: "Bash",
@@ -256,8 +265,6 @@ deny("git status | tee out.txt");
 deny("ls | xargs rm");
 deny("find . -delete");
 deny("bash -c 'ls'");
-deny("npm test");
-deny("node tests/run-all.mjs");
 deny("git status 'unclosed");
 deny("(rm x)");
 
@@ -284,12 +291,17 @@ allow("git grep -n -e planner");
 allow("sort -n -k2 a.txt");
 allow("rg -n --hidden x");
 
-// Scope: only the planner
+// Scope: only the plan-reviewer and the reviewer
 check("main session: not touched", run("rm x", { agent: null }), "allow");
 check("a worker: not touched", run("rm x", { agent: "worker" }), "allow");
 check(
-  "a plugin-named planner is guarded",
-  run("rm x", { agent: "setup:planner" }),
+  "the retired planner: not touched",
+  run("rm x", { agent: "planner" }),
+  "allow",
+);
+check(
+  "a plugin-named plan-reviewer is guarded",
+  run("rm x", { agent: "setup:plan-reviewer" }),
   "deny",
 );
 check("other tool: not touched", run("rm x", { tool: "Read" }), "allow");
@@ -299,20 +311,6 @@ check(
   spawnSync(process.execPath, [HOOK], { input: "not json", encoding: "utf8" })
     .stdout,
   "",
-);
-
-const r = spawnSync(process.execPath, [HOOK], {
-  input: JSON.stringify({
-    tool_name: "Bash",
-    agent_type: "planner",
-    tool_input: { command: "touch x" },
-  }),
-  encoding: "utf8",
-});
-check(
-  "the refusal names the plan-reviewer",
-  /plan-reviewer runs it/.test(r.stdout) ? "yes" : r.stdout,
-  "yes",
 );
 
 console.log(`${pass} passed, ${fail} failed`);

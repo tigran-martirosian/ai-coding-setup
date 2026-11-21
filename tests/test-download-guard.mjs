@@ -235,6 +235,60 @@ check("DOWNLOAD_GUARD=off: left alone", off === "", off);
 const bad = await run("not json");
 check("bad input: left alone", bad === "", bad);
 
+// Auto mode (permission_mode "auto"): an updatedInput would void Nimbalyst's classifier review, so the hook rewrites
+// nothing and names the big file and the downloader command in additionalContext instead
+const autoRun = (input) => run({ ...input, permission_mode: "auto" });
+const parsed = (out) => {
+  try {
+    return JSON.parse(out).hookSpecificOutput;
+  } catch {
+    return null;
+  }
+};
+for (const [name, command, out] of [
+  [
+    "auto: a big curl with a note",
+    `curl -L -o model.bin ${base}/big.bin${NOTE}`,
+    "model.bin",
+  ],
+  [
+    "auto: a big curl with no note (no stand-in line either)",
+    `curl -LO ${base}/big.bin`,
+    "'big.bin'",
+  ],
+]) {
+  const raw = await autoRun(bash(command));
+  const h = parsed(raw);
+  check(
+    `${name}: not rewritten; additionalContext names the file, its size and the downloader command`,
+    h &&
+      !("updatedInput" in h) &&
+      !("permissionDecision" in h) &&
+      h.additionalContext.startsWith("[download-guard]") &&
+      h.additionalContext.includes(`${base}/big.bin (60 MB)`) &&
+      h.additionalContext.includes(`${N} ${base}/big.bin ${out}`),
+    raw || "(nothing)",
+  );
+}
+const autoSmall = await autoRun(bash(`curl -L -o s.bin ${base}/small.bin`));
+check("auto: a small curl: left alone", autoSmall === "", autoSmall);
+// Any other mode: the output is byte for byte the one with no mode in the event
+for (const mode of ["default", "acceptEdits", "bypassPermissions", "plan"])
+  for (const command of [
+    `curl -L -o model.bin ${base}/big.bin${NOTE}`,
+    `curl -L -o model.bin ${base}/big.bin`,
+  ]) {
+    const [withMode, without] = await Promise.all([
+      run({ ...bash(command), permission_mode: mode }),
+      run(bash(command)),
+    ]);
+    check(
+      `mode ${mode}: the same output as now for ${JSON.stringify(command)}`,
+      withMode === without && without !== "",
+      `${withMode} | ${without}`,
+    );
+  }
+
 server.close();
 console.log(fail ? `${fail} failed` : "all passed");
 process.exitCode = fail ? 1 : 0;

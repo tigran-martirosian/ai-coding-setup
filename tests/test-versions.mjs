@@ -360,11 +360,31 @@ if (OFFLINE) {
     );
     ok("supported branches are shown", /supported/.test(r.out));
   }
+  // The missing major comes from the same live list: one past the newest branch it names. A fixed number turned
+  // into a YES the day that major shipped, and the NO path went untested.
+  let missing = null;
   {
-    const r = run(["postgresql", "--has", "19"]);
+    const r = run(["postgresql", "--all"]);
     ok(
-      "postgresql --has 19: NO and exit 5",
-      r.status === 5 && /Is 19 available\? NO/.test(r.out),
+      "--all lists the dead branches too",
+      /END OF LIFE/.test(r.out) &&
+        !/older branches are end-of-life/.test(r.out),
+    );
+    const majors = [...r.out.matchAll(/^ {2}(\d+)[\d.]*\s+latest /gm)].map(
+      (m) => Number(m[1]),
+    );
+    ok(
+      "the live list names its branches, so a missing major can be picked",
+      majors.length > 0,
+      r.out.slice(0, 300),
+    );
+    if (majors.length > 0) missing = String(Math.max(...majors) + 1);
+  }
+  if (missing !== null) {
+    const r = run(["postgresql", "--has", missing]);
+    ok(
+      `postgresql --has ${missing} (one past the newest listed): NO and exit 5`,
+      r.status === 5 && new RegExp(`Is ${missing} available\\? NO`).test(r.out),
       `status ${r.status}`,
     );
     ok(
@@ -373,14 +393,6 @@ if (OFFLINE) {
       r.out.slice(-300),
     );
     ok("a NO says where to look next", /download page/.test(r.out));
-  }
-  {
-    const r = run(["postgresql", "--all"]);
-    ok(
-      "--all lists the dead branches too",
-      /END OF LIFE/.test(r.out) &&
-        !/older branches are end-of-life/.test(r.out),
-    );
   }
   {
     const r = run(["npm:sql-formatter"]);

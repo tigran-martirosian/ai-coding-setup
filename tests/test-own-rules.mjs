@@ -378,6 +378,29 @@ check(
     /^- [\w.-]+: \S.*$/m.test(rep.out) &&
     /^denied: /m.test(rep.out),
 );
+{
+  // the same settings in exec form ("command": node, "args": [script, ...]) list the same hooks
+  const settingsFile = path.join(claude, "settings.json");
+  const shellForm = read(settingsFile);
+  const s = JSON.parse(shellForm);
+  for (const groups of Object.values(s.hooks || {}))
+    for (const g of groups)
+      for (const h of g.hooks || []) {
+        const parts = [...String(h.command).matchAll(/"([^"]*)"|(\S+)/g)].map(
+          (m) => m[1] ?? m[2],
+        );
+        h.command = parts[0];
+        h.args = parts.slice(1);
+      }
+  fs.writeFileSync(settingsFile, JSON.stringify(s));
+  const repExec = own("--report");
+  fs.writeFileSync(settingsFile, shellForm);
+  const hookLines = (out) => (out.match(/^- [\w.-]+: \S.*$/gm) || []).length;
+  check(
+    "--report lists the wired hooks when settings use exec form (script in args), as many as in shell form",
+    hookLines(rep.out) > 0 && hookLines(repExec.out) === hookLines(rep.out),
+  );
+}
 const repH = own("--report", "--homes");
 const homePart = repH.out.split(`file ${fwd(homeMine)} · `)[1] ?? "";
 check(

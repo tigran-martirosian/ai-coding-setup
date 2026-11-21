@@ -180,7 +180,8 @@ const cases = [
     [bash("find / -name x"), { FIND_GUARD: "off" }],
     "pass",
   ],
-  ["junk input: passes", "not json", "pass"],
+  // Fails closed (spec 2026-11-20 D14): the error exit makes the onFailure "block" entry stop the call
+  ["junk input: the check fails, so the call is stopped", "not json", "exit 1"],
 ];
 let failed = 0;
 for (const [name, ev, want] of cases) {

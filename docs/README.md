@@ -4,6 +4,7 @@ The files in this folder, by who they're for. The [README](../README.md) one fol
 
 ## If you're new to the setup
 
+- [whats-new.md](whats-new.md): how the setup works now, on one page: how a job runs, the proof before "done", how fixes reach you, and what to say or type for each skill.
 - [HOW-TO.md](HOW-TO.md): what each part is for, what to type and what you should see.
 - [features.md](features.md): the parts the README only names, in detail (agents, hooks, sessions, usage, backup, rules).
 - [setup.md](setup.md): how the author works with coding agents, and where this setup fits in that.

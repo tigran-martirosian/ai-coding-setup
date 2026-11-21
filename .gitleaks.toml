@@ -1,0 +1,30 @@
+# gitleaks for this repo: its default rules, minus the values below that are public or fake. Each allowlist is one
+# file AND one value shape, never a commit hash: a release reaches GitHub as one new squashed commit, so a hash
+# allowed here would not exist there. Read by workers/ship-check.mjs (push --history), the push-key-scan hook and CI.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Telegram's published Ed25519 public key for checking Mini App initData (a public key, not a secret)"
+condition = "AND"
+paths = ['''(^|/)phone/relay/src/worker\.mjs$''']
+regexes = ['''^e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d$''']
+
+[[allowlists]]
+description = "SHA-256 hashes of the phone-bot page's files, kept to notice a changed page (hashes, not keys)"
+condition = "AND"
+paths = ['''(^|/)skills/phone-bot/pc/page-hashes\.json$''']
+regexes = ['''^[0-9a-f]{64}$''']
+
+[[allowlists]]
+description = "A made-up UUID the experiment-alert test used as a stand-in secret id (file deleted, still in history)"
+condition = "AND"
+paths = ['''(^|/)tests/test-experiment-alert\.mjs$''']
+regexes = ['''^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$''']
+
+[[allowlists]]
+description = "The sample Sec-WebSocket-Key from RFC 6455 section 1.3 (base64 of 'the sample nonce'), a test request header"
+condition = "AND"
+paths = ['''(^|/)tests/test-phone-relay\.mjs$''']
+regexes = ['''^dGhlIHNhbXBsZSBub25jZQ==$''']

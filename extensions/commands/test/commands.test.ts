@@ -139,8 +139,9 @@ ok(
 const buttonsSending = (prompt: string) =>
   visible(SETUP).filter((c) => c.prompt === prompt);
 assert.equal(buttonsSending("/file-upkeep").length, 0);
-assert.equal(buttonsSending("/grill-me").length, 1);
-assert.equal(buttonsSending("/grill-me")[0].icon, "quiz");
+// grill-me became grilling on 2026-11-19 (Pocock's newer text, with the spec step)
+assert.equal(buttonsSending("/grilling").length, 1);
+assert.equal(buttonsSending("/grilling")[0].icon, "quiz");
 assert.ok(
   fs.existsSync(
     path.join(
@@ -149,7 +150,7 @@ assert.ok(
       "..",
       "..",
       "skills",
-      "grill-me",
+      "grilling",
       "SKILL.md",
     ),
   ),
@@ -270,14 +271,18 @@ const noteCss = fs.readFileSync(
   "utf8",
 );
 assert.ok(body(noteCss, ".cb-note-btn").includes("font: var(--x-row-title);"));
-for (const css of [CSS, noteCss]) {
+const diffCss = fs.readFileSync(
+  path.join(import.meta.dirname, "..", "src", "diff-comments.css"),
+  "utf8",
+);
+for (const css of [CSS, noteCss, diffCss]) {
   assert.doesNotMatch(css, /font-weight: *(7|8|9)00|font: *(7|8|9)00/);
   assert.doesNotMatch(css, /uppercase/);
   for (const size of css.matchAll(/(?:font-size:|font:[^;]*?) (\d+)px/g))
     assert.ok(Number(size[1]) >= 12, `a text of ${size[1]} px`);
 }
 ok(
-  "the popover and the Note button use their levels: no text under 12 px, no bold 700, no capitals",
+  "the popover, the Note button and the diff comments use their levels: no text under 12 px, no bold 700, no capitals",
 );
 
 const list = [

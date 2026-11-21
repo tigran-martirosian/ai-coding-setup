@@ -1,7 +1,6 @@
 // node tests/test-disk-tidy.mjs
 // Builds a made-up home, temp folder, projects folder and Nimbalyst folder under the system temp, runs
-// workers/disk-tidy.mjs on them and checks what it reports, removes, archives and leaves; then the chat-archive
-// part of hooks/pc-tidy-nudge.mjs (every 3 days, only after the person's yes). Real git for the worktrees.
+// workers/disk-tidy.mjs on them and checks what it reports, removes, archives and leaves. Real git for the worktrees.
 process.env.HOOK_ERRORS_LOG = "off";
 
 import { spawnSync } from "node:child_process";
@@ -20,7 +19,6 @@ import {
 } from "../workers/disk-tidy.mjs";
 
 const WORKER = path.join(import.meta.dirname, "..", "workers", "disk-tidy.mjs");
-const HOOK = path.join(import.meta.dirname, "..", "hooks", "pc-tidy-nudge.mjs");
 const T = fs.mkdtempSync(path.join(os.tmpdir(), "disk-tidy-test-"));
 const HOME = path.join(T, "home"),
   TMP = path.join(T, "tmp"),
@@ -672,10 +670,11 @@ check(
   onUnset.all,
 );
 put(path.join(CL, "settings.json"), JSON.stringify({ cleanupPeriodDays: 120 }));
-const only1 = tidy("--auto", "--archive-only");
+const only1 = tidy("--auto");
 check(
   "the archive step does nothing before the yes",
-  only1.out === "" && ex(c61),
+  !/archived \d+ chat/.test(only1.out) && ex(c61),
+  only1.out,
 );
 check(
   "--keep-forever adds a project",
@@ -689,12 +688,7 @@ check(
     JSON.parse(fs.readFileSync(path.join(CL, "disk-tidy.json"), "utf8")).archive
       .afterDays === 60,
 );
-const arc = tidy(
-  "--auto",
-  "--archive-only",
-  "--note-file",
-  path.join(T, "note.txt"),
-);
+const arc = tidy("--auto");
 const index = () =>
   fs
     .readFileSync(
@@ -751,10 +745,9 @@ check(
   ids.includes("k125") && !ex(path.join(PROJ, "keeper", "k125.jsonl")),
 );
 check(
-  "the archive step writes its one line for the hook",
-  /archived 3 chats older than 60 days/.test(
-    fs.readFileSync(path.join(T, "note.txt"), "utf8"),
-  ) && /deleted 1 archived chat past 120 days/.test(arc.out),
+  "the archive step says what it archived and deleted",
+  /archived 3 chats older than 60 days/.test(arc.out) &&
+    /deleted 1 archived chat past 120 days/.test(arc.out),
   arc.out,
 );
 check(
@@ -905,124 +898,6 @@ check(
       }
     })(),
   `${viaLink.status} ${viaLink.stdout}${viaLink.stderr}`,
-);
-
-// ---- the hook: the archive at most every 3 days, only after the yes, one line when something was archived
-const HH = path.join(T, "hook-home");
-const HSTATE = path.join(HH, ".claude", "hooks", "state", "pc-tidy-nudge");
-const MARK = path.join(T, "worker-ran.txt");
-put(
-  path.join(HH, ".claude", "workers", "disk-tidy.mjs"),
-  `import fs from "node:fs";
-fs.appendFileSync(${JSON.stringify(MARK)}, process.argv.slice(2).join(" ") + "\\n");
-const i = process.argv.indexOf("--note-file"); fs.writeFileSync(process.argv[i + 1], "disk: archived 2 chats older than 60 days");\n`,
-);
-function hook(prompt = "hello") {
-  const r = spawnSync(process.execPath, [HOOK], {
-    input: JSON.stringify({ prompt }),
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      HOME: HH,
-      USERPROFILE: HH,
-      CLAUDE_CODE_ENTRYPOINT: "cli",
-      PC_TIDY_NUDGE: "",
-    },
-  });
-  return r.stdout;
-}
-function ran() {
-  // the worker runs detached: wait up to 5 s for its mark
-  for (const end = Date.now() + 5000; Date.now() < end; ) {
-    if (ex(MARK)) return true;
-    spawnSync(process.execPath, ["-e", "setTimeout(()=>{},100)"]);
-  }
-  return false;
-}
-const runs = () =>
-  ex(MARK)
-    ? fs.readFileSync(MARK, "utf8").split("\n").filter(Boolean).length
-    : 0;
-const cfg = (c) =>
-  put(path.join(HH, ".claude", "disk-tidy.json"), JSON.stringify(c));
-hook();
-spawnSync(process.execPath, ["-e", "setTimeout(()=>{},800)"]);
-check("hook: no archive before the person said yes", !ex(MARK));
-cfg({ archive: { off: true, since: "2026-11-10" } });
-hook();
-spawnSync(process.execPath, ["-e", "setTimeout(()=>{},800)"]);
-check("hook: no archive when it was turned off", !ex(MARK));
-cfg({ archive: { afterDays: 60, since: "2026-11-10" } });
-check(
-  "hook: the archive runs quietly once it is on",
-  hook() === "" &&
-    ran() &&
-    /--auto --archive-only/.test(fs.readFileSync(MARK, "utf8")),
-);
-for (
-  const end = Date.now() + 5000;
-  !ex(path.join(HSTATE, "disk-archive-note.txt")) && Date.now() < end;
-)
-  spawnSync(process.execPath, ["-e", "setTimeout(()=>{},100)"]);
-const shown = hook();
-check(
-  "hook: the next prompt shows the archive's one line, once",
-  /archived 2 chats/.test(JSON.parse(shown || "{}").systemMessage || "") &&
-    hook() === "",
-  shown,
-);
-check("hook: not again within 3 days", runs() === 1);
-put(
-  path.join(HSTATE, "disk-archive.json"),
-  JSON.stringify({ ranAt: Date.now() - 2.9 * DAY }),
-);
-hook();
-spawnSync(process.execPath, ["-e", "setTimeout(()=>{},800)"]);
-check("hook: 2.9 days after the last run it still waits", runs() === 1);
-put(
-  path.join(HSTATE, "disk-archive.json"),
-  JSON.stringify({ ranAt: Date.now() - 3.1 * DAY }),
-);
-hook();
-for (const end = Date.now() + 5000; runs() < 2 && Date.now() < end; )
-  spawnSync(process.execPath, ["-e", "setTimeout(()=>{},100)"]);
-check("hook: 3 days after the last run it runs again", runs() === 2);
-check(
-  "hook: a /command does not start it",
-  (() => {
-    put(path.join(HSTATE, "disk-archive.json"), JSON.stringify({ ranAt: 0 }));
-    hook("/disk-tidy");
-    spawnSync(process.execPath, ["-e", "setTimeout(()=>{},800)"]);
-    return runs() === 2;
-  })(),
-);
-// a failed run: the 3-day clock does not start, and the next prompt says so once
-put(
-  path.join(HH, ".claude", "workers", "disk-tidy.mjs"),
-  `console.error("disk-tidy: the archive folder is read-only"); process.exit(1);\n`,
-);
-fs.rmSync(path.join(HSTATE, "disk-archive-note.txt"), { force: true });
-put(
-  path.join(HSTATE, "disk-archive.json"),
-  JSON.stringify({ ranAt: Date.now() - 3.1 * DAY }),
-);
-hook();
-for (
-  const end = Date.now() + 5000;
-  !ex(path.join(HSTATE, "disk-archive-note.txt")) && Date.now() < end;
-)
-  spawnSync(process.execPath, ["-e", "setTimeout(()=>{},100)"]);
-const failNote = hook();
-check(
-  "hook: a failed archive run saves no new ranAt and the next prompt shows the failure once",
-  JSON.parse(fs.readFileSync(path.join(HSTATE, "disk-archive.json"), "utf8"))
-    .ranAt <
-    Date.now() - 3 * DAY &&
-    /archive run failed \(disk-tidy: the archive folder is read-only\)/.test(
-      JSON.parse(failNote || "{}").systemMessage || "",
-    ) &&
-    hook() === "",
-  failNote,
 );
 
 // leave nothing behind (wait for a detached worker still writing its note)

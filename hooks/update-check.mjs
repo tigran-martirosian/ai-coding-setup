@@ -26,7 +26,8 @@ import path from "node:path";
 //     the panels stand (`auto.panels`) and names a panel whose build failed. It counts as dead after 45 minutes,
 //     the --files-only run after 15.
 // Nimbalyst's delivery is said in grey lines too, from deliver.mjs's data folder (below): the result of an install
-// once, and a version waiting for a restart (or for Nimbalyst to close) once.
+// once, a version waiting for a restart (or for Nimbalyst to close) once, and the project moves queued for its close
+// (waiting or refused) once per change.
 // The grey lines name no version numbers (they make every release look like a hotfix): one behind gives the
 // release's headline, two or more the date of the installed version and the newest important headlines.
 // A heads-up about a release planned soon: version.json's optional `notice` ({id, text, issues?, version?}) is kept
@@ -36,8 +37,8 @@ import path from "node:path";
 // crash-logged and left out; version.json with no notice changes nothing.
 // The hook itself never downloads or installs anything. The installed version is the one install.mjs wrote to
 // ~/.claude/setup-state.json (read only when the stored answer says a line or a self-install is due); a setup
-// with no version on record counts as older. Most prompts cost one file read and two stats (the tidy offer and
-// Nimbalyst's delivery, below);
+// with no version on record counts as older. Most prompts cost one file read and three stats (the tidy offer and
+// Nimbalyst's delivery with its queued moves, below);
 // the first prompt in a folder each day also looks for the folder's CLAUDE.md and .git and reads
 // ~/.claude/project-pass.json (the project pass and /new-project offers, below).
 // Offline, or GitHub not answering within 0.7 seconds (2.5 on the try after a timeout, so a slow line still hears of an
@@ -380,7 +381,10 @@ function startSelfInstall(version, installed, mode) {
 // version, override?, error?}), and staged.json, a version waiting for Nimbalyst to close ({version, ...}). Each is
 // said once in a grey line: a result once per `at`, a waiting version once per version. Most prompts cost one stat
 // (status.json's time); staged.json is read when that changed, in the hour after this hook started a stage, and
-// otherwise once an hour.
+// otherwise once an hour. moves.json ({ moves: [{ from, to, at }], refused?: [{ from, to, exit, why, ... }] }), the
+// project moves skills/file-upkeep/move-project.mjs --queue keeps for Nimbalyst's close, costs one more stat: it is
+// read when its time changed, and its note (the moves waiting, those refused when they ran, or a file that can't be
+// read) is said once per change of that note; none waiting and none refused say nothing.
 const DELIVER = path.join(CLAUDE, "tools", "nimbalyst-patch", "deliver.mjs");
 const DATA =
   process.env.NIMBALYST_DELIVER_DATA ||
@@ -407,10 +411,70 @@ function startStage() {
   return new Date().toISOString();
 }
 
+const unreadable = (file, err) =>
+  `The queued project moves in ${file} can't be read: ${String(err.message).replace(/\.$/, "")}; fix or delete it.`;
+// The note on the queued project moves, as deliver.mjs --status words it; "" when none wait and none were refused.
+// A moves.json that can't be read gives a short note, not an error.
+function movesNote(file) {
+  let q;
+  try {
+    q = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!Array.isArray(q?.moves)) throw new Error(`it has no "moves" list`);
+    if (q.refused !== undefined && !Array.isArray(q.refused))
+      throw new Error(`its "refused" entry is not a list`);
+  } catch (err) {
+    return unreadable(file, err);
+  }
+  const parts = [];
+  const n = q.moves.length;
+  if (n)
+    parts.push(
+      `${n} project move${n > 1 ? "s wait" : " waits"} for Nimbalyst to close: ${q.moves.map((m) => `${m.from} -> ${m.to}`).join("; ")}.`,
+    );
+  for (const x of q.refused ?? [])
+    parts.push(
+      `The queued move ${x.from} -> ${x.to} was ${x.exit === 2 ? "stopped midway" : "refused"}: ${String(
+        x.why ?? "",
+      )
+        .replace(/^move-project (refused|failed midway[^:]*): /, "")
+        .replace(
+          /\.$/,
+          "",
+        )} (kept in ${file} until that project is queued again or moved; delete it there to drop it).`,
+    );
+  return parts.join(" ");
+}
+
+// moves.json's part of `next.nimbalyst`: `movesSeen` (the file's time) and `movesSaid` (the note last said), and the
+// note to say now. No file clears both, so a move queued again later is said again, even with the same note.
+function movesSeen(seen) {
+  const file = path.join(DATA, "moves.json");
+  let mtime, note;
+  try {
+    mtime = fs.statSync(file).mtimeMs;
+  } catch (err) {
+    if (err.code !== "ENOENT") note = unreadable(file, err);
+  }
+  if (mtime !== undefined) {
+    if (mtime === seen.movesSeen) return { fields: null, line: null };
+    note = movesNote(file);
+  }
+  const fields = { movesSeen: mtime, movesSaid: note || undefined };
+  if (
+    fields.movesSeen === seen.movesSeen &&
+    fields.movesSaid === seen.movesSaid
+  )
+    return { fields: null, line: null };
+  return { fields, line: note && note !== seen.movesSaid ? note : null };
+}
+
 // The grey lines of the delivery, each once; `next.nimbalyst` keeps what was seen and said
 function nimbalystLines(next, now) {
   if (!DATA) return { next, lines: [] }; // no LOCALAPPDATA: not Windows, nothing is delivered here
   const seen = next.nimbalyst || {};
+  const moves = movesSeen(seen);
+  if (moves.fields) next = { ...next, nimbalyst: { ...seen, ...moves.fields } };
+  const movesLines = moves.line ? [moves.line] : [];
   const statusFile = path.join(DATA, "status.json");
   let mtime = null;
   try {
@@ -421,9 +485,9 @@ function nimbalystLines(next, now) {
   const changed = mtime !== null && mtime !== seen.statusSeen;
   const recent = (at) => now - new Date(at || 0).getTime() < HOUR;
   if (!changed && !recent(seen.stageStarted) && recent(seen.stagedLook))
-    return { next, lines: [] };
+    return { next, lines: movesLines };
   const lines = [];
-  const nb = { ...seen, stagedLook: new Date(now).toISOString() };
+  const nb = { ...next.nimbalyst, stagedLook: new Date(now).toISOString() };
   if (changed) {
     nb.statusSeen = mtime;
     const s = json(statusFile);
@@ -447,7 +511,7 @@ function nimbalystLines(next, now) {
         : `Nimbalyst ${staged.version} is ready: /update-setup restarts it to finish.`,
     );
   }
-  return { next: { ...next, nimbalyst: nb }, lines };
+  return { next: { ...next, nimbalyst: nb }, lines: [...lines, ...movesLines] };
 }
 
 // ---- the tidy offer for the person's own rules: ~/.claude/rules/my-rules.md and each project home's

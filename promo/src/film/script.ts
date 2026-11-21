@@ -34,11 +34,12 @@ export type Body =
       found: string;
       reason: string;
     }
-  /** A plain chat message, under its label, that the planner takes up and splits into steps. */
+  /** A plain chat message, under its label, that the session plans and splits into steps. */
   | {
       kind: "lead";
       label: string;
       ask: string;
+      plan: string;
       steps: string[];
       helper: string;
       reviewer: string;
@@ -120,13 +121,14 @@ export const SCRIPT: Shot[] = [
   {
     id: "lead",
     part: "Ask",
-    title: "Ask for a big change. A planner splits it up.",
+    title: "Ask for a big change. Claude plans it in steps.",
     sub: "Helpers build the steps. One reviewer checks the result.",
     ticks: 168,
     body: {
       kind: "lead",
       label: "Your message",
       ask: "Add rate limits to the API",
+      plan: "Plan",
       steps: [
         "Find the API routes",
         "Add the limiter",
@@ -304,10 +306,10 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "tiles",
       tiles: [
-        { name: "51 hooks", note: "Small checks on each step" },
-        { name: "23 skills", note: "Commands like /lead" },
+        { name: "31 hooks", note: "Small checks on each step" },
+        { name: "24 skills", note: "Commands like /lead" },
         { name: "8 extensions", note: "Job Tracker, commands, side panels" },
-        { name: "9 agents", note: "Planner, workers, reviewers" },
+        { name: "7 agents", note: "Workers and reviewers" },
         { name: "Handoff", note: "Next session picks up where you stopped" },
         { name: "Board cleanup", note: "Tidies Nimbalyst's board of chats" },
         { name: "Phone app", note: "Sessions and files from Telegram" },
@@ -355,9 +357,9 @@ export const SCRIPT: Shot[] = [
       kind: "install",
       code: "node install.mjs",
       output: [
-        "Copied 51 hooks",
-        "Copied 23 skills",
-        "Copied 9 agents",
+        "Copied 31 hooks",
+        "Copied 24 skills",
+        "Copied 7 agents",
         "Added 8 extensions for Nimbalyst",
         "Kept your own settings",
         "Done. Start Claude Code.",
@@ -430,6 +432,7 @@ export const blocks = (shot: Shot): string[] => {
         ...head,
         b.label,
         b.ask,
+        b.plan,
         ...b.steps,
         b.helper,
         b.reviewer,

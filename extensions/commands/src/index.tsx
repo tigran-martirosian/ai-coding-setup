@@ -26,6 +26,7 @@ import "../../shared/tokens.css";
 import "./chat-wrap.css";
 import "./note.css";
 import "./copy-row.css";
+import "./diff-comments.css";
 import {
   COPY_TAG,
   CopyRow,

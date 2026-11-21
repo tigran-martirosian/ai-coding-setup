@@ -87,7 +87,8 @@ const PATTERNS = [
   ],
   [
     "email address",
-    /(?<![\w.%+-])[\w.%+-]+@(?!(?:[\w-]+\.)*(?:example\.(?:com|org|net)|users\.noreply\.github\.com|github\.com)\b)[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b/i,
+    // a screen-scale image name (Logo@2x.png) is not an address
+    /(?<![\w.%+-])[\w.%+-]+@(?!\d+(?:\.\d+)?x\.(?:png|jpe?g|gif|webp|svg|bmp|ico)\b)(?!(?:[\w-]+\.)*(?:example\.(?:com|org|net)|users\.noreply\.github\.com|github\.com)\b)[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b/i,
   ],
   ["Telegram bot token", /\b\d{8,10}:AA[\w-]{30,}/],
   [

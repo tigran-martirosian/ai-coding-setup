@@ -113,6 +113,17 @@ ok(
   tools.length > 0 && tools.every((f) => fs.existsSync(path.join(claude, f))),
 );
 fs.appendFileSync(path.join(claude, changed), "\n// edited by the person\n");
+// what the updater downloaded (skills/update-setup/update.mjs): a version with its extensions built, a stopped
+// download, and a file of the person's own beside them
+const sources = path.join(claude, "setup-source");
+for (const f of [
+  path.join("v1.0.0", "extensions", "commands", "node_modules", "a.js"),
+  path.join("v1.0.1.part", "install.mjs"),
+  "my-notes.txt",
+]) {
+  fs.mkdirSync(path.dirname(path.join(sources, f)), { recursive: true });
+  fs.writeFileSync(path.join(sources, f), "x");
+}
 const installed = snap(home);
 
 // ---- dry run: prints, changes nothing
@@ -175,6 +186,16 @@ ok(
   "the record of the install is gone",
   fs.existsSync(path.join(claude, "setup-state.json")),
   false,
+);
+ok(
+  "the versions the update downloaded (setup-source/v*) go and are named; the person's own file there stays",
+  [
+    fs.existsSync(path.join(sources, "v1.0.0")),
+    fs.existsSync(path.join(sources, "v1.0.1.part")),
+    fs.existsSync(path.join(sources, "my-notes.txt")),
+    un.out.includes("setup-source/v1.0.0 (a version the update downloaded)"),
+  ],
+  [false, false, true, true],
 );
 ok(
   "the project folders are left alone and the run says so",
@@ -742,6 +763,127 @@ ok(
   un4.out.includes("Run the update first"),
 );
 ok("home4: a second run says the same", run(home4, "--uninstall").code, 1);
+
+// ---- the old Obscura copy in ~/.claude/obscura: the uninstall removes it only when its VERSION file reads as the
+// old install wrote it (the install's own check, oldObscuraDir in scripts/uninstall.mjs); a folder of the person's stays
+{
+  const homeOb = path.join(tmp, "home-old-reader");
+  const dir = path.join(homeOb, ".claude", "obscura");
+  const putObscura = (version) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "obscura.exe"), "program");
+    fs.writeFileSync(path.join(dir, "VERSION"), version);
+  };
+  const obscuraLines = (out) =>
+    out.split("\n").filter((l) => /obscura/i.test(l));
+  ok("old Obscura: install exits cleanly", run(homeOb).code, 0);
+  putObscura("my own build\n");
+  const unTheirs = run(homeOb, "--uninstall");
+  ok(
+    'old Obscura: a ~/.claude/obscura whose VERSION is not the old install\'s ("my own build") stays after the uninstall, named nowhere',
+    [
+      unTheirs.code,
+      fs.existsSync(dir) ? fs.readdirSync(dir).sort() : "gone",
+      obscuraLines(unTheirs.out),
+    ],
+    [0, ["VERSION", "obscura.exe"], []],
+  );
+  ok("old Obscura: a second install exits cleanly", run(homeOb).code, 0);
+  putObscura(
+    "v0.2.6\nsha256 0a110d0693753a252ed7ffd61e682363e8622caf79697f564c529099a31a6242 obscura-x86_64-windows.zip\n",
+  );
+  const unOwn = run(homeOb, "--uninstall");
+  ok(
+    "old Obscura: the old install's own copy (its VERSION file as that install wrote it) is removed by the uninstall, in one line",
+    [unOwn.code, fs.existsSync(dir), obscuraLines(unOwn.out).length],
+    [0, false, 1],
+  );
+}
+
+// ---- setup-source: what the uninstall takes from the updater's downloads, and what it leaves
+{
+  const fwd = (p) => p.replace(/\\/g, "/");
+  const installedHome = (name) => {
+    const h = path.join(tmp, name);
+    ok(`${name}: install exits cleanly`, run(h).code, 0);
+    return [h, path.join(h, ".claude", "setup-source")];
+  };
+  const put = (dir, files) => {
+    for (const f of files) {
+      fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      fs.writeFileSync(path.join(dir, f), "x");
+    }
+  };
+
+  // a. the uninstall runs from a downloaded version, as after an update: that folder stays and the run names it
+  const [homeA, sourcesA] = installedHome("home-source-self");
+  const self = path.join(sourcesA, "v9.9.9");
+  fs.cpSync(REPO, self, {
+    recursive: true,
+    filter: (src) =>
+      ![".git", "node_modules", "promo", "dist", "img"].includes(
+        path.basename(src),
+      ),
+  });
+  const unA = spawnSync(
+    process.execPath,
+    [path.join(self, "install.mjs"), "--home", homeA, "--uninstall"],
+    {
+      encoding: "utf8",
+      env: { ...process.env, PATH: emptyPath, Path: emptyPath },
+    },
+  );
+  ok(
+    "setup-source: the downloaded version the uninstall runs from stays (its install.mjs is there) and the run names it",
+    [
+      unA.status,
+      fs.existsSync(path.join(self, "install.mjs")),
+      unA.stdout.includes(
+        `${fwd(self)}: the setup's download this uninstall runs from`,
+      ),
+    ],
+    [0, true, true],
+  );
+
+  // b. only downloads in it: they go, then the empty setup-source folder goes as well
+  const [homeB, sourcesB] = installedHome("home-source-only");
+  put(sourcesB, [
+    path.join("v1.0.0", "install.mjs"),
+    path.join("v1.0.1.part", "install.mjs"),
+  ]);
+  ok(
+    "setup-source: with only v1.0.0 and v1.0.1.part in it, both go and the empty setup-source folder goes too",
+    [run(homeB, "--uninstall").code, fs.existsSync(sourcesB)],
+    [0, false],
+  );
+
+  // c and d. a file of the person's named like a version, and a self-install running (its lock is there)
+  const [homeD, sourcesD] = installedHome("home-source-lock");
+  put(sourcesD, [
+    path.join("v1.0.0", "install.mjs"),
+    path.join("v1.0.1.part", "install.mjs"),
+    "v2-notes",
+  ]);
+  fs.writeFileSync(path.join(homeD, ".claude", "update-auto.lock"), "1234");
+  const unD = run(homeD, "--uninstall");
+  const keptD = unD.out.slice(unD.out.indexOf("Kept, not touched:"));
+  ok(
+    "setup-source: a v2-notes file beside the downloads (not a version's name) stays",
+    [unD.code, fs.existsSync(path.join(sourcesD, "v2-notes"))],
+    [0, true],
+  );
+  ok(
+    "setup-source: while update-auto.lock is there, v1.0.1.part stays and is named under Kept; v1.0.0 still goes",
+    [
+      fs.existsSync(path.join(sourcesD, "v1.0.1.part")),
+      keptD.includes(
+        `${fwd(path.join(sourcesD, "v1.0.1.part"))}: a download an update running now is making`,
+      ),
+      fs.existsSync(path.join(sourcesD, "v1.0.0")),
+    ],
+    [true, true, false],
+  );
+}
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fails ? `\n${fails} failed` : "\nall passed");

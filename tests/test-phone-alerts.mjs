@@ -120,7 +120,7 @@ const ran = (command) => {
   ];
 };
 const BRIEF_RUN =
-  'cd "C:/Projects/website" && node ~/.claude/hooks/handoff-brief.mjs --summary C:/Users/you/AppData/Local/Temp/summary.md';
+  'cd "C:/Projects/website" && node ~/.claude/skills/handoff/brief.mjs --summary C:/Users/you/AppData/Local/Temp/summary.md';
 // The /handoff turn: the command wrapper, the skill's text (meta), the brief command, the closing words.
 const handoffTurn = () => [
   said(
@@ -224,7 +224,7 @@ try {
     grepOnly: addSession(WEB, "Release notes draft", "running", [
       said("Where does the skill run its brief?"),
       ...ran(
-        'grep -n "node ~/.claude/hooks/handoff-brief.mjs --summary" ~/.claude/skills/handoff/SKILL.md',
+        'grep -n "node ~/.claude/skills/handoff/brief.mjs --summary" ~/.claude/skills/handoff/SKILL.md',
       ),
       answered("In step 2."),
     ]),
@@ -465,16 +465,16 @@ try {
   );
   const runs = [
     BRIEF_RUN,
-    '"C:/Program Files/nodejs/node.exe" "C:/Users/you/.claude/hooks/handoff-brief.mjs" --summary s.md',
+    '"C:/Program Files/nodejs/node.exe" "C:/Users/you/.claude/skills/handoff/brief.mjs" --summary s.md',
   ];
   const notRuns = [
-    "node ~/.claude/hooks/handoff-brief.mjs --hook",
-    'grep -rn "node handoff-brief.mjs --summary" .',
-    "echo node handoff-brief.mjs --summary",
-    "node other.mjs handoff-brief.mjs --summary",
+    "node ~/.claude/skills/handoff/brief.mjs",
+    'grep -rn "node handoff/brief.mjs --summary" .',
+    "echo node handoff/brief.mjs --summary",
+    "node other.mjs handoff/brief.mjs --summary",
   ];
   check(
-    "only node running handoff-brief.mjs with --summary counts as a handoff",
+    "only node running the handoff skill's brief.mjs with --summary counts as a handoff",
     runs.every(runsHandoffBrief) && !notRuns.some(runsHandoffBrief),
     show([runs.map(runsHandoffBrief), notRuns.map(runsHandoffBrief)]),
   );

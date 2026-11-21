@@ -100,11 +100,12 @@ report(
   bad.status === 0 && bad.stdout.trim() === "still here",
   "a log that can't be written never makes the hook throw",
 );
-const real = runFile(join(HOOKS, "big-read-gate.mjs"), {}, "not json");
+// A hook that fails open (the guards fail closed since 2026-11-20, spec D14)
+const real = runFile(join(HOOKS, "command-explain.mjs"), {}, "not json");
 report(
   real.status === 0 &&
     real.stdout === "" &&
-    lines().some((l) => / big-read-gate: /.test(l)),
+    lines().some((l) => / command-explain: /.test(l)),
   "a real hook fed junk lets the call through (exit 0, no output) and leaves its line",
 );
 
@@ -112,7 +113,7 @@ report(
 const home = join(dir, "home");
 const homeLog = join(home, ".claude", "hooks", "state", "hook-errors.log");
 const homeEnv = { HOME: home, USERPROFILE: home, HOOK_ERRORS_LOG: "off" };
-runFile(join(HOOKS, "big-read-gate.mjs"), homeEnv, "not json");
+runFile(join(HOOKS, "find-guard.mjs"), homeEnv, "not json");
 runFile(join(HOOKS, "verify-gate.mjs"), homeEnv, "not json");
 report(
   !existsSync(homeLog),
@@ -180,13 +181,13 @@ report(
   /verify-gate/.test(said(session())),
   "and is reported once it is complete",
 );
-appendFileSync(LOG, `2026-11-02T10:05:00.000Z big-read-gate: off switch\n`);
+appendFileSync(LOG, `2026-11-02T10:05:00.000Z find-guard: off switch\n`);
 report(
   session({ HOOK_CRASH_ALARM: "off" }) === "",
   "HOOK_CRASH_ALARM=off raises nothing",
 );
 report(
-  /big-read-gate/.test(said(session())),
+  /find-guard/.test(said(session())),
   "and the line is still there to report when it is switched on again",
 );
 // More than the 256 KB the alarm reads at once, with two-byte characters, so the cap cuts a line and a character in half

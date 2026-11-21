@@ -25,12 +25,10 @@
 //   node install.mjs            install
 //   node install.mjs --dry-run  print what it would do and change nothing
 //   --uninstall                 take the setup out again: its hook wiring leaves settings.json, its files
-//                               go unless changed, the user's copy in setup-logs is put back; the project folders,
+//                               go unless changed, the user's copy in setup-logs is put back, the versions the
+//                               update downloaded (~/.claude/setup-source) go; the project folders,
 //                               plugins and extensions stay (the run says how to remove them); with --dry-run
 //                               it only prints what it would do
-//   --obscura yes|no            put Obscura, the headless browser tools/peek.mjs falls back on, into ~/.claude/obscura
-//                               (default: yes, about 70 MB, one pinned release with its SHA-256 checked; a no is
-//                               remembered; with --home only when yes is given)
 //   --projects <folder>         where the project folders go (default: Projects in the home folder;
 //                               the folder given once is remembered for later runs)
 //   --codex yes|no              whether the Codex CLI is used, for the picture skill and the web sweeps of
@@ -109,7 +107,6 @@ import {
 } from "./scripts/files.mjs";
 import { claudeSettings, onProPlan } from "./scripts/model.mjs";
 import { appDataDir, nimbalystHome } from "./scripts/nimbalyst-paths.mjs";
-import { obscura } from "./scripts/obscura.mjs";
 import { plugins } from "./scripts/plugins.mjs";
 import { projects, retiredHomes } from "./scripts/projects.mjs";
 import { fitter, repoSources } from "./scripts/repo.mjs";
@@ -117,7 +114,11 @@ import { report } from "./scripts/report.mjs";
 import { leftOut, rules } from "./scripts/rules.mjs";
 import { stateFileIn, themeDone, writeState } from "./scripts/setup-state.mjs";
 import { theme } from "./scripts/theme.mjs";
-import { uninstall } from "./scripts/uninstall.mjs";
+import {
+  oldObscuraDir,
+  removeOldObscura,
+  uninstall,
+} from "./scripts/uninstall.mjs";
 
 const REPO = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -439,6 +440,18 @@ function passLevel() {
   );
 }
 
+// What is new: the updater that runs this installer may be an older one, so the pointer to docs/whats-new.md
+// beside this file is printed here. Only when the first two numbers rose from the version on record (26.4.4 ->
+// 26.5, not 26.5 -> 26.5.1), never on a first install, and only when the file is there.
+function whatsNew() {
+  const file = path.join(REPO, "docs", "whats-new.md");
+  if (!state.version || !fs.existsSync(file)) return;
+  const [a, b] = ctx.version.split(".").map(Number);
+  const [c, d] = state.version.split(".").map(Number);
+  if (a > c || (a === c && b > d))
+    say(`What is new in ${ctx.version}: ${fwd(file)}`);
+}
+
 // The phone add-on's voice notes: when the add-on is in place and voice is not set up (no ~/.phone-app/voice.json),
 // its speech model (about 480 MB) downloads in the background, nothing asked. Not with --home: the PC program
 // reads ~/.phone-app of this user only.
@@ -462,6 +475,35 @@ function phoneVoice() {
   else say(`phone voice: ${r.stdout.trim()}`);
 }
 
+// Obscura, the headless browser tools/peek.mjs fell back on, left the setup. --obscura yes|no on an old command
+// line is ignored with a note. The copy an older install put in ~/.claude/obscura goes (oldObscuraDir in
+// scripts/uninstall.mjs tells it from any other folder there, which stays); a VERSION file there that can't be read leaves the folder,
+// with a note. A locked obscura.exe leaves VERSION, so the next run tries again.
+if (opt("obscura") !== null) {
+  const given = opt("obscura");
+  say(
+    `--obscura${given && !given.startsWith("--") ? ` ${given}` : ""}: ignored; Obscura is no longer part of the setup`,
+  );
+}
+function oldObscura() {
+  const dir = oldObscuraDir(CLAUDE, (d, why) =>
+    say(
+      `${fwd(d)} was left: its VERSION file can't be read (${why}), so it can't be told to be the old Obscura the setup put there`,
+    ),
+  );
+  if (!dir) return;
+  const what = `${fwd(dir)} (Obscura, the old fallback reader of tools/peek.mjs; the setup no longer uses it)`;
+  if (DRY) return say(`would remove ${what}`);
+  try {
+    removeOldObscura(dir);
+    say(`removed ${what}`);
+  } catch (e) {
+    say(
+      `${fwd(dir)} (the old Obscura) was NOT removed: ${e.message}. Close any Obscura that runs, then run the install again.`,
+    );
+  }
+}
+
 // --files-only: the setup's own files in ~/.claude and the record of them, nothing else and nothing asked
 if (FILES_ONLY) {
   if (!state.version || !("files" in state)) {
@@ -471,6 +513,7 @@ if (FILES_ONLY) {
     process.exit(1);
   }
   claudeFiles(ctx);
+  oldObscura();
   const filesState = {
     ...state,
     repo: REPO,
@@ -478,6 +521,7 @@ if (FILES_ONLY) {
     files: ctx.filesWritten,
     oldCopiesMoved: true,
   };
+  delete filesState.obscura;
   if (ctx.userCopies.size) filesState.userCopies = [...ctx.userCopies].sort();
   if (!DRY) ctx.putJson(stateFile, filesState, JSON.stringify(state));
   stateSaved = true;
@@ -490,6 +534,7 @@ if (FILES_ONLY) {
     `Files of version ${ctx.version} in place: ${ctx.tally.added} added, ${ctx.tally.replaced.length} replaced, ${ctx.tally.same} unchanged.`,
   );
   phoneVoice();
+  whatsNew();
   process.exit(0);
 }
 
@@ -534,6 +579,8 @@ if (ctx.userCopies.size) nextState.userCopies = [...ctx.userCopies].sort();
 // what an older version recorded about the outside workers is gone with them (scripts/claude-files.mjs: dropAgy)
 delete nextState.agyAdded;
 delete nextState.agy;
+// and the answer about Obscura, which left the setup (oldObscura above)
+delete nextState.obscura;
 if (answer("codex") !== null) nextState.codex = answer("codex");
 // the opt-ins: an answer given once is kept, a run without the flag keeps it, and none given stays none (asked once)
 for (const name of ["handy", "backup"])
@@ -601,8 +648,8 @@ if (opt("home") === null && ctx.appData) {
 }
 // ---- 5. the plugins
 plugins(ctx);
-// ---- 6. Obscura, the headless browser tools/peek.mjs falls back on (pinned, SHA-256 checked; scripts/obscura.mjs)
-await obscura(ctx);
+// ---- 6. the copy of Obscura an older install put in ~/.claude
+oldObscura();
 // The record is written now: everything that can stop a run has run. It is compared with the record on disk,
 // which may already hold this run's restore records (ctx.saveCopies), not with the one read at the start. A
 // record this run made itself (a first install) gets no copy in setup-logs.
@@ -614,4 +661,5 @@ if (JSON.stringify(nextState) !== JSON.stringify(onDisk))
 stateSaved = true;
 passLevel();
 phoneVoice();
+whatsNew();
 report(ctx, { noGitBash });

@@ -3,7 +3,7 @@
 // no npm dependencies. Started by the setup's update path (--stage), by the patched app's quit listener
 // (--after-quit) and by restart.mjs (--install-now).
 //
-//   deliver.mjs --status        one line "nimbalyst: <state>"
+//   deliver.mjs --status        one line "nimbalyst: <state>[; <queued project moves waiting or refused>]"
 //   deliver.mjs --stage         get what the pin needs ready: the checked installer in <data>\staged\ and
 //                               <data>\staged.json; with Nimbalyst closed it installs and patches too. It returns
 //                               within seconds: a download, an install or a patch run goes to --stage-work
@@ -20,14 +20,19 @@
 // Data folder <data> = %LOCALAPPDATA%\ai-coding-setup\nimbalyst (NIMBALYST_DELIVER_DATA moves it; the quit
 // listener honours the same variable). Files: off.json, staged.json { version, installer|null, node, deliver,
 // at, atClose, override?, asarSha256? } or a restore job { restore: true, installer: null, node, deliver, at } or a
-// marker job { extensions: true, installer: null, node, deliver, at, atClose: true },
+// marker job { extensions?: true, moves?: true, installer: null, node, deliver, at, atClose: true },
 // status.json { at, ok, version, patches, override?, error? }, download.lock { pid, version, at } while a stage
-// run works, deliver.log.
+// run works, deliver.log, and moves.json { moves: [{ from, to, at }], refused?: [...] } (project moves queued while
+// Nimbalyst ran, written by skills/file-upkeep/move-project.mjs --queue; `refused` holds those refused when they ran).
 // `atClose` is true when the app's close listener will start --after-quit (the app is patched; the delivery is on).
 // Panels (Nimbalyst extensions the setup built into extensions-pending, see ext-swap.mjs) go in after the job's
-// own work in --install-now and --after-quit, never while Nimbalyst runs. With no other job staged, --stage keeps a
-// marker job while panels wait and the close listener is there: it makes the close start --after-quit, installs
-// nothing, writes no status.json and goes once no panel waits. A failed swap goes to deliver.log only.
+// own work in --install-now and --after-quit, never while Nimbalyst runs; then the queued moves are carried out
+// (move-project.mjs --run-queued, which checks itself that Nimbalyst is closed; what it says goes to deliver.log).
+// With no other job staged, --stage keeps a marker job while panels or moves wait and the close listener is
+// there (queued moves keep it with the delivery off too, and after a failed download): it makes the close start
+// --after-quit, installs nothing, writes no status.json and goes once nothing waits. A failed swap goes to
+// deliver.log only; moves waiting or refused are added to --status, and --off is refused while moves wait that no
+// close would carry out.
 // Off when NIMBALYST_FOLLOW=off (any case; environment, or the env of ~/.claude/settings.json) or off.json exists.
 // A job marked `override` (a trial of a version newer than the pin, written by the follow script) is never
 // replaced by --stage; it is checked against its own asarSha256 and status.json keeps `override: true`.
@@ -313,8 +318,12 @@ const lastTry = (status, job) =>
     ? ` (the last try failed: ${String(status.error).replace(/\.$/, "")})`
     : "";
 
+// the delivery's state, then the queued project moves (movesNote): waiting, refused, or a moves.json that can't be read
 export async function statusLine() {
   if (process.platform !== "win32") return "not on this system";
+  return `${await deliveryState()}${movesNote()}`;
+}
+async function deliveryState() {
   if (isOff()) {
     const job = readJson(D().staged);
     return job?.restore
@@ -399,7 +408,10 @@ function restoreOriginal(P) {
 
 // ---- panels ----
 
-const isMarker = (job) => job?.extensions === true && !job.version;
+export const isMarker = (job) =>
+  (job?.extensions === true || job?.moves === true) &&
+  !job.version &&
+  !job.restore;
 
 // Swaps the waiting panels in; ext-swap.mjs checks itself that Nimbalyst is closed. A failure goes to deliver.log
 // only: the panels stay pending and the next close tries again. Returns whether a panel still waits.
@@ -414,16 +426,119 @@ function swapPanels(tag) {
   }
 }
 
-// With no other job staged: keeps a marker job while panels wait and the close listener can start the swap (the
-// app patched, the delivery on); else drops a marker job that is there.
-function markPanels(tag, blocked) {
+// ---- queued project moves ----
+
+const movesFile = () => path.join(dataDir(), "moves.json");
+const MOVE_PROJECT = path.join(
+  HERE,
+  "..",
+  "..",
+  "skills",
+  "file-upkeep",
+  "move-project.mjs",
+);
+// moves.json as { waiting, refused }: the moves waiting for the close, and those refused or failed when they ran
+// (move-project.mjs keeps them under `refused` until that project is queued again or moved). A file that can't be
+// read throws.
+function movesQueue() {
+  const f = movesFile(),
+    q = readJson(f);
+  if (!q) return { waiting: 0, refused: [] };
+  if (!Array.isArray(q.moves)) throw new Error(`${f} has no "moves" list`);
+  return {
+    waiting: q.moves.length,
+    refused: Array.isArray(q.refused) ? q.refused : [],
+  };
+}
+// How many moves wait. A moves.json that can't be read counts as waiting, so the marker job stays and the close
+// runs move-project.mjs, which refuses it naming the file; the read error goes to deliver.log and the status line.
+function queuedMoves(tag) {
+  try {
+    return movesQueue().waiting;
+  } catch (e) {
+    log(
+      `${tag}: queued moves: ${e.message}; the marker job stays until it is fixed or deleted`,
+    );
+    return 1;
+  }
+}
+// The status line's part on project moves: those waiting for the close, those refused when they ran, or a
+// moves.json that can't be read; "" when there are none.
+function movesNote() {
+  let q;
+  try {
+    q = movesQueue();
+  } catch (e) {
+    return `; the queued project moves can't be read: ${String(e.message).replace(/\.$/, "")}; fix or delete it`;
+  }
+  const parts = [];
+  if (q.waiting)
+    parts.push(
+      `${q.waiting} project move${q.waiting > 1 ? "s wait" : " waits"} for Nimbalyst to close`,
+    );
+  for (const x of q.refused)
+    parts.push(
+      `the queued move ${x.from} -> ${x.to} was ${x.exit === 2 ? "stopped midway" : "refused"}: ${String(
+        x.why ?? "",
+      )
+        .replace(/^move-project (refused|failed midway[^:]*): /, "")
+        .replace(
+          /\.$/,
+          "",
+        )} (listed until that project is queued again or moved; delete it from ${movesFile()} to drop it)`,
+    );
+  return parts.length ? `; ${parts.join("; ")}` : "";
+}
+// Carries out the queued moves (move-project.mjs --run-queued) after the job's own work. No time limit: a move
+// stopped midway would leave its database transaction open while restart.mjs starts Nimbalyst again. Never throws:
+// what the move says, and a move that could not run, go to deliver.log; moves.json keeps what was not done.
+function runMoves(tag) {
+  try {
+    const n = queuedMoves(tag);
+    if (!n) return;
+    log(`${tag}: queued project move(s): move-project.mjs --run-queued`);
+    const r = spawnSync(
+      process.execPath,
+      ["--disable-warning=ExperimentalWarning", MOVE_PROJECT, "--run-queued"],
+      { encoding: "utf8", windowsHide: true },
+    );
+    for (const l of `${r.stdout ?? ""}${r.stderr ?? ""}`.split(/\r?\n/))
+      if (l.trim()) log(`${tag}: move: ${l}`);
+    if (r.error || r.status !== 0)
+      log(
+        `${tag}: move-project.mjs --run-queued ${r.error ? `could not run: ${r.error.message}` : `exited with code ${r.status}`}`,
+      );
+  } catch (e) {
+    log(`${tag}: queued moves: ${e.message}`);
+  }
+}
+// Why the app's close would not start --after-quit, or null when it would (the app patched, the delivery on).
+// move-project.mjs --queue asks this before it queues a move.
+export async function closeListener() {
+  if (process.platform !== "win32") return "this is not Windows";
+  if (isOff()) return "the setup's Nimbalyst delivery is off";
+  const install = installDir();
+  if (!install) return "Nimbalyst is not installed where the setup patches it";
+  if (perMachine(appPaths(install).res))
+    return "Nimbalyst is installed for all users, so the setup does not patch it";
+  if (!(await appState(install)).blocked)
+    return "Nimbalyst is not patched yet, so it has no quit listener";
+  return null;
+}
+
+// With no other job staged: keeps a marker job while panels or queued moves wait and the close listener can start
+// --after-quit (the app patched); else drops a marker job that is there. With the delivery off the panels wait for
+// /update-setup, but queued moves keep the marker: the app is still patched, and only its close carries them out.
+function markJob(tag, blocked) {
   const d = D(),
     job = readJson(d.staged);
   if (job && !isMarker(job)) return;
-  const waiting = pendingNames();
-  if (waiting.length && blocked && !isOff()) {
+  const waiting = isOff() ? [] : pendingNames(),
+    moves = queuedMoves(tag);
+  if ((waiting.length || moves) && blocked) {
     writeJson(d.staged, {
-      extensions: true,
+      ...(waiting.length ? { extensions: true } : {}),
+      ...(moves ? { moves: true } : {}),
       installer: null,
       node: process.execPath,
       deliver: SELF,
@@ -431,36 +546,43 @@ function markPanels(tag, blocked) {
       atClose: true,
     });
     log(
-      `${tag}: panels wait (${waiting.join(", ")}): a marker job makes the next close swap them in`,
+      `${tag}: ${[waiting.length && `panels wait (${waiting.join(", ")})`, moves && `${moves} project move(s) wait`].filter(Boolean).join(" and ")}: a marker job makes the next close ${waiting.length ? "swap them in" : "carry them out"}`,
     );
   } else if (job) {
     dropStaged();
     log(
-      `${tag}: the marker job is dropped: ${waiting.length ? "no close listener starts the swap" : "no panel waits"}`,
+      `${tag}: the marker job is dropped: ${waiting.length || moves ? "no close listener starts --after-quit" : "no panel or move waits"}`,
     );
   }
 }
 
-// --install-now: the job's own work, then the waiting panels. A marker job only swaps the panels: no install, no
-// patch run, no status.json; it goes once no panel waits.
+// --install-now: the job's own work, then the waiting panels, then the queued moves. A marker job only swaps the
+// panels and carries out the moves: no install, no patch run, no status.json; it goes once nothing waits.
 async function installNow(tag = "--install-now") {
   const job = readJson(D().staged);
   if (isMarker(job)) {
-    if (swapPanels(tag)) {
-      log(`${tag}: panels still wait; the marker job stays for the next close`);
+    const panels = swapPanels(tag);
+    runMoves(tag);
+    const moves = queuedMoves(tag);
+    if (panels || moves) {
+      log(
+        `${tag}: ${[panels && "panels", moves && "project moves"].filter(Boolean).join(" and ")} still wait; the marker job stays for the next close`,
+      );
       return 0;
     }
     dropStaged();
-    log(`${tag}: the panels are in; the marker job is dropped`);
+    log(`${tag}: nothing waits any more; the marker job is dropped`);
     return 0;
   }
   const code = await installJob();
-  if (swapPanels(tag) && !fs.existsSync(D().staged))
+  const panels = swapPanels(tag);
+  runMoves(tag);
+  if ((panels || queuedMoves(tag)) && !fs.existsSync(D().staged))
     try {
       const install = installDir();
-      if (install) markPanels(tag, (await appState(install)).blocked);
+      if (install) markJob(tag, (await appState(install)).blocked);
     } catch (e) {
-      log(`${tag}: panels: no marker job written: ${e.message}`);
+      log(`${tag}: no marker job written: ${e.message}`);
     }
   return code;
 }
@@ -693,10 +815,12 @@ function handOver(version) {
 async function stage({ worker = false } = {}) {
   if (process.platform !== "win32") return 0;
   if (isOff()) {
-    // the close path is off: waiting panels wait for /update-setup
+    // the close path is off: waiting panels wait for /update-setup; queued moves keep the marker while the app is
+    // still patched (markJob)
     if (isMarker(readJson(D().staged))) {
-      dropStaged();
-      log("--stage: delivery is off; the marker job is dropped");
+      log("--stage: delivery is off");
+      const install = installDir();
+      markJob("--stage", !!install && (await appState(install)).blocked);
     } else log("--stage: delivery is off");
     return 0;
   }
@@ -713,7 +837,7 @@ async function stage({ worker = false } = {}) {
   }
   const pin = readPin();
   let job = readJson(d.staged);
-  // a marker job stays only while no Nimbalyst job is staged (markPanels below, or overwritten by a new job)
+  // a marker job stays only while no Nimbalyst job is staged (markJob below, or overwritten by a new job)
   if (isMarker(job)) job = null;
   if (job?.restore) {
     dropStaged();
@@ -734,13 +858,13 @@ async function stage({ worker = false } = {}) {
       log(
         `--stage: installed ${app.version}${trial ? " (trial)" : ""} is newer than the pin ${pin.version}: nothing to do`,
       );
-      markPanels("--stage", app.blocked);
+      markJob("--stage", app.blocked);
       return 0;
     }
     if (app.version === pin.version && app.complete) {
       if (job) dropStaged();
       log(`--stage: ${pin.version} is in with every fix: nothing to do`);
-      markPanels("--stage", app.blocked);
+      markJob("--stage", app.blocked);
       return 0;
     }
     const have =
@@ -769,13 +893,17 @@ async function stage({ worker = false } = {}) {
       try {
         installer = download(pin);
       } catch (e) {
-        return fail(e.message, { version: pin.version });
+        const code = fail(e.message, { version: pin.version });
+        // queued moves (or panels) still need the close to start --after-quit
+        markJob("--stage", (await appState(install)).blocked);
+        return code;
       }
       if (isOff()) {
         dropStaged();
         log(
           "--stage: the delivery was turned off during the download: the installer is dropped",
         );
+        markJob("--stage", (await appState(install)).blocked);
         return 0;
       }
     } else if (!worker) clearFailed();
@@ -830,8 +958,12 @@ export const missingText = (exe, error) =>
 async function afterQuit() {
   if (process.platform !== "win32") return 0;
   const job = readJson(D().staged);
-  // a marker job still swaps the panels with the delivery off: they are no part of it
-  if (!job || (isOff() && !job.restore && !isMarker(job))) return 0;
+  // a marker job still swaps the panels with the delivery off: they are no part of it; queued moves neither
+  if (
+    !job ||
+    (isOff() && !job.restore && !isMarker(job) && !queuedMoves("--after-quit"))
+  )
+    return 0;
   const install = installDir();
   if (!install) return fail("Nimbalyst is not installed");
   const step = Math.max(50, Math.min(500, QUIT_WAIT_MS / 4)),
@@ -854,9 +986,22 @@ async function afterQuit() {
 }
 
 // --off: no delivery, and the original app.asar back so Nimbalyst updates itself again (now, or at the next close).
-// Returns the line to print.
+// Returns the line to print. Queued project moves need a close that starts --after-quit: with Nimbalyst open and
+// patched, the restore job's close carries them out; else --off is refused while they wait, saying so.
 async function turnOff() {
   const d = D();
+  const moves = movesQueue().waiting;
+  if (moves && process.platform === "win32") {
+    const install = installDir();
+    if (
+      !install ||
+      !fs.existsSync(appPaths(install).orig) ||
+      !running(install).length
+    )
+      throw new Error(
+        `${moves} project move${moves > 1 ? "s" : ""} queued while Nimbalyst ran wait${moves > 1 ? "" : "s"} in ${movesFile()} for its close, and with the delivery off nothing would carry ${moves > 1 ? "them" : "it"} out. With Nimbalyst closed, run node "${MOVE_PROJECT}" --run-queued (or delete ${movesFile()} to drop ${moves > 1 ? "them" : "it"}), then run --off again`,
+      );
+  }
   writeJson(d.off, { at: new Date().toISOString() });
   dropStaged();
   log("--off");
@@ -880,9 +1025,9 @@ async function turnOff() {
       at: new Date().toISOString(),
     });
     log(
-      "--off: Nimbalyst is open; the original app.asar goes back when it closes",
+      `--off: Nimbalyst is open; the original app.asar goes back when it closes${moves ? `, and the ${moves} queued project move(s) are carried out then` : ""}`,
     );
-    return "off; the original Nimbalyst comes back when it next closes, then it updates itself again";
+    return `off; the original Nimbalyst comes back when it next closes, then it updates itself again${movesNote()}`;
   }
   restoreOriginal(P);
   return "off; the original Nimbalyst is back and updates itself again";

@@ -13,7 +13,8 @@ Only the latest release gets fixes.
 Problems in the files this repository installs or runs, for example:
 
 - a hook, skill, agent or worker that runs a command, reads a file or sends data it shouldn't
-- a guard that a command can get past: the delete, SQL, find and download guards, or the secret scan before a push
+- a guard that a command can get past: the delete, SQL and find guards, the secret scan before a push (`push-key-scan`, with gitleaks) or its refusal of a raw deploy command. `download-guard` only speeds up big downloads; it is not a guard
+- the safety baseline of a push or a deploy (`workers/ship-check.mjs`) passing a key, a key file, or a live address that serves `/.env` or `/.git/HEAD`
 - the permission rules the installer adds for saved sign-ins, SSH keys and `.env` files
 - the installer, the updater and `/update-setup`: what they download, how they check it, and which files they overwrite
 - the privacy scan (`scripts/privacy-check.mjs`) missing a path, address or key it should find
@@ -21,6 +22,6 @@ Problems in the files this repository installs or runs, for example:
 
 ## What doesn't
 
-- Claude Code, Nimbalyst, Obscura, the plugins and the outside services the setup talks to. Report those to their own makers.
+- Claude Code, Nimbalyst, Firecrawl, defuddle, the plugins and the outside services the setup talks to. Report those to their own makers.
 - A rule the model ignores. The rules are text the model reads, and the README's Limits section says so. Open a normal issue if a rule should have a check behind it.
 - A hook that lets a call through after it crashes. That's on purpose for the checks (the README's Limits section explains it). It counts when one of the guards does it.

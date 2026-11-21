@@ -216,6 +216,38 @@ ok(
 );
 ok("and is cleared", left().length === 0);
 ok("finishing with no note: nothing happens", hook("Stop") === null);
+// D8: a turn that makes no tool call never runs PreToolUse or PostToolUse: its Stop hands the note over
+const noToolTp = path.join(home, "no-tool-turn.jsonl");
+fs.writeFileSync(
+  noToolTp,
+  [
+    {
+      type: "user",
+      promptSource: "sdk",
+      message: { role: "user", content: "What is the plan?" },
+    },
+    {
+      type: "assistant",
+      message: {
+        model: "claude-opus-5-5",
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "Here is the plan." }],
+      },
+    },
+  ]
+    .map((e) => JSON.stringify(e))
+    .join("\n") + "\n",
+);
+put([note("answer in Russian", { id: "d8a" })]);
+o = hook("Stop", {
+  transcript_path: noToolTp,
+  last_assistant_message: "Here is the plan.",
+});
+ok(
+  "a note sent during a turn with no tool call is handed over at that turn's Stop",
+  o?.decision === "block" && o.reason.includes("[note d8a] answer in Russian"),
+);
+fs.rmSync(inbox, { force: true });
 
 // 5b: the final reply lists each delivered note back under "### Your notes"; a reply that skips one is sent back once.
 const notesTp = path.join(home, "notes-back.jsonl");
@@ -426,6 +458,246 @@ ok(
     last_assistant_message:
       'W3 готов.\n### Ваши заметки\n- "Забудь про быстрые задачи": перенёс на среду.',
   }) === null,
+);
+// 2026-11-20: a note handed over at a Stop was listed back in the reply that answered it, then listed again in
+// the next turn's reply ("answered last turn"); no Stop hook asked for it the second time. The hand-over text
+// ("In your final reply, list it back") invited it, so every hand-over says: once, in the reply that ends this
+// turn, never in a later reply.
+put([note("are we just working forever in this session?", { id: "d5a" })]);
+const d5Texts = [
+  hook("PostToolUse")?.hookSpecificOutput?.additionalContext || "",
+];
+put([note("are we just working forever in this session?", { id: "d5b" })]);
+d5Texts.push(hook("Stop")?.reason || "");
+put([note("are we just working forever in this session?", { id: "d5c" })]);
+d5Texts.push(
+  hook("PreToolUse", agentCall)?.hookSpecificOutput?.permissionDecisionReason ||
+    "",
+);
+sleep(1700);
+hook("PostToolUse");
+fs.rmSync(inbox, { force: true });
+ok(
+  "notes: each hand-over asks for the list-back once, in this turn's reply, and never again in a later reply",
+  d5Texts.every(
+    (t) =>
+      t.includes("### Your notes") &&
+      /\bonce\b/.test(t) &&
+      /later repl(y|ies)[^.\n]*(not|never|n't)/i.test(t),
+  ),
+);
+// The real shape: the note came as Stop hook feedback, the next reply listed it back, then a new turn ends
+// without it: no send-back.
+writeTp([
+  {
+    type: "user",
+    promptSource: "sdk",
+    message: { role: "user", content: "Put job 11a in the phase 2 list." },
+  },
+  {
+    type: "assistant",
+    message: {
+      model: "claude-opus-5-5",
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Job 11a is in the list." }],
+    },
+  },
+  {
+    type: "user",
+    isMeta: true,
+    message: {
+      role: "user",
+      content: `Stop hook feedback:\n[btw] The user sent this just as you were finishing, so don't stop yet. It is an addition or a correction to the current task …\n- [note n3] Are we just working forever in this session?\nDeal with it now, then finish.`,
+    },
+  },
+  {
+    type: "assistant",
+    message: {
+      model: "claude-opus-5-5",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: '### Your notes\n- "Are we just working forever in this session?": no, one session per job.',
+        },
+      ],
+    },
+  },
+  {
+    type: "user",
+    promptSource: "sdk",
+    message: { role: "user", content: "What about new projects?" },
+  },
+]);
+ok(
+  "notes: a Stop-delivered note listed back in the next reply is not asked for in the turn after",
+  hook("Stop", {
+    transcript_path: notesTp,
+    last_assistant_message: "New projects start with a tidy skeleton.",
+  }) === null,
+);
+// Listed back in any reply counts, also a text written mid-turn in a turn the user then stopped
+writeTp([
+  {
+    type: "user",
+    promptSource: "sdk",
+    message: { role: "user", content: "Finish W3." },
+  },
+  {
+    type: "attachment",
+    attachment: {
+      type: "hook_additional_context",
+      content: [`[btw] … \n- ${NOTE_N1}`],
+    },
+  },
+  {
+    type: "assistant",
+    message: {
+      model: "claude-opus-5-5",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "text",
+          text: '### Your notes\n- "Forget about the quick task stuff": moved to Wednesday.',
+        },
+        { type: "tool_use", id: "b1", name: "Bash", input: { command: "ls" } },
+      ],
+    },
+  },
+  {
+    type: "assistant",
+    message: {
+      model: "<synthetic>",
+      stop_reason: "stop_sequence",
+      content: [{ type: "text", text: "No response requested." }],
+    },
+  },
+  {
+    type: "user",
+    promptSource: "sdk",
+    message: { role: "user", content: "Go on." },
+  },
+]);
+ok(
+  "notes: a note listed back in any earlier reply text is never asked for again",
+  hook("Stop", {
+    transcript_path: notesTp,
+    last_assistant_message: "W3 is done.",
+  }) === null,
+);
+// A mid-turn text that only talks about the same subject (a "### Plan" with the note's words) is not a list-back:
+// only "### Your notes" or the note's id there counts, so the final reply is still asked for it.
+writeTp([
+  {
+    type: "user",
+    promptSource: "sdk",
+    message: { role: "user", content: "Finish W3." },
+  },
+  {
+    type: "attachment",
+    attachment: {
+      type: "hook_additional_context",
+      content: [`[btw] … \n- ${NOTE_N1}`],
+    },
+  },
+  {
+    type: "assistant",
+    message: {
+      model: "claude-opus-5-5",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "text",
+          text: "### Plan\n- The quick task pass waits; W3 first.",
+        },
+        { type: "tool_use", id: "b2", name: "Bash", input: { command: "ls" } },
+      ],
+    },
+  },
+]);
+o = hook("Stop", {
+  transcript_path: notesTp,
+  last_assistant_message: "W3 is done.",
+});
+ok(
+  "notes: a mid-turn ### heading that only shares the note's words is not a list-back; the final reply is still asked for the note",
+  o?.decision === "block" &&
+    o.reason.includes("Forget about the quick task stuff"),
+);
+// D6: each note line says it is the user's and when it was sent (local HH:MM); the [note id] marker still parses
+const d6ts = Date.now() - 60e3;
+const d6at = [new Date(d6ts).getHours(), new Date(d6ts).getMinutes()]
+  .map((x) => String(x).padStart(2, "0"))
+  .join(":");
+put([
+  note("Forget about the quick task stuff", { id: "d6a", ts: d6ts }),
+  note("Check the logs\n\n(Sent from the phone.)", { id: "d6b", ts: d6ts }),
+]);
+const d6ctx = hook("PostToolUse")?.hookSpecificOutput?.additionalContext || "";
+ok(
+  "a handed-over note line says it is the user's and the local time it was sent, at the end of its first line",
+  d6ctx.includes(
+    `\n- [note d6a] Forget about the quick task stuff (the user's note, sent ${d6at})\n`,
+  ) &&
+    d6ctx.includes(
+      `\n- [note d6b] Check the logs (the user's note, sent ${d6at})\n\n(Sent from the phone.)`,
+    ),
+);
+writeTp([
+  {
+    type: "user",
+    promptSource: "sdk",
+    message: { role: "user", content: "Do W2." },
+  },
+  {
+    type: "attachment",
+    attachment: { type: "hook_additional_context", content: [d6ctx] },
+  },
+]);
+o = hook("Stop", {
+  transcript_path: notesTp,
+  last_assistant_message: "W2 is done.",
+});
+ok(
+  "a timed note line still parses: the send-back quotes the note's own words, not the label",
+  o?.decision === "block" &&
+    o.reason.includes('- "Forget about the quick task stuff"') &&
+    !o.reason.includes("sent 09:05"),
+);
+ok(
+  "a timed note line is still matched when the reply lists it back",
+  hook("Stop", {
+    transcript_path: notesTp,
+    last_assistant_message:
+      '### Your notes\n- "Forget about the quick task": moved.\n- "Check the logs": done.',
+  }) === null,
+);
+// A note typed with Windows line ends: the label goes before the \r, at the end of the first line's words
+put([note("Check the logs\r\nand the build", { id: "d6c", ts: d6ts })]);
+const d6crlf = hook("PostToolUse")?.hookSpecificOutput?.additionalContext || "";
+writeTp([
+  {
+    type: "user",
+    promptSource: "sdk",
+    message: { role: "user", content: "Do W2." },
+  },
+  {
+    type: "attachment",
+    attachment: { type: "hook_additional_context", content: [d6crlf] },
+  },
+]);
+o = hook("Stop", {
+  transcript_path: notesTp,
+  last_assistant_message: "W2 is done.",
+});
+ok(
+  "a CRLF note gets its time label before the \\r, and the send-back still quotes the note's own words",
+  d6crlf.includes(
+    `\n- [note d6c] Check the logs (the user's note, sent ${d6at})\r\nand the build`,
+  ) &&
+    o?.decision === "block" &&
+    o.reason.includes('- "Check the logs"') &&
+    !o.reason.includes("the user's note, sent"),
 );
 
 // 6: a helper agent inside the busy session must not take the note.
@@ -699,6 +971,135 @@ ok(
     r.out.startsWith('Queued for "job 3b: base design", not delivered yet.') &&
     left().at(-1).to === "dddddddd-child",
 );
+// D7: --after puts the note into Nimbalyst's own queue through outbox.jsonl, in the line shape the Commands
+// extension's bridge reads ({ id, ts, session, prompt }, the Nimbalyst session id), so it comes as a new turn
+// after the current one; the steer inbox (next tool call) stays as it was.
+const obFile = path.join(inboxDir, "outbox.jsonl");
+const obPrev = fs.existsSync(obFile) ? fs.readFileSync(obFile, "utf8") : null;
+const inboxN = left().length,
+  obN = left(obFile).length;
+r = run(["send", "--to", "e13360ea", "--after", "then tidy the docs"], nimb);
+const obLine = left(obFile).at(-1);
+ok(
+  "--after: the note goes to Nimbalyst's queue through the outbox in the bridge's shape, not to the steer inbox, and says so",
+  r.code === 0 &&
+    /after its current turn/.test(r.out) &&
+    left(obFile).length === obN + 1 &&
+    typeof obLine?.id === "string" &&
+    obLine.id.length > 0 &&
+    typeof obLine.ts === "number" &&
+    Date.now() - obLine.ts < 60e3 &&
+    obLine.session === "e13360ea-nimb" &&
+    obLine.prompt === "then tidy the docs" &&
+    left().length === inboxN,
+);
+r = run(["send", "--to", "cccccccc-busy", "--after", "then tidy the docs"], {
+  env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" },
+});
+ok(
+  "--after with no Nimbalyst session to queue it for: NOT SENT, nothing written",
+  r.code !== 0 &&
+    r.out.includes("--after cannot queue") &&
+    left(obFile).length === obN + 1 &&
+    left().length === inboxN,
+);
+// --after flags come before the note's words in any order, and none of them ends up in the note
+r = run(
+  ["send", "--to", "e13360ea", "--after", "--nowait", "then check the build"],
+  nimb,
+);
+const obAfterNowait = left(obFile).at(-1)?.prompt;
+r = run(
+  ["send", "--to", "e13360ea", "--nowait", "--after", "then check the build"],
+  nimb,
+);
+ok(
+  `--after with --nowait in either order: the note is its own words, no flag in it (got "${obAfterNowait}", "${left(obFile).at(-1)?.prompt}")`,
+  obAfterNowait === "then check the build" &&
+    left(obFile).at(-1)?.prompt === "then check the build" &&
+    left(obFile).length === obN + 3,
+);
+// --after into a session too big for new work is refused like a plain send; --last and --user still pass
+fs.writeFileSync(
+  path.join(childDir, "dddddddd-child.jsonl"),
+  [
+    {
+      type: "assistant",
+      message: {
+        model: "claude-opus-5-5",
+        usage: {
+          input_tokens: 0,
+          cache_read_input_tokens: 250000,
+          cache_creation_input_tokens: 0,
+        },
+        content: [{ type: "text", text: "working" }],
+      },
+    },
+    {
+      type: "assistant",
+      message: {
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", name: "Bash", input: {} }],
+      },
+    },
+  ]
+    .map((e) => JSON.stringify(e))
+    .join("\n") + "\n",
+);
+const bigEnv = { env: { ...nimb.env, STEER_MAX_K: "200" } };
+r = run(["send", "--to", "e13360ea", "--after", "one more job"], bigEnv);
+ok(
+  `--after into a session over STEER_MAX_K is NOT SENT (exit 4) and nothing is queued (exit ${r.code}: ${r.out.split("\n")[0]})`,
+  r.code === 4 && left(obFile).length === obN + 3,
+);
+const rLast = run(
+  ["send", "--to", "e13360ea", "--last", "--after", "finish it"],
+  bigEnv,
+);
+const rUser = run(
+  ["send", "--to", "e13360ea", "--after", "--user", "the user's words"],
+  bigEnv,
+);
+ok(
+  "--after with --last or --user passes the size limit and queues the note without the flag",
+  rLast.code === 0 &&
+    rUser.code === 0 &&
+    left(obFile).length === obN + 5 &&
+    left(obFile).at(-1).prompt === "the user's words",
+);
+childT("tool_use");
+// A fresh install has no steer folder yet: --after makes it before it takes the lock, so it does not wait the
+// lock's 0.8 s timeout and write unlocked. Timed against the same send once the folder exists.
+{
+  const home2 = fs.realpathSync.native(
+    fs.mkdtempSync(path.join(os.tmpdir(), "steer-fresh-")),
+  );
+  const childDir2 = path.join(home2, ".claude", "projects", key(childWs));
+  fs.mkdirSync(childDir2, { recursive: true });
+  fs.copyFileSync(
+    path.join(childDir, "dddddddd-child.jsonl"),
+    path.join(childDir2, "dddddddd-child.jsonl"),
+  );
+  const env2 = { env: { ...nimb.env, HOME: home2, USERPROFILE: home2 } };
+  const ob2 = path.join(home2, ".claude", "steer", "outbox.jsonl");
+  let t0 = Date.now();
+  const rFresh = run(["send", "--to", "e13360ea", "--after", "first"], env2);
+  const freshMs = Date.now() - t0;
+  t0 = Date.now();
+  run(["send", "--to", "e13360ea", "--after", "second"], env2);
+  const warmMs = Date.now() - t0;
+  ok(
+    `--after on a fresh install makes the steer folder before taking the lock (fresh ${freshMs} ms, folder there ${warmMs} ms)`,
+    rFresh.code === 0 &&
+      left(ob2)
+        .map((e) => e.prompt)
+        .join("|") === "first|second" &&
+      freshMs - warmMs < 600,
+  );
+  fs.rmSync(home2, { recursive: true, force: true });
+}
+if (obPrev === null) fs.rmSync(obFile, { force: true });
+else fs.writeFileSync(obFile, obPrev);
 // The transcript has to show the background job (a reply that ended with no job
 // left is idle whatever Nimbalyst says).
 fs.writeFileSync(
