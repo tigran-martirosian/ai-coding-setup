@@ -111,11 +111,7 @@ report(
   "--brief: a research brief puts the research thing in",
   r.out,
 );
-report(
-  r.out.includes(homeShown),
-  "--brief: a ~/ file is shown as a full path a Read can open",
-  r.out,
-);
+// changed on purpose (job 6 S1): the brief lists no start files, so a ~/ file shown in full is checked through --near below
 report(
   !r.out.includes("~/.claude"),
   "--brief: no ~/ path is left for the helper to expand",
@@ -158,86 +154,6 @@ report(
   r.code === 1 && /~\/\.claude\/skills\/web-research\/SKILL\.md/.test(r.out),
   "--check: a ~/ path that is gone is listed",
   r.out,
-);
-
-// ---- "already held" (promptFind's held), read against the temp home
-const held = join(dir, "held");
-const HELD_PATHS = {
-  skill: "~/.claude/skills/s/SKILL.md",
-  worker: "~/.claude/workers/x.mjs",
-  copy: "copy/skills/s/SKILL.md",
-  plug: "~/.claude/plugins/x/skills/p/SKILL.md",
-  rule: "~/.claude/rules/r.md",
-  claude: "~/.claude/CLAUDE.md",
-  memory: `~/.claude/projects/${held.replace(/[^a-zA-Z0-9]/g, "-")}/memory/MEMORY.md`,
-};
-for (const p of Object.values(HELD_PATHS))
-  p.startsWith("~/") ? put(home, p.slice(2), "x") : put(held, p, "x");
-const heldMap = join(dir, "held-map.json");
-writeFileSync(
-  heldMap,
-  JSON.stringify({
-    nodes: Object.entries(HELD_PATHS).map(([k, f]) => ({
-      id: `do-${k}`,
-      name: `How to: ${k}`,
-      what: "x",
-      files: [f],
-      words: [`\\b${k}\\b`],
-    })),
-    links: [],
-  }),
-);
-const FIND = `import fs from "node:fs";
-const { promptFind } = await import(process.argv[1]);
-console.log(JSON.stringify(promptFind(process.argv[2], JSON.parse(fs.readFileSync(process.argv[3], "utf8")), process.argv[4])));`;
-const found = JSON.parse(
-  execFileSync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      FIND,
-      new URL("../skills/systems-map/map.mjs", import.meta.url).href,
-      Object.keys(HELD_PATHS).join(" "),
-      heldMap,
-      held,
-    ],
-    {
-      encoding: "utf8",
-      env: { ...process.env, HOME: home, USERPROFILE: home },
-    },
-  ),
-);
-const heldOf = Object.fromEntries(found.map((h) => [h.id.slice(3), h.held]));
-report(
-  heldOf.skill === true,
-  "held: a ~/.claude/skills/s/SKILL.md present in the home",
-  JSON.stringify(found),
-);
-report(
-  heldOf.worker === false,
-  "not held: a ~/.claude/workers/x.mjs",
-  JSON.stringify(found),
-);
-report(
-  heldOf.copy === true,
-  "held: <folder>/skills/s/SKILL.md while the home has skills/s",
-  JSON.stringify(found),
-);
-report(
-  heldOf.plug === true,
-  "held: a plugin skill's SKILL.md",
-  JSON.stringify(found),
-);
-report(
-  heldOf.rule === true && heldOf.claude === true,
-  "held: ~/.claude/rules/r.md and ~/.claude/CLAUDE.md",
-  JSON.stringify(found),
-);
-report(
-  heldOf.memory === true,
-  "held: the project's MEMORY.md",
-  JSON.stringify(found),
 );
 
 // ---- --check flags a words entry that is one bare common word

@@ -410,6 +410,12 @@
     "onlyWhen": "a pinned session in the list"
   },
   {
+    "selector": ".session-tree-chevron",
+    "what": "collapse arrow of a tree row with children: a pinned row's pin moves right of the provider mark so it does not cover the arrow",
+    "seenIn": "0.83.0",
+    "onlyWhen": "a session with child sessions in the list"
+  },
+  {
     "selector": ".workstream-file-viewer-heading",
     "what": "file viewer heading (right placement): shell.js appends .ink-close-pane here",
     "seenIn": "0.83.0"

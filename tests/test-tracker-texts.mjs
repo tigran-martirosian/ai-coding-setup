@@ -1,5 +1,5 @@
 // Tests for the tracker writing rules (skills/where-are-we/tracker-texts.md) and their checker (text-check.mjs):
-// every place in the skills and the job-done hook that tells a session to write a tracker title, body or comment names
+// every place in the skills that tells a session to write a tracker title, body or comment names
 // the rules file; every place that tells a session to make a step carries the rule on when a step may be made; the
 // checker flags each kind of mark and each "before" text, and passes each "after" text. The before and after texts
 // below are made-up look-alikes of real ones: they hold the same kinds of marks, with no real item in them.
@@ -35,24 +35,14 @@ const lineOf = (text, marker) => {
   const end = text.indexOf("\n", at);
   return text.slice(at, end < 0 ? text.length : end);
 };
-// A one-string constant of the job-done hook, read from its source: the quoted text after "const NAME =", with its
-// escaped quotes and backslashes unescaped (the formatter picks the outer quote, so either kind may be escaped)
-const hookConst = (src, name) =>
-  (
-    src.match(
-      new RegExp(`const ${name} =\\s*(["'])([\\s\\S]*?)\\1;\\n`),
-    )?.[2] ?? ""
-  ).replace(/\\(["'\\])/g, "$1");
-
 const where = read("skills", "where-are-we", "SKILL.md");
+// lead's tracker lines left with its rewrite (2026-11-19): lead copies slices through where-are-we, whose texts are
+// checked here; lead itself writes no tracker text, so only the negative check on it stays.
 const lead = read("skills", "lead", "SKILL.md");
 const handoff = read("skills", "handoff", "SKILL.md");
-const hook = read("hooks", "job-done.mjs");
 const handoffPrompt =
   handoff.match(/tracker step[^\n]*?names its key and adds: `([^`]+)`/)?.[1] ??
   "";
-const linkText = hookConst(hook, "LINK_TEXT");
-const pieceText = hookConst(hook, "PIECE_TEXT");
 
 // 1. The rules file holds each part
 check("the rules file exists", fs.existsSync(RULES));
@@ -101,13 +91,7 @@ const WRITES = [
     partOf(where, "6. **Ready gate.**"),
   ],
   ["where-are-we: the groomed comment", partOf(where, "8. **The reading.**")],
-  [
-    "lead: the tracker as the job's record (job, steps, comments)",
-    lineOf(lead, "5. **The tracker is the job's record:**"),
-  ],
   ["handoff: the prompt for a tracker step", handoffPrompt],
-  ["job-done: the note to create a missing step", linkText],
-  ["job-done: the note at a committed piece", pieceText],
 ];
 for (const [name, text] of WRITES)
   check(
@@ -115,20 +99,6 @@ for (const [name, text] of WRITES)
     text !== "" && NAMES.test(text),
     text ? "" : "the place was not found",
   );
-check(
-  "lead: a committed piece gets one plain comment, not the old handoff comment",
-  /\*\*A piece committed:\*\*[^\n]*one plain comment/.test(lead) &&
-    !/one handoff comment/.test(lead),
-);
-check(
-  "job-done: the piece note asks for plain sentences with no ids, hashes, row codes or paths",
-  /one comment of one to three plain sentences/.test(pieceText) &&
-    /no ids, hashes, row codes or paths/.test(pieceText),
-);
-check(
-  "job-done: a created step's title is the row's job in plain words",
-  /title the row's job in plain words with no codes/.test(linkText),
-);
 check(
   "handoff: the step's comments are plain, the commit and session go in the proof field, not a Proof: line",
   /Comments on the step are plain sentences/.test(handoffPrompt) &&
@@ -147,23 +117,12 @@ check(
 const newProject = read("skills", "new-project", "SKILL.md");
 const updateProject = read("skills", "update-project", "SKILL.md");
 check(
-  "lead step 5: work over several sessions is a job named after it, taken if open, else made",
-  /a job is work over several sessions \(not a one-session fix\), one `release` item named after it/.test(
-    lineOf(lead, "5. **The tracker is the job's record:**"),
-  ) &&
-    /Take the open job the work belongs to \(the one the user named, or the one it ships in\), else create one/.test(
-      lead,
-    ),
-);
-check(
-  "lead, handoff and the job-done note say job where they meant the tracker's release",
+  "lead and handoff say job where they meant the tracker's release",
   !/the release's "Needs you"|the release's description|At the end of a release/.test(
     lead,
   ) &&
     /the job with its open steps/.test(handoff) &&
-    /a job's step, with or without a plan row/.test(handoff) &&
-    /`collection` the open job/.test(linkText) &&
-    !/the release in progress/i.test(hook),
+    /a job's step, with or without a plan row/.test(handoff),
 );
 check(
   "the task-type patch adds the `file` field, and update-project offers it",
@@ -178,18 +137,9 @@ check(
   ),
 );
 check(
-  "a job is named after the work itself, with no kind word, and lead's titles pointer reaches that rule",
+  "a job is named after the work itself, with no kind word",
   /\| \*\*Job name\*\*[^\n]*The work itself, as the user calls it: a version number, a working name, a title\.[^\n]*\| a kind word added to the name, such as "release", "project" or "video" \|/.test(
     rules,
-  ) &&
-    /titles, bodies and comments follow `where-are-we\/tracker-texts\.md`/.test(
-      lead,
-    ),
-);
-check(
-  "lead says how many reviewers is counted by parts, not by the job's size",
-  /Reviewers \(by parts, not size\): 1; 2 when the change has \*\*separate parts\*\*/.test(
-    lead,
   ),
 );
 check(
@@ -209,31 +159,11 @@ check(
 // as an addition, or the user's OK the plan names; work found mid-run is one "Found:" sentence, not a step
 const MAKES = [
   [
-    "lead: steps come from the plan rows after the user's OK",
-    lineOf(lead, "5. **The tracker is the job's record:**"),
-    [/after the user's OK one `task` item \(a \*\*step\*\*\) per plan row/],
-  ],
-  [
-    "lead: new work found mid-run",
-    lineOf(lead, "New work found →"),
-    [/"Found:"/, /step's comment/, /row and step only on the user's OK/],
-  ],
-  [
     "where-are-we: copying plan rows in",
     partOf(where, "2. **Copy new plan rows in.**"),
     [
       /No other step is made/,
       /work found mid-run goes into the running step's comment and the plan's notes/,
-      /only after the user OKs it as a plan row/,
-    ],
-  ],
-  [
-    "job-done: the note to create a missing step",
-    linkText,
-    [
-      /and the user OK'd that row/,
-      /Work found mid-run is never a new step/,
-      /"Found:" sentence in the step's comment/,
       /only after the user OKs it as a plan row/,
     ],
   ],
@@ -364,42 +294,15 @@ for (const [name, before, after] of PAIRS) {
 
 // 4b. Fixes from the build review: no stray steps, the call count in Findings, names that pass, many texts at once
 check(
-  "lead: an unasked change a worker made is a Found: line, a row only on the user's OK",
-  /one you would is a "Found:" line, a row only on the user's OK/.test(
-    lineOf(lead, "**Compare every report with its brief.**"),
-  ) && !/is added to the job list/.test(lead),
-);
-check(
-  "lead: new work for a step is a row only on the user's OK",
-  /a row only on the user's OK/.test(
-    lineOf(lead, "**A step doesn't grow in its brief.**"),
-  ),
-);
-check(
   "where-are-we: a row added after the plan's OK is copied only with the user's words in its Changed line",
   /`Changed <date>: <row>` line adds it\) is copied only when that line holds the user's words/.test(
     where,
   ) && /listed as "row without your OK"/.test(where),
 );
 check(
-  "job-done: a step is made only for a row the user OK'd, otherwise none and the reply says so",
-  /no step for the row yet \(the row is new\) and the user OK'd that row/.test(
-    linkText,
-  ) && /Otherwise make no step and say so in your reply/.test(linkText),
-);
-check(
-  "lead: the calls a worker used go under the plan's Findings, not the State cell",
-  /\(`tool_uses`\) under the plan's Findings/.test(lead) &&
-    !/tool_uses`\) in the row's State cell/.test(lead),
-);
-check(
   "the rules put numbers in the plan's Findings, comments are one to three sentences",
   /numbers: the plan's Findings/.test(rules) &&
     /\| One to three sentences\./.test(rules),
-);
-check(
-  "lead says Not checked yet, not Not verified, for a step's comment",
-  !/Not verified/.test(lead) && /"Not checked yet"/.test(lead),
 );
 check(
   "the rules list the mark names, not a copy of the patterns, and say what no marks does not clear",

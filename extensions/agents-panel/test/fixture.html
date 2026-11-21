@@ -128,7 +128,7 @@
   const ROWS = [
     ["running", "Web search: library sign-in steps", "Sub-agent · 1m 20s · 9 tools · Grep", 80, 4, { model: "sonnet", effort: "medium" }],
     ["running", "S3: rename the config keys", "Sub-agent · 2m 5s · 14 tools · Edit", 125, 2, { model: "sonnet", effort: "high" }],
-    ["running", "Planner: split the build into steps", "Sub-agent · 4m 2s · 6 tools · Agent", 250, 8, { model: "opus", effort: "xhigh", type: "planner" }],
+    ["running", "Plan-reviewer: check the plan's slices", "Sub-agent · 4m 2s · 6 tools · Agent", 250, 8, { model: "opus", effort: "xhigh", type: "plan-reviewer" }],
     ["running", "Reviewer: check the settings page", "Sub-agent · 50s · 7 tools · Read", 52, 2, { model: "opus", effort: "high", type: "reviewer" }],
     ["running", "Plan the right panel rows", "Sub-agent · 30s · 3 tools · TodoWrite", 31, 1, { model: "opus", effort: "high", type: "Plan" }],
     ["running", "Read files: theme tokens", "Sub-agent · 5s", 215, 210, { model: "haiku" }, { toolUseId: "h-bg", status: "running", lastToolName: "Read" }],

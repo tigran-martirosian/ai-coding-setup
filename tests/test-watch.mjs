@@ -340,6 +340,55 @@ check(
     ),
   r.out + r.err,
 );
+// faster-whisper (ffmpeg with no whisper filter, uv on PATH) fetches its model on first use: one line says so
+// first, and WATCH_STT=off listens to nothing. The ffmpeg and uv here are copies of node, so nothing downloads.
+{
+  const bin = path.join(tmp, "no-filter-bin");
+  fs.mkdirSync(bin);
+  const ext = process.platform === "win32" ? ".exe" : "";
+  for (const name of ["ffmpeg", "uv"])
+    fs.copyFileSync(process.execPath, path.join(bin, name + ext));
+  const pathKey = Object.keys(process.env).find(
+    (k) => k.toUpperCase() === "PATH",
+  );
+  const hub = path.join(tmp, "hf-hub");
+  let n = 0;
+  const viaUv = (env) =>
+    listenWith(
+      {
+        [pathKey]: bin + path.delimiter + process.env[pathKey],
+        HF_HUB_CACHE: hub,
+        WATCH_HOME: path.join(tmp, `uv-cache-${++n}`),
+        ...env,
+      },
+      short,
+      "--no-frames",
+    );
+  const notice =
+    /^Downloading first: faster-whisper and its small speech model \(about 488 MB\) into .*hf-hub, once; --model tiny is smaller \(78 MB\), WATCH_STT=off listens to nothing$/m;
+  r = viaUv({});
+  check(
+    "listen: before faster-whisper fetches its model, one line names it, its size and the way out",
+    notice.test(r.out) && r.out.search(notice) < r.out.indexOf("Listening:"),
+    r.out + r.err,
+  );
+  fs.mkdirSync(path.join(hub, "models--Systran--faster-whisper-small"), {
+    recursive: true,
+  });
+  r = viaUv({});
+  check(
+    "listen: with the model already fetched, no download line",
+    !/Downloading first/.test(r.out) && /Listening: faster-whisper/.test(r.out),
+    r.out + r.err,
+  );
+  r = viaUv({ WATCH_STT: "off" });
+  check(
+    "listen: WATCH_STT=off turns speech-to-text off, with nothing fetched",
+    /^Words: none \(speech-to-text is off \(WATCH_STT=off\)\)$/m.test(r.out) &&
+      !/Listening|Downloading/.test(r.out),
+    r.out + r.err,
+  );
+}
 // An engine that fails leaves the words out, and the stills still come
 const talking = path.join(tmp, "talking clip.mp4");
 spawnSync("ffmpeg", [

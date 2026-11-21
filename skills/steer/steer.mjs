@@ -17,6 +17,10 @@ import path from "node:path";
 //                            refused: new work goes to a fresh session. --last passes a note that
 //                            only finishes the job in hand, --user one the user wrote (/btw). The
 //                            Note button runs outside a session and is never refused.
+//                            --after: a note for after the current work goes to Nimbalyst's own
+//                            queue through outbox.jsonl, so it comes as a new turn once the current
+//                            one ends, not at the next tool call; NOT SENT for a session that is not
+//                            in Nimbalyst's database.
 //   --hook                  PreToolUse, PostToolUse and Stop hook: hand this session the notes
 //                            addressed to it at the first chance. After a tool call the note
 //                            rides along with the result. Only a call that runs long or starts
@@ -29,8 +33,13 @@ import path from "node:path";
 //                            marker (the tool call was cancelled) is repeated with the next tool
 //                            result. A note that waited 2 minutes or more for a tool call to end
 //                            says so, and tells the session to put its next long wait in the
-//                            background. On Stop, a reply that doesn't list back the notes
-//                            delivered since the last reply is sent back once ("### Your notes").
+//                            background. Each note line says it is the user's and the local
+//                            time it was sent ("(the user's note, sent 14:05)" at the end of its
+//                            first line). A note is listed
+//                            back once, in the reply that ends the turn. On Stop, a reply that
+//                            doesn't list back the notes delivered since the last reply is sent
+//                            back once ("### Your notes"); a note listed back in any earlier
+//                            reply text (under "### Your notes" or by its id) is not asked for again.
 //                            Notes older than 2 hours are dropped. Also holds a
 //                            send_prompt that carries a /btw note (the queue waits for the end of
 //                            the target's turn) until steer.mjs send was tried this turn.
@@ -69,6 +78,7 @@ import path from "node:path";
 //                            reports only when their turn ends, as before).
 // Fails open: any hook error means no output.
 import { crashLog } from "../../hooks/lib/crash-log.mjs";
+import { HookExit } from "../../hooks/lib/hook-io.mjs";
 import { currentTurn, SYNTHETIC } from "../../hooks/lib/transcript.mjs";
 
 const HOME = os.homedir();
@@ -102,7 +112,7 @@ const consumeLine = (id) =>
 const TYPED =
   "This message reached the session you took over from and was forwarded to you. It was most likely typed there by the user: treat it as the user's request and answer or act on it as you would if they had typed it here, after the step you are on if it does not change that step. Only if it reads like one session writing to another (a lead's instruction, a status report) treat it as that instead.";
 const RULES =
-  'It is an addition or a correction to the current task, not a new task. First ask yourself whether it touches what you are doing right now or are about to do: if it does, stop or change course before going on. Keep doing everything you were already asked, except exactly what this note changes: if it says to skip, stop, drop or replace something (a step, a style, a technique), do that from now on, and keep the rest. If it only adds something, add it and change nothing else. If it belongs to a later step, act on it at the point it names (if you keep a task list, update it so it isn\'t forgotten). In your final reply, list it back under "### Your notes": its first words in quotes, then what you did (done, moved to a named step, or not done and why).';
+  'It is an addition or a correction to the current task, not a new task. First ask yourself whether it touches what you are doing right now or are about to do: if it does, stop or change course before going on. Keep doing everything you were already asked, except exactly what this note changes: if it says to skip, stop, drop or replace something (a step, a style, a technique), do that from now on, and keep the rest. If it only adds something, add it and change nothing else. If it belongs to a later step, act on it at the point it names (if you keep a task list, update it so it isn\'t forgotten). List it back once, in the reply that ends this turn, under "### Your notes": its first words in quotes, then what you did (done, moved to a named step, or not done and why). A later reply does not list it again.';
 // A line that does not parse is skipped: one bad line must not drop the good ones (the next write would wipe them).
 const read = (f) => {
   let text;
@@ -129,6 +139,12 @@ const write = (f, a) => {
 const newId = () =>
   `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const mark = (e) => (e.id ? `[note ${e.id}] ` : "");
+// A user note's line in a hand-over: whose it is and the local time it was sent, at the end of the note's first
+// line, so "[note id] text" stays whole for the delivery check and the phone page. The list-back check reads
+// the note's own words, so SENT takes the label off again. A note with Windows line ends gets it before the \r.
+const noteLine = (e) =>
+  `- ${mark(e)}${String(e.msg).replace(/\r?\n|$/, ` (the user's note, sent ${new Date(e.ts).toTimeString().slice(0, 5)})$&`)}`;
+const SENT = / \(the user's note, sent \d\d:\d\d\)\r?$/;
 // The inboxes are read, changed and rewritten by every session's hook, so changes take turns. A hook
 // must never hang, so after a short wait it goes on without the lock.
 const LOCK = path.join(DIR, ".lock");
@@ -215,6 +231,9 @@ const DELIVERED =
 // The notes ({ id, text }) delivered since the last real reply before this turn began, so notes from a turn
 // cut off by a stop (no real reply, only Claude Code's synthetic "No response requested.") carry over. Only
 // note lines ("- [note id] text") in a text steer delivered count: not a forwarded report's marker, nor a file read.
+// A note already listed back in any reply text written after it (also one mid-turn) is left out: it is never
+// asked for twice. Such a text counts only with a "### Your notes" heading or the note's id: a mid-turn
+// "### Plan" on the same subject is not a list-back.
 const notesSinceLastReply = (text) => {
   const list = [];
   for (const l of text.split("\n")) {
@@ -232,12 +251,32 @@ const notesSinceLastReply = (text) => {
     )
   )
     i--;
-  const seen = new Map();
-  for (const e of list.slice(i + 1).filter((x) => x.type !== "assistant"))
+  const seen = new Map(),
+    listed = new Set();
+  for (const e of list.slice(i + 1)) {
+    if (e.type === "assistant") {
+      const c = e.message?.content;
+      const said = Array.isArray(c)
+        ? c
+            .filter((x) => x.type === "text")
+            .map((x) => x.text)
+            .join("\n")
+        : "";
+      if (e.message?.model !== SYNTHETIC && said)
+        for (const n of seen.values())
+          if (
+            said.toLowerCase().includes(n.id) ||
+            (/^\s*### Your notes/im.test(said) && listedBack(n, said))
+          )
+            listed.add(n.id);
+      continue;
+    }
     for (const s of stringList(e).filter((x) => DELIVERED.test(x)))
       for (const m of s.matchAll(/^- \[note ([a-z0-9]+)\] ([^\n]*)/gm))
-        if (!seen.has(m[1])) seen.set(m[1], { id: m[1], text: m[2].trim() });
-  return [...seen.values()];
+        if (!seen.has(m[1]))
+          seen.set(m[1], { id: m[1], text: m[2].replace(SENT, "").trim() });
+  }
+  return [...seen.values()].filter((n) => !listed.has(n.id));
 };
 // The reply lists the note back: it has a ### heading and, for this note, its id or 2 of its first 8 words of
 // 4+ letters (any language)
@@ -648,11 +687,14 @@ if (mode === "list") {
   const t = one || (bad ? null : list.find((f) => !f.done) || list[0]);
   const passes = ["--last", "--user"].filter((f) => rest.includes(f));
   for (const f of passes) rest.splice(rest.indexOf(f), 1);
-  // Only where a flag can be: a note that mentions the word keeps it
-  const noWait =
-    rest[0] === "--nowait" || (rest[0] === "-" && rest[1] === "--nowait");
-  if (noWait) rest.splice(rest.indexOf("--nowait"), 1);
-  const msg = (rest[0] === "-" ? await stdin() : rest.join(" ")).trim();
+  // --nowait and --after only where a flag can be, before the note's words in any order (with the - the
+  // button sends): a note that mentions the word keeps it
+  const lead = [];
+  while (["-", "--nowait", "--after"].includes(rest[0]))
+    lead.push(rest.shift());
+  const noWait = lead.includes("--nowait"),
+    after = lead.includes("--after");
+  const msg = (lead.includes("-") ? await stdin() : rest.join(" ")).trim();
   if (!msg) {
     console.log("usage: steer.mjs send [--to <id>] <note>");
     process.exit(1);
@@ -685,25 +727,57 @@ ${show(list)}`
   // Nimbalyst still says running after the reply ended (a median 39 s): no tool call is left to carry a
   // note, so --watch wakes the session with it, or has the app's queue start it if the app stopped it.
   const ending = !!row && !busy && row.status === "running";
+  // A running session never reaches its end of turn while notes keep coming, so nothing else stops
+  // one from growing. A note for after the current work grows it the same way.
+  const maxK = Number(process.env.STEER_MAX_K) || 300;
+  const sizeK =
+    process.env.CLAUDE_CODE_SESSION_ID && !passes.length && t.p
+      ? contextK(t.p)
+      : 0;
+  const refuseIfBig = () => {
+    if (sizeK < maxK) return;
+    console.log(
+      `NOT SENT: ${label(t)} holds ~${sizeK}k tokens and re-sends all of it on every call. Start new work in a fresh session (spawn_session). If this note only finishes the job it is on, send it again with --last; if the user wrote it, with --user.`,
+    );
+    process.exit(4);
+  };
+  // A note for after the current work goes to Nimbalyst's own queue (the Commands extension delivers
+  // outbox.jsonl lines within seconds, and skips one older than 10 minutes): it comes as a new turn once
+  // the current one ends, or at once when the session is idle. Not to the inbox, which the next tool call reads.
+  if (after) {
+    refuseIfBig();
+    if (!row) {
+      console.log(
+        `NOT SENT: ${label(t)} was not found in Nimbalyst's database, so --after cannot queue the note there. Send it without --after (it is read at its next step), or later with send_prompt.`,
+      );
+      process.exit(2);
+    }
+    const now = Date.now();
+    fs.mkdirSync(DIR, { recursive: true });
+    locked(() => {
+      const keep = read(OUTBOX).filter((e) => now - e.ts < 2 * 3600e3);
+      keep.push({
+        id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+        ts: now,
+        session: row.id,
+        prompt: msg,
+      });
+      write(OUTBOX, keep);
+    });
+    console.log(
+      busy || ending
+        ? `Queued for after its current turn: ${label(t)} gets the note as a new message from Nimbalyst's queue when that turn ends, not at its next tool call.`
+        : `Queued for after its current turn: ${label(t)} is not busy, so Nimbalyst's queue starts it with the note within seconds.`,
+    );
+    process.exit(0);
+  }
   if (row && !busy && !ending) {
     console.log(
       `NOT SENT: ${label(t)} ${BUSY.has(row.status) ? "has finished its reply and runs no background job" : `is ${row.status}`}, not busy. Send the note with send_prompt to session ${row.id} instead: it starts at once.`,
     );
     process.exit(3);
   }
-  // A running session never reaches its end of turn while notes keep coming, so nothing else stops
-  // one from growing.
-  const maxK = Number(process.env.STEER_MAX_K) || 300;
-  const sizeK =
-    process.env.CLAUDE_CODE_SESSION_ID && !passes.length && t.p
-      ? contextK(t.p)
-      : 0;
-  if (sizeK >= maxK) {
-    console.log(
-      `NOT SENT: ${label(t)} holds ~${sizeK}k tokens and re-sends all of it on every call. Start new work in a fresh session (spawn_session). If this note only finishes the job it is on, send it again with --last; if the user wrote it, with --user.`,
-    );
-    process.exit(4);
-  }
+  refuseIfBig();
   fs.mkdirSync(DIR, { recursive: true });
   const id = newId();
   locked(() =>
@@ -1308,7 +1382,7 @@ ${show(list)}`
       ),
       reports = fresh.filter((e) => e.kind === "report");
     const typed = fresh.filter((e) => e.kind === "user");
-    const notes = userNotes.map((e) => `- ${mark(e)}${e.msg}`).join("\n");
+    const notes = userNotes.map(noteLine).join("\n");
     // A forwarded child report says what it is; it is not the user's note. A message the user typed in
     // the old session says so too, and is a request. A report of this session's own child asks to be claimed
     // from Nimbalyst's queue, unless it came from that claim.
@@ -1360,7 +1434,7 @@ ${show(list)}`
         decision: "block",
         reason:
           `[btw] The user sent ${unlisted.length === 1 ? "a note" : unlisted.length + " notes"} while you worked and your reply doesn't list ${unlisted.length === 1 ? "it" : "them"} back. ` +
-          `Add "### Your notes" to the reply: each note's first words in quotes, then what you did.\n${unlisted.map((n) => `- "${n.text.slice(0, 80)}"`).join("\n")}`,
+          `Add "### Your notes" to the reply: each note's first words in quotes, then what you did. List ${unlisted.length === 1 ? "it" : "them"} only here, once: a later reply does not list ${unlisted.length === 1 ? "it" : "them"} again.\n${unlisted.map((n) => `- "${n.text.slice(0, 80)}"`).join("\n")}`,
       });
     } else if (fresh.length) {
       // A note that waited minutes sat behind one long tool call: the next long wait would do the same
@@ -1389,6 +1463,8 @@ ${show(list)}`
       });
     }
   } catch (err) {
+    // In hooks/dispatch.mjs process.exit throws HookExit: the hook's normal end, not a crash
+    if (err instanceof HookExit) throw err;
     crashLog("steer", err);
   }
 } else if (mode === "--watch") {
@@ -1510,10 +1586,7 @@ ${show(list)}`
         });
       }
       if (!got.length) continue;
-      fs.writeSync(
-        2,
-        `${RULES}\n${got.map((e) => `- ${mark(e)}${e.msg}`).join("\n")}`,
-      );
+      fs.writeSync(2, `${RULES}\n${got.map(noteLine).join("\n")}`);
       process.exit(2);
     }
   } catch (err) {

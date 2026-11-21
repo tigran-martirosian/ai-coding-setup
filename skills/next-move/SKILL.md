@@ -1,6 +1,7 @@
 ---
 name: next-move
 description: Suggest the one highest-leverage thing to do next, based on the user's goals and the current project's state. Use when the user asks "what should I do next", "what's the highest-leverage thing", "what can you do for me", "next move", or runs /next-move.
+disable-model-invocation: true
 ---
 
 # Next move

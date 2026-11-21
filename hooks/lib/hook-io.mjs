@@ -1,17 +1,21 @@
 // The frame every hook repeats: read the event once, honour the off switch, fail open, tell if this file is the
 // script being run, and write the answers Claude Code understands. A hook never imports another hook; hooks and
 // skill scripts import only from hooks/lib/.
-//   runHook("big-read-gate", (event) => { ... });   // BIG_READ_GATE=off (any case) ends it before stdin is read
-// The off switch is the hook's name in capitals with "-" as "_" (cold-cache -> COLD_CACHE); {off: "HANDOFF_HOOK"}
+//   runHook("find-guard", (event) => { ... });   // FIND_GUARD=off (any case) ends it before stdin is read
+// The off switch is the hook's name in capitals with "-" as "_" (verify-gate -> VERIFY_GATE); {off: "OTHER_NAME"}
 // names another one, {projectSettings: true} also looks in the project's settings env (settings-env.mjs).
 // A thrown error is crash-logged and the hook ends with exit 0, so the call goes through. Input that is not a JSON
-// object is the same, unless {exitOnBadInput: true} (decided-quote): then a message on stderr and exit 2.
+// object is the same, unless {exitOnBadInput: true}: then a message on stderr and exit 2.
 // {failClosed: true} (guards wired with onFailure "block"): a thrown error or bad input is crash-logged, said on
 // stderr and ends with exit 1, so Claude Code's onFailure decides; with "block" the call is stopped.
 // fn may be async; a number it returns becomes the exit code.
+// Inside hooks/dispatch.mjs (several hooks in one Node process) `dispatch.on` is true: runHook leaves the crash
+// handlers to the dispatcher and puts its promise in `dispatch.runs`, so the dispatcher waits for it. There
+// process.exit throws a HookExit instead of ending the process; runHook takes it as the hook's normal end, with
+// its exit code, and a hook that catches errors itself passes it on (`if (err instanceof HookExit) throw err`).
 // Modes, so a new gate can first log what it would refuse: the same variable takes off | observe | enforce (any
 // case). Empty is the hook's default: {mode: "observe"} in runHook, else enforce. Any other value
-// (CODE_REVIEW_GATE=led, LONG_SLEEP_GUARD=warn) is enforce, so it keeps its old meaning. An arm of a hook has its
+// (DELETE_GUARD=on, VERIFY_GATE=warn) is enforce, so it keeps its old meaning. An arm of a hook has its
 // own variable and default:
 //   emit.block(reason, { arm: "commit", mode: "observe" })   // reads VERIFY_GATE_COMMIT
 // Order for an arm: its variable, then the hook's variable when that is observe or enforce, then the arm default,
@@ -35,6 +39,36 @@ const MODES = ["off", "observe", "enforce"];
 const OBSERVE_CAP = 1024 * 1024;
 // The hook runHook is running and the event it read, so emit knows whose refusal it logs
 let running = null;
+
+// What process.exit throws while hooks/dispatch.mjs runs a hook: the hook ended, with this exit code
+export class HookExit extends Error {
+  constructor(code) {
+    super(`process.exit(${code ?? ""})`);
+    this.code = code;
+  }
+}
+// Set by hooks/dispatch.mjs only. begin() before each hook: no earlier hook's runs or running state. code(n) takes
+// runHook's exit code for the hook the work belongs to: process.exitCode is one for the whole process, so work a
+// hook left running would set it for the hook running then.
+export const dispatch = {
+  on: false,
+  runs: [],
+  code: null,
+  begin() {
+    running = null;
+    this.runs = [];
+  },
+};
+const setCode = (code) => {
+  if (dispatch.on) dispatch.code(code);
+  else process.exitCode = code;
+};
+// A hook that ended with process.exit inside fn: its code becomes the exit code, as process.exit would make it
+const exited = (err) => {
+  if (!(err instanceof HookExit)) return false;
+  if (err.code !== undefined) setCode(err.code);
+  return true;
+};
 
 const read = (variable, projectSettings) =>
   (projectSettings
@@ -82,7 +116,7 @@ export function runHook(
     mode = "enforce",
   } = {},
 ) {
-  installCrashHandlers();
+  if (!dispatch.on) installCrashHandlers();
   if (!MODES.includes(mode))
     throw new Error(
       `${name}: mode "${mode}" is not one of ${MODES.join(", ")}`,
@@ -95,9 +129,9 @@ export function runHook(
     process.stderr.write(
       `[${name}] The check itself failed (${err.message}). Set ${variable}=off to bypass.\n`,
     );
-    process.exitCode = 1;
+    setCode(1);
   };
-  return (async () => {
+  const run = (async () => {
     let event;
     try {
       event = JSON.parse(fs.readFileSync(0, "utf8"));
@@ -108,25 +142,28 @@ export function runHook(
         process.stderr.write(
           `[${name}] Could not read the hook input as JSON (${err.message}). Set ${variable}=off to bypass.\n`,
         );
-        process.exitCode = 2;
+        setCode(2);
       } else if (failClosed) {
         fail(err);
       } else {
         crashLog(name, err);
-        process.exitCode = 0;
+        setCode(0);
       }
       return;
     }
     running.event = event;
     try {
       const code = await fn(event);
-      if (typeof code === "number") process.exitCode = code;
+      if (typeof code === "number") setCode(code);
     } catch (err) {
+      if (exited(err)) return;
       if (failClosed) return fail(err);
       crashLog(name, err);
-      process.exitCode = 0;
+      setCode(0);
     }
   })();
+  if (dispatch.on) dispatch.runs.push(run);
+  return run;
 }
 
 // Is this file the script being run? By real path, so a link or a letter-case difference still counts, and a
@@ -145,6 +182,11 @@ export function isMain(importMetaUrl) {
       real(fileURLToPath(importMetaUrl)).toLowerCase()
   );
 }
+
+// Auto mode: the event's permission_mode is "auto" (Nimbalyst with "uses classifier" on). A classifier reviews each
+// tool call there, and a hook's updatedInput voids that review, so a hook that would rewrite a call gives its note as
+// additionalContext instead.
+export const autoMode = (event) => event?.permission_mode === "auto";
 
 // No variable names Nimbalyst for a hook; the entry point is "sdk-..." in an app, "cli" in the terminal
 export const inNimbalyst = () =>

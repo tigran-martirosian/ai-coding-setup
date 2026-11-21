@@ -141,11 +141,11 @@ check(
     "Helper · FooTool · 5s",
 );
 check(
-  "meta: a running helper before its first tool reads thinking, a planner planning",
+  "meta: a running helper before its first tool reads thinking, the app's Plan agent planning",
   metaWords("Sub-agent · 5s", "running") === "Helper · thinking · 5s" &&
     metaWords("Sub-agent · 5s", "running", null, 0, {
       model: "opus",
-      type: "planner",
+      type: "Plan",
     }) === "Helper · planning · 5s · Opus",
 );
 check(
@@ -178,8 +178,9 @@ check(
       h(t),
       "shaping",
     ]),
-    [h("Read", "planner"), "shaping"],
-    [h("", "", "Planner: the build"), "shaping"],
+    [h("Read", "Plan"), "shaping"],
+    [h("Read", "plan-reviewer"), "solving"],
+    [h("", "", "Planner: the build"), "breathing"],
     [h("Bash", "reviewer"), "solving"],
     [h("Grep", "", "Reviewer: check A1"), "solving"],
     [h("Agent", "reviewer"), "connecting"],
@@ -264,33 +265,33 @@ check(
     nowWords("Agent") === "waiting on a helper (Agent)" &&
     nowWords("Bash") === "running a command (Bash)",
 );
-// A frozen row: the app said 35s while the planner had run 2 minutes
+// A frozen row: the app said 35s while the helper had run 2 minutes
 const T0 = 1793864638072;
-const planner = { startedAt: T0, durationMs: 35000 };
+const frozen = { startedAt: T0, durationMs: 35000 };
 const seen = "Sub-agent · 35s · 10 tools · Grep";
 check(
   "live time: counts from startedAt, not the app's durationMs",
-  metaWords(seen, "running", planner, T0 + 120000) ===
+  metaWords(seen, "running", frozen, T0 + 120000) ===
     "Helper · searching files (Grep) · 2m 0s",
 );
 check(
   "live time: moves each second",
-  metaWords(seen, "running", planner, T0 + 121000) ===
+  metaWords(seen, "running", frozen, T0 + 121000) ===
     "Helper · searching files (Grep) · 2m 1s",
 );
 check(
   "live time: no report for over 2 minutes keeps the last step and adds the wait",
-  metaWords(seen, "running", planner, T0 + 35000 + 4 * 60000 + 5000) ===
+  metaWords(seen, "running", frozen, T0 + 35000 + 4 * 60000 + 5000) ===
     "Helper · searching files (Grep) for 4m · 4m 40s",
 );
 check(
   "live time: silent with no last step reads thinking, never quiet",
-  metaWords("Sub-agent · 35s", "running", planner, T0 + 35000 + 3 * 60000) ===
+  metaWords("Sub-agent · 35s", "running", frozen, T0 + 35000 + 3 * 60000) ===
     "Helper · thinking for 3m · 3m 35s",
 );
 check(
   "live time: exactly 2 minutes silent shows no wait yet",
-  metaWords(seen, "running", planner, T0 + 35000 + 120000).startsWith(
+  metaWords(seen, "running", frozen, T0 + 35000 + 120000).startsWith(
     "Helper · searching files (Grep) · ",
   ),
 );
@@ -312,7 +313,7 @@ check(
   metaWords(
     "Sub-agent · 4m 24s · 30 tools",
     "completed",
-    planner,
+    frozen,
     T0 + 999999,
   ) === "Helper · done in 4m 24s",
 );
@@ -353,7 +354,7 @@ check(
 }
 check(
   "russian: wait words",
-  ruMod.metaWords(seen, "running", planner, T0 + 35000 + 4 * 60000) ===
+  ruMod.metaWords(seen, "running", frozen, T0 + 35000 + 4 * 60000) ===
     "Помощник · ищет по файлам (Grep) уже 4м · 4м 35с",
 );
 check(
@@ -1650,6 +1651,14 @@ check(
     quiet.state === "running" &&
       quiet.slow &&
       line(quiet) === "Reviewer still running a command · last step 3m ago",
+  );
+  const planReview = view(
+    msg({ started: NOW - 8 * min, kids: [kid("Bash", NOW - 3 * min)] }),
+    { type: "plan-reviewer" },
+  );
+  check(
+    "helper card: the plan-reviewer shows as a reviewer",
+    line(planReview) === "Reviewer still running a command · last step 3m ago",
   );
   const bgTask = {
     toolUseId: "t1",

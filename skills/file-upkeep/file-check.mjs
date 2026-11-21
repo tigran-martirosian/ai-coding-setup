@@ -11,7 +11,12 @@
 //                                                      the reference fix; the saved ledger under ~/.claude/setup-logs is
 //                                                      written first and after each action, so a stop midway is undone too
 //   node file-check.mjs --undo [<saved ledger>]        reverses the last apply, or the named one
+//   node file-check.mjs --root [<folder>] [--json]     the projects folder by P10, report only (nothing to apply: a
+//                                                      project moves with move-project.mjs); folder defaults to the
+//                                                      setup's projects folder (projectsRoot)
 //   --home <folder>                                    work as if <folder> were the home folder (tests)
+// Imported: newPathNotes(projectRoot, rel) checks one path about to be made (the creation-time note), projectsRoot(home)
+// names the projects folder.
 // Only files git shows (tracked, or untracked and not ignored) are read: git-ignored data (logs, databases, caches)
 // is never flagged, moved or deleted. Not a git project: a walk that skips the usual build and package folders.
 // A ledger: {"project": "<folder>", "entries": [{"id": "F1", "path": "<as reported>", "sha": "<as reported>",
@@ -22,6 +27,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
@@ -37,9 +43,8 @@ const flagValue = (flag) => {
   const v = args[at + 1];
   return v && !v.startsWith("--") ? v : null;
 };
-const homeArg = flagValue("--home");
-if (homeArg === null) stop("--home needs a folder.");
-const home = homeArg === undefined ? os.homedir() : path.resolve(homeArg);
+const homeArg = flagValue("--home"); // null (no folder) stops the command line, at the end of this file
+const home = homeArg ? path.resolve(homeArg) : os.homedir();
 const HOMES = args.includes("--homes");
 const JSON_OUT = args.includes("--json");
 const CLAUDE = path.join(home, ".claude");
@@ -169,27 +174,38 @@ function project(root) {
     files,
     tracked,
     ignored,
+    toolNamed: toolNamed(root, files),
     standard: standardFile(root),
   };
 }
-// .claude/file-standard.json: {"ignore": ["<glob>"], "reason": {"<glob>": "<why>"}}
-function standardFile(root) {
+// .claude/file-standard.json: {"ignore": ["<glob>"], "reason": {"<glob>": "<why>"}}, and in the projects folder
+// {"families": ["<name>"]} (P10); fail is stop, or a throw for newPathNotes (a hook must not exit)
+function standardFile(root, fail = stop) {
   const f = path.join(root, ".claude", "file-standard.json");
-  if (!fs.existsSync(f)) return { ignore: [], reason: {}, text: null };
+  if (!fs.existsSync(f))
+    return { ignore: [], reason: {}, families: [], text: null };
   let j;
   try {
     j = JSON.parse(read(f));
   } catch (e) {
-    stop(`${fwd(f)} is not valid JSON: ${e.message}`);
+    return fail(`${fwd(f)} is not valid JSON: ${e.message}`);
   }
   const ignore = j.ignore || [],
     reason = j.reason || {};
   const bare = ignore.filter((g) => !reason[g]);
   if (bare.length)
-    stop(
+    return fail(
       `${fwd(f)}: every ignored glob needs a reason under "reason"; missing for ${bare.join(", ")}.`,
     );
-  return { ignore, reason, text: read(f) };
+  const families = j.families || [];
+  if (
+    !Array.isArray(families) ||
+    !families.every((n) => typeof n === "string" && n.trim())
+  )
+    return fail(
+      `${fwd(f)}: "families" is a list of names, as ["game"]; found ${JSON.stringify(j.families)}.`,
+    );
+  return { ignore, reason, families, text: read(f) };
 }
 const globRe = (g) =>
   new RegExp(
@@ -210,12 +226,105 @@ const holdsIgnored = (p, dir) =>
 const CODE_JS = /\.(js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
 const CODE_OTHER =
   /\.(java|kt|cs|swift|go|rs|c|cc|cpp|h|hpp|rb|php|gd|lua|dart|scala|m)$/; // their language's own naming
+// a fixed name may carry a language before its extension: README.de.md, README.zh-CN.md
 const FIXED =
-  /^(README|CHANGELOG|LICENSE|LICENCE|NOTICE|AUTHORS|COPYING|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT|CLAUDE|CLAUDE\.local|AGENTS|SKILL|MEMORY|HANDOFF|DECISIONS|DESIGN|HISTORY|NEWS|CODEOWNERS|INDEX)(\.[A-Za-z]{1,4})?$/;
+  /^(README|CHANGELOG|LICENSE|LICENCE|NOTICE|AUTHORS|COPYING|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT|CLAUDE|CLAUDE\.local|AGENTS|GEMINI|SKILL|MEMORY|HANDOFF|DECISIONS|DESIGN|HISTORY|NEWS|CODEOWNERS|INDEX)(\.[a-z]{2}(?:[-_][A-Za-z]{2,4})?)?(\.[A-Za-z]{1,4})?$/;
+// names a build tool or platform looks for (Cargo, CMake, Android, Xcode, CocoaPods, Swift, .NET); a picture with a
+// screen-scale suffix (Logo@2x.png), which the platform loads by its exact name; a style module named after its
+// component (UserCard.module.css beside UserCard.tsx), which follows the code's case
 const TOOL_NAMES =
-  /\.(woff2?|ttf|otf|eot)$|^(Makefile|Dockerfile|Gemfile|Gemfile\.lock|Procfile|Rakefile|Jenkinsfile|Vagrantfile|Brewfile|Podfile|Pipfile|Pipfile\.lock|__init__\.py|__main__\.py|conftest\.py)$|^Dockerfile\./;
+  /\.(woff2?|ttf|otf|eot|csproj|fsproj|vbproj|vcxproj|sln)$|^(Makefile|Dockerfile|Gemfile|Gemfile\.lock|Procfile|Rakefile|Jenkinsfile|Vagrantfile|Brewfile|Podfile|Podfile\.lock|Pipfile|Pipfile\.lock|Cargo\.toml|Cargo\.lock|CMakeLists\.txt|AndroidManifest\.xml|Info\.plist|Package\.swift|Package\.resolved|Directory\.Build\.(props|targets)|__init__\.py|__main__\.py|conftest\.py|gunicorn\.conf\.py)$|^Dockerfile\.|@[23]x\.(png|jpe?g|gif|webp)$|\.module\.(css|scss|sass|less)$/;
+// folders a tool names: Python and test runners, GitHub's templates, Next.js route folders ([slug], [...parts],
+// (group), (.)intercepted), Xcode's bundles and asset folders
 const TOOL_DIRS =
-  /^(__pycache__|__tests__|__mocks__|__snapshots__|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)$/;
+  /^(__pycache__|__tests__|__mocks__|__snapshots__|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)$|^\[{1,2}(\.\.\.)?[A-Za-z0-9_-]+\]{1,2}$|^\([^/)]+\)[^/]*$|\.(xcodeproj|xcworkspace|xcassets|appiconset|imageset|colorset|lproj)$/;
+// a build file of the build-tool list above (CocoaPods, Swift, Cargo, CMake, .NET, Gradle): the tool, its other
+// files and the project's scripts find the folder that holds it by its name, so that name stays as it is
+const BUILD_FILE =
+  /^(Podfile|Package\.swift|Cargo\.toml|CMakeLists\.txt|(build|settings)\.gradle(\.kts)?)$|\.(csproj|fsproj|vbproj|vcxproj|sln)$/;
+const XCODE_PROJECT = /\.(xcodeproj|xcworkspace)$/;
+// a build file that names the projects below it by path ([it, the build file of such a project]): a .sln its .NET
+// projects, settings.gradle its Gradle modules, a Cargo workspace its crates, CMake add_subdirectory its folders
+const BUILD_PARTS = [
+  [/\.sln$/, /\.(csproj|fsproj|vbproj|vcxproj)$/],
+  [/^settings\.gradle(\.kts)?$/, /^build\.gradle(\.kts)?$/],
+  [/^Cargo\.toml$/, /^Cargo\.toml$/],
+  [/^CMakeLists\.txt$/, /^CMakeLists\.txt$/],
+];
+// the files and folders whose own name a build tool reads, so that name stays: each folder that holds a build file or
+// an Xcode project; each folder between a build file of BUILD_PARTS and a project of its tool below it (the build
+// file is not read for which projects it names, so this may keep a folder it does not name); below the folder that
+// holds an Xcode project, each file or folder its project.pbxproj names as a path (`path = <name>;`, and App/ beside
+// App.xcodeproj), when every folder between it and the project folder is named too (a `name =` is a group or build
+// setting such as Debug, not a file); a `../` path is resolved from the project folder, each folder and file it
+// names there stays, and the named files below it as below the project folder; everything under an Android res/
+// folder beside an AndroidManifest.xml (a resource's file name is its id, lowercase_underscore). Only those names
+// stay: the other files and folders below them, and anything beside a build file at the top, are still checked.
+function toolNamed(root, files) {
+  const keep = new Set(),
+    all = new Set(files),
+    xcode = [], // [the folders its paths start from (the holder first), the names its project.pbxproj gives]
+    parts = BUILD_PARTS.map(() => [[], []]); // per tool: [the folders of its top build files, of its projects]
+  for (const f of files) {
+    const segs = f.split("/");
+    const name = segs.pop();
+    if (BUILD_FILE.test(name) && segs.length) keep.add(segs.join("/"));
+    BUILD_PARTS.forEach(([top, part], t) => {
+      if (top.test(name)) parts[t][0].push(segs);
+      if (part.test(name)) parts[t][1].push(segs);
+    });
+    const at = segs.findIndex((s) => XCODE_PROJECT.test(s));
+    if (at < 0) continue;
+    if (at) keep.add(segs.slice(0, at).join("/"));
+    if (name !== "project.pbxproj" || at !== segs.length - 1) continue;
+    const holder = segs.slice(0, at),
+      bases = [holder],
+      names = new Set([segs[at].replace(XCODE_PROJECT, "")]);
+    for (const m of read(path.join(root, f)).matchAll(
+      /\bpath = (?:"([^"]*)"|([^;\s"]+));/g,
+    )) {
+      const given = m[1] ?? m[2];
+      if (!given.startsWith("../")) {
+        for (const n of given.split("/")) names.add(n);
+        continue;
+      }
+      const to = path.posix.join(holder.join("/") || ".", given).split("/");
+      if (to[0] === "..") continue; // outside the project
+      const up = given.match(/^(\.\.\/)+/)[0].length / 3;
+      for (let i = Math.max(holder.length - up, 0); i < to.length; i++)
+        keep.add(to.slice(0, i + 1).join("/"));
+      bases.push(to);
+    }
+    xcode.push([bases, names]);
+  }
+  for (const [tops, projects] of parts)
+    for (const top of tops)
+      for (const below of projects)
+        if (
+          below.length > top.length + 1 &&
+          top.every((s, i) => below[i] === s)
+        )
+          for (let i = top.length; i < below.length - 1; i++)
+            keep.add(below.slice(0, i + 1).join("/"));
+  for (const f of files) {
+    const segs = f.split("/");
+    for (const [bases, names] of xcode)
+      for (const base of bases)
+        if (base.every((s, i) => segs[i] === s))
+          for (let i = base.length; i < segs.length && names.has(segs[i]); i++)
+            keep.add(segs.slice(0, i + 1).join("/"));
+    const res = segs.findIndex(
+      (s, i) =>
+        s === "res" &&
+        i < segs.length - 1 &&
+        all.has([...segs.slice(0, i), "AndroidManifest.xml"].join("/")),
+    );
+    if (res >= 0)
+      for (let i = res; i < segs.length; i++)
+        keep.add(segs.slice(0, i + 1).join("/"));
+  }
+  return keep;
+}
 const ISO = /(?<![0-9])(20\d\d)-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(?![0-9])/;
 const validDate = (y, m, d) => {
   const t = new Date(Date.UTC(+y, +m - 1, +d));
@@ -300,8 +409,54 @@ const GENERIC =
   /^(untitled|document\d*|new-?file|temp|tmp|misc|stuff|test\d+|copy|new-?folder)$/;
 const COPY_SUFFIX = /([-_](old|copy|backup|bak)|\s\(\d+\))$/i;
 const COPY_EXT = /\.(bak|orig)(\.[^/]*)?$|~$/i;
+// `x.before.py`: the plain name `x.py` it is a copy of, or null
+const beforeOf = (name) => {
+  const m = /^(.+)\.before(\.[^./]+)$/i.exec(name);
+  return m ? m[1] + m[2] : null;
+};
 const ARCHIVE_DIR =
-  /^(archive|archives|old|obsolete|superseded|old-versions.*|backup.*|backups)$/i;
+  /^(archive|archives|old|obsolete|superseded|old-versions.*|backup|backups)$/i;
+// `previous` is also a plain word (a Next.js route `app/previous/`): an archive only at the top or right under docs/
+const ARCHIVE_TOP = /^previous$/i;
+// P9: a folder of one run's output (drafts, an unpacked document, output)
+const RUN_DIR = /^(draft-.+|unpacked|outputs?)$/i;
+// `draft-` is also a plain word (`src/draft-editor/`): run output only at the top or right under docs/ or a scratch
+// folder
+const DRAFT_DIR = /^draft-.+$/i;
+const SCRATCH_DIR = /^_?(work|scratch|tmp|temp)$/i;
+const unpackedDoc = (has, dir) => has.has(`${dir}/[Content_Types].xml`);
+// P8: a picture or preview (a still, a video, a PDF render); diagrams (.svg, .mmd, .excalidraw, .drawio) belong in
+// docs/ and are not pictures here, nor a docs site's .html page
+const PREVIEW_EXT = "png|jpe?g|gif|webp|bmp|mp4|webm|mov";
+const PICTURE = new RegExp(`\\.(${PREVIEW_EXT})$`, "i");
+// documents a person sends out: their names are read by people, so N1 leaves their case alone
+const DOCUMENT = /\.(pdf|docx|xlsx|pptx)$/;
+// N8: words that say when or which try a code file was, not what it does. Full month names but `may`, and the
+// short forms that are no common word or abbreviation (not mar, jun, aug, sep, oct, dec: dec-to-hex, aug-data)
+const MONTHS =
+  /^(january|february|march|april|june|july|august|september|october|november|december|jan|feb|apr|jul|sept|nov)$/;
+const ROUND_WORDS = [
+  "rewrite",
+  "new",
+  "final",
+  "fix",
+  "try",
+  "attempt",
+  "draft",
+  "take",
+  "round",
+];
+const ROUND_WORD = new RegExp(`^(${ROUND_WORDS.join("|")})\\d*$`);
+// why a code file's stem does not say what it does ("" when it does)
+function vagueName(stem) {
+  const w = words(stem);
+  const month = w.find((x) => MONTHS.test(x));
+  if (month) return `"${month}" is a month`;
+  const version = w.find((x) => /^v\d+$/.test(x));
+  if (version) return `"${version}" is a version`;
+  const last = w.filter((x) => !/^\d+$/.test(x)).at(-1);
+  return last && ROUND_WORD.test(last) ? `"${last}" says which try` : "";
+}
 
 // ---- the text files the reference scan reads (and the apply edits)
 const isBinary = (buf) => buf.subarray(0, 8000).includes(0);
@@ -400,6 +555,110 @@ const mentions = (p, rel) => {
       return true;
   return false;
 };
+// P8: the picture names the listed files hold, in lower case, built once per scan. Every file is searched: the
+// texts above, and also a file over BIG_TEXT or one in UTF-16 (read in parts); a binary file is not. A name is what
+// stands before a picture's extension back to a character no file name holds (/ \ : " < > | ? * or a line break),
+// and each tail of it after a character that is no letter or digit (`see my shot.png` gives `my shot.png`,
+// `shot.png`); a URL-encoded one is also kept decoded.
+const PIC_REF = new RegExp(`\\.(${PREVIEW_EXT})(?![A-Za-z0-9])`, "gi");
+const NAME_STOP = new Set([...'/\\:"<>|?*\r\n\t`']);
+const ALNUM = /[A-Za-z0-9]/;
+function addPictureNames(text, names) {
+  PIC_REF.lastIndex = 0;
+  let m;
+  while ((m = PIC_REF.exec(text))) {
+    const end = m.index + m[0].length;
+    let at = m.index;
+    const limit = Math.max(0, m.index - 255);
+    while (at > limit && !NAME_STOP.has(text[at - 1])) at--;
+    const seg = text.slice(at, end).toLowerCase();
+    let decoded = seg;
+    if (seg.includes("%"))
+      try {
+        decoded = decodeURIComponent(seg);
+      } catch {}
+    for (const s of decoded === seg ? [seg] : [seg, decoded]) {
+      const cut = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+      const name = s.slice(cut + 1);
+      names.add(name);
+      for (let i = 0; i < name.length - m[0].length; i++)
+        if (!ALNUM.test(name[i])) names.add(name.slice(i + 1));
+    }
+  }
+}
+// a file's text in parts of 1 MB, UTF-8 or UTF-16 (a byte-order mark, or NULs on one side of each byte pair); a
+// binary file gives nothing. Each part starts with the last 300 characters of the one before, so no name is cut.
+function eachTextPart(full, fn) {
+  const fd = fs.openSync(full, "r");
+  try {
+    const buf = Buffer.alloc(1024 * 1024);
+    let n = fs.readSync(fd, buf, 0, buf.length, null);
+    if (!n) return;
+    let enc = "utf8",
+      swap = false,
+      skip = 0;
+    if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) skip = 3;
+    else if (buf[0] === 0xff && buf[1] === 0xfe) [enc, skip] = ["utf16le", 2];
+    else if (buf[0] === 0xfe && buf[1] === 0xff)
+      [enc, swap, skip] = ["utf16le", true, 2];
+    else if (isBinary(buf.subarray(0, n))) {
+      let odd = 0,
+        even = 0;
+      const head = Math.min(n, 8000);
+      for (let i = 0; i < head; i++) if (!buf[i]) i % 2 ? odd++ : even++;
+      if (odd > head / 4 && even < odd / 10) enc = "utf16le";
+      else if (even > head / 4 && odd < even / 10)
+        [enc, swap] = ["utf16le", true];
+      else return;
+    }
+    const dec = new StringDecoder(enc);
+    let carry = "";
+    for (let first = true; n; first = false) {
+      let part = buf.subarray(first ? skip : 0, n);
+      if (swap) part = Buffer.from(part.subarray(0, part.length & ~1)).swap16();
+      const text = carry + dec.write(part);
+      fn(text);
+      carry = text.slice(-300);
+      n = fs.readSync(fd, buf, 0, buf.length, null);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+function pictureNames(p) {
+  if (p._pictureNames) return p._pictureNames;
+  const names = new Set(),
+    t = texts(p);
+  for (const [, text] of t) addPictureNames(text, names);
+  for (const f of p.files)
+    if (!t.has(f) && !PICTURE.test(f))
+      eachTextPart(path.join(p.root, f), (text) =>
+        addPictureNames(text, names),
+      );
+  return (p._pictureNames = names);
+}
+// P8: some file names the picture, by any path or by its bare name, case aside, plain or URL-encoded (a space as %20)
+const linked = (p, rel) => {
+  const name = path.posix.basename(rel).toLowerCase();
+  const names = pictureNames(p);
+  return names.has(name) || names.has(encodeURI(name));
+};
+// P8: docs/ that is a site (MkDocs, Jekyll, Sphinx, VitePress, Docusaurus) may use a picture by a built path or by
+// a fixed name (favicon.png), and so may code that reads from docs/: there a picture's move is an ask
+const DOCS_SITE =
+  /^(mkdocs\.ya?ml|_config\.ya?ml|docusaurus\.config\.[cm]?[jt]s|\.vitepress\/.+|docs\/(mkdocs\.ya?ml|_config\.ya?ml|conf\.py|docusaurus\.config\.[cm]?[jt]s|sidebars\.[cm]?[jt]s|\.vitepress\/.+))$/;
+// the same configs as paths to look for, for newPathNotes (no listing of the project)
+const DOCS_SITE_FILES = [
+  ...["mkdocs.yml", "mkdocs.yaml", "_config.yml", "_config.yaml", ".vitepress"],
+  ...["js", "ts", "mjs", "cjs"].map((x) => `docusaurus.config.${x}`),
+]
+  .flatMap((f) => [f, `docs/${f}`])
+  .concat("docs/conf.py");
+// a site's own config and scripts in docs/ are not code that belongs elsewhere
+const SITE_CODE =
+  /^(conf\.py|sidebars\.[cm]?[jt]s|docusaurus\.config\.[cm]?[jt]s)$/;
+// a quoted path that starts at docs: "docs/x", 'docs', `./docs/`
+const READS_DOCS = /["'`](\.{1,2}[/\\])*docs(["'`]|[/\\])/;
 
 // ---- the rules
 function firstCommitDate(p, rel) {
@@ -423,6 +682,8 @@ const isTestName = (name) => /^test[-_]|[._](test|spec)\.[a-z]+$/i.test(name);
 const besideTest = (name) => /[._](test|spec)\.[a-z]+$/i.test(name);
 const inTestDir = (rel) => /(^|\/)(tests?|__tests__|spec)\//.test(rel);
 const SCRIPT_EXT = /\.(mjs|cjs|js|ts|mts|py|sh|ps1|bat|cmd)$/;
+const isCodeFile = (f) =>
+  SCRIPT_EXT.test(f) || CODE_JS.test(f) || CODE_OTHER.test(f);
 function entryPoints(p) {
   const set = new Set(),
     pkgFile = path.join(p.root, "package.json");
@@ -471,24 +732,43 @@ const ENTRY =
 //     nextjs.org/docs/app/api-reference/file-conventions/middleware, .../file-conventions/instrumentation)
 //   manage.py, wsgi.py, asgi.py: Django (docs.djangoproject.com/en/stable/ref/django-admin/,
 //     .../howto/deployment/wsgi/, .../howto/deployment/asgi/)
+//   gunicorn.conf.py: Gunicorn's default config file, read from the folder it starts in
+//     (docs.gunicorn.org/en/stable/configure.html)
 const ROOT_TOOL =
-  /^(gradlew|gradlew\.bat|next-env\.d\.ts|(middleware|proxy|instrumentation|instrumentation-client)\.(ts|js|mjs)|manage\.py|wsgi\.py|asgi\.py)$/;
+  /^(gradlew|gradlew\.bat|next-env\.d\.ts|(middleware|proxy|instrumentation|instrumentation-client)\.(ts|js|mjs)|manage\.py|wsgi\.py|asgi\.py|gunicorn\.conf\.py)$/;
 const CLAUDE_TOP =
   /^\.claude\/(settings\.json|settings\.local\.json|systems-map\.json|file-standard\.json|CLAUDE\.md|\.gitignore)$|^\.claude\/(rules|skills|agents|commands|hooks|output-styles|worktrees)\//;
 
-// a name by N1, N2, N4 and N6a; [newName, rules]
+// a name by N1, N2, N4, N6a and N8; [newName, rules, ask]: an ask ("" when none) means the name needs a person,
+// so the finding gets no target
 function fixName(name, dirRel) {
   if (FIXED.test(name) || TOOL_NAMES.test(name) || name.startsWith("."))
-    return [name, []];
+    return [name, [], ""];
   let [stem, ext] = splitExt(name);
+  // a Python name's extension is its last one: `a.b.py` is the module `a.b`, never `a` with the extension `.b.py`
+  if (/\.py$/i.test(ext)) [stem, ext] = [name.slice(0, -3), name.slice(-3)];
   const rules = [];
+  let lowExt = ext.toLowerCase();
+  const python = lowExt === ".py";
   const d = dateIn(stem);
-  if (d && d.kind !== "iso") {
+  if (python && d)
+    return [
+      name,
+      ["N2"],
+      "a dated Python name: it cannot both import and keep its date",
+    ];
+  // a dotted Python name is a tool's file (those are TOOL_NAMES) or a copy (A2): a person says which
+  if (python && stem.includes("."))
+    return [
+      name,
+      ["N2"],
+      "a dotted Python name cannot be imported: a tool's file, a copy, or a module to rename?",
+    ];
+  if (d && d.kind !== "iso" && !python) {
     stem = dateFirst(stem, d);
     rules.push("N6a");
   }
-  const lowExt = ext.toLowerCase();
-  if (lowExt === ".py") {
+  if (python) {
     if (/[^a-z0-9_]/.test(stem)) {
       stem = joinWords(stem, "_");
       rules.push("N2");
@@ -496,6 +776,16 @@ function fixName(name, dirRel) {
   } else if (CODE_JS.test(lowExt) || CODE_OTHER.test(lowExt)) {
     if (/[^A-Za-z0-9._-]/.test(stem)) {
       stem = stem.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-|-$/g, "");
+      rules.push("N4");
+    }
+  } else if (DOCUMENT.test(lowExt)) {
+    lowExt = ext;
+    if (/[^A-Za-z0-9._-]/.test(stem)) {
+      stem = stem
+        .normalize("NFKD")
+        .replace(/\p{M}/gu, "")
+        .replace(/[^A-Za-z0-9._-]+/g, "-")
+        .replace(/^-|-$/g, "");
       rules.push("N4");
     }
   } else if (/[^a-z0-9.-]/.test(stem) || ext !== lowExt) {
@@ -510,10 +800,28 @@ function fixName(name, dirRel) {
     stem = dateFirst(stem, d2);
     rules.push("N6b");
   }
-  return [stem + lowExt, rules];
+  const code =
+    python ||
+    CODE_JS.test(lowExt) ||
+    CODE_OTHER.test(lowExt) ||
+    SCRIPT_EXT.test(lowExt);
+  const vague = code ? vagueName(stem) : "";
+  if (vague) rules.push("N8");
+  return [
+    stem + lowExt,
+    rules,
+    vague
+      ? `the name does not say what it does (${vague}): what does it do?`
+      : "",
+  ];
 }
 const fixDir = (seg, p, dirRel) => {
-  if (seg.startsWith(".") || TOOL_DIRS.test(seg) || holdsIgnored(p, dirRel))
+  if (
+    seg.startsWith(".") ||
+    TOOL_DIRS.test(seg) ||
+    p.toolNamed.has(dirRel) ||
+    holdsIgnored(p, dirRel)
+  )
     return seg;
   const pyPackage =
     p.files.some((f) => f.startsWith(dirRel + "/") && f.endsWith(".py")) &&
@@ -570,36 +878,97 @@ function scan(root) {
     live.some((f) => f.startsWith("tools/"))
       ? "tools"
       : "scripts";
-  // A1: archive folders, whole (the outermost such folder of a path)
-  const archives = new Set();
+  // A1: archive folders, and P9: run-output folders, each whole (the outermost such folder of a path)
+  // never a dot-folder (`.claude/output-styles/`) or what is under one, nor a skill's own folder (`skills/backup/`)
+  const archiveAt = (segs, i) =>
+    !segs.slice(0, i + 1).some((s) => s.startsWith(".")) &&
+    !(segs[0] === "skills" && i === 1) &&
+    (ARCHIVE_DIR.test(segs[i]) ||
+      (ARCHIVE_TOP.test(segs[i]) &&
+        (i === 0 || (i === 1 && segs[0] === "docs"))));
+  // not inside an audit run folder (P4 keeps a run's output there), and an output folder of code is a module
+  const runAt = (segs, i) => {
+    const dir = segs.slice(0, i + 1).join("/");
+    if (
+      segs.slice(0, i + 1).some((s) => s.startsWith(".")) ||
+      (segs[0] === "audits" && i >= 2 && /^20\d\d-\d\d-\d\d/.test(segs[1]))
+    )
+      return false;
+    if (/^outputs?$/i.test(segs[i]))
+      return !live.some((f) => f.startsWith(dir + "/") && isCodeFile(f));
+    if (DRAFT_DIR.test(segs[i]))
+      return (
+        i === 0 ||
+        (i === 1 && (segs[0] === "docs" || SCRATCH_DIR.test(segs[0])))
+      );
+    return RUN_DIR.test(segs[i]) || unpackedDoc(has, dir);
+  };
+  // an archive folder's code is imported when a code file outside it names it on an import line: `import … from
+  // '…/previous/…'`, `import('…')`, `require('…')`, or in Python `from previous.x import y`, `import previous`
+  const importsOf = (name) => {
+    const b = esc(name),
+      q = "[^\"'`\\n]*";
+    const js = new RegExp(
+      `\\bfrom\\s*["'\`]${q}\\b${b}\\b|\\b(import|require)\\s*\\(?\\s*["'\`]${q}\\b${b}\\b`,
+    );
+    const py = new RegExp(
+      `^\\s*(from\\s+\\.*(\\w+\\.)*${b}(\\.\\w+)*\\s+import\\b|import\\s+(\\w+\\.)*${b}\\b)`,
+      "m",
+    );
+    return (f, t) => (f.endsWith(".py") ? py : js).test(t);
+  };
+  const archives = new Set(),
+    runs = new Set();
   for (const f of live) {
     const segs = f.split("/").slice(0, -1);
-    const at = segs.findIndex((s) => ARCHIVE_DIR.test(s));
-    if (at !== -1) archives.add(segs.slice(0, at + 1).join("/"));
+    const at = segs.findIndex((_s, i) => archiveAt(segs, i) || runAt(segs, i));
+    if (at === -1) continue;
+    const dir = segs.slice(0, at + 1).join("/");
+    (archiveAt(segs, at) ? archives : runs).add(dir);
+  }
+  for (const dir of runs) {
+    const n = live.filter((f) => f.startsWith(dir + "/")).length;
+    add({
+      rules: ["P9"],
+      path: dir,
+      action: null,
+      kind: "ask",
+      why: `one run's output, ${n} file${n === 1 ? "" : "s"}: keep it in the project?`,
+    });
   }
   for (const dir of archives) {
     const inside = live.filter((f) => f.startsWith(dir + "/"));
     const code = inside.filter((f) => CODE_JS.test(f) || f.endsWith(".py"));
+    const importer = importsOf(path.posix.basename(dir));
     const imported =
       code.length &&
       [...texts(p)].some(
-        ([f, t]) =>
-          !f.startsWith(dir + "/") &&
-          new RegExp(
-            `(import|require|from)\\b[^\\n]*\\b${esc(path.posix.basename(dir))}\\b`,
-          ).test(t),
+        ([f, t]) => !f.startsWith(dir + "/") && isCodeFile(f) && importer(f, t),
       );
-    if (imported)
+    // a folder of code may be a module with an archive's name: a person says, never a fix
+    if (imported || inside.some(isCodeFile))
       add({
         rules: ["A1"],
         path: dir,
         action: "delete",
         kind: "ask",
-        why: "holds code imported from outside it",
+        why: imported ? "holds code imported from outside it" : "holds code",
       });
     else del(dir, ["A1"], `${inside.length} files, all in git`);
   }
-  const inArchive = (f) => [...archives].some((d) => f.startsWith(d + "/"));
+  const inArchive = (f) =>
+    [...archives, ...runs].some((d) => f.startsWith(d + "/"));
+  // P8: a docs site's config, and the first code file outside docs/ that names a path in docs/ (looked up once)
+  const docsSite = live.find((f) => DOCS_SITE.test(f));
+  let reader;
+  const docsReader = () =>
+    reader !== undefined
+      ? reader
+      : (reader =
+          [...texts(p)].find(
+            ([f, t]) =>
+              !f.startsWith("docs/") && isCodeFile(f) && READS_DOCS.test(t),
+          )?.[0] ?? null);
   const js = new Map(); // folder -> JS code files, for N3
   for (const rel of live) {
     if (inArchive(rel)) continue;
@@ -608,8 +977,10 @@ function scan(root) {
     const [stem, ext] = splitExt(name);
     // A2: a versioned copy
     const plain = (s) => has.has((dirRel ? dirRel + "/" : "") + s + ext);
+    const before = beforeOf(name);
     if (
       COPY_EXT.test(name) ||
+      (before && has.has((dirRel ? dirRel + "/" : "") + before)) ||
       (COPY_SUFFIX.test(stem) && plain(stem.replace(COPY_SUFFIX, ""))) ||
       (/-v\d+$/.test(stem) && plain(stem.replace(/-v\d+$/, "")))
     ) {
@@ -659,7 +1030,9 @@ function scan(root) {
       fixDir(s, p, segs.slice(0, i + 1).join("/")),
     );
     const rules = newSegs.some((s, i) => s !== segs[i]) ? ["N1"] : [];
-    let [newName, nameRules] = fixName(name, dirRel);
+    let [newName, nameRules, nameAsk] = p.toolNamed.has(rel)
+      ? [name, [], ""]
+      : fixName(name, dirRel);
     rules.push(...nameRules);
     let newDir = newSegs.join("/"),
       kind = "fix",
@@ -716,6 +1089,42 @@ function scan(root) {
       newDir = testDir;
       rules.push("P2a");
     }
+    // P8: docs/ holds text and diagrams. A picture or preview no file names goes to shown/ (git-ignored, for the
+    // person to look at): it leaves git, its history stays. One a page or code names stays, as moving it would break
+    // the link; in a docs site, or with code that reads from docs/, the move is asked. Code is asked about, but not a
+    // dot-folder's or a site's own (docs/.vitepress/, docs/conf.py, and any code of a docs site).
+    let noTarget = false;
+    if (segs[0] === "docs") {
+      if (PICTURE.test(name) && !linked(p, rel)) {
+        newDir = ["shown", ...newSegs.slice(1)].join("/");
+        rules.push("P8");
+        const reader = docsSite ? null : docsReader();
+        if (docsSite || reader) {
+          kind = "ask";
+          why = [
+            why,
+            `no file names it, but ${docsSite ? `docs/ is a site (${docsSite})` : `${reader} reads from docs/`}, which may use it by a built path: move it to shown/?`,
+          ]
+            .filter(Boolean)
+            .join("; ");
+        } else if (p.tracked.has(rel))
+          why = [why, "no file names it; it leaves git, its history stays"]
+            .filter(Boolean)
+            .join("; ");
+      } else if (
+        isCodeFile(name) &&
+        !docsSite &&
+        !segs.some((s) => s.startsWith(".")) &&
+        !SITE_CODE.test(name)
+      ) {
+        rules.push("P8");
+        kind = "ask";
+        noTarget = true;
+        why =
+          why ||
+          "code in docs/, which holds text and diagrams: where does it go (scripts/, the source folder)?";
+      }
+    }
     if (dirRel === "audits" && SCRIPT_EXT.test(name)) {
       rules.push("P4");
       kind = "ask";
@@ -750,7 +1159,21 @@ function scan(root) {
     const abs = fwd(path.join(p.root, rel));
     if (abs.length >= 240)
       notes.push({ rules: ["P7"], path: rel, why: `${abs.length} characters` });
-    const target = (newDir ? newDir + "/" : "") + newName;
+    // N8 or a dated Python name: a person names it, so no target
+    // N8 or a dated or dotted Python name: a person names it, so no target; the why keeps the rest of the fix
+    const mechanical = (newDir ? newDir + "/" : "") + newName;
+    if (nameAsk) {
+      kind = "ask";
+      why = [
+        nameAsk,
+        why,
+        mechanical !== rel ? `the other rules give ${mechanical}` : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
+    } else if (noTarget && mechanical !== rel)
+      why = `${why}; the other rules give ${mechanical}`;
+    const target = nameAsk || noTarget ? rel : mechanical;
     if (rules.length)
       add({
         rules,
@@ -854,7 +1277,7 @@ function scan(root) {
       targets.get(f.target.toLowerCase()) > 1 ||
       (fs.existsSync(path.join(p.root, f.target)) &&
         f.target.toLowerCase() !== f.path.toLowerCase());
-    const broken = breaks(f.target);
+    const broken = breaks(f.target, p, f.path);
     if (taken || broken) {
       f.kind = "ask";
       f.why = taken
@@ -874,7 +1297,12 @@ function scan(root) {
       p.git &&
       (p.tracked.has(f.path) ||
         p.files.some((x) => x.startsWith(f.path + "/") && p.tracked.has(x)));
-    if (f.action) f.refs = namedIn(p, f.path);
+    // a P8 picture moves only when no file names it, so nothing refers to it (and 300 pictures need no 300 searches)
+    if (f.action)
+      f.refs =
+        f.rules.includes("P8") && PICTURE.test(f.path)
+          ? []
+          : namedIn(p, f.path);
   });
   const fix = all.filter((f) => f.kind === "fix").length,
     ask = all.filter((f) => f.kind === "ask").length;
@@ -894,18 +1322,32 @@ function scan(root) {
     p,
   };
 }
-// the name rules a target path still breaks ("" when none)
-function breaks(rel) {
-  const segs = rel.split("/"),
-    name = segs.pop();
-  if (rel.split("/").some((s) => /[^A-Za-z0-9._-]/.test(s))) return "N4";
-  const dirRel = segs.join("/");
-  const [fixed, r] = fixName(name, dirRel);
-  if (fixed !== name) return r.join("+");
+// the name rules a target path still breaks ("" when none). from: the path it moves from; a name a build tool reads
+// there keeps its name at the same depth when only a folder above it is renamed, so p.toolNamed is looked up by the
+// path it had. Without a project (an outside caller), only the name rules count.
+function breaks(rel, p = { toolNamed: new Set() }, from = rel) {
+  const all = rel.split("/"),
+    old = from.split("/");
+  const kept = (i) =>
+    p.toolNamed.has(all.slice(0, i + 1).join("/")) ||
+    (old.length === all.length &&
+      old[i] === all[i] &&
+      p.toolNamed.has(old.slice(0, i + 1).join("/")));
+  if (all.some((s, i) => !kept(i) && /[^A-Za-z0-9._-]/.test(s))) return "N4";
+  const segs = all.slice(0, -1),
+    name = all.at(-1),
+    dirRel = segs.join("/");
+  const [fixed, r, ask] = kept(segs.length)
+    ? [name, [], ""]
+    : fixName(name, dirRel);
+  if (fixed !== name || ask) return r.join("+");
   if (
     segs.some(
-      (s) =>
-        !s.startsWith(".") && !TOOL_DIRS.test(s) && !/^[a-z0-9._-]+$/.test(s),
+      (s, i) =>
+        !s.startsWith(".") &&
+        !TOOL_DIRS.test(s) &&
+        !kept(i) &&
+        !/^[a-z0-9._-]+$/.test(s),
     )
   )
     return "N1";
@@ -933,22 +1375,23 @@ function printReport(r) {
     console.log(
       `Reorganize: about ${r.minutes} minutes (${r.moves} moves, ${r.refFiles} files whose references change)`,
     );
-  for (const f of r.findings) {
-    const tail = [
-      f.why,
-      f.refs?.length
-        ? `named in ${f.refs.length > 3 ? `${f.refs.length} files` : f.refs.join(", ")}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("; ");
-    console.log(
-      `${f.id.padEnd(4)}${f.rules.join("+").padEnd(8)}${f.kind.padEnd(6)}${f.path} ${what(f)}${tail ? `   (${tail})` : ""}`.replace(
-        / {2,}\(/,
-        "   (",
-      ),
-    );
-  }
+  for (const f of r.findings) printLine(f);
+}
+function printLine(f) {
+  const tail = [
+    f.why,
+    f.refs?.length
+      ? `named in ${f.refs.length > 3 ? `${f.refs.length} files` : f.refs.join(", ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+  console.log(
+    `${f.id.padEnd(4)}${f.rules.join("+").padEnd(7)} ${f.kind.padEnd(6)}${f.path} ${what(f)}${tail ? `   (${tail})` : ""}`.replace(
+      / {2,}\(/,
+      "   (",
+    ),
+  );
 }
 const readState = () => {
   if (!fs.existsSync(STATE))
@@ -1053,6 +1496,433 @@ function report() {
   printReport(scan(folder));
 }
 
+// ---- the projects folder (P10): one folder per project family, plus archive/
+// The setup's projects folder: FILE_STANDARD_PROJECTS (tests), else setup-state.json's projects, else C:\Projects
+// when it is there, else null.
+function projectsRoot(homeDir) {
+  if (process.env.FILE_STANDARD_PROJECTS)
+    return path.resolve(process.env.FILE_STANDARD_PROJECTS);
+  const f = path.join(homeDir, ".claude", "setup-state.json");
+  if (fs.existsSync(f)) {
+    let s;
+    try {
+      s = JSON.parse(read(f));
+    } catch (e) {
+      throw new Error(`${fwd(f)} is not valid JSON: ${e.message}`);
+    }
+    if (s.projects) return path.resolve(s.projects);
+  }
+  return process.platform === "win32" && fs.existsSync("C:\\Projects")
+    ? "C:\\Projects"
+    : null;
+}
+// Only the top level is listed. Of a folder, only whether it holds .git or CLAUDE.md is looked at (and, for one that
+// does not, whether a folder in it does): nothing in it is read. Dot-entries, archive/ and the system's own files are
+// not judged.
+const ROOT_SKIP =
+  /^[.$]|^(archive|desktop\.ini|thumbs\.db|system volume information)$/i;
+const isProject = (dir) =>
+  fs.existsSync(path.join(dir, ".git")) ||
+  fs.existsSync(path.join(dir, "CLAUDE.md"));
+const holdsProject = (dir) =>
+  fs
+    .readdirSync(dir, { withFileTypes: true })
+    .some((e) => e.isDirectory() && isProject(path.join(dir, e.name)));
+const MOVE_TOOL = "move-project.mjs";
+// a root entry's family name: a folder's name, a file's name without its extension, in lower case
+const baseOf = (e) => (e.dir ? e.name : splitExt(e.name)[0]).toLowerCase();
+// the P10 findings of a listing [{name, dir}]. only: judge that one name (the others still make up the families);
+// made false: the entry is about to be made, so a new folder is not asked about for holding no project yet;
+// families: the family names the root's .claude/file-standard.json sets
+function rootFindings(
+  root,
+  entries,
+  { only, made = true, families = [] } = {},
+) {
+  const proj = new Map();
+  const project = (e) => {
+    if (!e.dir) return false;
+    if (!proj.has(e.name)) proj.set(e.name, isProject(path.join(root, e.name)));
+    return proj.get(e.name);
+  };
+  const list = entries.filter((e) => !ROOT_SKIP.test(e.name));
+  const names = new Set(list.map((e) => e.name.toLowerCase()));
+  const out = [],
+    done = new Set();
+  const add = (e, target, why) => {
+    done.add(e);
+    out.push({
+      rules: ["P10"],
+      path: e.name,
+      action: target ? "move" : null,
+      target: target || undefined,
+      kind: target ? "fix" : "ask",
+      why,
+    });
+  };
+  // a project's git worktrees beside it, and an old copy
+  for (const e of list) {
+    const wt = e.dir && /^(.+)_worktrees$/i.exec(e.name);
+    const old = /^(.+)-old$/i.exec(e.dir ? e.name : splitExt(e.name)[0]);
+    if (wt)
+      add(
+        e,
+        null,
+        `the git worktrees of ${wt[1]}${names.has(wt[1].toLowerCase()) ? ", beside it" : ""}: remove the finished ones (git worktree remove); ${MOVE_TOOL} moves the rest with their project`,
+      );
+    else if (old)
+      add(
+        e,
+        `archive/${e.name}`,
+        `an old copy${names.has(old[1].toLowerCase()) ? ` of ${old[1]}` : ""}: it goes under archive/${project(e) ? `, with ${MOVE_TOOL}` : ""}`,
+      );
+  }
+  // a family: <name>-<part> (also _, a space or a dot) beside <name>, a folder or a file's name, case aside, with a
+  // project among them; all go in one folder <name>/. A family's name is an entry's name, the name before the first
+  // - or _ that two or more entries share (game-port and game-invite: game), or one the root's settings set.
+  const SEP = /[-_ .]/;
+  const set = new Set(families.map((n) => n.trim().toLowerCase()));
+  const prefixes = new Map();
+  for (const x of list.filter((y) => !done.has(y))) {
+    const pre = baseOf(x).split(/[-_]/)[0];
+    if (pre) prefixes.set(pre, (prefixes.get(pre) || 0) + 1);
+  }
+  const shortFirst = [
+    ...new Set([
+      ...list.filter((x) => !done.has(x)).map(baseOf),
+      ...[...prefixes].filter(([, n]) => n > 1).map(([pre]) => pre),
+      ...set,
+    ]),
+  ].sort((a, b) => a.length - b.length);
+  for (const b of shortFirst) {
+    const free = list.filter((x) => !done.has(x));
+    const bare = free.filter((x) => baseOf(x) === b);
+    const parts = free.filter(
+      (x) => baseOf(x).startsWith(b) && SEP.test(baseOf(x)[b.length] || ""),
+    );
+    const all = [...bare, ...parts];
+    if (!parts.length || !all.some(project)) continue;
+    // a family needs a bare entry that is a project, a document or a folder that holds projects (the family's
+    // folder), or two or more parts, or a set name; one part beside a plain folder or file (tools/ and tools-cli/)
+    // is asked about
+    const named =
+      set.has(b) ||
+      bare.some(
+        (x) =>
+          project(x) ||
+          (!x.dir && DOCUMENT.test(x.name.toLowerCase())) ||
+          (x.dir && holdsProject(path.join(root, x.name))),
+      );
+    if (!named && parts.length < 2) {
+      if (!bare.length) continue;
+      for (const x of parts)
+        add(
+          x,
+          null,
+          `beside ${bare.map((y) => y.name + (y.dir ? "/" : "")).join(", ")}, which is no project: the same family (one folder ${b}/), or apart?`,
+        );
+      continue;
+    }
+    const home = bare.find((x) => x.dir);
+    if (home && project(home))
+      for (const x of all)
+        add(
+          x,
+          null,
+          `the ${b} family, ${all.length} entries: one folder for them, but ${home.name} is a project itself; which folder name?`,
+        );
+    else {
+      const to = home ? home.name : b;
+      for (const x of all.filter((y) => y !== home))
+        add(
+          x,
+          `${to}/${x.name}`,
+          `the ${b} family, ${all.length} entries: one folder ${to}/${project(x) ? `; ${MOVE_TOOL} moves a project` : ""}`,
+        );
+      if (home) done.add(home);
+    }
+  }
+  // the rest: a loose file, or a folder that is no project and holds none
+  for (const e of list) {
+    if (done.has(e)) continue;
+    if (!e.dir)
+      add(
+        e,
+        null,
+        "a loose file in the projects folder: which project is it part of, or archive/?",
+      );
+    else if (
+      made &&
+      !project(e) &&
+      (only === undefined || only === e.name) &&
+      !holdsProject(path.join(root, e.name))
+    )
+      add(
+        e,
+        null,
+        "no git and no CLAUDE.md: a project (/new-project), part of one, or archive/?",
+      );
+  }
+  return out
+    .filter((f) => only === undefined || f.path === only)
+    .sort((a, b) => a.path.localeCompare(b.path))
+    .map((f, i) => ({ id: `F${i + 1}`, ...f }));
+}
+function rootReport() {
+  const named = flagValue("--root");
+  const folder = named || projectsRoot(home);
+  if (!folder)
+    stop(
+      "no projects folder: name one (--root <folder>), or set projects in ~/.claude/setup-state.json.",
+    );
+  const root = path.resolve(folder);
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory())
+    stop(`${fwd(root)} is not a folder.`);
+  const entries = fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter((e) => e.isDirectory() || e.isFile())
+    .map((e) => ({ name: e.name, dir: e.isDirectory() }));
+  const findings = rootFindings(root, entries, {
+    families: standardFile(root).families,
+  });
+  const fix = findings.filter((f) => f.kind === "fix").length;
+  const r = {
+    root: fwd(root),
+    entries: entries.length,
+    fix,
+    ask: findings.length - fix,
+    findings,
+  };
+  if (JSON_OUT) return console.log(JSON.stringify(r, null, 2));
+  console.log(
+    `file-check --root ${r.root} · ${r.entries} entries · ${r.fix} to fix · ${r.ask} to ask · report only`,
+  );
+  for (const f of findings) printLine(f);
+  if (fix)
+    console.log(
+      `A project folder moves with node ${tilde(path.join(CLAUDE, "skills", "file-upkeep", MOVE_TOOL))} <from> <to>, which fixes what is keyed by its path.`,
+    );
+}
+
+// ---- one path about to be made (the creation-time note)
+const NOTE_WHY = {
+  N1: "names are lowercase, words joined by hyphens",
+  N2: "Python names are lowercase with underscores",
+  N3: "JS and TS names follow the folder's style",
+  N4: "names hold ASCII letters, digits, - _ . only",
+  N6a: "a date is YYYY-MM-DD at the start",
+  N6b: "a date is YYYY-MM-DD at the start",
+  N6c: "a record here starts with its date",
+  P3: "notes go in docs/",
+};
+const sameDir = (a, b) => {
+  const real = (p) => {
+    try {
+      return fs.realpathSync.native(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  return fwd(real(a)).toLowerCase() === fwd(real(b)).toLowerCase();
+};
+// newPathNotes(projectRoot, rel): what the file standard says about the path rel (project-relative) before it is
+// made: [{rule, why, target}], target project-relative or null (a person names it). Checks that one path and a
+// listing of its folder only: no project scan, no git call but one `git check-ignore` (the path, and the folder's
+// entries so its git-ignored ones are left out). An existing path, a git-ignored one, one in a submodule or one
+// .claude/file-standard.json ignores gives []. When projectRoot is the projects folder
+// (projectsRoot), rel's first part is judged by P10. Throws on a fault (a broken file-standard.json), never exits.
+function newPathNotes(projectRoot, rel) {
+  const fail = (m) => {
+    throw new Error(m);
+  };
+  const root = path.resolve(projectRoot);
+  rel = fwd(rel).replace(/^\.\//, "");
+  if (!rel || rel.startsWith("../") || path.isAbsolute(rel))
+    fail(`${rel} is not a path inside ${fwd(root)}.`);
+  if (fs.existsSync(path.join(root, rel))) return [];
+  const segs = rel.split("/"),
+    name = segs.pop(),
+    dirRel = segs.join("/");
+  const listing = (dir) =>
+    fs.existsSync(path.join(root, dir))
+      ? fs.readdirSync(path.join(root, dir), { withFileTypes: true })
+      : [];
+  const projects = projectsRoot(os.homedir());
+  if (projects && sameDir(projects, root)) {
+    const top = segs[0] ?? name;
+    if (segs.length && fs.existsSync(path.join(root, top))) return [];
+    const entries = listing("")
+      .filter((e) => e.isDirectory() || e.isFile())
+      .map((e) => ({ name: e.name, dir: e.isDirectory() }));
+    entries.push({ name: top, dir: segs.length > 0 });
+    return rootFindings(root, entries, {
+      only: top,
+      made: false,
+      families: standardFile(root, fail).families,
+    }).map((f) => ({ rule: "P10", why: f.why, target: f.target || null }));
+  }
+  if (
+    segs.some((s) => WALK_SKIP.has(s)) ||
+    skipped(rel) ||
+    ignoredBy(standardFile(root, fail), rel)
+  )
+    return [];
+  // git runs in the nearest folder of the path that exists, with the path from there: an inner repository's own
+  // .gitignore counts, also under a folder that is no git project. A path in a submodule (below the project, a .git
+  // file pointing into modules/) is another project's: []. The same one call sorts out the folder's git-ignored
+  // entries, so the listing is what scan() sees.
+  let base = path.dirname(path.join(root, rel));
+  while (!fs.existsSync(base) && path.resolve(base) !== root)
+    base = path.dirname(base);
+  for (let d = base; path.resolve(d) !== root; d = path.dirname(d)) {
+    const dotGit = path.join(d, ".git");
+    if (
+      fs.existsSync(dotGit) &&
+      fs.statSync(dotGit).isFile() &&
+      /[/\\]modules[/\\]/.test(read(dotGit))
+    )
+      return [];
+    if (path.dirname(d) === d) break;
+  }
+  const fromBase = fwd(path.relative(base, path.join(root, rel)));
+  const inFolder =
+    path.resolve(base) === path.resolve(root, dirRel)
+      ? listing(dirRel)
+          .filter((e) => e.name !== ".git")
+          .map((e) => ({ e, as: e.name + (e.isDirectory() ? "/" : "") }))
+      : [];
+  const ig = spawnSync("git", ["-C", base, "check-ignore", "--stdin", "-z"], {
+    encoding: "utf8",
+    input: [fromBase, ...inFolder.map((x) => x.as)].join("\0") + "\0",
+  });
+  if (ig.error) fail(`git could not start: ${ig.error.message}`);
+  if (ig.status === 128 && /in submodule/i.test(ig.stderr)) return [];
+  if (ig.status > 1 && !/not a git repository/i.test(ig.stderr))
+    fail(`git check-ignore failed in ${fwd(base)}: ${ig.stderr.trim()}`);
+  const ignored = new Set(ig.status > 1 ? [] : zlist(ig.stdout));
+  if (ignored.has(fromBase)) return [];
+  const seen = inFolder.filter((x) => !ignored.has(x.as)).map((x) => x.e);
+  const here = new Set(seen.map((e) => e.name));
+  // A2: a copy beside the plain file
+  const [stem0, ext0] = splitExt(name);
+  const before = beforeOf(name);
+  const copyOf =
+    (before && here.has(before) && before) ||
+    (COPY_SUFFIX.test(stem0) &&
+      here.has(stem0.replace(COPY_SUFFIX, "") + ext0) &&
+      stem0.replace(COPY_SUFFIX, "") + ext0) ||
+    (/-v\d+$/.test(stem0) &&
+      here.has(stem0.replace(/-v\d+$/, "") + ext0) &&
+      stem0.replace(/-v\d+$/, "") + ext0) ||
+    (COPY_EXT.test(name) && name.replace(COPY_EXT, ""));
+  if (copyOf)
+    return [
+      {
+        rule: "A2",
+        why: `a copy of ${copyOf}: git keeps the earlier version, so change ${copyOf} itself`,
+        target: null,
+      },
+    ];
+  // the new folders' names, then the file's
+  const rules = [];
+  const newSegs = segs.map((s, i) =>
+    fs.existsSync(path.join(root, ...segs.slice(0, i + 1))) ||
+    s.startsWith(".") ||
+    TOOL_DIRS.test(s) ||
+    /^[a-z0-9.-]+$/.test(s) ||
+    /^v\d+$/.test(s) ||
+    (/^[a-z0-9_]+$/.test(s) && name.endsWith(".py"))
+      ? s
+      : joinWords(s, "-"),
+  );
+  if (newSegs.some((s, i) => s !== segs[i])) rules.push("N1");
+  let [newName, nameRules, ask] = fixName(name, dirRel);
+  rules.push(...nameRules);
+  const whys = [];
+  const bareStem = splitExt(newName)[0].replace(/^20\d\d-\d\d-\d\d-?/, "");
+  if (GENERIC.test(bareStem)) {
+    rules.push("N7");
+    ask = ask || "a generic name: what is it?";
+  }
+  if (
+    /^(docs\/research|audits)$/.test(dirRel) &&
+    !FIXED.test(name) &&
+    !/^20\d\d-\d\d-\d\d/.test(newName) &&
+    !SCRIPT_EXT.test(name)
+  ) {
+    newName = `${today()}-${newName}`;
+    rules.push("N6c");
+  }
+  // N3: a JS or TS file against its folder's style, from the listing
+  if (CODE_JS.test(newName) && !ENTRY.test(newName)) {
+    const [stem, ext] = splitExt(newName);
+    const count = {};
+    for (const e of seen)
+      if (e.isFile() && CODE_JS.test(e.name) && !ENTRY.test(e.name)) {
+        let s = styleOf(splitExt(e.name)[0]);
+        if (s === "pascal" && /\.(tsx|jsx)$/.test(e.name)) s = "camel";
+        if (s !== "one" && s !== "mixed") count[s] = (count[s] || 0) + 1;
+      }
+    const styles = Object.keys(count).sort((a, b) => count[b] - count[a]);
+    let mine = styleOf(stem);
+    if (mine === "pascal" && /\.(tsx|jsx)$/.test(ext)) mine = "camel";
+    if (
+      styles.length &&
+      (styles.length === 1 || count[styles[0]] > count[styles[1]]) &&
+      mine !== styles[0] &&
+      mine !== "one" &&
+      mine !== "mixed"
+    ) {
+      newName =
+        toStyle(
+          stem,
+          styles[0] === "camel" && /\.(tsx|jsx)$/.test(ext)
+            ? "pascal"
+            : styles[0],
+        ) + ext;
+      rules.push("N3");
+    }
+  }
+  let newDir = newSegs.join("/");
+  if (!dirRel && /\.md$/i.test(name) && !FIXED.test(name)) {
+    newDir = "docs";
+    rules.push("P3");
+  }
+  // P8, as in scan(): a docs site's docs/ holds its own pictures and code, and a dot-folder's or a site's own code
+  // stays
+  if (
+    segs[0] === "docs" &&
+    !DOCS_SITE_FILES.some((f) => fs.existsSync(path.join(root, f)))
+  ) {
+    if (PICTURE.test(name)) {
+      newDir = ["shown", ...newSegs.slice(1)].join("/");
+      rules.push("P8");
+      whys.push(
+        "docs/ holds text and diagrams; a picture or preview for the person to look at goes in shown/ (git-ignored), unless a page links it",
+      );
+    } else if (
+      isCodeFile(name) &&
+      !segs.some((s) => s.startsWith(".")) &&
+      !SITE_CODE.test(name)
+    ) {
+      rules.push("P8");
+      ask =
+        ask ||
+        "code in docs/, which holds text and diagrams: where does it go (scripts/, the source folder)?";
+    }
+  }
+  if (!rules.length) return [];
+  for (const r of rules) if (NOTE_WHY[r]) whys.push(NOTE_WHY[r]);
+  const target = (newDir ? newDir + "/" : "") + newName;
+  return [
+    {
+      rule: [...new Set(rules)].join("+"),
+      why: [ask, ...new Set(whys)].filter(Boolean).join("; "),
+      target: ask || target === rel ? null : target,
+    },
+  ];
+}
+
 // ---- the ledger check
 function loadLedger(file) {
   if (!file) stop("name the ledger file.");
@@ -1118,7 +1988,7 @@ function checkLedger(l) {
       const to = fwd(path.relative(p.root, full));
       if (fs.existsSync(full) && to.toLowerCase() !== f.path.toLowerCase())
         faults.push(`${e.id}: ${to} exists`);
-      const broken = breaks(to);
+      const broken = breaks(to, p, f.path);
       if (broken) faults.push(`${e.id}: ${to} breaks ${broken}`);
       if (tos.has(to.toLowerCase()))
         faults.push(
@@ -1331,6 +2201,48 @@ function apply() {
     }
     removeEmptyUp(p.root, path.join(p.root, rel));
   };
+  // P8: a picture to shown/, which is git-ignored: shown/.gitignore (`*`) is made when it is missing, the picture
+  // leaves git (git rm --cached; its history stays) and moves on disk. A step that fails puts the earlier ones back,
+  // so the op is recorded whole or not at all. --undo moves it back and tracks it again.
+  const toShown = (from, to) => {
+    const ignore = path.join(p.root, "shown", ".gitignore");
+    const made = !fs.existsSync(ignore);
+    if (made) {
+      mkParent(ignore);
+      fs.writeFileSync(ignore, "*\n");
+    }
+    const was = tracked(from);
+    const gitOrThrow = (...a) => {
+      const r = git(p.root, ...a);
+      if (r.status !== 0)
+        throw new Error(
+          `git ${a.join(" ")} failed in ${fwd(p.root)}: ${(r.stderr || r.stdout).trim()}`,
+        );
+    };
+    try {
+      if (was) gitOrThrow("rm", "--cached", "-q", "--", from);
+      try {
+        moveFile(p, from, to, false);
+      } catch (err) {
+        if (was) gitOrThrow("reset", "-q", "--", from);
+        throw err;
+      }
+    } catch (err) {
+      if (made) {
+        fs.rmSync(ignore);
+        removeEmptyUp(p.root, path.dirname(ignore));
+      }
+      throw err;
+    }
+    return {
+      op: "move",
+      from,
+      to,
+      tracked: false,
+      ...(was ? { untracked: true } : {}),
+      ...(made ? { madeIgnore: "shown/.gitignore" } : {}),
+    };
+  };
   // keeps: into .claude/file-standard.json with their reasons
   const keeps = entries.filter(({ e }) => e.action === "keep");
   if (keeps.length) {
@@ -1376,6 +2288,12 @@ function apply() {
   }
   for (const { e, f } of entries.filter(({ e }) => e.action === "move")) {
     const to = fwd(path.relative(p.root, path.resolve(p.root, e.to)));
+    if (f.rules.includes("P8") && to.startsWith("shown/")) {
+      ops.push(toShown(f.path, to));
+      save();
+      pairs.push([f.path, to]);
+      continue;
+    }
     moveFile(p, f.path, to, tracked(f.path));
     ops.push({ op: "move", from: f.path, to, tracked: tracked(f.path) });
     save();
@@ -1570,8 +2488,16 @@ function undo() {
         moveAcross(path.join(o.trash, x), path.join(root, x)); // none: stopped before the delete
   };
   for (const o of [...l.ops].reverse()) {
-    if (o.op === "move") moveFile(p, o.to, o.from, o.tracked);
-    else if (o.op === "delete") restore(o, o.path);
+    if (o.op === "move") {
+      moveFile(p, o.to, o.from, o.tracked);
+      // a P8 picture: tracked again at its old path, and the shown/.gitignore the apply made goes
+      if (o.untracked) gitOk(root, "add", "-f", "--", o.from);
+      if (o.madeIgnore) {
+        const ignore = path.join(root, o.madeIgnore);
+        if (fs.existsSync(ignore) && read(ignore) === "*\n") fs.rmSync(ignore);
+        removeEmptyUp(root, path.dirname(ignore));
+      }
+    } else if (o.op === "delete") restore(o, o.path);
     else if (o.op === "merge") {
       const t = path.join(root, o.to),
         text = read(t);
@@ -1598,10 +2524,11 @@ function undo() {
   for (const x of named) console.log(`  by hand: ${x}`);
 }
 
-export { breaks, dateIn, fixName, refSpans };
+export { breaks, dateIn, fixName, newPathNotes, projectsRoot, refSpans };
 
 const MODES = {
   "--report": report,
+  "--root": rootReport,
   "--status": status,
   "--skip": skip,
   "--check": check,
@@ -1622,9 +2549,26 @@ if (
   realOr(process.argv[1]).toLowerCase() ===
     realOr(fileURLToPath(import.meta.url)).toLowerCase()
 ) {
+  if (homeArg === null) stop("--home needs a folder.");
   const mode = Object.keys(MODES).filter((m) => args.includes(m));
   if (mode.length !== 1)
     stop(`give exactly one of ${Object.keys(MODES).join(", ")}.`);
+  // a folder or ledger goes right after a mode that takes one, a folder after --home; any other word would be dropped
+  // and the current folder (or every home) checked in its place. --status, --skip and --report --homes take none.
+  const takes = (m) =>
+    ["--root", "--check", "--apply", "--undo"].includes(m) ||
+    (m === "--report" && !HOMES);
+  const stray = args.filter(
+    (a, i) =>
+      !a.startsWith("--") && !takes(args[i - 1]) && args[i - 1] !== "--home",
+  );
+  if (stray.length)
+    stop(
+      `${stray.map((a) => `"${a}"`).join(", ")} is not right after a mode that takes a folder or ledger: ` +
+        (takes(mode[0])
+          ? "name it right after the mode, as `file-check.mjs --report <folder>`."
+          : `${mode[0]}${HOMES ? " --homes" : ""} takes none.`),
+    );
   try {
     MODES[mode[0]]();
   } catch (e) {

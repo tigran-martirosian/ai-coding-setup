@@ -1,9 +1,9 @@
 {
-  "version": "26.4.4",
+  "version": "26.5",
   "claudeCodeMin": "2.1.321",
-  "projectPass": 5,
-  "date": "2026-11-18",
-  "summary": "Phone Projects tab shows every project, not only open windows",
+  "projectPass": 6,
+  "date": "2026-11-20",
+  "summary": "The setup, rebuilt: one path for big jobs, a Try it button, 23 hooks cut. Tour: docs/whats-new.md",
   "releases": {
     "26.4.2": {
       "kind": "files",
@@ -89,6 +89,11 @@
       "kind": "files",
       "important": true,
       "headline": "Phone Projects tab shows every project, not only open windows"
+    },
+    "26.5": {
+      "kind": "setup",
+      "important": true,
+      "headline": "The setup, rebuilt: one path for big jobs, a Try it button, 23 hooks cut, a guided tour"
     }
   }
 }

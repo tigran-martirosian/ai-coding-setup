@@ -192,13 +192,13 @@ settings.model = "opus";
 settings.hooks.Stop.push({
   hooks: [{ type: "command", command: "node my-own-hook.mjs" }],
 });
-// as an older version wired it: question-other on PromptForUserInput only, no code-review or file-link gate
+// as an older version wired it: question-other on PromptForUserInput only, no verify or file-link gate
 for (const g of settings.hooks.PreToolUse)
   if (JSON.stringify(g).includes("question-other.mjs"))
     g.matcher = "mcp__nimbalyst__PromptForUserInput";
 for (const g of settings.hooks.Stop)
   g.hooks = g.hooks.filter(
-    (h) => !/code-review-gate|file-link-gate/.test(h.command),
+    (h) => !/verify-gate|file-link-gate/.test(h.command),
   );
 settings.hooks.Stop = settings.hooks.Stop.filter((g) => g.hooks.length);
 fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
@@ -385,11 +385,14 @@ check(
   after.model === "opus" &&
     JSON.stringify(after.hooks.Stop).includes("my-own-hook.mjs"),
 );
+// The Stop gates run in the stop group of hooks/dispatch.mjs, as the installed dispatch-groups.json lists them
+const stopGroup = json(path.join(claude, "hooks", "dispatch-groups.json")).stop;
 check(
   "an older install gets the new Stop gates and question-other's wider matcher",
-  ["code-review-gate.mjs", "file-link-gate.mjs"].every((h) =>
-    JSON.stringify(after.hooks.Stop).includes(h),
-  ) &&
+  JSON.stringify(after.hooks.Stop).includes('dispatch.mjs\\" stop') &&
+    ["hooks/verify-gate.mjs", "hooks/file-link-gate.mjs"].every((h) =>
+      stopGroup.some((e) => e.hook === h && !e.args.length),
+    ) &&
     after.hooks.PreToolUse.some(
       (g) =>
         g.matcher ===

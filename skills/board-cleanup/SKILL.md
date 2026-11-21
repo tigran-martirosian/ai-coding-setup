@@ -3,6 +3,7 @@ name: board-cleanup
 description: Tidy this project's Nimbalyst Sessions board cheaply — move finished sessions to Complete (no git needed), then archive old ones with Board Tidy. Use instead of /planning:session-cleanup when the user says "clean up the board", "tidy sessions", or runs /board-cleanup.
 model: sonnet
 context: fork
+disable-model-invocation: true
 ---
 
 # Board cleanup

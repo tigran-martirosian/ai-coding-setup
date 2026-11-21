@@ -1274,6 +1274,19 @@ try {
         },
       }).length === 0,
   );
+  // steer.mjs ends each note's first line with "(the user's note, sent HH:MM)": the page shows the note's own words
+  const timed = notesOf({
+    type: "attachment",
+    attachment: {
+      type: "hook_additional_context",
+      content: `${RULES}\n- [note c1] Check the logs (the user's note, sent 14:05)\n\n(Sent from the phone.)\n- [note c2] first line (the user's note, sent 14:06)\r\nsecond line`,
+    },
+  }).map((n) => n.text);
+  check(
+    "a timed Note shows its own words: steer's time label is not part of it, so the phone still finds its own Note",
+    timed.join("|") === "Check the logs|first line\r\nsecond line",
+    show(timed),
+  );
   const m6 = door.calls.length;
   const stop = await ask("session.stop", { session: busy });
   const stopSend = callsOf("send_prompt", m6);

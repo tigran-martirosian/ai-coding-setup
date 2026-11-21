@@ -4,14 +4,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-// plan-usage-logger (UserPromptSubmit, PostToolUse, Stop): at most once every 5 minutes,
+// plan-usage-logger (Stop): when a turn ends, at most once every 5 minutes,
 // saves the account-wide Claude plan percentages (5-hour and weekly, the numbers the
 // Nimbalyst dials show) to ~/.claude/usage-log/plan-usage.jsonl. The usage dashboard
 // compares them with this computer's own tokens to estimate "other use" (other devices,
 // other devices or apps on the same account). No model call, no tokens.
 //
 // The hook itself only checks a timestamp and exits; the request to Anthropic runs in a
-// detached copy of this script (--fetch), so sessions never wait for it.
+// detached copy of this script (--fetch), so sessions never wait for it. It needs nothing from
+// the event, so the Stop event alone does the whole job.
 // The saved login is sent to api.anthropic.com only, and is never written to the log.
 //
 // For tests: PLAN_USAGE_DIR (log folder), PLAN_USAGE_CREDS (login file), PLAN_USAGE_URL
@@ -48,9 +49,12 @@ function everyMs() {
 }
 
 if (!process.argv.includes("--fetch")) {
+  // The exit stays outside the try: in hooks/dispatch.mjs process.exit throws, and the catch would swallow it
+  let recent = false;
   try {
-    if (Date.now() - fs.statSync(stamp).mtimeMs < everyMs()) process.exit(0);
+    recent = Date.now() - fs.statSync(stamp).mtimeMs < everyMs();
   } catch {}
+  if (recent) process.exit(0);
   try {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(stamp, ""); // written first, so parallel sessions don't all fetch

@@ -1223,7 +1223,11 @@ async function startOldRelay(dir, oldChannel) {
     const db = new DatabaseSync(
       path.join(nim, "sqlite-db", "nimbalyst.sqlite"),
     );
+    // WAL, as Nimbalyst's own database: the PC's read never waits on the test's write. With the default journal
+    // the PC's look can land on the UPDATE below, fail with "database is locked", and start a fresh first look that
+    // takes the finished state as known, so no alert goes.
     db.exec(`
+      PRAGMA journal_mode = WAL;
       CREATE TABLE ai_sessions (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT,
         provider_session_id TEXT, worktree_id TEXT, model TEXT, metadata TEXT NOT NULL DEFAULT '{}',
         is_archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);

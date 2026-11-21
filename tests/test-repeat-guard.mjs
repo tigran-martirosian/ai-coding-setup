@@ -16,27 +16,11 @@ const BASE = {
   REPEAT_GUARD_ERRORS: "",
   REPEAT_GUARD_EDITS: "",
   REPEAT_GUARD_READS: "",
-  AGENT_RUN_LOG_FILE: join(DIR, "no-runs.jsonl"),
 };
-// An agent-run log holding the given helper launches ({session, type}), as agent-run-log writes them
-let logNo = 0;
-const runLog = (runs) => {
-  const p = join(DIR, `runs${++logNo}.jsonl`);
-  writeFileSync(
-    p,
-    runs
-      .map((r) =>
-        JSON.stringify({
-          ts: "2026-11-12T10:00:00Z",
-          description: "advice",
-          ...r,
-        }),
-      )
-      .join("\n") + "\n",
-  );
-  return { AGENT_RUN_LOG_FILE: p };
-};
-const advisor = (session) => ({ session, type: "stuck-advisor" });
+// The main session's way out once a retry is ruled out; the removed stuck-advisor helper is never named
+const ASK_USER =
+  "If no other approach is left, ask the user in a form with options and include the error text.";
+const asksUser = (o) => o.includes(ASK_USER) && !o.includes("stuck-advisor");
 
 // Transcript builders
 let n = 0;
@@ -90,10 +74,20 @@ const transcript = (entries) => {
   writeFileSync(p, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
   return p;
 };
+// Extra hook arguments for the case being run (the --near-cap-only cases set it)
+let EXTRA = [];
+const onlyNear = (fn) => () => {
+  EXTRA = ["--near-cap-only"];
+  try {
+    return fn();
+  } finally {
+    EXTRA = [];
+  }
+};
 const run = (entries, tool, input, env = {}, session_id) => {
   const transcript_path =
     entries === null ? join(DIR, "missing.jsonl") : transcript(entries);
-  return spawnSync(process.execPath, [HOOK], {
+  return spawnSync(process.execPath, [HOOK, ...EXTRA], {
     input: JSON.stringify({
       transcript_path,
       session_id,
@@ -253,7 +247,7 @@ const cases = [
       ),
     "File has been modified",
   ],
-  // Two identical errors used to pass with no output; since the stuck advisor (SA1) the retry passes with a note
+  // Two identical errors used to pass with no output; now the retry passes with a note
   [
     "two identical errors: passes, not refused",
     () =>
@@ -264,7 +258,7 @@ const cases = [
     (o) => !o.includes("deny"),
   ],
   [
-    "second identical error: a note that names the stuck-advisor",
+    "second identical error: a note to find what both tries took for granted, else ask the user in a form",
     () =>
       run(
         [user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)],
@@ -275,7 +269,8 @@ const cases = [
     (o) =>
       o.includes("additionalContext") &&
       o.includes("came back 2 times") &&
-      o.includes("call the stuck-advisor agent (3 of 3 calls left"),
+      o.includes("find what both tries took for granted") &&
+      asksUser(o),
   ],
   [
     "one identical error: no note",
@@ -304,7 +299,7 @@ const cases = [
         ],
         ...EDIT,
       ),
-    (o) => o.includes("stuck-advisor") && o.includes("in one edit"),
+    (o) => o.includes("took for granted") && o.includes("in one edit"),
   ],
   [
     "REPEAT_GUARD_ERRORS=2: no note on the first error",
@@ -315,7 +310,7 @@ const cases = [
     false,
   ],
   [
-    "third identical error: the refusal names the stuck-advisor",
+    "third identical error: the refusal says to ask the user in a form",
     () =>
       run(
         [
@@ -328,72 +323,7 @@ const cases = [
         {},
         "s1",
       ),
-    (o) =>
-      o.includes("deny") &&
-      o.includes("call the stuck-advisor agent (3 of 3 calls left") &&
-      o.includes("Else ask the user in a form"),
-  ],
-  [
-    "one stuck-advisor call logged for this session: 2 of 3 left",
-    () =>
-      run(
-        [user("go"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
-        ...EDIT,
-        runLog([advisor("s1"), { session: "s1", type: "worker" }]),
-        "s1",
-      ),
-    "2 of 3 calls left",
-  ],
-  [
-    "stuck-advisor calls of another session don't count",
-    () =>
-      run(
-        [user("go"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
-        ...EDIT,
-        runLog([advisor("s2"), advisor("s2"), advisor("s2")]),
-        "s1",
-      ),
-    "3 of 3 calls left",
-  ],
-  [
-    "three stuck-advisor calls used: the refusal asks the user instead",
-    () =>
-      run(
-        [user("go"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
-        ...EDIT,
-        runLog([advisor("s1"), advisor("s1"), advisor("s1")]),
-        "s1",
-      ),
-    (o) =>
-      o.includes("deny") &&
-      o.includes("ask the user in a form") &&
-      !o.includes("call the stuck-advisor agent"),
-  ],
-  [
-    "three stuck-advisor calls used: the second-error note asks the user instead",
-    () =>
-      run(
-        [user("go"), ...failed("Edit", ERR), ...failed("Edit", ERR)],
-        ...EDIT,
-        runLog([advisor("s1"), advisor("s1"), advisor("s1")]),
-        "s1",
-      ),
-    (o) =>
-      o.includes("ask the user in a form") &&
-      !o.includes("call the stuck-advisor agent"),
-  ],
-  [
-    "a result line with no description is not a call",
-    () =>
-      run(
-        [user("go"), ...[1, 2, 3].flatMap(() => failed("Edit", ERR))],
-        ...EDIT,
-        runLog([
-          { session: "s1", type: "stuck-advisor", description: undefined },
-        ]),
-        "s1",
-      ),
-    "3 of 3 calls left",
+    (o) => o.includes("deny") && o.includes("Do not retry it") && asksUser(o),
   ],
   [
     "three errors with different text: passes",
@@ -916,7 +846,7 @@ const cases = [
     "deny",
   ],
   [
-    "subagent: its second identical error says to report BLOCKED, not to call the advisor",
+    "subagent: its second identical error says to report BLOCKED, not to ask the user",
     () =>
       helper(
         [user("go")],
@@ -926,7 +856,8 @@ const cases = [
     (o) =>
       o.includes("additionalContext") &&
       o.includes("BLOCKED") &&
-      !o.includes("call the stuck-advisor agent"),
+      !o.includes("ask the user") &&
+      !o.includes("stuck-advisor"),
   ],
   [
     "subagent: its refusal says to report BLOCKED",
@@ -939,17 +870,8 @@ const cases = [
     (o) =>
       o.includes("deny") &&
       o.includes("BLOCKED") &&
-      !o.includes("call the stuck-advisor agent"),
-  ],
-  [
-    "stuck-advisor at 18 turns: told to finish and report",
-    () => nearCap("stuck-advisor", 18),
-    "close to your limit",
-  ],
-  [
-    "stuck-advisor at 17 turns: nothing (cap 20)",
-    () => nearCap("stuck-advisor", 17),
-    false,
+      !o.includes("ask the user") &&
+      !o.includes("stuck-advisor"),
   ],
   [
     "subagent: its own 6th edit of one file is reminded",
@@ -991,6 +913,57 @@ const cases = [
     "worker at 70 turns: told to finish and report",
     () => nearCap("worker", 70),
     "close to your limit",
+  ],
+  [
+    "--near-cap-only: a worker at 70 turns is still told to finish and report",
+    onlyNear(() => nearCap("worker", 70)),
+    "close to your limit",
+  ],
+  [
+    "--near-cap-only: a helper's third failed edit is not refused",
+    onlyNear(() =>
+      helper(
+        [user("go")],
+        [
+          user("brief"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        "Edit",
+        { file_path: F },
+      ),
+    ),
+    false,
+  ],
+  [
+    "--near-cap-only: the main session's third failed edit is not refused",
+    onlyNear(() =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    ),
+    false,
+  ],
+  [
+    "without the flag the main session's third failed edit is refused (the case above is meaningful)",
+    () =>
+      run(
+        [
+          user("go"),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+          ...failed("Edit", ERR),
+        ],
+        ...EDIT,
+      ),
+    "deny",
   ],
   ["worker at 69 turns: nothing", () => nearCap("worker", 69), false],
   [
@@ -1035,14 +1008,9 @@ const cases = [
     false,
   ],
   [
-    "planner at 35 turns: nothing (cap 40)",
-    () => nearCap("planner", 35),
-    false,
-  ],
-  [
-    "planner at 36 turns: told to finish and report",
+    "the retired planner at 36 turns: nothing (it has no cap now)",
     () => nearCap("planner", 36),
-    "close to your limit",
+    false,
   ],
   [
     "plan-reviewer at 35 turns: nothing (cap 40)",
@@ -1099,7 +1067,7 @@ function helper(mainEntries, subEntries, tool, input, agentType) {
         JSON.stringify({ agentType }),
       );
   }
-  return spawnSync(process.execPath, [HOOK], {
+  return spawnSync(process.execPath, [HOOK, ...EXTRA], {
     input: JSON.stringify({
       transcript_path: main,
       agent_id: "a1",

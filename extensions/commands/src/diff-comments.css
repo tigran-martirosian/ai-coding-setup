@@ -1,0 +1,233 @@
+/* Comments on the Review panel's diff lines (diff-comments.ts). Tokens come from ../../shared/tokens.css.
+   The layer is laid over the panel and lets the mouse through; only its "+", boxes and bar take clicks. */
+.dc-layer {
+  position: fixed;
+  z-index: 30;
+  pointer-events: none;
+}
+.dc-clip {
+  position: absolute;
+  overflow: hidden;
+}
+.dc-plus,
+.dc-box,
+.dc-bar {
+  pointer-events: auto;
+}
+.dc-plus[hidden],
+.dc-bar[hidden],
+.dc-count[hidden],
+.dc-ask[hidden],
+.dc-btn[hidden] {
+  display: none;
+}
+
+/* The "+" by the line number of the row under the mouse */
+.dc-plus {
+  position: absolute;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--x-radius-inner);
+  background: var(--x-accent);
+  color: var(--x-on-accent);
+  font: 500 14px/1 var(--x-font-ui);
+  cursor: pointer;
+}
+.dc-plus:hover {
+  background: var(--x-accent-hover);
+}
+.dc-plus:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+
+/* The rows: room under a row for its box, and a tint on the line numbers a comment covers. The cells stay
+   React's; only these attributes are added. */
+.agent-review-panel tr.diff-line[data-dc-gap] > td {
+  padding-bottom: var(--dc-gap);
+  vertical-align: top;
+}
+.agent-review-panel tr.diff-line[data-dc-mark] > td.diff-gutter,
+.agent-review-panel tr.diff-line[data-dc-draft] > td.diff-gutter {
+  background: color-mix(in oklab, var(--x-accent) 18%, transparent);
+}
+
+/* A comment under its line, saved or being written */
+.dc-box {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--x-space-2);
+  padding: var(--x-space-2) var(--x-space-3);
+  border: 1px solid color-mix(in oklab, var(--x-accent) 45%, transparent);
+  border-radius: var(--x-radius-control);
+  background: var(--x-surface-1);
+  color: var(--x-text);
+  font: var(--x-body);
+}
+.dc-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dc-where,
+.dc-hint {
+  color: var(--x-text-muted);
+  font: var(--x-meta);
+}
+/* a long file name wraps rather than pushing the buttons out */
+.dc-where {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* a narrow panel wraps the buttons onto a new line rather than cutting them off */
+.dc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--x-space-2);
+}
+.dc-actions > :first-child {
+  margin-right: auto;
+}
+.dc-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 60px;
+  padding: var(--x-space-2);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: var(--x-surface-0);
+  color: var(--x-text);
+  font: var(--x-body);
+  resize: vertical;
+}
+.dc-input:focus {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+
+/* Buttons: quiet, the one main action filled with the accent */
+.dc-btn {
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 var(--x-space-3);
+  border: 1px solid var(--x-hairline);
+  border-radius: var(--x-radius-control);
+  background: transparent;
+  color: var(--x-text);
+  font: var(--x-label);
+  cursor: pointer;
+  transition: background var(--x-motion-fast) var(--x-ease);
+}
+.dc-btn:hover {
+  background: var(--x-overlay-hover);
+}
+.dc-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--x-focus-ring);
+}
+.dc-btn.primary {
+  border-color: transparent;
+  background: var(--x-accent);
+  color: var(--x-on-accent);
+}
+.dc-btn.primary:hover {
+  background: var(--x-accent-hover);
+}
+.dc-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The bar at the foot of the panel; the list makes room for it (data-dc-bar on the panel) */
+.agent-review-panel[data-dc-bar] > .agent-review-panel__content {
+  padding-bottom: var(--dc-bar);
+}
+.dc-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--x-space-2);
+  padding: var(--x-space-2) var(--x-space-3);
+  border-top: 1px solid var(--x-hairline);
+  background: var(--x-surface-1);
+  color: var(--x-text);
+  font: var(--x-meta);
+}
+.dc-count {
+  flex: none;
+  font: var(--x-label);
+}
+/* Clear's question, right before its two answers */
+.dc-ask {
+  flex: none;
+  color: var(--x-text);
+}
+.dc-status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--x-space-2);
+}
+/* without a message it stays as empty space, which keeps the buttons on the right */
+.dc-status[hidden] {
+  visibility: hidden;
+}
+.dc-state {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--x-text-muted);
+}
+.dc-status[data-kind='ok'] .dc-state {
+  background: var(--x-success);
+}
+.dc-status[data-kind='busy'] .dc-state {
+  background: var(--x-text);
+}
+.dc-status[data-kind='bad'] .dc-state {
+  background: var(--x-error);
+}
+.dc-status[data-kind='held'] .dc-state {
+  background: var(--x-warning);
+}
+.dc-status-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dc-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: -3px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--x-radius-inner);
+  background: transparent;
+  color: var(--x-text-muted);
+  font: 400 16px/1 var(--x-font-ui);
+  cursor: pointer;
+}
+.dc-close:hover {
+  background: var(--x-overlay-hover);
+  color: var(--x-text);
+}

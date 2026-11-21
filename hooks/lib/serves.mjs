@@ -1,8 +1,6 @@
-// The full helper brief that map-brief and serves-brief both build. Both hooks run on the same Agent call at the same
-// time and each returns updatedInput from the brief Claude sent; Claude Code takes one whole input, so one hook's
-// lines would be lost (the same case as download-guard and command-explain). So each hook builds the same brief:
-// the original, then the systems map lines, then the Serves lines. Each part has its own off switch and its own
-// "already added" marker; a part that fails is left out and its error returned, the other part still goes in.
+// The full helper brief map-brief builds: the original, then the systems map lines, then the Serves lines. Each part
+// has its own off switch and its own "already added" marker; a part that fails is left out and its error returned,
+// the other part still goes in.
 //   map part: MAP_BRIEF=off; marker "SYSTEMS MAP:"; <project>/.claude/systems-map.json cut by skills/systems-map/map.mjs.
 //   Serves part: SERVES_BRIEF=off (process env or a project's settings env); marker "SERVES (from".
 // The Serves part keeps a decision's purpose with the step. A brief that names a plan file (a .md path that exists,
@@ -12,8 +10,11 @@
 // quotes no words of the user ("decided, see DECISIONS") gets a visible "no quoted purpose" line instead, and a
 // note for the lead. Struck-out rows (~~I9~~) are skipped. A brief naming no such plan gets no Serves part.
 // The same rows get the purpose check (section below): FOR lines with the user's words for each recorded thing a row
-// names, and one PURPOSE CHECK result line. A worker start on a failing row is refused by both hooks with the same
-// text, so the refusal holds whichever runs last. The check runs under the Serves part's off switch.
+// names, and one PURPOSE CHECK result line. A worker start on a failing row is refused. The check runs under the
+// Serves part's off switch.
+// The purpose record, the Serves column and NARROWED lines are retired (2026-11-19): the Serves part and the purpose
+// check run only for a caller that asks for them ({ serves: true }), and no hook does. map-brief builds the map part
+// only.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,16 +29,15 @@ export const TYPES = new Set([
   "worker-code",
   "worker-refactor",
   "reviewer",
-  "planner",
   "plan-reviewer",
 ]);
 const REVIEWERS = new Set(["reviewer", "plan-reviewer"]);
 
-// background-tasks rewrites a main-session helper start to the foreground (run_in_background: false) instead of
-// refusing it: each refusal cost a whole extra request (169 in 5 days, 2026-11-17 review). It runs on the same Agent
-// call as map-brief and serves-brief and only one updatedInput is used, so every brief built here carries the same
-// change. Left alone: a helper's own helper, BACKGROUND_TASKS off or warn, the desktop app and VS Code (they run
-// helpers in the background whatever the flag says) and the map builder ("Systems map:", a side job by design).
+// A brief built here also moves a main-session helper start to the foreground (run_in_background: false) instead of
+// refusing it: each refusal cost a whole extra request (169 in 5 days, 2026-11-17 review). Left alone: a helper's own
+// helper, BACKGROUND_TASKS off or warn (the switch of the retired background-tasks hook, still honoured), the desktop
+// app and VS Code (they run helpers in the background whatever the flag says) and the map builder ("Systems map:", a
+// side job by design).
 export function foreground(event, input) {
   const mode = String(process.env.BACKGROUND_TASKS || "").toLowerCase();
   if (
@@ -66,13 +66,14 @@ const MAX_PLAN = 2e6;
 
 const isOff = (v) => String(v || "").toLowerCase() === "off";
 
-// ---- the map part (was map-brief's body)
+// ---- the map part (was map-brief's body): { text, matched }, matched false for the "nothing matched" line
 async function mapPart(prompt) {
-  if (isOff(process.env.MAP_BRIEF) || prompt.includes(MAP_MARKER)) return "";
+  const empty = { text: "", matched: false };
+  if (isOff(process.env.MAP_BRIEF) || prompt.includes(MAP_MARKER)) return empty;
   const project = process.env.CLAUDE_PROJECT_DIR;
-  if (!project) return "";
+  if (!project) return empty;
   const map = loadMap(project);
-  if (!Array.isArray(map?.nodes) || !map.nodes.length) return "";
+  if (!Array.isArray(map?.nodes) || !map.nodes.length) return empty;
   const { brief, CMD } = await import(pathToFileURL(MAP_JS).href);
   const head =
     "\n\nSYSTEMS MAP: the project's dictionary of what connects to what, cut to the things this brief touches. A change to one of these " +
@@ -80,7 +81,9 @@ async function mapPart(prompt) {
   const tail = `\nMore: ${CMD} --near <thing>; --near alone lists every thing.`;
   const none = `\n\nSYSTEMS MAP: nothing in this brief matched (${CMD} --near <word> looks one up).`;
   const lines = brief(prompt, map, project).trim();
-  return lines ? head + lines + tail : none;
+  return lines
+    ? { text: head + lines + tail, matched: true }
+    : { text: none, matched: false };
 }
 
 // ---- the Serves part
@@ -216,7 +219,7 @@ const pointed = (prompt, id) =>
 // Serves and Helper) holds one of the thing's names; names count in code spans and file paths too. Such a row fails
 // when (a) its Serves cell holds neither the entry's words nor its raw phrase (a quote cut with "…" counts, see
 // cutHolds), or (b) a limit word stands outside the Serves quotes, code spans and path-like words and no cell has
-// "NARROWED: … because". A worker start on a failing row is refused; planner and reviewer briefs get FOR lines and
+// "NARROWED: … because". A worker start on a failing row is refused; reviewer and plan-reviewer briefs get FOR lines and
 // a PURPOSE CHECK result line instead.
 export const RECORD_HEAD = "## What each thing is for";
 export const PURPOSE_MARKER = "PURPOSE CHECK";
@@ -431,7 +434,7 @@ export function refusal(failing) {
     ),
   );
   return (
-    `serves-brief refused this helper start: ${parts.join(" ")} ` +
+    `The purpose check refused this helper start: ${parts.join(" ")} ` +
     "Put the quote in Serves and make the Job do it, or write NARROWED: <what>, because <why> and ask the user. " +
     "Do not start a safer stand-in."
   );
@@ -577,11 +580,13 @@ export function servesPart(prompt, type, bases, record) {
   };
 }
 
-// The full brief: { input, notes, purposeNotes, errors, deny } with input the tool input to send, or null when
-// nothing is added; deny is the refusal text when a worker brief's row fails the purpose check (both hooks then
-// refuse the start). An error in the Serves part does not stop the helper (a hook bug must not block work): the
+// The full brief: { input, map, matched, notes, purposeNotes, errors, deny } with input the tool input to send, or
+// null when nothing is added, map the map part's text alone ("" when none) and matched true when that text holds map
+// lines, not just the "nothing matched" line (map-brief gives matched lines as context in auto mode, where it
+// rewrites nothing). The Serves part runs only with { serves: true }; then deny is the refusal text when a worker
+// brief's row fails the purpose check. An error in the Serves part does not stop the helper (a hook bug must not block work): the
 // brief gets "PURPOSE CHECK: not run: <error>" and the lead a note.
-export async function fullBrief(event) {
+export async function fullBrief(event, { serves: withServes = false } = {}) {
   const input = event.tool_input;
   if (
     !["Agent", "Task"].includes(event.tool_name) ||
@@ -594,14 +599,15 @@ export async function fullBrief(event) {
     return null;
   const errors = [];
   let map = "",
+    matched = false,
     serves = { text: "", notes: [], purposeNotes: [], deny: null };
   try {
-    map = await mapPart(prompt);
+    ({ text: map, matched } = await mapPart(prompt));
   } catch (e) {
     errors.push({ part: "map", e });
   }
   try {
-    if (!isOff(setting("SERVES_BRIEF"))) {
+    if (withServes && !isOff(setting("SERVES_BRIEF"))) {
       const bases = [
         ...new Set([event.cwd, process.env.CLAUDE_PROJECT_DIR].filter(Boolean)),
       ];
@@ -623,11 +629,20 @@ export async function fullBrief(event) {
       deny: null,
     };
   }
-  const none = { input: null, notes: [], purposeNotes: [], errors };
+  const none = {
+    input: null,
+    map: "",
+    matched: false,
+    notes: [],
+    purposeNotes: [],
+    errors,
+  };
   if (serves.deny) return { ...none, deny: serves.deny };
   if (!map && !serves.text) return none;
   return {
     input: foreground(event, { ...input, prompt: prompt + map + serves.text }),
+    map,
+    matched,
     notes: serves.notes,
     purposeNotes: serves.purposeNotes,
     errors,

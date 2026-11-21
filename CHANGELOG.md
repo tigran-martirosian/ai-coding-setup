@@ -4,6 +4,60 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.5] - 2026-11-20
+
+The setup, rebuilt: fewer moving parts, one clear path for a big job, and a check you can press. How it all works now, on one page: `docs/whats-new.md` in the repo. After this update Claude offers a short tour of it in the chat; ask "what's new" any time.
+
+### How work runs
+- Claude sizes each ask first (small, medium or big). A medium or big job starts with questions in rounds (`grilling`, replacing `grill-me`), then what done looks like, each line with the check that proves it.
+- The main session writes a big job's plan itself and runs it (`/lead`); the separate planner helper is gone. Plans count steps and sessions, never hours. The plan check runs once; the end review checks correctness against the spec, not style.
+- A Try it button beside Note runs the project's `verify` check on the last change. When the change has a local page, it opens in a Nimbalyst tab beside the chat. Any local dev page can open there: `node ~/.claude/workers/try-page.mjs <url> --session <id>`.
+- In a session's Review panel you can comment on lines of the diff ("+" by a line, Shift+click for a range) and send them all as one message, each with its file and line.
+- Notes sent with `/btw` while Claude works are listed back once, show the time you sent them, and a note for after the current work waits as the next turn.
+- Say "wait what" (or "не понял") and Claude re-explains its last reply plainly.
+- When the same error keeps coming back, Claude is stopped from retrying the same call a third time and asks you what to do, with the error text.
+- Helpers: `worker` runs on Sonnet and `blind-reviewer` on Opus, both at medium effort; `stuck-advisor` is gone (Claude Code's `/advisor` does the same). Every helper names its effort.
+
+### Safety
+- Every project gets its own local git history, so any change can be undone (`/new-project`, `/update-project`). Secrets, keys and big files stay out.
+- One check for every push and deploy (`node ~/.claude/workers/ship-check.mjs init`): gitleaks scans pushes for many more key kinds, key files are kept out of git, and a plain deploy runs through `ship-check deploy`, which lists the upload, stops on env files, source maps and baked-in keys, and checks afterwards that the site serves no `/.env` or `/.git/HEAD`.
+- `delete-guard` no longer asks before deleting what Claude made in the session or a path you typed in full. It still asks for recursive deletes of your own files, `git clean`, `git reset --hard`, force pushes and database files.
+- The guards fail closed: a guard that crashes or times out blocks the call and names its off switch.
+- Claude can click, fill and upload in your signed-in Chrome for a job you asked for, and waits for your yes before anything that sends or publishes in your name.
+- A new project's `.gitignore` keeps `settings.local.json` out of git in every folder.
+
+### Faster and quieter
+- 23 hooks are gone and the rest run in one process per tool call (a shell call starts one Node process for its hooks instead of one per hook). An update unwires the cut hooks and removes their files; a file you changed stays and is named.
+- With Nimbalyst's auto mode on, the setup's notes no longer change a call after its review, so Nimbalyst stops asking about calls the review passed.
+- Nimbalyst's chat scrolls smoothly while a turn runs, and a long chat no longer bounces after it opens.
+- `/next-move` and `/board-cleanup` start only when typed, so their descriptions no longer take room in every session.
+
+### Files and projects
+- Every project has a place for each kind of file: code, `tests/`, `docs/`, `shown/` for pictures to look at, `assets/` for the product's own files.
+- `/file-upkeep` catches names that say when a file was made instead of what it does; `file-check.mjs --root` reports the projects folder itself; a new file with a bad name or place gets a one-line note.
+- `move-project.mjs <from> <to>` moves or renames a whole project and fixes its worktrees, records and scheduled tasks (`--dry` first).
+- `/new-project` no longer hands out a `REVIEW.md`, and `/update-project` no longer offers one.
+
+### Web and video
+- `node ~/.claude/workers/read-page.mjs <url>` saves a page word for word as markdown (Firecrawl Local when installed, defuddle otherwise).
+- `/deep-research` is refused in SDK runs, where it can't be stopped; run it in the terminal. Obscura is no longer installed, and an update removes it.
+- `/watch` says before it downloads its 488 MB speech model; `WATCH_STT=off` skips it.
+
+### Install and README
+- The README has a Russian translation (`README.ru.md`), a diagram of how a job runs and a link to the tour.
+- The uninstall also removes the downloaded versions in `~/.claude/setup-source`, keeping any file of yours there.
+
+### Gone or moved
+- The 23 removed hooks:
+  - Reply checks: `code-review-gate` (the automatic reviewer after enough code changes), `next-step-gate`, `run-yourself`, `web-answer-gate`.
+  - Helper checks: `budget-gate`, `decided-quote`, `serves-brief`, `worker-size`.
+  - Command and read checks: `long-sleep-guard`, `slow-output-gate`, `big-read-gate` (a Read of a big file now gets Claude Code's own answer).
+  - Session cost: `context-guard`, `cold-cache`, `background-tasks`, `job-done` and `handoff-brief`'s automatic brief.
+  - Nimbalyst: `form-answer`. Systems map: `map-prompt` (a project with a map has one line in its CLAUDE.md on how to look a part up).
+  - Reminders: `upkeep-note`, `recheck-dates`, `patch-next`, `pc-tidy-nudge`, `experiment-alert`.
+- What you lose: the handoff brief rewritten after each reply (`/handoff` still writes one when you ask), the daily reminder of a stale backup, and the list of worktrees other sessions left. Their off switches no longer do anything.
+- `/setup-audit usage` points to Claude Code's `/usage`; the dashboard and the forecast stay.
+
 ## [26.4.4] - 2026-11-18
 
 - The phone app's Projects tab lists every project that has sessions. It used to show only the projects open in a Nimbalyst window when Nimbalyst started.

@@ -1,7 +1,8 @@
-// Tests that every session the lead, handoff and where-are-we skills start on a release step is told to link itself to
+// Tests that every session the handoff and where-are-we skills start on a release step is told to link itself to
 // its tracker step (Nimbalyst shows a chat's Trackers section only when the chat is linked to an item). Each start point
-// is the skill text a session runs its step from; each must name the link call. The job-done hook's notes are tested
-// in test-job-done.mjs.
+// is the skill text a session runs its step from; each must name the link call.
+// The lead skill's claim lines left with its rewrite (2026-11-19): one session runs a big job and where-are-we
+// mirrors its slices, so lead has no start point of its own.
 // Run: node tests/test-tracker-link.mjs
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +12,6 @@ const skill = (name) =>
     path.join(import.meta.dirname, "..", "skills", name, "SKILL.md"),
     "utf8",
   );
-const lead = skill("lead");
 const handoff = skill("handoff");
 const where = skill("where-are-we");
 const LINK = /`?linkSession: true`?/;
@@ -26,28 +26,8 @@ const handoffPrompt =
   handoff.match(/tracker step[^\n]*?names its key and adds: `([^`]+)`/)?.[1] ??
   "";
 
-// The next row's session is told to claim its tracker step by a pointer to the Claimed line, which holds the rule
-const claimed = lineOf(lead, "**Claimed:**");
-const piece = lineOf(lead, "**One piece per session**");
-const POINTER = /claims its tracker step \(\*\*Claimed\*\*/;
-
 // Start points: [name, the text the session is told, what it must hold besides the link]
 const STARTS = [
-  [
-    "lead: a session claiming a step",
-    claimed,
-    [/`tracker_update`/, /"in-progress"/],
-  ],
-  [
-    "lead: the next row's session claims its tracker step too",
-    POINTER.test(piece) ? `${piece}\n${claimed}` : piece,
-    [POINTER],
-  ],
-  [
-    "lead: the session that takes or creates the release",
-    lineOf(lead, "**The tracker is the job's record:**"),
-    [/`tracker_create`/, /`tracker_update`/],
-  ],
   [
     "handoff: the new session for a tracker step",
     handoffPrompt,
@@ -85,14 +65,6 @@ if (all) pass++;
 else fail++;
 console.log(
   `${all ? "PASS" : "FAIL"}  ${told} of ${STARTS.length} start points tell the session to link (${Math.round((100 * told) / STARTS.length)}%)`,
-);
-
-// The claim is one call that sets the status and the link together, so a session can't do one and skip the other
-const claimOld = /tracker_link_session/.test(claimed);
-if (claimOld) fail++;
-else pass++;
-console.log(
-  `${claimOld ? "FAIL" : "PASS"}  lead's claim uses linkSession, not tracker_link_session`,
 );
 
 console.log(`${pass} passed, ${fail} failed`);

@@ -9,14 +9,18 @@
 // scripts/claude-code-settings.mjs) instead of this hook refusing it. A PowerShell call that still
 // comes gets the same note check as Bash.
 // The popup draws the note in the same font and colour as the command, so it read as more code.
-// It therefore has to follow an empty line and start with "# WHAT THIS DOES:".
+// It therefore has to follow an empty line and start with "# WHAT THIS DOES:". A good note written
+// straight under the command keeps its words: the hook puts the empty line in, with no reminder.
 // There is no limit on a command's length. A command without the note is not refused:
 // the hook appends a stand-in note, "(no note given)" plus the command's start, through updatedInput.
 // No permissionDecision goes with it, so the normal permission prompt still decides; "allow" would
 // skip the prompt. A line of additionalContext tells Claude to write the note itself next time.
 // A helper gets the stand-in without that line: its own rules already ask for the note.
+// Auto mode (permission_mode "auto", lib/hook-io.mjs autoMode): an updatedInput would void the classifier's review,
+// so the hook rewrites nothing. A missing note, or a note with no empty line before it, is told to Claude in
+// additionalContext instead; a helper gets nothing, as its own rules already ask for the note.
 // It fails open, so any error or odd input lets the call through. COMMAND_EXPLAIN=off disables it.
-import { emit, runHook } from "./lib/hook-io.mjs";
+import { autoMode, emit, runHook } from "./lib/hook-io.mjs";
 import {
   COMMAND_EXPLAIN,
   NO_NOTE,
@@ -34,6 +38,30 @@ runHook("command-explain", (event) => {
   const note = (last.match(NOTE_LINE_RE) || [])[1] || "";
   const words = note.split(/\s+/).filter((w) => /\p{L}/u.test(w));
   const afterBlank = lines.length > 1 && lines[lines.length - 2].trim() === "";
+  const tight = words.length >= 3 && !afterBlank && lines.length > 1;
+  if (autoMode(event) && (words.length < 3 || !afterBlank)) {
+    if (!event.agent_id)
+      emit.context(
+        "PreToolUse",
+        tight
+          ? `${COMMAND_EXPLAIN} that command's "${WHAT_THIS_DOES}" line had no empty line before it. The note labels the call in Nimbalyst's agents panel and in any permission popup that does appear, and without the empty line it reads as more code. In auto mode the command goes ahead as sent. Put an empty line before the note on every command.`
+          : `${COMMAND_EXPLAIN} that command had no "${WHAT_THIS_DOES}" last line after an empty line. The note labels the call in Nimbalyst's agents panel and in any permission popup that does appear. In auto mode the command goes ahead as sent, with no stand-in. Write the line yourself on every command.`,
+      );
+    return;
+  }
+  // A good note with no empty line before it is kept: the hook adds the empty line, silently.
+  if (tight) {
+    const body = lines.slice(0, -1).join("\n").trimEnd();
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          updatedInput: { ...event.tool_input, command: `${body}\n\n${last}` },
+        },
+      }),
+    );
+    return;
+  }
   if (words.length < 3 || !afterBlank) {
     const start = command.replace(/\s+/g, " ").trim().slice(0, 60);
     const output = {
