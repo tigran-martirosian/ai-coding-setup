@@ -33,11 +33,11 @@ import {
   isReplacesLine,
   noteFiles,
   TOPIC_BYTES,
-} from "../../hooks/lib/upkeep-checks.mjs";
+} from "./upkeep-checks.mjs";
 
 // The pass level this file's checks implement. It goes up only with a release that changes what a project folder
 // should hold (the new-project base table, the file standard, checks.md); version.json's projectPass equals it.
-export const LEVEL = 5;
+export const LEVEL = 6;
 
 const args = process.argv.slice(2);
 const stop = (why) => {
@@ -146,11 +146,17 @@ const hasTests = (dir) =>
   isDir(path.join(dir, "test")) ||
   (isFile(path.join(dir, "package.json")) &&
     !!JSON.parse(read(path.join(dir, "package.json"))).scripts?.test);
-// the script a hook command runs: the first token ending in a script extension, with ~ and the project variable resolved
-const hookScript = (cmd, dir) => {
-  const m = cmd.match(/(["']?)([^"'\s]+\.(?:mjs|cjs|js|py|sh|ps1))\1/);
-  if (!m) return null;
-  const p = m[2]
+// the script a hook entry runs, with ~ and the project variable resolved: the first `args` item ending in a script
+// extension (exec form, where a path may hold spaces), else the first such token in `command` (shell form)
+const SCRIPT = /\.(?:mjs|cjs|js|py|sh|ps1)$/;
+const hookScript = (h, dir) => {
+  let raw = Array.isArray(h.args)
+    ? h.args.find((a) => typeof a === "string" && SCRIPT.test(a))
+    : null;
+  if (!raw && typeof h.command === "string")
+    raw = h.command.match(/(["']?)([^"'\s]+\.(?:mjs|cjs|js|py|sh|ps1))\1/)?.[2];
+  if (!raw) return null;
+  const p = raw
     .replace(/^~(?=\/)/, home)
     .replace(/\$\{?CLAUDE_PROJECT_DIR\}?/, dir)
     .replace(/\$\{?HOME\}?/, home);
@@ -211,7 +217,7 @@ export function check(dir, kept = [], since = null) {
         `${n} lines, over 60: name the lines that could move to a .claude/rules/ file`,
       );
   }
-  // P3, P4: lengths and replaced decisions (the HANDOFF limit and the line finder: hooks/lib/upkeep-checks.mjs)
+  // P3, P4: lengths and replaced decisions (the HANDOFF limit and the line finder: skills/update-project/upkeep-checks.mjs)
   const handoffBig = isFile(at("HANDOFF.md"))
     ? handoffOver(read(at("HANDOFF.md")))
     : null;
@@ -307,7 +313,7 @@ function checkClaudeFolder(dir, add) {
     for (const groups of Object.values(s.hooks || {}))
       for (const g of groups || [])
         for (const h of g.hooks || []) {
-          const p = typeof h.command === "string" && hookScript(h.command, dir);
+          const p = hookScript(h, dir);
           if (p && !fs.existsSync(p))
             add(
               "P5",
@@ -442,23 +448,40 @@ function checkVerify(dir, add) {
   );
 }
 
-// P6: the file standard's checker; P7: untracked entries in a git folder
+// P6: the file standard's checker (names, copies, places); P30: its folder-role findings (P8, a file in the wrong
+// role folder); P7: untracked entries in a git folder. The checker's --json is read, not its printed lines: a printed
+// path with a space or a long rule list cannot be split back apart.
 function checkFiles(dir, add) {
   const fc = path.join(HERE, "..", "file-upkeep", "file-check.mjs");
   if (!isFile(fc))
     throw new Error(
       `${fwd(fc)} is missing: the file-upkeep skill is part of the setup.`,
     );
-  const r = spawnSync(process.execPath, [fc, "--report", dir, "--home", home], {
-    encoding: "utf8",
-  });
+  const r = spawnSync(
+    process.execPath,
+    [fc, "--report", dir, "--home", home, "--json"],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
   if (r.status !== 0)
     throw new Error(
       `file-check.mjs --report failed: ${(r.stdout + r.stderr).trim().split("\n").pop()}`,
     );
-  for (const l of r.stdout.split(/\r?\n/)) {
-    const m = l.match(/^(F\d+)\s+(\S+)\s+(fix|ask)\s+(.*)$/);
-    if (m) add("P6", m[3], m[4].split(" ")[0], `${m[1]} ${m[2]}: ${m[4]}`);
+  let report;
+  try {
+    report = JSON.parse(r.stdout);
+  } catch (e) {
+    throw new Error(
+      `file-check.mjs --report --json printed no JSON: ${e.message}`,
+    );
+  }
+  if (!Array.isArray(report.findings))
+    throw new Error("file-check.mjs --report --json has no findings list");
+  for (const f of report.findings) {
+    if (f.kind !== "fix" && f.kind !== "ask") continue;
+    const what = `${f.id} ${f.rules.join("+")}: ${f.path}${f.target ? ` → ${f.target}` : ""}${f.why ? `   (${f.why})` : ""}`;
+    // each finding once: one with P8 under P30, whose target says where the file goes (its naming rules ride along
+    // in the same line), every other under P6
+    add(f.rules.includes("P8") ? "P30" : "P6", f.kind, f.path, what);
   }
   const repo = gitTop(dir);
   if (!repo) return;
@@ -498,7 +521,7 @@ function checkFiles(dir, add) {
 }
 
 // P8: backticked paths in the notes that are found neither under the folder nor under ~ (the finder:
-// hooks/lib/upkeep-checks.mjs), and the memory notes
+// skills/update-project/upkeep-checks.mjs), and the memory notes
 function checkPaths(dir, add) {
   for (const n of noteFiles(dir))
     for (const { line, path: t } of deadPaths(
@@ -525,32 +548,28 @@ function checkPaths(dir, add) {
 
 // P9: facts past their recheck date; P10: the tools on here; P11: the facts file's header
 function checkFacts(dir, add) {
-  const rd = path.join(CLAUDE, "hooks", "recheck-dates.mjs");
-  if (!isFile(rd))
-    add(
-      "P9",
-      "note",
-      "~/.claude/hooks/recheck-dates.mjs",
-      "not installed: recheck dates are not checked",
-    );
-  else {
-    const r = spawnSync(process.execPath, [rd, "--list", dir], {
+  // recheck-dates.mjs ships beside this file; it finds ~/.claude by the home folder, so --home is passed on
+  const r = spawnSync(
+    process.execPath,
+    [path.join(HERE, "recheck-dates.mjs"), "--list", dir],
+    {
       encoding: "utf8",
-    });
-    if (r.status !== 0)
-      throw new Error(
-        `recheck-dates.mjs --list failed: ${(r.stdout + r.stderr).trim().split("\n").pop()}`,
+      env: { ...process.env, HOME: home, USERPROFILE: home },
+    },
+  );
+  if (r.status !== 0)
+    throw new Error(
+      `recheck-dates.mjs --list failed: ${(r.stdout + r.stderr).trim().split("\n").pop()}`,
+    );
+  for (const l of r.stdout.split(/\r?\n/)) {
+    const m = l.match(/^(\S+:\d+)\s+(\d{4}-\d{2}-\d{2})\s+past\s+(.*)$/);
+    if (m)
+      add(
+        `P9.${m[1]}`,
+        "ask",
+        m[1],
+        `past its recheck date ${m[2]}: recheck it now, or drop it (${m[3].slice(0, 80)})`,
       );
-    for (const l of r.stdout.split(/\r?\n/)) {
-      const m = l.match(/^(\S+:\d+)\s+(\d{4}-\d{2}-\d{2})\s+past\s+(.*)$/);
-      if (m)
-        add(
-          `P9.${m[1]}`,
-          "ask",
-          m[1],
-          `past its recheck date ${m[2]}: recheck it now, or drop it (${m[3].slice(0, 80)})`,
-        );
-    }
   }
   const sf = path.join(dir, ".claude", "settings.json");
   let on = [];
@@ -631,7 +650,6 @@ const githubLine = (vis) =>
 const COMMITS_LINE =
   'Commits: subject "<type>: <what the person gains>", at most 72 characters; type is one of feat, fix, docs, test, ci, refactor, perf, build, chore; no plan-step or session ids.';
 const KIND_NAME = {
-  none: "not a git folder",
   local: "git on this computer only",
   github: "on GitHub",
 };
@@ -691,14 +709,34 @@ function checkGit(dir, add, since) {
   // a repo-wide file: its path at the repo's top, and its name as seen from the folder
   const atTop = (n) => path.join(top, n),
     topRel = (n) => fwd(path.relative(dir, atTop(n)));
-  const gh = hasGit ? githubRemote(dir) : null;
-  const want = !hasGit ? "none" : gh ? "github" : "local";
+  // P13: every project folder has local git (global rule), archives and scratch aside, so a folder with none
+  // gets it started without a tick, over an old `Git: none.` line too; otherwise the Git: line must match the folder.
+  // An archive or scratch folder is one named *-old, *-backup or *_worktrees, or whose line says so.
+  if (!hasGit) {
+    const kept =
+      /(?:-old|-backup|_worktrees)$/i.test(path.basename(dir)) ||
+      /^none \((?:archive|scratch)\b/.test(line || "");
+    if (kept) return null;
+    const nested = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter(
+        (e) => e.isDirectory() && fs.existsSync(path.join(dir, e.name, ".git")),
+      )
+      .map((e) => e.name + "/");
+    add(
+      "P13",
+      "fix",
+      "CLAUDE.md",
+      `not a git folder: write \`${LOCAL_LINE}\` (in place of any Git: line); add the lines of ${PRESET}/gitignore.txt to .gitignore, plus each file over 10 MB, browser profiles and cookie files${nested.length ? `, and the folders holding their own repo: ${nested.join(" ")}` : ""}; then git init -b main, git add -A, read the staged list for secrets, and commit "chore: start git for this project". Then run the pass again for the other git checks`,
+    );
+    return null;
+  }
+  const gh = githubRemote(dir);
+  const want = gh ? "github" : "local";
   const wantLine = {
-    none: `\`Git: none.\`, or the tick "start local git": it writes \`${LOCAL_LINE}\`, then runs git init -b main`,
     local: `\`${LOCAL_LINE}\``,
     github: `\`${githubLine("<private|public>")}\``,
   }[want];
-  // P13: the Git: line, and that it matches the folder
   if (has === null)
     add(
       "P13",
@@ -713,7 +751,6 @@ function checkGit(dir, add, since) {
       "CLAUDE.md",
       `the line "Git: ${line.slice(0, 60)}" does not match the folder, which is ${KIND_NAME[want]}: make it ${wantLine}`,
     );
-  if (!hasGit) return null;
   // P14: the clear-commit line; P15: line endings
   const commits = t.match(
     /^Commits: subject "<type>: <what the person gains>".*$/m,
@@ -817,7 +854,7 @@ function checkGit(dir, add, since) {
       "P25.ignore",
       "ask",
       ".gitignore",
-      `${LOCAL_SETTINGS} is not ignored by a .gitignore the repo carries${why}: add the line \`${LOCAL_SETTINGS}\`, because the "don't ask again" list keeps each approved command word for word, a typed token or password too`,
+      `${LOCAL_SETTINGS} is not ignored by a .gitignore the repo carries${why}: add the line \`**/settings.local.json\`, because the "don't ask again" list keeps each approved command word for word, a typed token or password too`,
     );
   }
   const ls = gitRead(dir, "ls-files", "--", LOCAL_SETTINGS);
@@ -830,13 +867,20 @@ function checkGit(dir, add, since) {
       LOCAL_SETTINGS,
       `git tracks ${LOCAL_SETTINGS}: run git rm --cached ${LOCAL_SETTINGS}, then commit on the person's word without naming that file (a commit that names it takes the copy on disk and tracks it again); read git log -p -- ${LOCAL_SETTINGS} and rotate at its provider any token or password in it, because the history keeps it`,
     );
-  // P28: the review rules. The reviewer reads REVIEW.md from git at the repo's top, so only git folders get one
-  if (!isFile(atTop("REVIEW.md")))
+  // P28 is retired (the reviewer reads no review-rules file); its number is not reused
+  // P29: the safety baseline of a push and a deploy (workers/ship-check.mjs). A repo with a remote pushes somewhere,
+  // so it is switched on: .claude/ship-check.json at the repo's top
+  const remotes = gitRead(dir, "remote");
+  if (remotes.status !== 0)
+    throw new Error(
+      `git remote failed in ${fwd(dir)}: ${remotes.stderr.trim()}`,
+    );
+  if (remotes.stdout.trim() && !isFile(atTop(".claude/ship-check.json")))
     add(
-      "P28",
+      "P29",
       "ask",
-      topRel("REVIEW.md"),
-      `missing: copy ${PRESET}/REVIEW.md, the rules the reviewer reads for its quality findings (what counts as Important, the Nit cap, paths to skip, past bugs); it applies from the commit after it is committed`,
+      topRel(".claude/ship-check.json"),
+      "missing: the repo has a remote, but its pushes and deploys run without the safety baseline. Run node ~/.claude/workers/ship-check.mjs init (it writes this file and the missing ignore lines for secret files), then node ~/.claude/workers/ship-check.mjs push --full once and show its findings",
     );
   // P23: the changelog's headings and plain tags (only in a folder with a CHANGELOG.md or a tag)
   if (isFile(at("CHANGELOG.md"))) {

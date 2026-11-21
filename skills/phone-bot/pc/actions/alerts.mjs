@@ -84,11 +84,11 @@ function shellCommands(line) {
 }
 
 const NODE = /(^|[\\/])node(\.exe)?$/i;
-const BRIEF = /(^|[\\/])handoff-brief\.mjs$/;
+const BRIEF = /(^|[\\/])handoff[\\/]brief\.mjs$/;
 const ENV = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-// True when a shell line runs node on handoff-brief.mjs with --summary, as the handoff skill does. The Stop hook's
-// automatic brief (--hook) and a command that only quotes the names, like a grep, do not count.
+// True when a shell line runs node on the handoff skill's brief.mjs with --summary, as the skill does. A run
+// without --summary and a command that only quotes the names, like a grep, do not count.
 export function runsHandoffBrief(line) {
   return shellCommands(String(line)).some((all) => {
     const words = all.slice(all.findIndex((w) => !ENV.test(w)));

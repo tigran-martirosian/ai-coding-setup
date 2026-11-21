@@ -12,14 +12,18 @@ export function repoSources(REPO) {
   // settings.example.json is the one hook table; its `_setup` key (not a Claude Code setting, never written
   // to a settings.json) lists the hooks and matchers earlier versions wired.
   const example = json("settings.example.json");
-  const { retired, retiredInHomes, oldMatchers } = example._setup;
+  const { retired, retiredInHomes, retiredEntries, oldMatchers } =
+    example._setup;
   return {
     version,
     claudeCodeMin,
     example,
     RETIRED: retired,
     RETIRED_IN_HOMES: retiredInHomes,
+    RETIRED_ENTRIES: retiredEntries,
     OLD_MATCHERS: oldMatchers,
+    // The groups hooks/dispatch.mjs runs: wiring one takes out the older entries of its hooks
+    GROUPS: json(path.join("hooks", "dispatch-groups.json")),
     homes: json(path.join("projects", "homes.json")),
     HOMES: fs
       .readdirSync(path.join(REPO, "projects"), { withFileTypes: true })

@@ -22,7 +22,6 @@ One step per plan row. The plan is the design; the step is what the user reads.
 | Plan column | Becomes | How |
 |---|---|---|
 | Job | the title | Say what changes, for a person, in 70 characters or less. Drop file names and codes. |
-| Serves | the first sentence of the description ("what it is for") | In plain words. The user's quote stays in the plan. |
 | Done when | "Done when …" in the description | Each command becomes what it shows ("both test runs pass", "the release page exists"). |
 | Stage | the `stage` field | "<the plan's short name> · <phase>", for example "Shop checkout · build". With several plans in one job, the short name keeps one plan's "Part 6" apart from another's. |
 | Step code | the `step` field | As the plan names it, for example "S3", or "checkout S3" when two plans share a code. |

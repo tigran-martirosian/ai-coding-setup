@@ -17,12 +17,18 @@ const write = (dir, rel, text = "x\n") => {
   fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
   fs.writeFileSync(path.join(dir, rel), text);
 };
-// A folder with n code files, plus files that must not count (docs, data, vendored and build folders). git: make it a repository.
-const project = (name, n, { git = true, map = null } = {}) => {
+// A folder with n code files of `lines` lines each (or of `text`), plus files that must not count (docs, data,
+// vendored and build folders, whose lines don't count either). git: make it a repository.
+const project = (
+  name,
+  n,
+  { git = true, map = null, lines = 100, text = "x\n".repeat(lines) } = {},
+) => {
   const dir = path.join(tmp, name);
   fs.mkdirSync(dir, { recursive: true });
-  for (let i = 0; i < n; i++) write(dir, `src/mod${i % 10}/file${i}.js`);
-  for (let i = 0; i < 30; i++) write(dir, `docs/page${i}.md`);
+  for (let i = 0; i < n; i++) write(dir, `src/mod${i % 10}/file${i}.js`, text);
+  for (let i = 0; i < 30; i++)
+    write(dir, `docs/long${i}.md`, "x\n".repeat(1000));
   write(dir, "data.json", "{}");
   for (let i = 0; i < 50; i++) write(dir, `node_modules/dep/f${i}.js`);
   for (let i = 0; i < 20; i++) write(dir, `dist/b${i}.js`);
@@ -89,27 +95,42 @@ const setState = (p, rec) => {
   );
 };
 
-// ---- no map: the count decides
+// ---- no map: the count of files and of their lines decides
 const small = project("small", 99);
 check(
   "99 code files (vendored, docs and data do not count): silent",
   run(small).stdout === "",
 );
+const short = project("short", 150, { lines: 66 });
+check(
+  "150 code files but 9,900 code lines (the lines of docs and vendored files do not count): silent",
+  run(short).stdout === "",
+);
 const at100 = project("at100", 100);
 let r = run(at100);
 const text = context(r);
 check(
-  "100 code files: nudges",
-  /\[map-nudge\] This project has 100 tracked code files and no Systems map/.test(
+  "100 code files with 10,000 lines: asks",
+  /\[map-nudge\] This project has 100 tracked code files \(10,000 or more lines\) and no Systems map/.test(
     text,
   ),
   r.stdout + r.stderr,
 );
 check(
-  "the nudge says: a background worker, now, without asking",
-  /Without asking, start one background worker now: Agent tool, subagent_type "worker", run_in_background true/.test(
+  "the build nudge is a question to the user on a question card, recommended answer yes",
+  /Ask the user once, on a question card \(AskUserQuestion\), whether to build/.test(
     text,
-  ),
+  ) && /recommended answer: yes/.test(text),
+  text,
+);
+check(
+  "the build nudge starts the worker only on yes, never without asking",
+  /Only if the user answers yes, start one background worker: Agent tool, subagent_type "worker", run_in_background true/.test(
+    text,
+  ) &&
+    /On no, start nothing/.test(text) &&
+    !/Without asking/.test(text),
+  text,
 );
 check(
   "the nudge names the skill file to read and the project folder",
@@ -118,42 +139,45 @@ check(
   ),
 );
 check(
-  "the nudge has the session mention it in one line",
-  /tell the user in one line/.test(text),
-);
-check(
   "the output is a UserPromptSubmit context",
   JSON.parse(r.stdout).hookSpecificOutput.hookEventName === "UserPromptSubmit",
 );
 check("second prompt: silent", run(at100).stdout === "");
-setState(at100, { ...state(at100), checkedAt: Date.now() - 3 * DAY });
 check(
-  "days later, still no map: silent (a week between tries)",
+  "the state file records the question",
+  state(at100).askedAt > 0,
+  JSON.stringify(state(at100)),
+);
+setState(at100, {
+  checkedAt: Date.now() - 400 * DAY,
+  askedAt: Date.now() - 400 * DAY,
+});
+check(
+  "a year later, still no map: silent (the question is asked once per project, ever)",
   run(at100).stdout === "",
 );
+// The old map-nudge built without asking, up to 3 tries a week apart (state fields tries, nudgedAt)
+const gaveUp = project("gave-up", 100);
+const oldNudge = Date.now() - 30 * DAY;
+setState(gaveUp, {
+  checkedAt: Date.now() - 2 * DAY,
+  nudgedAt: oldNudge,
+  tries: 3,
+});
 check(
-  "the state file records the try",
-  state(at100).tries === 1 && state(at100).nudgedAt > 0,
+  "a project the old map-nudge gave up on (tries 3) counts as asked: silent, askedAt set from its last nudge",
+  run(gaveUp).stdout === "" && state(gaveUp).askedAt === oldNudge,
+  JSON.stringify(state(gaveUp)),
 );
-const weekOn = () =>
-  setState(at100, {
-    ...state(at100),
-    checkedAt: Date.now() - 8 * DAY,
-    nudgedAt: Date.now() - 8 * DAY,
-  });
-weekOn();
+// Bytes read are capped in total: 120 files of one 90 KB line then 100 short lines hold 12,120 lines, but only
+// about 91 files fit in the first 8 MB read, about 9,100 lines
+const wide = project("wide", 120, {
+  text: "x".repeat(90 * 1024) + "\n".repeat(100),
+});
 check(
-  "a week later, still no map: a second try (a build can be killed or refused)",
-  /100 tracked code files/.test(context(run(at100))),
+  "lines past the first 8 MB read do not count (the count's reads are capped in total): silent",
+  run(wide).stdout === "",
 );
-weekOn();
-check(
-  "the third try",
-  /100 tracked code files/.test(context(run(at100))) &&
-    state(at100).tries === 3,
-);
-weekOn();
-check("after 3 tries: silent for good", run(at100).stdout === "");
 
 // ---- the count is looked at once a day
 const grows = project("grows", 99);
@@ -161,7 +185,7 @@ check(
   "99 files: silent, and the look is recorded",
   run(grows).stdout === "" && state(grows).checkedAt > 0,
 );
-write(grows.dir, "src/extra.js");
+write(grows.dir, "src/extra.js", "x\n".repeat(100));
 spawnSync("git", ["add", "-A"], { cwd: grows.dir });
 check(
   "one file more the same day: silent (looked at today already)",
@@ -169,8 +193,15 @@ check(
 );
 setState(grows, { checkedAt: Date.now() - 2 * DAY });
 check(
-  "a day later at 100: nudges",
+  "a day later at 100: asks",
   /100 tracked code files/.test(context(run(grows))),
+);
+setState(short, { ...state(short), checkedAt: Date.now() - 2 * DAY });
+write(short.dir, "src/more.js", "x\n".repeat(100));
+spawnSync("git", ["add", "-A"], { cwd: short.dir });
+check(
+  "150 files that grow to 10,000 lines: asks a day later",
+  /151 tracked code files/.test(context(run(short))),
 );
 
 // ---- not a git repo, other silences
@@ -216,7 +247,7 @@ check(
   }).stdout === "",
 );
 check(
-  "after all that, the same project still nudges once",
+  "after all that, the same project still asks once",
   /120 tracked code files/.test(context(run(off))),
 );
 
@@ -346,9 +377,10 @@ check(
   run(slight).stdout === "",
 );
 
-// ---- speed on a big repository: 3,000 code files. The prompt waits on the count, so it has a budget, timed in bare
-// node starts: other sessions share this computer and CI runs every core at once, which slows both sides alike.
-const bigp = project("big", 3000);
+// ---- speed on a big repository: 3,000 code files of one line each, so the line count never reaches 10,000 and
+// reads up to its cap. The prompt waits on the count, so it has a budget, timed in bare node starts: other sessions
+// share this computer and CI runs every core at once, which slows both sides alike.
+const bigp = project("big", 3000, { lines: 1 });
 const counting = nodeStarts(5, () => {
   fs.rmSync(bigp.state, { recursive: true, force: true });
   run(bigp);
@@ -361,7 +393,7 @@ check(
 const stamped = state(bigp).checkedAt;
 const skipped = run(bigp);
 check(
-  "a project nudged before skips the count (silent, its checkedAt not stamped again)",
+  "a project looked at today skips the count (silent, its checkedAt not stamped again)",
   skipped.stdout === "" && !!stamped && state(bigp).checkedAt === stamped,
   JSON.stringify(state(bigp)),
 );

@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 // repeat-guard: a PreToolUse hook that stops two kinds of looping inside one turn (a turn is everything
 // done since the user's last message). It reads the transcript backwards, in 2 MB chunks, until the
 // user's last message is found, so a long turn with big pictures is still seen
@@ -13,10 +11,9 @@ import path from "node:path";
 //      about to run is denied if it is that same tool with that same target, i.e. a retry. Any other
 //      call passes. The denial is a different error, so the next retry passes.
 //      One error earlier (the last two results the same error, the call about to run that same retry) the call passes with a
-//      note: find what both tries took for granted, else call the stuck-advisor agent. The note and the refusal name the
-//      advisor while its calls last (ADVISOR_CALLS a session, counted from the agent-run log's stuck-advisor lines for this
-//      session_id; AGENT_RUN_LOG_FILE moves that file), then fall back to asking the user in a form. In a subagent, which
-//      has no Agent tool, they say to report BLOCKED instead: the session decides.
+//      note: find what both tries took for granted. The note and the refusal end with the way out: ask the user in a
+//      form with the error text. In a subagent, which cannot ask the user, they say to report BLOCKED instead: the
+//      session decides.
 //   2. Same-file reminder (never refuses): the 6th edit of one file in a turn, or the 4th read of one
 //      file, goes through with a short reminder as additional context. Exactly at that count only.
 //   3. Same call (never refuses, from the retired loop-warn hook): the 5th identical call (same tool, same input)
@@ -24,6 +21,8 @@ import path from "node:path";
 //   4. Near the turn limit (never refuses): a helper isn't told its turn count, and one cut at its cap stops mid-work
 //      with no report. From the count in NEAR_CAP on (about 90% of the agent's cap), every call carries a note to
 //      finish and report. Reviewers read every changed file whole, so their count no longer depends on the brief.
+// --near-cap-only: only part 4 runs (helpers only; the main session gets nothing). For a setup that turns the
+//   refusals and reminders off but keeps helpers from being cut at their cap with no report.
 // Thresholds: REPEAT_GUARD_ERRORS (3), REPEAT_GUARD_EDITS (6), REPEAT_GUARD_READS (4), REPEAT_GUARD_SAME (5).
 // In a subagent (agent_id set) the hook still gets the main session's transcript_path; it reads the
 // subagent's own transcript instead (transcript_path when that is already agent-*.jsonl, else
@@ -51,14 +50,8 @@ const NEAR_CAP = {
   "worker-refactor": 70,
   reviewer: 54,
   "plan-reviewer": 36,
-  planner: 36,
-  "stuck-advisor": 18,
   "blind-reviewer": 27,
-}; // caps 80, 80, 80, 80, 60, 40, 40, 20, 30 in agents/
-const ADVISOR_CALLS = 3; // stuck-advisor calls a session (agents/stuck-advisor.md)
-const RUN_LOG =
-  process.env.AGENT_RUN_LOG_FILE ||
-  path.join(os.homedir(), ".claude", "state", "agent-runs.jsonl");
+}; // caps 80, 80, 80, 80, 60, 40, 30 in agents/
 
 const parts = (c) => (Array.isArray(c) ? c : []);
 const textOf = (c) =>
@@ -100,36 +93,11 @@ function nearCap(transcript, entries) {
   return `[repeat-guard] You have used ${turns} turns and are close to your limit. Finish the edit in hand, then stop and write your report: what is done, what is left and why. A helper cut at its limit returns nothing.`;
 }
 
-// stuck-advisor calls left in this session: the agent-run log has one line per helper launch, with its session and type
-function advisorCallsLeft(session) {
-  if (!session || !fs.existsSync(RUN_LOG)) return ADVISOR_CALLS;
-  const used = fs
-    .readFileSync(RUN_LOG, "utf8")
-    .split("\n")
-    .filter((l) => {
-      try {
-        const r = JSON.parse(l);
-        return (
-          r.session === session && r.type === "stuck-advisor" && r.description
-        );
-      } catch {
-        return false;
-      }
-    }).length;
-  return Math.max(0, ADVISOR_CALLS - used);
-}
-
-// The way out once retrying is ruled out: the advisor while calls last, then the user; a subagent reports BLOCKED
+// The way out once retrying is ruled out: the user decides; a subagent reports BLOCKED
 function wayOut(event) {
   if (event.agent_id)
     return "If no other approach is left, stop and end your report with BLOCKED and the error text: the session decides.";
-  const left = advisorCallsLeft(event.session_id);
-  if (!left)
-    return "If no other approach is left, ask the user in a form with options and include the error text (the stuck-advisor's calls for this session are used).";
-  return (
-    `If no other approach is left, call the stuck-advisor agent (${left} of ${ADVISOR_CALLS} calls left this session) with a brief of at most 300 words: ` +
-    "the goal, each try and why it failed, the exact error, up to 5 files with lines, the one question. Else ask the user in a form with options and include the error text."
-  );
+  return "If no other approach is left, ask the user in a form with options and include the error text.";
 }
 
 runHook("repeat-guard", (event) => {
@@ -137,6 +105,13 @@ runHook("repeat-guard", (event) => {
   if (event.agent_id && transcript)
     transcript = subagentPath(transcript, event.agent_id);
   if (!transcript || !fs.existsSync(transcript)) return;
+
+  if (process.argv.includes("--near-cap-only")) {
+    if (!event.agent_id) return;
+    const near = nearCap(transcript, readTurn(transcript, true));
+    if (near) emit.context("PreToolUse", near);
+    return;
+  }
 
   // The entries after the user's last typed message
   const entries = readTurn(transcript, !!event.agent_id);

@@ -18,7 +18,7 @@ The tool reports first and acts only on ledger items, re-checking each one just 
    - **The chat archive**, when the report shows the `Chats older than 60 days` line: its own question, yes recommended.
    Items marked `keep: ...` are not ticks. Name them once below the card with their reason; for one with files not committed, offer `git -C "<path>" status --short` so the user can look.
 3. **Act.** `$T --apply "<ledger>" --only <ids>`, ids comma-separated (a category name such as `scratch` takes the whole group). Each line says `removed`, `deleted`, `archived` or `skipped: <reason>`; pass the skipped ones on as they are.
-4. **Chat archive.** On yes: `$T --archive-on` (60 days). If it answers `not turned on`, Claude Code's own sweep comes first: give the user its line and the `--days` it offers. On no: `$T --archive-off`. Once on, the update and the pc-tidy-nudge hook (every 3 days) archive by themselves.
+4. **Chat archive.** On yes: `$T --archive-on` (60 days). If it answers `not turned on`, Claude Code's own sweep comes first: give the user its line and the `--days` it offers. On no: `$T --archive-off`. Once on, the update archives by itself.
 5. **Tell the user**: what was freed, the total, what was kept and why, and for a removed `_worktrees` item the reminder to archive it in Nimbalyst too. The `In other apps` lines are clicks only the user makes (Nimbalyst Settings > Application > Database): give them as text.
 
 ## The chat archive

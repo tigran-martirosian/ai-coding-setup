@@ -16,12 +16,10 @@ import fs from "node:fs";
 // that message sent again, it adds a note to answer the earlier message too.
 // After an interrupted turn (an interrupted tool call or "[Request interrupted"), when the user's next typed
 // message says to stop ("stop", "I stopped you", "halt", "pause", "hold on", "don't build/start/run ...", "no more")
-// and has no go word, the turn answers and starts no work: UserPromptSubmit adds a [stop] note, and PreToolUse
-// (Agent, Task, Edit, Write, MultiEdit, NotebookEdit, spawn_session, send_prompt) refuses those calls until a typed
-// message says to go on or to start ("go", "start", "continue", "do it", "yes", ...; not "do not continue").
-// Read, Grep, Glob and Bash still run. The same interrupted result comes from a message sent mid-turn and from an
-// app restart, so a message with no stop words (a correction, a new ask) holds nothing. Form answers and turns
-// the app starts neither set nor lift the hold.
+// and has no go word ("go", "start", "continue", "do it", "yes", ...; not "do not continue"), UserPromptSubmit adds a
+// [stop] note: the turn answers and starts no work. The same interrupted result comes from a message sent mid-turn
+// and from an app restart, so a message with no stop words (a correction, a new ask) holds nothing. Form answers and
+// turns the app starts neither set nor lift the hold. (Its PreToolUse refusal of work calls was cut, plan 2.8.)
 // System events (background-task notices, "[System: ...]", "[Child Session Update]") are not typed
 // messages, so "No response requested." stays allowed there. Subagents (agent_id) are skipped.
 // Fails open. NO_RESPONSE_GATE=off disables it.
@@ -272,8 +270,6 @@ const saysGo = (s) =>
       ),
   );
 const holds = (text) => STOP_WORDS.test(text) && !saysGo(text);
-const WORK =
-  /^(Agent|Task|Edit|Write|MultiEdit|NotebookEdit)$|(spawn_session|send_prompt)$/;
 // Each tool result's text (a string, or its text blocks)
 const results = (e) =>
   Array.isArray(e.message?.content)
@@ -349,12 +345,7 @@ if (isMain(import.meta.url)) {
       }
       // One output: two JSON objects on stdout would not parse
       if (notes.length) emit.context("UserPromptSubmit", notes.join("\n"));
-    } else if (input.hook_event_name === "PreToolUse") {
-      if (WORK.test(input.tool_name || "") && stillStopped(entries))
-        emit.deny(
-          "[stop] The user stopped your last turn and has not said to go on, so this call did not run. Answer their message and end the turn; when they say go, start again from what is left.",
-        );
-    } else if (!input.stop_hook_active) {
+    } else if (input.hook_event_name === "Stop" && !input.stop_hook_active) {
       const reason = stopVerdict(entries, input.last_assistant_message);
       if (reason) emit.block(reason);
     }

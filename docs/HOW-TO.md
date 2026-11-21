@@ -13,9 +13,7 @@ unless you chose another one). The copy of this page the installer puts into
 You need Node.js 18 or newer and Claude Code. Codex (for the picture skill), Nimbalyst and Handy (voice typing)
 are optional, and the installer does not install them. It does install the `claude-hud` plugin and
 the `find-skills` skill, unless you add `--plugins no`, and it
-adds the Claude Code settings. It also downloads Obscura, a headless browser that reads web pages
-when Nimbalyst's browser can't (about 70 MB, one fixed version whose checksum it checks), into
-`~/.claude/obscura`, unless you add `--obscura no`. To have the optional programs put in place too, on Windows or a Mac, use
+adds the Claude Code settings. To have the optional programs put in place too, on Windows or a Mac, use
 [full-install.md](full-install.md) instead (its Mac steps have not been run on a real Mac).
 
 Download the repository as a zip from its GitHub page (the green **Code** button, then **Download
@@ -44,7 +42,6 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 | `--replace <name>` | Take the setup's version of one file the run listed under `Kept as yours`, for example `--replace hooks/sql-guard.mjs`. Can be given several times. |
 | `--replace-all` | Take the setup's version of every file listed there. For a computer whose old setup you don't want to keep. |
 | `--extensions no` | Leave the Nimbalyst extensions out. Without it they are built and put into Nimbalyst when Nimbalyst is installed. |
-| `--obscura no` | Leave Obscura out. A no is remembered; `--obscura yes` adds it later. |
 | `--dry-run` | Print what it would do and change nothing. |
 
 - **Nothing of yours is lost.** A file the installer replaces is kept, as it was, in
@@ -124,11 +121,6 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **Reading back while Claude works.** Scroll up in the chat and it stays there while new text
   arrives (also from the `agents-panel` extension). Scroll back to the end, press the round arrow at
   the bottom, or send a message, and it follows the newest text again.
-- **Big files.** `big-read-gate` cuts a Read of a file over 350 lines or about 80 KB to a part (120 lines, or the asked range up to what fits),
-  so Claude reads the part it needs. To move the limits, set `BIG_READ_MAX_LINES`
-  (default 350) and `BIG_READ_MAX_BYTES` (default 80000) in the environment. A file you name in your
-  own message is let through once. A Word, PowerPoint or Excel file is turned into Markdown first
-  (with `uvx`, when it is installed) and read from that.
 - **A second opinion from a capped helper.**
   Before building from a design or a plan, say "get a second opinion on this". A `worker`
   subagent (about 15 tool calls) reads it and answers, and its answer is checked.
@@ -153,10 +145,9 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   chose, and stays on it: the rules don't steer you to another
   model and Claude doesn't ask to switch. In the terminal that is `"model"` in
   `~/.claude/settings.json`; in Nimbalyst it is the model you picked last in the model picker.
-- Helpers keep their own model, whichever model you chat on: workers run Opus at medium effort (a `worker-code` helper
-  writes code on Opus at high effort; a worker that reads charts or does science or maths runs Fable at medium), a `worker-refactor` helper takes only long refactors, on Fable at
-  high effort, and the planner and the reviewers run Fable at high effort. A Fable advisor for the session is off unless you turn it on (`/advisor fable`; `/advisor off` turns it off).
-  Only mechanical bulk work (renames, bulk edits, scans) goes to a Sonnet helper.
+- Helpers keep their own model, whichever model you chat on: workers run Sonnet at medium effort (a `worker-code` helper
+  writes code on Opus at high effort, and so does a `worker-full` helper that needs a skill or an MCP tool; a worker that reads charts or does science or maths runs Fable at medium), a `worker-refactor` helper takes only long refactors, on Fable at
+  high effort, the plan reviewer and the end reviewer run Fable at high effort, and the blind reviewer runs Opus at medium effort. On the $20 Pro plan the installer sets these Fable helpers to Opus. A Fable advisor for the session is off unless you turn it on (`/advisor fable`; `/advisor off` turns it off).
 - Both side-work folders start on Opus by themselves: `quick-tasks` and `claude-settings`. An older install had
   `quick-tasks` on Sonnet; an update moves it to Opus once and says so. To keep Sonnet there:
   `/update-setup --keep-home-model` (your global model is not touched).
@@ -177,7 +168,7 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
 - **`/disk-tidy`: the disk is full or low.** It lists what takes the space (leftover worktrees, old
   chat logs, scratch and temp folders, old project copies) and removes only what you tick; work not
   committed is kept. Say yes to the chat archive and chats older than 60 days move to
-  `~/.claude-archive/chats` every 3 days. To keep one project's chats forever:
+  `~/.claude-archive/chats` at each update of the setup. To keep one project's chats forever:
   `node ~/.claude/workers/disk-tidy.mjs --keep-forever "<project folder>"`. To get one back:
   `--archive-list --project <word>`, then `--restore <id>`, before `/resume`.
 - **`/file-upkeep`: a project's files are named and placed every which way.** It checks them
@@ -224,7 +215,8 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   (`~/.claude/.credentials.json`) and asks api.anthropic.com for the plan percentages every 5
   minutes; the login goes to Anthropic only and is not written to the log. To turn it off, set
   `PLAN_USAGE_LOGGER=off` in the environment. On a Mac the login is in the Keychain, not in that file, so the forecast stays empty.
-- **`/setup-audit usage`:** the detailed numbers, saved as a file.
+- **`/usage`** (Claude Code's own command): where the tokens went in the last 24 hours and 7 days, by
+  skill, helper and MCP server. `/setup-audit usage` points to it.
 
 ## The two folders for side work
 
@@ -248,8 +240,8 @@ something unrelated inside another project, Claude names the right folder and op
 - In a search, every link in the answer is a page Claude opened: a hook in this folder blocks a reply
   with a link that was not opened. What it found is saved in the folder's `finds`.
 - The pages are read through Nimbalyst's built-in browser, with your sign-ins. When Nimbalyst's
-  browser can't be reached, they are read with Obscura, a headless browser the installer adds:
-  signed out, so a page that needs your sign-in doesn't open there.
+  browser can't be reached, the read stops and names `~/.claude/workers/read-page.mjs`, which reads
+  a public page instead: signed out, so a page that needs your sign-in doesn't open there.
 - **One-off file jobs.** "Convert this file", "rename these files", "split this document", a quick script. Each job gets
   its own dated folder and works on copies, so your originals stay as they are.
 - **Older installs** had two more folders, `ask-anything` and `internet-search`. An update copies
@@ -272,6 +264,6 @@ something unrelated inside another project, Claude names the right folder and op
 ## What the rules take care of
 
 - Runs and checks things itself, and does not ask you to run a command it can run.
-- Sends big reading and searching to a helper (a capped `worker` subagent on Opus, `worker-code` on Opus at high for code, or Fable for charts, science and maths), and keeps the thinking
+- Sends big reading and searching to a helper (a capped `worker` subagent on Sonnet, `worker-code` on Opus at high for code, or Fable for charts, science and maths), and keeps the thinking
   in the chat you are in.
 - Marks finished chats Complete on the board.

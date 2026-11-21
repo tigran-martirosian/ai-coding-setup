@@ -725,7 +725,7 @@ function pick(id) {
   state.open = new Set(OPEN_AT_START);
   state.doneAll = false;
   state.stale = true;
-  run();
+  drawNow();
 }
 
 function setPicker(open) {
@@ -733,13 +733,13 @@ function setPicker(open) {
   state.pickerOpen = open;
   state.pickerFade = open;
   state.moreFinished = false;
-  run();
+  drawNow();
 }
 
 function showMoreFinished() {
   if (!state) return;
   state.moreFinished = true;
-  run();
+  drawNow();
 }
 
 /** A click on a fold's heading opens or closes it. */
@@ -747,13 +747,13 @@ function toggleFold(key) {
   if (!state) return;
   if (state.open.has(key)) state.open.delete(key);
   else state.open.add(key);
-  run();
+  drawNow();
 }
 
 function showAllDone() {
   if (!state) return;
   state.doneAll = true;
-  run();
+  drawNow();
 }
 
 /**
@@ -779,7 +779,7 @@ async function markDone(itemId) {
     state.stale = true;
   }
   state.changes += 1;
-  run();
+  drawNow();
 }
 
 /** Opens the item view (one-page proofs, "Opening an item"). */
@@ -818,7 +818,7 @@ function openSession(sessionId) {
   if (row) {
     if (!chatShown(window)) setChatShown(true);
     row.click();
-    run();
+    drawNow();
     return;
   }
   window.dispatchEvent(
@@ -831,7 +831,7 @@ function openSession(sessionId) {
 /** The Chat button: the user's choice is kept, and the next draw moves the column home or onto the page. */
 function toggleChat(show) {
   setChatShown(show);
-  run();
+  drawNow();
 }
 
 async function sync() {
@@ -856,6 +856,32 @@ async function sync() {
   } catch (e) {
     if (state) showError(page, e);
     throw e;
+  }
+}
+
+/**
+ * A click that changes only what the page shows (the picker, a pick, a fold, the chat, a Mark done) is drawn at once
+ * from the data already read, not after the read under way: the app's session list can take 20 s, and running
+ * sessions keep asking for new reads, so a click waited minutes and the page looked dead (2026-11-19). The read
+ * under way runs on, and one more follows it.
+ */
+function drawNow() {
+  if (!state) return;
+  if (!state.busy || !state.items) {
+    run();
+    return;
+  }
+  state.again = true;
+  const page = trackerPage(document);
+  if (!page) return;
+  try {
+    if (drawPage(page)) {
+      hideLeft();
+      showChat(document, page, state.chat, STRINGS);
+      placeItem(document, page, state.item, state.back);
+    }
+  } catch (e) {
+    console.error(e);
   }
 }
 

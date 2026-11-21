@@ -22,10 +22,13 @@ export const CONTENT_POLICY =
   "media-src 'self' blob:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; " +
   "frame-ancestors https://web.telegram.org";
 
+// Strict-Transport-Security: browsers keep to https for two years (the deploy's live probe checks it); over the
+// local relay's plain http they ignore it.
 export const PAGE_HEADERS = {
   "Content-Security-Policy": CONTENT_POLICY,
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
+  "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
 };
 
 const TYPES = {

@@ -12,7 +12,7 @@ before the scan.
 ## 1. Scan
 
 `node $S/chat-scan.mjs` (with `--days <N>` or `--project <name>` when the user gave one; the
-default is 14 days and the 4 busiest projects). It prints one line per project and writes one
+default is 14 days and every project with 10 or more requests, at most 8). It prints one line per project and writes one
 digest per project to `~/.claude/reports/chat-review/<date>/`. Never read the chat records yourself.
 
 Then read the "Decided" table of the newest `~/.claude/reports/chat-review/findings-*.md`, if there

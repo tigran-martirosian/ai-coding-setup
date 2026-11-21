@@ -71,14 +71,18 @@ export async function sendNote(
   home: string,
   invoke: Invoke,
   files: Attachment[] = [],
+  // the start of the note file's name: each sender has its own, so two of them never share a file
+  tag = "button-note",
 ): Promise<Outcome> {
+  if (!/^[A-Za-z0-9_-]+$/.test(tag))
+    throw new Error(`sendNote: the file tag "${tag}" goes into a command line`);
   const note = withFiles(text, files);
   if (!note) return { ok: false, message: t.note.typeFirst };
   // the id goes into a shell command line
   if (!/^[A-Za-z0-9_-]+$/.test(sessionId))
     return { ok: false, message: t.note.oddId };
   // one file per session: two chat boxes sending at once must not read each other's note
-  const file = `${home}/.claude/steer/button-note-${sessionId}.txt`;
+  const file = `${home}/.claude/steer/${tag}-${sessionId}.txt`;
   try {
     await invoke("extensions:write-file", file, note);
     // --nowait comes after the "-": a steer.mjs too old to know it must still read the note from the file

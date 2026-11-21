@@ -29,7 +29,7 @@ happen here.
   `audits/`; scratch and test output in the temp folder, deleted after the run; no copies beside a file.
 - **A new tool:** look up what it does and what it costs in every session first. Turn it on for the
   one project that needs it, not globally, unless most sessions need it.
-- **Reports:** `/setup-audit` (is the setup working), `/setup-audit usage` (where the tokens went),
+- **Reports:** `/setup-audit` (is the setup working, the monthly health audit), Claude Code's `/usage` (where the tokens went),
   `/setup-audit scan` (one project's setup).
 - **How to use the setup:** `how-to.md` here, with an example for each feature.
 

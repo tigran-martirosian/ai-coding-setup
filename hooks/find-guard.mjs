@@ -8,8 +8,8 @@
 // `grep -r`, `dir /s`, `where /r` and `ls -R` have no depth option, so from a root or home they are always refused.
 // A folder below home (~/Projects, C:/Users/<name>/AppData) is named, so it passes.
 // Quoted text, heredoc and here-string bodies are not commands: `echo "find /"` passes. A search inside
-// `bash -c "..."`, `cmd /c "..."` or `powershell -Command "..."` is read as a command. Fails open. FIND_GUARD=off
-// disables it.
+// `bash -c "..."`, `cmd /c "..."` or `powershell -Command "..."` is read as a command. Fails closed (wired with
+// onFailure "block"). FIND_GUARD=off disables it.
 import { emit, runHook } from "./lib/hook-io.mjs";
 
 const MAX_DEPTH = 3;
@@ -194,17 +194,21 @@ function wideSearch([name, ...args], powershell) {
   return null;
 }
 
-runHook("find-guard", (event) => {
-  if (!["Bash", "PowerShell"].includes(event.tool_name)) return;
-  const powershell = event.tool_name === "PowerShell";
-  for (const words of commands(
-    String((event.tool_input || {}).command ?? ""),
-  )) {
-    const folder = wideSearch(words, words.ps ?? powershell);
-    if (folder === null) continue;
-    emit.deny(
-      `[find-guard] Refused: \`${words[0]}\` here searches all of ${folder}, every folder below a drive root or the home folder. That runs for minutes and floods the conversation. Search the project folder, or name the folder that holds what you look for (~/.claude, ~/Projects/<name>, C:/Program Files/<program>). To see what is near the top, limit the depth to ${MAX_DEPTH} or less (find -maxdepth ${MAX_DEPTH}, rg --max-depth ${MAX_DEPTH}, Get-ChildItem -Depth ${MAX_DEPTH}). A program's install folder: ask \`where\` / \`which\` / \`Get-Command\` first.`,
-    );
-    return;
-  }
-});
+runHook(
+  "find-guard",
+  (event) => {
+    if (!["Bash", "PowerShell"].includes(event.tool_name)) return;
+    const powershell = event.tool_name === "PowerShell";
+    for (const words of commands(
+      String((event.tool_input || {}).command ?? ""),
+    )) {
+      const folder = wideSearch(words, words.ps ?? powershell);
+      if (folder === null) continue;
+      emit.deny(
+        `[find-guard] Refused: \`${words[0]}\` here searches all of ${folder}, every folder below a drive root or the home folder. That runs for minutes and floods the conversation. Search the project folder, or name the folder that holds what you look for (~/.claude, ~/Projects/<name>, C:/Program Files/<program>). To see what is near the top, limit the depth to ${MAX_DEPTH} or less (find -maxdepth ${MAX_DEPTH}, rg --max-depth ${MAX_DEPTH}, Get-ChildItem -Depth ${MAX_DEPTH}). A program's install folder: ask \`where\` / \`which\` / \`Get-Command\` first.`,
+      );
+      return;
+    }
+  },
+  { failClosed: true },
+);

@@ -408,6 +408,60 @@ ok(
   );
   fs.rmSync(upd, { recursive: true, force: true });
 }
+{
+  // the pointer to what is new: an installer with docs/whats-new.md beside it (a copy of this repository) names
+  // that file when the first two numbers of the version rose from the one on record, and only then
+  const copy = path.join(tmp, "whats-new-repo");
+  fs.cpSync(REPO, copy, {
+    recursive: true,
+    filter: (src) =>
+      ![".git", "node_modules", "promo", "dist", "img"].includes(
+        path.basename(src),
+      ),
+  });
+  const doc = path.join(copy, "docs", "whats-new.md");
+  fs.writeFileSync(doc, "# What is new\n");
+  const now = json(path.join(REPO, "version.json")).version;
+  const [major, middle] = now.split(".").map(Number);
+  const line = `What is new in ${now}: ${doc.replace(/\\/g, "/")}`;
+  const from = (version, withDoc = true) => {
+    const upd = path.join(tmp, "whats-new-home");
+    fs.rmSync(upd, { recursive: true, force: true });
+    if (version) {
+      fs.cpSync(home, upd, { recursive: true });
+      const st = path.join(upd, ".claude", "setup-state.json");
+      fs.writeFileSync(st, JSON.stringify({ ...json(st), version }));
+    }
+    if (!withDoc) fs.rmSync(doc);
+    const r = spawnSync(
+      process.execPath,
+      [path.join(copy, "install.mjs"), "--home", upd],
+      {
+        encoding: "utf8",
+        env: { ...process.env, PATH: emptyPath, Path: emptyPath },
+      },
+    );
+    if (!withDoc) fs.writeFileSync(doc, "# What is new\n");
+    return [r.status, r.stdout.split(/\r?\n/).filter((l) => l === line).length];
+  };
+  ok(
+    "an update from a lower middle number prints the What is new line once; the same middle number, a first install or no whats-new.md print none",
+    [
+      from(`${major}.${middle - 1}.9`),
+      from(`${major - 1}.9`),
+      from(`${major}.${middle}.0`),
+      from(null),
+      from(`${major}.${middle - 1}.9`, false),
+    ],
+    [
+      [0, 1],
+      [0, 1],
+      [0, 0],
+      [0, 0],
+      [0, 0],
+    ],
+  );
+}
 for (const [own, gone] of [
   ["fable", true],
   ["opus", false],
@@ -476,22 +530,19 @@ const failClosed = Object.values(settings.hooks)
   .map((h) => [h.command.match(/([\w-]+\.mjs)"/)[1], h.if || "", h.onFailure])
   .map((e) => JSON.stringify(e))
   .sort();
+// planner-readonly is not in the settings (cut by plan 2.8): the agents run it from their own frontmatter.
+// delete-guard, find-guard and sql-guard run in the pre-tool group, so its dispatcher entry blocks (spec D14).
+// job 9 D9: push-key-scan moved into the pre-tool group too, so its two `if` entries are gone from this list.
 ok(
-  "push-key-scan, opencli-readonly and planner-readonly, and only they, block when they fail",
+  "the guards, and only they, block when they fail: opencli-readonly and the pre-tool dispatcher",
   failClosed,
   [
-    ["push-key-scan.mjs", "Bash(*push*)"],
-    ["push-key-scan.mjs", "PowerShell(*push*)"],
+    ["dispatch.mjs", ""],
     ["opencli-readonly.mjs", "Bash(*opencli*)"],
     ["opencli-readonly.mjs", "PowerShell(*opencli*)"],
-    ["planner-readonly.mjs", ""],
   ]
     .map((e) => JSON.stringify([...e, "block"]))
     .sort(),
-);
-ok(
-  "the handoff hook keeps its --hook argument",
-  commands.some((c) => /handoff-brief\.mjs" --hook$/.test(c)),
 );
 
 // ---- the rules and the project folders, without Codex
@@ -1224,25 +1275,25 @@ ok(
 
 // ---- a hook of the setup's that an older copy wired from another place in ~/.claude is pointed at the installed one
 const moved = path.join(tmp, "moved");
-fs.mkdirSync(path.join(moved, ".claude", "skills", "handoff"), {
+fs.mkdirSync(path.join(moved, ".claude", "skills", "old"), {
   recursive: true,
 });
-const oldBrief = fwd(
-  path.join(moved, ".claude", "skills", "handoff", "handoff-brief.mjs"),
+const oldGate = fwd(
+  path.join(moved, ".claude", "skills", "old", "link-gate.mjs"),
 );
-fs.writeFileSync(oldBrief, "// old\n");
-const briefEvent = Object.keys(example.hooks).find((e) =>
-  JSON.stringify(example.hooks[e]).includes("handoff-brief.mjs"),
+fs.writeFileSync(oldGate, "// old\n");
+const gateEvent = Object.keys(example.hooks).find((e) =>
+  JSON.stringify(example.hooks[e]).includes("hooks/link-gate.mjs"),
 );
 fs.writeFileSync(
   path.join(moved, ".claude", "settings.json"),
   JSON.stringify({
     hooks: {
-      [briefEvent]: [
+      [gateEvent]: [
         {
           hooks: [
-            { type: "command", command: `"node.exe" "${oldBrief}" --hook` },
-            { type: "command", command: "node /elsewhere/context-guard.mjs" },
+            { type: "command", command: `"node.exe" "${oldGate}"` },
+            { type: "command", command: "node /elsewhere/file-link-gate.mjs" },
           ],
         },
       ],
@@ -1256,14 +1307,12 @@ const movedCmds = commandsIn(
 ok(
   "a hook wired from an older place in ~/.claude is pointed at the installed copy, and a script elsewhere is left alone",
   [
-    movedCmds.filter((c) => c.includes("handoff-brief.mjs")),
-    movedCmds.includes("node /elsewhere/context-guard.mjs"),
-    movedRun.out.includes(`hook repointed: ${briefEvent} handoff-brief.mjs`),
+    movedCmds.filter((c) => /\/link-gate\.mjs/.test(c)),
+    movedCmds.includes("node /elsewhere/file-link-gate.mjs"),
+    movedRun.out.includes(`hook repointed: ${gateEvent} link-gate.mjs`),
   ],
   [
-    [
-      `node "${fwd(path.join(moved, ".claude", "hooks", "handoff-brief.mjs"))}" --hook`,
-    ],
+    [`node "${fwd(path.join(moved, ".claude", "hooks", "link-gate.mjs"))}"`],
     true,
     true,
   ],
@@ -2004,9 +2053,11 @@ ok(
 );
 
 // ---- the newer gates: an old settings file ends with each entry once, a second run adds nothing, --uninstall takes them out
-// The five scripts as wired (web-worker-gate is retired: none of its entries may stay), each as [event, matcher, if, script and its arguments]
+// The five scripts and the dispatcher as wired (web-worker-gate and code-review-gate are retired, the second cut by
+// plan 2.8: none of their entries may stay; verify-gate runs in the dispatcher's pre-tool and stop groups), each as
+// [event, matcher, if, script and its arguments]
 const GATES =
-  /^(verify-gate|code-review-gate|nimbalyst-notes|opencli-readonly|web-worker-gate)\.mjs/;
+  /^(verify-gate|code-review-gate|nimbalyst-notes|opencli-readonly|web-worker-gate|dispatch)\.mjs/;
 const gateShape = (s) =>
   Object.entries(s.hooks || {})
     .flatMap(([event, groups]) =>
@@ -2080,18 +2131,11 @@ const wiredRun = install(friend);
 const friendSettings = () =>
   json(path.join(friend, ".claude", "settings.json"));
 const WANT = [
-  ["SessionStart", "", "", "code-review-gate.mjs"],
-  ["SessionStart", "", "", "code-review-gate.mjs --start"],
   ["SessionStart", "", "", "nimbalyst-notes.mjs"],
-  ["Stop", "", "", "code-review-gate.mjs"],
-  ["Stop", "", "", "verify-gate.mjs"],
-  ["PreToolUse", "Bash|PowerShell", "", "code-review-gate.mjs --pre"],
-  [
-    "PreToolUse",
-    "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal",
-    "",
-    "verify-gate.mjs --pre",
-  ],
+  // verify-gate plain and --pre: in the stop and pre-tool groups
+  ["Stop", "", "", "dispatch.mjs stop"],
+  ["PreToolUse", "", "", "dispatch.mjs pre-tool"],
+  ["UserPromptSubmit", "", "", "dispatch.mjs prompt"],
   ["PreToolUse", "Bash|PowerShell", "", "opencli-readonly.mjs"], // the user's own, from another folder
   ["PreToolUse", "Bash|PowerShell", "Bash(*opencli*)", "opencli-readonly.mjs"],
   [
@@ -2104,7 +2148,7 @@ const WANT = [
   .map((e) => JSON.stringify(e))
   .sort();
 ok(
-  "an old settings file gets each newer entry once: --start, --pre and the plain one stay apart, the old unguarded handler is replaced, the retired web-worker-gate goes",
+  "an old settings file gets each newer entry once: one dispatcher entry per group, the old unguarded handler is replaced, the retired web-worker-gate and code-review-gate go",
   gateShape(friendSettings()),
   WANT,
 );
@@ -2131,13 +2175,64 @@ fs.writeFileSync(
     },
   }),
 );
-install(quiet);
+const quietRun = install(quiet);
+// spec D18: no hook wired twice; steer and session-cleanup have side effects if run twice. So an entry the user
+// added a redirect to goes too, once its hook runs in a group, and the update says its output is no longer hidden.
 ok(
-  "a hook the user added a redirect to is not wired a second time",
-  json(path.join(quiet, ".claude", "settings.json"))
-    .hooks.Stop.flatMap((g) => g.hooks)
-    .filter((h) => h.command.includes("verify-gate.mjs")).length,
-  1,
+  "a hook the user added a redirect to is not wired a second time: its own entry goes, the stop group runs it",
+  [
+    json(path.join(quiet, ".claude", "settings.json"))
+      .hooks.Stop.flatMap((g) => g.hooks)
+      .filter((h) => h.command.includes("verify-gate.mjs")).length,
+    /hook moved: Stop verify-gate\.mjs \(now run by dispatch\.mjs stop.*no longer hidden/.test(
+      quietRun.out,
+    ),
+  ],
+  [0, true],
+);
+// The dispatcher runs the groups file in ~/.claude, which an update keeps when the user changed it: a hook that
+// file no longer lists in a group keeps its own entry, and the update says so
+const edited = path.join(tmp, "edited-groups");
+install(edited);
+const editedClaude = path.join(edited, ".claude");
+const editedGroupsFile = path.join(
+  editedClaude,
+  "hooks",
+  "dispatch-groups.json",
+);
+const editedGroups = json(editedGroupsFile);
+editedGroups["pre-tool"] = editedGroups["pre-tool"].filter(
+  (e) => e.hook !== "hooks/session-cleanup.mjs",
+);
+fs.writeFileSync(editedGroupsFile, JSON.stringify(editedGroups, null, 2));
+const editedSettingsFile = path.join(editedClaude, "settings.json");
+const editedSettings = json(editedSettingsFile);
+editedSettings.hooks.PreToolUse.push({
+  matcher: "Bash|PowerShell",
+  hooks: [
+    {
+      type: "command",
+      command: `node "${fwd(path.join(editedClaude, "hooks", "session-cleanup.mjs"))}"`,
+      timeout: 5,
+    },
+  ],
+});
+fs.writeFileSync(editedSettingsFile, JSON.stringify(editedSettings, null, 2));
+const editedRun = install(edited);
+ok(
+  "a hook the installed groups file no longer lists keeps its own entry, and the update says so",
+  [
+    json(editedGroupsFile)["pre-tool"].some(
+      (e) => e.hook === "hooks/session-cleanup.mjs",
+    ),
+    json(editedSettingsFile)
+      .hooks.PreToolUse.flatMap((g) => g.hooks)
+      .filter((h) => h.command.includes("session-cleanup.mjs")).length,
+    /hook kept: PreToolUse session-cleanup\.mjs .*dispatch-groups\.json/.test(
+      editedRun.out,
+    ),
+  ],
+  [false, 1, true],
 );
 ok(
   "the handlers with an `if` carry the timeout of the example",
@@ -2151,10 +2246,8 @@ ok(
   [
     [true, 15],
     [true, 15],
-    [true, 15],
-    [true, 15],
   ],
-); // opencli-readonly and push-key-scan, Bash and PowerShell each
+); // opencli-readonly, Bash and PowerShell (job 9 D9: push-key-scan's two moved into the pre-tool dispatcher)
 ok(
   "the run says it replaced the old handler and removed the retired one",
   [
@@ -2195,6 +2288,10 @@ ok(
 );
 
 // ---- guards wired before onFailure: an update makes them block on failure, a value the user set stays
+// (planner-readonly left the settings, cut by plan 2.8: the agents run it from their own frontmatter)
+// job 9 D9: this case used push-key-scan's Bash entry as the guard wired without onFailure; push-key-scan moved into
+// the pre-tool dispatcher, so opencli-readonly's Bash entry plays that part and its PowerShell entry keeps the
+// user's continue. It stays the one test of the onFailure update path.
 const guarded = path.join(tmp, "guards-before-onfailure");
 const guardCmd = (script) =>
   `node "${fwd(path.join(guarded, ".claude", "hooks", script))}"`;
@@ -2209,21 +2306,16 @@ fs.writeFileSync(
           hooks: [
             {
               type: "command",
-              if: "Bash(*push*)",
-              command: guardCmd("push-key-scan.mjs"),
-              timeout: 15,
-            },
-            {
-              type: "command",
               if: "Bash(*opencli*)",
               command: guardCmd("opencli-readonly.mjs"),
               timeout: 15,
-              onFailure: "continue",
             },
             {
               type: "command",
-              command: guardCmd("planner-readonly.mjs"),
-              timeout: 5,
+              if: "PowerShell(*opencli*)",
+              command: guardCmd("opencli-readonly.mjs"),
+              timeout: 15,
+              onFailure: "continue",
             },
           ],
         },
@@ -2235,9 +2327,7 @@ const guardRun = install(guarded);
 const guardFails = () =>
   json(path.join(guarded, ".claude", "settings.json"))
     .hooks.PreToolUse.flatMap((g) => g.hooks)
-    .filter((h) =>
-      /(push-key-scan|opencli-readonly|planner-readonly)\.mjs/.test(h.command),
-    )
+    .filter((h) => /opencli-readonly\.mjs/.test(h.command))
     .map(
       (h) =>
         `${h.command.match(/([\w-]+)\.mjs/)[1]} ${h.if || ""} ${h.onFailure}`,
@@ -2247,29 +2337,66 @@ ok(
   "an update sets onFailure block on the guards wired without it and keeps the user's continue",
   guardFails(),
   [
-    "opencli-readonly Bash(*opencli*) continue",
-    "opencli-readonly PowerShell(*opencli*) block",
-    "planner-readonly  block",
-    "push-key-scan Bash(*push*) block",
-    "push-key-scan PowerShell(*push*) block",
+    "opencli-readonly Bash(*opencli*) block",
+    "opencli-readonly PowerShell(*opencli*) continue",
   ],
 );
 ok(
-  "the run names the two guards it updated",
+  "the run names the guard it updated",
   (
     guardRun.out.match(
       /hook updated: PreToolUse [\w-]+\.mjs \(onFailure: block\)/g,
     ) || []
   ).sort(),
-  [
-    "hook updated: PreToolUse planner-readonly.mjs (onFailure: block)",
-    "hook updated: PreToolUse push-key-scan.mjs (onFailure: block)",
-  ],
+  ["hook updated: PreToolUse opencli-readonly.mjs (onFailure: block)"],
 );
 ok(
   "the run after it updates nothing",
   install(guarded).out.includes("hook updated"),
   false,
+);
+
+// job 9 D9: a settings.json from before push-key-scan moved into the pre-tool dispatcher still has its two standalone
+// `if` entries; the update takes them out through the dispatcher entry's group-member drop (scripts/wiring.mjs), not
+// through _setup.retiredEntries, so the push is scanned once, by the dispatcher
+const pushOld = path.join(tmp, "push-key-scan-standalone");
+const pushOldCmd = `node "${fwd(path.join(pushOld, ".claude", "hooks", "push-key-scan.mjs"))}"`;
+fs.mkdirSync(path.join(pushOld, ".claude"), { recursive: true });
+fs.writeFileSync(
+  path.join(pushOld, ".claude", "settings.json"),
+  JSON.stringify({
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Bash|PowerShell",
+          hooks: ["Bash(*push*)", "PowerShell(*push*)"].map((cond) => ({
+            type: "command",
+            if: cond,
+            command: pushOldCmd,
+            timeout: 15,
+            onFailure: "block",
+          })),
+        },
+      ],
+    },
+  }),
+);
+const pushOldRun = install(pushOld);
+ok(
+  "job 9 D9 an update drops the standalone push-key-scan entries, says it moved into dispatch.mjs pre-tool, and retiredEntries does not name it",
+  [
+    pushOldRun.code,
+    json(path.join(pushOld, ".claude", "settings.json"))
+      .hooks.PreToolUse.flatMap((g) => g.hooks)
+      .filter((h) => h.command.includes("push-key-scan.mjs")).length,
+    /hook moved: PreToolUse push-key-scan\.mjs \(now run by dispatch\.mjs pre-tool/.test(
+      pushOldRun.out,
+    ),
+    Object.values(example._setup?.retiredEntries ?? {})
+      .flat()
+      .some((n) => n.startsWith("push-key-scan")),
+  ],
+  [0, 0, true, false],
 );
 
 // ---- skills the setup retired go on an update, one line each; one the user changed stays and is named
@@ -2387,6 +2514,24 @@ ok(
     ),
   ],
   [false, true],
+);
+// The hooks cut: a cut hook and the two libraries that moved out of hooks/lib/ (to skills/update-project/ and
+// scripts/) go on an update, as files an earlier version wrote and this one no longer ships
+const libGoneHooks = path.join(retiredHome, ".claude", "hooks");
+const libGoneFiles = [
+  path.join(libGoneHooks, "lib", "upkeep-checks.mjs"),
+  path.join(libGoneHooks, "lib", "commit-subject.mjs"),
+  path.join(libGoneHooks, "context-guard.mjs"),
+];
+for (const f of libGoneFiles) recordAs(retiredHome, f, "an older hook file");
+const libGoneRun = install(retiredHome);
+ok(
+  "an update removes the moved hooks/lib files and a cut hook, naming each",
+  libGoneFiles.flatMap((f) => [
+    fs.existsSync(f),
+    libGoneRun.out.includes(`removed ${fwd(f)} (no longer part of the setup)`),
+  ]),
+  [false, true, false, true, false, true],
 );
 
 // ---- the retired add-on /shared-usage: its files go on an update, a changed one stays and is named, and the
@@ -2913,6 +3058,17 @@ ok(
   ],
   ["opus", { "quick-tasks": "moved" }, true, true],
 );
+{
+  // scripts/setup-state.mjs names every field of setup-state.json (STATE_KEYS)
+  const { STATE_KEYS } = await import(
+    pathToFileURL(path.join(REPO, "scripts", "setup-state.mjs")).href
+  );
+  ok(
+    "every field install.mjs writes to setup-state.json (homeModel, boardTidyKeep too) is listed in STATE_KEYS",
+    Object.keys(json(olState)).filter((k) => !STATE_KEYS.includes(k)),
+    [],
+  );
+}
 const olAfter = snap(olp);
 const olAgain = install(oldLayout);
 ok(
@@ -3392,6 +3548,589 @@ ok(
   ],
   [0, 0, MINE_STOP],
 );
+
+// ---- D18 (spec docs/2026-11-20-hooks-cut-spec.md): a home wired from the example as it was before the hooks cut
+// (frozen below: CI clones the repo shallow, so the old example can't be read from git), updated by the current
+// installer, has no hook wired twice and none of the cut or moved entries left. "Wired" reads the settings together
+// with the home's hooks/dispatch-groups.json: an entry `hooks/dispatch.mjs <group>` runs every hook of that group.
+// The example's 80 hook entries before the cut: [event, matcher, if, script and its arguments, timeout, more]
+const OLD_EXAMPLE = [
+  ["SessionStart", "", "", "hooks/transcript-check.mjs", 5],
+  ["SessionStart", "", "", "hooks/patch-next.mjs", 5],
+  ["SessionStart", "", "", "hooks/code-review-gate.mjs --start", 10],
+  ["SessionStart", "", "", "hooks/nimbalyst-notes.mjs", 5],
+  ["SessionStart", "", "", "hooks/experiment-alert.mjs", 5],
+  ["SessionStart", "", "", "hooks/session-cleanup.mjs", 5],
+  ["SessionStart", "", "", "hooks/recheck-dates.mjs", 5],
+  [
+    "PreToolUse",
+    "Bash|PowerShell|Agent|Task",
+    "",
+    "hooks/background-tasks.mjs",
+    5,
+  ],
+  ["PreToolUse", "Agent|Task", "", "hooks/agent-run-log.mjs", 5],
+  [
+    "PreToolUse",
+    "Agent|Task|Edit|Write|MultiEdit|NotebookEdit|mcp__nimbalyst-host__spawn_session|mcp__nimbalyst-host__send_prompt",
+    "",
+    "hooks/no-response-gate.mjs",
+    10,
+  ],
+  ["PreToolUse", "*", "", "hooks/worker-size.mjs", 5],
+  ["PreToolUse", "Read|Bash|PowerShell", "", "hooks/big-read-gate.mjs", 10],
+  ["PreToolUse", "Agent|Task", "", "hooks/budget-gate.mjs", 10],
+  ["PreToolUse", "Agent|Task", "", "hooks/map-brief.mjs", 10],
+  ["PreToolUse", "Agent|Task", "", "hooks/serves-brief.mjs", 10],
+  [
+    "PreToolUse",
+    "Agent|Task|Write|mcp__nimbalyst-host__spawn_session|mcp__nimbalyst-host__create_session|mcp__nimbalyst-host__send_prompt",
+    "",
+    "hooks/decided-quote.mjs",
+    10,
+  ],
+  [
+    "PreToolUse",
+    "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion|AskUserQuestion",
+    "",
+    "hooks/question-other.mjs",
+    5,
+  ],
+  [
+    "PreToolUse",
+    "mcp__nimbalyst__display_to_user",
+    "",
+    "hooks/picture-in-project.mjs",
+    5,
+  ],
+  [
+    "PreToolUse",
+    "mcp__nimbalyst-browser__browser_open_session",
+    "",
+    "hooks/browser-visible-gate.mjs",
+    5,
+  ],
+  [
+    "PreToolUse",
+    "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch|mcp__.*",
+    "",
+    "hooks/repeat-guard.mjs",
+    5,
+  ],
+  [
+    "PreToolUse",
+    "Bash|Agent|Task|mcp__nimbalyst__developer_git_commit_proposal",
+    "",
+    "hooks/job-done.mjs",
+    5,
+  ],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/code-review-gate.mjs --pre", 15],
+  [
+    "PreToolUse",
+    "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal",
+    "",
+    "hooks/verify-gate.mjs --pre",
+    15,
+  ],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/command-explain.mjs", 5],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/sql-guard.mjs", 5],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/delete-guard.mjs", 5],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/long-sleep-guard.mjs", 5],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/find-guard.mjs", 5],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/download-guard.mjs", 10],
+  // job 9 D9: push-key-scan's two `if` entries stay here (this is the old example); the update must move them into
+  // the pre-tool group (D18_GROUPS below)
+  [
+    "PreToolUse",
+    "Bash|PowerShell",
+    "Bash(*push*)",
+    "hooks/push-key-scan.mjs",
+    15,
+    { onFailure: "block" },
+  ],
+  [
+    "PreToolUse",
+    "Bash|PowerShell",
+    "PowerShell(*push*)",
+    "hooks/push-key-scan.mjs",
+    15,
+    { onFailure: "block" },
+  ],
+  [
+    "PreToolUse",
+    "Bash|PowerShell",
+    "Bash(*opencli*)",
+    "hooks/opencli-readonly.mjs",
+    15,
+    { onFailure: "block" },
+  ],
+  [
+    "PreToolUse",
+    "Bash|PowerShell",
+    "PowerShell(*opencli*)",
+    "hooks/opencli-readonly.mjs",
+    15,
+    { onFailure: "block" },
+  ],
+  [
+    "PreToolUse",
+    "Bash|PowerShell",
+    "",
+    "hooks/planner-readonly.mjs",
+    5,
+    { onFailure: "block" },
+  ],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/slow-output-gate.mjs", 5],
+  ["PreToolUse", "", "", "skills/steer/steer.mjs --hook", 5],
+  [
+    "PreToolUse",
+    "Edit|MultiEdit|Write|NotebookEdit",
+    "",
+    "hooks/map-generated.mjs",
+    5,
+  ],
+  ["PreToolUse", "Bash|PowerShell", "", "hooks/session-cleanup.mjs", 5],
+  ["PreCompact", "", "", "hooks/context-guard.mjs", 10],
+  [
+    "PostToolUse",
+    "Bash|mcp__nimbalyst__developer_git_commit_proposal",
+    "",
+    "hooks/job-done.mjs",
+    5,
+  ],
+  [
+    "PostToolUse",
+    "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion|AskUserQuestion",
+    "",
+    "hooks/form-answer.mjs",
+    5,
+  ],
+  ["PostToolUse", "Agent|Task", "", "hooks/helper-stopped.mjs", 5],
+  ["PostToolUse", "Agent|Task", "", "hooks/agent-run-log.mjs", 5],
+  ["PostToolUse", "", "", "hooks/context-guard.mjs", 5],
+  ["PostToolUse", "", "", "hooks/worker-size.mjs", 5],
+  ["PostToolUse", "", "", "skills/steer/steer.mjs --hook", 5],
+  ["PostToolUse", "", "", "hooks/plan-usage-logger.mjs", 5],
+  [
+    "PostToolUse",
+    "Edit|MultiEdit|Write|NotebookEdit",
+    "",
+    "hooks/map-drift.mjs",
+    5,
+  ],
+  [
+    "PostToolUse",
+    "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal|Edit|MultiEdit|Write",
+    "",
+    "hooks/upkeep-note.mjs",
+    5,
+  ],
+  ["PostToolUse", "Bash|PowerShell", "", "hooks/session-cleanup.mjs", 10],
+  ["PostToolUseFailure", "Agent|Task", "", "hooks/agent-run-log.mjs", 5],
+  ["UserPromptSubmit", "", "", "hooks/big-read-gate.mjs", 5],
+  ["UserPromptSubmit", "", "", "hooks/context-guard.mjs", 10],
+  ["UserPromptSubmit", "", "", "hooks/no-response-gate.mjs", 10],
+  ["UserPromptSubmit", "", "", "hooks/pc-tidy-nudge.mjs", 5],
+  ["UserPromptSubmit", "", "", "hooks/map-nudge.mjs", 5],
+  ["UserPromptSubmit", "", "", "hooks/map-prompt.mjs", 5],
+  ["UserPromptSubmit", "", "", "hooks/cold-cache.mjs", 5],
+  ["UserPromptSubmit", "", "", "hooks/job-done.mjs", 5],
+  ["UserPromptSubmit", "", "", "hooks/background-tasks.mjs", 10],
+  ["UserPromptSubmit", "", "", "hooks/update-check.mjs", 10],
+  ["UserPromptSubmit", "", "", "hooks/usage-dashboard-hook.mjs", 200],
+  ["UserPromptSubmit", "", "", "hooks/plan-usage-logger.mjs", 5],
+  ["UserPromptSubmit", "", "", "hooks/session-cleanup.mjs", 5],
+  ["Stop", "", "", "hooks/link-gate.mjs", 10],
+  ["Stop", "", "", "hooks/handoff-brief.mjs --hook", 15],
+  ["Stop", "", "", "hooks/plan-usage-logger.mjs", 5],
+  ["Stop", "", "", "hooks/run-yourself.mjs", 5],
+  ["Stop", "", "", "hooks/job-done.mjs", 5],
+  ["Stop", "", "", "hooks/code-review-gate.mjs", 10],
+  ["Stop", "", "", "hooks/verify-gate.mjs", 10],
+  ["Stop", "", "", "hooks/no-response-gate.mjs", 10],
+  ["Stop", "", "", "hooks/next-step-gate.mjs", 10],
+  ["Stop", "", "", "hooks/background-tasks.mjs", 10],
+  ["Stop", "", "", "hooks/file-link-gate.mjs", 5],
+  ["Stop", "", "", "hooks/context-guard.mjs", 10],
+  ["Stop", "", "", "skills/steer/steer.mjs --hook", 5],
+  [
+    "Stop",
+    "",
+    "",
+    "skills/steer/steer.mjs --watch",
+    7200,
+    { asyncRewake: true },
+  ],
+  ["Stop", "*", "", "hooks/web-answer-gate.mjs", 10],
+  ["SessionEnd", "", "", "hooks/session-cleanup.mjs", 5],
+];
+// The 17 hooks plan 2.8 cuts, the 5 upkeep hooks, and map-prompt (plan 2.10)
+const D18_CUT = [
+  "long-sleep-guard",
+  "big-read-gate",
+  "background-tasks",
+  "slow-output-gate",
+  "decided-quote",
+  "serves-brief",
+  "budget-gate",
+  "worker-size",
+  "job-done",
+  "context-guard",
+  "cold-cache",
+  "handoff-brief",
+  "next-step-gate",
+  "run-yourself",
+  "web-answer-gate",
+  "form-answer",
+  "code-review-gate",
+  "upkeep-note",
+  "recheck-dates",
+  "patch-next",
+  "pc-tidy-nudge",
+  "experiment-alert",
+  "map-prompt",
+];
+// The hooks that move into a group (plan "Names fixed for every slice"): each runs once on that event, through its group
+const D18_GROUPS = {
+  PreToolUse: [
+    "hooks/delete-guard.mjs",
+    "hooks/find-guard.mjs",
+    "hooks/sql-guard.mjs",
+    "hooks/push-key-scan.mjs", // job 9 D9: moved into the pre-tool group, its two `if` entries dropped
+    "hooks/download-guard.mjs",
+    "hooks/command-explain.mjs",
+    "hooks/verify-gate.mjs --pre",
+    "hooks/session-cleanup.mjs",
+    "skills/steer/steer.mjs --hook",
+    "hooks/repeat-guard.mjs --near-cap-only",
+    "hooks/map-brief.mjs",
+  ],
+  UserPromptSubmit: [
+    "hooks/usage-dashboard-hook.mjs",
+    "hooks/no-response-gate.mjs",
+    "skills/steer/steer.mjs --hook",
+    "hooks/session-cleanup.mjs",
+    "hooks/map-nudge.mjs",
+  ],
+  Stop: [
+    "hooks/plan-usage-logger.mjs",
+    "hooks/verify-gate.mjs",
+    "hooks/no-response-gate.mjs",
+    "hooks/file-link-gate.mjs",
+    "skills/steer/steer.mjs --hook",
+  ],
+};
+const cutHome = path.join(tmp, "before-the-cut");
+install(cutHome);
+const cutClaude = path.join(cutHome, ".claude");
+const cutSettingsFile = path.join(cutClaude, "settings.json");
+const cutOld = json(cutSettingsFile);
+cutOld.hooks = {};
+for (const [event, matcher, cond, run, timeout, more] of OLD_EXAMPLE) {
+  const [script, ...args] = run.split(" ");
+  const command = `node "${fwd(path.join(cutClaude, script))}"${args.map((a) => ` ${a}`).join("")}`;
+  const groups = (cutOld.hooks[event] ??= []);
+  let g = groups.find((x) => (x.matcher ?? "") === matcher);
+  if (!g) groups.push((g = { ...(matcher ? { matcher } : {}), hooks: [] }));
+  g.hooks.push({
+    type: "command",
+    ...(cond ? { if: cond } : {}),
+    command,
+    timeout,
+    ...more,
+  });
+}
+fs.writeFileSync(cutSettingsFile, JSON.stringify(cutOld, null, 2));
+const cutRun = install(cutHome);
+// Every hook the updated home runs: { event, if, run ("hooks/x.mjs --arg"), group }
+const cutGroupsFile = path.join(cutClaude, "hooks", "dispatch-groups.json");
+const cutGroups = fs.existsSync(cutGroupsFile) ? json(cutGroupsFile) : {};
+const cutWired = [];
+for (const [event, groups] of Object.entries(json(cutSettingsFile).hooks || {}))
+  for (const g of groups)
+    for (const h of g.hooks) {
+      const m = h.command.match(/^node "([^"]+)"((?:\s+\S+)*)\s*$/);
+      if (!m)
+        throw new Error(`D18: a command the test can't read: ${h.command}`);
+      const script = fwd(path.relative(cutClaude, m[1]));
+      const args = [
+        ...m[2].trim().split(/\s+/).filter(Boolean),
+        ...(h.args ?? []),
+      ];
+      if (script !== "hooks/dispatch.mjs") {
+        cutWired.push({
+          event,
+          if: h.if ?? "",
+          run: [script, ...args].join(" "),
+        });
+        continue;
+      }
+      const list = cutGroups[args[0]];
+      if (!Array.isArray(list))
+        throw new Error(
+          `D18: dispatch.mjs ${args[0]} has no group in ${cutGroupsFile}`,
+        );
+      for (const x of list)
+        cutWired.push({
+          event,
+          if: "",
+          run: [x.hook, ...(x.args ?? [])].join(" "),
+          group: args[0],
+        });
+    }
+const cutKey = (w) => `${w.event} ${w.run}${w.if ? ` if ${w.if}` : ""}`;
+const cutShow = (w) => `${cutKey(w)}${w.group ? ` (group ${w.group})` : ""}`;
+const cutName = (w) => path.basename(w.run.split(" ")[0], ".mjs");
+ok(
+  "D18 the update of a home wired before the cut runs without an error",
+  cutRun.code,
+  0,
+);
+ok(
+  "D18 after the update no hook is wired twice on one event (a group counts as its hooks)",
+  [
+    ...new Set(
+      cutWired.map(cutKey).filter((k, i, all) => all.indexOf(k) !== i),
+    ),
+  ],
+  [],
+);
+ok(
+  "D18 after the update none of the cut hooks is wired",
+  cutWired.filter((w) => D18_CUT.includes(cutName(w))).map(cutShow),
+  [],
+);
+ok(
+  "D18 after the update none of the partly cut entries is left (plan-usage-logger off UserPromptSubmit and PostToolUse, no-response-gate off PreToolUse, planner-readonly, plain repeat-guard, session-cleanup on SessionStart)",
+  cutWired
+    .filter(
+      (w) =>
+        (cutName(w) === "plan-usage-logger" &&
+          ["UserPromptSubmit", "PostToolUse"].includes(w.event)) ||
+        (cutName(w) === "no-response-gate" && w.event === "PreToolUse") ||
+        cutName(w) === "planner-readonly" ||
+        (cutName(w) === "repeat-guard" &&
+          w.run !== "hooks/repeat-guard.mjs --near-cap-only") ||
+        (cutName(w) === "session-cleanup" && w.event === "SessionStart"),
+    )
+    .map(cutShow),
+  [],
+);
+ok(
+  "D18 after the update every hook that moved into a group runs once on that event, through its group",
+  Object.entries(D18_GROUPS).flatMap(([event, runs]) =>
+    runs.flatMap((run) => {
+      const on = cutWired.filter((w) => w.event === event && w.run === run);
+      return on.length === 1 && on[0].group
+        ? []
+        : [`${event} ${run}: ${on.map(cutShow).join("; ") || "not wired"}`];
+    }),
+  ),
+  [],
+);
+
+// ---- Obscura left the setup: the install downloads it no more and removes the copy an older install put in
+// ~/.claude/obscura, known by the VERSION file it wrote. A folder without that file, a link and the PATH are not its own.
+{
+  const obscuraLines = (out) =>
+    out.split("\n").filter((l) => /obscura/i.test(l));
+  const withOld = (name, files) => {
+    const h = path.join(tmp, name);
+    const dir = path.join(h, ".claude", "obscura");
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [f, text] of Object.entries(files))
+      fs.writeFileSync(path.join(dir, f), text);
+    return { h, dir };
+  };
+  const OLD = {
+    "obscura.exe": "program",
+    // as scripts/obscura.mjs wrote it (removed with 1.x; its last pin, the Windows archive)
+    VERSION:
+      "v0.2.6\nsha256 0a110d0693753a252ed7ffd61e682363e8622caf79697f564c529099a31a6242 obscura-x86_64-windows.zip\n",
+  };
+
+  // a PATH folder that holds an Obscura with a VERSION file too: it is not the setup's copy
+  const pathBin = path.join(tmp, "old-reader-on-path");
+  fs.mkdirSync(pathBin);
+  for (const [f, text] of Object.entries(OLD))
+    fs.writeFileSync(path.join(pathBin, f), text);
+
+  const own = withOld("old-reader-own", OLD);
+  const dryOwn = installWith(pathBin, own.h, "--dry-run");
+  ok(
+    "Obscura: a dry run removes nothing and says it would remove the old copy",
+    [
+      fs.existsSync(path.join(own.dir, "obscura.exe")),
+      obscuraLines(dryOwn.out).length,
+      obscuraLines(dryOwn.out).some((l) => l.includes("would remove")),
+    ],
+    [true, 1, true],
+  );
+  const ranOwn = installWith(pathBin, own.h);
+  ok(
+    "Obscura: the install removes the old copy that holds the setup's VERSION file, in one plain line",
+    [
+      ranOwn.code,
+      fs.existsSync(own.dir),
+      obscuraLines(ranOwn.out).length,
+      obscuraLines(ranOwn.out).some((l) =>
+        l.includes(`removed ${fwd(own.dir)}`),
+      ),
+    ],
+    [0, false, 1, true],
+  );
+  ok(
+    "Obscura: an Obscura on the PATH stays, VERSION file and all",
+    fs.readdirSync(pathBin).sort(),
+    ["VERSION", "obscura.exe"],
+  );
+
+  const theirs = withOld("old-reader-theirs", { "obscura.exe": "program" });
+  const ranTheirs = install(theirs.h);
+  ok(
+    "Obscura: a ~/.claude/obscura without the VERSION file is not the setup's and stays, named nowhere",
+    [ranTheirs.code, fs.readdirSync(theirs.dir), obscuraLines(ranTheirs.out)],
+    [0, ["obscura.exe"], []],
+  );
+  // a VERSION file that is not the one the old install wrote: the folder is someone else's
+  const otherVersion = withOld("old-reader-other-version", {
+    "obscura.exe": "program",
+    VERSION: "my own build\n",
+  });
+  const ranOther = install(otherVersion.h);
+  ok(
+    "Obscura: a ~/.claude/obscura whose VERSION file is not the old install's stays, named nowhere",
+    [
+      ranOther.code,
+      fs.existsSync(otherVersion.dir)
+        ? fs.readdirSync(otherVersion.dir).sort()
+        : "gone",
+      obscuraLines(ranOther.out),
+    ],
+    [0, ["VERSION", "obscura.exe"], []],
+  );
+
+  // --files-only (the self-update's run) removes the old copy too, and saves the record after it
+  const filesOnlyState = (h) => {
+    fs.writeFileSync(
+      path.join(h, ".claude", "setup-state.json"),
+      JSON.stringify({ version: "0.0.1", files: {} }),
+    );
+  };
+  const ownFiles = withOld("old-reader-files-only", OLD);
+  filesOnlyState(ownFiles.h);
+  const ranOwnFiles = install(ownFiles.h, "--files-only");
+  ok(
+    "Obscura: --files-only removes the old copy that holds the setup's VERSION file and saves the record",
+    [
+      ranOwnFiles.code,
+      fs.existsSync(ownFiles.dir),
+      obscuraLines(ranOwnFiles.out).length,
+      json(path.join(ownFiles.h, ".claude", "setup-state.json")).version !==
+        "0.0.1",
+    ],
+    [0, false, 1, true],
+  );
+  // a VERSION that can't be read (here a folder): the folder stays with one note, and the run still finishes
+  const unreadable = withOld("old-reader-unreadable", {
+    "obscura.exe": "program",
+  });
+  fs.mkdirSync(path.join(unreadable.dir, "VERSION"));
+  filesOnlyState(unreadable.h);
+  const ranUnreadable = install(unreadable.h, "--files-only");
+  ok(
+    "Obscura: an unreadable VERSION is a note and a skip, never a crash: --files-only finishes, saves the record, and the folder stays",
+    [
+      ranUnreadable.code,
+      fs.readdirSync(unreadable.dir).sort(),
+      obscuraLines(ranUnreadable.out).length,
+      obscuraLines(ranUnreadable.out).some((l) => l.includes("was left")),
+      json(path.join(unreadable.h, ".claude", "setup-state.json")).version !==
+        "0.0.1",
+    ],
+    [0, ["VERSION", "obscura.exe"], 1, true, true],
+  );
+
+  // ~/.claude/obscura as a link to a folder elsewhere that holds a VERSION file: the link and that folder stay
+  const linkHome = path.join(tmp, "old-reader-link");
+  const elsewhere = path.join(tmp, "old-reader-elsewhere");
+  fs.mkdirSync(path.join(linkHome, ".claude"), { recursive: true });
+  fs.mkdirSync(elsewhere);
+  for (const [f, text] of Object.entries(OLD))
+    fs.writeFileSync(path.join(elsewhere, f), text);
+  fs.symlinkSync(
+    elsewhere,
+    path.join(linkHome, ".claude", "obscura"),
+    "junction",
+  );
+  const ranLink = install(linkHome);
+  ok(
+    "Obscura: a ~/.claude/obscura that is a link is left, and so is what it points at",
+    [
+      ranLink.code,
+      // the link itself, or "gone"
+      (() => {
+        try {
+          return fs
+            .lstatSync(path.join(linkHome, ".claude", "obscura"))
+            .isSymbolicLink();
+        } catch {
+          return "gone";
+        }
+      })(),
+      fs.existsSync(elsewhere) ? fs.readdirSync(elsewhere).sort() : "gone",
+    ],
+    [0, true, ["VERSION", "obscura.exe"]],
+  );
+
+  // nothing there: the first install of this file (blank home) said nothing about Obscura and made no folder
+  ok(
+    "Obscura: with nothing there the install names no Obscura and makes no folder",
+    [obscuraLines(first.out), fs.existsSync(path.join(claude, "obscura"))],
+    [[], false],
+  );
+
+  // an old command line with --obscura: accepted with one note, nothing downloaded, nothing put on record
+  const flagHome = path.join(tmp, "old-reader-flag");
+  fs.mkdirSync(path.join(flagHome, ".claude"), { recursive: true });
+  fs.writeFileSync(
+    path.join(flagHome, ".claude", "setup-state.json"),
+    JSON.stringify({ obscura: false }),
+  );
+  const flagNo = install(flagHome, "--obscura", "no");
+  const flagYes = install(flagHome, "--obscura", "yes", "--dry-run");
+  ok(
+    "Obscura: --obscura yes|no from an old command line is ignored with one note, and an old state's obscura field goes",
+    [
+      flagNo.code,
+      obscuraLines(flagNo.out).length,
+      obscuraLines(flagNo.out).some((l) => l.includes("ignored")),
+      flagYes.code,
+      obscuraLines(flagYes.out).length,
+      obscuraLines(flagYes.out).some((l) => l.includes("ignored")),
+      fs.existsSync(path.join(flagHome, ".claude", "obscura")),
+      "obscura" in json(path.join(flagHome, ".claude", "setup-state.json")),
+    ],
+    [0, 1, true, 0, 1, true, false, false],
+  );
+  // --obscura with no value: the next flag is not its value, and the note names none
+  const noValue = path.join(tmp, "old-reader-no-value");
+  const beforeFlag = install(noValue, "--obscura", "--dry-run");
+  const lastFlag = install(noValue, "--dry-run", "--obscura");
+  ok(
+    "Obscura: --obscura with no value (before another flag, or last) is ignored with a note that names no value",
+    [obscuraLines(beforeFlag.out), obscuraLines(lastFlag.out)],
+    [
+      ["[dry run] --obscura: ignored; Obscura is no longer part of the setup"],
+      ["[dry run] --obscura: ignored; Obscura is no longer part of the setup"],
+    ],
+  );
+  ok(
+    "Obscura: the usage text at the top of install.mjs no longer offers --obscura",
+    /^\/\/\s+--obscura\b/m.test(fs.readFileSync(INSTALL, "utf8")),
+    false,
+  );
+}
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fails ? `${fails} failed` : "all passed");

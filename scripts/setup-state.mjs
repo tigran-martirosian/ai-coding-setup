@@ -1,10 +1,13 @@
 // ~/.claude/setup-state.json: what the runs of install.mjs were told and wrote, read again by later runs
 // and by skills/update-setup/update.mjs. Its fields (STATE_KEYS): version, repo, projects, files, written,
 // rules, rulesUndo, rulesUndoBefore, rulesLeftOut, ownTidied, ownOffered, ownVaultNext, userCopies, model,
-// language, node, codex, handy and backup (the two opt-ins asked once: voice typing with Handy, the encrypted
-// backup; true or false, none until answered), extensions, plugins, themePending, themePendingFrom, inkSwitched,
-// nimbalystClaude, obscura, done, oldCopiesMoved (the copies older versions left beside files are in setup-logs:
-// install.mjs searches no more); agyAdded and agy only from older versions.
+// homeModel (each project folder whose model moved once: "moved" or "kept"), boardTidyKeep (Board Tidy was
+// told once to leave quick-tasks alone), language, node, codex, handy and backup (the two opt-ins asked once:
+// voice typing with Handy, the encrypted backup; true or false, none until answered), extensions, plugins,
+// themePending, themePendingFrom, inkSwitched, nimbalystClaude, done, oldCopiesMoved (the copies older versions
+// left beside files are in setup-logs: install.mjs searches no more); agyAdded and agy only from older versions.
+// An older version's answer about its headless browser, which left the setup, is dropped by the next install
+// run (install.mjs).
 import fs from "node:fs";
 import path from "node:path";
 
@@ -23,6 +26,8 @@ export const STATE_KEYS = [
   "ownVaultNext",
   "userCopies",
   "model",
+  "homeModel",
+  "boardTidyKeep",
   "language",
   "node",
   "codex",
@@ -34,7 +39,6 @@ export const STATE_KEYS = [
   "themePendingFrom",
   "inkSwitched",
   "nimbalystClaude",
-  "obscura",
   "done",
   "oldCopiesMoved",
   "agyAdded",

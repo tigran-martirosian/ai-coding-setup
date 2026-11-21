@@ -1,6 +1,6 @@
 {
   "_setup": {
-    "_note": "Read by install.mjs and tests/test-wiring.mjs; never written into a settings.json. retired: hooks in ~/.claude/hooks that earlier versions wired and this one dropped (an upgrade unwires them). retiredInHomes: the same for a project folder's own .claude/hooks. oldMatchers: matcher strings an earlier version wired for a hook; an install that still has exactly one gets the current matcher.",
+    "_note": "Read by install.mjs and tests/test-wiring.mjs; never written into a settings.json. retired: hooks in ~/.claude/hooks that earlier versions wired and this one dropped (an upgrade unwires them). retiredInHomes: the same for a project folder's own .claude/hooks. oldMatchers: matcher strings an earlier version wired for a hook; an install that still has exactly one gets the current matcher. retiredEntries: per event, hook entries an earlier version wired there that this one dropped while the file stays (a name with arguments matches only those arguments, a bare name only the entry without any); an upgrade unwires them. A hook that moved into a group of hooks/dispatch-groups.json is unwired by the dispatcher entry itself.",
     "retired": [
       "build-nudge.mjs",
       "turn-cap.mjs",
@@ -9,19 +9,47 @@
       "worker-nudge.mjs",
       "loop-warn.mjs",
       "skill-pointer.mjs",
-      "file-link-gate.mjs --remind"
+      "file-link-gate.mjs --remind",
+      "long-sleep-guard.mjs",
+      "big-read-gate.mjs",
+      "background-tasks.mjs",
+      "slow-output-gate.mjs",
+      "decided-quote.mjs",
+      "serves-brief.mjs",
+      "budget-gate.mjs",
+      "worker-size.mjs",
+      "job-done.mjs",
+      "context-guard.mjs",
+      "cold-cache.mjs",
+      "handoff-brief.mjs",
+      "next-step-gate.mjs",
+      "run-yourself.mjs",
+      "web-answer-gate.mjs",
+      "form-answer.mjs",
+      "code-review-gate.mjs",
+      "upkeep-note.mjs",
+      "recheck-dates.mjs",
+      "patch-next.mjs",
+      "pc-tidy-nudge.mjs",
+      "experiment-alert.mjs",
+      "map-prompt.mjs"
     ],
     "retiredInHomes": {},
-    "oldMatchers": {
-      "background-tasks.mjs": ["Bash|Agent|Task"],
-      "repeat-guard.mjs": [
-        "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch"
+    "retiredEntries": {
+      "SessionStart": ["session-cleanup.mjs"],
+      "PreToolUse": [
+        "no-response-gate.mjs",
+        "planner-readonly.mjs",
+        "repeat-guard.mjs"
       ],
+      "PostToolUse": ["plan-usage-logger.mjs"],
+      "UserPromptSubmit": ["plan-usage-logger.mjs"]
+    },
+    "oldMatchers": {
       "question-other.mjs": [
         "mcp__nimbalyst__PromptForUserInput",
         "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion"
-      ],
-      "job-done.mjs": ["Bash"]
+      ]
     }
   },
   "subagentPromptCacheTtl": "1h",
@@ -36,32 +64,7 @@
           },
           {
             "type": "command",
-            "command": "node ~/.claude/hooks/patch-next.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/code-review-gate.mjs --start",
-            "timeout": 10
-          },
-          {
-            "type": "command",
             "command": "node ~/.claude/hooks/nimbalyst-notes.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/experiment-alert.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/session-cleanup.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/recheck-dates.mjs",
             "timeout": 5
           }
         ]
@@ -69,92 +72,12 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/background-tasks.mjs",
-            "timeout": 5
-          }
-        ]
-      },
-      {
         "matcher": "Agent|Task",
         "hooks": [
           {
             "type": "command",
             "command": "node ~/.claude/hooks/agent-run-log.mjs",
             "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task|Edit|Write|MultiEdit|NotebookEdit|mcp__nimbalyst-host__spawn_session|mcp__nimbalyst-host__send_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/no-response-gate.mjs",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/worker-size.mjs",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/big-read-gate.mjs",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/budget-gate.mjs",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/map-brief.mjs",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/serves-brief.mjs",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task|Write|mcp__nimbalyst-host__spawn_session|mcp__nimbalyst-host__create_session|mcp__nimbalyst-host__send_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/decided-quote.mjs",
-            "timeout": 10
           }
         ]
       },
@@ -189,92 +112,18 @@
         ]
       },
       {
-        "matcher": "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/hooks/repeat-guard.mjs",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Agent|Task|mcp__nimbalyst__developer_git_commit_proposal",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/job-done.mjs",
-            "timeout": 5
+            "command": "node ~/.claude/hooks/dispatch.mjs pre-tool",
+            "timeout": 60,
+            "onFailure": "block"
           }
         ]
       },
       {
         "matcher": "Bash|PowerShell",
         "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/code-review-gate.mjs --pre",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/verify-gate.mjs --pre",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/command-explain.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/sql-guard.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/delete-guard.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/long-sleep-guard.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/find-guard.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/download-guard.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "if": "Bash(*push*)",
-            "command": "node ~/.claude/hooks/push-key-scan.mjs",
-            "timeout": 15,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "if": "PowerShell(*push*)",
-            "command": "node ~/.claude/hooks/push-key-scan.mjs",
-            "timeout": 15,
-            "onFailure": "block"
-          },
           {
             "type": "command",
             "if": "Bash(*opencli*)",
@@ -288,26 +137,6 @@
             "command": "node ~/.claude/hooks/opencli-readonly.mjs",
             "timeout": 15,
             "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/planner-readonly.mjs",
-            "timeout": 5,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/slow-output-gate.mjs",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/skills/steer/steer.mjs --hook",
-            "timeout": 5
           }
         ]
       },
@@ -320,50 +149,9 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "matcher": "Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/session-cleanup.mjs",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/context-guard.mjs",
-            "timeout": 10
-          }
-        ]
       }
     ],
     "PostToolUse": [
-      {
-        "matcher": "Bash|mcp__nimbalyst__developer_git_commit_proposal",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/job-done.mjs",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__nimbalyst__PromptForUserInput|mcp__nimbalyst__AskUserQuestion|AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/form-answer.mjs",
-            "timeout": 5
-          }
-        ]
-      },
       {
         "matcher": "Agent|Task",
         "hooks": [
@@ -383,22 +171,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/hooks/context-guard.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/worker-size.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "node ~/.claude/skills/steer/steer.mjs --hook",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/plan-usage-logger.mjs",
             "timeout": 5
           }
         ]
@@ -409,16 +182,6 @@
           {
             "type": "command",
             "command": "node ~/.claude/hooks/map-drift.mjs",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal|Edit|MultiEdit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/upkeep-note.mjs",
             "timeout": 5
           }
         ]
@@ -451,68 +214,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/hooks/big-read-gate.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/context-guard.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/no-response-gate.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/pc-tidy-nudge.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/map-nudge.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/map-prompt.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/cold-cache.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/job-done.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/background-tasks.mjs",
-            "timeout": 10
-          },
+            "command": "node ~/.claude/hooks/dispatch.mjs prompt",
+            "timeout": 200
+          }
+        ]
+      },
+      {
+        "hooks": [
           {
             "type": "command",
             "command": "node ~/.claude/hooks/update-check.mjs",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/usage-dashboard-hook.mjs",
-            "timeout": 200
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/plan-usage-logger.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/session-cleanup.mjs",
-            "timeout": 5
           }
         ]
       }
@@ -522,84 +234,23 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node ~/.claude/hooks/dispatch.mjs stop",
+            "timeout": 60
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "node ~/.claude/hooks/link-gate.mjs",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/handoff-brief.mjs --hook",
-            "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/plan-usage-logger.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/run-yourself.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/job-done.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/code-review-gate.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/verify-gate.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/no-response-gate.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/next-step-gate.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/background-tasks.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/file-link-gate.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/context-guard.mjs",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node ~/.claude/skills/steer/steer.mjs --hook",
-            "timeout": 5
           },
           {
             "type": "command",
             "command": "node ~/.claude/skills/steer/steer.mjs --watch",
             "asyncRewake": true,
             "timeout": 7200
-          }
-        ]
-      },
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/web-answer-gate.mjs",
-            "timeout": 10
           }
         ]
       }

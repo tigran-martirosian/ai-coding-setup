@@ -17,7 +17,9 @@ const TESTS = [
   ["commands", "test/commands.test.ts"],
   ["commands", "test/launcher.test.ts", "packages"],
   ["commands", "test/note.test.ts"],
+  ["commands", "test/try-it.test.ts"],
   ["commands", "test/copy-row.test.ts", "packages"],
+  ["commands", "test/diff-comments.test.ts"],
   ["systems-map", "test.mjs"],
   ["shared", "test.mjs"],
 ];

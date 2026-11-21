@@ -2,7 +2,6 @@
 // rules; any write through this handle fails. Times in the database are ISO strings, so they compare as text.
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { listProjects, mapState } from "./door.mjs";
 import { checkPath, nimbalystDir } from "./files.mjs";
 import { ActionError } from "./registry.mjs";
@@ -17,6 +16,9 @@ export function openDb() {
   const real = checkPath(dbPath());
   if (!fs.existsSync(real))
     throw new Error(`Nimbalyst's database is not at ${dbPath()}`);
+  // Loaded here, not at the top: node:sqlite prints an ExperimentalWarning when loaded, and commands that
+  // never open the database (setup start, remove) must not print it.
+  const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
   db = new DatabaseSync(real, { readOnly: true });
   return db;
 }
