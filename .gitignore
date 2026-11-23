@@ -17,3 +17,4 @@ dist/
 dist-share/
 docs/img/promo.mp4
 .wrangler/
+.proof/
