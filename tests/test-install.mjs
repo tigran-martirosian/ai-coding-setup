@@ -204,6 +204,29 @@ ok(
   ok("an own advisor stays", own.advisorModel, "opus");
 }
 ok(
+  "a fresh install turns the Claude credit line on commits off",
+  settings.attribution,
+  false,
+);
+{
+  // a credit setting the person made stays, under either key
+  const { addClaudeCodeSettings } = await import(
+    pathToFileURL(path.join(REPO, "scripts", "claude-code-settings.mjs")).href
+  );
+  const own = { attribution: { commit: "Made with Claude" } },
+    old = { includeCoAuthoredBy: true };
+  ok(
+    "an own credit setting stays",
+    [
+      addClaudeCodeSettings(own, false, false).attribution,
+      own.attribution,
+      addClaudeCodeSettings(old, false, false).attribution,
+      "attribution" in old,
+    ],
+    [false, { commit: "Made with Claude" }, false, false],
+  );
+}
+ok(
   "a fresh install empties CLAUDE_CODE_EFFORT_LEVEL, so helpers run at their own effort",
   settings.env?.CLAUDE_CODE_EFFORT_LEVEL,
   "",
