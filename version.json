@@ -1,10 +1,15 @@
 {
-  "version": "26.5.1",
+  "version": "26.5.2",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-22",
-  "summary": "Commits Claude makes no longer carry a Claude credit line",
+  "summary": "Commits from a Nimbalyst chat no longer show a red \"Commit Failed\" card first",
   "releases": {
+    "26.5.2": {
+      "kind": "files",
+      "important": true,
+      "headline": "Commits from a Nimbalyst chat no longer show a red \"Commit Failed\" card first"
+    },
     "26.5.1": {
       "kind": "quiet",
       "important": false,
