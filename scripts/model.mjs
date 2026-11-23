@@ -167,6 +167,10 @@ export function claudeSettings(ctx) {
     );
   if (own.logs)
     say(`logs: transcripts are kept 120 days, set in ${fwd(settingsFile)}`);
+  if (own.attribution)
+    say(
+      `commits: no Claude credit line on commits and pull requests, set in ${fwd(settingsFile)}`,
+    );
   if (own.powershellOff)
     say(
       `shell: the PowerShell tool is off (CLAUDE_CODE_USE_POWERSHELL_TOOL=0), so commands go through Git Bash; set in ${fwd(settingsFile)}`,

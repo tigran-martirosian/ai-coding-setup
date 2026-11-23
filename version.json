@@ -1,10 +1,15 @@
 {
-  "version": "26.5",
+  "version": "26.5.1",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
-  "date": "2026-11-20",
-  "summary": "The setup, rebuilt: one path for big jobs, a Try it button, 23 hooks cut. Tour: docs/whats-new.md",
+  "date": "2026-11-22",
+  "summary": "Commits Claude makes no longer carry a Claude credit line",
   "releases": {
+    "26.5.1": {
+      "kind": "quiet",
+      "important": false,
+      "headline": "Commits Claude makes no longer carry a Claude credit line"
+    },
     "26.4.2": {
       "kind": "files",
       "important": true,

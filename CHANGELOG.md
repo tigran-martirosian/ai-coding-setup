@@ -4,6 +4,10 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.5.1] - 2026-11-22
+
+- Commits and pull requests Claude makes no longer carry a Claude credit line or link. A credit setting you set yourself stays.
+
 ## [26.5] - 2026-11-20
 
 The setup, rebuilt: fewer moving parts, one clear path for a big job, and a check you can press. How it all works now, on one page: `docs/whats-new.md` in the repo. After this update Claude offers a short tour of it in the chat; ask "what's new" any time.

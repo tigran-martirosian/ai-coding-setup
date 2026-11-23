@@ -1,6 +1,6 @@
 // The Claude Code settings this setup adds to ~/.claude/settings.json, for install.mjs and
 // scripts/app-settings.mjs: "model": "opus" at medium effort when no model is set, a one-hour prompt cache
-// for helpers, 120 days of transcripts, and permission rules (the agent can't read the saved sign-ins or the SSH keys, and asks before a
+// for helpers, 120 days of transcripts, no Claude credit line on commits and pull requests, and permission rules (the agent can't read the saved sign-ins or the SSH keys, and asks before a
 // .env file), on Windows with Git Bash the PowerShell tool off, and CLAUDE_CODE_EFFORT_LEVEL emptied so helpers run at
 // their own effort. What is there stays.
 import fs from "node:fs";
@@ -66,6 +66,12 @@ export function addClaudeCodeSettings(
   // Claude Code deletes transcripts after 30 days by default, and hooks and audits read them
   const logs = settings.cleanupPeriodDays === undefined;
   if (logs) settings.cleanupPeriodDays = 120;
+  // Commits and pull requests carry no Claude credit line or link (Claude Code adds them by default).
+  // The agent may not edit its own settings file, so the setup sets it; a value the person set stays, the old key too.
+  const attribution =
+    settings.attribution === undefined &&
+    settings.includeCoAuthoredBy === undefined;
+  if (attribution) settings.attribution = false;
   // Windows with Git Bash: the PowerShell tool goes off, since Nimbalyst's permission popup shows only the
   // word "PowerShell" for it. Without Git Bash it is the only shell, so it stays. A value set already stays.
   const powershellOff =
@@ -97,6 +103,7 @@ export function addClaudeCodeSettings(
     compact,
     cache,
     logs,
+    attribution,
     powershellOff,
     effortEnv,
     effortKept,
