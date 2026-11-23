@@ -4,6 +4,10 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.5.2] - 2026-11-22
+
+- Nimbalyst: Claude knows the commit tool from the start of a chat, so a commit no longer shows a red "Commit Failed" card above the one that worked. Takes effect after Nimbalyst restarts.
+
 ## [26.5.1] - 2026-11-22
 
 - Commits and pull requests Claude makes no longer carry a Claude credit line or link. A credit setting you set yourself stays.
