@@ -23,6 +23,7 @@ Release 26.6: texts written for their reader, research that says how solid it is
 - Design tools: install and update turn on Anthropic's frontend-design (guidance for interfaces that don't look templated) and Paul Bakaus's impeccable (design commands and checks); `claude plugin uninstall <name>` turns one off. `/gridlines` draws guide lines down an interface and fixes paddings so edges line up.
 - The job page in Nimbalyst lists To do in the order the steps run, under a numbered heading for each stage, and `/where-are-we` gives every new job numbered stages.
 - Claude's work is checked three ways: scripts that run, one fresh helper at four points (the plan review, `/code-review`, the end review, and a newcomer's look at a page or screen), and one gate (`verify-gate`). The newcomer's look now opens its answer with PASS or FAIL.
+- Claude asks you before a session changes one of your Nimbalyst settings (a project's permission mode, the default model, the theme and the like). The card shows every field it would set; `SETTINGS_GUARD=off` turns this off.
 
 ### Inside this repository
 - In this repository only, `verify-gate` marks a page edit done only with fresh screenshots (GitHub light and dark, phone width) and a PASS verdict; it does nothing in your projects.

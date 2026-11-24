@@ -56,7 +56,7 @@ These are sent back to Claude to fix:
 
 `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without a `WHERE` ask you first, and so does a `git push` with something shaped like a key in it. Each project with code gets its own `verify` skill: it starts the app, uses it the way a person would and prints what it saw before a commit. In Nimbalyst, the **Try it** button in the chat box runs it on the last change.
 
-All 30 hooks are listed in [docs/features.md](docs/features.md#hooks). They run together in a few small Node processes: 3 for a shell command and 4 for a file edit, not one per hook.
+All 31 hooks are listed in [docs/features.md](docs/features.md#hooks). They run together in a few small Node processes: 3 for a shell command and 4 for a file edit, not one per hook.
 
 ### Cost controls
 

@@ -104,7 +104,11 @@ for (const t of [
   "features_toggle",
   "sync_set_for_project",
 ])
-  expect(`${t}: the user is asked`, run(call(`mcp__nimbalyst-host__${t}`)), "ask");
+  expect(
+    `${t}: the user is asked`,
+    run(call(`mcp__nimbalyst-host__${t}`)),
+    "ask",
+  );
 
 // ---- passes
 for (const t of [
@@ -115,18 +119,38 @@ for (const t of [
   "Bash",
 ])
   expect(`${t}: passes`, run(call(t)), "pass");
-expect("SETTINGS_GUARD=off: passes", run(TRUST, { SETTINGS_GUARD: "off" }), "pass");
-expect("SETTINGS_GUARD=OFF (any case): passes", run(TRUST, { SETTINGS_GUARD: "OFF" }), "pass");
+expect(
+  "SETTINGS_GUARD=off: passes",
+  run(TRUST, { SETTINGS_GUARD: "off" }),
+  "pass",
+);
+expect(
+  "SETTINGS_GUARD=OFF (any case): passes",
+  run(TRUST, { SETTINGS_GUARD: "OFF" }),
+  "pass",
+);
 fs.mkdirSync(path.join(home.dir, ".claude"), { recursive: true });
 const settings = path.join(home.dir, ".claude", "settings.json");
 fs.writeFileSync(settings, JSON.stringify({ env: { SETTINGS_GUARD: "Off" } }));
-expect('SETTINGS_GUARD "Off" in ~/.claude/settings.json env: passes', run(TRUST), "pass");
+expect(
+  'SETTINGS_GUARD "Off" in ~/.claude/settings.json env: passes',
+  run(TRUST),
+  "pass",
+);
 fs.writeFileSync(settings, "{ not json");
-expect("a settings.json that is not JSON does not turn it off: asked", run(TRUST), "ask");
+expect(
+  "a settings.json that is not JSON does not turn it off: asked",
+  run(TRUST),
+  "ask",
+);
 fs.rmSync(settings);
 
 // ---- fails closed
-expect("junk input: the check fails, so the call is stopped", run("not json"), "exit 1");
+expect(
+  "junk input: the check fails, so the call is stopped",
+  run("not json"),
+  "exit 1",
+);
 
 // ---- through the dispatcher with the repo's own groups
 const r = spawnSync(process.execPath, [dispatcher, "pre-tool"], {
