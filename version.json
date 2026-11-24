@@ -1,10 +1,15 @@
 {
-  "version": "26.6",
+  "version": "26.6.1",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-23",
-  "summary": "Security in three levels, design tools, and texts and research written for their reader",
+  "summary": "Session switching is faster again, and profiles Claude writes stay short",
   "releases": {
+    "26.6.1": {
+      "kind": "quiet",
+      "important": false,
+      "headline": "Session switching is faster again, and profiles Claude writes stay short"
+    },
     "26.6": {
       "kind": "setup",
       "important": true,

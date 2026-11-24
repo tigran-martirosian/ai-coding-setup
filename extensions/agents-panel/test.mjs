@@ -2142,7 +2142,10 @@ check(
     "build: files-fold.js inlined, re-applied on every change, started and stopped with the panel",
     !/from ['"]\.\/files-fold\.js['"]/.test(dist) &&
       dist.includes("function syncFiles") &&
-      /function sync\(\)[\s\S]*?syncFiles\(STRINGS\)/.test(dist) &&
+      // the line's width is read before the pass writes anything, then handed to syncFiles
+      /function sync\(\)[\s\S]*?filesRooms\(\)[\s\S]*?syncFiles\(STRINGS, fileRooms\)/.test(
+        dist,
+      ) &&
       /function activate\(\)[\s\S]*?startFilesFold\(queue\)/.test(dist) &&
       /function deactivate\(\)[\s\S]*?stopFilesFold\(\)/.test(dist),
   );

@@ -62,6 +62,11 @@ it. No "passionate", "results-driven" or "spearheaded"; a plain verb reads stron
 
 ## LinkedIn and other profiles
 
+A profile is an introduction, not the resume. A GitHub profile or a short bio: who the person is, what they
+work on now in one sentence, and one short line per project saying what it is. Numbers, costs, counts and how a
+thing works stay in the resume and the project READMEs. Before drafting one, read three or four profiles of known
+people in the field and match their length.
+
 First person, the way the person talks. The headline says what they do and for whom. The About section: what
 they work on now, one or two things they did with the result, and what they want next. Short paragraphs; no
 emoji bullets, no "Here's what I learned", no closing question unless they write that way.
