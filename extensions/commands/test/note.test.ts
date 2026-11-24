@@ -417,7 +417,7 @@ ok(
 // ---- wake bridge
 const NOW = 1_000_000_000_000;
 let missingReads = 0;
-const world =(files: Record<string, string>, failQueue = 0) => {
+const world = (files: Record<string, string>, failQueue = 0) => {
   const delivered: unknown[][] = [];
   let fails = failQueue;
   const invoke = async (channel: string, ...args: unknown[]) => {
