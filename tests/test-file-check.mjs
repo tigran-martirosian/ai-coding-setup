@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const FC = path.join(REPO, "skills", "file-upkeep", "file-check.mjs");
-const { breaks, dateIn, fixName, refSpans } = await import(
+const { breaks, dateIn, fixName, refSpans, shaFile } = await import(
   new URL("../skills/file-upkeep/file-check.mjs", import.meta.url)
 );
 const tmp = fs.realpathSync(
@@ -564,6 +564,173 @@ check(
   "not git: undo is byte-identical",
   u3.code === 0 && sameSnap(plainBefore, snapshot(plain)),
   u3.out,
+);
+
+// ---- 3b. undo never writes over a file that is there again, nor moves or deletes one changed after the apply;
+// each such step is listed for a person. A journal from before the hashes still undoes, but never over a file.
+const lateApply = (name, strip) => {
+  const root = path.join(tmp, "elsewhere", name);
+  make(root, {
+    "README.md": `# ${name}\n\nsee Notes_Draft.md\n`,
+    "Notes_Draft.md": "see ./README.md\n",
+    "Other_Draft.md": "b\n",
+    "a.md.bak": "old a\n",
+    "b.md.bak": "kept\n",
+    "docs/decisions-archive-2026-11-02.md": "- an old decision\n",
+  });
+  const l = ledgerFrom(json(root), {
+    "a.md.bak": { action: "delete", answer: "yes" },
+    "b.md.bak": { action: "keep", reason: "the person keeps it" },
+  });
+  const a = fc("--apply", writeLedger(l, `${name}.json`));
+  check(`${name}: apply runs`, a.code === 0, a.out);
+  const logs = path.join(claude, "setup-logs");
+  const journal = path.join(
+    logs,
+    fs.readdirSync(logs).find((n) => n.endsWith(`-${name}.json`)),
+  );
+  if (strip) {
+    const j = JSON.parse(read(journal));
+    for (const o of j.ops) delete o.sha, delete o.shas;
+    fs.writeFileSync(journal, JSON.stringify(j, null, 2));
+  }
+  return { at: (f) => path.join(root, f), journal };
+};
+const late = lateApply("late-edits", false);
+const NEW = "a new file at the old path\n",
+  EDITED = "b, edited after the apply\n";
+fs.writeFileSync(late.at("Notes_Draft.md"), NEW);
+fs.writeFileSync(late.at("docs/other-draft.md"), EDITED);
+fs.writeFileSync(late.at("a.md.bak"), NEW);
+const stdLate = read(late.at(".claude/file-standard.json")).replace(
+  "the person keeps it",
+  "edited after the apply",
+);
+fs.writeFileSync(late.at(".claude/file-standard.json"), stdLate);
+fs.writeFileSync(
+  late.at("docs/decisions-archive.md"),
+  "- a newer decision\n" + read(late.at("docs/decisions-archive.md")),
+);
+const readOr = (f) => (fs.existsSync(f) ? read(f) : null); // a missing file fails the check, not the run
+const uLate = fc("--undo", late.journal);
+check(
+  "undo: a file at a moved file's old path is not written over, and the step is listed",
+  uLate.code === 0 &&
+    readOr(late.at("Notes_Draft.md")) === NEW &&
+    fs.existsSync(late.at("docs/notes-draft.md")) &&
+    uLate.out.includes(
+      "docs/notes-draft.md not moved back: Notes_Draft.md is there again",
+    ),
+  uLate.out,
+);
+check(
+  "undo: a moved file edited after the apply stays as it is, and the step is listed",
+  readOr(late.at("docs/other-draft.md")) === EDITED &&
+    !fs.existsSync(late.at("Other_Draft.md")) &&
+    uLate.out.includes(
+      "docs/other-draft.md not moved back to Other_Draft.md: it changed after the apply",
+    ),
+  uLate.out,
+);
+check(
+  "undo: a file at a deleted file's path is not written over by the trash copy, and the step is listed",
+  readOr(late.at("a.md.bak")) === NEW &&
+    uLate.out.includes("a.md.bak not put back from"),
+  uLate.out,
+);
+check(
+  "undo: .claude/file-standard.json edited after the apply is not written over, and the step is listed",
+  readOr(late.at(".claude/file-standard.json")) === stdLate &&
+    uLate.out.includes(".claude/file-standard.json changed after the apply"),
+  uLate.out,
+);
+check(
+  "undo: a merge target the apply made keeps the text added since; only the merged part is cut",
+  readOr(late.at("docs/decisions-archive.md")) === "- a newer decision\n" &&
+    readOr(late.at("docs/decisions-archive-2026-11-02.md")) ===
+      "- an old decision\n",
+  uLate.out,
+);
+check(
+  "undo: a moved file left where it is keeps the references fixed for its new folder",
+  readOr(late.at("docs/notes-draft.md")) === "see ../README.md\n",
+  readOr(late.at("docs/notes-draft.md")),
+);
+check(
+  "undo: a link in another file to a moved file left where it is still points at its new path",
+  readOr(late.at("README.md")) === "# late-edits\n\nsee docs/notes-draft.md\n",
+  readOr(late.at("README.md")),
+);
+const lateJournal = JSON.parse(read(late.journal));
+check(
+  "undo with steps left: the journal stays open and holds only those steps and the links that follow them",
+  !lateJournal.undone &&
+    lateJournal.ops.map((o) => o.op).join() === "keep,move,move,delete" &&
+    lateJournal.edits.map((e) => e.file).join() ===
+      "docs/notes-draft.md,README.md",
+  JSON.stringify(lateJournal.ops) + JSON.stringify(lateJournal.edits),
+);
+fs.rmSync(late.at("Notes_Draft.md"));
+fs.rmSync(late.at("a.md.bak"));
+const uLate2 = fc("--undo", late.journal);
+check(
+  "a second undo takes up the steps left: the moved file with its references, the link to it, the deleted file from the trash",
+  uLate2.code === 0 &&
+    readOr(late.at("Notes_Draft.md")) === "see ./README.md\n" &&
+    readOr(late.at("README.md")) === "# late-edits\n\nsee Notes_Draft.md\n" &&
+    !fs.existsSync(late.at("docs/notes-draft.md")) &&
+    readOr(late.at("a.md.bak")) === "old a\n",
+  uLate2.out,
+);
+check(
+  "shaFile: a file read in chunks (so over 2 GiB works) hashes as the whole file",
+  (() => {
+    const big = path.join(tmp, "three-mib.bin"),
+      data = crypto.randomBytes(3 * 1024 * 1024 + 1);
+    fs.writeFileSync(big, data);
+    return (
+      shaFile(big) === crypto.createHash("sha256").update(data).digest("hex")
+    );
+  })(),
+);
+// a case-only rename comes back on a case-blind disk: the old name is the same file, not one there again
+const caseOnly = path.join(tmp, "elsewhere", "case-only");
+make(caseOnly, { "docs/Plan.md": "p\n" });
+const lCase = ledgerFrom(json(caseOnly));
+const aCase = fc("--apply", writeLedger(lCase, "case-only.json"));
+const uCase = fc("--undo");
+check(
+  "undo of a case-only rename puts the old name back",
+  aCase.code === 0 &&
+    JSON.stringify(lCase.entries.map((e) => e.to)) === '["docs/plan.md"]' &&
+    uCase.code === 0 &&
+    fs.readdirSync(path.join(caseOnly, "docs")).join() === "Plan.md",
+  `${JSON.stringify(lCase.entries)}\n${aCase.out}\n${uCase.out}`,
+);
+const old = lateApply("old-journal", true);
+fs.writeFileSync(old.at("Notes_Draft.md"), NEW);
+fs.writeFileSync(old.at("a.md.bak"), NEW);
+fs.appendFileSync(old.at("docs/decisions-archive.md"), "- added at the end\n");
+const uOld = fc("--undo", old.journal);
+check(
+  "undo: a merge whose text is no longer at the end of its target leaves the source out, so no text is there twice",
+  !fs.existsSync(old.at("docs/decisions-archive-2026-11-02.md")) &&
+    uOld.out.includes(
+      "take it out by hand, then put back docs/decisions-archive-2026-11-02.md",
+    ),
+  uOld.out,
+);
+check(
+  "undo of a journal without hashes: the other steps are undone, a file that is there again is not written over",
+  uOld.code === 0 &&
+    readOr(old.at("Other_Draft.md")) === "b\n" &&
+    readOr(old.at("Notes_Draft.md")) === NEW &&
+    readOr(old.at("a.md.bak")) === NEW &&
+    uOld.out.includes(
+      "docs/notes-draft.md not moved back: Notes_Draft.md is there again",
+    ) &&
+    uOld.out.includes("a.md.bak not put back from"),
+  uOld.out,
 );
 
 // ---- 4. path forms: macOS and Windows roots, a relative path, a bare name

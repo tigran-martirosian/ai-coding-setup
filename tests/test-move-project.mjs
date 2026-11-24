@@ -1181,7 +1181,7 @@ try {
         path.dirname(MOVE),
         "..",
         "..",
-        "tools",
+        "scripts",
         "nimbalyst-patch",
         "deliver.mjs",
       ),

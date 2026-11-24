@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Tests for tools/nimbalyst-patch/restart.mjs, on a fake install folder in a temp folder (the same fake app,
+// Tests for scripts/nimbalyst-patch/restart.mjs, on a fake install folder in a temp folder (the same fake app,
 // patches, installer and pin as test-nimbalyst-deliver.mjs) with a stand-in app process: a node script that is
 // "running" while it keeps a line in the running-process file, and ends when a quit file appears (or, in one
 // case, never by itself). A fake launcher stands in for every start restart.mjs makes. Nothing here touches the
@@ -10,7 +10,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const TOOLS = path.join(import.meta.dirname, "..", "tools", "nimbalyst-patch");
+const TOOLS = path.join(
+  import.meta.dirname,
+  "..",
+  "scripts",
+  "nimbalyst-patch",
+);
 const RESTART = path.join(TOOLS, "restart.mjs"),
   DELIVER = path.join(TOOLS, "deliver.mjs");
 if (process.platform !== "win32") {
@@ -18,7 +23,10 @@ if (process.platform !== "win32") {
   process.exit(0);
 }
 const { QUIT_WORD } = await import(
-  new URL("../tools/nimbalyst-patch/patches/updater-block.mjs", import.meta.url)
+  new URL(
+    "../scripts/nimbalyst-patch/patches/updater-block.mjs",
+    import.meta.url,
+  )
 );
 const T = fs.mkdtempSync(path.join(os.tmpdir(), "nimbalyst-restart-test-"));
 let failed = 0,

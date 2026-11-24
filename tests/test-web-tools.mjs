@@ -27,7 +27,8 @@ const ok = (name, cond, extra = "") => {
 const skillPath = path.join(REPO, "skills", "web-research", "SKILL.md");
 const skill = fs.readFileSync(skillPath, "utf8");
 const bytes = fs.statSync(skillPath).size;
-ok("web-research is shorter than 4,746 bytes", bytes < 4746, `${bytes} bytes`);
+// The cap grew from 4,746 when the skill gained its report form (strength tags, the reasoning test, depth).
+ok("web-research is shorter than 5,800 bytes", bytes < 5800, `${bytes} bytes`);
 const must = [
   ["names workers/read-page.mjs", /read-page\.mjs/],
   ["WebFetch takes an offset", /offset/i],
@@ -58,6 +59,24 @@ const mustNot = [
 for (const [name, re] of mustNot)
   ok(`web-research names no ${name}`, !re.test(skill));
 
+// The strength tags leave no gap: Solid is three or more sources, so Thin is one or two, in the skill and on every
+// page that explains the tags (README.ru says it in Russian).
+for (const [file, thin] of [
+  [
+    "skills/web-research/SKILL.md",
+    /\*\*Thin\*\*: one or two independent sources/,
+  ],
+  ["README.md", /\*\*Thin\*\* \(one or two independent sources\)/],
+  ["README.ru.md", /\*\*Thin\*\* \(один или два независимых источника\)/],
+  ["CHANGELOG.md", /Thin \(one or two independent sources\)/],
+  ["docs/features.md", /\*\*Thin\*\* \(one or two independent sources\)/],
+  ["docs/whats-new.md", /Thin \(one or two independent sources\)/],
+])
+  ok(
+    `${file} defines Thin as one or two independent sources (Solid starts at three, so two sources fit a tag)`,
+    thin.test(fs.readFileSync(path.join(REPO, file), "utf8")),
+  );
+
 // ---------------- the shipped files ----------------
 const files = execFileSync("git", ["ls-files"], { cwd: REPO, encoding: "utf8" })
   .split("\n")
@@ -75,13 +94,14 @@ const allowed = {
     "scripts/uninstall.mjs",
     "CHANGELOG.md",
     "tests/test-install.mjs",
+    "tests/test-moved-folders.mjs", // runs the installer with its cleanup option off
     "tests/test-uninstall.mjs",
     "tests/upgrade-from-last-release.mjs", // installs the old version, whose installer still asks about it
     SELF,
   ]),
   jina: new Set([
     "CHANGELOG.md",
-    "projects/quick-tasks/tools/test-finder.mjs",
+    "templates/quick-tasks/tools/test-finder.mjs",
     SELF,
   ]),
 };

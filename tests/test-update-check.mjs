@@ -668,7 +668,7 @@ check(
 // ---- NB4: `nimbalyst` releases and Nimbalyst's delivery. A stand-in deliver.mjs in the home writes what it was
 // started with and touches no Nimbalyst
 const deliverStub = (h) => {
-  const stub = at(h, path.join("tools", "nimbalyst-patch", "deliver.mjs"));
+  const stub = at(h, path.join("scripts", "nimbalyst-patch", "deliver.mjs"));
   fs.mkdirSync(path.dirname(stub), { recursive: true });
   fs.writeFileSync(
     stub,

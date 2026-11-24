@@ -1,5 +1,5 @@
 // node tests/test-phone-door-patch.mjs
-// Tests the phone-door patch (tools/nimbalyst-patch/patches/phone-door.mjs): its shape, its anchors and the
+// Tests the phone-door patch (scripts/nimbalyst-patch/patches/phone-door.mjs): its shape, its anchors and the
 // compiled result on the installed app's unpatched original (skipped when there is none, as on CI), and the
 // new door tools' code, run in node:vm with stand-ins for the Nimbalyst functions it calls.
 process.env.HOOK_ERRORS_LOG = "off";
@@ -12,7 +12,7 @@ import vm from "node:vm";
 const PATCHER = path.join(
   import.meta.dirname,
   "..",
-  "tools",
+  "scripts",
   "nimbalyst-patch",
   "patch.mjs",
 );

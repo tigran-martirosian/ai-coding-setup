@@ -109,6 +109,34 @@ function fileParts(path) {
   return { name: parts.pop() || String(path), folder: parts.join("/") };
 }
 
+const WINDOWS =
+  typeof navigator !== "undefined" && /^win/i.test(navigator.platform ?? "");
+/** A Windows device name (COM1, aux.md): opening it reaches a device, not a file. */
+const DEVICE = /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i;
+
+/**
+ * A step's file the Open link may open: a local drive path, or a project path that stays inside the project once
+ * `..` is resolved. Anything else (//host, \\host, \\?\, \??\, \\.\, /root, C:name) can reach a network host, whose
+ * open makes Windows send the user's sign-in there, or a device.
+ */
+export function openable(file, windows = WINDOWS) {
+  const f = String(file);
+  if (/^[\\/]{2}/.test(f)) return false;
+  const parts = f.split(/[\\/]+/);
+  if (parts.some((p) => DEVICE.test(p))) return false;
+  if (/^[a-zA-Z]:[\\/]/.test(f)) return true;
+  // an absolute path is a local file on macOS and Linux; on Windows a single / is the drive root, not checked
+  if (f.startsWith("/")) return !windows;
+  if (/^\\|^[a-zA-Z]:/.test(f)) return false;
+  let depth = 0;
+  for (const part of parts) {
+    if (part === "..") depth--;
+    else if (part && part !== ".") depth++;
+    if (depth < 0) return false;
+  }
+  return true;
+}
+
 /**
  * The session link: its word and hover. A session the Sessions column lists opens in the chat beside the page; one it
  * does not list opens in the Sessions view, and the hover says so (tracker chat design, section 5).
@@ -216,7 +244,8 @@ function rowView(strings, row, ctx) {
     waitTone = "failed";
   }
   const plan = String(fieldOf(step, "stage") || "").trim();
-  const file = row.file ? fileParts(row.file) : null;
+  // The file comes from sessions and file frontmatter: a network path gets no Open link
+  const file = row.file && openable(row.file) ? fileParts(row.file) : null;
   return {
     id: step.id,
     fold: row.fold,

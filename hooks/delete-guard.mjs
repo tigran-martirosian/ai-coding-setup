@@ -1,4 +1,5 @@
 // delete-guard: a PreToolUse hook (Bash|PowerShell) that stops deletes which can take many files at once.
+//   Long options count when shortened, as getopt and git read them (rm --rec, git reset --har, git clean --f).
 //   Refused: rm with -r/-R/--recursive (rm -rf, rm -fr, rm -r ...), rm with an unquoted wildcard (* ? [),
 //   rm fed by xargs, find ... -delete and find ... -exec rm, git clean with -f/--force, and Remove-Item (or
 //   its aliases rm, del, rd, ri, rmdir, erase) with -Recurse, a wildcard, -Filter/-Include/-Exclude or no path
@@ -11,7 +12,10 @@
 //   Rescoped 2026-11-19 (setup review 2.8: no confirmation for what git brings back): a recursive or wildcard
 //   delete also passes inside a git work tree when everything under it is tracked and unchanged, and build or
 //   test output there (dist, build, coverage, target, ...) passes. Newly refused: deleting a database file
-//   (.db, .sqlite) outside temp, git reset --hard, and a force push.
+//   (.db, .sqlite) outside temp, git reset --hard, a force push, and a push that deletes remote branches (--mirror,
+//   --prune, --delete/-d, a :branch refspec). Git's global options before the subcommand are read with their value
+//   (-C, -c, --git-dir, --work-tree, --namespace, --config-env, --attr-source, --super-prefix); git clean is judged
+//   on the work tree from --work-tree, GIT_WORK_TREE or core.worktree, and refused when a git dir is named without one.
 //   Rescoped 2026-11-20 (plan 2.8, delete-guard row): no ask for what Claude made this session or what the user named,
 //   read from the session's transcript. Made: files written with the Write tool, a shell call's > redirect target,
 //   the -o/--output value of a tool that writes it (curl, wget, pandoc, a compiler, sort ...), ffmpeg's output (its
@@ -26,7 +30,8 @@
 // The command is split into simple commands on ; && || | & ( ) and new lines (PowerShell also { }), with quotes and
 // comments read the shell way, and lead words (then, do, else, elif, if, while, until, !, { }) dropped from the front,
 // so a delete inside quoted text (echo "rm -rf /", a grep pattern) is not a command and passes.
-// bash/sh -c "..." and powershell/pwsh -Command "..." are read inside. Heredoc bodies are skipped.
+// bash/sh -c "..." and powershell/pwsh -Command "..." are read inside. Heredoc bodies are skipped. Command prefixes
+// (sudo, env, nice, time, xargs ...) are dropped with their options and those options' values; env -S is read inside.
 // Not seen: deletes done by a script (node, python), a variable holding the command, eval. The setup's own
 // cleanup (workers/disk-tidy.mjs, file-check.mjs) deletes from Node, so it passes.
 // Helpers (agent_id set) get the same verdicts; their refusal says to report instead of asking.
@@ -191,6 +196,8 @@ const fold = (s) => (process.platform === "win32" ? s.toLowerCase() : s);
 function norm(p, cwd) {
   let t = p.replace(/\\/g, "/").replace(/^\/([a-z])(?=\/|$)/i, "$1:");
   if (/^[a-z]:$/i.test(t)) t += "/";
+  // C:dir (what bash makes of an unquoted C:\dir) starts from drive C's own current folder, which is not known here
+  if (/^[a-z]:[^/]/i.test(t)) return null;
   if (!t.startsWith("/") && !/^[a-z]:\//i.test(t)) {
     if (cwd == null) return null;
     t = `${cwd}/${t}`;
@@ -555,6 +562,7 @@ const looseRaw = (text, st) => {
   if (t == null) return null;
   let p = t.replace(/\\/g, "/").replace(/^\/([a-z])(?=\/|$)/i, "$1:");
   if (/^[a-z]:$/i.test(p)) p += "/";
+  if (/^[a-z]:[^/]/i.test(p)) return null;
   if (!p.startsWith("/") && !/^[a-z]:\//i.test(p)) {
     if (st.rawCwd == null) return null;
     p = `${st.rawCwd}/${p}`;
@@ -578,21 +586,52 @@ const LEAD = new Set([
   "{",
   "}",
 ]);
-const PREFIX = new Set([
-  "sudo",
-  "doas",
-  "command",
-  "builtin",
-  "exec",
-  "nohup",
-  "time",
-  "nice",
-  "env",
-  "export",
-  "local",
-  "declare",
-  "readonly",
+// Command prefixes run the command after their options. Each lists the options that take a value (attached, after =,
+// or the next word): short letters, then long names (any shortening of a long name counts, as getopt reads it).
+const PREFIX = new Map([
+  [
+    "sudo",
+    [
+      "ugphCDrtTU",
+      [
+        "user",
+        "group",
+        "host",
+        "prompt",
+        "close-from",
+        "chdir",
+        "role",
+        "type",
+        "command-timeout",
+        "other-user",
+      ],
+    ],
+  ],
+  ["doas", ["aCu", []]],
+  ["command", ["", []]],
+  ["builtin", ["", []]],
+  ["exec", ["a", []]],
+  ["nohup", ["", []]],
+  ["time", ["fo", ["format", "output"]]],
+  ["nice", ["n", ["adjustment"]]],
+  ["env", ["uCSa", ["unset", "chdir", "split-string", "argv0"]]],
+  ["export", ["", []]],
+  ["local", ["", []]],
+  ["declare", ["", []]],
+  ["readonly", ["", []]],
 ]);
+const XARGS = [
+  "aEdILnPs",
+  [
+    "arg-file",
+    "delimiter",
+    "max-lines",
+    "max-args",
+    "max-procs",
+    "max-chars",
+    "process-slot-var",
+  ],
+];
 const PS_REMOVE = new Set([
   "remove-item",
   "rm",
@@ -602,7 +641,23 @@ const PS_REMOVE = new Set([
   "rmdir",
   "erase",
 ]);
-const XARGS_VALUE = new Set(["-I", "-n", "-P", "-d", "-L", "-s", "-E", "-a"]);
+// GNU getopt and git's parse-options take any unambiguous start of a long option: rm --rec is rm --recursive.
+// min is the shortest start that names only this option.
+const longOpt = (t, full, min) => {
+  const n = t.split("=")[0];
+  return n.length >= min && full.startsWith(n);
+};
+// Git's global options that take the next word as their value (git.c reads them before the subcommand).
+const GIT_VALUE = new Set([
+  "-C",
+  "-c",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--config-env",
+  "--attr-source",
+  "--super-prefix",
+]);
 const PS_SKIP_VALUE =
   /^(erroraction|ea|warningaction|wa|informationaction|ia|errorvariable|ev|outvariable|ov|credential|stream)$/;
 
@@ -636,7 +691,8 @@ function rm(args, piped, st, out) {
   for (const a of args) {
     if (!ends && a.text === "--") ends = true;
     else if (!ends && /^-./.test(a.text))
-      recursive ||= a.text === "--recursive" || /^-[a-zA-Z]*[rR]/.test(a.text);
+      recursive ||=
+        longOpt(a.text, "--recursive", 3) || /^-[a-zA-Z]*[rR]/.test(a.text);
     else targets.push(a);
   }
   if (targets.length || piped)
@@ -711,41 +767,140 @@ function find(args, st, out) {
     out.deny.push(`find ${starts.map((s) => s.text).join(" ")} ... -delete`);
 }
 
+// Git runs in one folder (-C, each relative one from the one before) and cleans one work tree: --work-tree, else
+// GIT_WORK_TREE, else core.worktree from -c or --config-env; a relative one from that final folder (core.worktree
+// from the git dir, not followed here). With a git dir named (--git-dir, GIT_DIR) and no work tree, that repo's
+// config can name one: the work tree is unknown. top: the work tree, null when unknown, undefined when not named.
 function git(args, st, out) {
   let dir = st.cwd,
+    tree,
+    cfgTree,
+    gitDir = "GIT_DIR" in st.vars,
     k = 0;
   for (; k < args.length && args[k].text.startsWith("-"); k++) {
-    const t = args[k].text;
-    if (t === "-C") dir = where(args[++k]?.text ?? "", { ...st, cwd: dir });
-    else if (t === "-c") k++;
-    else if (t.startsWith("--work-tree="))
-      dir = where(t.slice(12), { ...st, cwd: dir });
+    const t = args[k].text,
+      eq = t.indexOf("="),
+      name = GIT_VALUE.has(t) || eq < 0 ? t : t.slice(0, eq);
+    if (!GIT_VALUE.has(name)) continue;
+    const v = name === t ? (args[++k]?.text ?? "") : t.slice(eq + 1);
+    if (name === "-C") dir = where(v, { ...st, cwd: dir });
+    else if (name === "--work-tree") tree = v;
+    else if (name === "--git-dir") gitDir = true;
+    else if (name === "-c" || name === "--config-env") {
+      const e = v.indexOf("=");
+      if (e > 0 && v.slice(0, e).toLowerCase() === "core.worktree")
+        cfgTree = name === "-c" ? v.slice(e + 1) : `$${v.slice(e + 1)}`;
+    }
   }
+  const envTree = st.vars.GIT_WORK_TREE;
+  const top =
+    tree != null
+      ? where(tree, { ...st, cwd: dir })
+      : "GIT_WORK_TREE" in st.vars
+        ? envTree == null
+          ? null
+          : norm(envTree, dir)
+        : cfgTree != null
+          ? where(cfgTree, { ...st, cwd: null })
+          : gitDir
+            ? null
+            : undefined;
   const sub = args[k]?.text;
   const after = args.slice(k + 1).map((a) => a.text);
-  if (sub === "reset" && after.includes("--hard"))
+  if (sub === "reset" && after.some((t) => longOpt(t, "--hard", 3)))
     return void out.deny.push("git reset --hard (drops uncommitted work)");
   if (
     sub === "push" &&
     after.some(
       (t) =>
         t === "--force" ||
-        t.startsWith("--force-with-lease") ||
-        /^-[a-zA-Z]*f/.test(t) ||
+        longOpt(t, "--force-with-lease", 9) ||
+        /^-[a-zA-Z0-9]*f/.test(t) ||
         /^\+[^+]/.test(t),
     )
   )
     return void out.deny.push("a force push (rewrites the remote's history)");
+  // --mirror and --prune delete remote branches missing here; --delete, -d and a refspec :branch delete the named ones
+  if (
+    sub === "push" &&
+    after.some(
+      (t) =>
+        longOpt(t, "--mirror", 3) ||
+        longOpt(t, "--prune", 5) ||
+        longOpt(t, "--delete", 4) ||
+        /^-[a-zA-Z0-9]*d/.test(t) ||
+        /^:./.test(t),
+    )
+  )
+    return void out.deny.push("a push that deletes remote branches");
   if (sub !== "clean") return;
-  const rest = after,
-    flags = rest.filter((t) => t.startsWith("-"));
-  if (flags.some((t) => t === "--dry-run" || /^-[a-zA-Z]*n/.test(t))) return;
-  if (!flags.some((t) => t === "--force" || /^-[a-zA-Z]*f/.test(t))) return;
-  const specs = rest.filter((t) => !t.startsWith("-"));
+  // Read the words as git does: -e/--exclude take a value (attached or the next word), after -- every word is a path,
+  // and the last of -n/--dry-run/--no-dry-run wins. No -f is not trusted (clean.requireForce=false deletes without it).
+  const flags = [],
+    specs = [];
+  let dry = false;
+  for (let i = 0; i < after.length; i++) {
+    const t = after[i];
+    if (t === "--") {
+      specs.push(...after.slice(i + 1));
+      break;
+    }
+    if (t.startsWith("--")) {
+      flags.push(t);
+      if (longOpt(t, "--exclude", 3) && !t.includes("=")) i++;
+      if (longOpt(t, "--dry-run", 3)) dry = true;
+      else if (t.startsWith("--no-")) dry = false;
+    } else if (/^-./.test(t)) {
+      flags.push(t);
+      for (let c = 1; c < t.length; c++) {
+        if (t[c] === "e") {
+          if (c === t.length - 1) i++;
+          break;
+        }
+        if (t[c] === "n") dry = true;
+      }
+    } else specs.push(t);
+  }
+  if (dry) return;
+  // a path is read from the folder git runs in; with a work tree named, from its top too
   const places = specs.length
-    ? specs.map((t) => where(t, { ...st, cwd: dir }))
-    : [dir];
+    ? specs.flatMap((t) => [
+        where(t, { ...st, cwd: dir }),
+        ...(top === undefined ? [] : [where(t, { ...st, cwd: top })]),
+      ])
+    : [top === undefined ? dir : top];
   if (!places.every(safe)) out.deny.push(`git clean ${flags.join(" ")}`);
+}
+
+// Drops a prefix's options from the front of w, with the value of those that take one. spec: [value letters, long
+// names]. split: the value of env -S/--split-string, which holds the command itself.
+function options(w, [letters, names]) {
+  let split = null;
+  while (w[0]?.text.startsWith("-")) {
+    const t = w[0].text;
+    w = w.slice(1);
+    if (t === "--") break;
+    let name,
+      v = null;
+    if (t.startsWith("--")) {
+      const eq = t.indexOf("="),
+        n = t.slice(2, eq < 0 ? undefined : eq);
+      name = names.find((full) => n && full.startsWith(n));
+      if (!name) continue;
+      if (eq >= 0) v = t.slice(eq + 1);
+    } else {
+      const c = [...t.slice(1)].findIndex((ch) => letters.includes(ch));
+      if (c < 0) continue;
+      name = t[c + 1];
+      if (c + 2 < t.length) v = t.slice(c + 2);
+    }
+    if (v == null) {
+      v = w[0]?.text ?? "";
+      w = w.slice(1);
+    }
+    if (name === "S" || name === "split-string") split = v;
+  }
+  return { rest: w, split };
 }
 
 function one(words, ps, st, out) {
@@ -758,14 +913,16 @@ function one(words, ps, st, out) {
       st.vars[t.slice(0, e)] = fill(t.slice(e + 1), st);
       w = w.slice(1);
     } else if (!ps && LEAD.has(t)) w = w.slice(1);
-    else if (PREFIX.has(t)) {
-      w = w.slice(1);
-      while (w[0]?.text.startsWith("-")) w = w.slice(1);
-    } else if (t === "xargs") {
-      piped = true;
-      w = w.slice(1);
-      while (w[0]?.text.startsWith("-"))
-        w = w.slice(XARGS_VALUE.has(w[0].text) ? 2 : 1);
+    else if (PREFIX.has(t) || t === "xargs") {
+      piped ||= t === "xargs";
+      const o = options(w.slice(1), PREFIX.get(t) ?? XARGS);
+      w = o.rest;
+      // env -S splits its value into the command and puts the words after it behind
+      if (o.split != null) {
+        const q = (x) => `'${x.replace(/'/g, "'\\''")}'`;
+        const text = [o.split, ...w.map((a) => q(a.text))].join(" ");
+        return void check(text, false, { ...st, vars: { ...st.vars } }, out);
+      }
     } else break;
   }
   if (!w.length) return;

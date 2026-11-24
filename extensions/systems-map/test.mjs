@@ -1,6 +1,9 @@
 // node test.mjs  (Node 22.6+ with type stripping: 24 runs it as is, 22 needs --experimental-strip-types)
 import assert from "node:assert/strict";
+import { exec } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   LABEL_BASELINE,
   LABEL_FONT,
@@ -26,7 +29,7 @@ import {
   sizeLine,
 } from "./src/map.ts";
 import { find, search } from "./src/search.ts";
-import { build, checkCommand, read } from "./src/store.ts";
+import { build, checkCommand, read, trusted } from "./src/store.ts";
 
 let passed = 0;
 const test = async (name, fn) => {
@@ -131,6 +134,30 @@ await test("state choice: one screen for each file", () => {
   );
   assert.equal(classify('{"nodes":[]}').kind, "map"); // an empty map is a map
   assert.equal(classify('{"nodes":[{"id":"a"}]}').map.things[0].name, "a");
+  // Windows PowerShell 5 saves UTF-8 with a BOM; map.mjs and the hooks read such a map, so the panel must too
+  assert.equal(
+    classify('﻿{"nodes":[{"id":"a"}]}').kind,
+    "map",
+    "a map saved with a UTF-8 BOM must show as a map, not as invalid JSON",
+  );
+});
+
+await test("check output: a crafted DRIFT line is read in linear time", () => {
+  // A map in a cloned repo controls these lines; a regex with three lazy groups froze the window on them
+  const line = `DRIFT a${"  (link a -> b): no longer has: ".repeat(200)} `;
+  const t = Date.now();
+  parseCheck(["ok: 1 things", line].join("\n"));
+  const ms = Date.now() - t;
+  assert.ok(
+    ms < 500,
+    `a 6 KB crafted DRIFT line took ${ms} ms: the check output parse must not backtrack`,
+  );
+  const c = parseCheck(
+    "DRIFT docs/a.md  (link cart -> orders): no longer has: total()\nok: 1 things",
+  );
+  assert.deepEqual(c.driftLinks, [
+    { file: "docs/a.md", from: "cart", to: "orders", token: "total()" },
+  ]);
 });
 
 await test("check output: gone paths and mistakes", () => {
@@ -180,6 +207,29 @@ await test("paths: relative ones join the project, absolute ones stay", () => {
     "C:/Users/you/.claude/x.mjs",
   );
   assert.equal(absolute("/home/you/shop", "/etc/x"), "/etc/x");
+  // a network or device path would send the user's Windows sign-in to that host on a click: no path to open
+  const BS = String.fromCharCode(92);
+  for (const p of [
+    "//host/share/x.md",
+    `${BS}${BS}host${BS}share`,
+    `${BS}${BS}?${BS}C:${BS}x.md`,
+    `${BS}${BS}.${BS}pipe${BS}x`,
+  ])
+    assert.equal(
+      absolute("C:/Work/shop", p, "C:/Users/you"),
+      null,
+      `a network path ${p} is not opened`,
+    );
+  // ~/ is a file of the setup (the skill and map.mjs say so): it opens under the home folder, not the project
+  assert.equal(
+    absolute("C:/Work/shop", "~/.claude/x.mjs", "C:\\Users\\you"),
+    "C:/Users/you/.claude/x.mjs",
+    "a ~/ path must open under the home folder",
+  );
+  assert.equal(
+    absolute("C:/Work/shop", "~\\.claude\\x.mjs", "C:/Users/you/"),
+    "C:/Users/you/.claude/x.mjs",
+  );
   assert.equal(projectName("C:\\Work\\shop\\"), "shop");
 });
 
@@ -601,10 +651,51 @@ await test("layout: group parts sit nearer their own centre than without the pul
   );
 });
 
+// vite.config.ts sets this in the build
+const CLAUDE_DIR = path.join(os.homedir(), ".claude");
+globalThis.__CLAUDE_DIR__ = CLAUDE_DIR;
+// Removed at the end: right after the decoy run Windows can still hold the new node.cmd (EPERM)
+const leftovers = [];
+
+await test("store: a project's own node.cmd does not run in place of node", async () => {
+  if (process.platform !== "win32") return; // sh does not look in the current folder
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "systems-map-ws-"));
+  const marker = path.join(project, "planted-ran");
+  fs.writeFileSync(
+    path.join(project, "node.cmd"),
+    `@echo planted> "${marker}"\r\n`,
+  );
+  // As Nimbalyst runs it: the process environment plus the options' env. The guard is taken out of
+  // the base environment first (a Claude Code shell sets it already). The cwd is forced to the
+  // project, so only the guard stands between cmd.exe and the planted file.
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => !/^NoDefaultCurrentDirectoryInExePath$/i.test(k),
+    ),
+  );
+  const o = trusted({ timeout: 20_000 });
+  await new Promise((done) =>
+    exec(
+      'node -e "1"',
+      { ...o, cwd: project, env: { ...base, ...o.env } },
+      done,
+    ),
+  );
+  const ran = fs.existsSync(marker);
+  leftovers.push(project);
+  assert.equal(
+    ran,
+    false,
+    "cmd.exe ran the project's node.cmd: the guard is not set",
+  );
+});
+
 await test("store: read picks the screen, the check runs only for a map", async () => {
   const calls = [];
-  const exec = async (command) => {
+  const options = [];
+  const exec = async (command, o) => {
     calls.push(command);
+    options.push(o);
     return {
       success: true,
       stdout:
@@ -627,8 +718,28 @@ await test("store: read picks the screen, the check runs only for a map", async 
   assert.equal(snap.loaded.kind, "map");
   assert.deepEqual(snap.check.gone, ["a.ts"]);
   assert.equal(calls.length, 1);
-  assert.match(calls[0], /"C:\/Work\/shop"$/);
+  assert.doesNotMatch(
+    calls[0],
+    /Work/,
+    "the project folder never goes on the command line",
+  );
+  assert.doesNotMatch(
+    checkCommand('C:/%CMDCMDLINE%"&calc&"'),
+    /CMDCMDLINE|calc/,
+  );
   assert.match(checkCommand("C:/x"), /systems-map.*--check/);
+  assert.deepEqual(
+    options[0],
+    {
+      timeout: 30_000,
+      cwd: CLAUDE_DIR,
+      env: {
+        NoDefaultCurrentDirectoryInExePath: "1",
+        MAP_PROJECT: "C:/Work/shop",
+      },
+    },
+    "the check runs in ~/.claude with the cwd guard, never in the project",
+  );
 
   const none = await read(
     "C:\\Work\\shop",
@@ -786,4 +897,5 @@ await test("a label's box is measured at 14 px in the label font, and its text s
   );
 });
 
+for (const dir of leftovers) fs.rmSync(dir, { recursive: true, force: true });
 console.log(process.exitCode ? "FAILED" : `${passed} passed`);

@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const script =
   process.env.WATCH_SCRIPT ||
@@ -157,12 +157,30 @@ check(
   r.err,
 );
 
-// A link whose site gives no length (Instagram): a fake yt-dlp copies the test video as the download
+// A folder such as a cloned repo, with config planted for the tools watch.mjs runs (deepsec rce-b21fd4646e).
+// The link and faster-whisper cases below run from it.
+const planted = path.join(tmp, "planted repo");
+fs.mkdirSync(path.join(planted, ".venv"), { recursive: true });
+fs.writeFileSync(path.join(planted, "yt-dlp.conf"), "--exec 'echo planted'\n");
+fs.writeFileSync(path.join(planted, "uv.toml"), "[pip]\n");
+fs.writeFileSync(
+  path.join(planted, "faster_whisper.py"),
+  "raise SystemExit(9)\n",
+);
+// Is a child's working folder one video's folder in the cache, and not the planted folder?
+const inCache = (cwd, cache) =>
+  path.relative(cache, cwd) !== "" &&
+  path.dirname(path.relative(cache, cwd)) === ".";
+
+// A link whose site gives no length (Instagram): a fake yt-dlp copies the test video as the download.
+// It notes each call's arguments and working folder in ytLog.
 const fake = path.join(tmp, "fake-yt-dlp.mjs");
+const ytLog = path.join(tmp, "fake-yt-dlp.log");
 fs.writeFileSync(
   fake,
   `import fs from "node:fs";
 const a = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(ytLog)}, JSON.stringify({ a, cwd: process.cwd() }) + "\\n");
 if (a.includes("--version")) process.exit(0);
 if (a.includes("-J")) { console.log(JSON.stringify({ title: "Reel", uploader: "someone" })); process.exit(0); }
 const o = a[a.indexOf("-o") + 1];
@@ -172,13 +190,32 @@ if (o && o.includes("video.")) fs.copyFileSync(${JSON.stringify(video)}, o.repla
 const linkRun = spawnSync(
   "node",
   [script, "https://www.instagram.com/reel/TEST123/"],
-  { encoding: "utf8", env: { ...process.env, WATCH_HOME: home, YT_DLP: fake } },
+  {
+    encoding: "utf8",
+    cwd: planted,
+    env: { ...process.env, WATCH_HOME: home, YT_DLP: fake },
+  },
 );
 check(
   "link without a length: exit 0",
   linkRun.status === 0,
   linkRun.stdout + linkRun.stderr,
 );
+{
+  const calls = fs
+    .readFileSync(ytLog, "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
+  check(
+    "yt-dlp reads no config from the folder it is run from: each call has --ignore-config and runs in the video's cache folder",
+    calls.length >= 3 &&
+      calls.every(
+        (c) => c.a.includes("--ignore-config") && inCache(c.cwd, home),
+      ),
+    JSON.stringify(calls),
+  );
+}
 check(
   "link without a length: says so, then measures 0:20",
   /length not given/.test(linkRun.stdout) &&
@@ -394,6 +431,47 @@ else {
     /^Words: none \(speech-to-text is off \(WATCH_STT=off\)\)$/m.test(r.out) &&
       !/Listening|Downloading/.test(r.out),
     r.out + r.err,
+  );
+  // The fake uv (a copy of node) notes its arguments and working folder: a file loaded first through
+  // NODE_OPTIONS writes them when the node running is the one named uv. Run from the planted folder.
+  const uvLog = path.join(tmp, "fake-uv.log");
+  const note = path.join(tmp, "note-uv.mjs");
+  fs.writeFileSync(
+    note,
+    `import fs from "node:fs";
+import path from "node:path";
+if (path.basename(process.execPath).startsWith("uv")) {
+  fs.appendFileSync(${JSON.stringify(uvLog)}, JSON.stringify({ a: process.argv.slice(1), cwd: process.cwd() }) + "\\n");
+  process.exit(1);
+}
+`,
+  );
+  const uvHome = path.join(tmp, "uv-cache-planted");
+  const ran = spawnSync("node", [script, short, "--no-frames"], {
+    encoding: "utf8",
+    cwd: planted,
+    env: {
+      ...process.env,
+      [pathKey]: bin + path.delimiter + process.env[pathKey],
+      HF_HUB_CACHE: hub,
+      WATCH_HOME: uvHome,
+      NODE_OPTIONS: `--import "${pathToFileURL(note).href}"`,
+    },
+  });
+  const uvCall = fs.existsSync(uvLog)
+    ? JSON.parse(fs.readFileSync(uvLog, "utf8").trim().split("\n")[0])
+    : null;
+  const at = (w) => uvCall?.a.indexOf(w) ?? -1;
+  check(
+    "faster-whisper reads no config or code from the folder it is run from: uv run --no-config, python -I, in the video's cache folder",
+    uvCall !== null &&
+      path.basename(uvCall.a[0]) === "run" &&
+      at("--no-config") > 0 &&
+      at("python") > at("--no-config") &&
+      uvCall.a[at("python") + 1] === "-I" &&
+      uvCall.a[at("python") + 2] === "-c" &&
+      inCache(uvCall.cwd, uvHome),
+    `${JSON.stringify(uvCall)}\n     ${ran.stdout}${ran.stderr}`,
   );
 }
 // An engine that fails leaves the words out, and the stills still come

@@ -8,7 +8,9 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1046,6 +1048,365 @@ r = pre([typed("fix"), ...tEdit(join(linked, "src", "a.mjs"))], {
 check(
   "an edit spelled through a link to the repository counts as inside it (git names the real folder)",
   r.lines[0]?.would === "would-refuse",
+  show(r),
+);
+
+// Pages a person reads (release 26.6 spec D12). A page is README.md, README.ru.md, CHANGELOG.md or a
+// docs/**/*.md outside docs/promo/; its proof folder is .proof/<page name>/ in the repository (page name: the path
+// from the repository with / turned into __ and .md dropped), holding <light|dark>-<1280|390>.png and verdict.md
+// whose first line is PASS. An edit to a page is done only when that folder is newer than the page.
+const SHOTS = ["light-1280", "light-390", "dark-1280", "dark-390"];
+// A repository holding the page (staged), a verify skill, scripts/render-check.mjs (pages are checked only where it
+// is: a user's project has no such script) and maybe the commit switch in its .claude/settings.local.json
+const pageRepo = ({
+  page = "docs/guide.md",
+  enforce = false,
+  renderCheck = true,
+} = {}) => {
+  const f = folder({ staged: [page], skill: true });
+  if (renderCheck) {
+    mkdirSync(join(f, "scripts"), { recursive: true });
+    writeFileSync(join(f, "scripts", "render-check.mjs"), "// stub\n");
+  }
+  if (enforce)
+    writeFileSync(
+      join(f, ".claude", "settings.local.json"),
+      JSON.stringify({ env: { VERIFY_GATE_COMMIT: "enforce" } }),
+    );
+  return f;
+};
+// The page's proof folder: screenshots and verdict, `ageSec` seconds after (or, negative, before) the page's own time
+const proof = (
+  repo,
+  page,
+  {
+    verdict = "PASS\nAll four screenshots read.",
+    shots = SHOTS,
+    ageSec = 60,
+  } = {},
+) => {
+  const name = page.replace(/\.md$/i, "").split("/").join("__");
+  const p = join(repo, ".proof", name);
+  mkdirSync(p, { recursive: true });
+  const files = [
+    ...shots.map((s) => `${s}.png`),
+    ...(verdict === null ? [] : ["verdict.md"]),
+  ];
+  for (const s of files)
+    writeFileSync(join(p, s), s === "verdict.md" ? `${verdict}\n` : "png");
+  const pageTime = statSync(join(repo, page)).mtime.getTime() / 1000;
+  for (const s of files)
+    utimesSync(join(p, s), pageTime + ageSec, pageTime + ageSec);
+  return p;
+};
+const pageEdit = (repo, page) => [
+  typed("reword the guide"),
+  ...edit(join(repo, page)),
+];
+
+// The Stop arm
+const stopRepo = pageRepo();
+let out = run(pageEdit(stopRepo, "docs/guide.md"));
+check(
+  "a page edit with no proof folder keeps the turn from ending (D12)",
+  blocks(out),
+  out || "(no output)",
+);
+check(
+  "the block names the page's proof folder, .proof/docs__guide/",
+  /\.proof[\\/]docs__guide/.test(out),
+  out || "(no output)",
+);
+out = run([...pageEdit(stopRepo, "docs/guide.md"), ...bash("npm test")]);
+check(
+  "a build or test run does not stand in for a page's proof",
+  blocks(out),
+  out || "(no output)",
+);
+const freshRepo = pageRepo();
+proof(freshRepo, "docs/guide.md");
+out = run(pageEdit(freshRepo, "docs/guide.md"));
+check(
+  "a page edit with fresh proof (four screenshots, verdict PASS, newer than the page) passes",
+  !out,
+  out || "(no output)",
+);
+const staleRepo = pageRepo();
+proof(staleRepo, "docs/guide.md", { ageSec: -60 });
+out = run(pageEdit(staleRepo, "docs/guide.md"));
+check(
+  "proof older than the page does not count",
+  blocks(out),
+  out || "(no output)",
+);
+const failRepo = pageRepo();
+proof(failRepo, "docs/guide.md", { verdict: "FAIL\nThe last box is cut." });
+out = run(pageEdit(failRepo, "docs/guide.md"));
+check(
+  "a verdict whose first line is FAIL does not count",
+  blocks(out),
+  out || "(no output)",
+);
+const noShotsRepo = pageRepo();
+proof(noShotsRepo, "docs/guide.md", { shots: [] });
+out = run(pageEdit(noShotsRepo, "docs/guide.md"));
+check(
+  "a verdict with no screenshots does not count",
+  blocks(out),
+  out || "(no output)",
+);
+const noVerdictRepo = pageRepo();
+proof(noVerdictRepo, "docs/guide.md", { verdict: null });
+out = run(pageEdit(noVerdictRepo, "docs/guide.md"));
+check(
+  "screenshots with no verdict.md do not count",
+  blocks(out),
+  out || "(no output)",
+);
+for (const page of [
+  "README.md",
+  "README.ru.md",
+  "CHANGELOG.md",
+  "docs/deep/part.md",
+]) {
+  const repo = pageRepo({ page });
+  out = run(pageEdit(repo, page));
+  check(
+    `${page} is a page: its edit with no proof blocks`,
+    blocks(out),
+    out || "(no output)",
+  );
+}
+const promoRepo = pageRepo({ page: "docs/promo/script.md" });
+out = run(pageEdit(promoRepo, "docs/promo/script.md"));
+check(
+  "docs/promo/ is not a page: its edit passes with no proof",
+  !out,
+  out || "(no output)",
+);
+const otherMd = pageRepo({ page: "notes/todo.md" });
+out = run(pageEdit(otherMd, "notes/todo.md"));
+check(
+  "a .md outside the pages passes with no proof",
+  !out,
+  out || "(no output)",
+);
+// A user's project: a verify skill but no scripts/render-check.mjs, so the block's command would not exist there
+const userRepo = pageRepo({ page: "README.md", renderCheck: false });
+out = run(pageEdit(userRepo, "README.md"));
+check(
+  "a README edit in a repository without scripts/render-check.mjs passes with no proof",
+  !out,
+  out || "(no output)",
+);
+
+// The commit arm: the switch sits in the repository's .claude/settings.local.json "env"; the session runs in it
+const commitPage = (repo) =>
+  pre([typed("reword"), ...tEdit(join(repo, "docs", "guide.md"))], {
+    cwd: repo,
+    command: commitIn(repo, "docs: reword the guide"),
+    env: { CLAUDE_PROJECT_DIR: repo },
+  });
+const enfRepo = pageRepo({ enforce: true });
+r = commitPage(enfRepo);
+check(
+  "enforce in settings.local.json: a commit staging a page with no fresh proof is refused (D12)",
+  refused(r.out),
+  show(r),
+);
+const enfFresh = pageRepo({ enforce: true });
+proof(enfFresh, "docs/guide.md");
+r = commitPage(enfFresh);
+check(
+  "enforce in settings.local.json: the same commit with fresh proof is not refused",
+  !r.out && r.code === 0,
+  show(r),
+);
+const enfStale = pageRepo({ enforce: true });
+proof(enfStale, "docs/guide.md", { ageSec: -60 });
+r = commitPage(enfStale);
+check(
+  "enforce: proof older than the staged page does not let the commit through",
+  refused(r.out),
+  show(r),
+);
+const logRepo = pageRepo();
+r = commitPage(logRepo);
+check(
+  "without the switch a page commit with no fresh proof is not refused and writes one would-refuse line",
+  !r.out &&
+    r.code === 0 &&
+    r.lines.length === 1 &&
+    r.lines[0].would === "would-refuse" &&
+    r.lines[0].arm === "commit",
+  show(r),
+);
+const userCommit = pageRepo({
+  page: "README.md",
+  enforce: true,
+  renderCheck: false,
+});
+r = pre([typed("reword"), ...tEdit(join(userCommit, "README.md"))], {
+  cwd: userCommit,
+  command: commitIn(userCommit, "docs: reword the readme"),
+  env: { CLAUDE_PROJECT_DIR: userCommit },
+});
+check(
+  "a README commit in a repository without scripts/render-check.mjs is neither refused nor logged, even in enforce",
+  !r.out && r.code === 0 && !r.lines.length,
+  show(r),
+);
+// A release session runs in another folder and commits with git -C: the switch in the repository committed to counts
+const elsewhere = newHome();
+const commitFrom = (repo) =>
+  pre(pageEdit(repo, "docs/guide.md"), {
+    cwd: elsewhere,
+    command: commitIn(repo, "docs: reword the guide"),
+    env: { CLAUDE_PROJECT_DIR: elsewhere },
+  });
+r = commitFrom(pageRepo({ enforce: true }));
+check(
+  "enforce in the committed repository's settings.local.json refuses a git -C commit from a session in another folder (D12)",
+  refused(r.out),
+  show(r),
+);
+r = commitFrom(pageRepo());
+check(
+  "with no switch in the committed repository a git -C commit from another folder is only logged as would-refuse",
+  !r.out &&
+    r.code === 0 &&
+    r.lines.length === 1 &&
+    r.lines[0].would === "would-refuse",
+  show(r),
+);
+// A repository's own settings can only tighten the gate: a cloned repo saying off does not switch it off
+const strict = newHome();
+mkdirSync(join(strict, ".claude"), { recursive: true });
+writeFileSync(
+  join(strict, ".claude", "settings.local.json"),
+  JSON.stringify({ env: { VERIFY_GATE_COMMIT: "enforce" } }),
+);
+const loose = pageRepo();
+writeFileSync(
+  join(loose, ".claude", "settings.json"),
+  JSON.stringify({ env: { VERIFY_GATE_COMMIT: "off" } }),
+);
+r = pre(pageEdit(loose, "docs/guide.md"), {
+  cwd: strict,
+  command: commitIn(loose, "docs: reword the guide"),
+  env: { CLAUDE_PROJECT_DIR: strict },
+});
+check(
+  "off in the committed repository's settings does not loosen the session project's enforce",
+  refused(r.out),
+  show(r),
+);
+
+// A failed git call on a page (its folder's .git file is broken) skips that page with a crash line; the code
+// block still comes
+const pageCrashLog = join(dir, "page-crash.log");
+const brokenPages = join(dir, "broken-pages");
+mkdirSync(join(brokenPages, "docs"), { recursive: true });
+writeFileSync(join(brokenPages, ".git"), "not a gitfile\n");
+writeFileSync(join(brokenPages, "docs", "guide.md"), "x\n");
+out = run(
+  [
+    typed("fix and reword"),
+    ...edit("C:/p/a.js"),
+    ...edit(join(brokenPages, "docs", "guide.md")),
+  ],
+  { env: { HOOK_ERRORS_LOG: pageCrashLog } },
+);
+check(
+  "a git failure on a page file still blocks for the code edit and writes a crash line",
+  blocks(out) &&
+    /\(a\.js\)/.test(out) &&
+    existsSync(pageCrashLog) &&
+    /verify-gate/.test(readFileSync(pageCrashLog, "utf8")),
+  `${out || "(no output)"}; crash log: ${existsSync(pageCrashLog) ? readFileSync(pageCrashLog, "utf8") : "none"}`,
+);
+// git is asked only about a path that could be a page: a note or plan .md elsewhere is not one
+const noteLog = join(dir, "note-crash.log");
+mkdirSync(join(brokenPages, "notes"), { recursive: true });
+writeFileSync(join(brokenPages, "notes", "plan.md"), "x\n");
+out = run([typed("note it"), ...edit(join(brokenPages, "notes", "plan.md"))], {
+  env: { HOOK_ERRORS_LOG: noteLog },
+});
+check(
+  "an edit of a .md that cannot be a page (notes/plan.md) never calls git: no crash line, no output",
+  !out && !existsSync(noteLog),
+  `${out || "(no output)"}; crash log: ${existsSync(noteLog) ? readFileSync(noteLog, "utf8") : "none"}`,
+);
+// The film: an old still left in .proof/film/ does not stop a new still and a newer verdict from passing
+const FILM_SCRIPT = "docs/promo/src/film/script.ts";
+const filmRepo = pageRepo({ page: FILM_SCRIPT });
+const filmProof = join(filmRepo, ".proof", "film");
+mkdirSync(filmProof, { recursive: true });
+const scriptTime = statSync(join(filmRepo, FILM_SCRIPT)).mtime.getTime() / 1000;
+for (const [f, age] of [
+  ["old-still.png", -60],
+  ["new-still.png", 30],
+  ["verdict.md", 60],
+]) {
+  writeFileSync(join(filmProof, f), f === "verdict.md" ? "PASS\n" : "png");
+  utimesSync(join(filmProof, f), scriptTime + age, scriptTime + age);
+}
+out = run([
+  typed("cut the film"),
+  ...edit(join(filmRepo, FILM_SCRIPT)),
+  ...bash("npm test"),
+]);
+check(
+  "film proof passes with one still newer than the script, though an old still is left in .proof/film/",
+  !out,
+  out || "(no output)",
+);
+// A PASS verdict written before the screenshots judged nothing it could see
+const earlyVerdict = pageRepo();
+const earlyProof = proof(earlyVerdict, "docs/guide.md");
+const guideTime =
+  statSync(join(earlyVerdict, "docs", "guide.md")).mtime.getTime() / 1000;
+utimesSync(join(earlyProof, "verdict.md"), guideTime + 30, guideTime + 30);
+out = run(pageEdit(earlyVerdict, "docs/guide.md"));
+check(
+  "a verdict older than the screenshots it judges does not count",
+  blocks(out),
+  out || "(no output)",
+);
+// The block's command runs from any folder: the repository's script and the page by their full paths, quoted
+const cmdRepo = pageRepo();
+out = run(pageEdit(cmdRepo, "docs/guide.md"));
+const cmdTop = realpathSync.native(cmdRepo).replace(/\\/g, "/");
+check(
+  'the block names node "<repo>/scripts/render-check.mjs" "<repo>/<page>"',
+  blocks(out) &&
+    JSON.parse(out).reason.includes(
+      `node "${cmdTop}/scripts/render-check.mjs" "${cmdTop}/docs/guide.md"`,
+    ),
+  out || "(no output)",
+);
+// A code refusal with a page refusal: the skip line is not offered, since it cannot pass the page
+const bothRepo = pageRepo({ enforce: true });
+mkdirSync(join(bothRepo, "src"), { recursive: true });
+writeFileSync(join(bothRepo, "src", "a.mjs"), "x\n");
+sh(bothRepo, "add", "src/a.mjs");
+r = pre(
+  [
+    typed("fix and reword"),
+    ...tEdit(join(bothRepo, "docs", "guide.md")),
+    ...tEdit(join(bothRepo, "src", "a.mjs")),
+  ],
+  {
+    cwd: bothRepo,
+    command: commitIn(bothRepo, "fix: a and the guide"),
+    env: { CLAUDE_PROJECT_DIR: bothRepo },
+  },
+);
+check(
+  'a code and page refusal together does not offer the "Verify: skipped" line and says the page proof is still needed',
+  refused(r.out) &&
+    !r.out.includes("Verify: skipped") &&
+    /page proof is still needed/.test(r.out),
   show(r),
 );
 

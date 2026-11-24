@@ -1,7 +1,7 @@
 // One shared copy of the planner's numbers for the panel and the popover.
 
-import { hostExec, hostInvoke } from "../../shared/host.ts";
-import { script } from "./command";
+import { hostInvoke } from "../../shared/host.ts";
+import { script, trusted } from "./command";
 import type { Plan } from "./format";
 import { failureLine } from "./format";
 import { t } from "./strings";
@@ -28,9 +28,14 @@ const EXTENSION_ID = "com.local.usageplan";
 const REFRESH_MS = 5 * 60_000;
 
 // The popover is drawn before any panel host exists, so until the panel is opened the
-// numbers come through the same call host.exec makes.
+// numbers come through the same call host.exec makes, with the same trusted folder and guard
+// (shared hostExec sends no cwd or env, so the call is made here).
 const direct: Exec = (command, options) =>
-  hostExec<ExecResult>(hostInvoke, EXTENSION_ID, command, options?.timeout);
+  hostInvoke("extension:exec", {
+    extensionId: EXTENSION_ID,
+    command,
+    ...trusted(options),
+  }) as Promise<ExecResult>;
 
 let exec: Exec = direct;
 let state: State = { plan: null, error: "", loading: false };

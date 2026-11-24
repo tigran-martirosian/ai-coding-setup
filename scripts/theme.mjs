@@ -4,7 +4,6 @@
 // (the tests), written as it is. What changes goes into ctx.nextState.
 import fs from "node:fs";
 import path from "node:path";
-import { nimbalystRunning } from "../tools/nimbalyst-patch/ext-swap.mjs";
 import { fwd } from "./files.mjs";
 import {
   PENDING_LINE,
@@ -12,6 +11,7 @@ import {
   setInkDefault,
   themeAction,
 } from "./ink-default.mjs";
+import { nimbalystRunning } from "./nimbalyst-patch/ext-swap.mjs";
 import { EXT_FOLDER } from "./nimbalyst-paths.mjs";
 
 export function theme(ctx) {

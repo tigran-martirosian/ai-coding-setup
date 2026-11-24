@@ -13,7 +13,7 @@ export interface ExecResult {
 }
 export type Exec = (
   command: string,
-  options?: { timeout?: number },
+  options?: ReturnType<typeof trusted>,
 ) => Promise<ExecResult>;
 
 export interface Snapshot {
@@ -27,12 +27,29 @@ export interface Snapshot {
 export const REFRESH_MS = 60_000;
 const CHECK_TIMEOUT_MS = 30_000;
 
+// The ~/.claude folder of the person who built the extension, set by vite.config.ts.
+declare const __CLAUDE_DIR__: string;
+
+/**
+ * The exec options of the check. Nimbalyst runs a command in the open project unless told otherwise,
+ * and on Windows cmd.exe looks for `node` in the current folder before PATH, so a project's own
+ * node.cmd would run instead of Node.js. So the check runs in ~/.claude (--project carries the
+ * project), and NoDefaultCurrentDirectoryInExePath (passed here; Nimbalyst merges it into the child's environment)
+ * stops cmd.exe from searching the current folder at all.
+ */
+export const trusted = (options: { timeout: number }, workspace = "") => ({
+  ...options,
+  cwd: __CLAUDE_DIR__,
+  env: { NoDefaultCurrentDirectoryInExePath: "1", MAP_PROJECT: workspace },
+});
+
 const missing = (e: unknown) =>
   /ENOENT|no such file/i.test(String((e as Error)?.message ?? e));
 
-/** `map.mjs --check` for one project. The project folder is an argument of node, so no shell quoting touches it. */
-export const checkCommand = (workspace: string) =>
-  `node -e "const p=require('path'),o=require('os');require('child_process').spawnSync(process.execPath,[p.join(o.homedir(),'.claude','skills','systems-map','map.mjs'),'--project',process.argv[1],'--check'],{stdio:'inherit'})" "${workspace.replace(/\\/g, "/")}"`;
+/** `map.mjs --check` for one project. The project folder comes in through the MAP_PROJECT environment variable
+ * (see trusted), never on the command line, so no folder name can be read by cmd.exe as % or quote syntax. */
+export const checkCommand = (_workspace?: string) =>
+  `node -e "const p=require('path'),o=require('os');require('child_process').spawnSync(process.execPath,[p.join(o.homedir(),'.claude','skills','systems-map','map.mjs'),'--project',process.env.MAP_PROJECT,'--check'],{stdio:'inherit'})"`;
 
 /** Reads the file and, for a real map, the check. A read that fails for any reason but "no such file" throws. */
 export async function read(
@@ -53,8 +70,12 @@ export async function read(
   let out = "";
   if (loaded.kind === "map") {
     try {
-      out = (await exec(checkCommand(workspace), { timeout: CHECK_TIMEOUT_MS }))
-        .stdout;
+      out = (
+        await exec(
+          checkCommand(),
+          trusted({ timeout: CHECK_TIMEOUT_MS }, workspace.replace(/\\/g, "/")),
+        )
+      ).stdout;
       check = parseCheck(out);
     } catch {
       check = null; // the map still shows; the caption says the check did not run

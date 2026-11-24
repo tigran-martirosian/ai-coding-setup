@@ -208,9 +208,13 @@ async function inParts(url, out, tmp, size, parts) {
   const planFile = path.join(dir, "plan.json");
   if (fs.existsSync(planFile)) {
     const old = JSON.parse(fs.readFileSync(planFile, "utf8"));
-    if (old.size !== size || old.parts !== ranges.length)
+    if (old.url === undefined)
       throw new Error(
-        `${dir} holds the parts of another download (${old.size} bytes in ${old.parts} parts; this one is ${size} bytes in ${ranges.length}). Delete that folder to start over.`,
+        `${dir} is a parts folder from an older version of this tool: delete ${dir} and run again.`,
+      );
+    if (old.url !== url || old.size !== size || old.parts !== ranges.length)
+      throw new Error(
+        `${dir} holds the parts of another download (${old.url}, ${old.size} bytes in ${old.parts} parts; this one is ${url}, ${size} bytes in ${ranges.length}). Delete that folder to start over.`,
       );
   }
   fs.mkdirSync(dir, { recursive: true });

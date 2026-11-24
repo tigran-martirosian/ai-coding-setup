@@ -87,6 +87,11 @@ const cases = [
   ["rm -fr form", bash("rm -fr ./out"), "deny"],
   ["rm -r form", bash("rm -r docs"), "deny"],
   ["rm --recursive form", bash("rm --recursive docs"), "deny"],
+  // rm, like any GNU tool, takes a shortened long option: --r, --rec and --recur all mean --recursive
+  ["rm --rec form (shortened --recursive)", bash("rm --rec -f ./dir"), "deny"],
+  ["rm --recur form (shortened --recursive)", bash("rm --recur ./dir"), "deny"],
+  ["rm --r form (shortened --recursive)", bash("rm --r docs"), "deny"],
+  ["rm of one named file in the project", bash("rm ./file.txt"), "allow"],
   ["wildcard delete", bash("rm *.log"), "deny"],
   ["wildcard in a folder", bash("rm -f build/*.o"), "deny"],
   ["find -delete", bash('find . -name "*.tmp" -delete'), "deny"],
@@ -96,6 +101,158 @@ const cases = [
   [
     "git -C project clean --force",
     bash("git -C C:/Projects/demo clean --force"),
+    "deny",
+  ],
+  // git's global options before the subcommand take their value as the next word; the subcommand comes after it
+  [
+    "git --git-dir <dir> before reset --hard",
+    bash("git --git-dir .git reset --hard"),
+    "deny",
+  ],
+  [
+    "git --git-dir <dir> before push --force",
+    bash("git --git-dir .git push --force"),
+    "deny",
+  ],
+  [
+    "git --namespace <name> before push --force",
+    bash("git --namespace x push --force"),
+    "deny",
+  ],
+  [
+    "git --work-tree <dir> before reset --hard",
+    bash("git --work-tree . reset --hard"),
+    "deny",
+  ],
+  [
+    "git --config-env <name=var> before push -f",
+    bash("git --config-env a.b=HOME push -f"),
+    "deny",
+  ],
+  [
+    "git --attr-source <tree> before reset --hard",
+    bash("git --attr-source HEAD reset --hard"),
+    "deny",
+  ],
+  [
+    "git --git-dir <dir> before a harmless status",
+    bash("git --git-dir .git status"),
+    "allow",
+  ],
+  // git's parse-options takes a shortened long option too
+  ["git reset --har (shortened --hard)", bash("git reset --har"), "deny"],
+  [
+    "git push --force-w (shortened --force-with-lease)",
+    bash("git push --force-w origin main"),
+    "deny",
+  ],
+  ["git clean --f -d (shortened --force)", bash("git clean --f -d"), "deny"],
+  [
+    "git clean --dry --force (shortened --dry-run) deletes nothing",
+    bash("git clean --dry --force"),
+    "allow",
+  ],
+  [
+    "git clean -fd -e -n (-n is the exclude pattern)",
+    bash("git clean -fd -e -n"),
+    "deny",
+  ],
+  ["git clean -fden (n is the value of -e)", bash("git clean -fden"), "deny"],
+  ["git clean -fd --exclude -n", bash("git clean -fd --exclude -n"), "deny"],
+  [
+    "git clean -fd -- -n (a path, not an option)",
+    bash("git clean -fd -- -n"),
+    "deny",
+  ],
+  [
+    "git clean -fd -e keep -n is a dry run",
+    bash("git clean -fd -e keep -n"),
+    "allow",
+  ],
+  // git clean deletes in the work tree, which -C does not move: --work-tree, GIT_WORK_TREE or core.worktree names it
+  [
+    "git --work-tree <project> clean -f from a temp folder",
+    bash("git --work-tree C:/Projects/demo clean -f", { cwd: WORKTREE }),
+    "deny",
+  ],
+  [
+    "git --work-tree <temp folder> clean -f",
+    bash("git --work-tree /tmp/w clean -f"),
+    "allow",
+  ],
+  [
+    "git --work-tree <project> with -C <temp> after it, clean -fdx",
+    bash(
+      "git --git-dir C:/Projects/demo/.git --work-tree C:/Projects/demo -C /tmp/x clean -fdx",
+    ),
+    "deny",
+  ],
+  [
+    "git -C <temp> with a relative --work-tree inside it, clean -f",
+    bash("git -C /tmp --work-tree w clean -f"),
+    "allow",
+  ],
+  [
+    "GIT_WORK_TREE=<temp folder> before git clean -f",
+    bash("GIT_WORK_TREE=/tmp/w git clean -f"),
+    "allow",
+  ],
+  [
+    "git -c core.worktree=<project> clean -f from a temp folder",
+    bash("git -C /tmp/x -c core.worktree=C:/Projects/demo clean -f"),
+    "deny",
+  ],
+  [
+    "git --config-env core.worktree=<unknown variable> clean -f",
+    bash("git -C /tmp/x --config-env core.worktree=WT clean -f"),
+    "deny",
+  ],
+  [
+    "GIT_DIR=<project git dir> with no work tree, clean -f from a temp folder",
+    bash("GIT_DIR=C:/Projects/demo/.git git -C /tmp/x clean -f"),
+    "deny",
+  ],
+  [
+    "git --git-dir=<project git dir> with no work tree, clean -f from a temp folder",
+    bash("git --git-dir=C:/Projects/demo/.git -C /tmp/x clean -f"),
+    "deny",
+  ],
+  [
+    "git --git-dir with a temp-folder work tree, clean -f",
+    bash("git --git-dir C:/Projects/demo/.git --work-tree /tmp/w clean -f"),
+    "allow",
+  ],
+  // a push that deletes remote branches is refused like a force push
+  ["git push --mirror", bash("git push --mirror origin"), "deny"],
+  ["git push --prune", bash("git push --prune origin main"), "deny"],
+  ["git push --delete", bash("git push --delete origin old"), "deny"],
+  [
+    "git push --del (shortened --delete)",
+    bash("git push --del origin old"),
+    "deny",
+  ],
+  ["git push -d", bash("git push -d origin old"), "deny"],
+  ["git push -ud (d in a bundle)", bash("git push -ud origin old"), "deny"],
+  ["git push origin :branch", bash("git push origin :old"), "deny"],
+  ["git push -u origin main", bash("git push -u origin main"), "allow"],
+  [
+    "git push --progress (not --prune)",
+    bash("git push --progress origin main"),
+    "allow",
+  ],
+  // a command prefix's option value is not the command: sudo -u root rm is rm
+  ["sudo -u <user> rm -rf", bash("sudo -u root rm -rf src"), "deny"],
+  ["sudo --user <user> rm -rf", bash("sudo --user root rm -rf src"), "deny"],
+  ["nice -n <adj> rm -rf", bash("nice -n 5 rm -rf src"), "deny"],
+  ["env -u <name> rm -rf", bash("env -u HOME rm -rf src"), "deny"],
+  ["time -o <file> rm -rf", bash("time -o t.log rm -rf src"), "deny"],
+  ["env -S 'rm -rf src'", bash("env -S 'rm -rf src'"), "deny"],
+  ["xargs --max-args <n> rm", bash("ls | xargs --max-args 1 rm -f"), "deny"],
+  ["sudo -u <user> ls", bash("sudo -u root ls"), "allow"],
+  // bash reads an unquoted C:\dir as C:dir, which starts from drive C's own current folder: not known, so refused
+  [
+    "git -C <temp> --work-tree=C:dir clean (drive-relative work tree)",
+    bash("git -C /tmp/x --work-tree=C:dir clean -f"),
     "deny",
   ],
   ["rm fed by xargs", bash("ls | xargs rm -f"), "deny"],
@@ -176,6 +333,40 @@ const cases = [
     "allow",
   ],
   ["git clean dry run", bash("git clean -nd"), "allow"],
+  [
+    "git --work-tree=<project> -C <temp> clean: the work tree is where it deletes",
+    bash(
+      String.raw`git --work-tree=C:\Projects\app -C "${WORKTREE}" clean -fd`,
+    ),
+    "deny",
+  ],
+  [
+    "GIT_WORK_TREE=<project> git -C <temp> clean",
+    bash(
+      String.raw`GIT_WORK_TREE=C:\Projects\app git -C "${WORKTREE}" clean -fd`,
+    ),
+    "deny",
+  ],
+  [
+    "git -C <temp> --work-tree=. clean stays in the temp folder",
+    bash(String.raw`git -C "${WORKTREE}" --work-tree=. clean -fd`),
+    "allow",
+  ],
+  [
+    "git clean -fd -n --no-dry-run (last one wins)",
+    bash("git clean -fd -n --no-dry-run"),
+    "deny",
+  ],
+  [
+    "git clean -d with requireForce off",
+    bash("git -c clean.requireForce=false clean -d"),
+    "deny",
+  ],
+  [
+    "git clean --no-dry-run -n is a dry run",
+    bash("git clean -fd --no-dry-run -n"),
+    "allow",
+  ],
   [
     "the setup's own cleanup",
     bash(

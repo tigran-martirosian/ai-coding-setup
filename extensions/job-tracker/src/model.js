@@ -14,8 +14,10 @@
 
 // Task, bug and plan statuses of Nimbalyst 0.83.0 (tracker facts) plus the added one, by category. "running" is the
 // category of a started step; it is in the Running fold only while a session works on it. "cancelled" is in the
-// live data (26.2 has three cancelled steps): a cancelled step is dropped like wont-do.
+// live data (26.2 has three cancelled steps): a cancelled step is dropped like wont-do. No prototype, so a status
+// such as "constructor" is unknown instead of an inherited member.
 const CATEGORY = {
+  __proto__: null,
   cancelled: "dropped",
   "to-do": "todo",
   "in-progress": "running",
@@ -180,8 +182,39 @@ function rowOf(step, working, waiting, open) {
   };
 }
 
+/** The first number in a stage name ("2. Fix", "Part 2 · design" -> 2); Infinity for no stage or no number. */
+function stageRank(step) {
+  const m = /(\d+)/.exec(fieldText(step, "stage"));
+  return m ? Number(m[1]) : Infinity;
+}
+
 /**
- * The four folds of `steps` and their counts. Needs you, Running and To do keep the order given; Done holds the done
+ * `rows` in the order the work runs (user, 2026-11-23: "put the jobs in order"): by stage number first (the
+ * `stage` field), then by how many open steps stand before the step (the longest chain of what it waits on), then
+ * in the order given. A wait loop counts as no wait, so a loop in the data never hangs the page.
+ */
+function inRunOrder(rows, open) {
+  const depth = new Map();
+  const depthOf = (step, seen) => {
+    if (depth.has(step.id)) return depth.get(step.id);
+    if (seen.has(step.id)) return 0;
+    seen.add(step.id);
+    const before = waitsOnSteps(step, open).map((s) => depthOf(s, seen));
+    seen.delete(step.id);
+    const d = before.length ? 1 + Math.max(...before) : 0;
+    depth.set(step.id, d);
+    return d;
+  };
+  const key = (r) => [stageRank(r.item), depthOf(r.item, new Set())];
+  return rows
+    .map((r, i) => ({ r, i, k: key(r) }))
+    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.i - b.i)
+    .map((x) => x.r);
+}
+
+/**
+ * The four folds of `steps` and their counts. Needs you and Running keep the order given; To do is in run order
+ * (inRunOrder); Done holds the done
  * steps newest first, then the dropped ones newest first. "of N" (`total`) counts every step not dropped. `working`
  * and `waiting` as rowOf takes them (index.js readSessions; none waiting when left out).
  */
@@ -196,7 +229,7 @@ function foldsOf(steps, working, waiting = new Set()) {
   const folds = {
     needs: of("needs", false),
     running: of("running", false),
-    todo: of("todo", false),
+    todo: inRunOrder(of("todo", false), open),
     done: [...done, ...dropped],
   };
   const total = rows.length - dropped.length;

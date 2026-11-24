@@ -149,13 +149,22 @@ export function moveOldCopies({ home, dirs, DRY, say }) {
 }
 // The folders under ~/.claude that hold the setup's own files, each from the repo folder of the same name.
 // phone/shared is the sealing code the phone-bot add-on's PC program imports; the rest of phone/ stays in the repo.
+// Of scripts/ only nimbalyst-patch goes: the rest is the installer's own code and runs from the repo.
 export const OWN_FOLDERS = [
   "hooks",
   "agents",
   "skills",
   "workers",
-  "tools",
+  path.join("scripts", "nimbalyst-patch"),
   path.join("phone", "shared"),
+];
+// Folders under ~/.claude an older version filled, and the folder that holds their files now (26.6: the repo's
+// tools/ became part of scripts/). claude-files.mjs takes the old copies out (dropMovedFolders).
+export const MOVED_FOLDERS = [
+  [
+    path.join("tools", "nimbalyst-patch"),
+    path.join("scripts", "nimbalyst-patch"),
+  ],
 ];
 // The script paths a hook command starts: "<path>" or a bare <path> ending in a script extension
 export const SCRIPT_PATHS =

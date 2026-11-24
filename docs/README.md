@@ -20,5 +20,5 @@ The files in this folder, by who they're for. The [README](../README.md) one fol
 
 ## If you work on the setup
 
-- [img/](img): the pictures, clips and video the README and features.md show. The clips and the video are made by `promo/`.
+- [img/](img): the pictures, clips and video the README and features.md show. The clips and the video are made by the film's source, [docs/promo](promo).
 - The tests are in `tests/` and run with `node tests/run-all.mjs`; the README's Tests section says what they cover.

@@ -45,19 +45,24 @@ const GROUPS = {
   "pre-tool": {
     event: "PreToolUse",
     hooks: [
+      // The hooks that rewrite the command come before the guards, so the guards check the command that runs
+      ["hooks/download-guard.mjs", [], BASH],
+      ["hooks/command-explain.mjs", [], BASH],
       ["hooks/delete-guard.mjs", [], BASH],
       ["hooks/find-guard.mjs", [], BASH],
       ["hooks/sql-guard.mjs", [], BASH],
       // job 9 D9: push-key-scan moved into the dispatcher as a guard, after the other guards (it also sees deploy commands)
       ["hooks/push-key-scan.mjs", [], BASH],
       ["hooks/workflow-fence.mjs", [], "Workflow"],
-      ["hooks/download-guard.mjs", [], BASH],
-      ["hooks/command-explain.mjs", [], BASH],
+      // settings-guard asks the user before a session changes one of their Nimbalyst settings (2026-11-23)
+      ["hooks/settings-guard.mjs", [], "mcp__nimbalyst.*"],
       [
         "hooks/verify-gate.mjs",
         ["--pre"],
         "Bash|PowerShell|mcp__nimbalyst__developer_git_commit_proposal",
       ],
+      // These two are also wired on PostToolUse for other work: session-cleanup saves a launch's start time here and
+      // lists the processes after it; steer holds a long call here and hands a note over with a quick call's result
       ["hooks/session-cleanup.mjs", [], BASH],
       ["skills/steer/steer.mjs", ["--hook"], undefined],
       [

@@ -19,7 +19,7 @@ import path from "node:path";
 //     prompt says once in a grey line that the setup updated itself (or, with the error, that it could not; the
 //     same version is not tried again and the reminder covers it). AUTO_UPDATE=off, in the environment or in
 //     the "env" of ~/.claude/settings.json (that env may not reach hook processes, so the file is read), stops it.
-//     The prompt that says a self-install worked also starts tools/nimbalyst-patch/deliver.mjs --stage detached,
+//     The prompt that says a self-install worked also starts scripts/nimbalyst-patch/deliver.mjs --stage detached,
 //     which brings Nimbalyst to the pinned version (NIMBALYST_FOLLOW=off, read the same way, stops that).
 //   - every missed release is `files`, `nimbalyst` or `quiet` (asks the person nothing, may rebuild the panels) and
 //     one is `quiet`: the same, with update.mjs --quiet (the full installer, unseen). Its grey line also says where
@@ -50,6 +50,7 @@ import path from "node:path";
 // Fails open. UPDATE_CHECK=off disables it. SETUP_UPDATE_BASE points it at another address (tests).
 import { readChangelog, shownDate } from "./lib/changelog.mjs";
 import { crashLog } from "./lib/crash-log.mjs";
+import { markOf } from "./lib/paths.mjs";
 import { readJson, writeJson } from "./lib/state.mjs";
 
 const HOME = process.env.SETUP_UPDATE_HOME || os.homedir();
@@ -375,7 +376,7 @@ function startSelfInstall(version, installed, mode) {
   };
 }
 
-// ---- Nimbalyst, delivered by the setup: tools/nimbalyst-patch/deliver.mjs (Windows) installs the version its pin.json
+// ---- Nimbalyst, delivered by the setup: scripts/nimbalyst-patch/deliver.mjs (Windows) installs the version its pin.json
 // names and patches it, when Nimbalyst closes or through /update-setup's restart. Its data folder (%LOCALAPPDATA%\
 // ai-coding-setup\nimbalyst; NIMBALYST_DELIVER_DATA moves it) holds status.json, the result of the last install ({at, ok,
 // version, override?, error?}), and staged.json, a version waiting for Nimbalyst to close ({version, ...}). Each is
@@ -385,7 +386,7 @@ function startSelfInstall(version, installed, mode) {
 // project moves skills/file-upkeep/move-project.mjs --queue keeps for Nimbalyst's close, costs one more stat: it is
 // read when its time changed, and its note (the moves waiting, those refused when they ran, or a file that can't be
 // read) is said once per change of that note; none waiting and none refused say nothing.
-const DELIVER = path.join(CLAUDE, "tools", "nimbalyst-patch", "deliver.mjs");
+const DELIVER = path.join(CLAUDE, "scripts", "nimbalyst-patch", "deliver.mjs");
 const DATA =
   process.env.NIMBALYST_DELIVER_DATA ||
   (process.env.LOCALAPPDATA
@@ -520,7 +521,7 @@ function nimbalystLines(next, now) {
 // offer the tidy at the end of its reply (an additionalContext note, merged with the release section when both come).
 // Checked apart from the reminder chain, so a pending version or a stale `installed` can't hold it back. No note when
 // /update-setup already offered it (own-rules.mjs --offered) or the files were tidied or skipped.
-// A file is untidied when its sha differs from state.ownTidied[<file>]. The pending key is the first 16 hex of
+// A file is untidied when its sha differs from markOf(state.ownTidied, <file>). The pending key is the first 16 hex of
 // sha256 over the sorted lines "<file> <sha>" (absolute, forward slashes) of the untidied files, as
 // skills/update-setup/own-rules.mjs --status computes it.
 const fwd = (p) => p.replace(/\\/g, "/");
@@ -546,7 +547,7 @@ function ownPending(state) {
     .map((f) => path.resolve(f))
     .filter((f) => fs.existsSync(f))
     .map((f) => ({ file: f, text: fs.readFileSync(f, "utf8") }))
-    .filter((f) => sha(f.text) !== tidied[fwd(f.file)]);
+    .filter((f) => sha(f.text) !== markOf(tidied, f.file));
   if (!open.length) return null;
   return {
     open,

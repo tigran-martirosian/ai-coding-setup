@@ -6,7 +6,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { default: patch } = await import(
   pathToFileURL(
-    path.join(REPO, "tools", "nimbalyst-patch", "patches", "commit-loaded.mjs"),
+    path.join(
+      REPO,
+      "scripts",
+      "nimbalyst-patch",
+      "patches",
+      "commit-loaded.mjs",
+    ),
   ).href
 );
 

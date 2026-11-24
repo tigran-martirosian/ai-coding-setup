@@ -159,7 +159,7 @@
         "hooks/picture-in-project.mjs",
         "hooks/browser-visible-gate.mjs",
         "hooks/nimbalyst-notes.mjs",
-        "projects/shared/hooks/picture-gate.mjs"
+        "templates/shared/hooks/picture-gate.mjs"
       ],
       "group": "hooks",
       "words": [
@@ -509,9 +509,9 @@
       "what": "Starter projects the installer places in the user's folders (claude-settings, quick-tasks), and the retired folders an update merges into quick-tasks.",
       "files": [
         "scripts/projects.mjs",
-        "projects/homes.json",
-        "projects/claude-settings",
-        "projects/shared"
+        "templates/homes.json",
+        "templates/claude-settings",
+        "templates/shared"
       ],
       "group": "installer",
       "words": [
@@ -545,21 +545,21 @@
       "name": "Nimbalyst patcher",
       "what": "Puts the setup's fixes into Nimbalyst's app.asar and takes them out again; pin.json pins the Nimbalyst version the setup delivers, deliver.mjs downloads, installs and patches it, restart.mjs closes, installs, patches and reopens it.",
       "files": [
-        "tools/nimbalyst-patch/patch.mjs",
-        "tools/nimbalyst-patch/patches/updater-block.mjs",
-        "tools/nimbalyst-patch/patches/1558.mjs",
-        "tools/nimbalyst-patch/patches/1758.mjs",
-        "tools/nimbalyst-patch/patches/1792.mjs",
-        "tools/nimbalyst-patch/patches/1836.mjs",
-        "tools/nimbalyst-patch/patches/1867.mjs",
-        "tools/nimbalyst-patch/patches/files-and-agents.mjs",
-        "tools/nimbalyst-patch/patches/1944.mjs",
-        "tools/nimbalyst-patch/patches/ask-line.mjs",
-        "tools/nimbalyst-patch/patches/settled-repeat.mjs",
-        "tools/nimbalyst-patch/patches/wakeup-note.mjs",
-        "tools/nimbalyst-patch/pin.json",
-        "tools/nimbalyst-patch/deliver.mjs",
-        "tools/nimbalyst-patch/restart.mjs",
+        "scripts/nimbalyst-patch/patch.mjs",
+        "scripts/nimbalyst-patch/patches/updater-block.mjs",
+        "scripts/nimbalyst-patch/patches/1558.mjs",
+        "scripts/nimbalyst-patch/patches/1758.mjs",
+        "scripts/nimbalyst-patch/patches/1792.mjs",
+        "scripts/nimbalyst-patch/patches/1836.mjs",
+        "scripts/nimbalyst-patch/patches/1867.mjs",
+        "scripts/nimbalyst-patch/patches/files-and-agents.mjs",
+        "scripts/nimbalyst-patch/patches/1944.mjs",
+        "scripts/nimbalyst-patch/patches/ask-line.mjs",
+        "scripts/nimbalyst-patch/patches/settled-repeat.mjs",
+        "scripts/nimbalyst-patch/patches/wakeup-note.mjs",
+        "scripts/nimbalyst-patch/pin.json",
+        "scripts/nimbalyst-patch/deliver.mjs",
+        "scripts/nimbalyst-patch/restart.mjs",
         "tests/test-nimbalyst-patch.mjs",
         "tests/test-nimbalyst-patch-guards.mjs",
         "tests/test-nimbalyst-patch-real.mjs",
@@ -610,7 +610,7 @@
       "name": "Quick tasks project",
       "what": "The side-work folder for questions, finding things online and one-off file jobs: the finder skill and its link gate, and tools/peek.mjs, which reads pages in Nimbalyst's browser and with --save keeps each page's whole text in a file.",
       "files": [
-        "projects/quick-tasks"
+        "templates/quick-tasks"
       ],
       "group": "installer",
       "words": [
@@ -748,6 +748,24 @@
       ],
       "rules": [
         "leftover-worktrees.mjs never lists the main checkout and never touches a locked worktree or the one with the base branch; --remove takes only merged and clean ones."
+      ]
+    },
+    {
+      "id": "gridlines",
+      "name": "Gridlines",
+      "what": "Draws guide lines down an interface, finds items that miss their line and fixes paddings so edges line up.",
+      "files": [
+        "skills/gridlines/SKILL.md",
+        "skills/gridlines/audit.mjs",
+        "skills/gridlines/probe.js"
+      ],
+      "group": "skills",
+      "words": [
+        "guide lines",
+        "alignment pass"
+      ],
+      "rules": [
+        "audit.mjs only measures and captures a page in headless Chromium; the padding fixes are made by hand in the interface's own code."
       ]
     },
     {
@@ -1203,7 +1221,7 @@
       "says": "The wakeup-note patch sends a wakeup that fires mid-turn with `steer.mjs send --to <id> - --nowait`, the text on stdin: exit 0 is a note, any other end queues the wakeup.",
       "evidence": [
         {
-          "file": "tools/nimbalyst-patch/patches/wakeup-note.mjs",
+          "file": "scripts/nimbalyst-patch/patches/wakeup-note.mjs",
           "token": "\"send\", \"--to\""
         }
       ],
@@ -1266,7 +1284,7 @@
       "evidence": [
         {
           "file": "scripts/uninstall.mjs",
-          "token": "tools/nimbalyst-patch/patch.mjs"
+          "token": "scripts/nimbalyst-patch/patch.mjs"
         }
       ],
       "why": "patch.mjs does not export paths(), so uninstall.mjs repeats its resources folder layout: a layout change in patch.mjs needs uninstall.mjs changed too."
@@ -1375,7 +1393,7 @@
       "says": "quick-tasks is one of the placed templates; an update copies the notes of the retired ask-anything and internet-search folders into it and leaves those folders.",
       "evidence": [
         {
-          "file": "projects/homes.json",
+          "file": "templates/homes.json",
           "token": "\"retired\""
         },
         {
@@ -1609,11 +1627,11 @@
       "says": "When Nimbalyst's browser can't be reached, peek.mjs stops and names read-page.mjs for a public page; the finder and read-web skills read public pages with it.",
       "evidence": [
         {
-          "file": "projects/quick-tasks/tools/peek.mjs",
+          "file": "templates/quick-tasks/tools/peek.mjs",
           "token": "workers/read-page.mjs"
         },
         {
-          "file": "projects/quick-tasks/.claude/skills/read-web/SKILL.md",
+          "file": "templates/quick-tasks/.claude/skills/read-web/SKILL.md",
           "token": "workers/read-page.mjs"
         }
       ]

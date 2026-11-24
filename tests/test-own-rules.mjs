@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { fileKey } from "../hooks/lib/paths.mjs";
 import { key, splitBlocks } from "../scripts/blocks.mjs";
 
 process.env.SETUP_CC_CHECK = "off";
@@ -145,7 +146,7 @@ check(
   "--skip silences it until the next change",
   skipped.code === 0 &&
     !own("--status").out.includes("changed since last tidy") &&
-    state().ownTidied?.[fwd(myRules)] === sha(first),
+    state().ownTidied?.[fileKey(myRules)] === sha(first),
 );
 fs.appendFileSync(myRules, "\n- Another rule of mine.\n");
 const before = read(myRules);
@@ -184,7 +185,7 @@ check(
 );
 check(
   "--apply sets ownTidied, so --status no longer offers it",
-  state().ownTidied?.[fwd(myRules)] === sha(tidiedText) &&
+  state().ownTidied?.[fileKey(myRules)] === sha(tidiedText) &&
     !own("--status").out.includes("changed since last tidy"),
 );
 check(
@@ -445,7 +446,7 @@ check(
   afterSkip.includes(`pending: ${pend([homeMine])}`) &&
     own("--skip", "--homes").code === 0 &&
     !own("--status", "--homes").out.includes("pending:") &&
-    state().ownTidied[fwd(homeMine)] === sha(read(homeMine)),
+    state().ownTidied[fileKey(homeMine)] === sha(read(homeMine)),
 );
 
 // ---- --check: one verdict per block, matched by id and key; the tidied text counted
@@ -548,6 +549,26 @@ check(
     wrongKey.code === 1 &&
     /B3: key 0{16} is not the key/.test(wrongKey.out),
 );
+if (process.platform === "win32") {
+  // Windows paths ignore case: the same file in other letters is the same file, or undo ends on the tidied text
+  const entry = {
+    file: fwd(myRules),
+    sha: sha(read(myRules)),
+    blocks: tidyEntries(),
+  };
+  const twice = own(
+    "--check",
+    writeLedger(
+      [entry, { ...entry, file: fwd(myRules).toUpperCase() }],
+      TIDIED,
+    ),
+  );
+  check(
+    "--check fails a ledger that names one file twice in different letter case (Windows)",
+    twice.code === 1 && /in the ledger twice/.test(twice.out),
+    twice.out,
+  );
+}
 
 // ---- --apply <ledger>, the vault, --restore and its undo
 const ap = own("--apply", ledger(tidyEntries()));
@@ -574,7 +595,7 @@ check(
 );
 check(
   "--apply marks the file tidied, keeps the ledger in setup-logs and puts every changed or created file on one undo record",
-  state().ownTidied[fwd(myRules)] === sha(TIDIED) &&
+  state().ownTidied[fileKey(myRules)] === sha(TIDIED) &&
     fs.existsSync(path.join(claude, "setup-logs", `tidy-${day}.json`)) &&
     state().rulesUndo?.by === "tidy" &&
     [myRules, vaultFile, bakery, skill, sqlRule].every((f) =>
@@ -597,7 +618,7 @@ check(
     read(myRules) ===
       `${TIDIED}\n- Answer in plain English, short sentences.\n` &&
     !/^## V2 /m.test(read(vaultFile)) &&
-    state().ownTidied[fwd(myRules)] === sha(read(myRules)),
+    state().ownTidied[fileKey(myRules)] === sha(read(myRules)),
 );
 check(
   "--restore keeps the tidy's undo as rulesUndoBefore",
@@ -687,8 +708,44 @@ check(
   mv.code === 0 &&
     read(homeMine).includes("cite with APA") &&
     read(homeMine).includes("- Home rule.") &&
-    state().ownTidied[fwd(homeMine)] === sha(read(homeMine)) &&
+    state().ownTidied[fileKey(homeMine)] === sha(read(homeMine)) &&
     !own("--status", "--homes").out.includes("pending:"),
+);
+
+// ---- on Windows a ledger may spell the global file in other letter case; it is the same file, so it is marked tidied
+if (process.platform === "win32") {
+  const CASED = "- A rule from a ledger in other letter case.\n";
+  fs.writeFileSync(myRules, CASED);
+  const ca = own(
+    "--apply",
+    writeLedger(
+      [{ ...allKeep(myRules), file: "~/.Claude/rules/My-Rules.md" }],
+      CASED,
+    ),
+  );
+  check(
+    "--apply of a ledger naming ~/.Claude/rules/My-Rules.md marks ~/.claude/rules/my-rules.md tidied, so --status no longer offers it",
+    ca.code === 0 && !own("--status").out.includes("changed since last tidy"),
+  );
+}
+
+// ---- a mark saved before an update, under the path as written (not fileKey), still counts; the next mark replaces it
+const OLD = "- A rule tidied before an update.\n";
+fs.writeFileSync(myRules, OLD);
+fs.writeFileSync(
+  stateFile,
+  JSON.stringify({ ...state(), ownTidied: { [fwd(myRules)]: sha(OLD) } }),
+);
+check(
+  "a state holding only an old-style mark (the path as written) is not reported as changed since last tidy",
+  !own("--status").out.includes("changed since last tidy"),
+);
+fs.appendFileSync(myRules, "\n- One more.\n");
+check(
+  "a new mark is stored under fileKey and the old-style key is dropped",
+  own("--skip").code === 0 &&
+    JSON.stringify(state().ownTidied) ===
+      JSON.stringify({ [fileKey(myRules)]: sha(read(myRules)) }),
 );
 
 fs.rmSync(tmp, { recursive: true, force: true });

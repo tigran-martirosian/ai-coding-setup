@@ -129,14 +129,14 @@ const procs = [
     9109,
     "node.exe",
     30,
-    "node.exe C:\\Users\\someone\\.claude\\tools\\nimbalyst-patch\\deliver.mjs --version 0.9.1",
+    "node.exe C:\\Users\\someone\\.claude\\scripts\\nimbalyst-patch\\deliver.mjs --version 0.9.1",
   ),
   p(
     210,
     9110,
     "node.exe",
     30,
-    "node C:/Users/someone/.claude/tools/nimbalyst-patch/restart.mjs",
+    "node C:/Users/someone/.claude/scripts/nimbalyst-patch/restart.mjs",
   ),
   // maybe wanted: listed apart, never stopped
   p(

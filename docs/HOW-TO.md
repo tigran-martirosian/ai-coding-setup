@@ -11,10 +11,11 @@ unless you chose another one). The copy of this page the installer puts into
 ## Installing
 
 You need Node.js 18 or newer and Claude Code. Codex (for the picture skill), Nimbalyst and Handy (voice typing)
-are optional, and the installer does not install them. It does install the `claude-hud` plugin and
-the `find-skills` skill, unless you add `--plugins no`, and it
+are optional, and the installer does not install them. It does install four plugins (`claude-hud`, `security-guidance`,
+`frontend-design`, `impeccable`) and the `find-skills` skill, unless you add `--plugins no`.
+`security-guidance` needs Python 3.10 or newer; without it the run says it was left off. It also
 adds the Claude Code settings. To have the optional programs put in place too, on Windows or a Mac, use
-[full-install.md](full-install.md) instead (its Mac steps have not been run on a real Mac).
+[full-install.md](full-install.md) instead.
 
 Download the repository as a zip from its GitHub page (the green **Code** button, then **Download
 ZIP**) and unzip it, or clone it. Open a terminal in that folder.
@@ -169,8 +170,10 @@ the rules, worker, extensions, voice typing and `Done.` lines are printed again.
   chat logs, scratch and temp folders, old project copies) and removes only what you tick; work not
   committed is kept. Say yes to the chat archive and chats older than 60 days move to
   `~/.claude-archive/chats` at each update of the setup. To keep one project's chats forever:
-  `node ~/.claude/workers/disk-tidy.mjs --keep-forever "<project folder>"`. To get one back:
-  `--archive-list --project <word>`, then `--restore <id>`, before `/resume`.
+  `node ~/.claude/workers/disk-tidy.mjs --keep-forever "<project folder>"`. To get one back,
+  run `node ~/.claude/workers/disk-tidy.mjs --archive-list --project <part of the folder name>`: it lists the
+  archived chats with their ids. Then run `node ~/.claude/workers/disk-tidy.mjs --restore <id>`, and only after
+  that open the chat with `/resume` (it sees only chats that are back in place).
 - **`/file-upkeep`: a project's files are named and placed every which way.** It checks them
   against the file standard, shows the list of renames and moves, and after your yes moves them,
   fixes the references and keeps a ledger to undo it.

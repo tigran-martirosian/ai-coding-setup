@@ -1,4 +1,4 @@
-// Tests for tools/nimbalyst-patch/ext-swap.mjs on a temporary Nimbalyst folder (APPDATA on Windows, HOME on
+// Tests for scripts/nimbalyst-patch/ext-swap.mjs on a temporary Nimbalyst folder (APPDATA on Windows, HOME on
 // macOS moved into the temp folder). Nimbalyst's running state comes from the test switches, never from the
 // real process list. Run: node tests/test-ext-swap.mjs
 import { spawnSync } from "node:child_process";
@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SWAP = fileURLToPath(
-  new URL("../tools/nimbalyst-patch/ext-swap.mjs", import.meta.url),
+  new URL("../scripts/nimbalyst-patch/ext-swap.mjs", import.meta.url),
 );
 let fails = 0;
 const ok = (name, got, want = true) => {

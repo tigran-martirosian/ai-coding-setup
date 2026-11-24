@@ -36,7 +36,7 @@ When a command fails, it prints one `backup: ...` line. Give it to the user as i
    If the user has no account yet, or wants to do it later, stop here and say: "Setup waits for your Backblaze account; `/backup` carries on from here."
 3. **Setup window.** `$B setup --window`. A window named "Claude backup" opens on the PC. Tell the user what happens there:
    - they paste the master key ID and the key (the typing is hidden);
-   - setup makes a private bucket and a key for this bucket only that can not delete, then forgets the master key;
+   - setup makes a private bucket and a key for this bucket only (restic needs it to delete its own lock files), then forgets the master key;
    - they press Enter for a made-up password of 6 words (or type their own of 16+ characters);
    - the **recovery sheet** shows once. They save it in a password manager or on paper, then type the last word back;
    - the window ends with "Back to the chat".
@@ -82,6 +82,6 @@ The keys stay in the user's terminal; the chat only helps with the steps.
 
 ## Where things are
 
-`~/.claude-backup/` (outside everything that is backed up): `password` and `b2.env` (owner-only), `config.json`, `excludes.txt`, `last-run.json`, `logs/` (last 30 runs), `bin/restic`. The bucket keeps hidden versions 30 days, so a stolen key can not wipe the backup at once.
+`~/.claude-backup/` (outside everything that is backed up): `password` and `b2.env` (owner-only), `config.json`, `excludes.txt`, `last-run.json`, `logs/` (last 30 runs), `bin/restic`. The key can delete, so a stolen key can delete the backup. The bucket keeps hidden versions 30 days, but a file the key deletes is gone at once.
 
-Not verified: the B2 path has not been run against a real Backblaze account yet (it was tested against a local folder): the B2 API calls in setup, restic with a key that can not delete, and the setup window on each system. Turning the schedule on (Task Scheduler, launchd, systemd) was not run; only its command text is tested. The macOS and Linux restic files are pinned from the signed hash list but were not unpacked or run. Restore after an attack (unhiding old versions in B2) is not written yet.
+Not verified: the B2 path has not been run against a real Backblaze account yet (it was tested against a local folder): the B2 API calls in setup, restic with this key, and the setup window on each system. Turning the schedule on (Task Scheduler, launchd, systemd) was not run; only its command text is tested. The macOS and Linux restic files are pinned from the signed hash list but were not unpacked or run. Restore after an attack (unhiding old versions in B2) is not written yet.

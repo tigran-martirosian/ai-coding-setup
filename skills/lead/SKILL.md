@@ -1,6 +1,6 @@
 ---
 name: lead
-description: Run a big job from its spec to the retro - the plan written here, one plan review, the user's one OK, workers per slice, checks, merge, end review. Use when `grilling` has written a spec file for a big job, when the user says "lead this", "orchestrate", "веди эту работу", "раздай по агентам" (or the same in any language), or runs /lead. Not for small or medium jobs.
+description: Run a big job from its spec to the end report - the plan written here, one plan review, the user's one OK, workers per slice, checks, merge, end review. Use when `grilling` has written a spec file for a big job, when the user says "lead this", "orchestrate", "веди эту работу", "раздай по агентам" (or the same in any language), or runs /lead. Not for small or medium jobs.
 ---
 
 # Lead
@@ -38,9 +38,9 @@ skips its check while a helper still runs.
 - **Ready slices** (blockers done) start side by side, each in its own worktree; slices the plan marks as coupled
   run in one session. Helper and model come from the slice row; a call that picks a model other than the agent
   file's sets `effort` too, since a helper on another model does not inherit it.
-- **When a slice comes back:** read the hand-back; re-run its checks yourself in its worktree; read the diff
-  (summaries leave out small changes); if a check file changed, re-run that check from the spec's version. Slice
-  marked risky: `/code-review` on its diff; check each finding before acting on it.
+- **When a slice comes back:** read the hand-back; re-run its checks yourself in its worktree, the project's lint
+  over the whole tree among them (as `biome ci .`); if a check file changed, re-run that check from the spec's
+  version. Slice marked risky: `/code-review` on its diff; check each finding before acting on it.
 - **Merge** one worktree at a time into the job branch, run the changed tests after each merge, one commit per
   slice, then remove the worktree and its branch (reference.md). A conflict goes to `worker-code` with both slices'
   briefs.
@@ -64,13 +64,13 @@ skips its check while a helper still runs.
 
 ## 4. End
 
-1. Full suite once; CI when there is a push. Every done-when line run as its check says (the real client wherever a
-   person uses the thing).
+1. Full suite and lint once; CI when there is a push. Every done-when line run as its check says (the real client
+   wherever a person uses the thing).
 2. The `reviewer` gets the spec, the full diff from the job's base commit, and the end-check outputs; never the chat.
    It reviews once, for correctness against the spec. A fix after its findings is checked by re-running the checks
-   it touches and reading the fix's diff, not by the reviewer again.
+   it touches, not by the reviewer again.
 3. The `blind-reviewer` gets screenshots of every state, or the text a person reads, when the result is something a
-   person sees (reference.md).
+   person sees; its answer is saved word for word (reference.md).
 4. Fixes, three rounds at most.
 5. **Sweep the worktrees** in every repository the job made worktrees in, after the last merge. Slice branches are
    `<job>/s<N>` (reference.md "Worktrees"), so `<job>/` is the prefix; pass the job branch as `<base-branch>`:
@@ -81,19 +81,14 @@ skips its check while a helper still runs.
 6. Report to the user: each done-when line, pass or fail, with its proof (command output or screenshot), what was
    not checked, and every worktree the sweep left (each line without `removed`, except `base`): `dirty`,
    `unmerged`, `locked`, `(detached)` and `missing` ones, each with its branch and last commit line, for the user
-   to look at.
+   to look at. It ends with a few lines: each finding of the reviews and each surprise in the plan file, and what it
+   became (a test, a line in the project's `verify` skill, a fix to a pipeline text such as this skill, or
+   nothing; never a new global rule); the worker sessions wasted (redone, thrown away), slice by slice; and each of
+   the plan review, `/code-review` on risky slices and the blind look that caught nothing in this job.
 7. **The user tries it.** What they find comes back as fix slices, each with a check that fails on it, through the
    same run. The sweep runs again after the last fix slice merges.
 
-## 5. Retro
-
-A few minutes, after the user's try. Each finding from the reviews, the try and the plan file's surprises becomes
-one of: a test, a line in the project's `verify` skill, a fix to a pipeline text (this skill, `grilling`, an agent),
-or nothing. Most become nothing or a test; none becomes a new global rule. Also note how many worker sessions were
-wasted (redone, thrown away), slice by slice: that judges the plan. Name each of the plan review, `/code-review` on
-risky slices and the blind look that caught nothing in this job.
-
-After the retro the job's spec and plan files are deleted once no live file (HANDOFF, CLAUDE.md, an open plan) links
-them: one current plan per job, and git keeps the old ones.
+After the last fix slice the job's spec and plan files are deleted once no live file (HANDOFF, CLAUDE.md, an open
+plan) links them: one current plan per job, and git keeps the old ones.
 
 Push, release or deploy only when the user says so.

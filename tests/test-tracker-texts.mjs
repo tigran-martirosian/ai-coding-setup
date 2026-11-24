@@ -56,7 +56,11 @@ for (const [name, re] of [
     "the file a step asks the user to read as the `file` field",
     /\| A file the row asks the user to read, review or check \| the `file` field \|/,
   ],
-  ["a stage name's form", /\| \*\*Stage name\*\* \|[^\n]*<phase>/],
+  // Numbered in run order: the job page sorts To do by the number and shows each stage as a heading
+  [
+    "a stage name's form",
+    /\| \*\*Stage name\*\* \|[^\n]*"<n>\. <what the stage gets done>"/,
+  ],
   ["how a plan row becomes a step", /## From a plan row to a step/],
   ["when a new step may be made", /## When a new step may be made/],
   ["the marks a script can find", /## Marks a script can find/],

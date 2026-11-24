@@ -9,7 +9,7 @@
 import type { PanelHostProps } from "@nimbalyst/extension-sdk";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import "../../shared/tokens.css";
-import { buildDashboard, readDashboardFile } from "./command";
+import { buildDashboard, readDashboardFile, trusted } from "./command";
 import type { DashboardData } from "./dashboard-data";
 import {
   canStartBuild,
@@ -127,9 +127,10 @@ function useDashboard(exec: HostExec) {
 }
 
 export function UsageDashboardPanel({ host }: PanelHostProps) {
-  // Called through host: the method reads its own `this`, so passing host.exec on its own breaks it
+  // Called through host: the method reads its own `this`, so passing host.exec on its own breaks it.
+  // trusted: never in the open project (see command.ts)
   const exec = useCallback<HostExec>(
-    (command, options) => host.exec(command, options),
+    (command, options) => host.exec(command, trusted(options)),
     [host],
   );
   const { state, rebuild } = useDashboard(exec);

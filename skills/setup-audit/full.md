@@ -53,8 +53,8 @@ one message (`run_in_background: false`, so they run side by side), each told to
 names the digest to read and the `<project>.findings.md` to write. Headings B (went wrong),
 C (questions that missed), G (reasoning) and H (pace: LONG or SHORT) are the ones this review uses.
 
-In the same message, start one `blind-reviewer` agent for the blind look at the whole setup, the
-once-per-release look of the `lead` skill. It has only the Read tool, so its brief names every file by
+In the same message, start one `blind-reviewer` agent for the blind look at the whole setup. It has
+only the Read tool, so its brief names every file by
 full path: `~/.claude/CLAUDE.md`, each file in `~/.claude/rules/` when that folder exists, and each digest of this run. Paste
 the `description:` line of every `~/.claude/skills/*/SKILL.md` (one Grep) as the list of skills. Ask:
 "Read these as the person who works with this setup each day: where does the way they work fight it?"

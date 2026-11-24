@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// restart: restart to finish. /update-setup runs `node ~/.claude/tools/nimbalyst-patch/restart.mjs` as its last
+// restart: restart to finish. /update-setup runs `node ~/.claude/scripts/nimbalyst-patch/restart.mjs` as its last
 // call, from a shell that Nimbalyst itself started. Windows only. Plain Node, no npm dependencies. No flags.
 //
 // Started plain, it checks that a job is staged and no download runs (else one line and exit 1, nothing

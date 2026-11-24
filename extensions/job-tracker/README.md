@@ -10,7 +10,7 @@ skill).
 - **How much is left.** The steps left in large type, then "141 of 150 done (94%) · 0 running" over a bar;
   hover a part of the bar for what it holds.
 - **Three facts.** Needs you, Running now, Work left; a click opens the matching list.
-- **Four folds.** Needs you, Running, To do, Done. Running holds only steps a session works on right now; a
+- **Four folds.** Needs you, Running, To do, Done. To do runs in order: by stage (a numbered heading for each, from the step's `stage` field), then by what each step waits on. Running holds only steps a session works on right now; a
   step marked in progress with no session on it waits under To do. Switches above them show Steps, Bugs,
   Decisions, Ideas or All.
 - **The session's state on each row.** A running step says what its session does ("editing files"), or "needs

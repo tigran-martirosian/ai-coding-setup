@@ -1,4 +1,4 @@
-// Tests for the picture gate (projects/shared/hooks/picture-gate.mjs) and the shared `picture` skill.
+// Tests for the picture gate (templates/shared/hooks/picture-gate.mjs) and the shared `picture` skill.
 // Nothing here calls Codex or the network. Run: node tests/test-picture-gate.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 
@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SHARED = fileURLToPath(new URL("../projects/shared", import.meta.url));
+const SHARED = fileURLToPath(new URL("../templates/shared", import.meta.url));
 const HOOK = path.join(SHARED, "hooks", "picture-gate.mjs");
 const SKILL = path.join(SHARED, "shared-skills", "picture");
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "picture-gate-test-"));

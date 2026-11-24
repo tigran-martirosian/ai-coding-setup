@@ -516,7 +516,9 @@ function checkFiles(dir, add) {
       `P7.${top.replace(/\/$/, "")}`,
       "ask",
       top,
-      `untracked${n > 1 ? ` (${n} entries)` : ""}: commit, add to .gitignore, or delete`,
+      top === ".nimbalyst/"
+        ? "untracked: the Nimbalyst editor's own folder; add the line `.nimbalyst/` to .git/info/exclude (the shared .gitignore names no tool)"
+        : `untracked${n > 1 ? ` (${n} entries)` : ""}: commit, add to .gitignore, or delete`,
     );
 }
 
@@ -690,6 +692,11 @@ function githubRemote(dir) {
     .map((m) => ({ remote: m[1], owner: m[2], repo: m[3] }));
   return found.find((f) => f.remote === "origin") || found[0] || null;
 }
+// The remote names its default branch, and git allows $ ( ) ; in a branch name: a name outside these
+// characters is never put into the P16 command Claude runs once ticked
+const SAFE_BRANCH = /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/;
+const ODD_BRANCH =
+  "the default branch name has characters a shell reads: rename it to main by hand on GitHub, then git branch -m in each clone";
 function checkGit(dir, add, since) {
   const at = (n) => path.join(dir, n);
   const t = isFile(at("CLAUDE.md")) ? read(at("CLAUDE.md")) : "";
@@ -727,7 +734,7 @@ function checkGit(dir, add, since) {
       "P13",
       "fix",
       "CLAUDE.md",
-      `not a git folder: write \`${LOCAL_LINE}\` (in place of any Git: line); add the lines of ${PRESET}/gitignore.txt to .gitignore, plus each file over 10 MB, browser profiles and cookie files${nested.length ? `, and the folders holding their own repo: ${nested.join(" ")}` : ""}; then git init -b main, git add -A, read the staged list for secrets, and commit "chore: start git for this project". Then run the pass again for the other git checks`,
+      `not a git folder: write \`${LOCAL_LINE}\` (in place of any Git: line); add the lines of ${PRESET}/gitignore.txt to .gitignore, plus each file over 10 MB, browser profiles and cookie files${nested.length ? `, and the folders holding their own repo: ${nested.join(" ")}` : ""}; then git init -b main, add the line \`.nimbalyst/\` to .git/info/exclude (the editor's own folder stays out of git without naming it in the shared .gitignore), git add -A, read the staged list for secrets, and commit "chore: start git for this project". Then run the pass again for the other git checks`,
     );
     return null;
   }
@@ -960,7 +967,9 @@ function checkGit(dir, add, since) {
     sr.status === 0
       ? sr.stdout.trim().replace(`refs/remotes/${gh.remote}/`, "")
       : null;
-  if (branch && branch !== "main")
+  if (branch && branch !== "main" && !SAFE_BRANCH.test(branch))
+    add("P16", "note", `${gh.remote}/HEAD`, ODD_BRANCH);
+  else if (branch && branch !== "main")
     add(
       "P16",
       "ask",
@@ -1240,7 +1249,13 @@ function checkGitHub(add, g) {
       "CLAUDE.md",
       `the Git: line says ${named}, GitHub says ${vis}: make it \`${githubLine(vis)}\``,
     );
-  if (!g.branch && r.default_branch !== "main")
+  if (
+    !g.branch &&
+    r.default_branch !== "main" &&
+    !SAFE_BRANCH.test(r.default_branch)
+  )
+    add("P16", "note", where, ODD_BRANCH);
+  else if (!g.branch && r.default_branch !== "main")
     add(
       "P16",
       "ask",

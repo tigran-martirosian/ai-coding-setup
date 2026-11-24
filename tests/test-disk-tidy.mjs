@@ -353,6 +353,14 @@ put(path.join(ROOT, "lib-backup", "wip.txt"), "never committed\n");
 put(path.join(ROOT, "lib-old", "b.txt"), "only here\n");
 sh(path.join(ROOT, "lib-old"), "add", ".");
 sh(path.join(ROOT, "lib-old"), "commit", "-q", "-m", "only in the old copy");
+// a copy whose only own commit is left in its reflog (a reset after the commit): no branch names it
+spawnSync("git", ["clone", "-q", lib, path.join(ROOT, "lib.bak")], {
+  env: ENV,
+});
+put(path.join(ROOT, "lib.bak", "c.txt"), "reset away\n");
+sh(path.join(ROOT, "lib.bak"), "add", ".");
+sh(path.join(ROOT, "lib.bak"), "commit", "-q", "-m", "only in the reflog");
+sh(path.join(ROOT, "lib.bak"), "reset", "-q", "--hard", "HEAD~1");
 put(path.join(ROOT, "--help", "data", "strains", "a.json"), "{}", 18);
 const nimBefore = treeHash(NIM);
 fs.mkdirSync(path.join(CL, "setup-logs")); // the ledger's folder: the one place a report writes
@@ -442,6 +450,13 @@ check(
     byPath(path.join(ROOT, "lib-old"))?.reason || "",
   ),
   JSON.stringify(byPath(path.join(ROOT, "lib-old"))),
+);
+check(
+  "an old copy whose only own commit is in its reflog is kept, not offered for deletion",
+  /keep: 1 commit not in lib/.test(
+    byPath(path.join(ROOT, "lib.bak"))?.reason || "",
+  ),
+  JSON.stringify(byPath(path.join(ROOT, "lib.bak"))),
 );
 check(
   "an old copy with no repo is offered to compare by hand, never as a delete",

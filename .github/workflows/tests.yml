@@ -50,8 +50,17 @@ jobs:
         run: choco install ffmpeg -y --no-progress
       # Files side by side; on a failure the failed files run again one at a time with their full output, so the
       # whole log is in the run. The step stays red even when the rerun passes: a flaky test is still a failure.
+      # tests/test-render-check.mjs draws pages with the packages of package.json and Playwright's Chromium. The
+      # browser goes to a folder of the runner: run-all.mjs gives each test an empty home folder, where a Mac keeps
+      # Playwright's browsers.
+      - shell: bash
+        run: npm ci --no-audit --no-fund && npx playwright install chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
       - shell: bash
         run: node tests/run-all.mjs --shard ${{ matrix.part }}/2 || { node tests/run-all.mjs --failed --verbose; exit 1; }
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
 
   test-windows:
     if: always() && github.event_name != 'push'
@@ -83,8 +92,17 @@ jobs:
       # On a Mac the plain ffmpeg has no drawtext filter; skills/watch/watch.mjs finds ffmpeg-full by itself.
       - if: matrix.part == 1
         run: brew install ffmpeg ffmpeg-full
+      # tests/test-render-check.mjs draws pages with the packages of package.json and Playwright's Chromium. The
+      # browser goes to a folder of the runner: run-all.mjs gives each test an empty home folder, where a Mac keeps
+      # Playwright's browsers.
+      - shell: bash
+        run: npm ci --no-audit --no-fund && npx playwright install chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
       - shell: bash
         run: node tests/run-all.mjs --shard ${{ matrix.part }}/2 || { node tests/run-all.mjs --failed --verbose; exit 1; }
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
 
   test-macos:
     if: always() && github.event_name != 'push'
@@ -213,6 +231,46 @@ jobs:
         working-directory: extensions/usage-plan
         run: |
           npm audit --audit-level=high || { echo "::warning::npm audit failed in extensions/usage-plan (a high advisory, or npm did not answer)"; exit 1; }
+
+  # The pages a person reads that the pull request changes (README.md, README.ru.md, CHANGELOG.md, docs/**/*.md
+  # outside docs/promo/), drawn as GitHub shows them (light and dark, 1280 and 390 px) by scripts/render-check.mjs
+  # and held to the diagram rule by scripts/diagram-rule.mjs. Either one failing fails the job; both always run, so
+  # the log names every problem. A pull request that changes no page passes at once.
+  pages:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: changed pages
+        shell: bash
+        run: |
+          git diff --name-only --diff-filter=d "$BASE" HEAD -- README.md README.ru.md CHANGELOG.md 'docs/*.md' ':(exclude)docs/promo/*' > "$RUNNER_TEMP/pages.txt"
+          echo "Pages this pull request changes:"; cat "$RUNNER_TEMP/pages.txt"
+      - name: install the page drawing
+        shell: bash
+        run: |
+          [ -s "$RUNNER_TEMP/pages.txt" ] || exit 0
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: render check and diagram rule
+        shell: bash
+        run: |
+          [ -s "$RUNNER_TEMP/pages.txt" ] || { echo "no page changed"; exit 0; }
+          mapfile -t pages < "$RUNNER_TEMP/pages.txt"
+          status=0
+          node scripts/render-check.mjs "${pages[@]}" || status=1
+          node scripts/diagram-rule.mjs "${pages[@]}" || status=1
+          exit $status
 
   # Type and length only; the ids of open plan rows are checked on the PC by the commit hook.
   pr-title:

@@ -623,6 +623,20 @@ body:has(.tracker-mode > .rt-chat-handle) [data-rt-item-chat] {
   color: var(--x-text-muted);
 }
 
+/* A stage heading in To do (groups.js staged): the stage's name above its steps, in run order */
+.rt-stage {
+  margin: 0;
+  padding: 18px 16px 6px;
+  border-top: 1px solid var(--x-hairline);
+  color: var(--x-text-muted);
+  font: var(--rt-small);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.rt-stage + .rt-row {
+  border-top: 0;
+}
+
 /* A row (row.js; design 3.8, second pass): one line, the mark, the title left, chip and words right; a step with a
    file has a second line with its small "Open <file>" button */
 .rt-row {

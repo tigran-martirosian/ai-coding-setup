@@ -30,8 +30,13 @@ export const VERIFY_GATE = "verify-gate:";
 export const VERIFY_SKIPPED = "Verify: skipped —";
 export const VERIFY_SKIPPED_RE =
   /^verify:\s*skipped\s*(?:—|–|--?|:)\s*\S.{2,}$/im;
-export const verifyGateCommit = (files, skill) =>
-  `[verify-gate] this commit changes code (${files}) and no verify run came after the last code edit. Run the verify skill (${skill}) and commit again, or add the line "${VERIFY_SKIPPED} <reason>" to the message. This refusal comes once for this commit.`;
+// `skip` false (a page refusal comes with it): the skip line is not offered, since it cannot pass the page
+export const verifyGateCommit = (files, skill, skip = true) =>
+  `[verify-gate] this commit changes code (${files}) and no verify run came after the last code edit. Run the verify skill (${skill}) and commit again${skip ? `, or add the line "${VERIFY_SKIPPED} <reason>" to the message` : ""}. This refusal comes once for this commit.`;
+// verify-gate.mjs --pre in enforce: the refusal of a commit staging a page a person reads (or the film script) with no
+// fresh proof. `todo` says which proof folder lacks what and how to make it. It comes every time: there is no skip line.
+export const verifyGatePages = (pages, todo) =>
+  `[verify-gate] this commit changes what a person reads (${pages}) with no fresh proof; the page proof is still needed, and no skip line passes it. ${todo} Then commit again.`;
 
 // chat-scan.mjs writes it in a digest's header, read-digests.mjs reads it back
 export const chatCounts = (chats, requests) =>

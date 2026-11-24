@@ -56,7 +56,7 @@ function thinkingView(text, card, strings, stage) {
       words:
         what === WAIT_NO_WHAT
           ? s.background
-          : s.backgroundWhat.replace("{what}", what),
+          : s.backgroundWhat.replace("{what}", () => what), // a function: $$ or $' in the text stays as written
       orb: "connecting",
     };
   }
@@ -314,11 +314,11 @@ function needsWhat(cards, strings) {
   const what = !newest
     ? (count === 1 ? s.oneBare : s.manyBare).replace("{n}", count)
     : count === 1
-      ? s.one.replace("{what}", newest)
+      ? s.one.replace("{what}", () => newest) // functions: $$ or $' in a question stays as written
       : s.many
           .replace("{n}", count)
           .replace("{more}", count - 1)
-          .replace("{what}", newest);
+          .replace("{what}", () => newest);
   return { count, what };
 }
 

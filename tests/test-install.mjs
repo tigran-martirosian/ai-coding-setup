@@ -72,7 +72,13 @@ const besideFiles = (dir) =>
   walk(dir).filter((f) => f.includes(".before-install-"));
 // The add-on skills are left out of a default install, so they are not part of what a plain run ships
 const ADDON_SKILLS = ["phone-bot"];
-const shipped = ["hooks", "agents", "skills", "workers", "tools"]
+const shipped = [
+  "hooks",
+  "agents",
+  "skills",
+  "workers",
+  path.join("scripts", "nimbalyst-patch"),
+]
   .flatMap((d) => walk(path.join(REPO, d)))
   .map((f) => path.relative(REPO, f))
   .filter(
@@ -646,6 +652,13 @@ ok(
     "scripts/usage-scan.mjs",
   ].filter(
     (f) => !fs.existsSync(path.join(claude, "skills", "setup-audit", f)),
+  ),
+  [],
+);
+ok(
+  "the gridlines skill (/gridlines lines up edges) arrives with its probe and audit script",
+  ["SKILL.md", "audit.mjs", "probe.js"].filter(
+    (f) => !fs.existsSync(path.join(claude, "skills", "gridlines", f)),
   ),
   [],
 );
@@ -1550,7 +1563,7 @@ if (process.platform === "win32") {
   if (!hadDist) fs.rmSync(themeDist, { recursive: true, force: true });
 }
 
-// ---- the staged flow (scripts/extensions.mjs, tools/nimbalyst-patch/ext-swap.mjs), both systems: a build goes to
+// ---- the staged flow (scripts/extensions.mjs, scripts/nimbalyst-patch/ext-swap.mjs), both systems: a build goes to
 // extensions-pending and into the live folder only while Nimbalyst is closed. A live folder that changes while
 // Nimbalyst counts as open fails the case.
 {
@@ -1715,35 +1728,60 @@ ok(
   ["sonnet", true],
 );
 
-// ---- the plugin (claude-hud is the only one left), with a stand-in for the claude command that keeps a list of what it was told
-const fake = path.join(tmp, "fake-claude");
-fs.mkdirSync(fake);
-const told = path.join(fake, "told.txt");
-fs.writeFileSync(
-  path.join(fake, "claude.mjs"),
-  `import fs from "node:fs";
+// ---- the plugins: claude-hud, the security plugin and the two design plugins, with a stand-in for the claude command
+// that keeps a list of what it was told. Its PATH holds no Python unless one is asked for: `python` is a fake that
+// prints the version as Python would ("3 12"). macOS and Linux keep python3 in /usr/bin, so there the PATH is the
+// stand-in's folder alone (its scripts name node and their own folder in full); on Windows System32 is added.
+// `extra` is more lines for the stand-in's script (a command that fails, a marketplace list).
+const fakeClaude = (dir, listOut, python, extra = "") => {
+  fs.mkdirSync(dir);
+  const log = path.join(dir, "told.txt");
+  fs.writeFileSync(
+    path.join(dir, "claude.mjs"),
+    `import fs from "node:fs";
 const a = process.argv.slice(2).join(" ");
-fs.appendFileSync(${JSON.stringify(told)}, a + "\\n");
-if (a === "plugin list") console.log("Installed plugins:\\n  (none)");
+fs.appendFileSync(${JSON.stringify(log)}, a + "\\n");
+if (a === "plugin list") console.log(${JSON.stringify(listOut)});
+${extra}
 `,
+  );
+  fs.writeFileSync(
+    path.join(dir, "claude.cmd"),
+    `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`,
+  );
+  fs.writeFileSync(
+    path.join(dir, "claude"),
+    `#!/bin/sh\nexec "${process.execPath}" "${path.join(dir, "claude.mjs")}" "$@"\n`,
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(path.join(dir, "git"), "");
+  if (python) fakePython(dir, "python", python);
+  return {
+    PATH:
+      process.platform === "win32"
+        ? `${dir}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}`
+        : dir,
+    log,
+    told: () =>
+      fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [],
+  };
+};
+// a command that answers like Python asked for its version, "<major> <minor>"
+const fakePython = (dir, name, version) => {
+  fs.writeFileSync(path.join(dir, `${name}.cmd`), `@echo ${version}\r\n`);
+  fs.writeFileSync(path.join(dir, name), `#!/bin/sh\necho ${version}\n`, {
+    mode: 0o755,
+  });
+};
+const fakeC = fakeClaude(
+  path.join(tmp, "fake-claude"),
+  "Installed plugins:\n  (none)",
+  false,
 );
-fs.writeFileSync(
-  path.join(fake, "claude.cmd"),
-  `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`,
-);
-fs.writeFileSync(
-  path.join(fake, "claude"),
-  `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/claude.mjs" "$@"\n`,
-  { mode: 0o755 },
-);
-fs.writeFileSync(path.join(fake, "git"), "");
+const shellPath = fakeC.PATH;
+const toldLines = fakeC.told;
 const plugHome = path.join(tmp, "plug-home");
-const shellPath =
-  process.platform === "win32"
-    ? `${fake}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}`
-    : `${fake}${path.delimiter}/bin${path.delimiter}/usr/bin`;
 const plug = installWith(shellPath, plugHome, "--plugins", "yes");
-const toldLines = () => fs.readFileSync(told, "utf8").trim().split("\n");
 ok(
   "a missing plugin is installed and stays switched on",
   [
@@ -1752,38 +1790,24 @@ ok(
   ],
   [true, false],
 );
+// the security plugin is left off here (no Python on this PATH); the two design plugins need nothing more
 ok(
   "what was handled is on record",
   json(path.join(plugHome, ".claude", "setup-state.json")).plugins,
-  ["claude-hud@claude-hud"],
+  [
+    "claude-hud@claude-hud",
+    "frontend-design@claude-plugins-official",
+    "impeccable@impeccable",
+  ],
 );
 // a stand-in claude command that reports claude-hud as already on the system
-const hadFake = path.join(tmp, "fake-claude-had");
-fs.mkdirSync(hadFake);
-const hadTold = path.join(hadFake, "told.txt");
-fs.writeFileSync(
-  path.join(hadFake, "claude.mjs"),
-  `import fs from "node:fs";
-const a = process.argv.slice(2).join(" ");
-fs.appendFileSync(${JSON.stringify(hadTold)}, a + "\\n");
-if (a === "plugin list") console.log("Installed plugins:\\n  > claude-hud@claude-hud");
-`,
+const hadFake = fakeClaude(
+  path.join(tmp, "fake-claude-had"),
+  "Installed plugins:\n  > claude-hud@claude-hud",
+  false,
 );
-fs.writeFileSync(
-  path.join(hadFake, "claude.cmd"),
-  `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`,
-);
-fs.writeFileSync(
-  path.join(hadFake, "claude"),
-  `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/claude.mjs" "$@"\n`,
-  { mode: 0o755 },
-);
-fs.writeFileSync(path.join(hadFake, "git"), "");
-const hadShellPath =
-  process.platform === "win32"
-    ? `${hadFake}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}`
-    : `${hadFake}${path.delimiter}/bin${path.delimiter}/usr/bin`;
-const hadTold2 = () => fs.readFileSync(hadTold, "utf8").trim().split("\n");
+const hadShellPath = hadFake.PATH;
+const hadTold2 = hadFake.told;
 const had = installWith(
   hadShellPath,
   path.join(tmp, "plug-had-home"),
@@ -1794,37 +1818,19 @@ ok(
   "one that is there already is left as it is",
   [
     had.out.includes("plugin already there: claude-hud@claude-hud"),
-    hadTold2().some((l) => l.startsWith("plugin install")),
+    hadTold2().includes("plugin install claude-hud@claude-hud"),
   ],
   [true, false],
 );
 // a stand-in claude command whose install always fails, to check the failure is named and retried
-const failFake = path.join(tmp, "fake-claude-fail");
-fs.mkdirSync(failFake);
-const failTold = path.join(failFake, "told.txt");
-fs.writeFileSync(
-  path.join(failFake, "claude.mjs"),
-  `import fs from "node:fs";
-const a = process.argv.slice(2).join(" ");
-fs.appendFileSync(${JSON.stringify(failTold)}, a + "\\n");
-if (a === "plugin list") console.log("Installed plugins:\\n  (none)");
-if (a === "plugin install claude-hud@claude-hud") { console.error("no network"); process.exit(1); }
-`,
+const failFake = fakeClaude(
+  path.join(tmp, "fake-claude-fail"),
+  "Installed plugins:\n  (none)",
+  false,
+  `if (a === "plugin install claude-hud@claude-hud") { console.error("no network"); process.exit(1); }`,
 );
-fs.writeFileSync(
-  path.join(failFake, "claude.cmd"),
-  `@"${process.execPath}" "%~dp0claude.mjs" %*\r\n`,
-);
-fs.writeFileSync(
-  path.join(failFake, "claude"),
-  `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/claude.mjs" "$@"\n`,
-  { mode: 0o755 },
-);
-fs.writeFileSync(path.join(failFake, "git"), "");
-const failShellPath =
-  process.platform === "win32"
-    ? `${failFake}${path.delimiter}${path.join(process.env.SystemRoot || "C:\\Windows", "System32")}`
-    : `${failFake}${path.delimiter}/bin${path.delimiter}/usr/bin`;
+const failShellPath = failFake.PATH;
+const failTold = failFake.log;
 const failHome = path.join(tmp, "plug-fail-home");
 const failed = installWith(failShellPath, failHome, "--plugins", "yes");
 ok(
@@ -1837,7 +1843,9 @@ ok(
 );
 ok(
   "a failed plugin is not on record",
-  "plugins" in json(path.join(failHome, ".claude", "setup-state.json")),
+  (
+    json(path.join(failHome, ".claude", "setup-state.json")).plugins || []
+  ).includes("claude-hud@claude-hud"),
   false,
 );
 const failToldLines = () =>
@@ -1848,6 +1856,234 @@ ok(
   "the next run retries the one that failed",
   failToldLines().filter((l) => l.startsWith("plugin install")),
   ["plugin install claude-hud@claude-hud"],
+);
+// ---- the security plugin (skills/security, the always-on level): turned on by an install and by an update,
+// left off with a message where there is no Python for its hooks
+const SG = "security-guidance@claude-plugins-official";
+ok(
+  "security plugin: with no Python it is left off, the run says why, and it is not on record",
+  [
+    plug.out.includes(
+      `plugin left off: ${SG} needs Python 3.10 or newer on the PATH`,
+    ),
+    toldLines().includes(`plugin install ${SG}`),
+    json(path.join(plugHome, ".claude", "setup-state.json")).plugins.includes(
+      SG,
+    ),
+  ],
+  [true, false, false],
+);
+const sgFake = fakeClaude(
+  path.join(tmp, "fake-claude-sg"),
+  "Installed plugins:\n  (none)",
+  "3 12",
+);
+const sgHome = path.join(tmp, "plug-sg-home");
+const sgRun = installWith(sgFake.PATH, sgHome, "--plugins", "yes");
+ok(
+  "security plugin: an install turns it on (installed, never disabled) and puts it on record",
+  [
+    sgRun.out.includes(`plugin installed: ${SG}\n`),
+    sgFake.told().includes(`plugin install ${SG}`),
+    sgFake.told().some((l) => l.startsWith("plugin disable")),
+    json(path.join(sgHome, ".claude", "setup-state.json")).plugins.includes(SG),
+  ],
+  [true, true, false, true],
+);
+const FD = "frontend-design@claude-plugins-official";
+const IMP = "impeccable@impeccable";
+// an update runs this installer (skills/update-setup/update.mjs, install()): a home installed before 26.6
+// has only claude-hud on record; the update installs the security and design plugins and leaves claude-hud alone
+const oldHome = path.join(tmp, "plug-old-home");
+installWith(shellPath, oldHome, "--plugins", "yes");
+const oldState = path.join(oldHome, ".claude", "setup-state.json");
+fs.writeFileSync(
+  oldState,
+  JSON.stringify({ ...json(oldState), plugins: ["claude-hud@claude-hud"] }),
+);
+const upFake = fakeClaude(
+  path.join(tmp, "fake-claude-up"),
+  "Installed plugins:\n  > claude-hud@claude-hud",
+  "3 12",
+);
+const upRun = installWith(upFake.PATH, oldHome, "--plugins", "yes");
+ok(
+  "security and design plugins: an update of an older install turns them on and leaves claude-hud as it is",
+  [
+    [SG, FD, IMP].map((n) => upRun.out.includes(`plugin installed: ${n}\n`)),
+    upFake.told().filter((l) => l.startsWith("plugin install")),
+    json(oldState).plugins,
+  ],
+  [
+    [true, true, true],
+    [SG, FD, IMP].map((n) => `plugin install ${n}`),
+    ["claude-hud@claude-hud", SG, FD, IMP],
+  ],
+);
+// ---- the design plugins (Anthropic's frontend-design, Paul Bakaus's impeccable): skills and impeccable's own
+// guarded hooks, nothing that needs a command on the PATH, so they are turned on even with no Python
+const dsFake = fakeClaude(
+  path.join(tmp, "fake-claude-ds"),
+  "Installed plugins:\n  (none)",
+  false,
+);
+const dsHome = path.join(tmp, "plug-ds-home");
+const dsRun = installWith(dsFake.PATH, dsHome, "--plugins", "yes");
+ok(
+  "design plugins: a fresh install adds their marketplaces, turns both on (never disabled) and puts them on record",
+  [
+    [FD, IMP].map((n) => dsRun.out.includes(`plugin installed: ${n}\n`)),
+    [
+      "plugin marketplace add anthropics/claude-plugins-official",
+      "plugin marketplace add pbakaus/impeccable",
+      `plugin install ${FD}`,
+      `plugin install ${IMP}`,
+    ].map((l) => dsFake.told().includes(l)),
+    dsFake.told().some((l) => l.startsWith("plugin disable")),
+    [FD, IMP].map((n) =>
+      json(path.join(dsHome, ".claude", "setup-state.json")).plugins.includes(
+        n,
+      ),
+    ),
+  ],
+  [[true, true], [true, true, true, true], false, [true, true]],
+);
+const dsHadFake = fakeClaude(
+  path.join(tmp, "fake-claude-ds-had"),
+  `Installed plugins:\n  > ${FD}\n  > ${IMP}`,
+  false,
+);
+const dsHadHome = path.join(tmp, "plug-ds-had-home");
+const dsHad = installWith(dsHadFake.PATH, dsHadHome, "--plugins", "yes");
+ok(
+  "design plugins: ones already there are left as they are and put on record",
+  [
+    [FD, IMP].map((n) =>
+      dsHad.out.includes(`plugin already there: ${n} (left as it is)`),
+    ),
+    [FD, IMP].map((n) => dsHadFake.told().includes(`plugin install ${n}`)),
+    [FD, IMP].map((n) =>
+      json(
+        path.join(dsHadHome, ".claude", "setup-state.json"),
+      ).plugins.includes(n),
+    ),
+  ],
+  [
+    [true, true],
+    [false, false],
+    [true, true],
+  ],
+);
+if (process.platform === "win32") {
+  // Windows' python stand-in in WindowsApps only points to the Store: the plugin's hooks could not run
+  const stubFake = fakeClaude(
+    path.join(tmp, "fake-claude-stub"),
+    "Installed plugins:\n  (none)",
+    false,
+  );
+  const apps = path.join(tmp, "Microsoft", "WindowsApps");
+  fs.mkdirSync(apps, { recursive: true });
+  fs.writeFileSync(path.join(apps, "python.exe"), "");
+  const stubRun = installWith(
+    `${stubFake.PATH}${path.delimiter}${apps}`,
+    path.join(tmp, "plug-stub-home"),
+    "--plugins",
+    "yes",
+  );
+  ok(
+    "security plugin: the Store's python stand-in does not count as a Python",
+    [
+      stubRun.out.includes(`plugin left off: ${SG}`),
+      stubFake.told().includes(`plugin install ${SG}`),
+    ],
+    [true, false],
+  );
+}
+// a Python is one that runs and says it is 3.10 or newer: a file with the name is not one, nor is a 3.9
+const pyRun = (name, setup) => {
+  const f = fakeClaude(
+    path.join(tmp, `fake-claude-${name}`),
+    "Installed plugins:\n  (none)",
+    false,
+  );
+  setup(path.join(tmp, `fake-claude-${name}`));
+  const r = installWith(
+    f.PATH,
+    path.join(tmp, `plug-${name}-home`),
+    "--plugins",
+    "yes",
+  );
+  return [
+    r.out.includes(`plugin installed: ${SG}\n`),
+    f.told().includes(`plugin install ${SG}`),
+  ];
+};
+ok(
+  "security plugin: a file named python that does not run is not a Python",
+  pyRun("py-file", (d) => {
+    fs.writeFileSync(path.join(d, "python"), "");
+    fs.writeFileSync(path.join(d, "python.exe"), "");
+  }),
+  [false, false],
+);
+ok(
+  "security plugin: a Python older than 3.10 is not enough",
+  pyRun("py-old", (d) => fakePython(d, "python3", "3 9")),
+  [false, false],
+);
+ok(
+  "security plugin: a Python found by its versioned name (python3.12) counts",
+  pyRun("py-versioned", (d) => fakePython(d, "python3.12", "3 12")),
+  [true, true],
+);
+// a marketplace that cannot be added: said plainly, and its plugins are not tried
+const mkFail = fakeClaude(
+  path.join(tmp, "fake-claude-mk-fail"),
+  "Installed plugins:\n  (none)",
+  false,
+  `if (a === "plugin marketplace add pbakaus/impeccable") { console.error("repo not found"); process.exit(1); }`,
+);
+const mkFailRun = installWith(
+  mkFail.PATH,
+  path.join(tmp, "plug-mk-fail-home"),
+  "--plugins",
+  "yes",
+);
+ok(
+  "a marketplace that cannot be added is named with its error, and its plugin is not installed or put on record",
+  [
+    mkFailRun.out.includes(
+      "marketplace pbakaus/impeccable could not be added (repo not found)",
+    ),
+    mkFail.told().includes(`plugin install ${IMP}`),
+    json(
+      path.join(tmp, "plug-mk-fail-home", ".claude", "setup-state.json"),
+    ).plugins.includes(IMP),
+    mkFailRun.code,
+  ],
+  [true, false, false, 0],
+);
+// an add that fails because the marketplace is already there still lets its plugins in
+const mkHad = fakeClaude(
+  path.join(tmp, "fake-claude-mk-had"),
+  "Installed plugins:\n  (none)",
+  false,
+  `if (a === "plugin marketplace add pbakaus/impeccable") { console.error("already declared"); process.exit(1); }
+if (a === "plugin marketplace list") console.log("Configured marketplaces:\\n\\n  > impeccable\\n    Source: GitHub (pbakaus/impeccable)");`,
+);
+const mkHadRun = installWith(
+  mkHad.PATH,
+  path.join(tmp, "plug-mk-had-home"),
+  "--plugins",
+  "yes",
+);
+ok(
+  "a marketplace that is already there counts as added",
+  [
+    mkHadRun.out.includes(`plugin installed: ${IMP}\n`),
+    mkHadRun.out.includes("marketplace pbakaus/impeccable could not be added"),
+  ],
+  [true, false],
 );
 ok(
   "without the claude command the run says so",
@@ -3250,7 +3486,7 @@ ok(
       .readFileSync(yoursPeek)
       .equals(
         fs.readFileSync(
-          path.join(REPO, "projects", "quick-tasks", "tools", "peek.mjs"),
+          path.join(REPO, "templates", "quick-tasks", "tools", "peek.mjs"),
         ),
       ),
     fs.readFileSync(

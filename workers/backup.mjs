@@ -3,7 +3,7 @@
 // restic 0.19.1 is downloaded from its GitHub release and checked against the SHA-256 pinned here. Windows, macOS, Linux.
 //
 //   backup.mjs get-restic [--file <archive>]       download (or take this file), check the hash, unpack into <home>/bin
-//   backup.mjs setup [--window]                     B2: asks the master key (hidden), makes the bucket and a no-delete key,
+//   backup.mjs setup [--window]                     B2: asks the master key (hidden), makes the bucket and a key for it,
 //                                                   the password and the recovery sheet; --window opens it in its own terminal
 //   backup.mjs setup --target local --repo <dir> [--password-stdin]   a restic repository in a local folder
 //   backup.mjs folders [--projects <dir>] [--add <dir>] [--remove <dir>]   list project folders with sizes; change the list
@@ -1081,7 +1081,18 @@ async function b2(apiName, url, { token, basic, body }) {
   return j;
 }
 
-// B2 bucket (private, hidden versions kept 30 days) and a key for it that cannot delete. The master key stays in memory.
+// The bucket key's rights. restic's native b2: backend deletes its own lock files at the end of every run, and forget/prune
+// delete snapshots and packs, so the key needs deleteFiles. A stolen key can therefore delete the backup; only versions
+// that were hidden, not deleted, are kept the 30 days of the bucket's lifecycle rule.
+export const B2_KEY_CAPABILITIES = [
+  "listBuckets",
+  "listFiles",
+  "readFiles",
+  "writeFiles",
+  "deleteFiles",
+];
+
+// B2 bucket (private, hidden versions kept 30 days) and a key for that bucket only. The master key stays in memory.
 async function makeB2() {
   // A terminal that cannot paste: the keys can sit in master-key.txt (line 1 key ID, line 2 key).
   // The file is read once and deleted at once.
@@ -1137,7 +1148,7 @@ async function makeB2() {
         accountId: auth.accountId,
         keyName: `claude-backup-${randomName(6)}`,
         bucketId: bucket.bucketId,
-        capabilities: ["listBuckets", "listFiles", "readFiles", "writeFiles"],
+        capabilities: B2_KEY_CAPABILITIES,
       },
     },
   );
@@ -1145,7 +1156,7 @@ async function makeB2() {
     `Bucket ${bucketName} made: private, hidden versions kept 30 days.`,
   );
   console.log(
-    `Key ${key.applicationKeyId.slice(0, 6)}... made: this bucket only; list, read, write, no delete. The master key is forgotten.`,
+    `Key ${key.applicationKeyId.slice(0, 6)}... made: this bucket only; list, read, write, delete. The master key is forgotten.`,
   );
   return {
     bucket: bucketName,

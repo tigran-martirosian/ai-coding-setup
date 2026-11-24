@@ -1,6 +1,7 @@
 // Board Tidy's chooser: which Nimbalyst sessions are old enough to archive. It reads Nimbalyst's
 // session database read-only (it never writes there; the extension archives through the app's own
 // call) and keeps a log of every archive run so each one can be undone.
+// Every <folder> is base64 of the folder's JSON (index.js folderArg), so no shell reads the folder itself.
 //   node pick.mjs [--force] [--dry] [--reason <word>] [--db <path>]
 //                                             print {picked, counts, run} as JSON and log the run
 //                                             before anything is archived; without --force, nothing
@@ -276,6 +277,22 @@ function readLog() {
 
 const decode = (b64) => JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
 
+/** The folder in a `flag <base64 JSON>` argument; anything else is refused with a clear error. */
+function folderOf(flag, arg) {
+  if (!arg) throw new Error(`${flag} needs a project folder`);
+  let folder;
+  try {
+    folder = decode(arg);
+  } catch {
+    folder = null;
+  }
+  if (typeof folder !== "string" || !folder)
+    throw new Error(
+      `${flag} needs a project folder as base64 JSON, got: ${arg}`,
+    );
+  return folder;
+}
+
 async function main(argv) {
   fs.mkdirSync(stateDir(), { recursive: true });
   const flag = argv[0];
@@ -305,8 +322,7 @@ async function main(argv) {
   };
   if (flag === "--keep-list") return { keep: readKeep() };
   if (flag === "--keep" || flag === "--unkeep") {
-    const folder = argv[1];
-    if (!folder) throw new Error(`${flag} needs a project folder`);
+    const folder = folderOf(flag, argv[1]);
     const rest = readKeep().filter((k) => folderKey(k) !== folderKey(folder));
     writeKeep(flag === "--keep" ? [...rest, folder.replace(/\\/g, "/")] : rest);
     return { keep: readKeep() };
@@ -316,8 +332,7 @@ async function main(argv) {
   const reasonAt = argv.indexOf("--reason");
   const db = val("--db") || defaultDb();
   if (flag === "--archived-in") {
-    if (!argv[1]) throw new Error("--archived-in needs a project folder");
-    const key = folderKey(argv[1]);
+    const key = folderKey(folderOf(flag, argv[1]));
     const rows = (await readRows(db)).filter(
       (r) => r.is_archived && folderKey(r.workspace_id || "") === key,
     );
@@ -325,7 +340,8 @@ async function main(argv) {
   }
   const scope = scopeOf({
     keep: readKeep(),
-    project: val("--project"),
+    project:
+      val("--project") == null ? null : folderOf("--project", val("--project")),
     olderThanDays: val("--older-than"),
   });
   if (dry)

@@ -1,4 +1,4 @@
-// The base project folders from projects/ (each with its skills, hooks, tools, CLAUDE.md and its own
+// The base project folders from templates/ (each with its skills, hooks, tools, CLAUDE.md and its own
 // .claude/settings.json), with the picture skill linked in where Codex is used. Returns `written`: the
 // notes files (CLAUDE.md, how-to.md) as a run last wrote them, for state.written.
 import fs from "node:fs";
@@ -146,7 +146,7 @@ export function projects(ctx) {
   const asWritten = (file) =>
     fs.existsSync(file) && written[fwd(file)] === sha(read(file));
   for (const name of ctx.HOMES) {
-    const from = path.join(REPO, "projects", name);
+    const from = path.join(REPO, "templates", name);
     const dir = path.join(PROJECTS, name);
     const example = path.join(".claude", "settings.json");
     for (const rel of filesIn(from)) {
@@ -198,7 +198,7 @@ export function projects(ctx) {
     const wanted = (homes.notes[name] || [])
       .filter((n) => n.without.every((w) => !have[w]))
       .map((n) => n.line);
-    const shipped = ctx.repoText(path.join("projects", name, "CLAUDE.md"));
+    const shipped = ctx.repoText(path.join("templates", name, "CLAUDE.md"));
     const fresh = withNote(shipped, wanted);
     if (!fs.existsSync(notes) || asWritten(notes) || read(notes) === fresh) {
       put(notes, Buffer.from(fresh));

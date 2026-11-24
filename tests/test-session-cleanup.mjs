@@ -315,21 +315,21 @@ check(
 reset();
 launch(
   "s4d",
-  'node "C:/Users/someone/.claude/tools/nimbalyst-patch/restart.mjs" > /dev/null 2>&1 &',
+  'node "C:/Users/someone/.claude/scripts/nimbalyst-patch/restart.mjs" > /dev/null 2>&1 &',
   (now) => [
     {
       pid: 5281,
       ppid: 5280,
       name: "node.exe",
       created: now,
-      cmd: 'node "C:/Users/someone/.claude/tools/nimbalyst-patch/restart.mjs"',
+      cmd: 'node "C:/Users/someone/.claude/scripts/nimbalyst-patch/restart.mjs"',
     },
     {
       pid: 5282,
       ppid: 5281,
       name: "node.exe",
       created: now + 1,
-      cmd: "node C:\\Users\\someone\\.claude\\tools\\nimbalyst-patch\\deliver.mjs",
+      cmd: "node C:\\Users\\someone\\.claude\\scripts\\nimbalyst-patch\\deliver.mjs",
     },
   ],
 );

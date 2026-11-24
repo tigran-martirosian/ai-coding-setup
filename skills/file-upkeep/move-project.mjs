@@ -754,6 +754,7 @@ const LIVE_DIRS = [
   ["rules", 4],
   ["workers", 4],
   ["output-styles", 2],
+  ["scripts", 4],
   ["tools", 4],
   ["usage-log", 3],
   ["plugins", 1],
@@ -992,7 +993,7 @@ function tasksPlace(m) {
 
 // ---- the queue: moves asked for while Nimbalyst ran, carried out when it closes ----
 // <deliver data>\moves.json { moves: [{ from, to, at }], refused?: [{ from, to, at, when, exit, why }] }, in the
-// data folder of tools/nimbalyst-patch/deliver.mjs, whose --after-quit (started by the patched app's quit listener)
+// data folder of scripts/nimbalyst-patch/deliver.mjs, whose --after-quit (started by the patched app's quit listener)
 // and --install-now run --run-queued. `refused` keeps the queued moves that were refused or failed when they ran,
 // so deliver.mjs --status says them; a record goes when that project is queued again or moved.
 // Every read-change-write of moves.json holds moves.json.lock (made only when it is not there); a lock whose
@@ -1002,7 +1003,7 @@ const DELIVER = path.join(
   path.dirname(SELF),
   "..",
   "..",
-  "tools",
+  "scripts",
   "nimbalyst-patch",
   "deliver.mjs",
 );

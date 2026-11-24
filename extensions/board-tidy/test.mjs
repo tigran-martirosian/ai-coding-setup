@@ -2,7 +2,7 @@
 // parent covers child), the command line against a scratch database (read-only, 50-minute gap, dry
 // run, log, undo), and the build (manifest, exports, Russian words). Run: node test.mjs
 
-import { spawnSync } from "node:child_process";
+import { exec, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -467,8 +467,8 @@ check(
 // keep list on the command line, and the hourly run honouring it
 check(
   "cli: --keep adds once, in forward slashes",
-  cli("--keep", "C:\\p").keep.join() === "C:/p" &&
-    cli("--keep", "c:/P/").keep.length === 1,
+  cli("--keep", b64("C:\\p")).keep.join() === "C:/p" &&
+    cli("--keep", b64("c:/P/")).keep.length === 1,
 );
 check(
   "cli: with C:\\p kept a forced run picks nothing",
@@ -476,15 +476,25 @@ check(
 );
 check(
   "cli: a run asked for in the kept project works",
-  cli("--force", "--project", "C:/p", "--older-than", "5").picked.length > 0,
+  cli("--force", "--project", b64("C:/p"), "--older-than", "5").picked.length >
+    0,
 );
 check(
   "cli: --archived-in lists that project's archived sessions",
-  cli("--archived-in", "C:/p").ids.includes("kid"),
+  cli("--archived-in", b64("C:/p")).ids.includes("kid"),
+);
+const plainFolder = spawnSync(
+  process.execPath,
+  [path.join(here, "pick.mjs"), "--keep", "C:/p"],
+  { encoding: "utf8", env },
+);
+check(
+  "cli: a folder not given as base64 JSON is a clear error",
+  plainFolder.status === 1 && /base64 JSON/.test(plainFolder.stderr),
 );
 check(
   "cli: --unkeep removes it",
-  cli("--unkeep", "C:/p").keep.length === 0 &&
+  cli("--unkeep", b64("C:/p")).keep.length === 0 &&
     cli("--keep-list").keep.length === 0,
 );
 fs.writeFileSync(path.join(tmp, "board-tidy.json"), "{oops");
@@ -548,21 +558,75 @@ check(
     Array.isArray(en.aiTools),
 );
 check(
-  "a trailing backslash cannot escape the closing quote",
-  en.q("C:\\Projects\\quick-tasks\\") === '"C:\\Projects\\quick-tasks"' &&
-    en.q("/srv/A/") === '"/srv/A"',
+  "a trailing backslash or slash is dropped from the folder",
+  en.folderArg("C:\\Projects\\quick-tasks\\") ===
+    b64("C:\\Projects\\quick-tasks") &&
+    en.folderArg("/srv/A/") === b64("/srv/A"),
 );
+// The model writes the project of the archive, unarchive and keep tools. cmd.exe expands %NAME% even
+// inside double quotes, so no character of it may reach the shell line: it goes as base64.
+const HOSTILE = 'C:/x%CMDCMDLINE%"&calc&"';
+const tool = (name) => en.aiTools.find((t) => t.name === `board_tidy.${name}`);
+const sent = [];
+globalThis.window = {
+  electronAPI: {
+    invoke: async (channel, p) => {
+      if (channel === "extension:exec") sent.push(p.command);
+      return {
+        success: true,
+        stdout: JSON.stringify({ picked: [], counts: {}, ids: [], keep: [] }),
+      };
+    },
+  },
+};
+en.activate({ extensionPath: here });
+en.deactivate();
+await tool("archive").handler({ project: HOSTILE, olderThanDays: 5 });
+await tool("unarchive").handler({ project: HOSTILE });
+await tool("keep").handler({ project: HOSTILE });
 check(
-  "a folder with a quote, backtick or $ is refused",
-  ['C:/a"b', "C:/a`b", "C:/$(x)"].every((p) => {
-    try {
-      en.q(p);
-      return false;
-    } catch {
-      return true;
-    }
-  }),
+  'archive, unarchive and keep send the project as base64, with no % " or & of it on the shell line',
+  sent.length === 3 &&
+    sent.every(
+      (c) =>
+        c.includes(b64(HOSTILE)) &&
+        !/[%&]/.test(c) &&
+        c.split('"').length === 3, // only the two quotes around pick.mjs
+    ),
 );
+// The same through a real shell (cmd.exe on Windows): the folder arrives unchanged and nothing else runs
+const shellDir = fs.mkdtempSync(path.join(os.tmpdir(), "board-tidy-shell-"));
+const BREAKOUT =
+  'C:/y%CMDCMDLINE:~-1% & echo ran>ran.txt & rem "&echo ran>ran.txt&"';
+globalThis.window.electronAPI.invoke = (channel, p) =>
+  new Promise((resolve) =>
+    exec(
+      p.command,
+      {
+        cwd: shellDir,
+        env: {
+          ...process.env,
+          BOARD_TIDY_CONFIG: path.join(shellDir, "keep.json"),
+        },
+      },
+      (err, stdout, stderr) =>
+        resolve({
+          success: !err,
+          stdout,
+          stderr,
+          exitCode: err ? err.code : 0,
+        }),
+    ),
+  );
+const kept = await tool("keep").handler({ project: BREAKOUT });
+check(
+  "a project folder made to break out of the shell line is kept as written and runs nothing",
+  kept.success === true &&
+    kept.data.keep.join() === BREAKOUT &&
+    !fs.existsSync(path.join(shellDir, "ran.txt")),
+);
+fs.rmSync(shellDir, { recursive: true, force: true });
+delete globalThis.window;
 const archiveTool = en.aiTools.find((t) => t.name.endsWith("archive"));
 const daysOnly = await archiveTool.handler({ olderThanDays: 180 });
 check(

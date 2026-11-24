@@ -1540,6 +1540,21 @@ check(
       what([]) === null &&
       needsWhat([{ id: "a", questions: ["x", "y"] }], mod.STRINGS).count === 2,
   );
+  check(
+    "needs and thinking: a question or task with $$, $& or $' shows as written, not as a replace pattern",
+    what([{ id: "a", questions: ["Kill pid $$ or $' now?"] }]) ===
+      "1 question: Kill pid $$ or $' now?" &&
+      what([
+        { id: "a", questions: ["Older?"] },
+        { id: "b", questions: ["Use $& here?"] },
+      ]) === "2 questions: Use $& here? and 1 more" &&
+      mod.thinkingView(
+        "Waiting on background task: echo $$",
+        null,
+        mod.STRINGS,
+        mod.stageOf,
+      ).words === "Waiting on a background task: echo $$",
+  );
   const words = (state, n, m = mod) =>
     m
       .sessionWords(state, n, m.STRINGS)

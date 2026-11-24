@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const TOOL = path.join(HERE, "..", "tools", "nimbalyst-patch");
+const TOOL = path.join(HERE, "..", "scripts", "nimbalyst-patch");
 
 const res =
   process.env.LOCALAPPDATA &&

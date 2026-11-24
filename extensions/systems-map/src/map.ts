@@ -111,7 +111,8 @@ export function classify(raw: string | null): Loaded {
   if (raw === null) return { kind: "none" };
   let data: unknown;
   try {
-    data = JSON.parse(raw);
+    // A leading BOM (Windows PowerShell 5's UTF-8) is dropped, as hooks/lib/map-file.mjs does
+    data = JSON.parse(raw.replace(/^﻿/, ""));
   } catch (e) {
     return { kind: "error", message: t.badJson((e as Error).message) };
   }
@@ -177,6 +178,26 @@ export interface Check {
   bad: string[];
 }
 
+/**
+ * `DRIFT <file>  (link <from> -> <to>): no longer has: <token>` split at the first of each separator, as the lazy
+ * regex did, but with indexOf: the values come from the map, and a regex with three lazy groups backtracked on a
+ * crafted line long enough to freeze the window.
+ */
+function driftOf(l: string): string[] | null {
+  if (!l.startsWith("DRIFT ")) return null;
+  const a = l.indexOf("  (link ", 7);
+  const b = a < 0 ? -1 : l.indexOf(" -> ", a + 9);
+  const c = b < 0 ? -1 : l.indexOf("): no longer has: ", b + 5);
+  if (c < 0) return null;
+  return [
+    l,
+    l.slice(6, a),
+    l.slice(a + 8, b),
+    l.slice(b + 4, c),
+    l.slice(c + 18),
+  ];
+}
+
 /** The output of `map.mjs --check`; null when it is not that output (script missing, node failed). */
 export function parseCheck(stdout: string): Check | null {
   const lines = stdout.split(/\r?\n/);
@@ -187,8 +208,7 @@ export function parseCheck(stdout: string): Check | null {
   const driftLinks: Check["driftLinks"] = [];
   for (const l of lines) {
     const g = /^GONE (.+?) {2}\(/.exec(l);
-    const d =
-      /^DRIFT (.+?) {2}\(link (.+?) -> (.+?)\): no longer has: (.*)$/.exec(l);
+    const d = driftOf(l);
     if (g) gone.push(g[1]);
     else if (d) {
       drift.push(d[1]);
@@ -221,10 +241,19 @@ export function checkLine(check: Check | null): { text: string; bad: boolean } {
 
 const ABSOLUTE = /^([A-Za-z]:[\\/]|\/)/;
 
-/** The path a click opens: a path in the map is relative to the project unless it is already absolute. */
-export function absolute(workspace: string, p: string): string {
+/** The path a click opens: a path in the map is relative to the project unless it is already absolute; `~/` is
+ *  under the home folder, as map.mjs reads it. */
+export function absolute(
+  workspace: string,
+  p: string,
+  home: string,
+): string | null {
+  // a network or device path (//host, \\host, \\?\, \\.\): a click would send the user's Windows sign-in there
+  if (/^[\\/]{2}/.test(p)) return null;
   const w = workspace.replace(/\\/g, "/").replace(/\/+$/, "");
   const f = p.replace(/\\/g, "/");
+  if (f.startsWith("~/"))
+    return `${home.replace(/\\/g, "/").replace(/\/+$/, "")}/${f.slice(2)}`;
   return ABSOLUTE.test(f) ? f : `${w}/${f.replace(/^\.\//, "")}`;
 }
 

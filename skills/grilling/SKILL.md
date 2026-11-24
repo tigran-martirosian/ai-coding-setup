@@ -36,6 +36,10 @@ background to find it: a `worker` for files, docs or code; for a web question th
 Don't block on it: only the questions downstream of it wait; ask the rest of the frontier now. The _decisions_ are
 the user's: put each to them and wait.
 
+**What already exists** is the first fact to find, before the first round: the project's own code and its packages,
+then a maintained package, template or repo that does the job. Each find enters a question as the recommended base,
+so the user picks between using it and building; the answers go into the spec's "Built on".
+
 ## Plain text or a card
 
 - Open "what and why" questions go as plain text, as above. Their own words carry more than any options can.

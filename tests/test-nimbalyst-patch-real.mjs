@@ -1,5 +1,5 @@
 // node tests/test-nimbalyst-patch-real.mjs
-// The real patch files (tools/nimbalyst-patch/patches) on fixture code and, when Nimbalyst is installed, on a copy
+// The real patch files (scripts/nimbalyst-patch/patches) on fixture code and, when Nimbalyst is installed, on a copy
 // of its app.asar: updater-block, ask-line, files-and-agents, settled-repeat, files-chat-follows.
 import fs from "node:fs";
 import path from "node:path";

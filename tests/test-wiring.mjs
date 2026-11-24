@@ -172,17 +172,17 @@ ok(
 
 // each project folder: its own commands resolve inside the folder, and a retired name is gone
 const homes = fs
-  .readdirSync(path.join(REPO, "projects"), { withFileTypes: true })
+  .readdirSync(path.join(REPO, "templates"), { withFileTypes: true })
   .filter(
     (e) =>
       e.isDirectory() &&
       fs.existsSync(
-        path.join(REPO, "projects", e.name, ".claude", "settings.json"),
+        path.join(REPO, "templates", e.name, ".claude", "settings.json"),
       ),
   )
   .map((e) => e.name);
 for (const home of homes) {
-  const dir = path.join(REPO, "projects", home);
+  const dir = path.join(REPO, "templates", home);
   const own = commandsIn(json(path.join(dir, ".claude", "settings.json"))).map(
     scriptOf,
   );

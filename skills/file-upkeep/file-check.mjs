@@ -57,6 +57,19 @@ const tilde = (f) =>
     : fwd(f);
 const FC = `node ${tilde(path.join(CLAUDE, "skills", "file-upkeep", "file-check.mjs"))}`;
 const sha = (data) => crypto.createHash("sha256").update(data).digest("hex");
+// a file of any size, read 1 MiB at a time (readFileSync stops at 2 GiB)
+const shaFile = (full) => {
+  const h = crypto.createHash("sha256"),
+    buf = Buffer.alloc(1 << 20),
+    fd = fs.openSync(full, "r");
+  try {
+    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0; )
+      h.update(buf.subarray(0, n));
+  } finally {
+    fs.closeSync(fd);
+  }
+  return h.digest("hex");
+};
 // Dates are the person's local day, as git's %as gives them, so a run near midnight UTC agrees with git.
 const localDay = (d) =>
   new Date(d.getTime() - d.getTimezoneOffset() * 6e4)
@@ -837,10 +850,10 @@ const fileSha = (p, rel) => {
     return sha(
       p.files
         .filter((f) => f.startsWith(rel + "/"))
-        .map((f) => `${f} ${sha(fs.readFileSync(path.join(p.root, f)))}`)
+        .map((f) => `${f} ${shaFile(path.join(p.root, f))}`)
         .join("\n"),
     );
-  return sha(fs.readFileSync(full));
+  return shaFile(full);
 };
 const unchangedInGit = (p, rel) =>
   p.git &&
@@ -2071,6 +2084,9 @@ function moveFile(p, from, to, tracked) {
   } else step(a, b);
   removeEmptyUp(p.root, path.dirname(a));
 }
+// the SHA-256 of a file, kept in the journal so --undo can see a file changed after the apply; a folder has none
+const journalSha = (full) =>
+  fs.statSync(full).isFile() ? { sha: shaFile(full) } : {};
 // a file move that may cross drives (the trash under ~/.claude): rename, or copy, check the copy, then delete
 function moveAcross(a, b) {
   mkParent(b);
@@ -2081,7 +2097,7 @@ function moveAcross(a, b) {
     if (e.code !== "EXDEV") throw e;
   }
   fs.copyFileSync(a, b);
-  if (sha(fs.readFileSync(a)) !== sha(fs.readFileSync(b))) {
+  if (shaFile(a) !== shaFile(b)) {
     fs.rmSync(b);
     throw new Error(
       `the copy of ${fwd(a)} to ${fwd(b)} differs from it; the file stays`,
@@ -2109,7 +2125,7 @@ function fixRefs(p, text, citing, citingNew, pairs) {
             ? rel
             : `./${rel}`
           : to;
-      spans.push({ ...s, nu: nu.split("/").join(sep) });
+      spans.push({ ...s, nu: nu.split("/").join(sep), follows: from });
     }
   spans.sort((a, b) => a.at - b.at);
   let out = "",
@@ -2117,7 +2133,7 @@ function fixRefs(p, text, citing, citingNew, pairs) {
   const edits = [];
   for (const s of spans) {
     out += text.slice(last, s.at);
-    edits.push({ at: out.length, old: s.text, new: s.nu });
+    edits.push({ at: out.length, old: s.text, new: s.nu, follows: s.follows });
     out += s.nu;
     last = s.at + s.len;
   }
@@ -2194,9 +2210,12 @@ function apply() {
     const list = p.files.filter((x) => x === rel || x.startsWith(rel + "/")); // listed files only: ignored data stays
     op.trash = fwd(trashDir);
     op.files = [];
+    op.shas = {};
     for (const x of list) {
+      const h = shaFile(path.join(p.root, x));
       moveAcross(path.join(p.root, x), path.join(trashDir, x));
       op.files.push(x);
+      op.shas[x] = h;
       save();
     }
     removeEmptyUp(p.root, path.join(p.root, rel));
@@ -2239,6 +2258,7 @@ function apply() {
       from,
       to,
       tracked: false,
+      ...journalSha(path.join(p.root, to)),
       ...(was ? { untracked: true } : {}),
       ...(made ? { madeIgnore: "shown/.gitignore" } : {}),
     };
@@ -2256,11 +2276,13 @@ function apply() {
       j.reason[f.path] = e.reason;
     }
     mkParent(stdFile);
-    fs.writeFileSync(stdFile, JSON.stringify(j, null, 2) + "\n");
+    const text = JSON.stringify(j, null, 2) + "\n";
+    fs.writeFileSync(stdFile, text);
     ops.push({
       op: "keep",
       file: ".claude/file-standard.json",
       before: prior,
+      sha: sha(text),
       paths: keeps.map(({ f }) => f.path),
     });
     save();
@@ -2295,7 +2317,13 @@ function apply() {
       continue;
     }
     moveFile(p, f.path, to, tracked(f.path));
-    ops.push({ op: "move", from: f.path, to, tracked: tracked(f.path) });
+    ops.push({
+      op: "move",
+      from: f.path,
+      to,
+      tracked: tracked(f.path),
+      ...journalSha(path.join(p.root, to)),
+    });
     save();
     pairs.push([f.path, to]);
   }
@@ -2467,28 +2495,131 @@ function undo() {
   if (l.undone) stop(`${tilde(file)} was undone on ${l.undone}.`);
   const root = l.project,
     named = [];
-  for (const { file: rel, edits } of l.edits) {
-    const full = path.join(root, rel);
-    let text = read(full);
-    for (const e of [...edits].sort((a, b) => b.at - a.at)) {
-      if (text.slice(e.at, e.at + e.new.length) === e.new)
-        text = text.slice(0, e.at) + e.old + text.slice(e.at + e.new.length);
-      else
-        named.push(
+  const p = { root },
+    at = (rel) => path.join(root, rel);
+  // A step never writes over a file that is there again, nor moves or deletes a file that changed after the apply
+  // (its SHA-256 in the journal; journals from before the hashes have none). Such a step is left for a person, and
+  // stays in the journal (only the part not done) so a later --undo finishes it.
+  const left = new Map();
+  const note = (why) => named.push(`${why}; the undo left it`);
+  const skip = (o, why, rest = o) => {
+    left.set(o, rest);
+    note(why);
+  };
+  // the references fixed in a file, put back: in memory first, so a file is hashed and checked as the apply left it.
+  // `hold`: edits that stay, because the move they follow was left (each edit names it in `follows`; journals from
+  // before that name none). A held edit stays in the journal, its place shifted by the edits put back before it.
+  const editsOf = new Map(l.edits.map((e) => [e.file, e.edits])),
+    editsDone = new Set(),
+    editsLeft = new Map();
+  const revert = (rel, hold = () => false) => {
+    let text = read(at(rel));
+    const misses = [],
+      held = [],
+      done = [];
+    for (const e of [...editsOf.get(rel)].sort((a, b) => b.at - a.at)) {
+      if (text.slice(e.at, e.at + e.new.length) !== e.new)
+        misses.push(
           `${rel}: "${e.new}" is no longer at ${e.at}; put back "${e.old}" by hand`,
         );
+      else if (hold(e)) held.push({ ...e });
+      else {
+        text = text.slice(0, e.at) + e.old + text.slice(e.at + e.new.length);
+        done.push(e);
+      }
     }
-    fs.writeFileSync(full, text);
-  }
-  const p = { root };
-  const restore = (o, rel) => {
-    if (o.git) gitOk(root, "checkout", l.before, "--", rel);
-    else
-      for (const x of o.files || [])
-        moveAcross(path.join(o.trash, x), path.join(root, x)); // none: stopped before the delete
+    for (const h of held)
+      for (const e of done)
+        if (e.at < h.at) h.at += e.old.length - e.new.length;
+    return { text, misses, held };
+  };
+  const putBack = (rel, r) => {
+    fs.writeFileSync(at(rel), r.text);
+    named.push(...r.misses);
+    editsDone.add(rel);
+    if (r.held.length) editsLeft.set(rel, r.held);
+  };
+  // an edit that follows a move left for a person (or a file in a folder whose file was left) stays
+  const held = (e) =>
+    !!e.follows &&
+    [...left.keys()].some(
+      (o) =>
+        o.op === "move" &&
+        (o.from === e.follows || o.from.startsWith(e.follows + "/")),
+    );
+  // a file with references fixed, as it was before them (the merge and keep checks compare with that). Moves are
+  // undone before merges and keeps, so which moves were left is known here.
+  const view = (rel) =>
+    editsOf.has(rel) && !editsDone.has(rel)
+      ? revert(rel, held)
+      : { text: read(at(rel)), misses: [], held: [] };
+  const restore = (o, rel, done = {}) => {
+    if (o.git) {
+      const there = gitOk(
+        root,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--name-only",
+        l.before,
+        "--",
+        rel,
+      )
+        .split("\0")
+        .filter((x) => x && fs.existsSync(at(x)));
+      if (there.length)
+        skip(
+          o,
+          `${rel} not taken back from git (${l.before.slice(0, 7)}): ${there.join(", ")} is there again`,
+          { ...o, ...done },
+        );
+      else gitOk(root, "checkout", l.before, "--", rel);
+      return;
+    }
+    const files = []; // none: stopped before the delete
+    for (const x of o.files || []) {
+      const from = path.join(o.trash, x);
+      if (fs.existsSync(at(x)))
+        note(`${x} not put back from ${o.trash}: ${x} is there again`);
+      else if (!fs.existsSync(from))
+        note(`${x} not put back: it is no longer in ${o.trash}`);
+      else if (o.shas && shaFile(from) !== o.shas[x])
+        note(
+          `${x} not put back: its copy in ${o.trash} changed after the apply`,
+        );
+      else {
+        moveAcross(from, at(x));
+        continue;
+      }
+      files.push(x);
+    }
+    if (files.length) left.set(o, { ...o, ...done, files });
   };
   for (const o of [...l.ops].reverse()) {
     if (o.op === "move") {
+      if (!fs.existsSync(at(o.to))) {
+        skip(o, `${o.to} not moved back to ${o.from}: ${o.to} is gone`);
+        continue;
+      }
+      // a case-only rename: on a case-blind disk the old name is the same file; on any other it is a new one
+      const same =
+        o.from.toLowerCase() === o.to.toLowerCase() &&
+        fs.existsSync(at(o.from)) &&
+        fs.statSync(at(o.from), { bigint: true }).ino ===
+          fs.statSync(at(o.to), { bigint: true }).ino;
+      if (!same && fs.existsSync(at(o.from))) {
+        skip(o, `${o.to} not moved back: ${o.from} is there again`);
+        continue;
+      }
+      const r = editsOf.has(o.to) ? revert(o.to) : null;
+      if (o.sha && (r ? sha(r.text) : journalSha(at(o.to)).sha) !== o.sha) {
+        skip(
+          o,
+          `${o.to} not moved back to ${o.from}: it changed after the apply`,
+        );
+        continue;
+      }
+      if (r) putBack(o.to, r);
       moveFile(p, o.to, o.from, o.tracked);
       // a P8 picture: tracked again at its old path, and the shown/.gitignore the apply made goes
       if (o.untracked) gitOk(root, "add", "-f", "--", o.from);
@@ -2499,32 +2630,98 @@ function undo() {
       }
     } else if (o.op === "delete") restore(o, o.path);
     else if (o.op === "merge") {
-      const t = path.join(root, o.to),
-        text = read(t);
-      if (!text.endsWith(o.appended))
-        named.push(
-          `${o.to}: the merged text of ${o.from} is no longer at its end; take it out by hand`,
-        );
-      else if (o.created) fs.rmSync(t);
-      else fs.writeFileSync(t, text.slice(0, text.length - o.appended.length));
-      restore(o, o.from);
+      // a target the merge made is deleted only when it holds nothing else; text added since (the archive is newest
+      // first, so at the top) stays and only the merged part is cut. While the merged text is not cut, the source
+      // does not come back either, so the text is never there twice. `cut`: done by an earlier --undo.
+      if (!o.cut) {
+        const t = at(o.to),
+          r = fs.existsSync(t) ? view(o.to) : null,
+          text = r && r.text;
+        if (text === null || !text.endsWith(o.appended)) {
+          skip(
+            o,
+            `${o.to}: the merged text of ${o.from} is no longer at its end; take it out by hand, then put back ${o.from}`,
+          );
+          continue;
+        }
+        if (o.created && text === o.appended) {
+          fs.rmSync(t);
+          editsDone.add(o.to);
+        } else
+          putBack(o.to, {
+            ...r,
+            text: text.slice(0, text.length - o.appended.length),
+          });
+      }
+      restore(o, o.from, { cut: true });
     } else if (o.op === "keep") {
-      const t = path.join(root, o.file);
-      if (o.before === null) fs.rmSync(t, { force: true });
-      else fs.writeFileSync(t, o.before);
+      // the old text goes back only over the very text the apply wrote (a journal without its hash: never over a file)
+      const t = at(o.file),
+        now = fs.existsSync(t) ? view(o.file).text : null;
+      if (now === null) {
+        if (o.before !== null) {
+          mkParent(t);
+          fs.writeFileSync(t, o.before);
+        }
+      } else if (sha(now) !== o.sha)
+        skip(
+          o,
+          `${o.file} changed after the apply; take ${o.paths.join(", ")} out of it by hand`,
+        );
+      else {
+        if (o.before === null) fs.rmSync(t);
+        else fs.writeFileSync(t, o.before);
+        editsDone.add(o.file);
+      }
     }
   }
+  // the other files' references, now that it is known which moves were left: an edit that follows one stays
+  const movedTo = new Set(
+    l.ops.filter((o) => o.op === "move").map((o) => o.to),
+  );
+  for (const rel of editsOf.keys())
+    if (editsDone.has(rel) || movedTo.has(rel))
+      continue; // a moved file's go back with it, above
+    else if (!fs.existsSync(at(rel))) {
+      note(`${rel} is gone, so its references are not put back`);
+      editsDone.add(rel);
+    } else putBack(rel, revert(rel, held));
+  // a step left for a person keeps the journal open: it holds only what is left, and the next --undo takes it up
+  const rest = l.ops.filter((o) => left.has(o)).map((o) => left.get(o));
+  const now = new Date().toISOString();
   fs.writeFileSync(
     file,
-    JSON.stringify({ ...l, undone: new Date().toISOString() }, null, 2) + "\n",
+    JSON.stringify(
+      rest.length
+        ? {
+            ...l,
+            ops: rest,
+            edits: [
+              ...l.edits.filter((e) => !editsDone.has(e.file)),
+              ...[...editsLeft].map(([f, edits]) => ({ file: f, edits })),
+            ],
+            partlyUndone: now,
+          }
+        : { ...l, undone: now },
+      null,
+      2,
+    ) + "\n",
   );
   console.log(
-    `undone: ${l.ops.length} steps and ${l.edits.length} files' references of ${tilde(file)}`,
+    `undone: ${l.ops.length - rest.length} steps${rest.length ? ` (${rest.length} left for a person, below; ${FC} --undo ${tilde(file)} again takes them up)` : ""} and ${editsDone.size} files' references of ${tilde(file)}`,
   );
   for (const x of named) console.log(`  by hand: ${x}`);
 }
 
-export { breaks, dateIn, fixName, newPathNotes, projectsRoot, refSpans };
+export {
+  breaks,
+  dateIn,
+  fixName,
+  newPathNotes,
+  projectsRoot,
+  refSpans,
+  shaFile,
+};
 
 const MODES = {
   "--report": report,

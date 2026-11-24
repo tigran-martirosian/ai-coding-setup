@@ -1,6 +1,18 @@
 {
   "pre-tool": [
     {
+      "hook": "hooks/download-guard.mjs",
+      "args": [],
+      "guard": false,
+      "tools": "Bash|PowerShell"
+    },
+    {
+      "hook": "hooks/command-explain.mjs",
+      "args": [],
+      "guard": false,
+      "tools": "Bash|PowerShell"
+    },
+    {
       "hook": "hooks/delete-guard.mjs",
       "args": [],
       "guard": true,
@@ -31,16 +43,10 @@
       "tools": "Workflow"
     },
     {
-      "hook": "hooks/download-guard.mjs",
+      "hook": "hooks/settings-guard.mjs",
       "args": [],
-      "guard": false,
-      "tools": "Bash|PowerShell"
-    },
-    {
-      "hook": "hooks/command-explain.mjs",
-      "args": [],
-      "guard": false,
-      "tools": "Bash|PowerShell"
+      "guard": true,
+      "tools": "mcp__nimbalyst.*"
     },
     {
       "hook": "hooks/verify-gate.mjs",

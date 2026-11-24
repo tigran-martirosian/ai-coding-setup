@@ -13,7 +13,7 @@ The where-are-we skill runs the checker `text-check.mjs` (next to this file) whe
 | **Description of a step** | Two to four short sentences: what it is for; "Done when" as what a person could check; "Waits on" in words. | the user's quotes with their date, commands, file paths, "Helper", "Runs", "Serves", "Plan: <file>, row <code>" | quote: the plan file; command: the plan row's Done when; helper and runs: the plan; budget: the `budget` field; plan file: a linked file; the file a step asks the user to read, review or check: the `file` field; what it waits on: the `dependsOn` link and `waitsOn` |
 | **Comment** | One to three sentences. First what happened (past tense), then what is left or next, then what the user must do, if anything. "Not checked yet:" in words when something is unproven. "Found:" in one sentence for work found on the way. | session ids, commit hashes, run or rule numbers, row codes, file paths, test counts such as "14/14", tool-call counts, the setup's own process words ("blind look", "handoff", "drift", "wave"), a closing "Proof:" line | commit and session: the `proof` field, or the commit and session linked to the item; numbers: the plan's Findings and the handoff |
 | **The job's goal line** (the first line of its description, shown by the tracker) | One sentence: what the job gives a user. | a date as the only content, "(user, date)", plan file names | dates and plan files: the rest of the description in words, and linked files |
-| **Stage name** | "<the plan's short name> · <phase>", with the phase from this list: design, build, review, check live, record, release. A user's OK step takes the stage of the step it unlocks. | a bare "Part 6", one plan's part numbers | the part number stays in the plan |
+| **Stage name** | "<n>. <what the stage gets done>", numbered in the order the stages run, 3 to 7 stages a job, for example "1. Build the checks", "4. Release". The job page sorts To do by this number and shows each stage as a heading, so every step gets one. A user's OK step takes the stage of the step it unlocks. | a bare "Part 6", a phase word alone ("build"), the plan's step codes | the plan's own part numbers stay in the plan |
 
 ## From a plan row to a step
 
@@ -23,7 +23,7 @@ One step per plan row. The plan is the design; the step is what the user reads.
 |---|---|---|
 | Job | the title | Say what changes, for a person, in 70 characters or less. Drop file names and codes. |
 | Done when | "Done when …" in the description | Each command becomes what it shows ("both test runs pass", "the release page exists"). |
-| Stage | the `stage` field | "<the plan's short name> · <phase>", for example "Shop checkout · build". With several plans in one job, the short name keeps one plan's "Part 6" apart from another's. |
+| Stage | the `stage` field | "<n>. <what the stage gets done>" (Stage name above), for example "2. Fix what the last release left". Group the plan's rows by what they get done in the order they run (its "How it runs" order); with several plans in one job, number the stages across the whole job. |
 | Step code | the `step` field | As the plan names it, for example "S3", or "checkout S3" when two plans share a code. |
 | Helper, Runs, Budget | the `budget` field and `dependsOn` links; "Waits on …" in words | Helper and runs stay in the plan. |
 | The plan file | a linked file on the step | Not in the description. |

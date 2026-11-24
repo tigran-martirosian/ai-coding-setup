@@ -8,6 +8,11 @@ scope limit and goes here too. A limit the user states later in the job is added
 Decided: choices settled in the questions, each with the file or source that settled a fact, so no one re-opens
 them.
 
+Built on: what the job uses instead of building, searched in this order: the project's own code, its packages, then a
+maintained package, template or repo; each with its path or link. A package new to the project is checked before
+install: its name exists on the registry and is the real one, not a lookalike (its source repo, owner and downloads
+match). Or "nothing fits", with what was searched.
+
 Done when:
 - D1: <what can be seen or measured> | check: <command, test name, or "look: screenshot of X"> | expected from:
   <the user, this spec, real data or a document; never the code under test>

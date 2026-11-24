@@ -1,20 +1,20 @@
 // The Nimbalyst extensions: each one under extensions/ is built from source when Nimbalyst is there. A running
 // Nimbalyst reads its extension folders mid-session, so a build never goes into them: it is built into
 // extensions-pending/.part/<folder>, renamed to extensions-pending/<folder> when its install script ended well,
-// and swapped in by tools/nimbalyst-patch/ext-swap.mjs only while Nimbalyst is closed (at once when it is closed
+// and swapped in by scripts/nimbalyst-patch/ext-swap.mjs only while Nimbalyst is closed (at once when it is closed
 // now; else at its close or through /update-setup). One whose source is as at the last build and that is
 // installed or pending is left alone. sourceText is the extension's source as one text; the updater compares two
 // versions by it too.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fwd, read, sha, sourceOf } from "./files.mjs";
 import {
   partDir,
   pendingDir,
   pendingNames,
   swapPending,
-} from "../tools/nimbalyst-patch/ext-swap.mjs";
-import { fwd, read, sha, sourceOf } from "./files.mjs";
+} from "./nimbalyst-patch/ext-swap.mjs";
 import { EXT_FOLDER } from "./nimbalyst-paths.mjs";
 
 export const sourceText = (dir) =>

@@ -45,6 +45,10 @@ import type { Snapshot } from "./store.ts";
 import { build, REFRESH_MS, read } from "./store.ts";
 import { t } from "./strings.ts";
 
+// The ~/.claude folder of the person who built the extension (vite.config.ts); its parent is where ~/ paths open
+declare const __CLAUDE_DIR__: string;
+const HOME = __CLAUDE_DIR__.replace(/[\\/]\.claude$/, "");
+
 const Sym = ({ name }: { name: string }) => (
   <span className="material-symbols-outlined sm-sym" aria-hidden="true">
     {name}
@@ -645,9 +649,12 @@ function FileList({
             <button
               type="button"
               className="sm-file"
-              title={absolute(workspace, p)}
+              title={absolute(workspace, p, HOME) ?? undefined}
               aria-label={t.openFile(p)}
-              onClick={() => onOpen(absolute(workspace, p))}
+              onClick={() => {
+                const a = absolute(workspace, p, HOME);
+                if (a) onOpen(a);
+              }}
             >
               <span className="sm-path">{breakable(p)}</span>
               {changed?.has(p) && (

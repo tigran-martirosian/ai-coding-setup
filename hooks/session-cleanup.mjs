@@ -161,7 +161,7 @@ const hostOf = (procs, root) => {
 const HOOK_RUN = /[\\/]\.claude[\\/]hooks[\\/]/i; // other hooks running at the same moment
 // The setup's Nimbalyst delivery (deliver.mjs, restart.mjs) outlives the session on purpose: it waits for Nimbalyst
 // to close, swaps its files and starts it again. Neither it nor what it starts is this session's to close.
-const DELIVERY = /tools[\\/]nimbalyst-patch[\\/]/i;
+const DELIVERY = /(scripts|tools)[\\/]nimbalyst-patch[\\/]/i; // tools: its place before 26.6, for a delivery started before the update
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // The programs a call names: the first word of each command, past wrappers (nohup, Start-Process, start /b, cmd /c,
 // env settings) and shell builtins; a runner (npx, pnpx, bunx) names the program after it too. "./gradlew" -> gradlew

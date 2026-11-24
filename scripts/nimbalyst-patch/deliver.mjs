@@ -885,6 +885,13 @@ async function stage({ worker = false } = {}) {
       get = app.version !== pin.version;
     }
   }
+  // A kept job names the patcher that staged it; after the patcher moves (tools/ up to 26.5, scripts/ since 26.6,
+  // and an update deletes the old folder) the quit listener would start a script that is gone.
+  if (job && (job.deliver !== SELF || job.node !== process.execPath)) {
+    job = { ...job, deliver: SELF, node: process.execPath };
+    writeJson(d.staged, job);
+    log(`--stage: the job for ${job.version} now names this patcher`);
+  }
   const closed = !running(install).length;
   if (!worker && (get || closed)) return handOver(job?.version ?? pin.version);
   if (!job) {
