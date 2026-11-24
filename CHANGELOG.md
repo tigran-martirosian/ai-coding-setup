@@ -32,7 +32,7 @@ Release 26.6: texts written for their reader, research that says how solid it is
 - This release ran the quick security level on its own changes.
 
 ### Fixes
-- Switching sessions in Nimbalyst no longer stalls: the agents panel fits its text faster and the orbs read their colours once per frame. Nimbalyst's log no longer fills with missing-outbox errors.
+- Switching sessions in Nimbalyst no longer stalls: the agents panel fits its text faster and the orbs read their colours once per frame. Nimbalyst's log no longer fills with missing-outbox errors. Opening a long chat no longer re-lays the page for each copy button, and a session too big to sync stops retrying on every message.
 - The delete guard reads `git clean` options the way git does: an exclude pattern or a later `--no-dry-run` no longer passes for a dry run.
 - A Nimbalyst update waiting for Nimbalyst to close still runs after this update moves the patcher to `scripts/`.
 - Updating from 26.4.4 shows the tour of what is new; an update from 26.5 moves old folders without breaking a Nimbalyst update in progress.

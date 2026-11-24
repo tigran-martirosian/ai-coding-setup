@@ -307,7 +307,11 @@ const html = (state: unknown) =>
     style: {} as Record<string, string>,
   };
   m.wholeWidth(given, 86.546875);
-  assert.equal(given.style.minWidth, "87px", "a measured width is rounded without a read");
+  assert.equal(
+    given.style.minWidth,
+    "87px",
+    "a measured width is rounded without a read",
+  );
   ok(
     "ten presses of Copy leave one button and no stray mark: no drawn mark, no fading fill, no pressed shadow, a whole-pixel width",
   );
