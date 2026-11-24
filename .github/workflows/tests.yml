@@ -46,8 +46,17 @@ jobs:
         with:
           node-version: 24
       # tests/test-watch.mjs and tests/test-picture-gate.mjs draw with ffmpeg, which the runners do not have.
+      # It comes from BtbN's builds on GitHub (with drawtext), not Chocolatey, whose feed was down twice in a row.
       - if: matrix.part == 1
-        run: choco install ffmpeg -y --no-progress
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\ffmpeg.zip"
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile $zip -MaximumRetryCount 3 -RetryIntervalSec 10
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\ffmpeg"
+          $bin = (Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Directory | Select-Object -First 1).FullName + "\bin"
+          & "$bin\ffmpeg.exe" -hide_banner -filters | Select-String drawtext
+          if ($LASTEXITCODE -ne 0) { throw "ffmpeg from the download does not run" }
+          Add-Content $env:GITHUB_PATH $bin
       # Files side by side; on a failure the failed files run again one at a time with their full output, so the
       # whole log is in the run. The step stays red even when the rerun passes: a flaky test is still a failure.
       # tests/test-render-check.mjs draws pages with the packages of package.json and Playwright's Chromium. The

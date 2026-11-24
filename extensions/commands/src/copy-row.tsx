@@ -265,9 +265,13 @@ export function createCopy(
  * Rounds the button up to a whole-pixel width. Its two stacked faces give it a fractional width (86.55 px live),
  * and a rounded fill on a fractional box left stale corner pixels: two dots on its left after a few presses.
  * A min-width, so a word that grows later (its font loading) still fits; it is rounded again then.
+ * `width` is the size the watcher already measured: reading the box after another button's write made the
+ * browser lay out the whole page again, once per copy button (157 ms on opening a long chat, 2026-11-23).
  */
-export function wholeWidth(button: HTMLElement) {
-  const width = button.getBoundingClientRect().width;
+export function wholeWidth(
+  button: HTMLElement,
+  width = button.getBoundingClientRect().width,
+) {
   if (width % 1) button.style.minWidth = `${Math.ceil(width)}px`;
 }
 
@@ -275,7 +279,9 @@ export function wholeWidth(button: HTMLElement) {
 let sizes: ResizeObserver | undefined;
 const watchWidth = (button: HTMLElement) => {
   sizes ??= new ResizeObserver((entries) =>
-    entries.forEach((e) => wholeWidth(e.target as HTMLElement)),
+    entries.forEach((e) =>
+      wholeWidth(e.target as HTMLElement, e.borderBoxSize?.[0]?.inlineSize),
+    ),
   );
   sizes.observe(button);
   return () => sizes?.unobserve(button);

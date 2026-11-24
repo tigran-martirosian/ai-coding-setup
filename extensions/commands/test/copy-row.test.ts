@@ -299,6 +299,15 @@ const html = (state: unknown) =>
     m.wholeWidth(el);
     assert.equal(el.style.minWidth, undefined, `width ${w}`);
   }
+  // the watcher passes the size it measured, so the box is not read again (a read per button laid out the page)
+  const given = {
+    getBoundingClientRect: () => {
+      throw new Error("the box was read again");
+    },
+    style: {} as Record<string, string>,
+  };
+  m.wholeWidth(given, 86.546875);
+  assert.equal(given.style.minWidth, "87px", "a measured width is rounded without a read");
   ok(
     "ten presses of Copy leave one button and no stray mark: no drawn mark, no fading fill, no pressed shadow, a whole-pixel width",
   );
