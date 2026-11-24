@@ -219,6 +219,23 @@ if (window.Orbs) {
     );
   }
 
+  // Orbs to look at again, read once in the next frame: reading a computed style inside the change callback made
+  // the browser redo the whole page's styles there, once per callback, while the app was still drawing a newly
+  // opened session (about a quarter second of a session switch, 2026-11-23). In the frame the styles are worked out
+  // once, before the paint that needs them anyway.
+  const toRelook = new Set();
+  let relookFrame = 0;
+  function relookSoon(o) {
+    toRelook.add(o);
+    if (!relookFrame)
+      relookFrame = requestAnimationFrame(() => {
+        relookFrame = 0;
+        const batch = [...toRelook];
+        toRelook.clear();
+        for (const x of batch) relook(x);
+      });
+  }
+
   function start() {
     scan();
     new MutationObserver((ms) => {
@@ -232,7 +249,7 @@ if (window.Orbs) {
         const orb = m.target.tagName === "CANVAS" && m.target.__orb;
         // The canvas's own size and style are written by setup, so they only re-read its look
         if (orb && m.attributeName.startsWith("data-orb")) redo(orb);
-        else if (orb) relook(orb);
+        else if (orb) relookSoon(orb);
         else if (m.target.tagName !== "CANVAS") restyled.add(m.target);
       }
       if (added) scan();
@@ -240,11 +257,12 @@ if (window.Orbs) {
       // class change in a streaming chat used to re-read every orb's style
       if (restyled.size)
         for (const o of orbs)
-          for (const el of restyled)
-            if (el.contains(o.canvas)) {
-              relook(o);
-              break;
-            }
+          if (!toRelook.has(o))
+            for (const el of restyled)
+              if (el.contains(o.canvas)) {
+                relookSoon(o);
+                break;
+              }
     }).observe(document.documentElement, {
       subtree: true,
       childList: true,

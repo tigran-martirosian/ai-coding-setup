@@ -835,7 +835,8 @@ for (const [what, id, want] of [
     [
       String.raw`\??\C:\x.md`,
       String.raw`\\.\pipe\x`,
-      "/etc/passwd",
+      // a single / is the drive root on Windows; on macOS and Linux it is a real path and opens (tested below)
+      ...(process.platform === "win32" ? ["/etc/passwd"] : []),
       String.raw`\x.md`,
       "C:x.md",
       "../x.md",

@@ -168,9 +168,11 @@ fs.writeFileSync(
   "raise SystemExit(9)\n",
 );
 // Is a child's working folder one video's folder in the cache, and not the planted folder?
-const inCache = (cwd, cache) =>
-  path.relative(cache, cwd) !== "" &&
-  path.dirname(path.relative(cache, cwd)) === ".";
+// both sides through realpath: on macOS the temp folder is /var/..., and a process's working folder /private/var/...
+const inCache = (cwd, cache) => {
+  const rel = path.relative(fs.realpathSync(cache), fs.realpathSync(cwd));
+  return rel !== "" && path.dirname(rel) === ".";
+};
 
 // A link whose site gives no length (Instagram): a fake yt-dlp copies the test video as the download.
 // It notes each call's arguments and working folder in ytLog.

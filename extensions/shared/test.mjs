@@ -306,7 +306,11 @@ check(
   const errors = [];
   let observe;
   let inView;
-  let frame;
+  // Animation frames as the browser runs them: every callback asked for before a frame runs in it, once
+  const frames = [];
+  const frame = (t) => {
+    for (const cb of frames.splice(0)) cb(t);
+  };
   const ctx2d = new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => {}) });
   ctx2d.getImageData = () => ({ data: [200, 100, 50, 255] });
   const html = {
@@ -370,7 +374,7 @@ check(
       unobserve() {}
     },
     requestAnimationFrame(cb) {
-      frame = cb;
+      return frames.push(cb);
     },
     performance,
     devicePixelRatio: 1,
@@ -383,6 +387,8 @@ check(
   left.isConnected = false;
   html.className = "";
   observe([{ type: "attributes", target: html, attributeName: "class" }]);
+  // The look is read in the next frame, not inside the change callback (frame 0 is too soon after the last to draw)
+  frame(0);
   check(
     "orbs: a theme switch skips a canvas that left the page" +
       (errors.length ? ` (${errors.join("; ")})` : ""),
@@ -394,12 +400,20 @@ check(
   const reads = () => [kept.reads, far.reads];
   const before = reads();
   observe([{ type: "attributes", target: other, attributeName: "class" }]);
+  frame(1);
   const afterOther = reads();
   observe([{ type: "attributes", target: row, attributeName: "class" }]);
+  observe([{ type: "attributes", target: row, attributeName: "class" }]);
+  const inCallback = reads();
+  frame(2);
   const afterRow = reads();
+  frame(3);
   check(
-    "orbs: a class change re-reads only the orbs inside the changed element",
-    afterOther[0] === before[0] &&
+    "orbs: a class change re-reads only the orbs inside the changed element, once, in the next frame and not inside the change callback (a style read there redid the whole page's styles while the app drew a session)",
+    inCallback[0] === afterOther[0] &&
+      afterRow[0] - afterOther[0] <= 2 &&
+      kept.reads === afterRow[0] &&
+      afterOther[0] === before[0] &&
       afterOther[1] === before[1] &&
       afterRow[0] > afterOther[0] &&
       afterRow[1] === afterOther[1],

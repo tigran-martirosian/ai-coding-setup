@@ -67,11 +67,14 @@ export function parseOutbox(text: string): OutboxEntry[] {
   return out;
 }
 
-/** The file's text, or null when it does not exist. Any other failure throws. */
+/** The file's text, or null when it does not exist. Any other failure throws. Asked with file-exists first: the app
+ *  writes every failed read-file to its log with a stack trace, and the outbox is missing on most polls (1,816 such
+ *  errors in one evening, 2026-11-23). The read still treats ENOENT as missing: the file may go between the calls. */
 export async function readOrNull(
   invoke: Invoke,
   file: string,
 ): Promise<string | null> {
+  if (!(await invoke("extensions:file-exists", file))) return null;
   try {
     return String(await invoke("extensions:read-file", file));
   } catch (e) {
