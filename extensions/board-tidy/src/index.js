@@ -68,7 +68,11 @@ async function setArchived(ids, isArchived) {
  * folder comes from the model, and cmd.exe expands %NAME% even inside double quotes, so no character
  * of it may reach the shell line; base64 letters mean nothing to cmd or sh. A trailing slash or
  * backslash is dropped. */
-export const folderArg = (s) => b64(String(s).replace(/[\\/]+$/, ""));
+export const folderArg = (s) => {
+  let t = String(s);
+  while (t.endsWith("/") || t.endsWith("\\")) t = t.slice(0, -1);
+  return b64(t);
+};
 
 /** One tidy run. `force` skips the 50-minute gap; `dryRun` only lists what would go; `project` +
  * `olderThanDays` is a run asked for in one project (kept or not). */

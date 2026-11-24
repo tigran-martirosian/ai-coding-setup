@@ -168,7 +168,7 @@ function frameHtml(code, scheme, n) {
     sequence: { diagramMarginY: 40 },
     theme: dark ? "dark" : "default",
   };
-  const json = (v) => JSON.stringify(v).replace(/</g, "\u003c");
+  const json = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
   return `<!doctype html><html data-color-mode="${scheme}"><head><meta charset="utf-8"><style>
 html[data-color-mode=dark]{background:#0d1117;color-scheme:dark}
 html[data-color-mode=light]{background:#ffffff}

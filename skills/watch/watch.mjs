@@ -776,7 +776,7 @@ if (process.platform === "win32") {
   const file = path.join(process.env.SystemRoot, "Fonts", "arial.ttf");
   if (!fs.existsSync(file))
     stop(`No font to write the time on a still: ${file} is missing`);
-  font = `fontfile='${file.replace(/\\/g, "/").replace(/:/g, "\\:")}'`;
+  font = `fontfile='${file.replace(/\\/g, "/").replace(/[\\:']/g, "\\$&")}'`;
 }
 const stamp = `drawtext=${font}:text='%{pts\\:hms\\:${from}}':x=6:y=6:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=4`;
 // select keeps real frames with their own times, so the time drawn on a still is the time it was taken at
