@@ -4,6 +4,12 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.6.1] - 2026-11-23
+
+### Fixes
+- Switching sessions in Nimbalyst is faster: the agents panel measures its rows once per pass instead of re-laying the page for each one.
+- A profile Claude writes (GitHub, LinkedIn, a short bio) stays an introduction; numbers and how things work stay in the resume and the project READMEs.
+
 ## [26.6] - 2026-11-23
 
 Release 26.6: texts written for their reader, research that says how solid it is, and security and design tools built in. The tour of what is new: `docs/whats-new.md`, "How the setup works now (26.6)".

@@ -238,7 +238,7 @@ function readFolders(list) {
 }
 
 /** The uncommitted list: our summary line right above the app's list, the fold state on the panel for style.css. */
-function syncList(sidebar, strings) {
+function syncList(sidebar, strings, rooms) {
   const content = sidebar.querySelector(
     ":scope > .files-edited-sidebar__content",
   );
@@ -280,7 +280,11 @@ function syncList(sidebar, strings) {
   const summary = filesSummary(read.folders, read.loose, strings);
   foldText(line.querySelector(".ap-files-title"), summary.title);
   const detail = line.querySelector(".ap-files-detail");
-  foldText(detail, fitDetail(summary, strings, fitsIn(detail)));
+  // A line new in this pass has no width read yet: it is read here, once
+  foldText(
+    detail,
+    fitDetail(summary, strings, fitsIn(detail, undefined, rooms?.get(detail))),
+  );
   foldAttr(line, "aria-expanded", String(open));
   foldAttr(line, "title", open ? strings.filesFold : strings.filesOpen);
   const state = open ? "open" : "folded";
@@ -327,9 +331,19 @@ function onCommitClick(event) {
   createFold(localStorage, COMMIT_KEY).setOpen(!wasOpen);
 }
 
-function syncFiles(strings) {
+/** Each summary line's width, read by index.js's sync before it writes anything: read in syncList, after the rows
+ *  and the thinking line were written, it made the browser lay out the page once more on every pass. */
+function filesRooms() {
+  return new Map(
+    [
+      ...document.querySelectorAll(".files-edited-sidebar .ap-files-detail"),
+    ].map((d) => [d, d.clientWidth]),
+  );
+}
+
+function syncFiles(strings, rooms) {
   for (const sidebar of document.querySelectorAll(".files-edited-sidebar")) {
-    syncList(sidebar, strings);
+    syncList(sidebar, strings, rooms);
     syncCommit(sidebar, strings);
   }
 }
@@ -359,6 +373,7 @@ function stopFilesFold() {
 
 export {
   createFold,
+  filesRooms,
   filesSummary,
   fitDetail,
   fitsIn,

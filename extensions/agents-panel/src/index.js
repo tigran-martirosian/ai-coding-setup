@@ -40,6 +40,7 @@ import {
 } from "./chat-state.js";
 import {
   createFold,
+  filesRooms,
   filesSummary,
   fitDetail,
   fitsIn,
@@ -724,7 +725,8 @@ function decorateRow(item, run, room) {
 }
 
 /** `chats` is chatSessions(): the panel's session waits on the user while its chat says so. */
-function updateList(scroller, chats) {
+// countRoom: the header count's width, read by sync before any write (undefined: read here, the count is new)
+function updateList(scroller, chats, countRoom) {
   const items = [...scroller.querySelectorAll(".task-item")];
   if (!items.length) return;
   const counts = { running: 0, failed: 0, stopped: 0, completed: 0 };
@@ -791,7 +793,7 @@ function updateList(scroller, chats) {
       count,
       fitParts(
         reading.parts,
-        fitsIn(count, (p) => COUNT_WEIGHT[p.state]),
+        fitsIn(count, (p) => COUNT_WEIGHT[p.state], countRoom),
       ),
       "state",
     );
@@ -1124,22 +1126,34 @@ function sync() {
   } catch (e) {
     console.error("[agents-panel] could not read the mounted chats:", e);
   }
+  // The files line's width with the other widths, before anything below writes (syncFiles comes last)
+  const fileRooms = filesRooms();
   let items = [];
   try {
     const scrollers = new Set();
     items = [...document.querySelectorAll(".teammate-panel .task-item")];
     if (items.length) refreshRuns(items);
     const matched = matchRun(items.map(rowText), runs);
-    // Every row's width before any row is written: one layout, not one per row (decorateRow)
+    // Every row's width, and each header count's, before any row is written: one layout, not one per row
+    // (decorateRow) and another for the count after the rows (updateList)
     const rooms = items.map(
       (item) => item.querySelector(":scope > .flex-1")?.clientWidth ?? 0,
     );
-    for (const [n, item] of items.entries()) {
-      decorateRow(item, matched[n], rooms[n]);
+    for (const item of items) {
       const scroller = item.closest(".overflow-y-auto");
       if (scroller) scrollers.add(scroller);
     }
-    for (const scroller of scrollers) updateList(scroller, chats);
+    const countRooms = new Map(
+      [...scrollers].map((s) => [
+        s,
+        s.previousElementSibling?.querySelector(":scope > .ap-count")
+          ?.clientWidth,
+      ]),
+    );
+    for (const [n, item] of items.entries())
+      decorateRow(item, matched[n], rooms[n]);
+    for (const scroller of scrollers)
+      updateList(scroller, chats, countRooms.get(scroller));
     // A collapsed list has no rows to count: give the header back to the app's N/M
     for (const header of document.querySelectorAll(
       ".teammate-panel [data-ap-header]",
@@ -1179,7 +1193,7 @@ function sync() {
     splitFailed = true;
   }
   try {
-    syncFiles(STRINGS);
+    syncFiles(STRINGS, fileRooms);
   } catch (e) {
     console.error(
       "[agents-panel] could not fold the file list and commit box:",
