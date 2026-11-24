@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 // rules/history.json: the keys of every block the setup ever shipped in rules/CLAUDE.md and the
-// projects/<home>/CLAUDE.md files, so the carve (scripts/blocks.mjs) knows old setup text from a person's own.
+// templates/<home>/CLAUDE.md files (projects/<home>/ before 26.6), so the carve (scripts/blocks.mjs) knows old setup text from a person's own.
 //   --write        rebuild "shipped" from every commit plus the working tree (needs git); "added" is kept
 //   --add <file>   add the keys of one more rules text (a friend patch's) to "added"
 //   --check        exit 1 naming each block of the current texts missing from the history (no git)
@@ -32,10 +32,10 @@ export function formKeys(text) {
 // The repo's current rules texts, relative paths.
 export function currentTexts(repo) {
   const rels = [path.join("rules", "CLAUDE.md")];
-  for (const e of fs.readdirSync(path.join(repo, "projects"), {
+  for (const e of fs.readdirSync(path.join(repo, "templates"), {
     withFileTypes: true,
   })) {
-    const rel = path.join("projects", e.name, "CLAUDE.md");
+    const rel = path.join("templates", e.name, "CLAUDE.md");
     if (e.isDirectory() && fs.existsSync(path.join(repo, rel))) rels.push(rel);
   }
   return rels;
@@ -105,7 +105,8 @@ function shippedKeys() {
     "--name-status",
     "--",
     "rules/CLAUDE.md",
-    "projects/*/CLAUDE.md",
+    "templates/*/CLAUDE.md",
+    "projects/*/CLAUDE.md", // their place before 26.6
   ]);
   let commit = null;
   for (const line of log.split("\n")) {

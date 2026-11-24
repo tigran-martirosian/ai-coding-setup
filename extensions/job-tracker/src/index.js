@@ -55,7 +55,7 @@ import {
 } from "./model.js";
 import { pageView, renderPage } from "./reading.js";
 // biome-ignore lint/correctness/noUnusedImports: build.mjs puts row.js in place of this line (groups.js uses it)
-import { rowView } from "./row.js";
+import { openable, rowView } from "./row.js";
 import { SEL, trackerPage } from "./selectors.js";
 
 // Every visible word. {x} is replaced by a value. No word "release" and no kind word (design section 4).
@@ -136,6 +136,8 @@ const STRINGS = {
     done: "Nothing done yet.",
   },
   showMore: "Show {n} more",
+  // The To do heading for steps with no stage, when other steps have one
+  otherStage: "Other steps",
   since: "since {date}",
   working: "working",
   waitsOn: "waits on {steps}",
@@ -800,6 +802,10 @@ function fullPath(file) {
 
 /** Opens the file in the editor (one-page proofs, "Opening a file"); a failed call is reported, not hidden. */
 function openFile(file) {
+  if (!openable(file))
+    throw new Error(
+      `job-tracker: refused to open ${file}: not a drive path or a project path`,
+    );
   window.electronAPI
     .invoke("workspace:open-file", {
       workspacePath: window.workspacePath,

@@ -228,10 +228,10 @@ ok(
 // Check 14: the release guard, on a copy with a block the history lacks, then on this repository
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "blocks-test-"));
 fs.mkdirSync(path.join(tmp, "rules"));
-fs.mkdirSync(path.join(tmp, "projects", "quick-tasks"), { recursive: true });
+fs.mkdirSync(path.join(tmp, "templates", "quick-tasks"), { recursive: true });
 fs.writeFileSync(path.join(tmp, "rules", "CLAUDE.md"), SHIPPED);
 fs.writeFileSync(
-  path.join(tmp, "projects", "quick-tasks", "CLAUDE.md"),
+  path.join(tmp, "templates", "quick-tasks", "CLAUDE.md"),
   "# Quick tasks\n\n- **New home rule.** Not released yet.\n",
 );
 fs.writeFileSync(

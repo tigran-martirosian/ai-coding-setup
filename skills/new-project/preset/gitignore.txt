@@ -16,5 +16,3 @@ __pycache__/
 .pytest_cache/
 *.log
 **/settings.local.json
-# editor data
-.nimbalyst/

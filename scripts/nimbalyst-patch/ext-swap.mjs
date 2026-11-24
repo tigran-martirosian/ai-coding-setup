@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ext-swap: puts the Nimbalyst extensions the setup built in place of the ones Nimbalyst loads. Windows and macOS.
 // Plain Node, no npm dependencies, no imports from the repo's scripts/ (the installed copy lives in
-// ~/.claude/tools/nimbalyst-patch/).
+// ~/.claude/scripts/nimbalyst-patch/).
 //
 // A running Nimbalyst reads its extension folders after start (new windows, Ctrl+R, readaloud's backend,
 // boardtidy's pick.mjs), so a build is never written into them. The installer (scripts/extensions.mjs) builds into

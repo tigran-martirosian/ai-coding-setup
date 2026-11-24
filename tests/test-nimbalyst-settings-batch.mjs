@@ -10,7 +10,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PATCH = path.join(
   HERE,
   "..",
-  "tools",
+  "scripts",
   "nimbalyst-patch",
   "patches",
   "settings-batch.mjs",

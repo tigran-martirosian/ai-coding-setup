@@ -69,10 +69,10 @@ fs.appendFileSync(
   path.join(pack, "extensions", "commands", "README.md"),
   "\nChanged in the newer version.\n",
 );
-// A stand-in for tools/nimbalyst-patch/deliver.mjs, in every pack and in a home before each run, so no test starts the
+// A stand-in for scripts/nimbalyst-patch/deliver.mjs, in every pack and in a home before each run, so no test starts the
 // real one: it adds its flags to calls.log beside it, --status prints STUB_NIMBALYST as the `nimbalyst:` line, and
 // --stage writes STUB_STAGED as staged.json in NIMBALYST_DELIVER_DATA (as the real one's marker job)
-const DELIVER_REL = path.join("tools", "nimbalyst-patch", "deliver.mjs");
+const DELIVER_REL = path.join("scripts", "nimbalyst-patch", "deliver.mjs");
 const DELIVER_STUB = `import fs from "node:fs";
 import path from "node:path";
 fs.appendFileSync(new URL("./calls.log", import.meta.url), process.argv.slice(2).join(" ") + "\\n");
@@ -659,6 +659,41 @@ check(
   check(
     "OPT1. and the next update does not ask again",
     !(await backupLines())[1].includes("Backup: not asked"),
+  );
+  const autoLines = async () => {
+    const r = await update(home);
+    return [r.code, (r.out.match(/^Auto mode: .*$/gm) || []).join(" | ")];
+  };
+  setState({ autoMode: undefined });
+  check(
+    "OPT2. no auto mode answer on record: Auto mode: not asked",
+    same(await autoLines(), [0, "Auto mode: not asked"]),
+  );
+  const autoNo = await update(home, "--auto-mode", "no");
+  check(
+    "OPT2. update.mjs --auto-mode no only puts the no on record",
+    autoNo.code === 0 &&
+      json(stateAt).autoMode === false &&
+      !/Already on the newest|^nimbalyst:/m.test(autoNo.out),
+    autoNo.out,
+  );
+  check(
+    "OPT2. and the next update has no Auto mode line",
+    same(await autoLines(), [0, ""]),
+  );
+  const autoYes = await update(home, "--auto-mode", "yes");
+  check(
+    "OPT2. update.mjs --auto-mode yes puts the yes on record, and no line follows",
+    autoYes.code === 0 &&
+      json(stateAt).autoMode === true &&
+      same(await autoLines(), [0, ""]),
+    autoYes.out,
+  );
+  const autoBad = await update(home, "--auto-mode", "maybe");
+  check(
+    "OPT2. update.mjs --auto-mode with another word stops",
+    autoBad.code !== 0 && /yes or no/.test(autoBad.out),
+    autoBad.out,
   );
   const skill = fs.readFileSync(
     path.join(REPO, "skills", "update-setup", "SKILL.md"),

@@ -1858,6 +1858,9 @@ ok(
     errLog = path.join(home, "hook-errors.log");
   fs.writeFileSync(oldDb, "");
   fs.rmSync(path.join(inboxDir, "report-read-error.txt"), { force: true });
+  // The "off switch case" note above is still unconfirmed in busy-1's inbox; once its 1.5 s hold is over, a tool
+  // call carries it again, so on a slow run these calls would print it. This case is about the queue read only.
+  fs.rmSync(inbox, { force: true });
   const failing = () =>
     hook(
       "PostToolUse",

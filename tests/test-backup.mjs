@@ -80,6 +80,11 @@ const alpha = path.join(projects, "alpha");
 
 // Excludes as design section 4
 const B = await import(pathToFileURL(script).href);
+check(
+  "B2 key: may delete files, so restic can remove its lock files and forget/prune can run",
+  B.B2_KEY_CAPABILITIES.includes("deleteFiles"),
+  JSON.stringify(B.B2_KEY_CAPABILITIES),
+);
 const cm = B.matcher({ path: claude, exclude: [] });
 check("claude excludes: chat logs out", cm("projects/p1/chat.jsonl"));
 check("claude excludes: memory stays in", !cm("projects/p1/memory/MEMORY.md"));

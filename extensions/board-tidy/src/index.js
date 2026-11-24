@@ -31,6 +31,9 @@ async function exec(args) {
   const r = await window.electronAPI.invoke("extension:exec", {
     extensionId: EXTENSION_ID,
     command: `node "${script}" ${args}`,
+    // Run in the extension's own folder with the current-folder lookup off, so a project's node.cmd never runs.
+    cwd: extensionPath,
+    env: { NoDefaultCurrentDirectoryInExePath: "1" },
     timeout: 30000,
   });
   if (!r.success)
@@ -61,16 +64,14 @@ async function setArchived(ids, isArchived) {
   return { done, errors };
 }
 
-/** Quotes a folder for the pick.mjs command line. A trailing slash or backslash is dropped (a trailing
- * backslash would escape the closing quote on Windows); a folder holding a quote, backtick or $ is
- * refused, since a shell would read it. */
-export const q = (s) => {
-  const p = String(s).replace(/[\\/]+$/, "");
-  if (/["`$]/.test(p))
-    throw new Error(
-      `a project folder may not contain " or a backtick or $: ${s}`,
-    );
-  return `"${p}"`;
+/** A project folder for the pick.mjs command line, as base64 of its JSON (pick.mjs decodes it). The
+ * folder comes from the model, and cmd.exe expands %NAME% even inside double quotes, so no character
+ * of it may reach the shell line; base64 letters mean nothing to cmd or sh. A trailing slash or
+ * backslash is dropped. */
+export const folderArg = (s) => {
+  let t = String(s);
+  while (t.endsWith("/") || t.endsWith("\\")) t = t.slice(0, -1);
+  return b64(t);
 };
 
 /** One tidy run. `force` skips the 50-minute gap; `dryRun` only lists what would go; `project` +
@@ -86,7 +87,7 @@ async function tidy({
   running = true;
   try {
     const scope = project
-      ? ` --project ${q(project)} --older-than ${Number(olderThanDays)}`
+      ? ` --project ${folderArg(project)} --older-than ${Number(olderThanDays)}`
       : "";
     // pick.mjs logs the run before anything is archived, so undo works even if this stops half-way
     const choice = await exec(
@@ -243,7 +244,7 @@ const aiTools = [
       try {
         if (!args || !args.project)
           return { success: false, error: "project is needed" };
-        const { ids } = await exec(`--archived-in ${q(args.project)}`);
+        const { ids } = await exec(`--archived-in ${folderArg(args.project)}`);
         const { done, errors } = await setArchived(ids, false);
         return {
           success: errors.length === 0,
@@ -278,7 +279,7 @@ const aiTools = [
         return {
           success: true,
           data: await exec(
-            `${a.keep === false ? "--unkeep" : "--keep"} ${q(a.project)}`,
+            `${a.keep === false ? "--unkeep" : "--keep"} ${folderArg(a.project)}`,
           ),
         };
       } catch (e) {

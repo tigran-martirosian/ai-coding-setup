@@ -242,5 +242,106 @@ const noArg = spawnSync(process.execPath, [CHECK], { encoding: "utf8" });
 check("no argument stops with exit 2", noArg.status === 2, show(noArg));
 fs.rmSync(tmp, { recursive: true, force: true });
 
+// The skill's text (release 26.6, D6 and D8): every text a person reads, reader first, the diagram rule, and the
+// fresh reader whose answer is the page's verdict
+const readRepo = (...p) => fs.readFileSync(path.join(REPO, ...p), "utf8");
+const skill = readRepo("skills", "writing", "SKILL.md");
+const kinds = readRepo("skills", "writing", "kinds.md");
+const blind = readRepo("agents", "blind-reviewer.md");
+const description = /^description: (.*)$/m.exec(skill)?.[1] ?? "";
+// A line wrap inside a phrase is not a change: whitespace runs count as one space
+const has = (name, src, list) => {
+  const flat = src.replace(/\s+/g, " ");
+  const absent = list.filter((re) => !re.test(flat)).join(", ");
+  check(name, !absent, `not found: ${absent}`);
+};
+has(
+  "the skill is reached for every text a person reads, files written for the user too",
+  description,
+  [
+    /README/,
+    /tour/,
+    /guide/,
+    /explainer/,
+    /release notes/,
+    /film script/,
+    /wiki page/,
+    /description of work done/,
+  ],
+);
+check(
+  "the skill no longer turns away files written for the user",
+  !/files written for the user/.test(description),
+  description,
+);
+const beforeDraft = /## Before the draft([\s\S]*?)\n## /.exec(skill)?.[1] ?? "";
+has(
+  "before drafting it names the reader and the one message, lists candidate points and cuts to what the reader came for",
+  beforeDraft,
+  [
+    /\*\*The reader\.\*\*/,
+    /\*\*The one message\.\*\*/,
+    /candidate points/,
+    /what the reader came for/,
+    /nobody just needs to read stuff just to read stuff/,
+  ],
+);
+has(
+  "what was tried and removed stays out, and build details go to the changelog",
+  beforeDraft,
+  [/tried and removed/, /changelog/],
+);
+has(
+  "the diagram rule: branching or structure only, at most 8 boxes, labels of 1-3 words, a straight sequence is a list",
+  skill,
+  [
+    /only for branching or structure/,
+    /at most 8 boxes/i,
+    /1-3 words/,
+    /straight sequence is a (numbered )?list/,
+    /scripts\/diagram-rule\.mjs/,
+  ],
+);
+has(
+  "a page gets a fresh reader: the blind-reviewer with the rendered pages, the reader's questions and the user's marked examples",
+  skill,
+  [
+    /`blind-reviewer`/,
+    /rendered page/,
+    /the reader's questions/,
+    /the user's marked examples/,
+  ],
+);
+has(
+  "the fresh reader's answer is saved word for word as the page's .proof/<page name>/verdict.md",
+  skill,
+  [/word for word/, /`\.proof\/<page name>\/verdict\.md`/, /SYSTEMS MAP: none/],
+);
+const kindHeadings = kinds.match(/^## .*$/gm)?.join(" | ") ?? "";
+has("kinds.md has a section for every new kind of text", kindHeadings, [
+  /tour/i,
+  /guides?/i,
+  /wiki page/i,
+  /description of work done/i,
+  /film script/i,
+]);
+has(
+  "the blind-reviewer answers the reader's questions from the page alone and judges by the user's marked examples",
+  blind,
+  [
+    /The reader's questions/,
+    /The user's marked examples/,
+    /Questions: /,
+    /not answered/,
+  ],
+);
+// A run on the 26.6 pull request text opened with a summary paragraph, so the saved verdict's first line was not
+// PASS or FAIL and verify-gate could never read it
+has(
+  "the blind-reviewer's answer starts on the PASS or FAIL line, with no summary before it",
+  blind,
+  [/no summary or title before it/],
+);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

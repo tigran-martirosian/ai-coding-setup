@@ -1,0 +1,13 @@
+{
+  "name": "ai-coding-setup-checks",
+  "version": "1.0.0",
+  "description": "What the page checks need: scripts/render-check.mjs draws a page as GitHub does",
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "github-markdown-css": "5.9.0",
+    "marked": "18.2.1",
+    "mermaid": "12.3.0",
+    "playwright": "1.65.1"
+  }
+}

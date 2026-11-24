@@ -2,10 +2,15 @@
 // then its own updater (the old one, as on a real computer) brings in this checkout, served by a small local
 // server as a newer version. Afterwards nothing of a hook, agent, skill, worker or tool deleted since that tag
 // may be left: no file under the home, no settings.json hook entry whose script is gone.
+// Two more cases run when the old release calls for them:
+//   - the tour: when the old update skill offers no tour of docs/whats-new.md (26.4.4 and before), the update's own
+//     output must ask for it, as the chat runs that old skill:  node tests/upgrade-from-last-release.mjs --from v26.4.4
+//   - the folder tidy: when the old release had tools/, promo/ or projects/, the install has none of them left and
+//     scripts/, docs/promo/, templates/ hold what they held:  node tests/upgrade-from-last-release.mjs --from v26.5.2
 // Offline and safe to run again; slow (two installs), so not in run-all.
 //   node tests/upgrade-from-last-release.mjs [--from <tag>]   (default: the newest v* tag before HEAD)
-// Exit 1 with the list of leftovers, else prints "0 leftovers". The installers' output goes to a log file in the
-// temporary folder, which is named at the end and kept; the run's other files are deleted.
+// Exit 1 with the list of leftovers and failed cases, else prints "0 leftovers". The installers' output goes to a
+// log file in the temporary folder, which is named at the end and kept; the run's other files are deleted.
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -177,6 +182,39 @@ if (!lines.includes(pointer)) {
   );
   process.exit(1);
 }
+const failed = [];
+// the tour (D4): the chat that runs the update follows the old update skill, read before the update; one that
+// offers no tour only passes the printed lines on, so a printed line must ask for the tour of docs/whats-new.md
+const oldSkill = git("show", `${FROM}:skills/update-setup/SKILL.md`);
+if (!/\btour\b/i.test(oldSkill)) {
+  const tourDoc = fwd(
+    path.join(claude, "setup-source", `v${NEW}`, "docs", "whats-new.md"),
+  );
+  if (!lines.some((l) => l.includes(tourDoc) && /\btour\b/i.test(l)))
+    failed.push(
+      `tour: the ${FROM} update skill offers no tour, and no line of the update's output asks for the tour of ${tourDoc}, so the person only gets the pointer line`,
+    );
+}
+// the folder tidy (D20): tools/ -> scripts/, promo/ -> docs/promo/, projects/ -> templates/. The home's own copy
+// (~/.claude/tools) moves, and the release the install now runs from has the new folders only.
+const oldTop = git("ls-tree", "--name-only", FROM).split("\n");
+if (["tools", "promo", "projects"].some((d) => oldTop.includes(d))) {
+  const must = [
+    [path.join(claude, "tools"), false],
+    [path.join(claude, "scripts", "nimbalyst-patch", "deliver.mjs"), true],
+    [path.join(state.repo, "tools"), false],
+    [path.join(state.repo, "promo"), false],
+    [path.join(state.repo, "projects"), false],
+    [path.join(state.repo, "scripts", "nimbalyst-patch", "deliver.mjs"), true],
+    [path.join(state.repo, "docs", "promo", "render.mjs"), true],
+    [path.join(state.repo, "templates", "homes.json"), true],
+  ];
+  for (const [at, there] of must)
+    if (fs.existsSync(at) !== there)
+      failed.push(
+        `folder tidy: ${fwd(at)} ${there ? "is missing" : "is still there"} after the update from ${FROM}`,
+      );
+}
 
 // ---- 4. the leftovers
 const leftovers = [];
@@ -264,9 +302,14 @@ console.log(`Installer output: ${fwd(kept)}`);
 console.log(
   `Upgrade ${FROM} -> this checkout (served as ${NEW}), ${deleted.length} files deleted since ${FROM}:`,
 );
+for (const f of failed) console.log(`FAIL ${f}`);
 if (leftovers.length) {
   for (const l of leftovers) console.log(`  leftover ${l}`);
   console.log(`FAIL ${leftovers.length} leftovers`);
   process.exit(1);
 }
 console.log("0 leftovers");
+if (failed.length) {
+  console.log(`FAIL ${failed.length} of the checks above`);
+  process.exit(1);
+}

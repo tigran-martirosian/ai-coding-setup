@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isBuildCode as isCode } from "./lib/code-files.mjs";
+import { crashLog } from "./lib/crash-log.mjs";
 // verify-gate: Stop hook. Catches "code was edited and nothing was built or tested after it".
 // If the main session edited a code file this turn and no Bash call after the last such edit ran a build or test,
 // it blocks once with one line: run the project's build or test, then finish. It never runs a command itself.
@@ -36,6 +37,18 @@ import { isBuildCode as isCode } from "./lib/code-files.mjs";
 // only by default (VERIFY_GATE_COMMIT=enforce or VERIFY_GATE=enforce turns the refusal on), one line per checked code
 // commit with its verdict (workers/observe-log.mjs prints them). In enforce a due commit is refused once: the same
 // repository and last code edit (kept in the session's state file) pass the next time. VERIFY_GATE=off disables both.
+// Pages a person reads (release 26.6 spec D12), in a repository that holds scripts/render-check.mjs (a user's
+// project has none, and the block's command would not exist there) where a verify skill is (the page's repository
+// or the session's folder, as for the commit check): a page is README.md,
+// README.ru.md, CHANGELOG.md or any docs/**/*.md outside docs/promo/ (path from the repository's top). Its proof
+// folder is .proof/<page name>/ (the path with / turned into __ and .md dropped) holding <light|dark>-<1280|390>.png
+// and verdict.md whose first line is PASS, each newer than the page; node scripts/render-check.mjs <page> makes the
+// screenshots. The film script (docs/promo/src/film/script.ts) has .proof/film/: its
+// stills (.png, at least one) and verdict.md. A build or verify run does not stand in for it: only the files count.
+// - Stop: a page or the film script edited this turn without fresh proof blocks (same once-per-turn rule as code).
+// - Commit: a commit staging one that this session or its helpers edited, without fresh proof, is logged
+//   (would-refuse) and, in enforce, refused every time; a "Verify: skipped" line does not pass it. A staged deletion
+//   needs no proof.
 // Fails open; a crash (a failed git call, an unreadable transcript) leaves a line in hooks/state/hook-errors.log.
 import {
   emit,
@@ -51,6 +64,7 @@ import {
   VERIFY_GATE,
   VERIFY_SKIPPED_RE,
   verifyGateCommit,
+  verifyGatePages,
 } from "./lib/texts.mjs";
 import {
   currentTurn,
@@ -205,16 +219,46 @@ export function unverified(entries, pattern) {
 // From transcripts (each a list of entries), merged by entry time since step numbers do not compare across files:
 // the last code edit inside the repository ({id, file, at}) and the last verify run ({at, proof}: its load's time,
 // and whether a successful shell result after the load printed a PROOF line). Due: an edit and no run after it.
-export function commitState(lists, repo) {
+// A function giving a path's place inside the repository, as the tool spelled it or as the file system names it;
+// null outside it
+function withinOf(repo) {
   const inside = `${fileKey(repo).replace(/\/$/, "")}/`;
   const realInside = `${fileKey(realOf(repo)).replace(/\/$/, "")}/`;
-  // the path inside the repository, as the tool spelled it or as the file system names it
-  const within = (p) => {
+  return (p) => {
     const k = fileKey(p);
     if (k.startsWith(inside)) return k.slice(inside.length);
     const r = fileKey(realOf(p));
     return r.startsWith(realInside) ? r.slice(realInside.length) : null;
   };
+}
+// The files inside the repository that the transcripts edited (successful Edit, Write, MultiEdit): paths from its top
+// with /, lower case on Windows as fileKey gives them
+export function editedIn(lists, repo) {
+  const within = withinOf(repo);
+  const out = new Set();
+  for (const entries of lists) {
+    const { failed } = resultsOf(entries);
+    for (const e of entries) {
+      if (e.type !== "assistant" || !Array.isArray(e.message?.content))
+        continue;
+      for (const b of e.message.content) {
+        const p = b.input?.file_path;
+        if (
+          b.type !== "tool_use" ||
+          failed.has(b.id) ||
+          !EDIT_TOOLS.test(b.name)
+        )
+          continue;
+        const rel = p && within(p);
+        if (rel) out.add(rel);
+      }
+    }
+  }
+  return out;
+}
+
+export function commitState(lists, repo) {
+  const within = withinOf(repo);
   const events = [];
   const add = (e, ev) => {
     const at = Date.parse(e.timestamp);
@@ -588,12 +632,143 @@ const listOf = (names) =>
     ? `${names.slice(0, LIST_MAX).join(", ")} and ${names.length - LIST_MAX} more`
     : names.join(", ");
 
+// Pages a person reads and the film script (D12): the proof a file needs, from its path inside the repository
+const PAGE = /^(?:README(?:\.ru)?\.md|CHANGELOG\.md|docs\/(?!promo\/).+\.md)$/i;
+const FILM = /^docs\/promo\/src\/film\/script\.ts$/i;
+const SHOTS = ["light-1280", "light-390", "dark-1280", "dark-390"].map(
+  (s) => `${s}.png`,
+);
+// Pages are checked only in a repository with the script that makes their screenshots
+const rendersPages = (repo) =>
+  fs.existsSync(path.join(repo, "scripts", "render-check.mjs"));
+// { page, folder, shots } (shots null: the film's stills, any .png) or null when the file needs no proof
+export function proofFor(rel) {
+  const page = slash(rel);
+  if (FILM.test(page)) return { page, folder: ".proof/film/", shots: null };
+  if (!PAGE.test(page)) return null;
+  const name = page.replace(/\.md$/i, "").split("/").join("__");
+  return { page, folder: `.proof/${name}/`, shots: SHOTS };
+}
+// Fresh proof: the screenshots newer than the file (the film: the stills newer than the script, at least one; an
+// older still left in the folder is not judged), and a verdict.md whose first line is PASS, newer than the file and
+// at least as new as each screenshot it judges. A file that is gone (a staged deletion) needs none.
+export function freshProof(repo, need) {
+  const text = fs.statSync(path.join(repo, need.page), {
+    throwIfNoEntry: false,
+  });
+  if (!text) return true;
+  const dir = path.join(repo, need.folder);
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch (err) {
+    if (err.code === "ENOENT" || err.code === "ENOTDIR") return false;
+    throw err;
+  }
+  const stat = (n) => fs.statSync(path.join(dir, n), { throwIfNoEntry: false });
+  const newer = (s) => Boolean(s) && s.mtimeMs > text.mtimeMs;
+  const shots = need.shots
+    ? need.shots.map(stat)
+    : names
+        .filter((n) => /\.png$/i.test(n))
+        .map(stat)
+        .filter(newer);
+  if (!shots.length || !shots.every(newer)) return false;
+  const verdict = stat("verdict.md");
+  if (!newer(verdict) || shots.some((s) => verdict.mtimeMs < s.mtimeMs))
+    return false;
+  const first = fs
+    .readFileSync(path.join(dir, "verdict.md"), "utf8")
+    .split(/\r?\n/, 1)[0];
+  return first.trim() === "PASS"; // trim drops a byte order mark too
+}
+// What the files lacking proof need, as one sentence: each proof folder and the commands that fill it, one
+// render-check per repository with the script and the pages by full path, so it runs from any folder
+function proofTodo(needs) {
+  const film = needs.some((n) => !n.shots);
+  const folders = listOf(needs.map((n) => n.folder));
+  const byRepo = new Map();
+  for (const n of needs.filter((n) => n.shots))
+    byRepo.set(n.repo, [...(byRepo.get(n.repo) ?? []), n.page]);
+  const steps = [...byRepo].map(
+    ([repo, pages]) =>
+      `run node "${slash(repo)}/scripts/render-check.mjs" ${pages.map((p) => `"${slash(repo)}/${p}"`).join(" ")} and look at each screenshot`,
+  );
+  if (film) steps.push("render the film and save its stills in .proof/film/");
+  return `The proof folder (${folders}) needs its screenshots and a verdict.md whose first line is PASS, newer than the text and the screenshots: ${steps.join(", and ")}, then write verdict.md there (first line PASS or FAIL, then the reasons).`;
+}
+// The repository holding a file and its path there, or null outside one (the nearest existing folder asks git)
+function repoPath(file) {
+  let d = path.dirname(path.resolve(file));
+  while (!fs.statSync(d, { throwIfNoEntry: false })?.isDirectory()) {
+    const up = path.dirname(d);
+    if (up === d) return null;
+    d = up;
+  }
+  const repo = topOf(d);
+  return repo && { repo, rel: path.relative(repo, realOf(file)) };
+}
+// A path that could be a page or the film script, so git is asked about it: README.md, README.ru.md, CHANGELOG.md,
+// a .md under a docs/ folder, or docs/promo/src/film/script.ts. A memory note or a plan elsewhere is not asked about.
+const MAYBE_PAGE =
+  /(?:^|\/)(?:(?:README(?:\.ru)?|CHANGELOG)\.md|docs\/.+\.md|docs\/promo\/src\/film\/script\.ts)$/i;
+// The pages and film script edited this turn by the main session whose proof is missing or stale, when the page's
+// repository or the session's folder has a verify skill: [{ repo, page, folder, shots }]. A file whose check fails
+// (git refuses its folder, say) is skipped with a crash line, so the code check's block still comes.
+export function missingProof(entries, cwd) {
+  const { failed } = resultsOf(entries);
+  const seen = new Map();
+  for (const e of entries) {
+    if (
+      e.type !== "assistant" ||
+      e.isSidechain ||
+      !Array.isArray(e.message?.content)
+    )
+      continue;
+    for (const b of e.message.content) {
+      const p = b.input?.file_path;
+      if (b.type !== "tool_use" || failed.has(b.id) || !EDIT_TOOLS.test(b.name))
+        continue;
+      if (!p || !MAYBE_PAGE.test(slash(p))) continue;
+      const file = path.resolve(cwd || process.cwd(), gitBashToNative(p));
+      try {
+        const at = repoPath(file);
+        const need = at && proofFor(at.rel);
+        if (need && rendersPages(at.repo))
+          seen.set(`${fileKey(at.repo)}|${need.page}`, {
+            ...need,
+            repo: at.repo,
+          });
+      } catch (err) {
+        crashLog(NAME, err);
+      }
+    }
+  }
+  if (!seen.size) return [];
+  // the verify skill: in the page's repository, else in the session's folder (as the commit check looks)
+  let home = null;
+  try {
+    if (cwd && fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory())
+      home = skillIn(topOf(cwd) ?? path.resolve(cwd));
+  } catch (err) {
+    crashLog(NAME, err);
+  }
+  return [...seen.values()].filter((need) => {
+    try {
+      return (skillIn(need.repo) ?? home) && !freshProof(need.repo, need);
+    } catch (err) {
+      crashLog(NAME, err);
+      return false;
+    }
+  });
+}
+
 // The commit check (--pre). Writes one log line per checked code commit; in enforce refuses a due one once.
 function commitCheck(input) {
   if (!isCommitCall(input) || !input.transcript_path || !input.session_id)
     return;
-  const mode = hookMode(NAME, COMMIT);
-  if (mode === "off") return;
+  const projectMode = hookMode(NAME, COMMIT);
+  if (projectMode === "off") return;
   const { dir, unknown, why } = commitDir(input);
   if (unknown !== undefined) {
     observeLine("folder-unknown", `the commit's folder ${unknown} ${why}`, {
@@ -604,10 +779,24 @@ function commitCheck(input) {
   }
   const repo = topOf(dir);
   if (!repo) return; // git itself refuses a commit outside a repository
-  const code = commitFiles(input, dir, repo)
-    .map((f) => path.relative(repo, realOf(f)))
-    .filter(isCommitCode);
-  if (!code.length) return;
+  // The switch in the repository committed to counts too: a release session commits there with git -C from another
+  // folder. It can only tighten the gate, never loosen it, so a cloned repo's settings cannot switch the check off.
+  const own = setting("VERIFY_GATE_COMMIT", repo).toLowerCase();
+  const RANK = ["off", "observe", "enforce"];
+  const ownMode = !own ? "" : RANK.includes(own) ? own : "enforce";
+  const mode =
+    RANK.indexOf(ownMode) > RANK.indexOf(projectMode) ? ownMode : projectMode;
+  const rels = commitFiles(input, dir, repo).map((f) =>
+    path.relative(repo, realOf(f)),
+  );
+  const code = rels.filter(isCommitCode);
+  const staged = rendersPages(repo)
+    ? rels
+        .map(proofFor)
+        .filter(Boolean)
+        .map((n) => ({ ...n, repo }))
+    : [];
+  if (!code.length && !staged.length) return;
   const home = input.cwd ? (topOf(input.cwd) ?? path.resolve(input.cwd)) : null;
   const skill =
     skillIn(repo) ??
@@ -618,10 +807,74 @@ function commitCheck(input) {
       sidechain: Boolean(input.agent_id) || i > 0,
     }),
   );
+  // the pages this session (or its helpers) edited: a page someone else changed is not this session's to prove
+  const edited = editedIn(lists, repo);
+  const needs = [
+    ...new Map(
+      staged
+        .filter((n) =>
+          edited.has(
+            process.platform === "win32" ? n.page.toLowerCase() : n.page,
+          ),
+        )
+        .map((n) => [n.page, n]),
+    ).values(),
+  ];
+  const fields = {
+    repo: slash(repo),
+    by: input.agent_id ? "helper" : "main",
+  };
+  const refusals = [];
+  // Pages and the film script: judged by their proof files alone, refused every time in enforce
+  if (needs.length) {
+    const missing = needs.filter((n) => !freshProof(repo, n));
+    const pages = listOf(needs.map((n) => n.page));
+    const text =
+      missing.length &&
+      verifyGatePages(listOf(missing.map((n) => n.page)), proofTodo(missing));
+    const verdict = !missing.length
+      ? "verified"
+      : mode === "enforce"
+        ? "refused"
+        : "would-refuse";
+    observeLine(verdict, text || `pages: ${pages}`, {
+      ...COMMIT,
+      fields: {
+        ...fields,
+        pages: needs.slice(0, LIST_MAX).map((n) => n.page),
+        noProof: missing.slice(0, LIST_MAX).map((n) => n.folder),
+      },
+    });
+    if (verdict === "refused") refusals.push(text);
+  }
+  if (code.length) {
+    const text = codeCheck(input, {
+      dir,
+      repo,
+      code,
+      skill,
+      mode,
+      fields,
+      lists,
+      pagesRefused: refusals.length > 0,
+    });
+    if (text) refusals.push(text);
+  }
+  if (refusals.length)
+    emit.deny(refusals.join(" "), { ...COMMIT, decided: mode });
+  sweep(NAME, 2);
+}
+
+// The code part of the commit check: one log line when the session edited code in the repository; the refusal's
+// text when it is refused
+function codeCheck(
+  input,
+  { dir, repo, code, skill, mode, fields, lists, pagesRefused },
+) {
   const { edit, run, due } = commitState(lists, repo);
-  if (!edit) return; // no code edit of this session in this repository
+  if (!edit) return null; // no code edit of this session in this repository
   const names = code.map((f) => path.basename(gitBashToNative(f)));
-  const text = verifyGateCommit(listOf(names), slash(skill));
+  const text = verifyGateCommit(listOf(names), slash(skill), !pagesRefused);
   const marker = stateFile(NAME, sessionKey(input.session_id));
   const key = `${fileKey(repo)}|${edit.id}`;
   let verdict;
@@ -636,8 +889,7 @@ function commitCheck(input) {
   observeLine(verdict, due ? text : `code files: ${listOf(names)}`, {
     ...COMMIT,
     fields: {
-      repo: slash(repo),
-      by: input.agent_id ? "helper" : "main",
+      ...fields,
       files: names.slice(0, LIST_MAX),
       lastEdit: new Date(edit.at).toISOString(),
       lastVerify: run ? new Date(run.at).toISOString() : "none",
@@ -645,8 +897,7 @@ function commitCheck(input) {
       skill: slash(skill),
     },
   });
-  if (verdict === "refused") emit.deny(text, COMMIT);
-  sweep(NAME, 2);
+  return verdict === "refused" ? text : null;
 }
 
 // VERIFY_GATE and VERIFY_PATTERN can sit in the project's settings env (setting() looks in settings.local.json too,
@@ -674,7 +925,8 @@ if (isMain(import.meta.url)) {
             entries,
             custom ? new RegExp(custom, "i") : null,
           ); // a bad pattern throws: logged, fails open
-          if (!due) return;
+          const needs = missingProof(entries, input.cwd);
+          if (!due && !needs.length) return;
           if (/\?\s*$/.test(String(input.last_assistant_message || ""))) return;
           // Once per turn: the state file holds the turn this hook last blocked; files untouched for two days go
           const marker = stateFile("verify-gate", sessionKey(input.session_id));
@@ -682,13 +934,16 @@ if (isMain(import.meta.url)) {
           const state = readJson(marker, { missing: {} });
           if (state.turn === turnKey) return;
           writeJson(marker, { ...state, turn: turnKey }); // throws when it can't be written, so no block that could repeat
-          const names =
-            files.length > 6
-              ? `${files.slice(0, 6).join(", ")} and ${files.length - 6} more`
-              : files.join(", ");
-          emit.block(
-            `${VERIFY_GATE} code was edited this turn (${names}) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.`,
-          );
+          const parts = [];
+          if (due)
+            parts.push(
+              `code was edited this turn (${listOf(files)}) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.`,
+            );
+          if (needs.length)
+            parts.push(
+              `what a person reads was edited this turn (${listOf(needs.map((n) => n.page))}) with no fresh proof. ${proofTodo(needs)} Then finish.`,
+            );
+          emit.block(`${VERIFY_GATE} ${parts.join(" ")}`);
           sweep("verify-gate", 2);
         },
     { projectSettings: true },

@@ -334,8 +334,11 @@ const NOTE = (id: string, ts = 1000) => ({
 const receipts =
   (text?: string, code = "ENOENT") =>
   async (channel: string, file: unknown) => {
-    assert.equal(channel, "extensions:read-file");
     assert.equal(file, "C:/h/.claude/steer/receipts.json");
+    // A file that is there but cannot be read (any code but ENOENT) exists
+    if (channel === "extensions:file-exists")
+      return !(text === undefined && code === "ENOENT");
+    assert.equal(channel, "extensions:read-file");
     if (text === undefined)
       throw new Error(`Error invoking remote method: Error: ${code}: nope`);
     return text;
@@ -413,16 +416,21 @@ ok(
 
 // ---- wake bridge
 const NOW = 1_000_000_000_000;
+let missingReads = 0;
 const world = (files: Record<string, string>, failQueue = 0) => {
   const delivered: unknown[][] = [];
   let fails = failQueue;
   const invoke = async (channel: string, ...args: unknown[]) => {
+    if (channel === "extensions:file-exists")
+      return files[args[0] as string] !== undefined;
     if (channel === "extensions:read-file") {
       const f = files[args[0] as string];
-      if (f === undefined)
+      if (f === undefined) {
+        missingReads++;
         throw new Error(
           `Error invoking remote method 'extensions:read-file': Error: ENOENT: no such file or directory, open '${args[0]}'`,
         );
+      }
       return f;
     }
     if (channel === "extensions:write-file")
@@ -444,6 +452,11 @@ const newState = () => ({ ...slowState(), wait: async () => {} });
 
 let w = world({});
 assert.equal(await pollOutbox(w.invoke, "C:/h", newState(), NOW, quiet), 0);
+assert.equal(
+  missingReads,
+  0,
+  "a missing file is asked about, never read (each failed read is an error in the app's log)",
+);
 w = world({
   [OUT]:
     [line("a", 1000), "half-written {", line("old", 11 * 60_000)].join("\n") +

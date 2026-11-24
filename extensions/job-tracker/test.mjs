@@ -191,6 +191,17 @@ check(
   })(),
 );
 check(
+  "a status named like an object member (constructor, toString) is unknown too, not a hidden step",
+  ["constructor", "toString", "__proto__"].every((status) => {
+    try {
+      categoryOf({ status, title: "x" });
+      return false;
+    } catch (e) {
+      return /unknown step status/.test(e.message);
+    }
+  }),
+);
+check(
   "needs you: an in-review step counts for you, not running",
   countsOf(withStatus("t-20", "in-review"), allRunning).running === 3 &&
     countsOf(withStatus("t-20", "in-review"), allRunning).needs === 2,
@@ -675,7 +686,7 @@ for (const [what, id, want] of [
   [
     "the user's step that waits on open steps sits in To do, not Needs you: your turn after them",
     "t-22",
-    "ring | your turn after The polish round on the two mock-ups; Restyle the account mock-up | Part 2 · design | -",
+    "ring | your turn after The polish round on the two mock-ups; Restyle the account mock-up | - | -",
   ],
   [
     "running, its session editing",
@@ -690,17 +701,17 @@ for (const [what, id, want] of [
   [
     "started, its session not running: the session ended, with the time of its last change",
     "t-20",
-    "ring:half | session ended 15:40, step not done | Part 2 · design | Open session s-3",
+    "ring:half | session ended 15:40, step not done | - | Open session s-3",
   ],
   [
     "started, no session",
     "t-21",
-    "ring:half | started, no session on it | Part 2 · design | -",
+    "ring:half | started, no session on it | - | -",
   ],
   [
     "to do, waiting",
     "t-23",
-    "ring | waits on Your OK on the restyled mock-ups | Part 3 · builds | -",
+    "ring | waits on Your OK on the restyled mock-ups | - | -",
   ],
   [
     "done, a finished session linked",
@@ -800,6 +811,59 @@ for (const [what, id, want] of [
         },
       },
     ).wait === "session ended 12 Nov 09:10, step not done",
+  );
+  // A step's file is written by sessions and by any file's frontmatter: a network path would make Windows send the
+  // user's sign-in to that host on a click, so it gets no Open link
+  const fileOf = (file) =>
+    rowView(
+      STRINGS,
+      { ...fxFolds.folds.todo.find((r) => r.item.id === "t-20"), file },
+      foldCtx,
+    ).file;
+  check(
+    "a step's network or device path (//host, \\\\host, \\\\?\\) gets no Open link; a project path keeps it",
+    [
+      "//203.0.113.5/docs/setup.md",
+      "\\\\203.0.113.5\\docs\\setup.md",
+      "\\\\?\\C:\\x.md",
+      "/\\203.0.113.5/x.md",
+    ].every((f) => fileOf(f) === null) &&
+      fileOf("docs/setup.md")?.path === "docs/setup.md",
+  );
+  check(
+    "a step's file gets an Open link only as a drive path or a path that stays inside the project",
+    [
+      String.raw`\??\C:\x.md`,
+      String.raw`\\.\pipe\x`,
+      // a single / is the drive root on Windows; on macOS and Linux it is a real path and opens (tested below)
+      ...(process.platform === "win32" ? ["/etc/passwd"] : []),
+      String.raw`\x.md`,
+      "C:x.md",
+      "../x.md",
+      "docs/../../x.md",
+      String.raw`docs\..\..\x.md`,
+    ].every((f) => fileOf(f) === null) &&
+      [
+        String.raw`C:\Projects\x.md`,
+        "c:/x.md",
+        "./docs/a.md",
+        "docs/../a.md",
+      ].every((f) => fileOf(f) !== null),
+  );
+  const { openable } = await import(
+    pathToFileURL(path.join(here, "src", "row.js")).href
+  );
+  const BS = String.fromCharCode(92);
+  check(
+    "a macOS or Linux absolute path opens off Windows; // and two backslashes never; Windows device names never",
+    openable("/srv/me/p/a.md", false) &&
+      !openable("/srv/me/p/a.md", true) &&
+      !openable("//host/x.md", false) &&
+      !openable(`${BS}${BS}host${BS}x.md`, false) &&
+      ["COM1", "docs/aux.md", "nul", "docs/LPT1.txt", "con"].every(
+        (f) => !openable(f, true),
+      ) &&
+      openable("docs/auxiliary.md", true),
   );
   // The app keeps no lasting record of a session's error: no row ever names one, whatever the session holds
   const words = [
@@ -927,6 +991,64 @@ check(
       f.counts.forYou === 1 &&
       v.wait === "your turn after Step look W45" &&
       v.done === null,
+  );
+}
+
+// A To do row sits under its stage heading, so it shows no stage chip (user, 2026-11-23: stages as headings).
+// To do in run order under stage headings (user, 2026-11-23): stage number first, then how many open steps stand
+// before a step, then the order given; the first row of a stage carries its heading and no row shows the stage chip
+{
+  const a = coded("o-a", "A");
+  const b = coded("o-b", "B", { waitsOn: "A" });
+  const c = coded("o-c", "C", { waitsOn: "B" });
+  // Given last-edited first, as the app hands them over
+  const order = (list) =>
+    foldsOf(list, new Set())
+      .folds.todo.map((r) => r.item.customFields.step)
+      .join("");
+  check(
+    "run order: a step comes after the steps it waits on",
+    order([c, b, a]) === "ABC",
+  );
+  const s = (step, stage, more = {}) =>
+    coded(`s-${step}`, step, { stage, ...more });
+  const release = s("R", "3. Release");
+  const fix = s("F", "2. Fix");
+  const build = s("B", "1. Build");
+  const loose = coded("s-L", "L");
+  check(
+    "run order: stage number first, steps with no stage last",
+    order([release, loose, fix, build]) === "BFRL",
+  );
+  const loop1 = coded("l-1", "X", { waitsOn: "Y" });
+  const loop2 = coded("l-2", "Y", { waitsOn: "X" });
+  check(
+    "run order: a wait loop does not hang and keeps both steps",
+    order([loop1, loop2]).length === 2,
+  );
+  const b2 = s("B2", "1. Build", { waitsOn: "B" });
+  const list = [release, b2, fix, build, loose];
+  const views = foldsView(
+    STRINGS,
+    foldsOf(list, new Set()).folds,
+    atStart,
+    foldCtx,
+  )[2].rows;
+  check(
+    "stages: a heading on the first row of each stage, Other steps for the rest, no stage chip",
+    views.map((v) => v.stageHead).join("|") ===
+      "1. Build||2. Fix|3. Release|Other steps" &&
+      views.every((v) => v.plan === null),
+  );
+  const plain = foldsView(
+    STRINGS,
+    foldsOf([c, b, a], new Set()).folds,
+    atStart,
+    foldCtx,
+  )[2].rows;
+  check(
+    "stages: none set, no headings",
+    plain.every((v) => !v.stageHead),
   );
 }
 

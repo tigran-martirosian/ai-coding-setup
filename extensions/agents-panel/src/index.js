@@ -641,7 +641,9 @@ function setMark(item, view) {
   if (item.dataset.apMark !== "") item.dataset.apMark = "";
 }
 
-function decorateRow(item, run) {
+/** `room` is the row's text width, read for every row before any row is written (sync): the title and meta lines
+ *  are as wide as the row's text column (a flex column with no padding, style.css). */
+function decorateRow(item, run, room) {
   const body = item.querySelector(":scope > .flex-1");
   if (!body) return;
   const appNodes = [...body.children].filter(
@@ -670,12 +672,15 @@ function decorateRow(item, run) {
   // On every pass: a wider or narrower panel fits more or fewer words
   const titleNode = body.querySelector(":scope > .ap-title");
   if (titleNode)
-    setText(titleNode, wordFit(titleNode.dataset.apFull, fitsIn(titleNode)));
+    setText(
+      titleNode,
+      wordFit(titleNode.dataset.apFull, fitsIn(titleNode, undefined, room)),
+    );
 
   const appMeta = appNodes[1]?.textContent ?? "";
   const running = item.dataset.status === "running";
   // The width is in the key: a finished row cut on a narrow panel gets its words back when the panel widens
-  const key = `${item.dataset.status}|${appMeta}|${runWords(run)}|${run?.type ?? ""}|${body.clientWidth}`;
+  const key = `${item.dataset.status}|${appMeta}|${runWords(run)}|${run?.type ?? ""}|${room}`;
   // A running row's time moves every second, so it is worked out on every pass
   if (
     !running &&
@@ -710,7 +715,7 @@ function decorateRow(item, run) {
     node,
     fitMeta(
       view.parts,
-      fitsIn(node, (p) => META_WEIGHT[p.part]),
+      fitsIn(node, (p) => META_WEIGHT[p.part], room),
     ),
     "part",
   );
@@ -1125,8 +1130,12 @@ function sync() {
     items = [...document.querySelectorAll(".teammate-panel .task-item")];
     if (items.length) refreshRuns(items);
     const matched = matchRun(items.map(rowText), runs);
+    // Every row's width before any row is written: one layout, not one per row (decorateRow)
+    const rooms = items.map(
+      (item) => item.querySelector(":scope > .flex-1")?.clientWidth ?? 0,
+    );
     for (const [n, item] of items.entries()) {
-      decorateRow(item, matched[n]);
+      decorateRow(item, matched[n], rooms[n]);
       const scroller = item.closest(".overflow-y-auto");
       if (scroller) scrollers.add(scroller);
     }

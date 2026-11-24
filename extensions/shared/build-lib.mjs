@@ -51,7 +51,7 @@ export function readTokens() {
  */
 export function extensionTarget(folder) {
   // The installer (scripts/extensions.mjs) builds into a side folder: a running Nimbalyst reads its own one
-  // mid-session, so tools/nimbalyst-patch/ext-swap.mjs swaps the build in while Nimbalyst is closed
+  // mid-session, so scripts/nimbalyst-patch/ext-swap.mjs swaps the build in while Nimbalyst is closed
   if (process.env.SETUP_EXT_STAGE)
     return path.join(process.env.SETUP_EXT_STAGE, folder);
   // On a Mac Nimbalyst keeps its settings under Application Support

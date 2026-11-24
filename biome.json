@@ -24,7 +24,7 @@
       "**",
       "!extensions/ink-themes/manifest.json",
       "!rules/history.json",
-      "!tools/nimbalyst-patch/pin.json",
+      "!scripts/nimbalyst-patch/pin.json",
       "!version.json"
     ],
     "indentStyle": "space",

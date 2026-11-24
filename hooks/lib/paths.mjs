@@ -36,5 +36,15 @@ export function fileKey(p) {
   return process.platform === "win32" ? k.toLowerCase() : k;
 }
 
+// The tidy marks (setup-state.json ownTidied) are kept under fileKey; a mark written before that is under the path
+// as written (absolute, forward slashes), so a lookup tries both and a new mark drops the old key
+const writtenKey = (p) => path.resolve(String(p)).replace(/\\/g, "/");
+export const markOf = (marks, file) =>
+  marks[fileKey(file)] ?? marks[writtenKey(file)];
+export function setMark(marks, file, sha) {
+  delete marks[writtenKey(file)];
+  marks[fileKey(file)] = sha;
+}
+
 // A session id as a file name
 export const sessionKey = (id) => String(id || "none").replace(/[^\w-]/g, "");

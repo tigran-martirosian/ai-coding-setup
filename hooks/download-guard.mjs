@@ -9,6 +9,8 @@
 // "Big" is over 50 MB by a HEAD request's Content-Length (3 s limit): at one stream's 1.5 MB/s that is over
 // half a minute of waiting, where 32 ranges take a few seconds. When the size cannot be learned, the command
 // is left as it is. Fails open. DOWNLOAD_GUARD=off disables it.
+// It runs before the guards in the dispatcher's pre-tool group, so they check the command it rewrote. A simple
+// command it can't read the way the shell does (a comment, a backslash outside quotes in Bash) is not rewritten.
 // command-explain runs on the same call at the same time and also returns updatedInput, each from the command
 // Claude sent; Claude Code takes one whole input, so one rewrite would be lost. This hook therefore adds the same
 // stand-in "# WHAT THIS DOES:" line command-explain would add (same check, same text), unless COMMAND_EXPLAIN=off.
@@ -26,52 +28,85 @@ const WORKER = fileURLToPath(
   new URL("../workers/download.mjs", import.meta.url),
 ).replace(/\\/g, "/");
 
-// The command cut into simple commands: [start, end, separator after], quotes respected
-function segments(command) {
+// The shell's escape character: it escapes the next character outside quotes and inside double quotes
+const ESC = { Bash: "\\", PowerShell: "`" };
+// A double-quoted string, its inside captured: in PowerShell a backslash in it is a plain character
+const DQ = { Bash: String.raw`"((?:\\.|[^"\\])*)"`, PowerShell: `"([^"]*)"` };
+
+// The command cut into simple commands: [start, end, separator after, holds a comment], as the shell cuts it:
+// quotes respected, the escape character takes the next character with it, and a # at the start of a word is a
+// comment to the end of the line (a separator in it separates nothing). A # right after a closing quote counts as
+// a comment too: then the command is left alone rather than read wrongly.
+function segments(command, shell) {
+  const esc = ESC[shell];
   const out = [];
   let start = 0,
-    quote = "";
+    quote = "",
+    comment = false;
   for (let i = 0; i < command.length; i++) {
     const c = command[i];
     if (quote) {
       if (c === quote) quote = "";
-      else if (c === "\\" && quote === '"') i++;
+      else if (c === esc && quote === '"') i++;
+      continue;
+    }
+    if (c === esc) {
+      i++;
       continue;
     }
     if (c === "'" || c === '"') {
       quote = c;
       continue;
     }
+    if (c === "#" && (i === 0 || /[\s;|&()'"]/.test(command[i - 1]))) {
+      comment = true;
+      const nl = command.indexOf("\n", i);
+      if (nl === -1) break;
+      i = nl - 1;
+      continue;
+    }
     const two = command.slice(i, i + 2);
     const sep =
       two === "&&" || two === "||" ? two : "\n;|".includes(c) ? c : "";
     if (sep) {
-      out.push([start, i, sep]);
+      out.push([start, i, sep, comment]);
       start = i + sep.length;
       i += sep.length - 1;
+      comment = false;
     }
   }
-  out.push([start, command.length, ""]);
+  out.push([start, command.length, "", comment]);
   return out;
 }
 
-// Words of one simple command as { raw, value }, or null when it holds a variable or other shell code
-function words(text) {
+// Words of one simple command as { raw, value }, or null when it can't be read cleanly: a variable or other shell
+// code, a comment, an open quote, an escape character outside quotes, or in PowerShell a doubled quote ('' or ""
+// in a string is one quote there, but two strings here). Such a command is not rewritten.
+function words(text, shell) {
   if (
     /[$`]/.test(text) ||
-    /[(){}<>&]/.test(text.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, ""))
+    (shell === "PowerShell" && /''|""/.test(text)) ||
+    /[(){}<>&]/.test(text.replace(new RegExp(`'[^']*'|${DQ[shell]}`, "g"), ""))
   )
     return null;
+  const bare = shell === "Bash" ? String.raw`[^\s'"\\]` : String.raw`[^\s'"]`;
+  const re = new RegExp(
+    String.raw`\s*((?:'[^']*'|${DQ[shell]}|${bare})+)`,
+    "y",
+  );
   const list = [];
-  const re = /\s*((?:'[^']*'|"(?:\\.|[^"\\])*"|[^\s'"])+)/g;
-  let m;
-  while ((m = re.exec(text))) {
-    if (m[1].startsWith("#")) break;
+  const end = text.trimEnd().length;
+  let pos = 0;
+  while (pos < end) {
+    re.lastIndex = pos;
+    const m = re.exec(text);
+    if (!m || m[1].startsWith("#")) return null;
+    pos = re.lastIndex;
     list.push({
       raw: m[1],
       value: m[1].replace(
-        /'([^']*)'|"((?:\\.|[^"\\])*)"/g,
-        (_, a, b) => a ?? b.replace(/\\(.)/g, "$1"),
+        new RegExp(`'([^']*)'|${DQ[shell]}`, "g"),
+        (_, a, b) => a ?? (shell === "Bash" ? b.replace(/\\(.)/g, "$1") : b),
       ),
     });
   }
@@ -219,14 +254,17 @@ runHook("download-guard", async (event) => {
   const command = (event.tool_input || {}).command;
   if (!["Bash", "PowerShell"].includes(shell) || typeof command !== "string")
     return;
+  // PowerShell also quotes with the curly quotes U+2018 to U+201E, which segments() and quote() do not know
+  if (shell === "PowerShell" && /[‘-„]/.test(command)) return;
   const quote = (v) =>
     `'${v.replace(/'/g, shell === "PowerShell" ? "''" : "'\\''")}'`;
 
   const found = [];
-  const segs = segments(command);
-  segs.forEach(([start, end, sep], i) => {
+  const segs = segments(command, shell);
+  segs.forEach(([start, end, sep, comment], i) => {
+    if (comment) return; // the rewrite would drop the comment: what follows it on the line could come alive
     if (sep === "|" || segs[i - 1]?.[2] === "|") return; // piped: the output goes somewhere else
-    const ws = words(command.slice(start, end));
+    const ws = words(command.slice(start, end), shell);
     const parse = ws?.length && TOOLS[ws[0].value.toLowerCase()];
     const dl = parse && parse(ws);
     if (!dl) return;
@@ -265,9 +303,10 @@ runHook("download-guard", async (event) => {
   for (const { start, end, dl } of [...big].reverse()) {
     const text = command.slice(start, end);
     const lead = text.match(/^\s*/)[0];
+    const trail = text.trim() ? text.match(/\s*$/)[0] : "";
     rewritten =
       rewritten.slice(0, start) +
-      `${lead}${instead(dl)}` +
+      `${lead}${instead(dl)}${trail}` +
       rewritten.slice(end);
   }
   // command-explain's check: a last line of at least 3 words after an empty line, else its stand-in

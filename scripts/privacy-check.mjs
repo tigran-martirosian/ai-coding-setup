@@ -141,8 +141,10 @@ for (const file of files) {
   const text = fs.readFileSync(file, "utf8");
   if (text.includes("\u0000")) continue; // binary
   text.split("\n").forEach((line, i) => {
+    // a package checksum is random base64, where a short private word turns up by chance
+    const words = line.replace(/\bsha(?:1|256|384|512)-[A-Za-z0-9+/]+=*/g, "");
     for (const [what, re] of PATTERNS) {
-      const m = line.match(re);
+      const m = (what.startsWith("private word") ? words : line).match(re);
       if (
         m &&
         what.startsWith("private word") &&

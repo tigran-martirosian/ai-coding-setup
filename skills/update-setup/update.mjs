@@ -34,6 +34,8 @@
 //   --extensions yes|no              with --quiet: passed on to install.mjs (tests)
 //   --backup yes|no                 only put the answer to the backup question on record (setup-state.json `backup`),
 //                                    so it is not asked again; nothing else runs
+//   --auto-mode yes|no              only put the answer to the auto mode question on record (setup-state.json
+//                                    `autoMode`), so it is not asked again; nothing else runs
 //   --home <folder>                  work on <folder>/.claude instead of the home folder's (tests)
 // The opt-ins, after a foreground run (not --check, not --files-only): Handy is never asked here; with no answer on
 // record and Handy found on this computer, `handy: true` goes on record without a word. The backup gets one line
@@ -43,6 +45,8 @@
 // /backup finishes it` (yes, no config.json),
 // `Backup: last run failed: <error>; /backup shows why` (last-run.json `ok: false`) or `Backup: last good run <n>
 // days ago; /backup now runs one` (more than 7 days ago); nothing otherwise, and nothing for a no with no config.json.
+// Auto mode (Nimbalyst's per-project "Agent-verified" permission) gets `Auto mode: not asked` while no answer is on
+// record; nothing once there is one.
 // How: the newest version is the one in version.json on the repository's main branch. Its files are
 // the tag v<version>, downloaded as one archive and unpacked to ~/.claude/setup-source/v<version>.
 // Then that folder's install.mjs runs. It takes the projects folder, the answer about Codex
@@ -50,7 +54,7 @@
 // own files: anything else in ~/.claude (other skills, hooks, settings) stays as it is, and so does
 // one of the setup's files that the user changed (the installer lists those at the end).
 // A failed download changes nothing. An install that fails part way says so; running the update again finishes it.
-// Nimbalyst, delivered by the setup (tools/nimbalyst-patch/deliver.mjs): after an install, deliver.mjs --stage starts
+// Nimbalyst, delivered by the setup (scripts/nimbalyst-patch/deliver.mjs): after an install, deliver.mjs --stage starts
 // (NIMBALYST_FOLLOW=off, in the environment or settings.json's env, stops that); on the newest version it starts again
 // when nothing is staged or the last attempt failed (the retry); every run but
 // --files-only prints the one `nimbalyst:` line of deliver.mjs --status. --files-only does neither: the hook that
@@ -220,6 +224,16 @@ if (args.includes("--backup")) {
   process.exit(0);
 }
 
+// --auto-mode yes|no: the answer to the auto mode question, on record so it is never asked again; nothing else runs
+if (args.includes("--auto-mode")) {
+  const said = args[args.indexOf("--auto-mode") + 1];
+  if (!["yes", "no"].includes(said))
+    stop(`--auto-mode ${said || ""}: the answer is yes or no.`);
+  saveState({ ...state, autoMode: said === "yes" });
+  console.log(`auto mode: answer on record (${said}); not asked again`);
+  process.exit(0);
+}
+
 // The opt-ins after a foreground run (header): Handy found goes on record unasked, the backup gets its one line.
 // Handy is looked for where its installer and its first start put it; with --home (tests) only inside that home.
 function handyFound() {
@@ -290,6 +304,7 @@ function optIns() {
   if (next !== now) saveState(next);
   const line = backupLine(next.backup);
   if (line) console.log(line);
+  if (typeof next.autoMode !== "boolean") console.log("Auto mode: not asked");
 }
 
 // Runs a version's installer with the flags that are passed on
@@ -388,7 +403,7 @@ function passOffer(old) {
 // a run of its own, so the update never waits for one, and its status is up to date when it returns); then the
 // `nimbalyst:` status line is passed on as it is. `stage: "always"` stages after an install; `stage: "retry"` (on
 // the newest version) stages only when the line says nothing is staged or the last attempt failed.
-const DELIVER = path.join(CLAUDE, "tools", "nimbalyst-patch", "deliver.mjs");
+const DELIVER = path.join(CLAUDE, "scripts", "nimbalyst-patch", "deliver.mjs");
 // Starts deliver.mjs --stage unless NIMBALYST_FOLLOW=off; returns whether it ran
 function runStage() {
   const file = path.join(CLAUDE, "settings.json");

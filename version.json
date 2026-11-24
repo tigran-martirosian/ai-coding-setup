@@ -1,10 +1,15 @@
 {
-  "version": "26.5.2",
+  "version": "26.6",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
-  "date": "2026-11-22",
-  "summary": "Commits from a Nimbalyst chat no longer show a red \"Commit Failed\" card first",
+  "date": "2026-11-23",
+  "summary": "Security in three levels, design tools, and texts and research written for their reader",
   "releases": {
+    "26.6": {
+      "kind": "setup",
+      "important": true,
+      "headline": "Security in three levels, design tools, and texts and research written for their reader"
+    },
     "26.5.2": {
       "kind": "files",
       "important": true,

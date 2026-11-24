@@ -4,6 +4,52 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.6] - 2026-11-23
+
+Release 26.6: texts written for their reader, research that says how solid it is, and security and design tools built in. The tour of what is new: `docs/whats-new.md`, "How the setup works now (26.6)".
+
+### Before and after you update
+- Update with `/update-setup`.
+- The update asks once whether Claude may work without asking before each step (auto mode). A second model then checks every command and file change first: safe ones go ahead, risky ones stop and ask you. Yes turns it on in Nimbalyst for your two setup project folders; another project gets it in Settings > Project > Agent Permissions, "Agent-verified". No keeps Claude asking as before, and the question does not come back.
+- The always-on security plugin needs Python 3.10 or newer. If the update says it left the plugin off, install Python (on Windows from python.org, not the Store) and run `/update-setup` again.
+- Three folders of the setup are renamed: `tools/` is now `scripts/`, `promo/` is `docs/promo/`, `projects/` is `templates/`. The update moves the installed copies; change any path of your own that still points at an old name.
+- Restart Nimbalyst once afterwards, so its fixes in this release take effect.
+
+### What changes for you
+- When Claude writes text for other people (a README, a guide, release notes), it starts from the reader: who reads it, the one thing they should take away, the few points they came for. How the work was built stays out.
+- Research reports open with the answer and tag each finding: Solid (three or more current sources agree), Thin (one or two independent sources), Ours (Claude's own reasoning or test) or Old (only from before 2025, or from older Claude models). A recommendation never rests on an Old finding.
+- Big jobs first look for what already exists (the project's code, its packages, a maintained package or template) and name it in the spec's "Built on" line.
+- Security in three levels (`/security`): Anthropic's security-guidance plugin is always on and warns on risky code as Claude edits it; a quick check runs Claude Code's `/security-review` and the gitleaks secret scanner on a change; a deep scan of a whole project with the deepsec scanner runs when you ask. Each release of this setup names the level it ran.
+- Design tools: install and update turn on Anthropic's frontend-design (guidance for interfaces that don't look templated) and Paul Bakaus's impeccable (design commands and checks); `claude plugin uninstall <name>` turns one off. `/gridlines` draws guide lines down an interface and fixes paddings so edges line up.
+- The job page in Nimbalyst lists To do in the order the steps run, under a numbered heading for each stage, and `/where-are-we` gives every new job numbered stages.
+- Claude's work is checked three ways: scripts that run, one fresh helper at four points (the plan review, `/code-review`, the end review, and a newcomer's look at a page or screen), and one gate (`verify-gate`). The newcomer's look now opens its answer with PASS or FAIL.
+- Claude asks you before a session changes one of your Nimbalyst settings (a project's permission mode, the default model, the theme and the like). The card shows every field it would set; `SETTINGS_GUARD=off` turns this off.
+
+### Inside this repository
+- In this repository only, `verify-gate` marks a page edit done only with fresh screenshots (GitHub light and dark, phone width) and a PASS verdict; it does nothing in your projects.
+- The privacy check skips package checksums; CI's lint check passes with no errors.
+- Security: a deepsec scan of this repo. Its 7 high findings were fixed first, then 11 smaller ones, each with a test. 69 more are low-risk or out of scope (most in the phone app in Telegram) and are kept for later work; 5 were not real.
+- This release ran the quick security level on its own changes.
+
+### Fixes
+- Switching sessions in Nimbalyst no longer stalls: the agents panel fits its text faster and the orbs read their colours once per frame. Nimbalyst's log no longer fills with missing-outbox errors. Opening a long chat no longer re-lays the page for each copy button, and a session too big to sync stops retrying on every message.
+- The delete guard reads `git clean` options the way git does: an exclude pattern or a later `--no-dry-run` no longer passes for a dry run.
+- A Nimbalyst update waiting for Nimbalyst to close still runs after this update moves the patcher to `scripts/`.
+- Updating from 26.4.4 shows the tour of what is new; an update from 26.5 moves old folders without breaking a Nimbalyst update in progress.
+- `/watch` makes its sheets of stills again on Windows with ffmpeg 9.1, and ignores a video folder's own tool configs.
+- Nimbalyst panels never run a `node.cmd` planted in a project; rewritten download commands can't slip past the guards; a resumed download never joins parts saved for another address.
+- `/disk-tidy` never offers an old copy whose work is only in a reflog; the job tracker opens only drive paths and paths inside the project; the agents panel shows text with `$` signs as written.
+- The systems map reads maps saved with a BOM and never hangs on its checks; `/update-project` never puts an odd branch name in a command; the rules tidy's undo is right when a path differs only in letter case.
+- The backup key check accepts the delete right restic (the backup program) needs; file-check's undo never loses a file; new projects' `.gitignore` names no tool.
+- The commit gate obeys the repo being committed to, and a repo's own settings can tighten it, never loosen it.
+
+### Corrections to 26.5's notes
+- A shell command starts 3 Node processes for its hooks and a file edit 4 (one per group of hooks), not one.
+- The `/watch` speech model is 574 MB, not 488 MB.
+
+### Also
+- Nimbalyst: a file link in the chat written with ~ for the home folder (~/.claude/CLAUDE.md) opens the file; before, its tab showed an empty page and closed at once.
+
 ## [26.5.2] - 2026-11-22
 
 - Nimbalyst: Claude knows the commit tool from the start of a chat, so a commit no longer shows a red "Commit Failed" card above the one that worked. Takes effect after Nimbalyst restarts.

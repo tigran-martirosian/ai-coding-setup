@@ -19,7 +19,8 @@
 // own variable and default:
 //   emit.block(reason, { arm: "commit", mode: "observe" })   // reads VERIFY_GATE_COMMIT
 // Order for an arm: its variable, then the hook's variable when that is observe or enforce, then the arm default,
-// then the hook default. An arm set to off drops that refusal silently.
+// then the hook default. An arm set to off drops that refusal silently. A hook that worked the mode out itself
+// passes it as `decided` (verify-gate's commit arm reads the committed repository's settings too).
 // In observe, emit.deny and emit.block write nothing on stdout, so the call goes through, and append one line to
 // ~/.claude/hooks/state/observe.jsonl instead (renamed to observe.1.jsonl at 1 MB; a failed append is crash-logged
 // and the hook ends quietly). workers/observe-log.mjs prints it. emit.context writes in every mode but off. The
@@ -198,8 +199,9 @@ const out = (obj) => {
   fs.writeSync(1, JSON.stringify(obj));
 };
 // Outside runHook (a test, a script) there is no running hook: the refusal is written, as before modes
-function refuse(would, reason, { arm, mode } = {}, obj) {
-  const now = running ? hookMode(running.name, { arm, mode }) : "enforce";
+function refuse(would, reason, { arm, mode, decided } = {}, obj) {
+  const now =
+    decided ?? (running ? hookMode(running.name, { arm, mode }) : "enforce");
   if (now === "enforce") return out(obj);
   if (now === "observe") observe(would, reason, arm);
 }
@@ -260,6 +262,15 @@ export const emit = {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
+        permissionDecisionReason: reason,
+      },
+    }),
+  // The user is asked to approve the call; under Nimbalyst's "Allow everything" a hook's ask still reaches them
+  ask: (reason, opts) =>
+    refuse("ask", reason, opts, {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "ask",
         permissionDecisionReason: reason,
       },
     }),

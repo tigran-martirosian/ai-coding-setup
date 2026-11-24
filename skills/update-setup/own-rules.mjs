@@ -26,6 +26,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileKey, markOf, setMark } from "../../hooks/lib/paths.mjs";
 
 const args = process.argv.slice(2);
 const stop = (why) => {
@@ -228,7 +229,7 @@ const ownFiles = (state, withHomes) =>
   [MY_RULES, ...(withHomes ? homes(state).map(homeRules) : [])]
     .map((f) => path.resolve(f))
     .filter((f) => fs.existsSync(f));
-const isGlobal = (file) => path.resolve(file) === path.resolve(MY_RULES);
+const isGlobal = (file) => fileKey(file) === fileKey(MY_RULES);
 // the setup text a file's blocks are compared with: ~/.claude/CLAUDE.md, and for a home file also the home's CLAUDE.md
 const setupTexts = (file) => {
   const list = [path.join(CLAUDE, "CLAUDE.md")];
@@ -241,7 +242,7 @@ const vaultOf = (file) =>
 const tidiedMap = (state) =>
   state.ownTidied && typeof state.ownTidied === "object" ? state.ownTidied : {};
 const untidied = (state, files) =>
-  files.filter((f) => sha(read(f)) !== tidiedMap(state)[fwd(f)]);
+  files.filter((f) => sha(read(f)) !== markOf(tidiedMap(state), f));
 // first 16 hex of sha256 over the sorted lines "<file> <sha>" (file: absolute, forward slashes) of the untidied
 // files, global and homes; hooks/update-check.mjs computes it the same way
 const pendingKey = (state) => {
@@ -277,7 +278,7 @@ function skip() {
   const state = readState();
   const open = untidied(state, ownFiles(state, HOMES));
   const marks = { ...tidiedMap(state) };
-  for (const f of open) marks[fwd(f)] = sha(read(f));
+  for (const f of open) setMark(marks, f, sha(read(f)));
   saveState({ ownTidied: marks });
   console.log(
     `my-rules: not offered again until the file changes (${open.length ? open.map(tilde).join(", ") : "nothing was untidied"})`,
@@ -526,11 +527,12 @@ function checkLedger(ledger) {
       bad("the file is not there");
       continue;
     }
-    if (seen.has(file)) {
+    // fileKey: on Windows the same file in other letter case is the same file
+    if (seen.has(fileKey(file))) {
       bad("the file is in the ledger twice");
       continue;
     }
-    seen.add(file);
+    seen.add(fileKey(file));
     const text = read(file);
     if (lf.sha !== sha(text))
       bad(
@@ -714,7 +716,7 @@ function apply() {
   const created = new Set();
   // each changed or created file goes on the undo record once, before its first change in this run
   const before = (file) => {
-    if (undo.some((u) => path.resolve(u.file) === path.resolve(file))) return;
+    if (undo.some((u) => fileKey(u.file) === fileKey(file))) return;
     if (fs.existsSync(file)) {
       const copy = copyName(file);
       fs.copyFileSync(file, copy);
@@ -781,7 +783,7 @@ function apply() {
           entries.join("\n"),
       );
     }
-    marks[fwd(p.file)] = sha(read(p.file)); // after the moves: a block moved in was judged in this run too
+    setMark(marks, p.file, sha(read(p.file))); // after the moves: a block moved in was judged in this run too
     said.push(
       `my-rules: tidied ${tilde(p.file)}, ${lines(p.text)} lines before, ${lines(p.out)} after (vaulted ${entries.length}, moved ${moved}, ` +
         `about ${tokens(Buffer.byteLength(p.text) - Buffer.byteLength(p.out))} tokens less each chat; old copy: ${tilde(copy)}; undo: ${UNDO})`,
@@ -915,6 +917,8 @@ function restore() {
   while (rest.length && rest[rest.length - 1].trim() === "") rest.pop();
   fs.writeFileSync(v, rest.length ? rest.join("\n") + "\n" : "");
   const marks = tidiedMap(state);
+  const after = { ...marks };
+  setMark(after, en.file, sha(next));
   // the replaced record becomes rulesUndoBefore; the one that was there rides on this record, so restores stack
   saveState({
     rulesUndo: {
@@ -925,7 +929,7 @@ function restore() {
       before: state.rulesUndoBefore,
     },
     rulesUndoBefore: state.rulesUndo,
-    ownTidied: { ...marks, [fwd(en.file)]: sha(next) },
+    ownTidied: after,
   });
   console.log(
     `restore: ${id} is back in ${tilde(en.file)}${en.kind === "reworded" ? " in place of its rewording" : en.heading ? ` under "${en.heading}"` : ""} (undo: ${UNDO})`,

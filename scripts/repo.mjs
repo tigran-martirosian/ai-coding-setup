@@ -1,5 +1,5 @@
 // What install.mjs reads from this repository: version.json, the hook table settings.example.json with
-// its `_setup` lists, projects/homes.json, the project folders, and the files that go to ~/.claude.
+// its `_setup` lists, templates/homes.json, the project folders, and the files that go to ~/.claude.
 // fitter gives the rules and folder texts the real projects folder in place of <projects>.
 import fs from "node:fs";
 import path from "node:path";
@@ -24,9 +24,9 @@ export function repoSources(REPO) {
     OLD_MATCHERS: oldMatchers,
     // The groups hooks/dispatch.mjs runs: wiring one takes out the older entries of its hooks
     GROUPS: json(path.join("hooks", "dispatch-groups.json")),
-    homes: json(path.join("projects", "homes.json")),
+    homes: json(path.join("templates", "homes.json")),
     HOMES: fs
-      .readdirSync(path.join(REPO, "projects"), { withFileTypes: true })
+      .readdirSync(path.join(REPO, "templates"), { withFileTypes: true })
       .filter((e) => e.isDirectory() && e.name !== "shared")
       .map((e) => e.name),
     // Every file in these repo folders goes to the folder of the same name under ~/.claude; version.json goes
@@ -34,8 +34,8 @@ export function repoSources(REPO) {
     files: OWN_FOLDERS.flatMap((d) =>
       filesIn(path.join(REPO, d)).map((f) => path.join(d, f)),
     ).concat("version.json"),
-    // projects/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
-    shared: path.join(REPO, "projects", "shared"),
+    // templates/shared holds what the picture skill needs in ~/.claude: the skill itself and its gate
+    shared: path.join(REPO, "templates", "shared"),
   };
 }
 

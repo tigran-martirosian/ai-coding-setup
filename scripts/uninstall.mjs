@@ -6,21 +6,22 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  restore as restoreNimbalyst,
-  runningFrom,
-} from "../tools/nimbalyst-patch/patch.mjs";
 import { HELPER_DENY } from "./claude-code-settings.mjs";
 import { dropAgy, dropCcpoolStart, dropSwitches } from "./claude-files.mjs";
 import {
   BACKUP_DIR,
   filesIn,
   fwd,
+  MOVED_FOLDERS,
   moveFile,
   OWN_FOLDERS,
   read,
   sha,
 } from "./files.mjs";
+import {
+  restore as restoreNimbalyst,
+  runningFrom,
+} from "./nimbalyst-patch/patch.mjs";
 import { EXT_FOLDER, nimbalystHome } from "./nimbalyst-paths.mjs";
 import { scriptsOf, unwire } from "./wiring.mjs";
 
@@ -250,7 +251,11 @@ export function uninstall(ctx) {
   const restorable = (target) =>
     fwd(target).toLowerCase() ===
       fwd(path.join(CLAUDE, "CLAUDE.md")).toLowerCase() ||
-    [...OWN_FOLDERS, "shared-skills"].some((d) =>
+    [
+      ...OWN_FOLDERS,
+      "shared-skills",
+      ...MOVED_FOLDERS.map(([from]) => from),
+    ].some((d) =>
       fwd(target)
         .toLowerCase()
         .startsWith(fwd(path.join(CLAUDE, d)).toLowerCase() + "/"),
@@ -323,7 +328,7 @@ export function uninstall(ctx) {
     local &&
     nimbalystApp(path.join(local, "Programs", "Nimbalyst", "resources"));
   if (app && (fs.existsSync(app.orig) || fs.existsSync(app.marker))) {
-    const later = `node "${fwd(path.join(REPO, "tools", "nimbalyst-patch", "patch.mjs"))}" --restore --app "${fwd(app.res)}"`;
+    const later = `node "${fwd(path.join(REPO, "scripts", "nimbalyst-patch", "patch.mjs"))}" --restore --app "${fwd(app.res)}"`;
     try {
       if (runningFrom(app.install).length)
         kept.push(

@@ -445,6 +445,13 @@ const checks = [
       ["[blocks]", "[slows]", "[nit]"].every((s) => blind.body.includes(s)),
   ],
   [
+    "blind-reviewer's answer opens with PASS or FAIL alone, so saved word for word it is the page's verdict verify-gate reads",
+    /```\r?\nPASS \/ FAIL\r?\n/.test(blind.body) &&
+      /The first line is FAIL when any finding is \[blocks\], else PASS, alone on its line/.test(
+        blind.body,
+      ),
+  ],
+  [
     "blind-reviewer is for screens and text only: no command checks, no whole-setup look",
     !/command/i.test(desc(blind.head)) && !/whole setup/i.test(blind.body),
   ],
@@ -481,11 +488,12 @@ const checks = [
       preset("REVIEW.md") === null,
   ],
   [
-    "new-project's gitignore preset names no setup folder (no .claude/ line), keeps the \"don't ask again\" file out with **/settings.local.json and the editor's folder with .nimbalyst/",
+    "new-project's gitignore preset names no tool or setup folder (no .claude/ or .nimbalyst line) and keeps the \"don't ask again\" file out with **/settings.local.json",
     !!gitignorePreset &&
-      !gitignorePreset.split("\n").some((l) => l.includes(".claude/")) &&
-      gitignorePreset.split("\n").includes("**/settings.local.json") &&
-      gitignorePreset.split("\n").includes(".nimbalyst/"),
+      !gitignorePreset
+        .split("\n")
+        .some((l) => l.includes(".claude/") || l.includes(".nimbalyst")) &&
+      gitignorePreset.split("\n").includes("**/settings.local.json"),
   ],
   ...Object.entries(VERIFY_KINDS).map(([kind, quiet]) => [
     `new-project's preset/verify-${kind}.md exists as a verify skill: frontmatter, the five steps in order, the PROOF line a program checks, and headless, muted runs (${quiet})`,

@@ -25,8 +25,9 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-const HOME =
-  process.env.WATCH_HOME || path.join(os.homedir(), ".claude", "video-cache");
+const HOME = path.resolve(
+  process.env.WATCH_HOME || path.join(os.homedir(), ".claude", "video-cache"),
+);
 // Homebrew does not put ffmpeg-full on PATH, so it is looked up where Homebrew keeps it.
 const BREW_FULL = [
   "/opt/homebrew/opt/ffmpeg-full/bin",
@@ -91,7 +92,7 @@ const modelName =
 const modelFile =
   flags.model || !process.env.WATCH_WHISPER_MODEL
     ? path.join(HOME, "models", `ggml-${modelName}.bin`)
-    : process.env.WATCH_WHISPER_MODEL;
+    : path.resolve(process.env.WATCH_WHISPER_MODEL);
 const modelUrl = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${modelName}.bin`;
 const modelSize = MODEL_SIZES[modelName] || "size not known here";
 
@@ -116,7 +117,9 @@ if (flags.getModel) {
   process.exit(0);
 }
 if (rest.length !== 1) stop(USAGE, 2);
-const source = rest[0];
+const isLink = /^https?:\/\//i.test(rest[0]);
+// A file is taken by its absolute path: the children run in the cache folder
+const source = isLink ? rest[0] : path.resolve(rest[0]);
 
 function seconds(text, name) {
   if (!/^\d+(:\d{1,2}){0,2}(\.\d+)?$/.test(text))
@@ -134,7 +137,6 @@ function clock(s) {
   return `${h ? `${h}:${String(m).padStart(2, "0")}` : m}:${String(sec).padStart(2, "0")}${tenth ? `.${tenth}` : ""}`;
 }
 
-const isLink = /^https?:\/\//i.test(source);
 let id;
 if (isLink) {
   id =
@@ -154,6 +156,10 @@ if (isLink) {
     .digest("hex")
     .slice(0, 8)}`;
 }
+// Every child runs in this folder, which only watch.mjs writes to, and gets only absolute paths: a tool reads
+// config and code from its working folder (yt-dlp its yt-dlp.conf, uv a .venv and uv.toml, python -c its imports),
+// and the folder Claude runs in may be a cloned repo with such a file planted. yt-dlp also runs with
+// --ignore-config, uv and uvx with --no-config, and python with -I.
 const dir = path.join(HOME, id);
 fs.mkdirSync(dir, { recursive: true });
 
@@ -164,15 +170,23 @@ function yt(args, options = {}) {
     const own =
       process.env.YT_DLP &&
       (/\.m?js$/.test(process.env.YT_DLP)
-        ? [process.execPath, process.env.YT_DLP]
-        : [process.env.YT_DLP]);
-    const tries = [own, ["yt-dlp"], ["uvx", "--with", "deno", "yt-dlp"]].filter(
-      Boolean,
-    );
+        ? [process.execPath, path.resolve(process.env.YT_DLP)]
+        : [
+            /[\\/]/.test(process.env.YT_DLP)
+              ? path.resolve(process.env.YT_DLP)
+              : process.env.YT_DLP,
+          ]);
+    const tries = [
+      own,
+      ["yt-dlp"],
+      ["uvx", "--no-config", "--with", "deno", "yt-dlp"],
+    ].filter(Boolean);
     ytCommand = tries.find(
       (t) =>
-        spawnSync(t[0], [...t.slice(1), "--version"], { stdio: "ignore" })
-          .status === 0,
+        spawnSync(t[0], [...t.slice(1), "--ignore-config", "--version"], {
+          stdio: "ignore",
+          cwd: dir,
+        }).status === 0,
     );
     if (!ytCommand)
       stop(
@@ -181,8 +195,14 @@ function yt(args, options = {}) {
   }
   return spawnSync(
     ytCommand[0],
-    [...ytCommand.slice(1), "--no-warnings", "--no-playlist", ...args],
-    { encoding: "utf8", maxBuffer: 300 * 1024 * 1024, ...options },
+    [
+      ...ytCommand.slice(1),
+      "--ignore-config",
+      "--no-warnings",
+      "--no-playlist",
+      ...args,
+    ],
+    { encoding: "utf8", maxBuffer: 300 * 1024 * 1024, ...options, cwd: dir },
   );
 }
 
@@ -231,7 +251,7 @@ function probeLength(file) {
   const probe = execFileSync(
     tool("ffprobe"),
     ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file],
-    { encoding: "utf8" },
+    { encoding: "utf8", cwd: dir },
   );
   const length = Number(probe.trim());
   if (!(length > 0)) stop(`ffprobe could not read the length of ${file}`);
@@ -251,7 +271,10 @@ const filterPath = (p) =>
   p.replace(/\\/g, "/").replace(/:/g, "\\\\:").replace(/'/g, "\\\\\\'");
 const runAsync = (cmd, args) =>
   new Promise((done) => {
-    const child = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(cmd, args, {
+      stdio: ["ignore", "ignore", "pipe"],
+      cwd: dir,
+    });
     let err = "";
     child.stderr.on("data", (d) => {
       err = (err + d).slice(-4000);
@@ -286,13 +309,18 @@ function engine() {
       label: `stand-in ${path.basename(process.env.WATCH_STT)}`,
       jobs: jobs || 1,
       transcribe: (audio, srt, lang) =>
-        runAsync(process.execPath, [process.env.WATCH_STT, audio, srt, lang]),
+        runAsync(process.execPath, [
+          path.resolve(process.env.WATCH_STT),
+          audio,
+          srt,
+          lang,
+        ]),
     };
   }
   const filters = spawnSync(
     tool("ffmpeg"),
     ["-hide_banner", "-h", "filter=whisper"],
-    { encoding: "utf8" },
+    { encoding: "utf8", cwd: dir },
   );
   if (/Filter whisper/.test(filters.stdout || "")) {
     if (!fs.existsSync(modelFile))
@@ -320,7 +348,9 @@ function engine() {
     };
   }
   // faster-whisper 1.2.1 cannot open audio with PyAV 16 ("unexpected keyword argument 'metadata_errors'", 2026-11-12)
-  if (spawnSync("uv", ["--version"], { stdio: "ignore" }).status === 0) {
+  if (
+    spawnSync("uv", ["--version"], { stdio: "ignore", cwd: dir }).status === 0
+  ) {
     const name = (flags.model || "small").replace(/-q\d.*$/, "");
     const n =
       jobs || Math.max(1, Math.min(4, Math.floor(os.cpus().length / 4)));
@@ -349,11 +379,13 @@ function engine() {
         runAsync("uv", [
           "run",
           "--no-project",
+          "--no-config",
           "--with",
           "faster-whisper==1.2.1",
           "--with",
           "av<16",
           "python",
+          "-I",
           "-c",
           FASTER_WHISPER,
           audio,
@@ -383,7 +415,7 @@ function hasSound(file) {
       "csv=p=0",
       file,
     ],
-    { encoding: "utf8" },
+    { encoding: "utf8", cwd: dir },
   );
   return probe.status === 0 && probe.stdout.trim() !== "";
 }
@@ -419,7 +451,7 @@ function cutPoints(audio, length, n) {
       "null",
       "-",
     ],
-    { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 },
+    { encoding: "utf8", maxBuffer: 50 * 1024 * 1024, cwd: dir },
   );
   const silences = [];
   for (const m of (probe.stderr || "").matchAll(
@@ -520,7 +552,7 @@ async function listen(subtitlesWhy) {
         "16000",
         p.sound,
       ],
-      { encoding: "utf8" },
+      { encoding: "utf8", cwd: dir },
     );
     if (cut.status !== 0) {
       fs.rmSync(work, { recursive: true, force: true });
@@ -734,7 +766,19 @@ const out = path.resolve(
 fs.mkdirSync(out, { recursive: true });
 for (const old of fs.readdirSync(out))
   if (/^sheet_\d+\.jpg$/.test(old)) fs.rmSync(path.join(out, old));
-const stamp = `drawtext=font=Arial:text='%{pts\\:hms\\:${from}}':x=6:y=6:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=4`;
+// On Windows, ffmpeg builds carry fontconfig without its config file, so a font name (font=Arial) stops ffmpeg
+// with "Fontconfig error: Cannot load default config file"; there the font goes by its file. Elsewhere fontconfig
+// has its config and finds the font by name.
+let font = "font=Arial";
+if (process.platform === "win32") {
+  if (!process.env.SystemRoot)
+    stop("No font to write the time on a still: SystemRoot is not set");
+  const file = path.join(process.env.SystemRoot, "Fonts", "arial.ttf");
+  if (!fs.existsSync(file))
+    stop(`No font to write the time on a still: ${file} is missing`);
+  font = `fontfile='${file.replace(/\\/g, "/").replace(/[\\:']/g, "\\$&")}'`;
+}
+const stamp = `drawtext=${font}:text='%{pts\\:hms\\:${from}}':x=6:y=6:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=4`;
 // select keeps real frames with their own times, so the time drawn on a still is the time it was taken at
 const filter = `select='gte(t,selected_n*${every})',scale=480:270:force_original_aspect_ratio=decrease,pad=480:270:(ow-iw)/2:(oh-ih)/2,${stamp},tile=3x3:padding=4`;
 const run = spawnSync(
@@ -758,7 +802,7 @@ const run = spawnSync(
     "4",
     path.join(out, "sheet_%02d.jpg"),
   ],
-  { encoding: "utf8" },
+  { encoding: "utf8", cwd: dir },
 );
 const made = fs
   .readdirSync(out)

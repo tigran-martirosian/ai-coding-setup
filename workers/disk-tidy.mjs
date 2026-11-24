@@ -1235,7 +1235,8 @@ async function scan(C, scanner) {
           const theirs = path.join(root, m[1]);
           const dirty = dirtyCount(C, p),
             ignored = ignoredData(C, p);
-          const commits = gitOut(C, p, ["rev-list", "--all"])
+          // --reflog: older stashes and commits left after a reset are work too, though no branch names them
+          const commits = gitOut(C, p, ["rev-list", "--all", "--reflog"])
             .split(/\r?\n/)
             .filter(Boolean);
           if (dirty)

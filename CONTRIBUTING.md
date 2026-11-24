@@ -35,7 +35,7 @@ node tests/run-all.mjs
 
 `npx @biomejs/biome@2.6.7 ci .` must pass; CI runs the same Biome version. `npx @biomejs/biome@2.6.7 check --write .` formats the code and applies the safe fixes. The style is 2 spaces, double quotes, trailing commas and 80 columns. A rule with 20 findings or fewer is on and its findings are fixed; a `biome-ignore` comment says why where a fix would change behaviour.
 
-Left out of the formatter: Markdown; CSS, because tests read it as text and match the hand layout; `extensions/shared/orbs/orbs.js`, a generated, minified bundle (left out of Biome entirely); the JSON files that scripts write with `JSON.stringify` (`version.json`, `tools/nimbalyst-patch/pin.json`, `rules/history.json`, `extensions/ink-themes/manifest.json`), so a script run changes nothing; and `skills/update-setup/update.mjs`, where the privacy word list allows a word on one line number.
+Left out of the formatter: Markdown; CSS, because tests read it as text and match the hand layout; `extensions/shared/orbs/orbs.js`, a generated, minified bundle (left out of Biome entirely); the JSON files that scripts write with `JSON.stringify` (`version.json`, `scripts/nimbalyst-patch/pin.json`, `rules/history.json`, `extensions/ink-themes/manifest.json`), so a script run changes nothing; and `skills/update-setup/update.mjs`, where the privacy word list allows a word on one line number.
 
 Rules turned off, each with more than 20 findings:
 

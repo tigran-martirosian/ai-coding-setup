@@ -71,12 +71,21 @@ function fitDetail(summary, strings, fits) {
 /** Whether `text` fits `node` on one line in the node's own type. `text` is a string, or the parts of a line drawn
  *  as spans joined by " · " (index.js: the agents header's count, a row's meta line); then each part is measured at
  *  `weightOf(part)` when that gives one, as style.css draws it, so a line of mostly plain words is not measured as if
- *  all bold and parts are not dropped while there is still room. Measured on a hidden span under <html>, outside the
- *  body that index.js watches, so measuring changes nothing it would redraw for. */
+ *  all bold and parts are not dropped while there is still room.
+ *  `room` is the node's width when the caller read it before writing anything (index.js reads every row's width in
+ *  one go): a width read right after a write to the page makes the browser lay out the whole page again, about 10 ms
+ *  each with a chat open, and a pass that read one per row froze a session switch for a third of a second
+ *  (2026-11-23). Text is measured on a canvas for the same reason: no layout at all (0.006 ms against 0.1-11 ms on
+ *  a hidden span). A canvas has no tabular digits, so in tabular type each digit counts at the width of one tabular
+ *  digit, measured once per type on a hidden span under <html>, outside the body index.js watches. */
 let probe;
+let ctx;
 const widths = new Map();
-function fitsIn(node, weightOf) {
-  const cs = getComputedStyle(node);
+const digits = new Map();
+// A node's type by its class and the theme: the panel's lines are styled by class alone, so reading the computed
+// style once per kind of line is enough (a read after a write forces the style work again)
+const types = new Map();
+function fitsIn(node, weightOf, room = node.clientWidth) {
   if (!probe) {
     probe = document.createElement("span");
     probe.className = "ap-files-probe";
@@ -84,24 +93,37 @@ function fitsIn(node, weightOf) {
     probe.style.cssText =
       "position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre;";
     document.documentElement.append(probe);
+    ctx = document.createElement("canvas").getContext("2d");
     // A width taken before a web font arrived is wrong once it has
-    document.fonts?.addEventListener("loadingdone", () => widths.clear());
+    document.fonts?.addEventListener("loadingdone", () => {
+      widths.clear();
+      digits.clear();
+      types.clear();
+    });
   }
-  // The type's longhands, not cs.font: Chromium gives "" for the shorthand when font-variant-numeric is set
-  // (tabular-nums on the meta line, the count and the files line), and the probe then measured in the page's
-  // default 16px type, so parts were dropped while a third of the line was still free
-  const type = [
-    "fontStyle",
-    "fontWeight",
-    "fontStretch",
-    "fontSize",
-    "fontFamily",
-    "fontVariantNumeric",
-    "fontFeatureSettings",
-    "letterSpacing",
-  ].map((k) => [k, cs[k]]);
-  const room = node.clientWidth;
+  const kind = `${node.className}|${document.documentElement.className}`;
+  let type = types.get(kind);
+  if (!type) {
+    const cs = getComputedStyle(node);
+    // The type's longhands, not cs.font: Chromium gives "" for the shorthand when font-variant-numeric is set
+    // (tabular-nums on the meta line, the count and the files line), and the probe then measured in the page's
+    // default 16px type, so parts were dropped while a third of the line was still free
+    type = [
+      "fontStyle",
+      "fontWeight",
+      "fontStretch",
+      "fontSize",
+      "fontFamily",
+      "fontVariantNumeric",
+      "fontFeatureSettings",
+      "letterSpacing",
+    ].map((k) => [k, cs[k]]);
+    if (types.size > 50) types.clear();
+    types.set(kind, type);
+  }
   const typeKey = type.map(([, v]) => v).join("|");
+  const t = Object.fromEntries(type);
+  const tabular = /tabular-nums/.test(t.fontVariantNumeric);
   return (text) => {
     // A width measured once is remembered: a pass runs on every chat change, and measuring each row's words again
     // forced a layout per try (seconds of lag while helpers ran, 2026-11-14)
@@ -118,21 +140,38 @@ function fitsIn(node, weightOf) {
     }
     return width <= room;
   };
+  // One tabular digit's width at a weight, from ten of them on the hidden span (once per type and weight)
+  function digit(weight) {
+    const key = `${typeKey}|${weight}`;
+    let w = digits.get(key);
+    if (w === undefined) {
+      for (const [k, v] of type) probe.style[k] = v;
+      probe.style.fontWeight = weight;
+      probe.textContent = "0123456789";
+      w = probe.getBoundingClientRect().width / 10;
+      digits.set(key, w);
+    }
+    return w;
+  }
+  function run(text, weight) {
+    const stretch = t.fontStretch === "100%" ? "" : `${t.fontStretch} `;
+    ctx.font = `${t.fontStyle} ${weight} ${stretch}${t.fontSize} ${t.fontFamily}`;
+    ctx.letterSpacing = t.letterSpacing === "normal" ? "0px" : t.letterSpacing;
+    if (!tabular) return ctx.measureText(text).width;
+    const n = (text.match(/\d/g) || []).length;
+    return (
+      ctx.measureText(text.replace(/\d/g, "")).width + (n && n * digit(weight))
+    );
+  }
   function measure(text) {
-    // Set on every call: one probe serves every node
-    for (const [k, v] of type) probe.style[k] = v;
-    if (typeof text === "string") probe.textContent = text;
-    else
-      probe.replaceChildren(
-        ...text.flatMap((p, i) => {
-          const span = document.createElement("span");
-          span.textContent = p.text;
-          const weight = weightOf?.(p);
-          if (weight) span.style.fontWeight = weight;
-          return i ? [" · ", span] : [span];
-        }),
-      );
-    return probe.getBoundingClientRect().width;
+    if (typeof text === "string") return run(text, t.fontWeight);
+    return text.reduce(
+      (w, p, i) =>
+        w +
+        (i ? run(" · ", t.fontWeight) : 0) +
+        run(p.text, weightOf?.(p) || t.fontWeight),
+      0,
+    );
   }
 }
 

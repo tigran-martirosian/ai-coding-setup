@@ -162,6 +162,55 @@ const cases = [
     bash(`curl -o $OUT ${base}/big.bin`),
     null,
   ],
+  // The rewrite replaces one simple command and copies the rest: where the hook and the shell cut the command
+  // differently, text the guards saw as inert would run (deepsec auth-bypass-9a366a0013)
+  [
+    "a comment after the download holding a ';': left alone, the comment can't become a command",
+    bash(`curl -L -o x.bin ${base}/big.bin # done; rm -rf ~/work`),
+    null,
+  ],
+  [
+    "a backslash-escaped ';' in Bash: left alone, the escape can't come undone",
+    bash(`curl -L -o x.bin ${base}/big.bin?v=1\\; rm -rf ~/work`),
+    null,
+  ],
+  [
+    "a curly quote in a PowerShell output name: left alone, it can't close the re-quoted name",
+    ps(`curl.exe -Lo"a’; Remove-Item -Recurse ~/work; ’.bin" ${base}/big.bin`),
+    null,
+  ],
+  [
+    "a comment at the end, no newline after it: left alone",
+    bash(`curl -o f.zip ${base}/big.bin # get it`),
+    null,
+  ],
+  [
+    "two downloads, the second with a comment holding a ';': only the first rewritten, the rest copied as it was",
+    bash(
+      `curl -L -o a.bin ${base}/big.bin && curl -L -o b.bin ${base}/big.bin # x; rm -rf ~/work${NOTE}`,
+    ),
+    `${N} ${base}/big.bin a.bin && curl -L -o b.bin ${base}/big.bin # x; rm -rf ~/work${NOTE}`,
+  ],
+  [
+    "a '#' right after a quoted word: left alone, as the shell may read a comment there",
+    ps(`curl.exe -L ${base}/big.bin -o "x.bin"#c`),
+    null,
+  ],
+  [
+    "a doubled quote in a PowerShell double-quoted name: left alone, it is one quote there",
+    ps(`curl.exe -L -o "a""b.bin" ${base}/big.bin`),
+    null,
+  ],
+  [
+    "a doubled quote in a PowerShell single-quoted name: left alone",
+    ps(`Invoke-WebRequest -Uri ${base}/big.bin -OutFile 'it''s.bin'`),
+    null,
+  ],
+  [
+    "a quoted '#' and ';' in the output name: still rewritten",
+    bash(`curl -L -o "a #1;b.bin" ${base}/big.bin${NOTE}`),
+    `${N} ${base}/big.bin "a #1;b.bin"${NOTE}`,
+  ],
   [
     "not a shell tool: left alone",
     { tool_name: "Read", tool_input: { file_path: "x" } },

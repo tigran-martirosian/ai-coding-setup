@@ -7,6 +7,7 @@
 
 import type { PanelHostProps } from "@nimbalyst/extension-sdk";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { trusted } from "./command";
 import {
   hideDashboardButton,
   showDashboardPanel,
@@ -182,7 +183,9 @@ function UsagePlanPanel({ host }: Partial<PanelHostProps>) {
   const now = useNow();
 
   useEffect(() => {
-    if (host) setExec((command, options) => host.exec(command, options));
+    // trusted: never in the open project (see command.ts)
+    if (host)
+      setExec((command, options) => host.exec(command, trusted(options)));
     start();
     refresh();
   }, [host]);

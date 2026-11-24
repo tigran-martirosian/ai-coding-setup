@@ -7,7 +7,7 @@
 #     shells of a closed Claude session, Git's command-line tools (tail, grep, sleep ... from a watcher),
 #     headless browsers, and node or python run from .claude, Temp or npx.
 #   Other orphaned node or python (a bot, a global tool's daemon) is listed as MAYBE WANTED and never stopped.
-# It never stops Nimbalyst, the setup's Nimbalyst delivery (anything run from tools/nimbalyst-patch), the phone app's
+# It never stops Nimbalyst, the setup's Nimbalyst delivery (anything run from scripts/nimbalyst-patch), the phone app's
 # PC program (main.mjs or keep.mjs in skills/phone-bot/pc, installed or a build), a terminal window, ssh or gpg agents, a browser you see, or anything whose
 # starter is still running, so run -Go when no build or test is running.
 # It also names listening ports still held by a program that has closed (they block a restart on that port).
@@ -52,7 +52,7 @@ $kinds = @(
 )
 $scripts = 'node.exe', 'python.exe', 'pythonw.exe', 'bun.exe', 'deno.exe'
 # The Nimbalyst delivery waits for Nimbalyst to close, then swaps its files: stopping it leaves a half-done update
-$delivery = 'tools[\\/]nimbalyst-patch[\\/]'
+$delivery = '(scripts|tools)[\\/]nimbalyst-patch[\\/]'  # tools: its place before 26.6, for a delivery started before the update
 # The phone app's PC program is meant to run all the time: keep.mjs starts it at log-on and outlives its starter
 $phonePc = 'skills[\\/]phone-bot[\\/]pc[\\/](main|keep)\.mjs'
 $left = [System.Collections.Generic.List[object]]::new()

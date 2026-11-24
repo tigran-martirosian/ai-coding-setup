@@ -64,7 +64,13 @@ const commandsIn = (settings) =>
     .flat()
     .flatMap((g) => g.hooks)
     .map((h) => h.command);
-const shipped = ["hooks", "agents", "skills", "workers", "tools"]
+const shipped = [
+  "hooks",
+  "agents",
+  "skills",
+  "workers",
+  path.join("scripts", "nimbalyst-patch"),
+]
   .flatMap((d) => walk(path.join(REPO, d)))
   .map((f) => path.relative(REPO, f));
 const example = json(path.join(REPO, "settings.example.json"));
@@ -107,9 +113,11 @@ ok(
   "the setup's hooks are wired",
   commandsIn(json(path.join(claude, "settings.json"))).length > 1,
 );
-const tools = shipped.filter((f) => f.startsWith("tools"));
+const tools = shipped.filter((f) =>
+  f.startsWith(path.join("scripts", "nimbalyst-patch")),
+);
 ok(
-  "the tools/ files (the Nimbalyst patcher) are installed",
+  "the scripts/nimbalyst-patch/ files (the Nimbalyst patcher) are installed",
   tools.length > 0 && tools.every((f) => fs.existsSync(path.join(claude, f))),
 );
 fs.appendFileSync(path.join(claude, changed), "\n// edited by the person\n");
@@ -606,7 +614,7 @@ if (process.platform === "win32") {
   await new Promise((done) =>
     app10.exitCode !== null ? done() : app10.once("exit", done),
   );
-  const later10 = `node "${path.join(REPO, "tools", "nimbalyst-patch", "patch.mjs").replace(/\\/g, "/")}" --restore --app "${res10.replace(/\\/g, "/")}"`;
+  const later10 = `node "${path.join(REPO, "scripts", "nimbalyst-patch", "patch.mjs").replace(/\\/g, "/")}" --restore --app "${res10.replace(/\\/g, "/")}"`;
   ok(
     "home10: with Nimbalyst running, --uninstall leaves app.asar as it is and names the command that puts it back later",
     [
@@ -620,7 +628,7 @@ if (process.platform === "win32") {
   const again10 = spawnSync(
     process.execPath,
     [
-      path.join(REPO, "tools", "nimbalyst-patch", "patch.mjs"),
+      path.join(REPO, "scripts", "nimbalyst-patch", "patch.mjs"),
       "--restore",
       "--app",
       res10,

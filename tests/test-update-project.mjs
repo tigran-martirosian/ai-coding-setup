@@ -71,6 +71,7 @@ write(
   path.join(dir, "docs", "facts.md"),
   "# Facts\n\n- A fact. (recheck 2026-01-01)\n- Another. (recheck 2099-01-01)\n",
 ); // P11 (no recheck-date line in its header); P9: line 3 is past, line 4 is not
+write(path.join(dir, ".nimbalyst", "state.json"), "{}"); // P7: the editor's folder goes to .git/info/exclude
 // no .claude/rules/: P1
 spawnSync("git", ["init", "-q", dir]); // P7: all untracked
 write(
@@ -176,6 +177,15 @@ check(
   "P7 groups the untracked entries by top folder",
   ids.includes("P7.docs") && ids.includes("P7.CLAUDE.md"),
   ids.join(),
+);
+check(
+  "P7 sends the Nimbalyst editor's untracked .nimbalyst/ folder to .git/info/exclude, not to the shared .gitignore",
+  lines.some((l) =>
+    /^P7\.\.nimbalyst\s+ask\s+\.nimbalyst\/\s+.*`\.nimbalyst\/` to \.git\/info\/exclude/.test(
+      l,
+    ),
+  ) && !lines.some((l) => /^P7\.\.nimbalyst\s.*add to \.gitignore/.test(l)),
+  first.out,
 );
 check(
   "P8 names the missing path with its line, and the memory notes",
@@ -392,6 +402,19 @@ spawnSync("git", [
   hub,
   "symbolic-ref",
   "refs/remotes/origin/HEAD",
+  "refs/remotes/origin/-dev",
+]);
+const dashHead = runEnv({ PASS_GH: fakeGh, FAKE_GH: "on" }, "--check", hub);
+check(
+  "a default branch name starting with - gives P16 as a note, never as an option in a command",
+  /^P16 +note +origin.HEAD +.*rename it to main by hand/m.test(dashHead.out),
+  dashHead.out,
+);
+spawnSync("git", [
+  "-C",
+  hub,
+  "symbolic-ref",
+  "refs/remotes/origin/HEAD",
   "refs/remotes/origin/main",
 ]);
 const hubOn = runEnv({ PASS_GH: fakeGh, FAKE_GH: "on" }, "--check", hub);
@@ -400,6 +423,29 @@ check(
   hubOn.code === 0 && gitIds(hubOn.out).length === 0,
   hubOn.out,
 );
+// The remote chooses its HEAD's name; git allows $ ( ) in it, and Claude runs the P16 command once ticked
+spawnSync("git", [
+  "-C",
+  hub,
+  "symbolic-ref",
+  "refs/remotes/origin/HEAD",
+  "refs/remotes/origin/x$(touch${IFS}pwned)",
+]);
+const oddHead = runEnv({ PASS_GH: fakeGh, FAKE_GH: "on" }, "--check", hub);
+check(
+  "a default branch name with shell characters gives P16 as a note to rename by hand, never as a command",
+  /^P16\s+note\s+origin\/HEAD\s+.*rename it to main by hand/m.test(
+    oddHead.out,
+  ) && !/branches\/x\$\(|branch -m x\$\(/.test(oddHead.out),
+  oddHead.out,
+);
+spawnSync("git", [
+  "-C",
+  hub,
+  "symbolic-ref",
+  "refs/remotes/origin/HEAD",
+  "refs/remotes/origin/main",
+]);
 const free = runEnv({ PASS_GH: fakeGh, FAKE_GH: "upgrade" }, "--check", hub);
 check(
   "a private repo on GitHub Free: the 403 on rulesets prints P21 as a note",
@@ -774,6 +820,17 @@ check(
   "every project folder gets local git: a folder without git gets only P13, a fix (no tick) that starts git",
   startsGit(noGitOut),
   noGitOut,
+);
+// .nimbalyst/ stays out of the shared .gitignore; it goes in .git/info/exclude, which exists only after git init
+// and must be written before git add -A, or the first commit holds the editor's folder
+const p13Fix = noGitOut.split(/\r?\n/).find((l) => /^P13\s/.test(l)) || "";
+const at = (s) => p13Fix.indexOf(s);
+check(
+  "P13's start-git fix writes .nimbalyst/ to .git/info/exclude after git init and before git add -A",
+  at("git init -b main") >= 0 &&
+    at("git init -b main") < at("`.nimbalyst/` to .git/info/exclude") &&
+    at("`.nimbalyst/` to .git/info/exclude") < at("git add -A"),
+  p13Fix,
 );
 write(path.join(noGit, "CLAUDE.md"), "# No git\n\nGit: none.\n");
 const noneOut = run("--check", noGit).out;

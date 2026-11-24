@@ -5,9 +5,11 @@ Detail for `SKILL.md`, read at the step that needs it.
 ## The plan file
 
 Read the spec whole: every **Done when** line gets a slice that proves it, every slice keeps the limits in **Your
-words** as the user said them, and the **Decided** lines are settled. In the project folder, read
+words** as the user said them, and the **Decided** lines are settled. **Built on** names what the slices use instead
+of building; a slice builds only what it and the project's own code lack. In the project folder, read
 `git -C <folder> status --short`, the recent log, its CLAUDE.md, its `verify` skill and the code the slices will
-touch: enough to name each slice's files and the riskiest unknown. No folder yet means a new project.
+touch: enough to name each slice's files, what they can reuse, and the riskiest unknown. No folder yet means a new
+project.
 
 1. **Slice 0, for a new project only,** done by you: `/new-project` (folder, git, CLAUDE.md), the job branch, the
    project's `verify` skill with the run and test commands, one passing test.
@@ -57,7 +59,7 @@ Size: <N slices, M worker sessions>.
 Goal: <one sentence>.
 Proves: D2, D4.
 Files: <every file it creates or changes>.
-Uses: <what it takes from earlier slices>. Gives: <what later slices rely on, names word for word>.
+Uses: <what it takes from earlier slices and from Built on>. Gives: <what later slices rely on, names word for word>.
 Helper: `worker-code`, Opus at high.
 Size: <worker sessions, a count>.
 Risky: yes, <reason> / no.
@@ -82,7 +84,7 @@ Agent tool, `subagent_type` and `model` from the slice row, `description: "S3: w
 JOB GOAL: the whole job, one sentence
 PLAN: the plan file's path
 SLICE: S3 of 5, what it does
-DONE WHEN: the slice's done-when lines, each with its check
+DONE WHEN: the slice's done-when lines, each with its check, and the project's lint (as `biome ci .`)
 FILES: to read, to change
 NOT: what must not change
 YOUR WORDS: the spec's quotes that bear on this slice, word for word
@@ -141,17 +143,22 @@ spending a fix round on it.
 The `blind-reviewer` has only the Read tool; what it judges is what its brief hands it.
 
 1. **Make the material.** Screenshots of every state, two sizes, zooms of small parts, each file named with its
-   scale (`phone-390x844-3x.png`), in one folder in the system temp folder. Text or a command: the page or message
+   scale (`phone-390x844-3x.png`), in one folder in the system temp folder. A page in a project with
+   `scripts/render-check.mjs`: `node scripts/render-check.mjs <page>` puts its shots in `.proof/<page name>/`. Text or a command: the page or message
    as a person reads it, or the command's docs and its output. Open each picture yourself: a blank or wrong-state
    shot is a failed shot. For a web page with the impeccable plugin, run `impeccable detect` first and fix its
    findings, so the blind look goes to what a scanner can't see.
 2. **The brief:** a neutral question ("a friend asks: is this clear?"), every file by full path with its scale, a
-   short word list for the product's own terms. No code, no reasoning, no list of changes, nothing from the build
+   short word list for the product's own terms; for a page, also the reader's questions and the user's marked
+   examples, as the `writing` skill's "A page: the fresh reader" says. No code, no reasoning, no list of changes, nothing from the build
    review. Last line `SYSTEMS MAP: none`.
-3. **Triage** each finding: fixed / disagree (with evidence) / out of scope. Fix every `[blocks]`, a `[slows]`
+3. **Save the answer** word for word as `verdict.md` beside the shots in `.proof/<page name>/` (the page's
+   path with `/` as `__`, `.md` dropped); its first line, PASS or FAIL, is what verify-gate reads.
+4. **Triage** each finding: fixed / disagree (with evidence) / out of scope. Fix every `[blocks]`, a `[slows]`
    when the fix is small, a `[nit]` only when cheap.
-4. **After the fixes,** reshoot the same states and open them yourself; a `[blocks]` you could not fix goes to the
-   user as open. No second blind round. Delete the temp folder after the report.
+5. **After the fixes,** reshoot the same states and open them yourself; a `[blocks]` you could not fix goes to the
+   user as open. No second blind round, except for a page with a `.proof/` folder: its new shots get one fresh
+   look, and that answer replaces `verdict.md`. Delete the temp folder after the report.
 
 ## Why these defaults
 
@@ -167,5 +174,9 @@ The `blind-reviewer` has only the Read tool; what it judges is what its brief ha
 - **Merge one at a time and remove the worktree in the same step:** the 2026-11-19 git research found 58 left-over
   worktrees (1.8 GB) and 63 of 70 branches merged but not deleted.
 - **Reproduce first, no extra checking agent** (2026-11-17): the reviewer hands a command, the lead runs it.
+- **Three kinds of check** (release 26.6 layer review): scripts that run (the done-when checks, each slice's
+  checks with the lint, the project's `verify` skill, CI); one fresh reader at four points (`plan-reviewer` on the
+  plan, `/code-review` on a risky slice, `reviewer` at the end, `blind-reviewer` on what a person sees); one gate,
+  verify-gate, on code and pages. The lead's own diff read and a separate retro were cut: neither caught anything.
 - **The blind look** finds what the builder can't: "once you know how something works, you cannot reliably simulate
   not knowing" (NN/g).

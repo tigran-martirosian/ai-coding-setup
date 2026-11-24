@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Tests for tools/nimbalyst-patch/deliver.mjs, on a fake install folder in a temp folder: a small built
+// Tests for scripts/nimbalyst-patch/deliver.mjs, on a fake install folder in a temp folder: a small built
 // app.asar, a fake Nimbalyst.exe (only its fuse wire), test patches, a fake installer (a node script that lays
 // down a prepared app.asar), a fake download (a copy) and a file that stands for the running-process list.
 // Nothing here touches the installed Nimbalyst, its processes or the real data folder. Windows only.
@@ -12,7 +12,7 @@ import path from "node:path";
 const DELIVER = path.join(
   import.meta.dirname,
   "..",
-  "tools",
+  "scripts",
   "nimbalyst-patch",
   "deliver.mjs",
 );
@@ -568,6 +568,34 @@ try {
     w.line() ===
       "nimbalyst: not staged: 0.84.0 is in without every fix; run /update-setup to get them",
     w.line(),
+  );
+
+  // 5b2. a kept job that names an old patcher path (26.5 kept it in tools/, which the 26.6 update deletes) is
+  // pointed at this patcher, or the quit listener would start a script that is gone
+  w = world("moved-job", { version: "0.84.0", running: true });
+  write(
+    path.join(w.data, "staged.json"),
+    JSON.stringify({
+      version: "0.84.0",
+      installer: null,
+      node: process.execPath,
+      deliver: path.join(
+        w.home,
+        ".claude",
+        "tools",
+        "nimbalyst-patch",
+        "deliver.mjs",
+      ),
+      at: new Date().toISOString(),
+      atClose: true,
+    }),
+  );
+  w.run("--stage");
+  check(
+    "a kept job is pointed at this patcher",
+    path.resolve(w.staged()?.deliver ?? "") === path.resolve(DELIVER) &&
+      w.staged()?.version === "0.84.0",
+    JSON.stringify(w.staged()),
   );
 
   // 5c. a job for an older pin goes before --stage returns

@@ -147,6 +147,13 @@ const disk = () => {
   let readFails: string | undefined;
   let onRead: (() => void) | undefined;
   const invoke = async (channel: string, ...args: unknown[]) => {
+    // A file that fails to read is there; a missing one is not read at all. whileReading's press lands on the poll's
+    // first file call, the existence check, so it also lands when the file is missing
+    if (channel === "extensions:file-exists") {
+      onRead?.();
+      onRead = undefined;
+      return !!readFails || files.has(args[0] as string);
+    }
     if (channel === "extensions:read-file") {
       onRead?.();
       onRead = undefined;

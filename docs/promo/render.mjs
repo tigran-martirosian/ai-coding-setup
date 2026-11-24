@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Renders the tour film, its poster and the short gifs in docs/features.md.
-//   node render.mjs            everything, into ../docs/img
+//   node render.mjs            everything, into ../img (docs/img)
 //   node render.mjs film       the film, the poster and the checks clip
 //   node render.mjs stills     the last frame of every shot, into out/stills (to check the text)
 //   node render.mjs clips      only the gifs
@@ -16,7 +16,7 @@ import {
 } from "./src/film/script.ts";
 
 const mode = process.argv[2] ?? "all";
-const img = "../docs/img";
+const img = "../img";
 const remotion = (...args) =>
   execFileSync("npx", ["remotion", ...args], { stdio: "inherit", shell: true });
 // The film is drawn large, then cut down in one step: a README video can't pass 10 MB on a free GitHub plan.

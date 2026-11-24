@@ -4,7 +4,70 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const PLUGINS = [["claude-hud@claude-hud", "jarrodwatts/claude-hud"]];
+// The commands the security plugin's own launcher (hooks/sg-python.sh) tries for a Python. Each is run, not
+// only looked for: Windows' python stand-ins in WindowsApps fail when run with arguments (they open nothing),
+// a Python from the Store runs, and macOS's python3 may be a 3.9.
+const PYTHONS = [
+  "python3.13",
+  "python3.12",
+  "python3.11",
+  "python3.10",
+  "python3",
+  "python",
+  "py -3",
+];
+// The file the shell would run for a command name, or null. lstat, because Windows' app aliases are links
+// that stat can not follow.
+const which = (name) => {
+  for (const d of (process.env.PATH || "").split(path.delimiter))
+    for (const e of process.platform === "win32" ? [".exe", ".cmd"] : [""])
+      if (d && fs.lstatSync(path.join(d, name + e), { throwIfNoEntry: false }))
+        return path.join(d, name + e);
+  return null;
+};
+const VERSION = ["-c", '"import sys;print(*sys.version_info[:2])"'];
+const hasPython = () =>
+  PYTHONS.some((cmd) => {
+    const [name, ...pre] = cmd.split(" ");
+    const file = which(name);
+    if (!file) return false;
+    const opts = { encoding: "utf8", timeout: 10000, windowsHide: true };
+    // a .cmd file runs only through the shell
+    const r = /\.cmd$/i.test(file)
+      ? spawnSync(`"${file}" ${[...pre, ...VERSION].join(" ")}`, {
+          ...opts,
+          shell: true,
+        })
+      : spawnSync(file, [...pre, VERSION[0], VERSION[1].slice(1, -1)], opts);
+    const [major, minor] = (r.status === 0 ? r.stdout : "")
+      .trim()
+      .split(/\s+/)
+      .map(Number);
+    return major > 3 || (major === 3 && minor >= 10);
+  });
+
+// [name, marketplace, what it needs to work: { check, why } (left off with "plugin left off: <name> <why>")]
+const PLUGINS = [
+  ["claude-hud@claude-hud", "jarrodwatts/claude-hud"],
+  // Anthropic's security reviews on edits, turn ends and commits: the always-on level of skills/security. Its
+  // hooks run on Python 3.10 or newer; without one every edit would end in a hook error, so it waits for one.
+  [
+    "security-guidance@claude-plugins-official",
+    "anthropics/claude-plugins-official",
+    {
+      check: hasPython,
+      why: "needs Python 3.10 or newer on the PATH (python.org; the Store stand-in is not one). Install it and run this again.",
+    },
+  ],
+  // Design tools: Anthropic's frontend-design skill, and Paul Bakaus's impeccable (design commands and checks on
+  // UI edits). impeccable's hooks run only when its launcher is there and fetch their own engine, so neither
+  // needs anything on the PATH.
+  [
+    "frontend-design@claude-plugins-official",
+    "anthropics/claude-plugins-official",
+  ],
+  ["impeccable@impeccable", "pbakaus/impeccable"],
+];
 const cli = (line, ms = 300000) => {
   const r = spawnSync(line, {
     shell: true,
@@ -51,22 +114,38 @@ export function plugins(ctx) {
     );
   } else if (toPlug.length) {
     const list = cli("claude plugin list", 60000);
-    const markets = new Set();
+    // marketplace -> whether it is there to install from
+    const markets = new Map();
     if (!list.ok)
       say(
         `plugins not installed: claude plugin list failed (${tail(list.out)})`,
       );
     else
-      for (const [name, market] of toPlug) {
+      for (const [name, market, needs] of toPlug) {
         if (list.out.includes(name)) {
           say(`plugin already there: ${name} (left as it is)`);
           plugged.push(name);
           continue;
         }
-        if (!markets.has(market)) {
-          cli(`claude plugin marketplace add ${market}`);
-          markets.add(market);
+        if (needs && !needs.check()) {
+          say(`plugin left off: ${name} ${needs.why}`);
+          continue;
         }
+        if (!markets.has(market)) {
+          // an add can fail because the marketplace is there already: the list settles it
+          const added = cli(`claude plugin marketplace add ${market}`);
+          const there =
+            added.ok ||
+            cli("claude plugin marketplace list", 60000).out.includes(
+              `(${market})`,
+            );
+          if (!there)
+            say(
+              `marketplace ${market} could not be added (${tail(added.out)}); its plugins were not installed. Run this again to retry.`,
+            );
+          markets.set(market, there);
+        }
+        if (!markets.get(market)) continue;
         const got = cli(`claude plugin install ${name}`);
         if (!got.ok) {
           say(

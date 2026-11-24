@@ -86,6 +86,35 @@ check(
   /the plan in a few \(slices, helpers, models, sessions\)/.test(lead),
 );
 
+// ---- release 26.6 D18: a job is built on what already exists before anything new is built
+// Line wraps move when the text is rewrapped, so these checks read the text with its whitespace joined.
+const flat = (s) => s.replace(/\s+/g, " ");
+const grilling = flat(
+  fs.readFileSync(path.join(ROOT, "skills", "grilling", "SKILL.md"), "utf8"),
+);
+check(
+  "D18: grilling finds what already exists (own code, its packages, then a maintained package, template or repo) before the first round",
+  grilling.includes(
+    "**What already exists** is the first fact to find, before the first round: the project's own code and its packages, then a maintained package, template or repo",
+  ),
+);
+check(
+  'D18: the spec template has a "Built on" section in the search order, and a new package\'s name is checked before install',
+  /^Built on: /m.test(specTemplate) &&
+    flat(specTemplate).includes(
+      "searched in this order: the project's own code, its packages, then a maintained package, template or repo",
+    ) &&
+    flat(specTemplate).includes(
+      "A package new to the project is checked before install: its name exists on the registry and is the real one, not a lookalike",
+    ),
+);
+check(
+  "D18: the lead's plan reads Built on, and a slice builds only what Built on and the project's own code lack",
+  flat(planFormat).includes(
+    "**Built on** names what the slices use instead of building; a slice builds only what it and the project's own code lack",
+  ),
+);
+
 // ---- the plan file format, moved from agents/planner.md into the lead's reference.md
 check(
   "plan format: slice 0 for a new project sets up folder, branch, verify skill and one passing test",
@@ -129,7 +158,7 @@ check(
     "Goal: <one sentence>.",
     "Proves: D2, D4.",
     "Files: <every file it creates or changes>.",
-    "Uses: <what it takes from earlier slices>. Gives:",
+    "Uses: <what it takes from earlier slices and from Built on>. Gives:",
     "Helper: `worker-code`, Opus at high.",
     "Size: <worker sessions, a count>.",
     "Risky: yes, <reason> / no.",
@@ -199,9 +228,10 @@ check(
   /A big job does not run under `\/goal`/.test(lead),
 );
 check(
-  "lead: slice verify re-runs the checks, reads the diff, code-review on risky slices",
-  /re-run its checks yourself in its worktree/.test(lead) &&
-    /read the diff/.test(lead) &&
+  "lead: a returned slice is judged by its re-run checks with the lint, and code-review on risky slices; the lead's own diff read is cut (release 26.6 layer review)",
+  /re-run its checks yourself in its worktree, the project's lint/.test(lead) &&
+    /DONE WHEN: [^\n]*the project's lint/.test(leadRef) &&
+    !/read(ing)? the (fix's )?diff/.test(lead) &&
     lead.includes("`/code-review` on its diff"),
 );
 check(
@@ -227,8 +257,7 @@ check(
     lead,
   ) && /It reviews once, for correctness against the spec/.test(lead),
 );
-const leadEnd =
-  lead.match(/## 4\. End\r?\n([\s\S]*?)\r?\n## 5\. Retro/)?.[1] || "";
+const leadEnd = lead.match(/## 4\. End\r?\n([\s\S]*)$/)?.[1] || "";
 check(
   "lead: section 4 sweeps every repository the job made worktrees in with --remove and names the dirty and unmerged ones with their last commit",
   leadEnd.includes(
@@ -246,12 +275,21 @@ check(
     ["locked", "detached", "missing"].every((w) => leadEnd.includes(w)),
 );
 check(
-  "lead: the user's try and a retro end the job; the retro names the plan review, code-review and blind look that caught nothing",
-  lead.includes("**The user tries it.**") &&
-    lead.includes("## 5. Retro") &&
-    /Name each of the plan review, `\/code-review` on\s+risky slices and the blind look that caught nothing/.test(
-      lead,
+  "lead: the user's try ends the job; the retro is lines at the end of the report, naming the plan review, code-review and blind look that caught nothing",
+  leadEnd.includes("**The user tries it.**") &&
+    !/retro/i.test(lead) &&
+    /It ends with a few lines: each finding of the reviews/.test(leadEnd) &&
+    /each of\s+the plan review, `\/code-review` on risky slices and the blind look that caught nothing/.test(
+      leadEnd,
     ),
+);
+check(
+  "lead: the blind look's answer is saved word for word as the page's verdict.md in .proof/<page name>/, and the three kinds of check are named once",
+  /\*\*Save the answer\*\* word for word as `verdict\.md` beside the shots in `\.proof\/<page name>\/`/.test(
+    leadRef,
+  ) &&
+    /\*\*Three kinds of check\*\*/.test(leadRef) &&
+    /one gate,\s+verify-gate, on code and pages/.test(leadRef),
 );
 check(
   "lead: worker brief carries the slice's done-when lines and the user's words, no Serves",

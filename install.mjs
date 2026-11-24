@@ -4,9 +4,9 @@
 //      settings.example.json merged into settings.json
 //   2. ~/.claude/CLAUDE.md: the global rules from rules/, written whole; the user's own rules in it move to
 //      ~/.claude/rules/my-rules.md (scripts/rules.mjs)
-//   3. the base project folders from projects/ (quick-tasks, claude-settings), each with its skills, hooks,
+//   3. the base project folders from templates/ (quick-tasks, claude-settings), each with its skills, hooks,
 //      tools and its own .claude/settings.json. A folder an older version shipped and this one merged into
-//      quick-tasks (projects/homes.json "retired") stays with all its files: its notes are copied into
+//      quick-tasks (templates/homes.json "retired") stays with all its files: its notes are copied into
 //      quick-tasks where missing, and the setup no longer keeps it (scripts/projects.mjs: retiredHomes)
 //   4. Claude Code's own settings (a default model when none is set, permission rules for the saved
 //      sign-ins and .env files), the Nimbalyst extensions and the plugins
@@ -100,6 +100,7 @@ import {
 import { extensions } from "./scripts/extensions.mjs";
 import {
   fwd,
+  MOVED_FOLDERS,
   moveOldCopies,
   OWN_FOLDERS,
   readJson,
@@ -358,7 +359,12 @@ if (leaveOut.error) {
 // finished the moves, the record says so (state.oldCopiesMoved) and later runs don't search again.
 const oldCopiesIn = [
   { dir: CLAUDE, deep: false },
-  ...[...OWN_FOLDERS, "shared-skills", "rules"].map((d) => ({
+  ...[
+    ...OWN_FOLDERS,
+    "shared-skills",
+    "rules",
+    ...MOVED_FOLDERS.map(([from]) => from),
+  ].map((d) => ({
     dir: path.join(CLAUDE, d),
     deep: true,
   })),
@@ -442,14 +448,19 @@ function passLevel() {
 
 // What is new: the updater that runs this installer may be an older one, so the pointer to docs/whats-new.md
 // beside this file is printed here. Only when the first two numbers rose from the version on record (26.4.4 ->
-// 26.5, not 26.5 -> 26.5.1), never on a first install, and only when the file is there.
+// 26.5, not 26.5 -> 26.5.1), never on a first install, and only when the file is there. An update skill of 26.4.4
+// or before only passes "What is new" lines on, so the second line asks the chat for the tour itself.
 function whatsNew() {
   const file = path.join(REPO, "docs", "whats-new.md");
   if (!state.version || !fs.existsSync(file)) return;
   const [a, b] = ctx.version.split(".").map(Number);
   const [c, d] = state.version.split(".").map(Number);
-  if (a > c || (a === c && b > d))
+  if (a > c || (a === c && b > d)) {
     say(`What is new in ${ctx.version}: ${fwd(file)}`);
+    say(
+      `What is new, for Claude: offer the person a short tour of ${fwd(file)} in their language: how a job runs, the proof shown before "done", how fixes arrive, and two or three words from its table to try.`,
+    );
+  }
 }
 
 // The phone add-on's voice notes: when the add-on is in place and voice is not set up (no ~/.phone-app/voice.json),

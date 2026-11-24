@@ -12,6 +12,29 @@ const ORDER = ["needs", "running", "todo", "done"];
 // Done shows this many rows, then "Show N more"
 const DONE_SHOWN = 20;
 
+/** A step's stage name, trimmed; "" when it has none. */
+const stageText = (r) =>
+  String((r.item.customFields && r.item.customFields.stage) || "").trim();
+
+/**
+ * To do's row views under stage headings (user, 2026-11-23: steps come in stages): when any row has a stage, the
+ * first row of each stage carries `stageHead` (the stage name, or S.otherStage for rows with none) and no row shows
+ * the stage again as its plan chip. With no stages at all, the rows are as rowView draws them.
+ */
+function staged(S, rows, ctx) {
+  const views = rows.map((r) =>
+    rowView(S, r, { ...ctx, session: ctx.sessionOf(r.item.id) }),
+  );
+  if (!rows.some((r) => stageText(r))) return views;
+  let last = null;
+  return views.map((v, i) => {
+    const name = stageText(rows[i]) || S.otherStage;
+    const head = name !== last ? name : null;
+    last = name;
+    return { ...v, plan: null, stageHead: head };
+  });
+}
+
 /**
  * The folds' view for `folds` (model.js foldsOf). `ui`: open (the set of open folds) and doneAll (the Done fold's
  * rows all shown). `ctx`: open, now and sessionOf(id) (the row's session or null), as row.js rowView takes them.
@@ -27,9 +50,12 @@ function foldsView(S, folds, ui, ctx) {
       count: rows.length,
       empty: rows.length ? null : S.foldEmpty[key],
       open: rows.length > 0 && ui.open.has(key),
-      rows: shown.map((r) =>
-        rowView(S, r, { ...ctx, session: ctx.sessionOf(r.item.id) }),
-      ),
+      rows:
+        key === "todo"
+          ? staged(S, shown, ctx)
+          : shown.map((r) =>
+              rowView(S, r, { ...ctx, session: ctx.sessionOf(r.item.id) }),
+            ),
       more:
         shown.length < rows.length
           ? fillIn(S.showMore, { n: rows.length - shown.length })
@@ -76,7 +102,10 @@ function renderFolds(doc, view, on) {
       const body = el("div", "rt-fold-body");
       body.id = bodyId;
       body.hidden = !f.open;
-      for (const r of f.rows) body.append(renderRow(doc, r, on));
+      for (const r of f.rows) {
+        if (r.stageHead) body.append(el("h3", "rt-stage", r.stageHead));
+        body.append(renderRow(doc, r, on));
+      }
       if (f.more) {
         const more = el("button", "rt-more", f.more);
         more.type = "button";

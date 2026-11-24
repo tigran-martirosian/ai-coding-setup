@@ -20,18 +20,39 @@ greeting line unless they use one. Facts in the message, never "see above" or a 
 ## README and the About line
 
 The About line (the one under the repo name) says what the thing is and who it is for, in under about 120
-characters, with no adjectives that rate it. The README opens with the same in a sentence or two, then how to
-install and run it in the fewest steps that work, then one real example with its output. Name what it doesn't
-do and what it needs. Features as a short list only after the reader knows what the thing is. Badges, emoji
-and a "Why X?" section are optional and often noise.
+characters, with no adjectives that rate it. The README answers, in this order: what this is, why the reader
+would want it (what they can do with it that they couldn't before), and how to start, in the fewest steps that
+work, then one real example with its output. Name what it doesn't do and what it needs. A few features, the
+ones a newcomer would pick it for, only after the reader knows what the thing is; the full list belongs on a
+features page. Badges, emoji and a "Why X?" section are optional and often noise.
 
-## Docs, PR descriptions and release notes
+## Tour, guides and explainers
 
-Say what changed and why, for the person who reads it later without context. A PR description: one line of
-what, a short paragraph of why, how it was checked (the command and its result), and what a reviewer should
-look at first. Release notes: what the user can now do or no longer hits, in their words, newest first; leave
-out internal renames and what stayed the same. Docs: the task the reader came to do, in order, with the real
-command or setting.
+A tour shows a newcomer the few things worth trying first, each as what they get and how to try it. A guide is
+the task the reader came to do, in order, with the real command or setting and what they should see after it.
+An explainer answers how something works and why it is built that way, in the reader's terms, with one
+example. Each opens on what the reader gets from it, never on how it came to be.
+
+## Wiki page for colleagues
+
+What a colleague needs to use or change the thing: what it is for, where it lives, how to run it, who owns it,
+the one or two traps. History, the options weighed and the dead ends go to a linked note, if anywhere.
+
+## Release notes
+
+What the reader can now do or no longer hits, in their words, the biggest first; leave out internal renames,
+what stayed the same, and fixes to things that never shipped. Each line is a change they would notice.
+
+## Description of work done (a PR, a report)
+
+For the person who reads it later without context. One line of what changed for them, a short paragraph of
+why, how it was checked (the command and its result), and what a reviewer should look at first. The few
+changes that matter, not every one made: an edge case tried and then removed was never there for the reader.
+
+## Film script
+
+One message, one benefit up front, and the two or three things a viewer should remember; the full feature list
+stays on the website. Each shot shows the thing working, with the line spoken or shown over it.
 
 ## Resume line
 

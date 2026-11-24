@@ -84,6 +84,23 @@ ok(
   ],
   [false, true, true, true],
 );
+// A package checksum is random base64, so a short private word turns up inside one by chance (26.6: a
+// package-lock.json line refused a push); the checksum is skipped, the rest of its line is still read.
+fs.writeFileSync(path.join(tmp, "short.txt"), "xqw\n");
+const sum = check(
+  folder({
+    "package-lock.json":
+      '"integrity": "sha512-0mYKnYYe9ZcqMXQWhUjItv/oHjv+T7aop3A==",\n' +
+      '"integrity": "sha512-0mYKnUjItv==", "note": "xqw"\n',
+  }),
+  "--words",
+  path.join(tmp, "short.txt"),
+).out;
+ok(
+  "a private word inside a package checksum is not a finding; elsewhere on the line it is",
+  [sum.includes("package-lock.json:1:"), sum.includes("package-lock.json:2:")],
+  [false, true],
+);
 ok(
   "finds backup and .env files by name",
   check(folder({ "x.mjs.bak": "", ".env": "", ".env.example": "" })).out.match(

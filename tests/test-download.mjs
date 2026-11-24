@@ -160,6 +160,40 @@ ok(
   r.out,
 );
 
+// parts left by one address, then the same output name and size from another address
+out = path.join(dir, "other.bin");
+broken = true;
+await run(`${base}/broken.bin`, out, "--parts", "8");
+broken = false;
+log = [];
+r = await run(`${base}/good.bin`, out, "--parts", "8");
+ok(
+  "parts saved for another address are never joined into this download",
+  r.code !== 0 &&
+    r.out.includes("holds the parts of another download") &&
+    gets("/good.bin") === 0 &&
+    !fs.existsSync(out),
+  r.out,
+);
+
+// a parts folder left by the version before plan.json named its address
+const oldPlan = path.join(`${out}.parts`, "plan.json");
+fs.writeFileSync(
+  oldPlan,
+  JSON.stringify({
+    size: JSON.parse(fs.readFileSync(oldPlan, "utf8")).size,
+    parts: 8,
+  }),
+);
+r = await run(`${base}/good.bin`, out, "--parts", "8");
+ok(
+  "a parts folder from an older version is named as such, never shown as an undefined address",
+  r.code !== 0 &&
+    r.out.includes("from an older version") &&
+    !r.out.includes("undefined"),
+  r.out,
+);
+
 out = path.join(dir, "norange.bin");
 r = await run(`${base}/norange.bin`, out, "--sha256", SHA);
 ok(

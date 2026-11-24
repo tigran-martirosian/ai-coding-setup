@@ -1,6 +1,6 @@
 // Shared fixture of the nimbalyst-patch tests (test-nimbalyst-patch*.mjs): builds small fake Nimbalyst installs
 // under the system temp (an app.asar written here byte by byte: size pickle, header pickle, JSON, file data; a fake
-// Nimbalyst.exe holding only the Electron fuse wire), runs tools/nimbalyst-patch/patch.mjs on them with test
+// Nimbalyst.exe holding only the Electron fuse wire), runs scripts/nimbalyst-patch/patch.mjs on them with test
 // patches, and reads the archive back with its own reader, not the patcher's.
 process.env.HOOK_ERRORS_LOG = "off";
 
@@ -14,7 +14,7 @@ const PATCHER = path.join(
   import.meta.dirname,
   "..",
   "..",
-  "tools",
+  "scripts",
   "nimbalyst-patch",
   "patch.mjs",
 );

@@ -18,7 +18,7 @@ Problems in the files this repository installs or runs, for example:
 - the permission rules the installer adds for saved sign-ins, SSH keys and `.env` files
 - the installer, the updater and `/update-setup`: what they download, how they check it, and which files they overwrite
 - the privacy scan (`scripts/privacy-check.mjs`) missing a path, address or key it should find
-- the encrypted backups (`/backup`), the phone app's PC program and relay (the `phone-bot` add-on and `phone/`) and the Nimbalyst patch (`tools/nimbalyst-patch`)
+- the encrypted backups (`/backup`), the phone app's PC program and relay (the `phone-bot` add-on and `phone/`) and the Nimbalyst patch (`scripts/nimbalyst-patch`)
 
 ## What doesn't
 

@@ -10,7 +10,9 @@
 // own, fs.readFileSync(0) and process.stdin give the event, what it writes on stdout (fs.writeSync(1) or
 // process.stdout.write) is kept, process.exit ends only that hook (hook-io.mjs HookExit), and the exit code it gives
 // through runHook or process.exit is its own (process.exitCode, one for the whole process, is not read).
-// An updatedInput goes on to the next hooks' event, so download-guard's rewrite reaches command-explain.
+// An updatedInput goes on to the next hooks' event, so download-guard's rewrite reaches command-explain. The guards
+// must check the input that runs, so the hooks that rewrite are listed before them; a rewrite from a hook after a
+// guard makes the guards that already ran check the new input again (runGroup).
 // The answers become one JSON object on stdout: deny over ask over allow, any block blocks, the texts joined, and
 // a guard's refusal names the guard. Exit 2 from a hook is a refusal with its stderr as the reason.
 // A guard that throws, exits non-zero, cannot load or runs out of time stops the call with its name in the reason;
@@ -236,8 +238,8 @@ function takeOver() {
 }
 
 // Runs one hook for at most `ms`; { code, failed (a message, when it threw, could not load or ran out of time),
-// out, err }
-async function runOne(entry, name, ms) {
+// out, err }. A run `again` > 0 loads a fresh copy of the file (Node runs a module URL once per process).
+async function runOne(entry, name, ms, again = 0) {
   const file = path.resolve(CLAUDE, entry.hook);
   process.argv = [process.argv[0], file, ...(entry.args ?? [])];
   io.dispatch.begin();
@@ -255,7 +257,9 @@ async function runOne(entry, name, ms) {
     );
     owner
       .run(h, async () => {
-        await import(pathToFileURL(file).href);
+        await import(
+          `${pathToFileURL(file).href}${again ? `?again=${again}` : ""}`
+        );
         await Promise.all(io.dispatch.runs);
       })
       .then(
@@ -336,10 +340,17 @@ function take(o, named) {
   if (o.suppressOutput) suppress = true;
 }
 
+// The guards check the input that runs: a hook that rewrites the input after guards checked it makes them run
+// again on the new input (a fresh copy of each guard's file, as Node runs a file once). A rewrite during that
+// second run is refused, so it cannot go on for ever.
 async function runGroup() {
-  for (const entry of list) {
+  const checked = []; // the guard entries that ran on this call
+  let seen = null; // the input they checked, as JSON
+  let again = 0;
+  let hinted = false;
+  const inputNow = () => JSON.stringify(event?.tool_input ?? text);
+  async function step(entry, rerun) {
     const name = path.basename(entry.hook, ".mjs");
-    if (!applies(entry)) continue;
     const left = GROUP_MS - process.uptime() * 1000;
     if (left <= 0) {
       const why = `the group "${group}" ran past its ${GROUP_MS / 1000} s`;
@@ -348,9 +359,18 @@ async function runGroup() {
           `[${name}] The guard did not run (${why}), so the call is stopped. Set ${io.offName(name)}=off to bypass.`,
         );
       else say(`[dispatch] ${name} did not run (${why})\n`);
-      continue;
+      return;
     }
-    const r = await runOne(entry, name, Math.min(HOOK_MS, left));
+    if (entry.guard && !rerun) {
+      checked.push(entry);
+      seen = inputNow();
+    }
+    const r = await runOne(
+      entry,
+      name,
+      Math.min(HOOK_MS, left),
+      rerun ? ++again : 0,
+    );
     // A guard's refusal names it, so a refusal can be traced to the guard that made it
     const named = (reason) =>
       entry.guard && reason && !String(reason).includes(name)
@@ -358,9 +378,10 @@ async function runGroup() {
         : String(reason);
     if (r.code === 2) {
       refuse(named(r.err.trim() || `${name} ended with exit 2`));
-      continue;
+      return;
     }
     const said = r.out.trim();
+    let rewrote = false;
     if (said) {
       let o = null;
       try {
@@ -368,24 +389,44 @@ async function runGroup() {
       } catch {
         // plain text: on UserPromptSubmit Claude Code reads it as context, elsewhere it shows it to no one
       }
+      const rewrite = o?.hookSpecificOutput?.updatedInput;
+      if (rerun && rewrite && typeof rewrite === "object") {
+        refuse(
+          `[dispatch] ${name} rewrote the input while the guards checked a rewrite, so the call is stopped.`,
+        );
+        delete o.hookSpecificOutput.updatedInput;
+      }
       if (o && typeof o === "object" && !Array.isArray(o)) take(o, named);
       else if (eventName === "UserPromptSubmit") contexts.push(said);
       else
         say(
           `[dispatch] ${name} wrote text that is not JSON: ${said.slice(0, 200)}\n`,
         );
+      rewrote = !rerun && checked.length > 0 && inputNow() !== seen;
     }
     const failed = r.failed ?? (r.code !== 0 ? `exit ${r.code}` : null);
-    if (!failed) continue;
-    if (entry.guard) {
-      const err = r.err.trim();
-      refuse(
-        err.includes(name)
-          ? err
-          : `[${name}] The guard itself failed (${failed}${err ? `: ${err}` : ""}), so the call is stopped. Set ${io.offName(name)}=off to bypass.`,
+    if (failed) {
+      if (entry.guard) {
+        const err = r.err.trim();
+        refuse(
+          err.includes(name)
+            ? err
+            : `[${name}] The guard itself failed (${failed}${err ? `: ${err}` : ""}), so the call is stopped. Set ${io.offName(name)}=off to bypass.`,
+        );
+      } else
+        say(`[dispatch] ${name} failed (${failed}); the other hooks ran\n`);
+    }
+    if (!rewrote) return;
+    if (!hinted) {
+      hinted = true;
+      say(
+        `[dispatch] ${name} rewrote the input after the guards checked it, so they run again on it. In ${groupsFile}, list ${name} before the guards of group "${group}".\n`,
       );
-    } else say(`[dispatch] ${name} failed (${failed}); the other hooks ran\n`);
+    }
+    for (const guard of checked) await step(guard, true);
+    seen = inputNow();
   }
+  for (const entry of list) if (applies(entry)) await step(entry, false);
 }
 
 function answerText() {

@@ -3,8 +3,179 @@
 // Antigravity, the retired skills and the files no longer shipped. A file the user changed stays and is named.
 import fs from "node:fs";
 import path from "node:path";
-import { filesIn, fwd, OWN_FOLDERS, readJson, sha } from "./files.mjs";
+import {
+  filesIn,
+  fwd,
+  MOVED_FOLDERS,
+  OWN_FOLDERS,
+  readJson,
+  sha,
+} from "./files.mjs";
 import { fableToOpus } from "./model.mjs";
+
+// Removes the empty folder dir; false when Windows holds it open (a program started in it: EBUSY, EPERM) or a
+// file just came into it (ENOTEMPTY): it stays for the next run, and the run goes on
+function rmdirFree(dir) {
+  try {
+    fs.rmdirSync(dir);
+    return true;
+  } catch (e) {
+    if (!["EBUSY", "EPERM", "ENOTEMPTY"].includes(e.code)) throw e;
+    return false;
+  }
+}
+// Folders left empty under dir go, deepest first, dir itself too
+function pruneEmpty(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true }))
+    if (e.isDirectory()) pruneEmpty(path.join(dir, e.name));
+  if (!fs.readdirSync(dir).length) rmdirFree(dir);
+}
+
+// The old copies in a folder the setup moved (MOVED_FOLDERS), taken out once the new copies are written. The
+// record of what the setup wrote (state.files: each file by full path, with the hash of its content) tells
+// them apart:
+//   - on record, same content: the setup's copy, unchanged; it goes (the new folder holds it now);
+//   - on record, other content: the person changed it; it stays, is named once and leaves the record;
+//   - not on record: the person put it there; it stays, and nothing is said.
+// Folders left empty go, the old top folder (~/.claude/tools) too. A record whose file is already gone leaves the
+// record. keep (from pointStagedJob): old folder -> why a Nimbalyst delivery may be running from it; such a
+// folder stays this time and the next update takes it out. With the old deliver.mjs gone, an update started by
+// the 26.5 updater can't run that updater's Nimbalyst step (it starts the old deliver.mjs): a line tells Claude.
+export function dropMovedFolders({ CLAUDE, DRY, say, filesWritten }, keep) {
+  let deliverGone = false;
+  for (const [from, to] of MOVED_FOLDERS) {
+    const old = path.join(CLAUDE, from);
+    for (const f of Object.keys(filesWritten))
+      if (f.startsWith(`${fwd(old)}/`) && !fs.existsSync(f))
+        delete filesWritten[f];
+    if (!fs.existsSync(old)) continue;
+    const now = `${fwd(path.join(CLAUDE, to))}/`;
+    if (keep.has(from)) {
+      say(
+        `${DRY ? "would keep" : "kept"} ${fwd(old)}/ this time (${keep.get(from)}; the next update moves it to ${now})`,
+      );
+      continue;
+    }
+    let gone = 0;
+    for (const f of filesIn(old).map((rel) => path.join(old, rel))) {
+      const hash = filesWritten[fwd(f)];
+      if (hash === undefined) continue;
+      delete filesWritten[fwd(f)];
+      if (sha(fs.readFileSync(f)) !== hash) {
+        say(
+          `kept yours ${fwd(f)} (changed since it was installed; the setup's copy is now in ${now}; delete this one by hand when not needed)`,
+        );
+        continue;
+      }
+      if (!DRY) fs.rmSync(f);
+      if (f === path.join(old, "deliver.mjs")) deliverGone = true;
+      gone++;
+    }
+    if (!DRY) {
+      pruneEmpty(old);
+      for (
+        let d = path.dirname(old);
+        d !== CLAUDE && fs.existsSync(d) && !fs.readdirSync(d).length;
+        d = path.dirname(d)
+      )
+        if (!rmdirFree(d)) break;
+    }
+    if (gone)
+      say(
+        `${DRY ? "would move" : "moved"} ${fwd(old)}/ to ${now} (${gone} old cop${gone === 1 ? "y" : "ies"} ${DRY ? "would go" : "removed"}; the new folder holds them)`,
+      );
+  }
+  if (deliverGone && !DRY)
+    say(
+      "Nimbalyst: its update moves to scripts/ and runs at the next session start; skip the Nimbalyst step of this update.",
+    );
+}
+
+// What makes a Nimbalyst stage run count as working: download.lock { pid, version, at } in deliver.mjs's data
+// folder, naming a live process (as deliver.mjs reads it); null when none. A lock that can't be read counts too.
+function stageRunning(data) {
+  const lock = path.join(data, "download.lock");
+  if (!fs.existsSync(lock)) return null;
+  let held;
+  try {
+    held = JSON.parse(fs.readFileSync(lock, "utf8"));
+  } catch (e) {
+    return `${fwd(lock)} could not be read (${e.message})`;
+  }
+  if (!Number.isInteger(held.pid)) return null;
+  try {
+    process.kill(held.pid, 0);
+  } catch (e) {
+    if (e.code !== "EPERM") return null;
+  }
+  return `a Nimbalyst stage run holds ${fwd(lock)} (pid ${held.pid})`;
+}
+
+// Nimbalyst's staged job (Windows) names the delivery script that the patched app starts when it closes
+// (staged.json "deliver", in deliver.mjs's data folder: NIMBALYST_DELIVER_DATA, else
+// %LOCALAPPDATA%\ai-coding-setup\nimbalyst). A job staged from a moved folder's old copy is pointed at the new
+// copy, so the close still runs it; paths are compared by their real paths (~/.claude may be a junction or a
+// symbolic link), taken before dropMovedFolders deletes anything. Any other staged.json stays as it is.
+// Returns what dropMovedFolders keeps this time (old folder -> why): every old folder while a stage run works
+// (then staged.json is not touched either), else the one whose deliver.mjs the job named, as it may run from it.
+export function pointStagedJob({ CLAUDE, DRY, say }) {
+  const keep = new Map();
+  const data =
+    process.env.NIMBALYST_DELIVER_DATA ||
+    (process.env.LOCALAPPDATA &&
+      path.join(process.env.LOCALAPPDATA, "ai-coding-setup", "nimbalyst"));
+  if (!data) return keep;
+  const running = stageRunning(data);
+  if (running) {
+    for (const [from] of MOVED_FOLDERS) keep.set(from, running);
+    return keep;
+  }
+  const file = path.join(data, "staged.json");
+  if (!fs.existsSync(file)) return keep;
+  // a path that is not there is compared as it is written
+  const real = (p) => {
+    try {
+      return fs.realpathSync.native(p);
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+      return path.resolve(p);
+    }
+  };
+  const same = (a, b) =>
+    process.platform === "win32"
+      ? real(a).toLowerCase() === real(b).toLowerCase()
+      : real(a) === real(b);
+  let staged;
+  try {
+    staged = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (e) {
+    say(
+      `WARNING: ${fwd(file)} could not be read (${e.message}), so a Nimbalyst job staged there may still name the old delivery script`,
+    );
+    return keep;
+  }
+  if (typeof staged.deliver !== "string") return keep;
+  for (const [from, to] of MOVED_FOLDERS) {
+    const was = path.join(CLAUDE, from, "deliver.mjs");
+    const is = path.join(CLAUDE, to, "deliver.mjs");
+    // a dry run has not written the new copy; a real run has, before this runs
+    if (!same(staged.deliver, was) || !(DRY || fs.existsSync(is))) continue;
+    if (fs.existsSync(was))
+      keep.set(
+        from,
+        "the staged Nimbalyst job named its deliver.mjs and may be running from it",
+      );
+    if (!DRY) {
+      staged.deliver = is;
+      fs.writeFileSync(`${file}.part`, `${JSON.stringify(staged, null, 2)}\n`);
+      fs.renameSync(`${file}.part`, file);
+    }
+    say(
+      `${DRY ? "would point" : "pointed"} the staged Nimbalyst job in ${fwd(file)} at ${fwd(is)}`,
+    );
+  }
+  return keep;
+}
 
 // Add-ons: left out of a default install. --with name[,name,...] adds any of them; a copy already in
 // the target stays and keeps being updated by a plain run; --uninstall treats them like any other skill or extension.
@@ -283,15 +454,7 @@ export function claudeFiles(ctx) {
       say(
         `kept yours ${fwd(dir)} (a retired skill${now ? `, now ${now}` : ""}; there is no record that the setup wrote ${unknown.length === 1 ? "its file" : "these files"}, so ${unknown.length === 1 ? "it stays" : "they stay"}; delete the folder by hand when not needed)`,
       );
-    if (!DRY) {
-      // folders left empty go, deepest first
-      const prune = (d) => {
-        for (const e of fs.readdirSync(d, { withFileTypes: true }))
-          if (e.isDirectory()) prune(path.join(d, e.name));
-        if (!fs.readdirSync(d).length) fs.rmdirSync(d);
-      };
-      prune(dir);
-    }
+    if (!DRY) pruneEmpty(dir);
   }
   // A file an earlier version put here and this one no longer ships goes, unless it was changed since
   const shipped = new Set(
@@ -315,6 +478,7 @@ export function claudeFiles(ctx) {
     }
     if (now) say(`removed ${to} (no longer part of the setup)`);
   }
+  dropMovedFolders(ctx, pointStagedJob(ctx));
   // The add-ons left out of this run are named, so the commands the docs list can be found
   for (const name of Object.keys(ADDONS).filter(
     (n) =>
