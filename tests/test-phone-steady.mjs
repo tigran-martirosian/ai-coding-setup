@@ -850,7 +850,19 @@ async function caseHideDead() {
 // Nimbalyst takes the message, so the PC's answer never reaches the page; the frame sends it again on its next link
 // and the PC answers the repeat from its kept ids. Nimbalyst is a fake door over a fixture database with one session.
 async function caseSendDropped() {
-  const nim = path.join(w.home, "AppData", "Roaming", "@nimbalyst", "electron");
+  // Where the PC looks for Nimbalyst on this system (core/files.mjs nimbalystDir), so the case runs on every CI runner.
+  const nim =
+    process.platform === "win32"
+      ? path.join(w.home, "AppData", "Roaming", "@nimbalyst", "electron")
+      : process.platform === "darwin"
+        ? path.join(
+            w.home,
+            "Library",
+            "Application Support",
+            "@nimbalyst",
+            "electron",
+          )
+        : path.join(w.home, ".config", "@nimbalyst", "electron");
   fs.mkdirSync(path.join(nim, "sqlite-db"), { recursive: true });
   const project = path.join(w.tmp, "projects", "beta");
   fs.mkdirSync(project, { recursive: true });
