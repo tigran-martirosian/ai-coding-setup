@@ -110,7 +110,7 @@ may fetch. A plain test deploy afterwards takes both away.
 
     node phone/relay/deploy-test.mjs --remove-topics
 
-`--remove-topics` deletes the test relay's "Inbox (test)", "Alerts (test)" and "Files (test)" topics, with their messages, in every
+`--remove-topics` deletes the test relay's "📥 Inbox (test)", "💬 Sessions (test)" and "📎 Files (test)" topics, with their messages, in every
 chat. It uses the two keys each test deploy saves in your secrets file: `testRelayAddress` and
 `testRelayWebhookSecret`.
 
@@ -233,7 +233,7 @@ The deploy puts these on the Worker itself, from the values above. You never set
 The real relay's deploy also puts `RELAY_ORIGIN`, the relay's own address; the test copy never gets it. Every 5
 minutes the relay checks that the bot's webhook is set and points at that address, and sets it again when it is
 missing or holds an old secret. A webhook pointed somewhere else is left alone and reported once in the bot's
-Alerts topic, as is a webhook Telegram refuses to set. The test copy makes no such check: it shares the bot.
+Sessions topic, as is a webhook Telegram refuses to set. The test copy makes no such check: it shares the bot.
 
 ### 6. The release deploy
 

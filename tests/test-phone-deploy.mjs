@@ -624,11 +624,11 @@ check(
     frame({ t: "pc-auth", pcId, token: toB64url(token) });
     await settle();
     same(
-      'a test relay creates its topics as "Inbox (test)", "Alerts (test)" and "Files (test)"',
+      'a test relay creates its topics as "📥 Inbox (test)", "💬 Sessions (test)" and "📎 Files (test)"',
       tgCalls
         .filter((c) => c.method === "createForumTopic")
         .map((c) => c.params.name),
-      ["Inbox (test)", "Alerts (test)", "Files (test)"],
+      ["📥 Inbox (test)", "💬 Sessions (test)", "📎 Files (test)"],
     );
     const local = path.join(dir, "local-secrets.json");
     fs.writeFileSync(
