@@ -10,6 +10,8 @@
     "install-ext": "npm run build && node scripts/install.mjs"
   },
   "devDependencies": {
+    "@emnapi/core": "2.0.0-beta.2",
+    "@emnapi/runtime": "2.0.0-beta.2",
     "@nimbalyst/extension-sdk": "^0.8.0",
     "@types/react": "^19.3.3",
     "@types/react-dom": "^19.3.0",
