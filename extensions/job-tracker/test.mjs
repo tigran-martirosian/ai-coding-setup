@@ -52,8 +52,29 @@ check(
     fs.existsSync(path.join(here, manifest.styles)),
 );
 
-const { STRINGS, closeStep, archiveOldJobs, failure, readSessions } =
-  await import(pathToFileURL(path.join(here, "src", "index.js")).href);
+const {
+  STRINGS,
+  closeStep,
+  archiveOldJobs,
+  failure,
+  readSessions,
+  backLine,
+  errorLine,
+} = await import(pathToFileURL(path.join(here, "src", "index.js")).href);
+
+// A job title or an error text with "$" in it is shown as it is: "$$", "$&", "$'" and "$`" are no
+// replace patterns there
+check(
+  "back line: a job title with $$, $&, $' or $` is shown as it is",
+  typeof backLine === "function" &&
+    backLine("Budget $$ $& $' $`") === "Back to Budget $$ $& $' $`",
+);
+check(
+  "error line: an error text with $$, $&, $' or $` is shown as it is",
+  typeof errorLine === "function" &&
+    errorLine(new Error("job-tracker: cost $$ and $& or $' $`")) ===
+      "The job page could not be drawn. Cost $$ and $& or $' $`. The tracker's own list is below.",
+);
 const {
   releaseSteps,
   categoryOf,

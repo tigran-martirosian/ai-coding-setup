@@ -258,6 +258,31 @@ report(
   ),
   "the main session still gets the reminder",
 );
+// A note on the command's own line gets the stand-in, and the reminder says where the note goes: the plain
+// "had no note" reminder read as if no note was written at all
+const sameLine =
+  JSON.parse(run(B(`ls -la ${LINE}`))).hookSpecificOutput.additionalContext ??
+  "";
+report(
+  /own last line/.test(sameLine) &&
+    /empty line/.test(sameLine) &&
+    !/had no/.test(sameLine),
+  `a note on the command's own line: the reminder says the note goes on its own last line after an empty line, not that there was none (got: ${sameLine})`,
+);
+// Only a trailing comment is a note on the command's line: the words inside a quoted string are data, and a note
+// written with no space after the # is still a note
+const reminder = (command) =>
+  JSON.parse(run(B(command))).hookSpecificOutput.additionalContext ?? "";
+const quoted = reminder('echo "# WHAT THIS DOES: x" >> notes.txt');
+report(
+  /had no/.test(quoted) && !/own last line/.test(quoted),
+  `the note words inside a quoted string are not a note on the command's line: the plain "had no note" reminder (got: ${quoted})`,
+);
+const tightHash = reminder("ls #WHAT THIS DOES: list");
+report(
+  /own last line/.test(tightHash) && !/had no/.test(tightHash),
+  `a trailing "#WHAT THIS DOES:" with no space after the # is a note on the command's line (got: ${tightHash})`,
+);
 // Soft check: a lowercase or over-70-character note is allowed, with a note for next time
 const softNote = (command, extra = {}) => {
   const out = run({ ...B(command), ...extra });

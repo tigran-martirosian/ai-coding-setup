@@ -16,7 +16,8 @@ not ignored), so git-ignored data (run logs, databases, caches) stays exactly wh
 
 - A git project with uncommitted changes in files the run touches: commit them with the person's yes, or stop. The
   clean start is the undo's base: one commit before, one after.
-- Several projects (the update's offer): `FC --report --homes`; do each home in turn, steps 2-7.
+- Several projects (the update's offer): `FC --report --homes`, which covers each project home (a folder in the
+  projects folder whose `CLAUDE.md` the setup installed, as `quick-tasks`); do each home in turn, steps 2-7.
 
 ## 2. Report
 
@@ -80,7 +81,8 @@ nothing is applied. Show it to the person; a project folder moves only with thei
 
 A whole project folder moves through `node ~/.claude/skills/file-upkeep/move-project.mjs <from> <to>`, never a plain
 move: it also fixes the git worktrees, Claude Code's and Nimbalyst's records of the project, the files under
-`~/.claude` naming it and the scheduled tasks. Run it with `--dry` first and show its list. With Nimbalyst open it
+`~/.claude` naming it and the scheduled tasks. Where Nimbalyst's database is on the computer, it needs Node.js 22.5
+or newer (for `node:sqlite`) and refuses on an older Node. Run it with `--dry` first and show its list. With Nimbalyst open it
 refuses; add `--queue` and the move runs at Nimbalyst's next quit (tell the person so; no restart is asked for).
 
 ## The update's offer

@@ -4,7 +4,7 @@ The place for work that belongs to no project: one-off file jobs (convert or spl
 batch of files, a quick script, trying something out), questions the user just wants answered, and
 finding things on the internet (products, prices, listings, shops, services, places).
 
-**Every request to find something runs the `finder` skill** (`/finder`, tools: `.claude/skills/finder/tools.md`).
+**Every request to find something runs the `finder` skill** (`/finder`, tools: `.claude/skills/finder/tools.md`); it searches with Codex, so without Codex use the `web-research` skill instead.
 
 ## File jobs
 
@@ -20,11 +20,12 @@ finding things on the internet (products, prices, listings, shops, services, pla
 - **One plain answer by default.** A simple fact gets a line or two. A big topic gets a clear,
   organised answer at the length it needs, not a list of caveats.
 - **Look things up** when the answer depends on dates, prices, recent events or anything you are not
-  sure of (WebSearch for one fact, Codex with `--search` for several). Say what you looked up and
-  what is from memory.
+  sure of (WebSearch for one fact; for several, Codex with `--search`, or without Codex the
+  `web-research` skill). Say what you looked up and what is from memory.
 - **Big or contested topics get real research,** as good as a full day of the user's own: several
-  Codex `--search` sweeps from different angles, the best sources read in full (skill `read-web` for
-  videos, blocked pages and feeds), every date, number and name that matters checked in two
+  sweeps from different angles (Codex `--search` with Codex, the `web-research` skill without it),
+  the best sources read in full (skill `read-web` for blocked pages and feeds, skill `watch` for
+  videos), every date, number and name that matters checked in two
   independent sources, and the sources listed.
 - **Say how sure you are** when it matters, and say plainly when something is disputed or unknown.
   No questions back unless the answer really depends on the reply.
@@ -33,7 +34,8 @@ finding things on the internet (products, prices, listings, shops, services, pla
 
 ## Every job
 
-- **Pictures ("show me how this will look"):** use the `picture` skill before generating anything.
+- **Pictures ("show me how this will look"), with Codex:** use the `picture` skill before generating
+  anything. The skill makes pictures with Codex and is installed only with Codex.
   About 5 minutes: one reference photo, facts with sources, a written checklist, one try plus one
   fix. Only a picture that passes is shown, never one with a known error, even with a note.
   Never start from an earlier picture.

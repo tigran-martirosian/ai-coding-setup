@@ -4,6 +4,9 @@ A gutter button that opens a small pop-up with the Claude plan numbers. It shows
 5-hour limit's usage as bars, a forecast line, and the budget and your pace side by side. One button opens
 the full usage dashboard.
 
+On macOS the plan bars and the forecast stay empty: the `plan-usage-logger` hook reads the Claude sign-in only from
+`~/.claude/.credentials.json`, and Claude Code on a Mac keeps it in the Keychain instead.
+
 The button has no ring of its own: the app's own Claude ring shows the week's percent.
 
 The numbers come from `~/.claude/skills/setup-audit/scripts/plan-ahead.mjs --json`, refreshed every 5 minutes
@@ -32,11 +35,19 @@ npm run build
 npm run install-ext   # validates the bundle, copies to %APPDATA%\@nimbalyst\electron\extensions\usageplan
 ```
 
+On a Mac it copies to `~/Library/Application Support/@nimbalyst/electron/extensions/usageplan`.
+
 Then restart Nimbalyst: it loads new and changed extensions only at startup.
 
 ## Checks
 
 - `npm test`: the panel's command returns the planner's JSON in cmd and PowerShell; the wording helpers; the dashboard data.
+
+The three checks in the running app use the DevTools helper in the Read Aloud folder of this repository
+(`extensions/read-aloud/scripts/cdp.mjs`); the Read Aloud extension itself does not have to be installed. The
+helper is Windows only, and it needs Nimbalyst started with `--remote-debugging-port=<port>`, so that the app
+writes the `DevToolsActivePort` file the helper reads.
+
 - In the running app: `node ../read-aloud/scripts/cdp.mjs --file test/exec-check.js` proves the
   call the gutter button uses before the panel is opened.
 - In the running app: `node ../read-aloud/scripts/cdp.mjs --file test/panel-check.js` clicks the

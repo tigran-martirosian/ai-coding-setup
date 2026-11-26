@@ -19,7 +19,7 @@
   <a href="#install">Install</a> · <a href="docs/getting-started.md">Getting started</a> · <a href="docs/how-it-works/overview.md">How it works</a> · <a href="docs/README.md">Docs</a>
 </p>
 
-https://github.com/user-attachments/assets/d08b7744-b464-4537-89a4-f02348e2aa83
+https://github.com/user-attachments/assets/6384f243-b336-4dae-b890-b14bfb9e6847
 
 - **Big jobs, planned and reviewed.** Questions, a spec, helpers building the parts side by side, a review against the spec.
 - **Claims checked against the log.** Hooks compare Claude's claims with Claude Code's log and send a false claim back.

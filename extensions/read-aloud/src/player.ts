@@ -188,6 +188,11 @@ class Player {
     }
   }
 
+  /** Shows this message on the item without reading anything; whatever plays goes on. */
+  fail(key: string, message: string) {
+    this.set({ error: { key, message } });
+  }
+
   clearError() {
     if (this.state.error) this.set({ error: null });
   }

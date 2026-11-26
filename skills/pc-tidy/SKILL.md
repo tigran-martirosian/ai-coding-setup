@@ -7,7 +7,7 @@ description: Show what is holding this computer's memory and stop what finished 
 
 Windows only. On another system, say so and stop.
 
-1. Report, changes nothing: `powershell -NoProfile -File "$(cygpath -w ~/.claude/workers/pc-tidy.ps1)"`
+1. Report, changes nothing: `powershell -NoProfile -File "$(cygpath -w ~/.claude/workers/pc-tidy.ps1)"`. It prints the free memory (`MEMORY`), the biggest programs (`BIGGEST`) and the leftovers step 2 stops.
 2. Stop the listed leftovers with `-Go` at the end, only when no build, boot or test is running in any session. It stops, with whatever each one started, only programs older than 3 hours whose starter has closed: shells of closed Claude sessions, Git's command-line tools (old `tail`/`grep` watchers), headless browsers, node or python run from `.claude`, Temp or npx; plus Gradle daemons.
 3. **MAYBE WANTED** lists other orphaned node or python (a bot, a tool's daemon). `-Go` never stops them: name each to the user and stop one by hand (`taskkill //F //T //PID <n>`) only on their word.
 4. **PORTS HELD BY A CLOSED PROGRAM**: after `-Go`, run the report again. A port still listed is held by a leftover outside these kinds; find it with Sysinternals `handle64 -a` (look for `<Nonexistent process>(<pid>)`) before telling the user to reboot.

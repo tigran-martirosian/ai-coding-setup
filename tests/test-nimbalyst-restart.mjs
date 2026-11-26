@@ -390,6 +390,13 @@ try {
     windowsHide: true,
   });
   const done2 = new Promise((res) => run2.on("exit", (code) => res(code)));
+  // the run logs this line once it has chosen to send no quit word; then 2 s in which it must neither send one nor go on
+  for (
+    let i = 0;
+    i < 300 && !w.log().includes("for a Quit from its tray icon");
+    i++
+  )
+    await sleep(50);
   await sleep(2000);
   check(
     "unpatched: no quit word sent, still waiting while the app runs",
@@ -684,7 +691,8 @@ try {
     w.log(),
   );
   write(gate, "");
-  for (let i = 0; i < 200 && !w.log().includes("again\n"); i++)
+  // up to 60 s: under full CPU load the install alone took over 20 s
+  for (let i = 0; i < 600 && !w.log().includes("again\n"); i++)
     await sleep(100);
   check(
     "plain start: the detached run closed, installed, patched and opened again",
@@ -703,8 +711,15 @@ try {
         "nimbalyst: quit Nimbalyst once from its tray icon (right-click, Quit); the update and its fixes then go in and it opens again in about a minute",
     r.out,
   );
+  // the user quits once the detached run waits for it; a quit before that ends the app before the run looks
+  for (
+    let i = 0;
+    i < 300 && !w.log().includes("for a Quit from its tray icon");
+    i++
+  )
+    await sleep(50);
   write(w.quitFile, "tray quit");
-  for (let i = 0; i < 200 && !w.log().includes("again\n"); i++)
+  for (let i = 0; i < 600 && !w.log().includes("again\n"); i++)
     await sleep(100);
   check(
     "plain start on an unpatched app: after the Quit it installs and opens again",
@@ -716,8 +731,25 @@ try {
   for (let i = 0; i < 50 && leftBehind(); i++) await sleep(100);
   check("no stand-in or run left behind", leftBehind() === "", leftBehind());
 } finally {
-  for (const c of standins) if (alive(c.pid)) c.kill();
-  await sleep(300);
+  // the temp folder can go only once the stand-ins have ended
+  const ended = standins
+    .filter((c) => c.exitCode === null && c.signalCode === null)
+    .map((c) => {
+      const exited = new Promise((res) => c.once("exit", res));
+      c.kill();
+      return exited;
+    });
+  let deadline;
+  await Promise.race([
+    Promise.all(ended),
+    new Promise((_, rej) => {
+      deadline = setTimeout(
+        () => rej(new Error("a killed stand-in app did not end within 20 s")),
+        20000,
+      );
+    }),
+  ]);
+  clearTimeout(deadline);
   fs.rmSync(T, { recursive: true, force: true });
 }
 console.log(`\n${passed} passed, ${failed} failed`);

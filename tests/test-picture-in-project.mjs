@@ -9,6 +9,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,8 +46,14 @@ const chart = {
     yAxisKey: "b",
   },
 };
+// A .png given as text is written behind a PNG signature: the hook copies only bytes that start like a picture
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const png = (text) => Buffer.concat([PNG, Buffer.from(text)]);
 const file = (path, bytes = "picture bytes") => {
-  writeFileSync(path, bytes);
+  writeFileSync(
+    path,
+    typeof bytes === "string" && path.endsWith(".png") ? png(bytes) : bytes,
+  );
   return path;
 };
 const copied = (out, i = 0) =>
@@ -81,7 +88,7 @@ check(
 );
 check(
   "the copy has the same bytes",
-  out && readFileSync(copied(out), "utf8") === "picture bytes",
+  out && readFileSync(copied(out)).equals(png("picture bytes")),
   out,
 );
 check(
@@ -120,7 +127,7 @@ const a = run(show([pic(file(join(ROOT, "changed.png"), "first"))]));
 const b = run(show([pic(file(join(ROOT, "changed.png"), "second"))]));
 check(
   "a file redrawn under the same name gets its own copy",
-  copied(a) !== copied(b) && readFileSync(copied(a), "utf8") === "first",
+  copied(a) !== copied(b) && readFileSync(copied(a)).equals(png("first")),
   [a, b],
 );
 
@@ -229,6 +236,111 @@ if (process.platform === "win32") {
     out?.permissionDecision === "deny" && copied(out).startsWith(SHOWN),
     out,
   );
+}
+
+// Only pictures are copied: a key or a .env named in the call would otherwise be read and copied into the project,
+// where Claude can read it under a name its Read deny rules don't match.
+{
+  const secret = file(join(ROOT, "secret.env"), "API_KEY=x");
+  const o = run(show([pic(secret)]));
+  check(
+    "a file that is not a picture is not copied: denied, and nothing is written to shown/",
+    o?.permissionDecision === "deny" &&
+      /not a picture/.test(o.permissionDecisionReason) &&
+      !readdirSync(SHOWN).some((n) => n.startsWith("secret")),
+    o,
+  );
+  const n = run(show([pic("//some-host/share/x.png")]));
+  check(
+    "a network path (two slashes) is refused before any read, so no sign-in goes to that host",
+    n?.permissionDecision === "deny" &&
+      /network/.test(n.permissionDecisionReason) &&
+      !/ -> /.test(n.permissionDecisionReason),
+    n,
+  );
+  const big = file(join(ROOT, "big.png"), Buffer.alloc(20 * 1024 * 1024 + 1));
+  const b = run(show([pic(big)]));
+  check(
+    "a picture over 20 MB is not copied: denied with its size named",
+    b?.permissionDecision === "deny" &&
+      /over 20 MB/.test(b.permissionDecisionReason) &&
+      !readdirSync(SHOWN).some((n) => n.startsWith("big")),
+    b,
+  );
+}
+
+// The bytes must start like a picture: a key or a .env renamed to .png is not copied
+{
+  const fake = file(join(ROOT, "key.png"), Buffer.from("API_KEY=secret"));
+  const o = run(show([pic(fake)]));
+  check(
+    "a .png whose bytes are not a picture is refused, and nothing is written to shown/",
+    o?.permissionDecision === "deny" &&
+      /not a picture/.test(o.permissionDecisionReason) &&
+      !readdirSync(SHOWN).some((n) => n.startsWith("key")),
+    o,
+  );
+  const kinds = {
+    "j.jpg": Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1]),
+    "g.gif": Buffer.from("GIF89a..."),
+    "w.webp": Buffer.from("RIFF\0\0\0\0WEBPVP8 "),
+    "b.bmp": Buffer.from("BM......"),
+    "i.ico": Buffer.from([0, 0, 1, 0, 1, 0]),
+    "t.tif": Buffer.from("II*\0...."),
+    "a.avif": Buffer.concat([
+      Buffer.from([0, 0, 0, 0x1c]),
+      Buffer.from("ftypavif\0\0\0\0avifmif1miaf"),
+    ]),
+    "s.svg": Buffer.from('<?xml version="1.0"?>\n<svg xmlns="x"></svg>'),
+  };
+  const all = Object.entries(kinds).map(([n, b]) => file(join(ROOT, n), b));
+  const k = run(show(all.map(pic)));
+  check(
+    "a picture of each kind (JPEG, GIF, WEBP, BMP, ICO, TIFF, AVIF, SVG) is copied",
+    k?.permissionDecision === "deny" &&
+      all.every((p) => k.permissionDecisionReason.includes(`${p} -> `)),
+    k,
+  );
+  const s = run(show([pic(file(join(ROOT, "fake.svg"), "API_KEY=x"))]));
+  check(
+    "an .svg with no <svg tag is refused",
+    s?.permissionDecision === "deny" &&
+      /not a picture/.test(s.permissionDecisionReason),
+    s,
+  );
+}
+
+// A link is followed: one to a real picture is copied, one to a secret is refused like the secret itself
+{
+  const real = file(join(ROOT, "real-target.png"), "linked picture");
+  const link = join(ROOT, "link.png");
+  const toSecret = join(ROOT, "link-secret.png");
+  let made = true;
+  try {
+    symlinkSync(real, link);
+    symlinkSync(join(ROOT, "secret.env"), toSecret);
+  } catch {
+    made = false; // Windows without Developer Mode can't make links
+  }
+  if (!made) console.log("skip link checks (2): links can't be made here");
+  else {
+    const l = run(show([pic(link)]));
+    check(
+      "a link to a real picture is copied with the picture's bytes",
+      l?.permissionDecision === "deny" &&
+        / -> /.test(l.permissionDecisionReason) &&
+        readFileSync(copied(l)).equals(png("linked picture")),
+      l,
+    );
+    const ls = run(show([pic(toSecret)]));
+    check(
+      "a .png link to a secret is refused and nothing is copied",
+      ls?.permissionDecision === "deny" &&
+        /not a picture/.test(ls.permissionDecisionReason) &&
+        !/ -> /.test(ls.permissionDecisionReason),
+      ls,
+    );
+  }
 }
 
 rmSync(ROOT, { recursive: true, force: true });

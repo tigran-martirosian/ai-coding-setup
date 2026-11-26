@@ -2,7 +2,46 @@
 
 Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a small fix after it, 26.2 the next big release, and 27.1 the first of 2027. Versions 1.0.0 to 1.0.114 came before this scheme.
 
+Each entry describes the setup as it was at that release, so older entries name hooks, commands and helpers that later releases removed or merged. A "removed in" note marks the main ones.
+
 ## [Unreleased]
+
+## [26.6.3] - 2026-11-26
+
+### Big jobs
+- A long job moves itself to a fresh session after a finished part, once its chat has been compacted or passed 150k tokens, so later parts don't pay for the whole history. No question, no pause.
+- A lead no longer stops after each helper's finish notice, and its end report sorts each finding into what to fix: a test, a skill line, or nothing.
+- New skills: `wayfinder` plans a job too big for one spec, `domain-modeling` keeps a project's glossary and hard decisions while you grill, and `log-papercut` lets Claude note in one line where the setup got in its way.
+- `/setup-audit` has a skill check that names skills missing steps, checks or an error table.
+
+### Files
+- The file check offers topic folders for a `docs/` folder with many loose files; every move is asked first, and undo puts back only the moved file's own links.
+- Files that are not UTF-8, long file endings, Xcode bundle names and a CocoaPods `Pods/` folder are left alone.
+
+### Safety
+- Windows programs (PowerShell and the like) run from System32, never a copy found earlier on PATH.
+- Read Aloud runs its voice engine only from a folder no other account can change. Its default folder moved to `%LOCALAPPDATA%\LocalTTS`; if yours is still at `C:\LocalTTS`, Read Aloud tells you how to move it.
+- The download size check and `read-page` never reach local or private addresses, redirects included.
+- Showing a picture copies only real picture files and never reaches a network share; an odd file name can't run a command.
+- A note from another session can no longer be labelled as yours.
+- The delete guard's form frees only the paths you said yes to; a Keep or Go back pick never lets a delete pass.
+- The commit gate checks the right folder after `cd`, quotes and loops; more `vercel` and `netlify` deploy forms are caught.
+- The Agents and Commands panels never run a `node` file planted in a project folder.
+
+### Phone app
+- A phone that pairs with a PC no longer hands that PC a login to your relay, and a stranger's message can't make the relay read every held item.
+- Crafted Markdown or one bad event can no longer freeze the page; Home opens even from a damaged saved copy.
+- Voice installs its locked Python packages, and recordings no longer stay in your temp folder.
+- The pairing page on your PC answers only at a random one-time address and can't be shown inside another site.
+- The relay deploy uses a locked Wrangler, never `npx`.
+
+### Other fixes
+- Asking why Claude stopped no longer counts as a stop, and "why won't you stop" or a spoken stop holds work again.
+- `/update-setup` waits while an update is installing itself.
+- `/watch` keeps each site's videos apart in its cache.
+- Read Aloud reads a whole long reply, and starts again after Stop.
+- The usage dashboard opens when its data passes 10 MB.
+- Two `steer` runs at once no longer lose notes.
 
 ## [26.6.2.1] - 2026-11-26
 
@@ -39,7 +78,7 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ### Fixes
 - Switching sessions in Nimbalyst is faster: the agents panel measures its rows once per pass instead of re-laying the page for each one.
-- A profile Claude writes (GitHub, LinkedIn, a short bio) stays an introduction; numbers and how things work stay in the resume and the project READMEs.
+- A profile Claude writes (GitHub, LinkedIn, a short bio) stays an introduction; numbers and how things work stay in a resume or the project READMEs.
 
 ## [26.6] - 2026-11-23
 
@@ -63,9 +102,9 @@ Release 26.6: texts written for their reader, research that says how solid it is
 - Claude asks you before a session changes one of your Nimbalyst settings (a project's permission mode, the default model, the theme and the like). The card shows every field it would set; `SETTINGS_GUARD=off` turns this off.
 
 ### Inside this repository
-- In this repository only, `verify-gate` marks a page edit done only with fresh screenshots (GitHub light and dark, phone width) and a PASS verdict; it does nothing in your projects.
-- The privacy check skips package checksums; CI's lint check passes with no errors.
-- Security: a deepsec scan of this repo. Its 7 high findings were fixed first, then 11 smaller ones, each with a test. 69 more are low-risk or out of scope (most in the phone app in Telegram) and are kept for later work; 5 were not real.
+- A page edit in this repository counts as done only with fresh screenshots (GitHub light and dark, phone width) and a PASS verdict from `verify-gate`. This check does not run in your projects.
+- The privacy check no longer flags package checksums, and CI's lint check passes with no errors.
+- Security: a deepsec scan of this repository. All 7 high-severity findings and 11 smaller ones are fixed, each with a test. 69 more are low-risk or out of scope (most in the Telegram phone app) and are tracked for a later release; 5 were false positives.
 - This release ran the quick security level on its own changes.
 
 ### Fixes
@@ -97,7 +136,7 @@ Release 26.6: texts written for their reader, research that says how solid it is
 
 ## [26.5] - 2026-11-20
 
-The setup, rebuilt: fewer moving parts, one clear path for a big job, and a check you can press. How it all works now, on one page: `docs/whats-new.md` in the repo. After this update Claude offers a short tour of it in the chat; ask "what's new" any time.
+A simpler setup: fewer moving parts, one clear path for a big job, and a check you can press. How it all works now, on one page: `docs/whats-new.md` in the repo. After this update Claude offers a short tour of it in the chat; ask "what's new" any time.
 
 ### How work runs
 - Claude sizes each ask first (small, medium or big). A medium or big job starts with questions in rounds (`grilling`, replacing `grill-me`), then what done looks like, each line with the check that proves it.
@@ -177,19 +216,19 @@ The setup, rebuilt: fewer moving parts, one clear path for a big job, and a chec
 - A message you send shows at once with "Sending…", a Jump to latest button brings you back down, and the chat keeps your scroll place when you come back to it.
 - Voice notes set themselves up: the install and the update download the speech model in the background when the phone add-on is in place.
 - Connection fixes: a phone removed from the PC goes back to pairing with a plain message, retries back off properly, and errors say in plain words what happened (for example "the PC is off or asleep").
-- Two guards no longer cost a retry. A Read of a file too big to read at once now returns a 120-line preview (or the asked range, cut to what fits) with a note on the rest, instead of being refused. A helper started from the main session without `run_in_background: false` now simply runs in the foreground instead of being refused.
-- When a job is already OK'd, a reply that ends "say go and I'll start the next step" is sent back once to carry on; releases, deploys, payments, messages and deletes still ask.
-- A reply that asks you to restart the app or click something so Claude can see whether a change works is sent back once: Claude runs the check itself, and a change that loads only after a restart waits for your own next restart instead of a request. Checks only you can do, such as on a phone, still ask.
+- Two guards no longer cost a retry. A Read of a file too big to read at once now returns a 120-line preview (or the asked range, cut to what fits) with a note on the rest, instead of being refused. A helper started from the main session without `run_in_background: false` now simply runs in the foreground instead of being refused. (Both guards were removed in 26.5.)
+- When a job is already OK'd, a reply that ends "say go and I'll start the next step" is sent back once to carry on; releases, deploys, payments, messages and deletes still ask. (Removed in 26.5.)
+- A reply that asks you to restart the app or click something so Claude can see whether a change works is sent back once: Claude runs the check itself, and a change that loads only after a restart waits for your own next restart instead of a request. Checks only you can do, such as on a phone, still ask. (Removed in 26.5.)
 - The read-only browser-account guard no longer refuses a command that only mentions its program in a folder path or a longer name, or asks for its help with the output redirected; writes are still caught.
 - Each project can have a verify skill that says how to start its app, what to do in it and what proof to show. `/new-project` writes one from four templates (web app, Godot game, command-line or Node tool, data or video pipeline), and `/update-project` offers one to a project with code and none (pass level 5).
-- A starter `REVIEW.md` holds a project's rules for the reviewer: what counts as Important, paths to skip, rules to check and past bugs. `/new-project` writes it in a git project and `/update-project` offers it. The reviewer reads it as it was at the commit the change started from, so a change cannot loosen its own review, and it quotes any line a change loosens.
+- A starter `REVIEW.md` holds a project's rules for the reviewer: what counts as Important, paths to skip, rules to check and past bugs. `/new-project` writes it in a git project and `/update-project` offers it (both stopped in 26.5). The reviewer reads it as it was at the commit the change started from, so a change cannot loosen its own review, and it quotes any line a change loosens.
 - The verify gate counts a run of the project's verify skill as the turn's check. In a project with a verify skill it also checks each code commit with no verify run since the last code edit; for now it only logs it (`VERIFY_GATE_COMMIT=enforce` refuses it once, and a `Verify: skipped — <reason>` line in the message lets it through). `node ~/.claude/workers/observe-log.mjs` prints the log (`--all` for every line).
 - Helpers never edit, weaken or skip a test to get green. A flaky test with no cause found may be deleted, with the reason in the project's `docs/known-failures.md`, never patched with sleeps or retries.
 - The reviewer keeps at most 5 Nits and hands a command that shows each Important finding; the lead runs it first, and a finding that does not reproduce goes to you instead of costing a fix round.
 
 ## [26.3.3] - 2026-11-17
 
-- The job hook no longer asks you to hand off after every commit once your plan row is done: it counts only the rows of the plan's job table, not a list of your own checks or an old reference table, and a session note written in another row is no longer read as that session claiming the row.
+- The job hook no longer asks you to hand off after every commit once your step of the plan is done. It reads only the plan's list of steps, and a note one session leaves on another step no longer counts as that session taking the step. (The job hook was removed in 26.5.)
 
 ## [26.3.2] - 2026-11-16
 
@@ -242,7 +281,7 @@ The setup, rebuilt: fewer moving parts, one clear path for a big job, and a chec
 - In Nimbalyst, starting several helpers at once no longer makes the chat lag, jump or go blank: each helper card shows at its final size straight away, the Agents panel extension stops redrawing itself many times a second while helper cards are on screen, and tool and helper cards stay where they first showed when the reply text arrives (it comes in below them) instead of all moving into the text at once (restart Nimbalyst after the update).
 - In Nimbalyst's right panel, the Trackers and Agents & commands sections can be resized by dragging the line between them (or with the arrow keys once it has focus); the split is kept after a restart, shrinks to fit a smaller window, and the Trackers list always ends on a whole row.
 - New `writing` skill: emails, posts, READMEs, profiles, resumes and other text people will read now start from your facts and your own voice, and get checked for current signs of machine-written text (with a small checker script that marks phrases to look at and rewrites nothing).
-- Your project's records now stay tidy on their own: after a commit or an edit of `HANDOFF.md`, at most once a day per project, Claude trims a `HANDOFF.md` over 120 lines to the current state, fixes or drops paths in its notes that no longer exist, and moves a decision that a new entry replaces to the archive, without asking you and with one "Upkeep:" line in its reply (the new `upkeep-note` hook; `UPKEEP_NOTE=off` turns it off).
+- Your project's records now stay tidy on their own: after a commit or an edit of `HANDOFF.md`, at most once a day per project, Claude trims a `HANDOFF.md` over 120 lines to the current state, fixes or drops paths in its notes that no longer exist, and moves a decision that a new entry replaces to the archive, without asking you and with one "Upkeep:" line in its reply (the `upkeep-note` hook, removed in 26.5).
 - A project's `DECISIONS.md` no longer grows without end: once it passes 200 lines or 25 KB, Claude moves its sections word for word into topic and dated files in `docs/decisions/` and keeps a short index at the root. The new script checks that no line is lost or doubled and changes nothing when that check fails; sessions, hooks and the Systems map read both places.
 - In Nimbalyst, the file viewer's close cross stays at the end of its row when the full-screen button is shown (the Ink themes extension).
 - Two new Nimbalyst fixes: the chat no longer pulls you back to the end while a reply comes in, and "Jump to question" goes to the newest question card, once (restart Nimbalyst after the update).
@@ -251,7 +290,7 @@ The setup, rebuilt: fewer moving parts, one clear path for a big job, and a chec
 - In the Agents & commands list, a long "what it's doing now" line is cut with "…" instead of running past the panel's edge.
 - A helper that has been on one step for over 2 minutes now shows that step and how long ("running a command (Bash) for 4m") instead of "quiet for 4m", which read as stuck.
 - A new Job Tracker extension turns Nimbalyst's tracker into one page per project for the job in hand (a job is any work over more than one session): its name and goal, how many steps are left with a bar, then what needs you, what is running and what is left, each in its own fold. A picker switches between open jobs or shows them all at once. A step that asks you to read a file opens it in one click, and a step with a session opens that session. A step's own view is calmer too: one main button that opens its session, the rarely used fields and the history folded away.
-- The Commands button now holds fourteen commands in four groups, most-used first: lead, grill me (a new skill that questions a plan until it holds), next move, where are we and board cleanup; new project, update project, systems map and untangle; setup audit, update setup and backup; PC tidy and disk tidy. Setup audit opens its checks in place (health, usage report, prompt audit, project scan, and chat review and full review in the setup folder), and `/setup-audit prompt` is the new prompt audit.
+- The Commands button now holds fourteen commands in four groups, most-used first: lead, grill me (a new skill that questions a plan until it holds; replaced by `grilling` in 26.5), next move, where are we and board cleanup; new project, update project, systems map and untangle; setup audit, update setup and backup; PC tidy and disk tidy. Setup audit opens its checks in place (health, usage report, prompt audit, project scan, and chat review and full review in the setup folder), and `/setup-audit prompt` is the new prompt audit.
 - The whole Nimbalyst window reads as one design under the Ink themes: no text under 12 px, one size per kind of text, helper and question cards in two sizes, no coloured edge stripes, and the accent colour only on the main button, the selected item and a bar's fill. Error pop-ups are readable in the dark themes, with a quiet "Copy Details" button, and the usage rings in the side bar start at 12 o'clock and fill clockwise again.
 - The Agents & commands list shows a new thinking word each turn and its dots stay in step, and the "Needs you" bar sits in line with the chat box. In the usage pop-up the hour chart shows only the current plan, the day chart is in % of the weekly limit, and Fable's share reads as a cap inside the week; the Sonnet 5.5 and Haiku 5.5 prices are corrected.
 - The Systems map draws part names larger and keeps its zoom when a part's card opens. `/where-are-we` writes tracker steps in plain words, checked by a text check, and a session that runs a release step links itself to that step.
@@ -260,7 +299,7 @@ The setup, rebuilt: fewer moving parts, one clear path for a big job, and a chec
 - The usage pop-up is smaller and drops the long note under a model's cap row.
 - The right side bar wraps its text on a narrow panel instead of cutting it at the edge, and a helper row keeps its time and model until they really don't fit (the fit check measured in the wrong type size and left a wide empty gap).
 - The blind reviewer loads again: its description is now valid YAML, so Claude Code no longer drops it, and a test checks every agent's frontmatter.
-- Fewer needless refusals: the commit check reads commits made with Nimbalyst's commit tool correctly, and no longer takes a commit message word after "add" for a file; planners and reviewers may run read-only git listings (`git branch --show-current`, `--merged`, `git tag -l`, `merge-base`, `rev-list`, `for-each-ref`) while anything that creates, moves or deletes stays refused; the background-tasks hint now says to pass `run_in_background: false`; and the big-read check names the real reason when a ranged read asks for too many lines.
+- Fewer needless refusals: the commit check reads commits made with Nimbalyst's commit tool correctly, and no longer takes a commit message word after "add" for a file; planners and reviewers may run read-only git listings (`git branch --show-current`, `--merged`, `git tag -l`, `merge-base`, `rev-list`, `for-each-ref`) while anything that creates, moves or deletes stays refused; the background-tasks hint now says to pass `run_in_background: false`; and the big-read check names the real reason when a ranged read asks for too many lines (both checks removed in 26.5).
 - New `/where-are-we` skill: how much of a job is left, read from the Nimbalyst tracker, with the tracker brought up to date.
 - Read Aloud is simpler: one Read aloud button at the end of the last finished turn, and it reads the whole turn. Hands-free mode and the `/voice` command are gone.
 - The number on a project's icon in Nimbalyst's left rail now counts only sessions that finished since you last had that project open, and sits on the icon's corner instead of on its ring.
@@ -273,7 +312,7 @@ The setup, rebuilt: fewer moving parts, one clear path for a big job, and a chec
 
 ## [26.1] - 2026-11-13
 
-Each project's Systems map now holds its topics and how-to things, and a new `map-prompt` hook adds the matching ones to your message so Claude starts from the right files; `/update-project` brings an older project folder up to the current setup (pass level 2); a new `/backup` copies your setup and the projects you pick to your own Backblaze B2 storage, locked with a password only you keep; `ask-anything` and `internet-search` become one `quick-tasks` folder; Nimbalyst updates through the setup with its fixes; sessions close the servers and browsers they started; question cards that ask no decision are refused; new `blind-reviewer` and `stuck-advisor` helpers; `worker-high` is now `worker-refactor`; and on the $20 Pro plan the Fable helpers run on Opus instead of failing.
+Each project's Systems map now holds its topics and how-to things, and a new `map-prompt` hook (removed in 26.5) adds the matching ones to your message so Claude starts from the right files; `/update-project` brings an older project folder up to the current setup (pass level 2); a new `/backup` copies your setup and the projects you pick to your own Backblaze B2 storage, locked with a password only you keep; `ask-anything` and `internet-search` become one `quick-tasks` folder; Nimbalyst updates through the setup with its fixes; sessions close the servers and browsers they started; question cards that ask no decision are refused; new `blind-reviewer` and `stuck-advisor` helpers (`stuck-advisor` removed in 26.5); `worker-high` is now `worker-refactor`; and on the $20 Pro plan the Fable helpers run on Opus instead of failing.
 
 ## [1.0.114] - 2026-11-12
 
@@ -293,7 +332,7 @@ Helpers that write code now run Opus at high effort through a new `worker-code` 
 
 ## [1.0.110] - 2026-11-10
 
-In Nimbalyst 0.83 the Theme button opens its menu again under the Ink themes, the side buttons line up in rows with one icon size, a long refactor goes to a new `worker-high` helper on Fable at high effort, `/pc-tidy` also stops the shells, watchers, headless browsers and scripts that finished sessions left behind and names ports a closed program still holds, and screen reviews zoom in on small parts and catch icons of different sizes side by side (restart Nimbalyst after the update).
+In Nimbalyst 0.83 the Theme button opens its menu again under the Ink themes, the side buttons line up in rows with one icon size, a long refactor goes to a new `worker-high` helper (now `worker-refactor`) on Fable at high effort, `/pc-tidy` also stops the shells, watchers, headless browsers and scripts that finished sessions left behind and names ports a closed program still holds, and screen reviews zoom in on small parts and catch icons of different sizes side by side (restart Nimbalyst after the update).
 
 ## [1.0.109] - 2026-11-09
 
@@ -461,7 +500,7 @@ A long-running session past 300k tokens is now told to finish the step it is on 
 
 ## [1.0.68] - 2026-10-30
 
-Long lines in chat tool cards now wrap instead of running off the card, and the Note button sends pasted images and files along with the note, works in a new tab, and says Sent only once the note has arrived. The free worker takes a long task as a file, so it no longer fails to start on Windows, and tries once more when a run ends on a tool it may not use. The web-answer and run-yourself checks raise far fewer false alarms, and voice typing now pastes the dictation with Ctrl+V instead of typing it key by key, so a dictation that lands in the wrong place no longer fires a shortcut for every letter.
+Long lines in chat tool cards now wrap instead of running off the card, and the Note button sends pasted images and files along with the note, works in a new tab, and says Sent only once the note has arrived. The free worker takes a long task as a file, so it no longer fails to start on Windows, and tries once more when a run ends on a tool it may not use. The web-answer and run-yourself checks (both removed in 26.5) raise far fewer false alarms, and voice typing now pastes the dictation with Ctrl+V instead of typing it key by key, so a dictation that lands in the wrong place no longer fires a shortcut for every letter.
 
 ## [1.0.67] - 2026-10-30
 
@@ -493,11 +532,11 @@ A long session now compacts itself while its cache is warm, with a focus line th
 
 ## [1.0.59] - 2026-10-27
 
-Web research moves off the free Gemini worker, which over 30 days answered only 43 of the 72 questions it was asked and took nearly four minutes to do it. A version or "is X released" question is now a one-second lookup from the place that knows it (`workers/versions.mjs`: endoflife.date, GitHub releases, npm, PyPI, crates, Docker Hub, Maven, NuGet), a list of things from one site comes from that site's own catalogue, and two new checks hold a reply back when it claims something may not be available without having checked, or lists fewer things than you asked for. A status question is also answered by the one call that answers it instead of a full diff or dry run, and a new check stops a command that will run for minutes from piping its output straight into `head` or `tail`, where cutting off the wrong part means running the whole thing again. A fresh install that answers no to both outside workers no longer stops with an error. The usage dashboard also survives a plan change, and file links and question forms got the fixes from the last review.
+Web research moves off the free Gemini worker, which often gave no answer and took minutes when it did. A version or "is X released" question is now a one-second lookup from the place that knows it (`workers/versions.mjs`: endoflife.date, GitHub releases, npm, PyPI, crates, Docker Hub, Maven, NuGet), a list of things from one site comes from that site's own catalogue, and two new checks hold a reply back when it claims something may not be available without having checked, or lists fewer things than you asked for. A status question is also answered by the one call that answers it instead of a full diff or dry run, and a new check stops a command that will run for minutes from piping its output straight into `head` or `tail`, where cutting off the wrong part means running the whole thing again. A fresh install that answers no to both outside workers no longer stops with an error. The usage dashboard also survives a plan change, and file links and question forms got the fixes from the last review.
 
 ## [1.0.58] - 2026-10-26
 
-Two new checks before a reply ends: `file-link-gate` sends back file links that Nimbalyst's chat can't open, and `code-review-gate` asks for a `/code-review` after a turn that changed three or more code files. `question-other` also refuses a question with no box to type your own answer and a "look at this" question with no link, `command-explain` adds a stand-in line to a command that has none instead of refusing it, `worker-nudge` refuses uncapped helper types every time, an Antigravity answer that runs out of time is kept as a partial answer, and the rules ask for every question you typed to be answered first.
+Two new checks before a reply ends: `file-link-gate` sends back file links that Nimbalyst's chat can't open, and `code-review-gate` (removed in 26.5) asks for a `/code-review` after a turn that changed three or more code files. `question-other` also refuses a question with no box to type your own answer and a "look at this" question with no link, `command-explain` adds a stand-in line to a command that has none instead of refusing it, `worker-nudge` refuses uncapped helper types every time, an Antigravity answer that runs out of time is kept as a partial answer, and the rules ask for every question you typed to be answered first.
 
 ## [1.0.57] - 2026-10-16
 
@@ -525,7 +564,7 @@ Shorter global rules.
 
 ## [1.0.51] - 2026-10-12
 
-`turn-cap` and `build-nudge` are switched off, and `command-explain` has no length limit.
+`turn-cap` and `build-nudge` are switched off (and removed in 1.0.53), and `command-explain` has no length limit.
 
 ## [1.0.50] - 2026-10-11
 
@@ -549,19 +588,19 @@ Two tests updated for the helper rule of 1.0.45.
 
 ## [1.0.45] - 2026-10-11
 
-`turn-cap`: a helper session must name its model and keep effort low.
+`turn-cap` (removed in 1.0.53): a helper session must name its model and keep effort low.
 
 ## [1.0.44] - 2026-10-11
 
-`turn-cap`: one helper at a time.
+`turn-cap` (removed in 1.0.53): one helper at a time.
 
 ## [1.0.43] - 2026-10-11
 
-`turn-cap`: helpers stay on the cheaper model.
+`turn-cap` (removed in 1.0.53): helpers stay on the cheaper model.
 
 ## [1.0.42] - 2026-10-11
 
-A big session is cut instead of reminded, and `cold-cache` warns when the prompt cache has expired.
+A big session is cut instead of reminded, and `cold-cache` (removed in 26.5) warns when the prompt cache has expired.
 
 ## [1.0.41] - 2026-10-10
 
@@ -573,7 +612,7 @@ The tests pass on GitHub again and the tour video caught up.
 
 ## [1.0.39] - 2026-10-10
 
-`build-nudge` counts a session's requests.
+`build-nudge` (removed in 1.0.53) counts a session's requests.
 
 ## [1.0.38] - 2026-10-10
 
@@ -717,7 +756,7 @@ Five colour themes for Nimbalyst.
 
 ## [1.0.3] - 2026-10-04
 
-The reader court.
+`/court readers`: a few reader helpers each read a text (a README, a post, a page) and say what loses them, and a chair sums up. (`/court` was removed in 1.0.76.)
 
 ## [1.0.2] - 2026-10-04
 
@@ -733,4 +772,4 @@ The setup updates itself, with a version number, a tag for each release and a li
 
 ## Before 1.0.0 - 2026-10-02 to 2026-10-04
 
-the first public setup: rules, checks, skills, workers, starter projects, voice typing and a full install for Windows and Mac.
+The first public setup: rules, checks, skills, workers, starter projects, voice typing and a full install for Windows and Mac.

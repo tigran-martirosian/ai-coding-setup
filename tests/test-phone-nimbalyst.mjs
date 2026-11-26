@@ -622,18 +622,54 @@ check(
   String(gone),
 );
 
-// watchEndpoint catches a file that exists only briefly
+// watchEndpoint catches a file that exists only briefly. The test counts the reads of the file made from inside the
+// watcher's fs.watch listener: the file is deleted as soon as the watcher has read it, and listProjects runs once
+// the watcher has seen it gone.
 nim.forgetEndpoint();
+const realWatch = fs.watch;
+const realRead = fs.readFileSync;
+let inWatcher = false;
+const watcherReads = { found: 0, missing: 0 };
+fs.watch = (dir, listener) =>
+  realWatch(dir, (...a) => {
+    inWatcher = true;
+    try {
+      return listener(...a);
+    } finally {
+      inWatcher = false;
+    }
+  });
+fs.readFileSync = (f, ...rest) => {
+  if (!inWatcher || f !== file) return realRead(f, ...rest);
+  try {
+    const text = realRead(f, ...rest);
+    watcherReads.found += 1;
+    return text;
+  } catch (e) {
+    if (e.code === "ENOENT") watcherReads.missing += 1;
+    throw e;
+  }
+};
+// true once the watcher read the file `what` ("found" or "missing"); false after 20 s
+async function watcherRead(what) {
+  for (const end = Date.now() + 20000; !watcherReads[what]; ) {
+    if (Date.now() > end) return false;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  return true;
+}
 const stop = nim.watchEndpoint();
 writeEndpoint();
-await new Promise((r) => setTimeout(r, 300));
+const sawFile = await watcherRead("found");
 fs.rmSync(file);
-await new Promise((r) => setTimeout(r, 100));
+const sawGone = await watcherRead("missing");
+fs.watch = realWatch;
+fs.readFileSync = realRead;
 const watched = await rejects(async () => nim.listProjects());
 check(
-  "watchEndpoint: file written then deleted ~300 ms later -> listProjects still works",
-  !watched && nim.listProjects().length === 2,
-  String(watched),
+  "watchEndpoint: file written, read by the watcher, then deleted -> listProjects still works",
+  sawFile && sawGone && !watched && nim.listProjects().length === 2,
+  `watcher read the file: ${sawFile}; watcher saw it gone: ${sawGone}; listProjects: ${String(watched)}`,
 );
 stop();
 nim.forgetEndpoint();

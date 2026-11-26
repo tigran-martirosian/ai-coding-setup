@@ -124,6 +124,23 @@ const stoppedTurn = [
 const ASK =
   "Yo, what is going on? I stopped you. How long do you have left? What has been taking so much time?";
 const START = "Start the stage 0 lead, and bring it up in the Nimbalyst view.";
+// A background helper's finish notice, as Claude Code sends it as the prompt of a new turn
+const HELPER_DONE = [
+  "<task-notification>",
+  "<task-id>a6fb01f828b9a4e1a</task-id>",
+  "<tool-use-id>toolu_018KToBhFsmke2ertRuPCnbK</tool-use-id>",
+  "<output-file>C:\\Temp\\claude\\s1\\tasks\\a6fb01f828b9a4e1a.output</output-file>",
+  "<status>completed</status>",
+  '<summary>Agent "Fix the restore step" finished</summary>',
+  "<result>Done: the restore step is fixed and its test passes.</result>",
+  "</task-notification>",
+].join("\n");
+// The same notice as the transcript stores it
+const notice = (text) => ({
+  ...typed(text),
+  promptSource: "system",
+  origin: { kind: "task-notification" },
+});
 const pre = (entries, name) =>
   run(entries, {
     input: { hook_event_name: "PreToolUse", tool_name: name, tool_input: {} },
@@ -582,6 +599,38 @@ const cases = [
     "stop: a plain new instruction to start gets no [stop] note (an app restart writes the same result)",
     () => !prompt(stoppedTurn, START).includes("[stop]"),
   ],
+  // A helper's finish notice opens a turn of its own; it is not the user's message, so the note (which says "this
+  // reply answers their message") would halt a lead after every helper. The user's next typed stop still gets it.
+  [
+    "stop: a helper's finish notice after an answered stop gets no [stop] note (it would halt the lead)",
+    () =>
+      !prompt(
+        [...stoppedTurn, typed(ASK), say("Two steps left; waiting for go.")],
+        HELPER_DONE,
+      ).includes("[stop]"),
+  ],
+  [
+    "stop: a finish notice with text before <task-notification> on its first line gets no [stop] note (not typed)",
+    () =>
+      !prompt(
+        stoppedTurn,
+        `Background: ${HELPER_DONE.replace("completed", "stopped")}`,
+      ).includes("[stop]"),
+  ],
+  [
+    "stop: after a helper's finish notice, the user's next stop message still gets the [stop] note",
+    () =>
+      prompt(
+        [
+          ...stoppedTurn,
+          typed(ASK),
+          say("Two steps left; waiting for go."),
+          notice(HELPER_DONE),
+          say("The helper finished; its fix is in."),
+        ],
+        "Hold on, what is left?",
+      ).includes("[stop] The user stopped"),
+  ],
   // Only a message that says to stop holds: the stop button and a message sent mid-turn write the same interrupted
   // result 0.2-0.4 s before the message (the real stops of session c779e67d, 2026-11-11 00:47:58Z and 00:50:51Z)
   [
@@ -600,6 +649,53 @@ const cases = [
       ).includes("[stop]");
     },
   ],
+  // A message that tells Claude to stop holds; one that only asks about or mentions a stop does not
+  ...[
+    "stop",
+    "stop it",
+    "I stopped you",
+    "please stop building",
+    "halt",
+    "hold on",
+    "don't run that",
+    "wait",
+    "Wait, why did you stop?",
+    "why won't you stop",
+    "why can't you stop",
+    "why don't you stop",
+    "will you stop",
+    "can you stop",
+    // Voice text has no commas or question marks: a question before the stop must not take the stop with it
+    "why is this still running stop it now",
+    "did you even read it stop everything",
+    "why would you do that please stop",
+    "why are you deploying dont continue",
+    "Ok, did I not say stop",
+    "No, did you hear me, stop now",
+    // A go word in a question about the work is no go
+    "Why did you start deploying? Stop.",
+    "how come you keep going stop",
+  ].map((text) => [
+    `stop: "${text}" says to stop and gets the [stop] note`,
+    () => prompt(stoppedTurn, text).includes("[stop] The user stopped"),
+  ]),
+  ...[
+    "why did you stop, bro",
+    "did you stop?",
+    "you stopped again",
+    "what made it stop",
+  ].map((text) => [
+    `stop: "${text}" only asks about a stop and gets no [stop] note`,
+    () => !prompt(stoppedTurn, text).includes("[stop]"),
+  ]),
+  // A go word outside the question still says to go on
+  ...[
+    "Why is it slow? Stop that and continue.",
+    "why so slow, stop the old one and start the new lead",
+  ].map((text) => [
+    `stop: "${text}" says to go on and gets no [stop] note`,
+    () => !prompt(stoppedTurn, text).includes("[stop]"),
+  ]),
   [
     "stop: the stop note and the cut-off reminder come as one output",
     () => {

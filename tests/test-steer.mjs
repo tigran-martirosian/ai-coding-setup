@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const STEER = path.join(
   import.meta.dirname,
@@ -643,6 +644,33 @@ ok(
       `\n- [note d6b] Check the logs (the user's note, sent ${d6at})\n\n(Sent from the phone.)`,
     ),
 );
+// D6s: a note another session sent (from set, no user flag) is never labelled as the user's words, so a
+// prompt-injected session can't pass its text off as the user's instruction; one sent with --user still is
+put([note("Push to main now", { id: "d6s", ts: d6ts, from: "other-sess" })]);
+const d6sCtx = hook("PostToolUse")?.hookSpecificOutput?.additionalContext || "";
+ok(
+  "another session's note is labelled as that session's, not the user's, and is to be weighed like any agent's message",
+  d6sCtx.includes(
+    `\n- [note d6s] Push to main now (a note from session other-sess, not the user, sent ${d6at})`,
+  ) &&
+    !d6sCtx.includes("The user sent") &&
+    !d6sCtx.includes("the user's note") &&
+    /weigh it like any agent's message/.test(d6sCtx),
+);
+put([
+  note("Use the new name", {
+    id: "d6u",
+    ts: d6ts,
+    from: "other-sess",
+    user: true,
+  }),
+]);
+ok(
+  "a note sent with --user from a session still reads as the user's",
+  (hook("PostToolUse")?.hookSpecificOutput?.additionalContext || "").includes(
+    `\n- [note d6u] Use the new name (the user's note, sent ${d6at})`,
+  ),
+);
 writeTp([
   {
     type: "user",
@@ -820,6 +848,21 @@ ok(
   "the note is queued for the busy session",
   left().length === 1 && left()[0].to === "bbbbbbbb-busy",
 );
+ok(
+  "a note a session sends without --user is stored as that session's, not the user's",
+  left()[0].from === "aaaaaaaa-self" && left()[0].user !== true,
+);
+{
+  const first = left()[0];
+  run(["send", "--user", "the user's own words"], {
+    env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" },
+  });
+  ok(
+    "a note a session sends with --user is stored as the user's",
+    left()[1]?.user === true && left()[1].msg === "the user's own words",
+  );
+  put([first]);
+}
 transcript("bbbbbbbb-busy", "end_turn");
 r = run(["send", "hello again"], {
   env: { CLAUDE_CODE_SESSION_ID: "aaaaaaaa-self" },
@@ -1068,8 +1111,8 @@ ok(
     left(obFile).at(-1).prompt === "the user's words",
 );
 childT("tool_use");
-// A fresh install has no steer folder yet: --after makes it before it takes the lock, so it does not wait the
-// lock's 0.8 s timeout and write unlocked. Timed against the same send once the folder exists.
+// A fresh install has no steer folder yet: --after makes it before it takes the lock. No clock bound: locked()
+// runs the write only under the lock and otherwise ends NOT SENT (exit 1), so a lock not taken fails rFresh.code.
 {
   const home2 = fs.realpathSync.native(
     fs.mkdtempSync(path.join(os.tmpdir(), "steer-fresh-")),
@@ -1082,19 +1125,16 @@ childT("tool_use");
   );
   const env2 = { env: { ...nimb.env, HOME: home2, USERPROFILE: home2 } };
   const ob2 = path.join(home2, ".claude", "steer", "outbox.jsonl");
-  let t0 = Date.now();
   const rFresh = run(["send", "--to", "e13360ea", "--after", "first"], env2);
-  const freshMs = Date.now() - t0;
-  t0 = Date.now();
-  run(["send", "--to", "e13360ea", "--after", "second"], env2);
-  const warmMs = Date.now() - t0;
+  const rWarm = run(["send", "--to", "e13360ea", "--after", "second"], env2);
   ok(
-    `--after on a fresh install makes the steer folder before taking the lock (fresh ${freshMs} ms, folder there ${warmMs} ms)`,
+    `--after on a fresh install makes the steer folder, takes the lock and queues the note (fresh exit ${rFresh.code}: ${rFresh.out.split("\n")[0]})`,
     rFresh.code === 0 &&
+      rWarm.code === 0 &&
       left(ob2)
         .map((e) => e.prompt)
         .join("|") === "first|second" &&
-      freshMs - warmMs < 600,
+      !fs.existsSync(path.join(home2, ".claude", "steer", ".lock")),
   );
   fs.rmSync(home2, { recursive: true, force: true });
 }
@@ -1153,6 +1193,31 @@ ok(
     r.out.includes("nothing is watching") &&
     left().length === before,
 );
+// Another steer run takes the lock as soon as the note is in the inbox and keeps it past send's wait: the note
+// can't be taken back, so it is not reported as sent
+{
+  const lockDir = path.join(inboxDir, ".lock");
+  const holder = spawn(process.execPath, [
+    "-e",
+    `const fs=require("fs"),path=require("path"),f=${JSON.stringify(inbox)},d=${JSON.stringify(lockDir)},t=Date.now();
+     const i=setInterval(()=>{let a="";try{a=fs.readFileSync(f,"utf8")}catch{}
+     if(a.includes("locked out")){try{fs.mkdirSync(d);fs.writeFileSync(path.join(d,process.pid+".holder"),"")}catch{}clearInterval(i);setTimeout(()=>{},6000);}
+     else if(Date.now()-t>8000)clearInterval(i);},20);`,
+  ]);
+  r = run(["send", "--to", "e13360ea", "locked out"], {
+    env: { ...nimb.env, STEER_ENDING_WAIT: "1" },
+  });
+  holder.kill();
+  ok(
+    `reply ended, no watcher, and the take-back can't get the lock: NOT SENT, and it says the note waits in the inbox (exit ${r.code}: ${r.out.slice(0, 60)})`,
+    r.code !== 0 &&
+      r.out.startsWith("NOT SENT") &&
+      r.out.includes("inbox") &&
+      left().some((e) => e.msg === "locked out"),
+  );
+  fs.rmSync(lockDir, { recursive: true, force: true });
+  put(left().filter((e) => e.msg !== "locked out"));
+}
 status("waiting_for_input");
 r = run(["send", "--to", "e13360ea", "pick blue"], nimb);
 ok(
@@ -1881,7 +1946,6 @@ ok(
   );
   fs.rmSync(inbox, { force: true });
 }
-db.close();
 
 // Delivery receipts: a note stays until its marker is in the session's transcript. The holds
 // here name a helper launch, the kind of call that is held.
@@ -2353,6 +2417,33 @@ ok("STEER_MAX_K lowers the limit", r.code === 4);
     "watch: an unreadable command line ends at once",
     watch(payload(), { STEER_WATCH_ARGS: "" }).code === 0 && !left()[0].seen,
   );
+  // No SystemRoot, so powershell.exe can't be found: the command line counts as unreadable (ends at once), not
+  // a crash in the hooks' error log. Node won't start without SystemRoot, so a preload drops it.
+  if (process.platform === "win32") {
+    const noRoot = path.join(home, "no-systemroot.mjs");
+    fs.writeFileSync(noRoot, "delete process.env.SystemRoot;\n");
+    const errLog = path.join(home, "no-root-errors.log");
+    const r = spawnSync(
+      process.execPath,
+      ["--import", pathToFileURL(noRoot).href, STEER, "--watch"],
+      {
+        input: payload(),
+        cwd: work,
+        encoding: "utf8",
+        env: {
+          ...env,
+          STEER_WATCH_ARGS: undefined,
+          CLAUDE_PID: String(process.pid),
+          HOOK_ERRORS_LOG: errLog,
+        },
+      },
+    );
+    const logged = fs.existsSync(errLog) ? fs.readFileSync(errLog, "utf8") : "";
+    ok(
+      `watch: with no SystemRoot the command line counts as unreadable and ends at once, no crash logged (exit ${r.status}, log: ${logged.trim()})`,
+      r.status === 0 && !logged && !left()[0].seen,
+    );
+  }
   ok(
     "watch: a terminal session is watched",
     watch(payload(), { STEER_WATCH_ARGS: "claude" }).code === 2,
@@ -2642,6 +2733,356 @@ ok("STEER_MAX_K lowers the limit", r.code === 4);
   );
   fs.rmSync(inbox, { force: true });
 }
+
+// A fresh home (no ~/.claude/steer yet) and a session whose transcript is not written yet: every hook ends quietly,
+// with no crash line in the hooks' crash log (a crash there is announced at the next session start)
+{
+  const home3 = fs.realpathSync.native(
+    fs.mkdtempSync(path.join(os.tmpdir(), "steer-empty-")),
+  );
+  const crashes = path.join(home3, "hook-errors.log");
+  const env = { HOME: home3, USERPROFILE: home3, HOOK_ERRORS_LOG: crashes };
+  const tp = path.join(home3, ".claude", "projects", "x", "e1.jsonl");
+  const input = (ev) =>
+    JSON.stringify({
+      hook_event_name: ev,
+      session_id: "e1",
+      cwd: work,
+      transcript_path: tp,
+    });
+  for (const ev of ["PreToolUse", "PostToolUse", "Stop", "UserPromptSubmit"])
+    run(["--hook"], { env, input: input(ev) });
+  const noDir = fs.existsSync(crashes) ? fs.readFileSync(crashes, "utf8") : "";
+  ok(
+    `no steer folder: --hook ends with no crash logged${noDir ? ` (logged: ${noDir.trim().split("\n")[0]})` : ""}`,
+    noDir === "",
+  );
+  fs.mkdirSync(path.join(home3, ".claude", "steer"), { recursive: true });
+  fs.rmSync(crashes, { force: true });
+  run(["--watch"], {
+    env: { ...env, STEER_WATCH_IDLE: "1" },
+    input: input("Stop"),
+  });
+  const noTp = fs.existsSync(crashes) ? fs.readFileSync(crashes, "utf8") : "";
+  ok(
+    `no transcript yet: --watch ends with no crash logged${noTp ? ` (logged: ${noTp.trim().split("\n")[0]})` : ""}`,
+    noTp === "",
+  );
+  fs.rmSync(home3, { recursive: true, force: true });
+}
+
+// Two copies of steer at once: the notes folder's lock (.lock, holding a file named by its holder's process id) is
+// removed only by its holder, and no copy rewrites an inbox or moved.json without it. Here the test process
+// itself holds the lock, so its holder stays alive the whole time.
+{
+  const lock = path.join(inboxDir, ".lock");
+  const mine = path.join(lock, `${process.pid}.test`);
+  const movedF = path.join(inboxDir, "moved.json");
+  const text = (f) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null);
+  fs.mkdirSync(lock, { recursive: true });
+  fs.writeFileSync(mine, "");
+  put([note("while locked", { id: "lk1" })]);
+  const before = text(inbox),
+    movedBefore = text(movedF);
+  ok(
+    "a held lock: the hook hands nothing over and leaves the inbox as it was",
+    hook("PostToolUse") === null && text(inbox) === before,
+  );
+  fs.writeFileSync(parentT, agentUse("call-lk"));
+  ok(
+    "a held lock: a helper's copy is not marked in the inbox without the lock",
+    hook("PostToolUse", sub("sub-lk")) === null && text(inbox) === before,
+  );
+  transcript("bbbbbbbb-busy", "tool_use");
+  const s = run(["send", "not now"]);
+  ok(
+    "a held lock: send writes no note without the lock and says NOT SENT",
+    s.code !== 0 && s.out.startsWith("NOT SENT") && text(inbox) === before,
+  );
+  const m = run(["moved", "--to", "new-lk", "--from", "old-lk"]);
+  ok(
+    "a held lock: moved does not rewrite moved.json without the lock",
+    m.code !== 0 && text(movedF) === movedBefore,
+  );
+  ok("a held lock: no copy that waited for it removed it", fs.existsSync(mine));
+  fs.rmSync(lock, { recursive: true, force: true });
+  ok(
+    "the lock freed: the note is handed over",
+    hook("PostToolUse")?.hookSpecificOutput?.additionalContext?.includes(
+      "while locked",
+    ),
+  );
+  // A copy that died holding the lock does not block the others
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, "999999.dead"), "");
+  put([note("after a crash", { id: "lk2" })]);
+  ok(
+    "a lock whose holder is gone is taken over: the note is handed over",
+    hook("PostToolUse")?.hookSpecificOutput?.additionalContext?.includes(
+      "after a crash",
+    ) && !fs.existsSync(lock),
+  );
+  // A copy that has just made the lock folder and not yet put its name in: one that waits for it leaves it
+  fs.rmSync(lock, { recursive: true, force: true });
+  fs.mkdirSync(lock);
+  put([note("lock just made", { id: "lk3" })]);
+  hook("PostToolUse");
+  ok(
+    "a lock just made by another copy: the copy that waited for it does not remove it",
+    fs.existsSync(lock),
+  );
+  fs.rmSync(lock, { recursive: true, force: true });
+  fs.rmSync(inbox, { force: true });
+}
+
+// lock.mjs itself, run in a child with this home; `code` may first swap one of its fs calls for one that fails the
+// way Windows does while another copy renames or removes the lock folder
+const LOCKJS = pathToFileURL(
+  path.join(import.meta.dirname, "..", "skills", "steer", "lock.mjs"),
+).href;
+const lockRun = (code) => {
+  const r = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import fs from "node:fs";\nimport path from "node:path";\nimport { LOCK, locked } from ${JSON.stringify(LOCKJS)};\nconst fail = (code) => Object.assign(new Error(code), { code });\n${code}`,
+    ],
+    {
+      encoding: "utf8",
+      env: { ...process.env, HOME: home, USERPROFILE: home },
+    },
+  );
+  return { out: r.stdout.trim(), err: r.stderr.trim(), code: r.status };
+};
+{
+  const lock = path.join(inboxDir, ".lock");
+  // Another copy moved the lock folder away between this copy's two steps: its name can't be written yet
+  let r = lockRun(`let n = 0;
+const write = fs.writeFileSync;
+fs.writeFileSync = (f, ...a) => {
+  if (path.dirname(f) === LOCK && n++ === 0) throw fail("ENOENT");
+  return write(f, ...a);
+};
+let ran = false;
+console.log(JSON.stringify({ got: locked(() => (ran = true)), ran }));`);
+  ok(
+    `lock: an ENOENT while another copy moves the lock away means wait and take it, not a crash (${r.out || r.err.split("\n")[0]})`,
+    r.code === 0 && r.out === '{"got":true,"ran":true}' && !fs.existsSync(lock),
+  );
+  if (process.platform === "win32") {
+    r = lockRun(`let n = 0;
+const mk = fs.mkdirSync;
+fs.mkdirSync = (d, ...a) => {
+  if (d === LOCK && n++ < 2) throw fail(n === 1 ? "EPERM" : "EACCES");
+  return mk(d, ...a);
+};
+let ran = false;
+console.log(JSON.stringify({ got: locked(() => (ran = true)), ran }));`);
+    ok(
+      `lock: on Windows an EPERM or EACCES while another copy removes the lock folder means wait and take it, not a crash (${r.out || r.err.split("\n")[0]})`,
+      r.code === 0 &&
+        r.out === '{"got":true,"ran":true}' &&
+        !fs.existsSync(lock),
+    );
+  }
+  // A dead holder's lock that another copy replaced with its own just before this copy moved it aside: the live
+  // lock goes back even when the first try to put it back fails, and nobody runs beside its holder
+  fs.mkdirSync(lock, { recursive: true });
+  fs.writeFileSync(path.join(lock, "999999.dead"), "");
+  r = lockRun(`const live = path.join(LOCK, process.ppid + ".live");
+let n = 0;
+const rename = fs.renameSync;
+fs.renameSync = (a, b) => {
+  n++;
+  if (n === 1) {
+    fs.rmSync(path.join(LOCK, "999999.dead"));
+    fs.writeFileSync(live, "");
+  }
+  if (n === 2) throw fail("EPERM");
+  return rename(a, b);
+};
+let ran = false;
+const got = locked(() => (ran = true), 500);
+const asides = fs.readdirSync(path.dirname(LOCK)).filter((x) => x.startsWith(".lock."));
+console.log(JSON.stringify({ got, ran, live: fs.existsSync(live), asides: asides.length }));`);
+  ok(
+    `lock: a live lock moved aside by mistake is never removed, even when putting it back fails once (${r.out || r.err.split("\n")[0]})`,
+    r.code === 0 &&
+      r.out === '{"got":false,"ran":false,"live":true,"asides":0}',
+  );
+  fs.rmSync(lock, { recursive: true, force: true });
+  // A holder that died 15 s ago, whose process id the system has since given to a live, unrelated process (here
+  // the test itself): no holder keeps the lock that long, so the next hook takes it over at once
+  fs.mkdirSync(lock);
+  const reused = path.join(lock, `${process.pid}.gone`);
+  fs.writeFileSync(reused, "");
+  const old = new Date(Date.now() - 15e3);
+  fs.utimesSync(reused, old, old);
+  fs.utimesSync(lock, old, old);
+  put([note("process id reused", { id: "lk5" })]);
+  ok(
+    "a 15 s old lock whose process id now belongs to a live, unrelated process is taken over: the note is handed over",
+    hook("PostToolUse")?.hookSpecificOutput?.additionalContext?.includes(
+      "process id reused",
+    ) && !fs.existsSync(reused),
+  );
+  fs.rmSync(lock, { recursive: true, force: true });
+  fs.rmSync(inbox, { force: true });
+}
+
+// A receipt or a wake-up entry that can't get the lock is tried once more with a longer wait, then logged, and a
+// missing receipt never makes a report come twice. The test holds the lock; its name is written again before each
+// run, so the lock stays fresh.
+{
+  const lock = path.join(inboxDir, ".lock");
+  const mine = path.join(lock, `${process.pid}.test`);
+  const hold = () => {
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(mine, "");
+  };
+  const errLog = path.join(home, "lock-errors.log");
+  const logged = () =>
+    fs.existsSync(errLog) ? fs.readFileSync(errLog, "utf8") : "";
+  const env = { ...nimb.env, HOOK_ERRORS_LOG: errLog };
+  const rcs = () => {
+    try {
+      return JSON.parse(
+        fs.readFileSync(path.join(inboxDir, "receipts.json"), "utf8"),
+      );
+    } catch {
+      return [];
+    }
+  };
+  const IDLE2 =
+    '[Child Session Update]\nSession: "lane 9" (k9)\nDone: locked idle case.';
+  db.prepare(
+    "INSERT INTO queued_prompts (id, session_id, prompt, status, document_context, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(
+    "meta-1794538609000-lk",
+    "n-idle",
+    IDLE2,
+    "executing",
+    JSON.stringify({
+      promptProvenance: {
+        actor: "agent",
+        origin: "child-session-update",
+        messageKind: "report",
+        originSessionId: "kid-1",
+      },
+    }),
+    Date.now(),
+  );
+  hold();
+  let t0 = Date.now();
+  let r = run(["--hook"], {
+    env,
+    input: JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      session_id: "idle-1",
+      cwd: work,
+      prompt: IDLE2,
+    }),
+  });
+  let ms = Date.now() - t0;
+  const ctx = r.out
+    ? JSON.parse(r.out).hookSpecificOutput?.additionalContext || ""
+    : "";
+  ok(
+    `a report run as a turn whose receipt can't get the lock: tried again, then logged; the turn runs, told not to act on a second copy (${ms} ms)`,
+    ctx.includes("[report]") &&
+      ctx.includes("do not act on it twice") &&
+      !rcs().some((x) => x.id === "meta-1794538609000-lk") &&
+      logged().includes("receipt") &&
+      ms > 3000,
+  );
+  fs.rmSync(errLog, { force: true });
+  hold();
+  t0 = Date.now();
+  r = run(["--hook"], {
+    env,
+    input: JSON.stringify({
+      hook_event_name: "PostToolUse",
+      session_id: "busy-1",
+      cwd: work,
+      tool_name: "mcp__nimbalyst-host__consume_session_inbox",
+      tool_response: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages: [
+              {
+                id: "meta-1794538609001-lk",
+                kind: "report",
+                text: "[Child Session Update]\nDone: locked claim case.",
+              },
+            ],
+          }),
+        },
+      ],
+    }),
+  });
+  ms = Date.now() - t0;
+  ok(
+    `a claimed report whose receipt can't get the lock: tried again, then logged, and not handed over again as a note (${ms} ms)`,
+    !r.out.includes("locked claim case") &&
+      !rcs().some((x) => x.id === "meta-1794538609001-lk") &&
+      logged().includes("receipt") &&
+      ms > 3000,
+  );
+  // --watch at its time limit with a note unread queues a wake-up in the outbox; under a held lock it is logged
+  fs.rmSync(errLog, { force: true });
+  const tpW = path.join(home, "watch-locked.jsonl");
+  fs.writeFileSync(
+    tpW,
+    `${JSON.stringify({ type: "user", toolUseResult: { backgroundTaskId: "job1" } })}\n${JSON.stringify({ type: "assistant", message: { content: "waiting" } })}\n`,
+  );
+  put([note("wake me", { id: "lk6" })]);
+  const outboxBefore = fs.existsSync(outbox)
+    ? fs.readFileSync(outbox, "utf8")
+    : null;
+  hold();
+  const fresh = setInterval(hold, 1000);
+  t0 = Date.now();
+  const code = await new Promise((done) => {
+    const c = spawn(process.execPath, [STEER, "--watch"], {
+      cwd: work,
+      env: {
+        ...process.env,
+        ...env,
+        USERPROFILE: home,
+        HOME: home,
+        STEER_WATCH_TICK: "0.05",
+        STEER_WATCH_MAX: "0",
+        STEER_WATCH_ARGS: "claude --input-format stream-json --print",
+      },
+    });
+    c.on("close", done);
+    c.stdin.end(
+      JSON.stringify({
+        hook_event_name: "Stop",
+        session_id: "busy-1",
+        cwd: work,
+        transcript_path: tpW,
+      }),
+    );
+  });
+  clearInterval(fresh);
+  ms = Date.now() - t0;
+  const outboxAfter = fs.existsSync(outbox)
+    ? fs.readFileSync(outbox, "utf8")
+    : null;
+  ok(
+    `watch: a wake-up entry that can't get the lock is tried again with a longer wait, then logged (exit ${code}, ${ms} ms)`,
+    code === 0 &&
+      outboxAfter === outboxBefore &&
+      logged().includes("outbox") &&
+      ms > 6000,
+  );
+  fs.rmSync(lock, { recursive: true, force: true });
+  fs.rmSync(inbox, { force: true });
+}
+db.close();
 
 fs.rmSync(home, { recursive: true, force: true });
 

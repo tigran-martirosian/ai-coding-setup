@@ -115,6 +115,12 @@ ok(
   globalHooks(dry.out).length,
   scripts.length,
 );
+// A hook wired twice on purpose (one `if` for Bash, one for PowerShell) must not read like a mistake in the log.
+ok(
+  "no two hook lines in the dry run read the same",
+  globalHooks(dry.out).filter((l, i, all) => all.indexOf(l) !== i),
+  [],
+);
 ok(
   "dry run lists the rules file",
   dry.out.includes(`rules: wrote ${fwd(path.join(claude, "CLAUDE.md"))}`),
@@ -1069,6 +1075,30 @@ ok(
     copiesIn(upd, path.join(upd, ".claude")).includes("CLAUDE.md"),
   ],
   [true, true, true],
+);
+// the how-to sits alone in claude-settings: every link to another docs page is a full address that names a real file
+const howToLinks = [
+  ...fs.readFileSync(updHowTo, "utf8").matchAll(/\]\(([^)\s]+)\)/g),
+].map((m) => m[1]);
+// the address as the installer holds it (scripts/projects.mjs's DOCS_URL)
+const docsBase = fs
+  .readFileSync(
+    path.join(import.meta.dirname, "..", "scripts", "projects.mjs"),
+    "utf8",
+  )
+  .match(/^const DOCS_URL =\s*"([^"]+)"/m)?.[1];
+if (!docsBase) throw new Error("scripts/projects.mjs has no DOCS_URL line");
+ok(
+  "the installed how-to links other pages by their GitHub address, each to a file the repo has",
+  [
+    howToLinks.length > 5,
+    howToLinks.filter((l) => !/^(https?:|#)/.test(l)),
+    howToLinks
+      .filter((l) => l.startsWith(docsBase))
+      .map((l) => l.slice(docsBase.length).split("#")[0])
+      .filter((f) => !fs.existsSync(path.join(import.meta.dirname, "..", f))),
+  ],
+  [true, [], []],
 );
 ok(
   "a folder's notes and the how-to that are as written are replaced too",

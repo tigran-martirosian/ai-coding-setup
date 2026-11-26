@@ -6,7 +6,8 @@
  * other extensions' `components` overrides (last-registered-wins is per key).
  *
  * The Markdown source for each block is kept in a small in-memory map keyed by
- * a hash, so the visible transcript is never modified.
+ * a hash, so the visible transcript is never modified. As rows render, each session's blocks and their text
+ * are kept in order (turns.ts), because the chat drops rows far from view.
  *
  * Only one control shows in the whole transcript: at the end of the last finished turn, and it reads that
  * whole turn (every text block since the last user message). At rest it is
@@ -21,6 +22,7 @@ import panelCss from "./panel.css?inline";
 import { type PlayerState, player, usePlayer } from "./player";
 import { updateSetting, useSettings } from "./settings";
 import { formatSpeed, t } from "./strings";
+import { type Seen, SessionRecord } from "./turns";
 // The shared thinking-orbs mount (plain script, one copy per window): draws every canvas[data-orb] on the page
 import "../../shared/orbs/orbs.js";
 
@@ -69,27 +71,6 @@ export function lastTurnEnd(items: Item[]): number {
   return i >= 0 && items[i].kind === "control" ? i : -1;
 }
 
-/**
- * The whole turn that ends at `index`: every text block back to the user message before it, joined in
- * order. Null when there is no text, or when a block's text is no longer kept.
- */
-export function turnText(
-  items: Item[],
-  index: number,
-  body: (key: string) => string | undefined = bodyForKey,
-): string | null {
-  const parts: string[] = [];
-  for (let i = index; i >= 0; i--) {
-    const item = items[i];
-    if (item.kind === "user") break;
-    if (item.kind !== "control") continue;
-    const md = body(item.key);
-    if (md === undefined) return null;
-    if (md.trim()) parts.unshift(md.trim());
-  }
-  return parts.length ? parts.join("\n\n") : null;
-}
-
 const ITEMS =
   ".rich-transcript-message.user, .rich-transcript-waiting, .readaloud-control:not([hidden])";
 
@@ -106,11 +87,71 @@ function readItems(): { els: HTMLElement[]; items: Item[] } {
   return { els, items };
 }
 
-/** The text of the turn this control ends, read from the page at the moment of the press. */
-function turnTextFor(el: HTMLElement | null): string | null {
+// ---- What each session holds, kept as its rows render (the chat drops rows far from view) ----
+
+const records = new Map<string, SessionRecord>();
+
+function sessionOf(el: HTMLElement): string {
+  return el.closest("[data-session-id]")?.getAttribute("data-session-id") ?? "";
+}
+
+/** The element of the block's row: the control itself is put back each time a streaming block grows. */
+function rowOf(el: HTMLElement): object {
+  return el.parentElement ?? el;
+}
+
+/** Lays the rows on the page over each session's record. */
+function recordPage(els: HTMLElement[], items: Item[]) {
+  const pages = new Map<string, { rows: Seen[]; atTop: boolean }>();
+  els.forEach((el, i) => {
+    const session = sessionOf(el);
+    let page = pages.get(session);
+    if (!page) {
+      const list = el.closest<HTMLElement>(".rich-transcript-vlist");
+      page = { rows: [], atTop: !!list && list.scrollTop < 1 };
+      pages.set(session, page);
+    }
+    const item = items[i];
+    page.rows.push(
+      item.kind === "control"
+        ? {
+            kind: "control",
+            key: item.key,
+            text: bodyForKey(item.key),
+            row: rowOf(el),
+          }
+        : item.kind === "user"
+          ? { kind: "user", id: hash(el.textContent ?? ""), row: el }
+          : { kind: "waiting", row: el },
+    );
+  });
+  for (const [session, page] of pages) {
+    let record = records.get(session);
+    if (!record) {
+      record = new SessionRecord();
+      records.set(session, record);
+    }
+    record.see(page.rows, page.atTop);
+  }
+}
+
+/**
+ * Read aloud pressed on the control `el` with this key: reads every text block of the turn it ends, from the
+ * session's record. When part of the turn is missing it says so on the control instead.
+ */
+export function readTurn(el: HTMLElement | null, key: string | undefined) {
+  if (!el || !key) return;
   const { els, items } = readItems();
-  const i = el ? els.indexOf(el) : -1;
-  return i < 0 ? null : turnText(items, i);
+  recordPage(els, items);
+  const turn = records.get(sessionOf(el))?.turnEndingAt(rowOf(el), key) ?? {
+    missing: "text",
+  };
+  if ("text" in turn) player.play(key, turn.text);
+  else
+    player.fail(
+      key,
+      turn.missing === "start" ? t.turnStartNotLoaded : t.turnTextMissing,
+    );
 }
 
 interface HastNode {
@@ -171,9 +212,10 @@ function isAssistantText(el: HTMLElement | null): boolean {
 let turnObserver: MutationObserver | null = null;
 let turnFrame = 0;
 
-function markTurnEnds() {
+export function markTurnEnds() {
   turnFrame = 0;
   const { els, items } = readItems();
+  recordPage(els, items);
   const last = lastTurnEnd(items);
   els.forEach((el, i) => {
     if (items[i].kind !== "control") return;
@@ -344,11 +386,6 @@ export function ReadAloudControl(props: Record<string, unknown>) {
     ref.current?.querySelector<HTMLButtonElement>(".readaloud-btn")?.focus();
   }, [!!view]);
 
-  const readAloud = () => {
-    const text = turnTextFor(ref.current);
-    if (key && text) player.play(key, text);
-  };
-
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: catches the keys of the focusable player inside the control
     <span
@@ -426,7 +463,11 @@ export function ReadAloudControl(props: Record<string, unknown>) {
         </>
       ) : (
         <>
-          <WordButton icon="volume_up" word={t.readAloud} onClick={readAloud} />
+          <WordButton
+            icon="volume_up"
+            word={t.readAloud}
+            onClick={() => readTurn(ref.current, key)}
+          />
           {error && (
             <span className="readaloud-error" role="alert">
               <span className="readaloud-dot error" />

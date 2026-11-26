@@ -71,7 +71,11 @@ export function socketUrl(pageUrl) {
 // one closes the socket with 4401 and one word. Resolves once the socket is open and `auth` is sent; a socket not
 // open in 10 s rejects with "stuck". While open it pings; a missing pong drops it (`closed` says "no-pong").
 export function openLink({ url, initData, WebSocket: Socket }) {
-  if (typeof initData !== "string" || !initData)
+  // The relay takes only initData with Telegram's `hash` as a sign-in.
+  if (
+    typeof initData !== "string" ||
+    !new URLSearchParams(initData).get("hash")
+  )
     throw new ChannelError("no-init-data");
   const ws = new Socket(url);
   const listeners = new Set();
@@ -233,6 +237,14 @@ export function openLink({ url, initData, WebSocket: Socket }) {
   });
 }
 
+// initData without Telegram's `hash`, for the pair and join-ask frames: the relay passes them to a PC, and with
+// `hash` they would be a relay login. The PC's own check of the owner (the Ed25519 `signature`) leaves `hash` out.
+const withoutHash = (initData) => {
+  const p = new URLSearchParams(initData);
+  p.delete("hash");
+  return p.toString();
+};
+
 // 4401 carries "not-invited" or "bad-sign"; other closes are "closed".
 const closeCode = (c) => (c.code === 4401 && c.reason ? c.reason : "closed");
 
@@ -254,8 +266,9 @@ function failOf(r) {
 // Pairs this page with the PC that shows `code` (pipe section 2, steps 3 to 7); `kind` is the device's kind
 // (KINDS in seal.mjs). Resolves with { K, pcId, dev }; the caller stores K and drops nothing else, the device key
 // never leaves this function.
-export async function pair(link, { code, initData, kind }) {
+export async function pair(link, { code, initData: signed, kind }) {
   checkKind(kind);
+  const initData = withoutHash(signed);
   const { pcId, secret } = readPairCode(code);
   const dev = toB64u(randomBytes(16));
   const own = await newX25519();
@@ -307,8 +320,9 @@ export async function pair(link, { code, initData, kind }) {
 // many paired devices have the app open, `done` resolves with { K, pcId, dev } after an OK whose mac3 checks
 // and whose box opens, or rejects with the PC's reason ("refused", "expired", "bad-mac3", ...). The device key
 // and the nonce stay inside this function; nothing is kept before mac3 checks.
-export async function join(link, { kind, initData }) {
+export async function join(link, { kind, initData: signed }) {
   checkKind(kind);
+  const initData = withoutHash(signed);
   const dev = toB64u(randomBytes(16));
   const own = await newX25519();
   const Nn = randomBytes(16);
@@ -537,10 +551,12 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
 
   async function take(f) {
     if (endedWith) return;
-    // A counter that is not exactly one more than the last ends the session (a replay or a reordering).
-    if (f.n !== nIn + 1) return end("counter-gap");
+    // Anyone on the relay path can send a frame under this session: only a frame that opens changes the session,
+    // so a forged frame or an old one sent again is dropped and the session stays. A gap in frames that open ends it.
+    if (f.n <= nIn) return;
     const body = await openFrame(keys.pc2p, header(f.n), f.c);
-    if (!body) return end("bad-frame");
+    if (!body) return;
+    if (f.n !== nIn + 1) return end("counter-gap");
     nIn = f.n;
     if (body.k === "res") {
       const p = pending.get(body.id);
@@ -550,12 +566,23 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
       p.resolve(body);
     } else if (body.k === "evt" && onEvent) onEvent(body);
   }
+  // Frames are taken in order. One that fails (an event handler that throws) loses only itself, said on the
+  // console: a failed step in the line would skip every frame after it.
+  function takeInTurn(f) {
+    inQueue = inQueue
+      .then(() => take(f))
+      .catch((e) =>
+        console.error(
+          `channel: a frame from the PC failed: ${e?.message ?? e}`,
+        ),
+      );
+  }
 
   offEarly();
-  for (const f of early) inQueue = inQueue.then(() => take(f));
+  for (const f of early) takeInTurn(f);
   const off = link.listen((f) => {
     if (f.t === "app" && f.dev === dev && f.sid === sid && f.n > 0)
-      inQueue = inQueue.then(() => take(f));
+      takeInTurn(f);
     else if (f.t === "offline")
       end("pc-offline", { lastSeen: f.lastSeen ?? null });
     // The PC linked again: a restarted PC program no longer knows this session and drops its frames unanswered.

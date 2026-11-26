@@ -42,12 +42,18 @@ function matchRun(rows, runs) {
   });
 }
 
-/** The log's last lines parsed, or null when it cannot be read (said once in the console, never to the user). */
-async function readRuns() {
+/** The log's last lines parsed, or null when it cannot be read (said once in the console, never to the user).
+ *  `folder` is the extension's own folder (activate's context.extensionPath): the command runs there with the
+ *  current-folder lookup off, so a node.cmd in the folder Nimbalyst was started from never runs. */
+async function readRuns(folder) {
   try {
+    if (!folder)
+      throw new Error("the panel is not active, so its own folder is unknown");
     const r = await window.electronAPI.invoke("extension:exec", {
       extensionId: EXTENSION_ID,
       command: READ_COMMAND,
+      cwd: folder,
+      env: { NoDefaultCurrentDirectoryInExePath: "1" },
       timeout: 10000,
     });
     if (!r.success)

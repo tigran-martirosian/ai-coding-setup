@@ -1427,6 +1427,62 @@ await test("end review: deployMatch: vercel's other subcommands and an installed
   ].filter((c) => dm(c, cfg) !== null);
   return [!wrongly.length, `matched: ${wrongly.join(" | ")}`];
 });
+// vercel with a folder to deploy (`vercel ./dist`) and a runner told the package to fetch (`npx -p netlify-cli
+// netlify deploy`) once ran raw in a switched-on project
+await test("deployMatch: vercel <folder> and a runner's -p <package> deploy forms match", () => {
+  const dm = need("deployMatch");
+  const cfg = { build: null, url: null };
+  const missed = [
+    "vercel ./dist",
+    "vercel ./dist --prod",
+    "vercel --prod ../site",
+    "npx vercel .",
+    "npx -p netlify-cli netlify deploy",
+    "npx -y -p netlify-cli@17 netlify deploy --prod",
+    "npx --package=netlify-cli netlify deploy",
+    "npx --package netlify-cli netlify deploy --dir dist",
+  ].filter((c) => !dm(c, cfg));
+  return [!missed.length, `not matched: ${missed.join(" | ")}`];
+});
+await test("deployMatch: a path after a vercel subcommand and a runner's other netlify command are no deploy", () => {
+  const dm = need("deployMatch");
+  const cfg = { build: null, url: null };
+  const wrongly = [
+    "vercel env pull .env.local",
+    "vercel link --cwd ./site",
+    "npx -p netlify-cli netlify login",
+  ].filter((c) => dm(c, cfg) !== null);
+  return [!wrongly.length, `matched: ${wrongly.join(" | ")}`];
+});
+// A value flag's value is no folder to deploy: the flag loop once gave the flag back as a bare flag and took its value
+// (./apps/web) for vercel's folder word, so a subcommand after it read as a deploy
+await test("deployMatch: a vercel value flag's path before a subcommand is no deploy", () => {
+  const dm = need("deployMatch");
+  const cfg = { build: null, url: null };
+  const wrongly = [
+    "vercel --cwd ./apps/web env ls",
+    "vercel --cwd apps/web link",
+    "vercel -A ./vercel.json env pull",
+    "vercel --local-config ./v.json logs x",
+    "vercel --token ./t env ls",
+    "vercel -S ./x env ls",
+    "vercel promote status",
+  ].filter((c) => dm(c, cfg) !== null);
+  return [!wrongly.length, `matched: ${wrongly.join(" | ")}`];
+});
+await test("deployMatch: vercel <folder> after flags, a value flag, redeploy and promote are deploys", () => {
+  const dm = need("deployMatch");
+  const cfg = { build: null, url: null };
+  const missed = [
+    "vercel ./dist",
+    "vercel --prod ./dist",
+    "vercel --cwd ./web --prod",
+    "vercel redeploy",
+    "vercel redeploy https://x.vercel.app",
+    "vercel promote dpl_123 --yes",
+  ].filter((c) => !dm(c, cfg));
+  return [!missed.length, `not matched: ${missed.join(" | ")}`];
+});
 {
   const dir = project({
     ...CLEAN_SITE,
@@ -1478,21 +1534,26 @@ await test("end review: deployMatch: vercel's other subcommands and an installed
   });
 }
 {
-  // A clean filter that takes 3 s makes `git add -A` slow; the 0.5 s limit must cover that git step too
+  // A clean filter that takes 3 s makes `git add -A` slow; the 0.5 s limit must cover that git step too. The filter
+  // leaves .git/slow-done when its 3 s are over: the answer must come before it (an order, not a clock).
   const dir = repo(undefined, { remote: "none" });
-  git(dir, "config", "filter.slow.clean", "exec 2>/dev/null; sleep 3; cat");
+  git(
+    dir,
+    "config",
+    "filter.slow.clean",
+    "exec 2>/dev/null; sleep 3; : > .git/slow-done; cat",
+  );
   put(dir, { ".gitattributes": "*.slow filter=slow\n", "a.slow": "x\n" });
-  const t = Date.now();
   let res;
   try {
     res = await need("gitleaksUncommitted")(dir, { timeoutMs: 500 });
   } catch (e) {
     res = { thrown: e.message };
   }
-  const ms = Date.now() - t;
+  const filterDone = fs.existsSync(path.join(dir, ".git", "slow-done"));
   await test("review: gitleaksUncommitted: its git steps share the time limit; a slow git add ends in a time-limit error", () => [
-    /time limit/.test(res?.error ?? "") && ms < 2500,
-    `${ms} ms; ${JSON.stringify(res)}`,
+    /time limit/.test(res?.error ?? "") && !filterDone,
+    `slow filter ${filterDone ? "had ended" : "still running"}; ${JSON.stringify(res)}`,
   ]);
 }
 

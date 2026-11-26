@@ -21,6 +21,7 @@ import {
 } from "../phone/relay/src/hub.mjs";
 import * as seal from "../phone/shared/seal.mjs";
 import { startCutProxy } from "./phone-bot/cut-proxy.mjs";
+import { signInitData, withoutHash } from "./phone-bot/telegram-init-data.mjs";
 
 const subtle = globalThis.crypto.subtle;
 const enc = new TextEncoder();
@@ -41,6 +42,7 @@ const same = (name, got, want) =>
   );
 
 const BOT_ID = 4242;
+const BOT_TOKEN = `${BOT_ID}:relay-test-token`;
 const OWNER = 1001;
 const FRIEND = 2002;
 const THIRD = 3003;
@@ -75,10 +77,26 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "phone-relay-"));
 fs.writeFileSync(path.join(tmp, "index.html"), "<!doctype html><p>page</p>");
 fs.writeFileSync(path.join(tmp, "version.json"), '{"version":"0.0.0"}');
 
+// The frames of each socket connect() made, by the tag in its URL, as the local relay counts them (its countFrame
+// hook): received ("in"), sent ("out"), and whether the relay's side has ended. settle() waits on these.
+const frameCounts = new Map();
+let lastTag = 0;
+const openSockets = new Set();
+function countFrame(url, way) {
+  const tag = new URL(url, "http://local").searchParams.get("t");
+  if (tag === null) return; // a raw socket of the test, not made by connect()
+  const n = frameCounts.get(tag) ?? { in: 0, out: 0, end: false };
+  if (way === "end") n.end = true;
+  else n[way] += 1;
+  frameCounts.set(tag, n);
+}
+
 const relayOpts = {
+  countFrame,
   port: 0,
   pageDir: tmp,
   botId: BOT_ID,
+  botToken: BOT_TOKEN,
   ownerTgId: OWNER,
   telegramKey: tgKeyHex,
   // Like Telegram: a sent message has an id; the method named in `refuseTelegram` fails as Telegram refuses it.
@@ -113,34 +131,87 @@ for (const id of [FRIEND, THIRD]) {
 
 // ---- helpers ----
 
-async function initData(tgId, { key = tgKey, ageMs = 0 } = {}) {
-  const fields = {
-    auth_date: String(Math.floor((clock - ageMs) / 1000)),
-    query_id: "AAqTest",
-    user: JSON.stringify({ id: tgId, first_name: "Tester" }),
-  };
-  const lines = Object.entries(fields)
-    .map(([k, v]) => `${k}=${v}`)
-    .sort();
-  const data = enc.encode(`${BOT_ID}:WebAppData\n${lines.join("\n")}`);
-  const sig = await subtle.sign({ name: "Ed25519" }, key.privateKey, data);
-  const params = new URLSearchParams(fields);
-  params.set("hash", "00");
-  params.set("signature", toB64url(new Uint8Array(sig)));
-  return params.toString();
+// botToken: the token the hash is made with; another one makes a hash the relay must refuse.
+async function initData(
+  tgId,
+  { key = tgKey, ageMs = 0, botToken = BOT_TOKEN } = {},
+) {
+  return signInitData({
+    fields: {
+      auth_date: String(Math.floor((clock - ageMs) / 1000)),
+      query_id: "AAqTest",
+      user: JSON.stringify({ id: tgId, first_name: "Tester" }),
+    },
+    botId: BOT_ID,
+    botToken,
+    privateKey: key.privateKey,
+  });
 }
 
-// Lets the frames cross the socket, then waits until the Hub has handled them.
+// Why a socket is not settled yet, or null: an open one waits until the relay has every frame it sent and it has
+// every frame the relay sent; once either side closes, until both sides have ended.
+function behind(c) {
+  const n = frameCounts.get(c.tag) ?? { in: 0, out: 0, end: false };
+  const closed = c.ws.readyState === WebSocket.CLOSED;
+  if (!n.end && c.ws.readyState === WebSocket.OPEN) {
+    if (n.in < c.sent) return `relay has ${n.in} of its ${c.sent} frames`;
+    if (c.got < n.out) return `has ${c.got} of the relay's ${n.out} frames`;
+    return null;
+  }
+  if (n.end && closed) {
+    openSockets.delete(c);
+    return null;
+  }
+  return n.end
+    ? "closed by the relay, the close not yet seen here"
+    : "closed here, the relay's side not yet ended";
+}
+
+// Waits until the frames of every test socket have crossed (behind() above). Fails after 20 s, naming the
+// sockets still behind, rather than letting a check read a half-delivered inbox.
+async function crossed() {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const late = [...openSockets]
+      .map((c) => [c.tag, behind(c)])
+      .filter(([, why]) => why);
+    if (!late.length) return;
+    if (Date.now() > deadline)
+      throw new Error(
+        `settle: frames still crossing after 20 s: ${late.map(([t, why]) => `socket ${t} ${why}`).join("; ")}`,
+      );
+    await new Promise((done) => setTimeout(done, 2));
+  }
+}
+
+// Polls ok() until it is true or 10 s pass; returns ok()'s last answer, so the check after it reports a miss.
+async function until(ok) {
+  const deadline = Date.now() + 10_000;
+  while (!ok() && Date.now() < deadline)
+    await new Promise((done) => setTimeout(done, 2));
+  return ok();
+}
+
+// Waits until the frames sent have reached the relay, the Hub has handled them (and what its handling queued, as
+// a socket it closed), and its answers have reached the sockets.
 async function settle() {
-  await new Promise((done) => setTimeout(done, 40));
-  await relay.idle();
-  await new Promise((done) => setTimeout(done, 20));
+  await crossed();
+  let queue;
+  do {
+    queue = relay.idle();
+    await queue;
+  } while (queue !== relay.idle());
+  await crossed();
 }
 
 async function connect(url = relay.url) {
-  const ws = new WebSocket(`${url.replace("http", "ws")}/ws`);
-  const c = { ws, inbox: [], closedWith: null };
-  ws.addEventListener("message", (e) => c.inbox.push(e.data));
+  const tag = String(++lastTag);
+  const ws = new WebSocket(`${url.replace("http", "ws")}/ws?t=${tag}`);
+  const c = { ws, tag, inbox: [], closedWith: null, sent: 0, got: 0 };
+  ws.addEventListener("message", (e) => {
+    c.got += 1;
+    c.inbox.push(e.data);
+  });
   ws.addEventListener("close", (e) => {
     c.closedWith = { code: e.code, reason: e.reason };
   });
@@ -148,8 +219,11 @@ async function connect(url = relay.url) {
     ws.addEventListener("open", done);
     ws.addEventListener("error", failure);
   });
-  c.send = (frame) =>
+  openSockets.add(c);
+  c.send = (frame) => {
     ws.send(typeof frame === "string" ? frame : JSON.stringify(frame));
+    c.sent += 1;
+  };
   c.take = () => c.inbox.splice(0);
   c.takeJson = () => c.take().map((t) => JSON.parse(t));
   await settle();
@@ -201,7 +275,7 @@ async function pair(phoneSocket, tgId, pc) {
     t: "pair",
     pcId: pc.pcId,
     DP: toB64url(random(32)),
-    initData: await initData(tgId),
+    initData: withoutHash(await initData(tgId)),
     mac1: toB64url(random(32)),
   });
   await settle();
@@ -406,6 +480,72 @@ for (const file of ["/", "/version.json"]) {
   fs.rmSync(same1);
 }
 
+// ---- a malformed request is refused and the relay stays up ----
+// The relay runs by hand in its own process here, so a crash shows as a failed check, not as the end of this test.
+{
+  const { spawn } = await import("node:child_process");
+  const net = await import("node:net");
+  const child = spawn(
+    process.execPath,
+    [
+      path.join(import.meta.dirname, "..", "phone/relay/local/server.mjs"),
+      ...["--page", tmp, "--port", "0", "--bot-id", String(BOT_ID)],
+      ...["--bot-token", BOT_TOKEN, "--owner", String(OWNER)],
+      ...["--telegram-key", tgKeyHex],
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let out = "";
+  child.stdout.on("data", (c) => (out += c));
+  child.stderr.on("data", (c) => (out += c));
+  const exited = new Promise((done) => child.once("exit", done));
+  const started = await Promise.race([
+    new Promise((done) => {
+      const look = setInterval(() => {
+        const m = out.match(/local relay at http:\/\/127\.0\.0\.1:(\d+)/);
+        if (!m) return;
+        clearInterval(look);
+        done(Number(m[1]));
+      }, 10);
+    }),
+    exited.then(() => null),
+  ]);
+  // The first line of the answer to a request written as raw bytes, or "no answer".
+  const raw = (head) =>
+    new Promise((done) => {
+      let got = "";
+      const s = net.connect(started, "127.0.0.1", () => s.write(head));
+      s.on("data", (c) => (got += c));
+      s.on("error", () => {});
+      s.on("close", () => done(got.split("\r\n")[0] || "no answer"));
+      s.setTimeout(5000, () => s.destroy());
+    });
+  const answers = [];
+  for (const head of [
+    "GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+    "GET /%E0 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+    "GET // HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n" +
+      "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+  ])
+    answers.push(started ? await raw(head) : "did not start");
+  const page = started
+    ? await fetch(`http://127.0.0.1:${started}/`).then(
+        (r) => r.status,
+        (e) => `refused: ${e.cause?.code ?? e.message}`,
+      )
+    : "did not start";
+  same(
+    "a malformed address (//, a broken %-escape, // on the socket route) answers 400 and the relay still serves " +
+      "the page (FAIL: one bad request ends the local relay)",
+    [...answers, page],
+    [...Array(3).fill("HTTP/1.1 400 Bad Request"), 200],
+  );
+  if (page !== 200)
+    console.log(`     relay output: ${out.trim().slice(0, 600)}`);
+  child.kill();
+  await exited;
+}
+
 // ---- signing in (section 3) ----
 
 {
@@ -440,6 +580,54 @@ for (const file of ["/", "/version.json"]) {
     code: 4401,
     reason: "bad-sign",
   });
+}
+{
+  const c = await connect();
+  c.send({ v: 1, t: "auth", initData: withoutHash(await initData(FRIEND)) });
+  await settle();
+  same(
+    "initData without Telegram's hash: closed 4401 bad-sign (FAIL: a pairing frame's initData, which a PC holds, is a relay login)",
+    c.closedWith,
+    { code: 4401, reason: "bad-sign" },
+  );
+}
+{
+  const c = await connect();
+  const forged = await initData(FRIEND, { botToken: `${BOT_ID}:another` });
+  c.send({ v: 1, t: "auth", initData: forged });
+  await settle();
+  same(
+    "initData whose hash is made with another bot token: closed 4401 bad-sign (FAIL: the relay does not check Telegram's hash)",
+    c.closedWith,
+    { code: 4401, reason: "bad-sign" },
+  );
+}
+{
+  const p = await phone(FRIEND);
+  const pc = await newPc();
+  pc.take();
+  p.send({
+    v: 1,
+    t: "pair",
+    pcId: pc.pcId,
+    DP: toB64url(random(32)),
+    initData: await initData(FRIEND),
+    mac1: toB64url(random(32)),
+  });
+  await settle();
+  const toPc = pc.take();
+  const back = p.takeJson();
+  check(
+    "a pair frame whose initData carries Telegram's hash: refused bad-sign and not passed on (FAIL: the PC a code names gets the phone's relay login)",
+    toPc.length === 0 &&
+      JSON.stringify(back) ===
+        JSON.stringify([{ v: 1, t: "error", e: "bad-sign" }]),
+    JSON.stringify({ toPc, back }),
+  );
+  p.ws.close();
+  pc.ws.close();
+  await settle();
+  relay.map.delete(`pc:${pc.pcId}`);
 }
 {
   const c = await connect();
@@ -735,8 +923,27 @@ same(
   [pc1.takeJson(), telegramCalls.slice(1).map((c) => c.params.text)],
   [[], TITLED],
 );
-// 1 + 3 alerts went out this hour; 26 more reach the limit of 30.
-for (let i = 0; i < 26; i++)
+// A session can set its own title, and an older PC program sends it with its dots: the relay breaks anything shaped
+// like a domain and sends every alert with link previews off.
+pc1.send({
+  v: 1,
+  t: "alert",
+  text: "demo · sign in at tg-login.app: needs you",
+  silent: false,
+  open: "h1",
+});
+await settle();
+same(
+  "an alert title shaped like a domain reaches the chat as no link and with no preview (FAIL: a session can put a link in the bot chat)",
+  [
+    pc1.takeJson(),
+    telegramCalls.at(-1)?.params.text,
+    telegramCalls.at(-1)?.params.link_preview_options,
+  ],
+  [[], "demo · sign in at tg-login-app: needs you", { is_disabled: true }],
+);
+// 1 + 4 alerts went out this hour; 25 more reach the limit of 30.
+for (let i = 0; i < 25; i++)
   pc1.send({
     v: 1,
     t: "alert",
@@ -894,7 +1101,7 @@ same(
     t: "pair",
     pcId: pc.pcId,
     DP: "AA",
-    initData: await initData(FRIEND),
+    initData: withoutHash(await initData(FRIEND)),
     mac1: "AA",
   });
   await settle();
@@ -927,7 +1134,7 @@ const joinSecrets = []; // every key, box and nonce of the joins below, for the 
       t: "pair",
       pcId: pcK.pcId,
       DP: toB64url(random(32)),
-      initData: await initData(OWNER),
+      initData: withoutHash(await initData(OWNER)),
       mac1: toB64url(random(32)),
       kind,
     });
@@ -991,7 +1198,7 @@ const joinSecrets = []; // every key, box and nonce of the joins below, for the 
         DN: toB64url(dN.publicRaw),
         kind,
         commit: toB64url(commit),
-        initData: await initData(tgId),
+        initData: withoutHash(await initData(tgId)),
       },
     };
   };
@@ -1333,12 +1540,15 @@ await relay.close();
   const c = await connect(proxy.url);
   proxy.hold();
   c.send(PING);
-  await settle();
+  // A time wait, kept: the check is that nothing comes while held, so there is no frame to wait for.
+  await new Promise((done) => setTimeout(done, 60));
   const whileHeld = [c.take(), c.closedWith];
   proxy.heal();
   await settle();
   const afterHeal = c.take();
   proxy.cut();
+  // The cut is a TCP drop, not a frame: wait until the client has seen its socket close.
+  await until(() => c.closedWith !== null);
   await settle();
   const again = await connect(proxy.url).then(
     () => "opened",
@@ -1723,6 +1933,7 @@ await relay.close();
         chat_id: OWNER,
         text: "proj: needs you",
         disable_notification: false,
+        link_preview_options: { is_disabled: true },
         reply_markup: {
           inline_keyboard: [
             [{ text: "Open", web_app: { url: `${relay.url}/?o=t1` } }],
@@ -1956,9 +2167,9 @@ await relay.close();
     pcStop.abort();
     for (let i = 0; i < 200 && !cancelled; i++) await tick();
     holdUpload = null;
-    const startedAt = performance.now();
+    const uploadsBefore = uploads.length;
     const next = await send(pc, "abc", 3);
-    const took = performance.now() - startedAt;
+    const nextUploads = uploads.slice(uploadsBefore);
     same(
       "an aborted Send to chat cancels its Telegram upload, its reason logged (FAIL: the upload keeps running after the PC gave up)",
       [
@@ -1969,10 +2180,16 @@ await relay.close();
       ],
       [true, true, "AbortError", true],
     );
+    // No clock bound: the held upload settles only on its abort, so a next send waiting behind it would never answer.
     same(
-      "the next Send to chat after an aborted one answers at once (FAIL: it waits behind the held upload)",
-      [next[0], took < 2000],
-      [200, true],
+      "the next Send to chat after an aborted one is uploaded whole and answered (FAIL: it waits behind the held upload)",
+      [
+        next[0],
+        nextUploads.length,
+        nextUploads[0]?.hash,
+        nextUploads[0]?.tailOk,
+      ],
+      [200, 1, sha(Buffer.from("abc")), true],
     );
   }
 
@@ -2306,6 +2523,7 @@ await relay.close();
     now: () => clock,
     log: () => {},
     botId: BOT_ID,
+    botToken: BOT_TOKEN,
     ownerTgId: OWNER,
     telegramKey: tgKeyHex,
     topicSuffix: "",

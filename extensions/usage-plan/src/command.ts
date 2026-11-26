@@ -18,9 +18,12 @@ declare const __CLAUDE_DIR__: string;
  * `node` in the current folder before PATH, so a project's own node.cmd would run instead of Node.js.
  * So the commands run in ~/.claude, and NoDefaultCurrentDirectoryInExePath (passed here; Nimbalyst merges it into the
  * child's environment) stops cmd.exe from searching the current folder at all.
+ * Nimbalyst caps a command's output at 10 MB unless maxBuffer says otherwise; the dashboard data (90 days) grows past
+ * that, so the cap is 256 MB.
  */
 export const trusted = (options?: { timeout?: number }) => ({
   ...options,
+  maxBuffer: 256 * 1024 * 1024,
   cwd: __CLAUDE_DIR__,
   env: { NoDefaultCurrentDirectoryInExePath: "1" },
 });

@@ -25,8 +25,9 @@ says so.
 
 - Check: `claude plugin list` shows `security-guidance@claude-plugins-official` enabled.
 - Off: `claude plugin disable security-guidance@claude-plugins-official`. One part off, as an environment
-  variable: `ENABLE_STOP_REVIEW=0` (the end-of-turn review), `ENABLE_COMMIT_REVIEW=0`, `SECURITY_GUIDANCE_DISABLE=1`
-  (all of it).
+  variable: `ENABLE_STOP_REVIEW=0` (the end-of-turn review), `ENABLE_COMMIT_REVIEW=0` (the commit and push reviews),
+  `ENABLE_CODE_SECURITY_REVIEW=0` (all the model reviews; the free warnings stay), `ENABLE_PATTERN_RULES=0` (the
+  free pattern warnings on each edit), `SECURITY_GUIDANCE_DISABLE=1` (all of it).
 
 ## Quick: a change
 

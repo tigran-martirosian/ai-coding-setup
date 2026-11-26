@@ -108,11 +108,18 @@ ok(
   wired.filter((s) => s.startsWith("hooks/lib/")),
   [],
 );
-// a library is in use when a hook imports it, or a library in use does (decisions.mjs through serves.mjs)
+// a library is in use when a hook or a worker imports or loads it, or a library in use does (decisions.mjs
+// through serves.mjs; net-guard-preload.mjs is loaded by workers/read-page.mjs through NODE_OPTIONS)
 const libFiles = fs.readdirSync(path.join(REPO, "hooks", "lib"));
 const usedLibs = new Set();
 for (
-  let users = hookFiles.map((h) => path.join(REPO, "hooks", h));
+  let users = [
+    ...hookFiles.map((h) => path.join(REPO, "hooks", h)),
+    ...fs
+      .readdirSync(path.join(REPO, "workers"))
+      .filter((n) => n.endsWith(".mjs"))
+      .map((n) => path.join(REPO, "workers", n)),
+  ];
   users.length;
 ) {
   const text = users.map((f) => fs.readFileSync(f, "utf8")).join("\n");

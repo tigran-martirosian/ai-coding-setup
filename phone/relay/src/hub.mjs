@@ -17,6 +17,7 @@
 //   now        () -> milliseconds since 1970
 //   log        (line) -> void; never given a token, a key or a frame's contents
 //   botId, ownerTgId   numbers; telegramKey   hex of Telegram's Ed25519 public key for initData
+//   botToken   the bot's token: a sign-in's initData must carry Telegram's `hash`, the HMAC made with it
 //   topicSuffix   text added to the topic names: "" on the real relay, " (test)" on the test copy (TOPIC_SUFFIX)
 //   bot       null until the bot is built (row B5), else makeBot(ctx) -> { webhook, pcConnected, pcFrame }:
 //              webhook({ headers, body }) -> { status, body }; pcConnected(pcId) on each good pc-auth (send the
@@ -154,6 +155,7 @@ export function createHub(env) {
     "botId",
     "ownerTgId",
     "telegramKey",
+    "botToken",
   ]) {
     if (env[name] === undefined || env[name] === null)
       throw new Error(`hub: missing ${name}`);
@@ -171,6 +173,7 @@ export function createHub(env) {
   }
   const { store, sockets, telegram, now, log, botId, ownerTgId } = env;
   let telegramKey = null;
+  let hashKey = null;
 
   const ctx = {
     store,
@@ -287,9 +290,12 @@ export function createHub(env) {
 
   // ---- checks ----
 
-  async function checkInitData(initData) {
+  // A sign-in (login true) needs Telegram's `hash`, the HMAC the relay checks with the bot token. A pair or join-ask
+  // frame goes on to a PC, so its initData must not carry `hash`: a PC never holds text the relay takes as a login.
+  async function checkInitData(initData, { login }) {
     if (typeof initData !== "string" || !initData) return null;
     const params = new URLSearchParams(initData);
+    if (login ? !(await goodHash(params)) : params.has("hash")) return null;
     const signature = params.get("signature");
     if (!signature || !B64URL.test(signature)) return null;
     const lines = [...params]
@@ -427,10 +433,48 @@ export function createHub(env) {
     return fail(ws, "not-allowed");
   }
 
+  // Telegram's `hash` (Mini Apps, "Validating data received via the Mini App"): hex HMAC-SHA-256 of the sorted
+  // "key=value" lines of every field but hash, under the key HMAC_SHA256("WebAppData", botToken).
+  async function goodHash(params) {
+    const hash = params.get("hash");
+    if (!hash || !/^[0-9a-f]{64}$/.test(hash)) return false;
+    if (!hashKey) {
+      const webAppData = await subtle.importKey(
+        "raw",
+        enc.encode("WebAppData"),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+      );
+      const secret = await subtle.sign(
+        "HMAC",
+        webAppData,
+        enc.encode(env.botToken),
+      );
+      hashKey = await subtle.importKey(
+        "raw",
+        secret,
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["verify"],
+      );
+    }
+    const lines = [...params]
+      .filter(([k]) => k !== "hash")
+      .map(([k, v]) => `${k}=${v}`)
+      .sort();
+    return subtle.verify(
+      "HMAC",
+      hashKey,
+      fromHex(hash),
+      enc.encode(lines.join("\n")),
+    );
+  }
+
   // ---- signing in (section 3) ----
 
   async function phoneAuth(ws, a, f) {
-    const who = await checkInitData(f.initData);
+    const who = await checkInitData(f.initData, { login: true });
     if (!who) {
       log("phone refused: bad-sign");
       return shut(ws, CLOSE.auth, "bad-sign");
@@ -682,7 +726,7 @@ export function createHub(env) {
   // ---- pairing (section 2): the Hub passes the messages and records a pair only when it saw it ----
 
   async function phonePair(ws, a, f, text) {
-    const who = await checkInitData(f.initData);
+    const who = await checkInitData(f.initData, { login: false });
     if (!who || who.tgId !== a.tgId) return fail(ws, "bad-sign");
     // A page before DV4 sends no kind; DV4 makes it send one. A kind that is there must be on the list.
     if (f.kind !== undefined && !Object.hasOwn(KINDS, f.kind))
@@ -754,7 +798,7 @@ export function createHub(env) {
   // owner's PC for 4 minutes and sends the bot line; it stores nothing and logs no key, nonce or device id ----
 
   async function phoneJoinAsk(ws, a, f, text) {
-    const who = await checkInitData(f.initData);
+    const who = await checkInitData(f.initData, { login: false });
     if (!who || who.tgId !== a.tgId) return fail(ws, "bad-sign");
     if (
       typeof f.dev !== "string" ||
@@ -944,10 +988,13 @@ export function createHub(env) {
     if (typeof f.silent !== "boolean") return fail(ws, "alert-silent");
     if (!hourCount(ws, "alerts", ALERTS_PER_HOUR))
       return fail(ws, "alert-rate");
+    // A session sets its own title, and an older PC program sends its dots: a dot before a letter becomes "-", so
+    // nothing reads as a domain, and the message shows no link preview.
     const params = {
       chat_id: pc.tgId,
-      text: f.text,
+      text: f.text.replace(/\.(?=\p{L})/gu, "-"),
       disable_notification: f.silent,
+      link_preview_options: { is_disabled: true },
       reply_markup: {
         inline_keyboard: [
           [{ text: "Open", web_app: { url: `${a.origin}/?o=${f.open}` } }],

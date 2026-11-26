@@ -21,6 +21,7 @@ A **sheet** is one picture of 9 stills in order, each with its time in the corne
 2. **Read cheaply.** Give the question, the transcript path and the sheet paths to one `worker`
    subagent. Ask it for notes that each carry a time, text on screen quoted exactly, and
    the stretches that deserve a close look. Read a transcript under about 300 lines yourself.
+   Done when every note carries a time.
 3. **Look closely where it matters.** An overview shows one still every few seconds (the script says
    how many), so it shows what happens and never how something moves. For a move, a transition or
    an animation, take the stretch: `--from 2:10 --to 2:16` gives about 5 stills a second. Read these

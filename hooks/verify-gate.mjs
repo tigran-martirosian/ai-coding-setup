@@ -353,18 +353,32 @@ function gitCommit(command) {
     at: m.index,
     end: m.index + m[0].length,
     dashC: [...m[0].matchAll(/\s-C\s+("([^"]*)"|'([^']*)'|(\S+))/g)].map(
-      (c) => c[2] ?? c[3] ?? c[4],
+      folderWord,
     ),
     args: argWords(command.slice(m.index + m[0].length)),
   };
 }
 
-// A folder word as the shell would read it: $VAR and ${VAR} from an assignment before it in the command
-// (R=...; or export R=...) or else the hook's environment, then a leading ~ as the home folder. null when a
-// variable has no value here (set in an earlier call, say) or the word or a variable's value is a command's output
-// ($(...) or `...`, which the hook does not run): the folder is unknown.
+// A cd or -C word from its match ("double", 'single' or bare): { word, literal }; a single-quoted word is literal
+function folderWord(m) {
+  return { word: m[2] ?? m[3] ?? m[4], literal: m[3] !== undefined };
+}
+// Git Bash's path as Windows names it: /c/x is c:/x, and /tmp is the user's temp folder (Git Bash mounts it there)
+const bashToNative = (p) =>
+  gitBashToNative(
+    process.platform === "win32"
+      ? p.replace(/^\/tmp(?=$|\/)/, os.tmpdir().replace(/\\/g, "/"))
+      : p,
+  );
+// A folder word as the shell would read it: in Bash a single-quoted word as written; else $VAR and ${VAR} from an
+// assignment before it in the command (R=...; or export R=...) or else the hook's environment, then a leading ~ as
+// the home folder. null when a variable has no value here (set in an earlier call, say) or the word or a variable's
+// value is a command's output ($(...) or `...` outside single quotes, which the hook does not run): the folder is
+// unknown. Git Bash's /tmp and its single-quote rule are for Bash alone, not PowerShell.
 const RUNS_COMMAND = /\$\(|`/;
-function shellPath(word, before) {
+function shellPath({ word, literal }, before, bash) {
+  const native = bash ? bashToNative : gitBashToNative;
+  if (literal && bash) return native(word);
   if (RUNS_COMMAND.test(word)) return null;
   let unknown = false;
   const expanded = word.replace(/\$\{?(\w+)\}?/g, (_, name) => {
@@ -377,11 +391,15 @@ function shellPath(word, before) {
       ),
     ].pop();
     const value = set ? (set[2] ?? set[3] ?? set[4]) : process.env[name];
-    if (value === undefined || RUNS_COMMAND.test(value)) unknown = true;
+    if (
+      value === undefined ||
+      (set?.[3] === undefined && RUNS_COMMAND.test(value))
+    )
+      unknown = true;
     return value ?? "";
   });
   if (unknown) return null;
-  return gitBashToNative(expanded.replace(/^~(?=$|[\\/])/, os.homedir()));
+  return native(expanded.replace(/^~(?=$|[\\/])/, os.homedir()));
 }
 
 // A path as the file system names it (links, /var -> /private/var and short Windows names resolved), so it compares
@@ -406,36 +424,55 @@ const isCommitCall = (input) =>
   input.tool_name === COMMIT_TOOL ||
   (SHELL_TOOLS.test(input.tool_name) && GIT_COMMIT.test(commandOf(input)));
 
-// The folder the commit runs in: the Nimbalyst tool's is the session's; for a shell call the -C of the commit's own
-// git call, else the last `cd <dir>` before it, else the session's cwd. { dir } or { unknown: <the word>, why }: a
-// word the hook cannot read, or a folder that does not exist (yet: made earlier in the same command, say).
+// The folder the commit runs in: the Nimbalyst tool's is the session's; for a shell call the session's cwd, then the
+// last `cd <dir>` before the commit, then each -C of the commit's own git call (git reads a relative -C from the
+// folder before it). { dir } or { unknown: <the word>, why }: a word the hook cannot read, or a folder that does not
+// exist (yet: made earlier in the same command, say).
 function commitDir(input) {
   const cwd = String(input.cwd || process.cwd());
   if (input.tool_name === COMMIT_TOOL) return { dir: cwd };
   const command = commandOf(input);
   const call = gitCommit(command);
   const before = command.slice(0, call.at);
+  // Only a cd of the commit's own shell counts: one in quoted text (bash -c '...') or in a finished do ... done
+  // body runs in another shell or loop. They are blanked to the same length, so a match's place still fits before.
+  const blank = (s) => s.replace(/[^\n]/g, " ");
+  const topLevel = before
+    .replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, blank)
+    .replace(/(?:^|[;&|\n]\s*)do\s[\s\S]*?[;&\n]\s*done\b/g, blank);
   const cd = [
     ...before.matchAll(/(?:^|[;&|]\s*)cd\s+("([^"]*)"|'([^']*)'|([^\s;&|]+))/g),
-  ].pop();
-  const written = call.dashC.length
-    ? call.dashC
-    : cd
-      ? [cd[2] ?? cd[3] ?? cd[4]]
-      : [];
-  const parts = [];
+  ]
+    .filter((m) => topLevel.startsWith("cd", m.index + m[0].indexOf("cd")))
+    .pop();
+  const written = [...(cd ? [folderWord(cd)] : []), ...call.dashC];
+  // An absolute folder makes the words before it of no account, a word the hook cannot read among them too
+  let parts = [];
+  let used = [];
+  let unread = null;
   for (const w of written) {
-    const p = shellPath(w, before);
-    if (p === null)
-      return {
-        unknown: w,
-        why: "names a variable set outside this command or a command's output",
-      };
-    parts.push(p);
+    const p = shellPath(w, before, input.tool_name === "Bash");
+    if (p === null) unread = w.word;
+    else if (path.isAbsolute(p)) {
+      parts = [p];
+      used = [w.word];
+      unread = null;
+    } else {
+      parts.push(p);
+      used.push(w.word);
+    }
   }
+  if (unread !== null)
+    return {
+      unknown: unread,
+      why: "names a variable set outside this command or a command's output",
+    };
   const dir = path.resolve(cwd, ...parts);
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory())
-    return { unknown: written.join(" ") || dir, why: "is no folder here yet" };
+    return {
+      unknown: used.join(" ") || dir,
+      why: "is no folder here yet",
+    };
   return { dir };
 }
 

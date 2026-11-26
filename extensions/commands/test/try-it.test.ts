@@ -1,6 +1,6 @@
 // node --experimental-strip-types test/try-it.test.ts
 import assert from "node:assert/strict";
-import { GIVE_UP_MS } from "../src/note.ts";
+import { GIVE_UP_MS, setExtensionFolder } from "../src/note.ts";
 import type { PageWatch } from "../src/try-it.ts";
 import {
   localPage,
@@ -13,6 +13,8 @@ import {
   workspaceOf,
 } from "../src/try-it.ts";
 
+// activate sets this in the app; the fake app below runs no command
+setExtensionFolder("C:/ext");
 let n = 0;
 const ok = (name: string) => console.log(`ok ${++n} ${name}`);
 const HOME = "C:/Users/you";
@@ -66,14 +68,24 @@ const host = (steerExit: number, steerOut = "Note id: n-7\n") => {
     ["extension:exec", "extensions:write-file", "extension:exec"],
     "a press finds home, then goes the Note way: note file, then steer",
   );
-  assert.deepEqual(
-    h.calls[1].slice(1),
-    [`${HOME}/.claude/steer/button-note-sess-1.txt`, tryItNote("sess-1")],
+  const [file, text] = h.calls[1].slice(1) as [string, string];
+  assert.equal(
+    text,
+    tryItNote("sess-1"),
     "the steer note holds the Try it text and nothing typed in the box",
   );
-  assert.match(
-    (h.calls[2][1] as { command: string }).command,
-    /steer\.mjs" send --to sess-1 - --nowait/,
+  assert.match(file, /^C:\/Users\/you\/\.claude\/steer\/[\w-]+-sess-1\.txt$/);
+  for (const other of ["button-note", "diff-note"])
+    assert.notEqual(
+      file,
+      `${HOME}/.claude/steer/${other}-sess-1.txt`,
+      `Try it must not write the ${other} file: a Note sent at the same time would read the other text`,
+    );
+  const steerCmd = (h.calls[2][1] as { command: string }).command;
+  assert.match(steerCmd, /steer\.mjs" send --to sess-1 - --nowait/);
+  assert.ok(
+    steerCmd.endsWith(`< "${file}"`),
+    "steer reads the note from the file Try it just wrote",
   );
   assert.deepEqual(
     watches.get("sess-1"),

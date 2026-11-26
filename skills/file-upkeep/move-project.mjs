@@ -40,6 +40,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { powershellExe, system32Exe } from "../../hooks/lib/paths.mjs";
 
 const args = process.argv.slice(2);
 const cleanups = [];
@@ -221,7 +222,7 @@ function schtasks(...a) {
   const fake = process.env.MOVE_PROJECT_SCHTASKS;
   return fake
     ? run(process.execPath, [fake, ...a], `schtasks ${a.join(" ")}`)
-    : run("schtasks", a, `schtasks ${a.join(" ")}`);
+    : run(system32Exe("schtasks.exe"), a, `schtasks ${a.join(" ")}`);
 }
 function nimbalystRunning() {
   const v = process.env.MOVE_PROJECT_RUNNING;
@@ -235,7 +236,7 @@ function nimbalystRunning() {
     return answers[0] === "1";
   }
   const out = run(
-    "tasklist",
+    system32Exe("tasklist.exe"),
     ["/fi", "imagename eq Nimbalyst.exe", "/fo", "csv", "/nh"],
     "tasklist",
   );
@@ -270,7 +271,7 @@ function allTasks() {
   );
   try {
     run(
-      "powershell.exe",
+      powershellExe(),
       [
         "-NoProfile",
         "-NonInteractive",
@@ -302,9 +303,7 @@ const taskLine = (t) =>
 let account;
 function who() {
   if (account) return account;
-  if (!process.env.SystemRoot)
-    throw new Error("SystemRoot is not set, so whoami.exe cannot be found");
-  const exe = path.join(process.env.SystemRoot, "System32", "whoami.exe");
+  const exe = system32Exe("whoami.exe");
   const user = run(exe, ["/user", "/fo", "csv", "/nh"], "whoami /user")
     .trim()
     .match(/^"([^"]*)","([^"]*)"/);

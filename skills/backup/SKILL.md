@@ -28,11 +28,11 @@ When a command fails, it prints one `backup: ...` line. Give it to the user as i
 ## Setup
 
 1. **Get restic.** `$B get-restic`. It downloads restic 0.19.1 and checks it against the hash pinned in the worker. On `checksum mismatch`, stop and show the line; do not get restic from anywhere else.
-2. **Account and B2.** Ask if the user has a Backblaze account. A login made for Computer Backup (the personal backup app) has no B2: its pages ("View/Restore Files", "Overview") are the wrong product. Give the steps in this order, with these labels (Backblaze docs, checked 2026-11-14):
+2. **Account and B2.** Ask if the user has a Backblaze account. A login made for Computer Backup (the personal backup app) has no B2: its pages ("View/Restore Files", "Overview") are the wrong product. Give the steps in this order, with these labels (from Backblaze's docs):
    1. No account: make a free one at backblaze.com/sign-up/cloud-storage ("Get started for free", no card). Skip step 2.
    2. Account exists but the left menu has no **B2 Cloud Storage** section: sign in, user menu (top right) > **My Settings** > **Enabled Products** > tick **B2 Cloud Storage** > accept the terms > **OK**. Direct link: https://secure.backblaze.com/account_settings.htm. If it asks to verify the email: **My Settings** > **Verify your Email** > **Send Code**. Inside a Backblaze Group, a group admin must turn B2 on first.
    3. Left menu **B2 Cloud Storage** > **Application Keys** > **Master Application Key** > **Generate New Master Application Key** > **Yes! Generate Master Key**. The key shows once, so leave that page open. A new master key replaces the old one.
-   Open the settings link in the user's own browser for them (`cmd //c start "" "<url>"`), then wait for "done".
+   Open the settings link in the user's own browser for them (Windows `cmd //c start "" "<url>"`, macOS `open "<url>"`, Linux `xdg-open "<url>"`), then wait for "done".
    If the user has no account yet, or wants to do it later, stop here and say: "Setup waits for your Backblaze account; `/backup` carries on from here."
 3. **Setup window.** `$B setup --window`. A window named "Claude backup" opens on the PC. Tell the user what happens there:
    - they paste the master key ID and the key (the typing is hidden);
@@ -82,6 +82,12 @@ The keys stay in the user's terminal; the chat only helps with the steps.
 
 ## Where things are
 
-`~/.claude-backup/` (outside everything that is backed up): `password` and `b2.env` (owner-only), `config.json`, `excludes.txt`, `last-run.json`, `logs/` (last 30 runs), `bin/restic`. The key can delete, so a stolen key can delete the backup. The bucket keeps hidden versions 30 days, but a file the key deletes is gone at once.
+`~/.claude-backup/` (outside everything that is backed up): `password` and `b2.env` (owner-only), `config.json`, `excludes.txt`, `last-run.json`, `logs/` (last 30 runs), `bin/restic`. The key has the right to delete files (restic deletes its own lock files and pruned data), so a stolen key can delete the backup for good. B2 has two ways to remove a file: hiding it (the bucket's rule keeps the hidden version for 30 days) and deleting a version, which is final. The key can do both.
 
-Not verified: the B2 path has not been run against a real Backblaze account yet (it was tested against a local folder): the B2 API calls in setup, restic with this key, and the setup window on each system. Turning the schedule on (Task Scheduler, launchd, systemd) was not run; only its command text is tested. The macOS and Linux restic files are pinned from the signed hash list but were not unpacked or run. Restore after an attack (unhiding old versions in B2) is not written yet.
+## Known limits
+
+What the backup has not been proven to do yet:
+- The backup to Backblaze B2 is tested against a local folder only, not yet against a real Backblaze account. That covers the B2 calls during setup, restic with this key, and the setup window on each system.
+- Turning the schedule on (Task Scheduler, launchd, systemd) is not tested by running it; only its command text is.
+- The macOS and Linux restic files are checked against the signed hash list, but they have not been unpacked or run.
+- There are no steps yet for a restore after an attack. Such steps could bring back hidden files within their 30 days, but not deleted versions.

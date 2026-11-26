@@ -19,7 +19,7 @@
   <a href="#установка">Установка</a> · <a href="docs/getting-started.md">Первые шаги</a> · <a href="docs/how-it-works/overview.md">Как это устроено</a> · <a href="docs/README.md">Документация</a>
 </p>
 
-https://github.com/user-attachments/assets/d08b7744-b464-4537-89a4-f02348e2aa83
+https://github.com/user-attachments/assets/6384f243-b336-4dae-b890-b14bfb9e6847
 
 - **Большие задачи с планом и ревью.** Вопросы, спек, помощники, которые параллельно собирают части, ревью по спеку.
 - **Заявления сверяются с журналом.** Хуки сравнивают заявления Claude с журналом Claude Code и возвращают ложное заявление на исправление.

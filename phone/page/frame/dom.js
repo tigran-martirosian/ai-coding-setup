@@ -17,8 +17,14 @@ export function el(spec, props, ...children) {
   else
     for (const [k, v] of Object.entries(props)) {
       if (v === undefined || v === null || v === false) continue;
-      if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
-      else if (k === "hidden" || k === "disabled") node[k] = Boolean(v);
+      // An on… key in any letter case is a listener, never an attribute: setAttribute("ONCLICK", …) on an HTML
+      // element would make an inline handler.
+      const name = k.toLowerCase();
+      if (name.startsWith("on")) {
+        if (typeof v !== "function")
+          throw new Error(`el: ${k} must be a function, not ${typeof v}`);
+        node.addEventListener(name.slice(2), v);
+      } else if (k === "hidden" || k === "disabled") node[k] = Boolean(v);
       else node.setAttribute(k, v === true ? "" : String(v));
     }
   append(node, kids);

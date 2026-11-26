@@ -7,7 +7,7 @@ description: "Draw vertical guide lines down an interface, find every item that 
 
 Draw the lines first, then move the items. An alignment pass done by eye drifts by 2 to 4px per panel and nobody can say which edge was meant. Done with guides, every container ends up with two or three named lines, and every item either sits on one or has a written reason not to.
 
-Source: Karri Saarinen's redraw of the Linear sidebar (dashed guides through the traffic lights, icon column, label line and trailing column) and his rules: rhythm is either edge positioning or centring, the top bar is centred on the window controls, the side panel has one padding with icons on one column, and shapes are either round or rectangular. Apple's HIG layout chapter is the backing reference: consistent margins, one alignment per group, controls centred on the toolbar line.
+Source: Karri Saarinen's redraw of the Linear sidebar (dashed guides through the traffic lights, icon column, label line and trailing column) and the rules that come with it: rhythm is either edge positioning or centring, the top bar is centred on the window controls, the side panel has one padding with icons on one column, and shapes are either round or rectangular. Apple's HIG layout chapter is the backing reference: consistent margins, one alignment per group, controls centred on the toolbar line.
 
 This skill owns horizontal edges and the vertical centre of rows. Row height and section spacing follow the project's density rules; hit areas and type size belong to other skills.
 

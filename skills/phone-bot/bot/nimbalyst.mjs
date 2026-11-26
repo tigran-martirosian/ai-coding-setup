@@ -316,16 +316,24 @@ export async function sendPrompt(projectPath, sessionId, text) {
 
 // null unless the session waits on something that can be answered through the endpoint.
 // The endpoint keeps pendingPrompt filled after it was answered, so only status waiting_for_input counts.
+// The phone and the bot show these fields as text; a value that is not text (the model writes the tool input)
+// is left out.
+const asText = (v) => (typeof v === "string" ? v : undefined);
+
 function mapQuestions(questions) {
-  return questions.map((q) => ({
-    question: q.question,
-    header: q.header,
-    options: (q.options || []).map((o) => ({
-      label: o.label,
-      description: o.description,
-    })),
-    multiSelect: q.multiSelect === true,
-  }));
+  return questions
+    .filter((q) => asText(q.question) !== undefined)
+    .map((q) => ({
+      question: asText(q.question),
+      header: asText(q.header),
+      options: (q.options || [])
+        .filter((o) => asText(o.label) !== undefined)
+        .map((o) => ({
+          label: asText(o.label),
+          description: asText(o.description),
+        })),
+      multiSelect: q.multiSelect === true,
+    }));
 }
 
 const HEAD_BYTES = 200 * 1024;

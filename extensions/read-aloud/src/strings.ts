@@ -32,6 +32,10 @@ const english = {
   showReplyTip: "Scroll to the reply being read",
   // player and bridge messages
   nothingToRead: "Nothing to read in this message",
+  turnStartNotLoaded:
+    "The start of this reply is not loaded. Scroll up to it, then press Read aloud again.",
+  turnTextMissing:
+    "Part of this reply's text is no longer kept. Scroll through the reply, then press Read aloud again.",
   hostUnreachable:
     "Read Aloud could not reach the Nimbalyst host. Reload the extension.",
   backendDown:
@@ -101,6 +105,10 @@ const russian: Strings = {
   showReply: "К ответу",
   showReplyTip: "Прокрутить к ответу, который читается",
   nothingToRead: "В этом сообщении нечего читать",
+  turnStartNotLoaded:
+    "Начало этого ответа не загружено. Прокрутите к нему вверх и снова нажмите «Прочитать вслух».",
+  turnTextMissing:
+    "Часть текста этого ответа больше не хранится. Прокрутите ответ и снова нажмите «Прочитать вслух».",
   hostUnreachable:
     "Read Aloud не удалось связаться с Nimbalyst. Перезагрузите расширение.",
   backendDown:

@@ -21,15 +21,61 @@ import path from "node:path";
 const gate = await import(
   new URL("../../hooks/picture-gate.mjs", import.meta.url).href
 );
-const CODEX = `codex exec --skip-git-repo-check -s read-only${process.platform === "win32" ? " -c windows.sandbox='unelevated'" : ""}`;
 const FAKE = process.env.PICTURE_FAKE_CODEX; // tests only: gen stops before Codex, review reads the answer from this file
 const stop = (msg, code = 2) => {
   console.error(msg);
   process.exit(code);
 };
+// Codex runs with no shell, so a file name holding $( ), a quote or %NAME% reaches it as text and nothing in it
+// runs. On Windows npm, pnpm, yarn and bun install codex as a .cmd shim, which only cmd.exe can run: its node script
+// is run with this node instead. A shim that names no node script (yarn's points at another .cmd) is passed over;
+// running it through cmd.exe would bring the shell back.
+const codexProgram = () => {
+  if (process.platform !== "win32") return ["codex", []];
+  const passed = [];
+  for (const d of (process.env.PATH || "").split(path.delimiter)) {
+    if (!d) continue;
+    const exe = path.join(d, "codex.exe");
+    if (fs.existsSync(exe)) return [exe, []];
+    const shim = path.join(d, "codex.cmd");
+    if (!fs.existsSync(shim)) continue;
+    // npm writes "%dp0%\x.js", pnpm, yarn and bun "%~dp0\x.js"
+    const js = fs
+      .readFileSync(shim, "utf8")
+      .match(/"%(?:dp0%|~dp0)\\([^"%]+\.[cm]?js)"/);
+    if (js && fs.existsSync(path.join(d, js[1])))
+      return [process.execPath, [path.join(d, js[1])]];
+    passed.push(shim);
+  }
+  stop(
+    passed.length
+      ? `${passed.join(", ")} names no node script, so Codex can't be run without a shell. Install it with npm (npm i -g @openai/codex) in a folder before it on PATH, or remove that shim.`
+      : "codex is not on PATH (npm i -g @openai/codex)",
+    1,
+  );
+};
+const codex = (args, options) => {
+  const [program, before] = codexProgram();
+  return spawnSync(
+    program,
+    [
+      ...before,
+      "exec",
+      "--skip-git-repo-check",
+      "-s",
+      "read-only",
+      ...(process.platform === "win32"
+        ? ["-c", "windows.sandbox='unelevated'"]
+        : []),
+      ...args,
+      "-",
+    ],
+    { ...options, shell: false },
+  );
+};
 const mmss = (s) =>
   `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-const attach = (files) => files.map((r) => `-i "${path.resolve(r)}"`).join(" ");
+const attach = (files) => files.flatMap((r) => ["-i", path.resolve(r)]);
 const tail = (run) =>
   `${run.stdout || ""}\n${run.stderr || ""}`
     .trim()
@@ -186,10 +232,9 @@ if (cmd === "frames") {
     "Generate one image with your image generation tool, exactly as described below. Make one image only.\n\n" +
     fs.readFileSync(promptFile, "utf8");
   const started = Date.now() - 2000;
-  const run = spawnSync(`${CODEX} ${attach(refs)} -`, {
+  const run = codex(attach(refs), {
     input: prompt,
     encoding: "utf8",
-    shell: true,
     timeout: 9 * 60 * 1000,
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -239,10 +284,9 @@ ${fs.readFileSync(path.join(jobDir, "checklist.md"), "utf8")}
   );
   const run = FAKE
     ? {}
-    : spawnSync(`${CODEX} ${attach([file, ...real])} -o "${answerFile}" -`, {
+    : codex([...attach([file, ...real]), "-o", answerFile], {
         input: prompt,
         encoding: "utf8",
-        shell: true,
         timeout: 6 * 60 * 1000,
         maxBuffer: 64 * 1024 * 1024,
       });

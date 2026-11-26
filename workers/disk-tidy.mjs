@@ -25,6 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
+import { powershellExe } from "../hooks/lib/paths.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 const MB = 1024 * 1024;
@@ -236,10 +237,17 @@ const gitOut = (C, cwd, a) => {
 // ---- the process list: a running replay.py owns its worktrees
 function processLines(C) {
   if (C.PS_FILE) return fs.readFileSync(C.PS_FILE, "utf8").split(/\r?\n/);
+  let ps;
+  if (process.platform === "win32")
+    try {
+      ps = powershellExe();
+    } catch {
+      return null; // no SystemRoot: unreadable, as when PowerShell fails
+    }
   const r =
     process.platform === "win32"
       ? spawnSync(
-          "powershell",
+          ps,
           [
             "-NoProfile",
             "-Command",

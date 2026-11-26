@@ -15,6 +15,8 @@ export const WATCH_MS = GIVE_UP_MS;
 export const PAGE_POLL_MS = 3000;
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 const TAG = "[commandbuttons]";
+// the note file's own tag, apart from the Note button's: a Note pressed just before steer reads would send this text
+export const TRY_IT_TAG = "try-it-note";
 
 /** What the session is asked to do; read by the agent, so it is the same in every language. */
 export const tryItNote = (sessionId: string) =>
@@ -73,7 +75,14 @@ export async function pressTryIt(
   now = Date.now(),
 ): Promise<{ outcome: Outcome; home: string }> {
   const home = await homeDir(invoke);
-  const outcome = await sendNote(tryItNote(sessionId), sessionId, home, invoke);
+  const outcome = await sendNote(
+    tryItNote(sessionId),
+    sessionId,
+    home,
+    invoke,
+    [],
+    TRY_IT_TAG,
+  );
   if (outcome.ok) watchPage(watches, sessionId, home, now);
   return { outcome, home };
 }

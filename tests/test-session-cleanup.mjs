@@ -8,6 +8,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const HOOK = path.join(
   import.meta.dirname,
@@ -37,6 +38,18 @@ const waitFor = (fn, ms = 20000) => {
     if (fn()) return true;
   return fn();
 };
+// Resolves once the OS made the child (its PID is in the process list, its start time is set); a fail names it
+const started = (child, what) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${what}: no spawn event within 20 s`)),
+      20000,
+    );
+    child.once("spawn", () => resolve(clearTimeout(timer)));
+    child.once("error", (err) =>
+      reject(new Error(`${what}: did not start: ${err.message}`)),
+    );
+  });
 // One read each: the hook's detached closer deletes an emptied ledger, so a check-then-read can find it gone
 // in between (seen on a busy CI runner as "Unexpected end of JSON input").
 const read = (f) => {
@@ -549,7 +562,7 @@ if (process.platform === "win32") {
     ["-e", "setInterval(() => {}, 1000)", "say “hi” • done"],
     { stdio: "ignore" },
   );
-  await new Promise((r) => setTimeout(r, 800));
+  await started(odd, "the node process with the odd command line");
   const prev = process.env.SESSION_CLEANUP_TEST_PROCS;
   delete process.env.SESSION_CLEANUP_TEST_PROCS;
   const { snapshot } = await import(
@@ -569,7 +582,49 @@ if (process.platform === "win32") {
   );
 }
 
-// The real run: real process list and taskkill, on this test's own two node processes
+// A PATH without the folders of powershell.exe and taskkill.exe: a hook started from such a shell failed with ENOENT
+// (hook-errors.log, 2026-11-26). Both are named by their full path, so the process list and the closing still run.
+const PATH_KEY =
+  Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+const STRIPPED_PATH = (process.env[PATH_KEY] || "")
+  .split(path.delimiter)
+  .filter(
+    (d) =>
+      !["powershell.exe", "taskkill.exe"].some((f) =>
+        fs.existsSync(path.join(d, f)),
+      ),
+  )
+  .join(path.delimiter);
+if (process.platform === "win32") {
+  // In a child with its own env, so this runner's PATH stays whole; its parent is this test's process
+  const probe = `
+    const { snapshot } = await import(${JSON.stringify(pathToFileURL(HOOK).href)});
+    let got;
+    try {
+      got = snapshot().some((p) => p.pid === process.ppid)
+        ? "this test's process listed"
+        : "this test's process missing";
+    } catch (err) {
+      got = "threw: " + err.message;
+    }
+    process.stdout.write(got);`;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", probe], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      SESSION_CLEANUP_TEST_PROCS: undefined,
+      [PATH_KEY]: STRIPPED_PATH,
+    },
+  });
+  const got = r.stdout || `no answer (exit ${r.status}): ${r.stderr}`;
+  check(
+    `real: the process list works with the PowerShell folder missing from PATH (got: ${got})`,
+    got === "this test's process listed",
+  );
+}
+
+// The real run: real process list and taskkill, on this test's own two node processes, with the same PATH that lacks
+// their folders
 if (process.platform === "win32") {
   reset();
   const idle = ["-e", "setInterval(() => {}, 1000)"];
@@ -585,9 +640,10 @@ if (process.platform === "win32") {
     SESSION_CLEANUP_TEST_PROCS: undefined,
     SESSION_CLEANUP_TEST_ROOT: String(process.pid),
     SESSION_CLEANUP: "on",
+    [PATH_KEY]: STRIPPED_PATH,
   };
   const before = spawn(process.execPath, idle, { stdio: "ignore" });
-  sleep(300);
+  await started(before, "the node process started before the call");
   const ev = {
     session_id: "real",
     tool_use_id: "toolu_real",
@@ -596,7 +652,7 @@ if (process.platform === "win32") {
   };
   run({ ...ev, hook_event_name: "PreToolUse" }, real);
   const opened = spawn(process.execPath, idle, { stdio: "ignore" });
-  sleep(500);
+  await started(opened, "the node process started during the call");
   run({ ...ev, hook_event_name: "PostToolUse" }, real);
   const got = pids("real");
   // never let the closer near a process this test did not start

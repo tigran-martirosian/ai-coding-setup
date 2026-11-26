@@ -3,7 +3,14 @@
 A Telegram Mini App and bot that show and run Nimbalyst sessions on your own Windows PC from your phone. The page
 opens from the bot's Open button in Telegram. It talks to a small program on your PC through a relay on
 Cloudflare's free Workers plan. The page and the PC seal everything they send each other, so the relay passes on
-bytes it cannot read. Plain JavaScript, no npm packages.
+bytes it cannot read. What the PC sends to Telegram is not sealed, because Telegram has to show it: an alert's
+text (project name and session title) and a file sent to the chat pass the relay readable. Plain JavaScript, no
+npm packages.
+
+This page is for the bot's owner: the person who runs the relay and the bot. Anyone can be one. You need a
+Telegram bot from BotFather, a free Cloudflare account and your own copy of this repository on GitHub;
+[Your steps](#your-steps) sets them up. To use someone else's bot instead, you need an invite link from its owner
+([Voice and phone](../docs/using/voice-and-phone.md)).
 
 | Part | Where | What it does |
 |---|---|---|
@@ -19,9 +26,11 @@ The relay's deploy files:
 | `relay/wrangler.jsonc` | The Worker's settings: the `HUB` binding to the SQLite-backed class `Hub`, the page as static assets. No Worker name and no account: both come at deploy time |
 | `relay/deploy.mjs` | The deploy both ways share: page, `wrangler deploy`, the relay secrets, the bot's webhook and Open button |
 | `relay/deploy-test.mjs` | The test relay, deployed from your PC with your secrets file |
+| `relay/package.json`, `relay/package-lock.json` | Wrangler, pinned, with its whole tree locked by integrity hashes |
 | `.github/workflows/phone-deploy.yml` | The real relay, deployed by GitHub Actions from a release tag only |
 
-Both deploys run Wrangler with one pinned version (`WRANGLER_VERSION` in `relay/deploy.mjs`).
+Both deploys run Wrangler with one pinned version (`WRANGLER_VERSION` in `relay/deploy.mjs`), installed from the
+lock in `phone/relay` with `npm ci --ignore-scripts` and run from `phone/relay/node_modules`, never through npx.
 
 ## How the link holds
 
@@ -34,8 +43,7 @@ whose session ended because the PC was gone says the PC is off only after 20 sec
 `tests/test-phone-steady.mjs` checks this with short timers: drops, outages, half-open links, a network switch,
 restarts of the PC program and the relay, a second device, a page update, and the old-with-new pairs below.
 
-Hiding the page keeps its socket. When the page is shown again it sends one ping; a socket that gives no pong
-within 3 seconds is replaced with a new one.
+What the page does when it is hidden and shown again is in the [page README](page/README.md#the-link).
 
 ## Sends that survive a dropped link
 
@@ -122,8 +130,8 @@ starts it again after a restart of the PC, `remove` stops it; its keys stay. Bot
 `PHONE_PC_APP_DIR` without `PHONE_PC_PIPE` stops with an error, so the second program never talks to the real
 one. Voice in the second program looks for its own `voice.json` in the test folder.
 
-The test relay lives until the first release with the phone app. Then it is deleted and both tokens are replaced
-(step 6), so the copies that sat in a file on your PC stop working and only GitHub can deploy.
+Keep the test relay only until your first release tag. Then delete it and replace both tokens (step 6), so the
+copies that sat in a file on your PC stop working and only GitHub can deploy.
 
 ## Your steps
 
@@ -157,6 +165,12 @@ It asks for the token and the account id as hidden input, writes them into the f
 limits the file to your Windows user. Add `botToken` and `ownerTelegramId` to the same file with an editor.
 
 ### 3. The test deploy
+
+Once, and again when the lock changes, install the locked Wrangler (no install script runs):
+
+    cd phone/relay && npm ci --ignore-scripts && cd ../..
+
+Then:
 
     node phone/relay/deploy-test.mjs --dry-run
     node phone/relay/deploy-test.mjs
@@ -223,11 +237,12 @@ Alerts topic, as is a webhook Telegram refuses to set. The test copy makes no su
 
 ### 6. The release deploy
 
-At the first release with the phone app, in this order:
+For your first release, in this order:
 
 1. The test relay holds nothing you still need (the bot's `/people` shows no held items).
-2. Delete the test relay: `npx wrangler@<WRANGLER_VERSION> delete --name phone-relay-test`, with the token and
-   account id of step 1 in `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+2. Delete the test relay: in `phone/relay`, `node node_modules/wrangler/bin/wrangler.js delete --name
+   phone-relay-test`, with the token and account id of step 1 in `CLOUDFLARE_API_TOKEN` and
+   `CLOUDFLARE_ACCOUNT_ID`.
 3. Roll the deploy token (Cloudflare, **My Profile > API Tokens >** the token **> Roll**); paste the new value only
    into `gh secret set CLOUDFLARE_API_TOKEN --env phone-relay`.
 4. Reissue the bot token in BotFather (`/revoke`); paste the new value only into
@@ -242,8 +257,8 @@ After that, each release tag deploys the page of that release.
 
 ## Undo
 
-- **A relay:** `npx wrangler@<WRANGLER_VERSION> delete --name phone-relay-test` (or `phone-relay`), with the
-  token and account id in the environment as in step 6. Its stored data goes with it.
+- **A relay:** in `phone/relay`, `node node_modules/wrangler/bin/wrangler.js delete --name phone-relay-test` (or
+  `phone-relay`), with the token and account id in the environment as in step 6. Its stored data goes with it.
 - **The bot:** after the relay is gone, Telegram's calls to the old webhook fail and stop. To use the bot
   elsewhere, set its webhook again from there, or reissue its token in BotFather.
 - **The deploy token:** revoke it in Cloudflare (**My Profile > API Tokens**).

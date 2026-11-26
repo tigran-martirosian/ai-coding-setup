@@ -13,13 +13,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { groupCode } from "../../../phone/shared/seal.mjs";
 import {
+  FIND_PYTHON_ARGS,
   findUv,
+  lockHash,
   MODEL,
   MODEL_MB,
   markerPath,
+  SERVER_ARGS,
+  SYNC_ARGS,
+  scriptPython,
   settingUp,
   settingUpPath,
-  UV_ARGS,
+  UV_MIN,
+  uvNewEnough,
 } from "./actions/voice.mjs";
 import { keyFilePath, writeText } from "./core/files.mjs";
 import { createKeys, keysExist, loadKeys } from "./core/keys.mjs";
@@ -72,6 +78,17 @@ function startupScript() {
 
 const q = (a) => (/[\s"]/.test(a) ? `"${a}"` : a);
 
+// A Windows program by its full path under SystemRoot: a bare name would run a copy planted in the current folder
+// or early on the PATH.
+function systemRoot(...parts) {
+  if (!process.env.SystemRoot)
+    fail("SystemRoot is not set: cannot find the Windows programs setup runs");
+  return path.win32.join(process.env.SystemRoot, ...parts);
+}
+const system32 = (...parts) => systemRoot("System32", ...parts);
+const POWERSHELL = () =>
+  system32("WindowsPowerShell", "v1.0", "powershell.exe");
+
 // Runs a fixed program with fixed arguments, never through a shell and with no console window (the voice setup runs
 // hidden). In dry mode only prints it.
 function run(cmd, args, { mayFail = false } = {}) {
@@ -102,7 +119,7 @@ function needWindows(what) {
 // The key file's access list: only this Windows user.
 function lockKeyFile() {
   if (PLATFORM !== "win32") return;
-  run("icacls", [
+  run(system32("icacls.exe"), [
     keyFilePath(),
     "/inheritance:r",
     "/grant:r",
@@ -128,7 +145,9 @@ function removeLogon() {
   const vbs = startupScript();
   if (DRY) console.log(`would delete ${vbs}`);
   else fs.rmSync(vbs, { force: true });
-  run("schtasks", ["/delete", "/tn", OLD_TASK, "/f"], { mayFail: true });
+  run(system32("schtasks.exe"), ["/delete", "/tn", OLD_TASK, "/f"], {
+    mayFail: true,
+  });
 }
 
 // Stops the running program wherever it was started from (the installed copy or a work copy): it holds the pipe,
@@ -150,7 +169,7 @@ async function stopProgram() {
   if (SECOND) return;
   const has = (p) => `$_.CommandLine.Contains('${p.replace(/'/g, "''")}')`;
   const ps = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and (${has(KEEP)} -or ${has(MAIN)}) } | Sort-Object { -not ${has(KEEP)} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
-  run("powershell", ["-NoProfile", "-Command", ps]);
+  run(POWERSHELL(), ["-NoProfile", "-Command", ps]);
 }
 
 // The old bot's process (by its path, as stopProgram does), its Startup scripts and scheduled tasks, and the /phone
@@ -159,7 +178,7 @@ function removeOldBot() {
   if (SECOND) return;
   needWindows("Removing the old bot");
   const has = `$_.CommandLine.Contains('${OLD_BOT.replace(/'/g, "''")}')`;
-  run("powershell", [
+  run(POWERSHELL(), [
     "-NoProfile",
     "-Command",
     `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and ${has} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`,
@@ -174,7 +193,9 @@ function removeOldBot() {
     }
   }
   for (const task of OLD_BOT_TASKS)
-    run("schtasks", ["/delete", "/tn", task, "/f"], { mayFail: true });
+    run(system32("schtasks.exe"), ["/delete", "/tn", task, "/f"], {
+      mayFail: true,
+    });
   const skill = path.join(os.homedir(), ".claude", "skills", "phone");
   const file = path.join(skill, "SKILL.md");
   if (
@@ -221,7 +242,7 @@ function startProgram() {
     fail(
       "There is no start at log-on yet. Run: node setup.mjs start-logon, then start.",
     );
-  run("wscript", [startupScript()]);
+  run(system32("wscript.exe"), [startupScript()]);
 }
 
 // One JSON line to the running program, one back; null when it does not run.
@@ -275,7 +296,7 @@ async function cmdPair() {
     "In the app on your phone: tap Use the code from my PC, then scan the code or paste it.",
   );
   if (!DRY && PLATFORM === "win32")
-    run("explorer.exe", [a.url], { mayFail: true });
+    run(systemRoot("explorer.exe"), [a.url], { mayFail: true });
 }
 
 async function cmdJoin(address) {
@@ -325,7 +346,9 @@ async function cmdStatus() {
   else if (PLATFORM === "win32") {
     const vbs = startupScript();
     console.log(`startup script: ${fs.existsSync(vbs) ? vbs : "not set up"}`);
-    const r = run("schtasks", ["/query", "/tn", OLD_TASK], { mayFail: true });
+    const r = run(system32("schtasks.exe"), ["/query", "/tn", OLD_TASK], {
+      mayFail: true,
+    });
     if (!DRY && r.status === 0)
       console.log(
         `old task "${OLD_TASK}": still there, not needed any more (run: node setup.mjs remove, then start-logon)`,
@@ -355,7 +378,7 @@ async function cmdRestart() {
     return;
   }
   const has = `$_.CommandLine.Contains('${main.replace(/'/g, "''")}')`;
-  run("powershell", [
+  run(POWERSHELL(), [
     "-NoProfile",
     "-Command",
     `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and ${has} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`,
@@ -428,6 +451,7 @@ function cmdVoice(background) {
     );
   if (!uv) {
     console.log("Voice needs uv: installing it with winget.");
+    // winget stays a bare name: it has no fixed system folder (it lives in the user's WindowsApps).
     // Run hidden by --background, nobody can answer winget's agreement questions: they are accepted here.
     const r = run(
       "winget",
@@ -452,21 +476,71 @@ function cmdVoice(background) {
   console.log(
     `Voice: downloading the speech model "${MODEL}" (about ${MODEL_MB} MB) and its Python packages, once. This takes a few minutes.`,
   );
-  const args = [...UV_ARGS, "--download"];
-  if (DRY) console.log(`would run: ${[uv, ...args].map(q).join(" ")}`);
-  else {
-    const r = spawnSync(uv, args, {
+  // Exactly the locked packages into the transcriber's own environment, then that environment's Python downloads
+  // the model.
+  const args = [...SERVER_ARGS, "--download"];
+  if (DRY) {
+    console.log(
+      `would run: ${[uv, "--version"].map(q).join(" ")}, then ${[uv, "self", "update"].map(q).join(" ")} when it is older than ${UV_MIN}`,
+    );
+    console.log(`would run: ${[uv, ...SYNC_ARGS].map(q).join(" ")}`);
+    console.log(`would run: ${[uv, ...FIND_PYTHON_ARGS].map(q).join(" ")}`);
+    console.log(`would run: ${["python", ...args].map(q).join(" ")}`);
+  } else {
+    // An older uv lacks `sync --script` and `python find --script`: it updates itself first.
+    const version = () => {
+      const r = spawnSync(uv, ["--version"], {
+        encoding: "utf8",
+        shell: false,
+        windowsHide: true,
+      });
+      if (r.error) fail(`uv --version failed: ${r.error.message}`);
+      return (r.stdout || r.stderr || "").trim();
+    };
+    const before = version();
+    if (!uvNewEnough(before)) {
+      console.log(
+        `Voice needs uv ${UV_MIN} or newer, this PC has "${before}": updating it with uv self update.`,
+      );
+      spawnSync(uv, ["self", "update"], {
+        stdio: "inherit",
+        shell: false,
+        windowsHide: true,
+      });
+      const after = version();
+      if (!uvNewEnough(after))
+        fail(
+          `Voice needs uv ${UV_MIN} or newer, this PC has "${after}" and uv self update did not update it. Update uv (winget upgrade --id astral-sh.uv -e), then run: node setup.mjs voice`,
+        );
+    }
+    const synced = spawnSync(uv, SYNC_ARGS, {
       stdio: "inherit",
       shell: false,
       windowsHide: true,
     });
-    if (r.error) fail(`uv failed: ${r.error.message}`);
+    if (synced.error) fail(`uv failed: ${synced.error.message}`);
+    if (synced.status !== 0)
+      fail(
+        `The transcriber's Python packages did not install (exit code ${synced.status}); see the lines above. Run node setup.mjs voice again.`,
+      );
+    let py;
+    try {
+      py = scriptPython(uv);
+    } catch (e) {
+      fail(e.message);
+    }
+    const r = spawnSync(py, args, {
+      stdio: "inherit",
+      shell: false,
+      windowsHide: true,
+    });
+    if (r.error) fail(`the transcriber's Python failed: ${r.error.message}`);
     if (r.status !== 0)
       fail(
         `The speech model did not download (exit code ${r.status}); see the lines above. Run node setup.mjs voice again.`,
       );
   }
-  const marker = `${JSON.stringify({ model: MODEL, setAt: new Date().toISOString() })}\n`;
+  const marker = `${JSON.stringify({ model: MODEL, lock: lockHash(), setAt: new Date().toISOString() })}\n`;
   if (DRY) console.log(`would write ${markerPath()}: ${marker.trim()}`);
   else writeText(markerPath(), marker);
   console.log(

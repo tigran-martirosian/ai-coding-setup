@@ -8,7 +8,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { key } from "../scripts/blocks.mjs";
 
 const HOOK = fileURLToPath(
@@ -21,6 +21,34 @@ const check = (name, ok) => {
   ok ? pass++ : fail++;
   console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
 };
+// Every process the hook starts, written down by the hook's own process just before it starts it (run() loads this
+// file with --import; its children do not): once run() is back the list is whole, so a "nothing started" check
+// needs no wait for a child that might still be on its way.
+const RECORDER = path.join(tmp, "spawn-record.mjs");
+fs.writeFileSync(
+  RECORDER,
+  `import cp from "node:child_process";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const spawn = cp.spawn;
+cp.spawn = (cmd, args, ...rest) => {
+  fs.appendFileSync(process.env.SPAWN_RECORD, JSON.stringify(args ?? []) + "\\n");
+  return spawn(cmd, args, ...rest);
+};
+syncBuiltinESMExports();
+`,
+);
+const spawnRecord = (h) => path.join(h, "spawns.jsonl");
+// How many times the hook started `script` (a file name) in home `h`; with no script, how many processes in all.
+const startsOf = (h, script) =>
+  fs.existsSync(spawnRecord(h))
+    ? fs
+        .readFileSync(spawnRecord(h), "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => path.basename(JSON.parse(l)[0] ?? ""))
+        .filter((s) => !script || s === script).length
+    : 0;
 
 // The server answers /version.json with whatever `released` holds and counts the requests
 let released = { version: "1.2.0", summary: "A new thing." };
@@ -62,19 +90,24 @@ const home = (name, version) => {
 const dataOf = (h) => path.join(h, "nimbalyst-data");
 const run = (h, env = {}) =>
   new Promise((resolve) => {
-    const p = spawn(process.execPath, [HOOK], {
-      env: {
-        ...process.env,
-        UPDATE_CHECK: "",
-        SETUP_UPDATE_HOME: h,
-        SETUP_UPDATE_BASE: BASE,
-        NIMBALYST_DELIVER_DATA: dataOf(h),
-        NIMBALYST_FOLLOW: "",
-        // the folder worked in is the home folder, which gets no project offer, unless a test names one
-        CLAUDE_PROJECT_DIR: h,
-        ...env,
+    const p = spawn(
+      process.execPath,
+      ["--import", pathToFileURL(RECORDER).href, HOOK],
+      {
+        env: {
+          ...process.env,
+          SPAWN_RECORD: spawnRecord(h),
+          UPDATE_CHECK: "",
+          SETUP_UPDATE_HOME: h,
+          SETUP_UPDATE_BASE: BASE,
+          NIMBALYST_DELIVER_DATA: dataOf(h),
+          NIMBALYST_FOLLOW: "",
+          // the folder worked in is the home folder, which gets no project offer, unless a test names one
+          CLAUDE_PROJECT_DIR: h,
+          ...env,
+        },
       },
-    });
+    );
     let out = "";
     p.stdout.on("data", (d) => (out += d));
     p.on("close", (code) => resolve({ code, out }));
@@ -494,7 +527,10 @@ check(
   during.out === "" && !fs.existsSync(at(autoOk, "started.json")),
 );
 fs.rmSync(at(autoOk, "hold"));
-await waitFor(at(autoOk, "ended"), 5000);
+check(
+  "9. the stand-in self-install ends within 5 s once let go",
+  await waitFor(at(autoOk, "ended"), 5000),
+);
 const doneSaid = JSON.parse((await run(autoOk)).out || "{}");
 check(
   "9. the next prompt: one grey line that the setup updated itself, no section",
@@ -509,7 +545,10 @@ const autoBad = stubHome("auto-fail", "1.0.5");
 await run(autoBad, {
   STUB_RESULT: "could not download v1.0.7.tar.gz (HTTP 404)",
 });
-await waitFor(at(autoBad, "ended"), 5000);
+check(
+  "9. the failing stand-in self-install ends within 5 s",
+  await waitFor(at(autoBad, "ended"), 5000),
+);
 fs.rmSync(at(autoBad, "started.json"));
 const failSaid = JSON.parse((await run(autoBad)).out || "{}");
 check(
@@ -519,10 +558,10 @@ check(
 );
 restore(autoBad, { noticeAt: ago(9), sectionAt: ago(25) });
 const afterFail = JSON.parse((await run(autoBad)).out || "{}");
-await new Promise((r) => setTimeout(r, 700));
 check(
   "9. it is not tried again for the same version; the reminder covers it",
-  !fs.existsSync(at(autoBad, "started.json")) &&
+  startsOf(autoBad, "update.mjs") === 1 &&
+    !fs.existsSync(at(autoBad, "started.json")) &&
     /^Your setup is from Nov 5, 2026\. New: A clearer hook message; plus 1 smaller fix\./.test(
       afterFail.systemMessage || "",
     ) &&
@@ -562,10 +601,9 @@ check(
 const locked = stubHome("auto-locked", "1.0.5");
 fs.writeFileSync(at(locked, "update-auto.lock"), "");
 await run(locked);
-await new Promise((r) => setTimeout(r, 700));
 check(
   "a self-install lock held by another prompt: nothing started",
-  !fs.existsSync(at(locked, "started.json")),
+  startsOf(locked) === 0 && !fs.existsSync(at(locked, "started.json")),
 );
 const staleLock = stubHome("auto-stale-lock", "1.0.5");
 fs.writeFileSync(at(staleLock, "update-auto.lock"), "");
@@ -585,10 +623,10 @@ fs.writeFileSync(at(badSettings, "settings.json"), "{ not json");
 const badOut = JSON.parse(
   (await run(badSettings, { HOOK_ERRORS_LOG: badSettingsLog })).out || "{}",
 );
-await new Promise((r) => setTimeout(r, 700));
 check(
   "settings.json that is not JSON: crash-logged, nothing started, the reminder still shows",
-  !fs.existsSync(at(badSettings, "started.json")) &&
+  startsOf(badSettings) === 0 &&
+    !fs.existsSync(at(badSettings, "started.json")) &&
     /^Your setup is from/.test(badOut.systemMessage || "") &&
     /not valid JSON/.test(
       fs.existsSync(badSettingsLog)
@@ -610,8 +648,10 @@ const noStart = async (name, env, extra) => {
   const h = stubHome(name, "1.0.5");
   extra?.(h);
   const out = JSON.parse((await run(h, env)).out || "{}");
-  await new Promise((r) => setTimeout(r, 700));
-  return { started: fs.existsSync(at(h, "started.json")), out };
+  return {
+    started: startsOf(h) > 0 || fs.existsSync(at(h, "started.json")),
+    out,
+  };
 };
 const offEnv = await noStart("auto-off-env", { AUTO_UPDATE: "off" });
 check(
@@ -699,9 +739,12 @@ check(
 );
 check(
   "NB4. deliver.mjs is not started before the self-install ended",
-  !fs.existsSync(nbStarted),
+  startsOf(nbHome, "deliver.mjs") === 0 && !fs.existsSync(nbStarted),
 );
-await waitFor(at(nbHome, "ended"), 5000);
+check(
+  "NB4. the stand-in self-install ends within 5 s",
+  await waitFor(at(nbHome, "ended"), 5000),
+);
 const nbDone = JSON.parse((await run(nbHome)).out || "{}");
 check(
   "NB4. the prompt that says the self-install starts deliver.mjs --stage, with no yes on record",
@@ -712,17 +755,24 @@ check(
 );
 fs.rmSync(nbStarted);
 await run(nbHome);
-await new Promise((r) => setTimeout(r, 700));
-check("NB4. the next prompt starts no second stage", !fs.existsSync(nbStarted));
+check(
+  "NB4. the next prompt starts no second stage",
+  startsOf(nbHome, "deliver.mjs") === 1 && !fs.existsSync(nbStarted),
+);
 const nbOff = async (name, env, extra) => {
   const h = stubHome(name, "1.0.5");
   const started = deliverStub(h);
   extra?.(h);
   await run(h, { STUB_RESULT: "ok", ...env });
-  await waitFor(at(h, "ended"), 5000);
+  check(
+    `NB4. ${name}: the stand-in self-install ends within 5 s`,
+    await waitFor(at(h, "ended"), 5000),
+  );
   const out = JSON.parse((await run(h, env)).out || "{}");
-  await new Promise((r) => setTimeout(r, 700));
-  return { started: fs.existsSync(started), out };
+  return {
+    started: startsOf(h, "deliver.mjs") > 0 || fs.existsSync(started),
+    out,
+  };
 };
 const nbOffEnv = await nbOff("nb-off-env", { NIMBALYST_FOLLOW: "off" });
 check(
@@ -744,7 +794,10 @@ check(
 const nbMissingLog = path.join(tmp, "nb-missing-crash.log");
 const nbMissing = stubHome("nb-missing", "1.0.5");
 await run(nbMissing, { STUB_RESULT: "ok" });
-await waitFor(at(nbMissing, "ended"), 5000);
+check(
+  "NB4. nb-missing: the stand-in self-install ends within 5 s",
+  await waitFor(at(nbMissing, "ended"), 5000),
+);
 const nbMissingOut = JSON.parse(
   (await run(nbMissing, { HOOK_ERRORS_LOG: nbMissingLog })).out || "{}",
 );
@@ -915,8 +968,11 @@ const quietKinds = (...kinds) => {
     ),
   };
 };
+// The arguments the hook gave update.mjs, from the hook's own record (the stand-in may not have started yet).
 const argsOf = (h) =>
-  JSON.parse(fs.readFileSync(at(h, "started.json"), "utf8"));
+  JSON.parse(
+    fs.readFileSync(spawnRecord(h), "utf8").split("\n").filter(Boolean).at(-1),
+  ).slice(1);
 quietKinds("quiet");
 const q1 = await noStart("quiet-one", {});
 const q1Home = path.join(tmp, "quiet-one");
@@ -983,10 +1039,9 @@ fs.writeFileSync(at(qLock, "update-auto.lock"), "quiet");
 const lockAt = new Date(Date.now() - 20 * 60000);
 fs.utimesSync(at(qLock, "update-auto.lock"), lockAt, lockAt);
 await run(qLock);
-await new Promise((r) => setTimeout(r, 700));
 check(
   "T5. a quiet run's lock 20 minutes old is still held: nothing started",
-  !fs.existsSync(at(qLock, "started.json")),
+  startsOf(qLock) === 0 && !fs.existsSync(at(qLock, "started.json")),
 );
 
 // ---- T6: the grey line of a quiet run from update.mjs's `auto`, and the Nimbalyst line from staged.json
@@ -1518,9 +1573,13 @@ check(
       ) &&
       /current rules, systems map and file layout/.test(ctxOf(offer)) &&
       ctxOf(offer).includes("update-project/SKILL.md") &&
-      ctxOf(offer).includes(`--skip "${behind.folder}"`) &&
+      ctxOf(offer).includes(`--skip '${behind.folder}'`) &&
       /On "never, in any folder": run .*--skip-all/.test(ctxOf(offer)) &&
       !JSON.parse(offer.out).systemMessage,
+  );
+  check(
+    "the pass offer says its skip commands are for bash, since the folder is quoted the bash way",
+    ctxOf(offer).includes("commands are for bash (the Bash tool)"),
   );
   check(
     "and the folder is noted for today",
@@ -1563,6 +1622,18 @@ check(
       ctxOf(await run(doneOld.h, doneOld.env)),
     ),
   );
+  // a folder name with $( ), $NAME and a ' must reach pass.mjs as written: bash gets it back unchanged
+  const odd = passHome("pass-odd $(echo run) $HOME it's", () => ({}));
+  const oddArg = ctxOf(await run(odd.h, odd.env)).match(
+    /On "not now": run node \S+ --skip (.+?)\. On "never/,
+  )?.[1];
+  const oddBack =
+    oddArg &&
+    spawnSync("bash", ["-c", `printf %s ${oddArg}`], { encoding: "utf8" });
+  check(
+    "the skip command keeps the folder name as written: $( ), $NAME and ' in it are not run or expanded by the shell",
+    oddBack?.status === 0 && oddBack.stdout === odd.folder,
+  );
   const declined = passHome("pass-declined", (f) => ({ declined: { [f]: 1 } }));
   check(
     "a folder declined at the level: silent",
@@ -1587,10 +1658,14 @@ check(
       ) &&
       setUp.includes("new-project/SKILL.md") &&
       setUp.includes(
-        `On "never here": run node ~/.claude/skills/update-project/pass.mjs --skip "${bare.folder}"`,
+        `On "never here": run node ~/.claude/skills/update-project/pass.mjs --skip '${bare.folder}'`,
       ) &&
       /On "never in any folder".*--skip-all/.test(setUp) &&
       !/set up before the current setup/.test(setUp),
+  );
+  check(
+    "the /new-project offer says its skip commands are for bash, since the folder is quoted the bash way",
+    setUp.includes("commands are for bash (the Bash tool)"),
   );
   check(
     "and the same folder the same day: silent",

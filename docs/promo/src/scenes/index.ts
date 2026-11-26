@@ -20,7 +20,7 @@ export type SceneEntry = {
   durationInFrames: number;
 };
 
-/** The scenes behind the short clips in docs/features.md. The tour film itself is in ../film. */
+/** The scenes behind the short clips in the docs/using pages. The tour film itself is in ../film. */
 export const SCENES: SceneEntry[] = [
   { id: "Btw", component: Btw, durationInFrames: 180 },
   { id: "Handoff", component: Handoff, durationInFrames: 230 },

@@ -299,6 +299,14 @@ try {
     !gone.ok && gone.err === "expired",
     show(gone),
   );
+  const inherited = [];
+  for (const handle of ["constructor", "toString"])
+    inherited.push(await ask("alerts.resolve", { handle }));
+  check(
+    "a handle named like an inherited object key (constructor, toString) is expired",
+    inherited.every((x) => !x.ok && x.err === "expired"),
+    show(inherited),
+  );
 
   // ---- waiting 1 second and working again sends nothing; a flicker back to waiting sends no second alert
   let n = sent.length;
@@ -458,6 +466,18 @@ try {
     "a title keeps letters and digits of any script",
     script === "website · Заметки 2.0: needs you" && RELAY_TEXT.test(script),
     script,
+  );
+  const linky = alertText(
+    "website",
+    "sign in at tg-login.app or a1b2.example.com",
+    "session-needs-you",
+  );
+  check(
+    "a title shaped like a domain is broken, so the chat shows no link (FAIL: a session can put a link in the bot chat)",
+    linky ===
+      "website · sign in at tg-login-app or a1b2-example-com: needs you" &&
+      RELAY_TEXT.test(linky),
+    linky,
   );
   check(
     "an untitled session reads project: needs you",
@@ -670,6 +690,63 @@ try {
       ]),
     show(since(n)),
   );
+
+  // ---- a read error keeps what the watcher knew: a change made while the sessions could not be read still alerts
+  const badRead = addSession(PROJECT, "Bad metadata", "running");
+  const meanwhile = addSession(PROJECT, "Changed meanwhile", "running");
+  hold();
+  setStatus(badRead, "idle");
+  hold();
+  // start() takes one guarded look (the timer's), stop() ends the timer before it fires.
+  const guardedLook = () => {
+    clock += 1000;
+    alerts.start();
+    alerts.stop();
+  };
+  n = sent.length;
+  fx.prepare("UPDATE ai_sessions SET metadata = ? WHERE id = ?").run(
+    "{not json",
+    badRead,
+  );
+  guardedLook();
+  setStatus(meanwhile, "waiting_for_input");
+  guardedLook();
+  fx.prepare("UPDATE ai_sessions SET metadata = ? WHERE id = ?").run(
+    "{}",
+    badRead,
+  );
+  hold();
+  hold();
+  check(
+    "a session that turns waiting during a read error still alerts once the read works again",
+    since(n).some((f) => f.text === "alpha-web · Changed meanwhile: needs you"),
+    show(since(n)),
+  );
+
+  // ---- an alert the relay took but whose handle could not be kept (pc-state.json not written) goes out once
+  const unkept = addSession(PROJECT, "Handle not kept", "running");
+  hold();
+  // The state file is written through this name first: a folder there makes every write fail, reads still work.
+  const blocker = path.join(
+    home,
+    ".phone-app",
+    `pc-state.json.${process.pid}.tmp`,
+  );
+  n = sent.length;
+  setStatus(unkept, "waiting_for_input");
+  fs.mkdirSync(blocker);
+  try {
+    for (let i = 0; i < 4; i++) guardedLook();
+  } finally {
+    fs.rmSync(blocker, { recursive: true, force: true });
+  }
+  hold();
+  check(
+    "an alert whose handle could not be kept is sent once and the failure logged (FAIL: the same alert goes out at every look while pc-state.json cannot be written)",
+    since(n).filter((f) => f.text === "alpha-web · Handle not kept: needs you")
+      .length === 1 && logLines("was not kept") >= 1,
+    show({ sent: since(n), logged: logLines("was not kept") }),
+  );
 } catch (e) {
   failure = e;
 } finally {
@@ -785,7 +862,8 @@ try {
   await import(pageUrl("screens/settings.js"));
   const settings = screens.screen("settings");
 
-  // A first open, nothing kept: the choices draw when alerts.get answers, while pc.status is held 2 s.
+  // A first open, nothing kept: the choices draw when alerts.get answers, while pc.status is still held. The
+  // screen has no timer, so the hold is the test's own: pc.status answers only when the test releases it.
   const first = heldPc();
   let box = settings.render(first.ctx);
   check("a first open with nothing kept asks the PC", radios(box).length === 0);
@@ -798,7 +876,6 @@ try {
       /asking the PC/.test(box.textContent),
     box.textContent,
   );
-  await new Promise((r) => setTimeout(r, 2000));
   first.answer("pc.status", { ok: true, d: { pcName: "test-pc" } });
   await tick();
   check(

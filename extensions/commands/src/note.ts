@@ -2,7 +2,7 @@
 // next step; an idle session is started with the text instead.
 
 import type { Invoke } from "../../shared/host.ts";
-import { hostError, hostExec } from "../../shared/host.ts";
+import { hostError } from "../../shared/host.ts";
 import { readOrNull } from "./bridge.ts";
 import { t } from "./strings.ts";
 
@@ -38,14 +38,36 @@ type Exec = {
   exitCode?: number | string;
 };
 
+// The extension's own folder, from activate's context (index.tsx)
+let extensionFolder: string | null = null;
+export const setExtensionFolder = (folder: string) => {
+  extensionFolder = folder;
+};
+
+/**
+ * Runs a node command for this extension. Nimbalyst runs it in its own current folder unless told otherwise, and on
+ * Windows cmd.exe looks for `node` in the current folder before PATH, so a node.cmd in a project Nimbalyst was started
+ * from would run instead of Node.js. So the command runs in the extension's own folder, and
+ * NoDefaultCurrentDirectoryInExePath (Nimbalyst merges it into the child's environment) stops cmd.exe from searching
+ * the current folder at all. (The shared hostExec sends no cwd or env, so the call is made here.)
+ */
+const run = (invoke: Invoke, command: string, timeout: number) => {
+  if (!extensionFolder)
+    throw new Error(
+      "the extension is not active yet, so its own folder is unknown",
+    );
+  return invoke("extension:exec", {
+    extensionId: EXT_ID,
+    command,
+    cwd: extensionFolder,
+    env: { NoDefaultCurrentDirectoryInExePath: "1" },
+    timeout,
+  }) as Promise<Exec>;
+};
+
 /** The user's home folder, with forward slashes (node and cmd.exe both take them). */
 export async function homeDir(invoke: Invoke): Promise<string> {
-  const r = await hostExec<Exec>(
-    invoke,
-    EXT_ID,
-    "node -p \"require('os').homedir()\"",
-    15000,
-  );
+  const r = await run(invoke, "node -p \"require('os').homedir()\"", 15000);
   const home = (r.stdout ?? "").trim().replace(/\\/g, "/");
   if (!r.success || !home)
     throw new Error(
@@ -86,9 +108,8 @@ export async function sendNote(
   try {
     await invoke("extensions:write-file", file, note);
     // --nowait comes after the "-": a steer.mjs too old to know it must still read the note from the file
-    const r = await hostExec<Exec>(
+    const r = await run(
       invoke,
-      EXT_ID,
       `node "${home}/.claude/skills/steer/steer.mjs" send --to ${sessionId} - --nowait < "${file}"`,
       30000,
     );

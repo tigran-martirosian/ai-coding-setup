@@ -136,6 +136,24 @@ t("very long sentence split on word boundaries", () => {
   assert.equal(chunks.join(" "), long);
 });
 
+t(
+  "a run with no spaces is cut to the chunk limit, so the backend never refuses it",
+  () => {
+    const blob = "QUJD".repeat(1250); // 5000 characters, like a base64 blob
+    const chunks = chunkForSpeech(`See ${blob} here.`).map((c) => c.text);
+    const longest = Math.max(...chunks.map((c) => c.length));
+    assert.ok(
+      longest <= 360,
+      `a chunk of ${longest} characters: the backend refuses more than 2000 and reading stops there`,
+    );
+    assert.equal(
+      chunks.join("").replace(/\s/g, ""),
+      `See${blob}here.`,
+      "cutting a long run must lose no characters",
+    );
+  },
+);
+
 t("chunks keep one sentence per line and mark paragraph ends", () => {
   const chunks = chunkForSpeech(
     "Result.\n\nIt passed. All of it is ready now.\n\nFirst item.\nSecond item.",

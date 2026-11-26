@@ -5,7 +5,7 @@ description: Systems map, the dictionary of a project's parts and what connects 
 
 # Systems map
 
-A **thing** is a part a person would name out loud: a feature, service, screen, data store or background job; a folder or a class is not one. A **link** is a pair of things where, if a session changed one, it would have to look at the other. The map is a dictionary: a session reads only the lines of the things its work touches. Its worth is what a search of the code cannot find: the rules a part must keep and the reasons behind its links. A session finds it through the pointer line in the project's `CLAUDE.md` (Build a map, step 6) and looks a thing up with `--near`.
+A **thing** (one entry of `nodes` in the map file; `map.mjs` prints the same word) is one entry of the map. Most things are **parts**, what a person would name out loud: a feature, service, screen, data store or background job; a folder or a class is not one. Topics and how-to things (below) are the other kinds. A **link** is a pair of things where, if a session changed one, it would have to look at the other. The map is a dictionary: a session reads only the lines of the things its work touches. Its worth is what a search of the code cannot find: the rules a part must keep and the reasons behind its links. A session finds it through the pointer line in the project's `CLAUDE.md` (Build a map, step 6) and looks a thing up with `--near`.
 
 One file, `<project>/.claude/systems-map.json`. Paths are from the project root, or `~/` for a file of the setup, with forward slashes, and exist:
 
@@ -31,11 +31,11 @@ One file, `<project>/.claude/systems-map.json`. Paths are from the project root,
 
 ## Topics and how-to things
 
-Besides the parts, a map holds two more kinds of thing, so a helper told "rebalance the damage" or "research this on the web" follows links instead of searching blind.
+Besides the parts, a map holds two more kinds of thing, so a helper told "change how discounts work" or "research this on the web" follows links instead of searching blind.
 
-- **A topic** is a subject the user talks about that spans parts: "damage balance", "pricing", "onboarding". Its links go to every part it pulls together (damage balance: gear, monster damage, monster health, buffs), each link with the code that does it. Its id starts with `topic-` and its group is `topic`.
+- **A topic** is a subject the user talks about that spans parts: "discounts", "sign-in", "onboarding". Its links go to every part it pulls together (discounts: the cart, pricing, checkout and the receipt email), each link with the code that does it. Its id starts with `topic-` and its group is `topic`.
 - **A how-to thing** is a job a session in this project gets told to do: research, a web search, browser work, a video, tests, a release, a hand-off, a big job. Its id starts with `do-`; its `files` are the 1 to 3 files to read first: the setup's skill as `~/.claude/skills/<name>/SKILL.md` (always `~/`, never a full home path, so the map works for anyone) and the project's own rule, script or notes; never a `CLAUDE.md` (every session has it loaded). Its `words` match how people ask (`"\\bresearch"`, `"\\bweb (search|research)"`, `"\\breddit\\b"`), never a word every brief holds ("work", "file", "check"). Its group is `how-to`.
-- **How-to things form chains.** Each links to the step it hands on to and the things it uses: research -> the project's notes and `DECISIONS.md` and `docs/decisions/` -> web research -> the reader for Reddit and X, or the version checker. The evidence of such a link is the file that names the next step, and its token is the command, script or file name that does it (`social.mjs`, `versions.mjs`), never a generic word ("full", "chat", the skill's own name).
+- **How-to things form chains.** Each links to the step it hands on to and the things it uses: research -> the project's notes and `DECISIONS.md` and `docs/decisions/` -> web research -> the reader for Reddit and X, or the version checker. The evidence of such a link is the file that names the next step, and its token is the command, script or file name that does it (`versions.mjs`, an API address such as `api.fxtwitter.com`), never a generic word ("full", "chat", the skill's own name).
 - **Which how-to things:** the jobs this project's `CLAUDE.md`, `.claude/skills/`, scripts and `docs/` show it does, plus research and web research (every project does those). Read each setup skill before writing its thing; its `what` says when to reach for it in this project.
 
 **Generated files.** A file a script writes (text, data, a docs page) is listed at the top level, so there is one source and nobody edits the copy:
@@ -60,7 +60,7 @@ Run in the project folder: `node ~/.claude/skills/systems-map/map.mjs <command>`
 A thing is **matched by file** when the text names a file it lists, or the evidence file of one of its links: a full path, a path with its folder, or a bare file name only one listed file has. A name, a written folder or a `words` entry alone does not match a thing for the brief.
 
 - **The main chat** reads the pointer line in the project's `CLAUDE.md` and runs `--near` when its work touches a part.
-- **A helper** (worker, worker-full, worker-code, worker-refactor, reviewer, plan-reviewer) gets `SYSTEMS MAP:` lines appended to its brief by the `map-brief` hook, but only during the hook's trial: while `~/.claude/state/map-brief-trial.json` (`{"until":"YYYY-MM-DD"}`) is unexpired. With no trial file, or after its date, the hook does nothing. The lines are `--brief`'s output, at most 2,000 characters, cut at whole lines: for each of the top 3 things matched by file, its name, what it is, its `rules`, and the 12 links nearest the brief's files, each with its `why`. A thing matched by file with no rules and no links is left out, and no thing is shown only with its start files. Further things matched by file are named on one `Also matched by file` line. When nothing matches, one short line says so.
+- **A helper** (worker, worker-full, worker-code, worker-refactor, reviewer, plan-reviewer) can get `SYSTEMS MAP:` lines appended to its brief by the `map-brief` hook. The hook is off by default: it acts only during a trial that compares helpers with and without the lines, while `~/.claude/state/map-brief-trial.json` (`{"until":"YYYY-MM-DD"}`) exists and its date has not passed. During the trial each helper gets the lines or nothing, at random. With no trial file, or after its date, the hook does nothing. The lines are `--brief`'s output, at most 2,000 characters, cut at whole lines: for each of the top 3 things matched by file, its name, what it is, its `rules`, and the 12 links nearest the brief's files, each with its `why`. A thing matched by file with no rules and no links is left out, and no thing is shown only with its start files. Further things matched by file are named on one `Also matched by file` line. When nothing matches, one short line says so.
 
 ## Build a map
 
@@ -77,7 +77,7 @@ Budget: about 50 tool calls. Each step ends on its check.
 ## Refresh a stale map
 
 1. Run `--check`. Each `GONE` path moved or was deleted: find the new path with `git log --diff-filter=R --name-status` or a search for the file name, and correct every place that lists it.
-2. Drop a thing or link whose code is gone; add a thing for each area in `--scan` that no thing covers, and the topics and how-to things the map lacks (section Topics and how-to things).
+2. Drop a thing or link whose code is gone; add a thing for each area in `--scan` that no thing covers, and the topics and how-to things the map lacks (section Topics and how-to things). Done when every area `--scan` lists has a thing.
 3. Add `rules` and `why` where they are missing: a thing whose code shows a "never" or "only here", a link whose reason is not plain from `says`.
 4. Thin the plain entries: a thing that holds only its name and files, with no rule and no link a search could not find, is dropped or merged into the thing it is part of.
 5. Run `--check`. Done when it exits 0.

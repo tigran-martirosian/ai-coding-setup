@@ -34,9 +34,12 @@ each as its own question (not a tick-list):
 
 ## 2. Create the base (skip what already exists, never overwrite)
 
+This table says what each file holds once the setup is done. The files are written in step 2b, right after
+`git init`. A part marked "step 2b" or "step 3" comes from that step, because its answer is known only there.
+
 | File | Content |
 |---|---|
-| `CLAUDE.md` | **Under 60 lines.** What the project is (2–3 lines) · `Start with HANDOFF.md, then DECISIONS.md` · key commands · folder map: each folder the project has, with its role from the "Folder roles" table of `~/.claude/skills/file-upkeep/standard.md` (where the code, the tests, the text, the person's pictures and previews in `shown/`, and the product's media live) · hard rules, each linking to a `.claude/rules/*.md` file for details · for a data project, the step 1 answers (sources, what reads the result, refresh, how to run queries) · for any project that keeps data (a database, a log, data files): where each one lives as a full path, and the exact command that reads it with a tool that is installed · `Designs and plans live in docs/ as dated markdown files, docs/YYYY-MM-DD-topic-design.md and -plan.md; reply with a short summary and a link, not the whole design in chat` · `New files follow ~/.claude/skills/file-upkeep/standard.md: dated notes in docs/, docs/research/, audits/; scratch and test output in the temp folder, deleted after the run; no copies beside a file` · which tools to use here (step 3) · a **Checks** section: which check runs when (build, tests, review, release), written once with the user; with tests, two test commands: a quick one for what changed, run while working (`vitest --changed`, `jest --onlyChanged`, `pytest --testmon` with the pytest-testmon plugin, or the stack's own; `none: the runner has no such mode` when it has none), and the full suite, run at the end of the work and in CI; a check the user asks for once is a one-off until they say it is standing; on GitHub kinds also the CI merge line (step 2b) · under the hard rules, the `Git:` line, and in a git kind the `Commits:` line (step 2b) |
+| `CLAUDE.md` | **Under 60 lines.** The parts listed under "What CLAUDE.md holds", below this table. |
 | `HANDOFF.md` | Current state only, under about 120 lines: what's next, open questions. Rewritten at the end of every working session so a fresh session can pick up cold. |
 | `DECISIONS.md` | The index: decisions in dated sections, newest first, each as **decision** — why · *origin, date*. Over 200 lines or 25 KB, `decisions.mjs --split` moves the sections to `docs/decisions/` and leaves a list of topic files. A new decision replaces the line it overrides; the old text moves to `docs/decisions-archive.md`. |
 | `docs/` | Design documents and plans, one dated markdown file per topic: `YYYY-MM-DD-topic-design.md`, `-plan.md`. |
@@ -56,6 +59,30 @@ each as its own question (not a tick-list):
 | `.github/pull_request_template.md` | GitHub kinds: a copy of `preset/pull_request_template.md` (What changes, Why, How it was checked). |
 | `.github/workflows/ci.yml` | GitHub public: the stack's CI template (step 2b, "CI"). GitHub private: offered, because each run spends the account's included minutes. |
 | `CHANGELOG.md` | Offered in git kinds, because many projects (a script, a site) never publish versions: a copy of `preset/CHANGELOG.md`; each release gets a `## [<version>] - YYYY-MM-DD` heading and an annotated tag `v<version>` (step 2b, "Releases"). |
+
+**What CLAUDE.md holds:**
+- What the project is, in 2–3 lines.
+- `Start with HANDOFF.md, then DECISIONS.md`.
+- The key commands.
+- A folder map: each folder the project has, with its role from the "Folder roles" table of
+  `~/.claude/skills/file-upkeep/standard.md` (where the code, the tests, the text, the person's pictures and
+  previews in `shown/`, and the product's media live).
+- The hard rules, each linking to a `.claude/rules/*.md` file for details. Under them, the `Git:` line, and in a
+  git kind the `Commits:` line (step 2b).
+- For a data project: the step 1 answers (sources, what reads the result, refresh, how to run queries).
+- For any project that keeps data (a database, a log, data files): where each one lives as a full path, and the
+  exact command that reads it with a tool that is installed.
+- `Designs and plans live in docs/ as dated markdown files, docs/YYYY-MM-DD-topic-design.md and -plan.md; reply with a short summary and a link, not the whole design in chat`
+- `New files follow ~/.claude/skills/file-upkeep/standard.md: dated notes in docs/, docs/research/, audits/; scratch and test output in the temp folder, deleted after the run; no copies beside a file`
+- Which tools to use here (step 3).
+- A **Checks** section: which check runs when (build, tests, review, release), written once with the user. A
+  project with tests gets two test commands:
+  - a quick one for what changed, run while working (`vitest --changed`, `jest --onlyChanged`, `pytest --testmon`
+    with the pytest-testmon plugin, or the stack's own; `none: the runner has no such mode` when it has none);
+  - the full suite, run at the end of the work and in CI.
+
+  A check the user asks for once is a one-off until they say it is standing. On GitHub kinds, `Checks` also holds
+  the CI merge line (step 2b).
 
 `preset/` is the folder next to this file; its files are stored without a leading dot so they do not
 act on the setup's own repository.
@@ -140,7 +167,7 @@ pinned by commit SHA. With no test command known, CI is not offered, and the rep
 with nothing to run always passes and proves nothing. Each template says in its header what to adjust
 before copying it to `.github/workflows/ci.yml`. Every template keeps its pinned SHAs, `permissions:
 contents: read`, `concurrency` and the 15-minute limit. No Dependabot file: its version pull requests are noise for a
-small team; the monthly package upkeep (`skills/update-project/packages.md`) keeps the packages fresh.
+small team; the monthly package upkeep (`~/.claude/skills/update-project/packages.md`) keeps the packages fresh.
 
 **CI systems** (the `os` list of the template): public repos run on every system the project's
 `CLAUDE.md` names as a target (`ubuntu-latest`, `windows-latest`, `macos-latest`), which costs nothing.
@@ -157,7 +184,8 @@ with short bullets; `git tag -a v<version> -m "<version>: <headline>"`; on GitHu
 
 Check what's installed (`claude plugin list` shows each plugin as enabled or disabled,
 `claude mcp list`) and what could be added (the
-`find-skills` skill, if it is installed). Many plugins are off globally on purpose, so other sessions stay small.
+`find-skills` skill, if it is installed). The setup's own four plugins are on everywhere; any other plugin the person
+has stays off globally on purpose, so other sessions stay small, and is turned on for one project at a time.
 List your picks for the user, one line each on what it helps with, and ask once before turning
 anything on. Then, for each accepted pick:
 - **Installed plugin that is off:** add `"<name>@<marketplace>": true` under `enabledPlugins` in
@@ -178,7 +206,7 @@ picks:
 | has a web UI | Nimbalyst **Browser** to preview it and check it; **Frontend Design** and **impeccable** for the look (the setup always installs both) and `/gridlines` to line up the edges of sidebars, toolbars and panels; if it is installed, **Playwright** to check it in a real browser; **Designeer** (https://www.designeer.xyz, a free list of design galleries, component libraries, and type and colour tools; nothing to install) for references before a new page or a redesign, with **Component Gallery** (https://component.gallery, how real design systems build one element), **Refero Styles** (https://styles.refero.design, the type and colour of real products) and **DESIGNmd** (https://designmd.ai, a design system as one `DESIGN.md` file to drop into the project); once the first screen exists, `/design-system write` makes the project's own `DESIGN.md` from its code |
 | needs UI or architecture planning | Nimbalyst **MockupLM** mockups and **Excalidraw** diagrams before building |
 | has a database or data model | Nimbalyst **DataModelLM** (`.datamodel`) for the schema, kept in step with the DDL, and the matching database best-practices skill |
-| has large files or docs | The big-read gate is global. Name the biggest files here so sessions go straight to targeted reads or a `worker` subagent. |
+| has large files or docs | Name the biggest files here so sessions go straight to targeted reads or a `worker` subagent. |
 | takes in PDFs, Word, PowerPoint or Excel | **MarkItDown**: convert to `.md` once, keep the `.md` next to the source, and read that |
 | is research-heavy | **NotebookLM** if it's set up, and any installed research agents |
 | has a plan and multiple steps | `/lead` (it writes the plan), and Nimbalyst **Planning** trackers, with the **task-type patch** applied now: one `tracker_define_type` patch on `task` adding the fields `step` (text), `stage` (select), `waitsOn` (text), `proof` (text), `budget` (number), `file` (text: the path of the file a step asks the user to read, review or check) and the status `waits-for-you` (label "Needs you", category started), so each plan row becomes a step and `/where-are-we` can read how much is left |

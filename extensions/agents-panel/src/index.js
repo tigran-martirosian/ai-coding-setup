@@ -295,6 +295,8 @@ let runs = [];
 let runsKey = null;
 let runsAt = 0;
 let runsBusy = false;
+// The extension's own folder (activate's context.extensionPath): the run log is read with it as the current folder
+let extensionPath = null;
 // The helper cards at the last sync (syncHelpers), and whether their update has failed once (logged once)
 let helpers = { cards: 0, running: false, waiting: false };
 let helpersFailed = false;
@@ -841,7 +843,7 @@ function refreshRuns(items) {
   runsKey = key;
   runsAt = Date.now();
   runsBusy = true;
-  readRuns().then((read) => {
+  readRuns(extensionPath).then((read) => {
     runsBusy = false;
     if (read) runs = read;
     if (observer) queue();
@@ -1295,8 +1297,10 @@ function loadOrbs() {
     );
 }
 
-function activate() {
+// test/fixture.html starts the panel with no context: its rows then show no model (readRuns says why, once)
+function activate(context) {
   if (observer) return;
+  extensionPath = context?.extensionPath ?? null;
   // One copy per window: a test copy injected by hand takes over from the installed one
   if (window.__agentsPanel && window.__agentsPanel.deactivate !== deactivate) {
     window.__agentsPanel.deactivate();

@@ -1,10 +1,15 @@
 {
-  "version": "26.6.2.1",
+  "version": "26.6.3",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-26",
-  "summary": "A clearer README and docs, split by what you want to do",
+  "summary": "Long jobs move to a fresh session on their own, three new skills, many safety fixes",
   "releases": {
+    "26.6.3": {
+      "kind": "quiet",
+      "important": true,
+      "headline": "Long jobs move to a fresh session on their own, three new skills, many safety fixes"
+    },
     "26.6.2.1": {
       "kind": "quiet",
       "important": false,

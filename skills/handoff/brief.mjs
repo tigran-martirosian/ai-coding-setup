@@ -7,9 +7,13 @@ import path from "node:path";
 // Claude's last reply.
 // Usage: node brief.mjs --summary <file> [--session <id or its first 8+ characters>]
 //        [--transcript <file.jsonl>] [--cwd <project folder>]
+//        node brief.mjs --should [<file.jsonl>] [--session <id>] [--cwd <project folder>]
 // --summary: a text file with where the work stands, written by this session first (its own
 // transcript must show the write). It becomes the "Where we are" part and is deleted afterwards.
 // Without it no brief is written: a brief with an empty summary leaves the next session to guess.
+// --should: writes no brief; prints "hand off: <reason>" when this chat has compacted at least once
+// or its last reply sent 150k tokens of context or more, else "stay: <reason>". The lead runs it
+// at a merged slice.
 // The session is --session, else CLAUDE_CODE_SESSION_ID (Claude Code sets it for Bash commands);
 // its transcript is ~/.claude/projects/<folder key>/<id>.jsonl. Two chats in one folder can hand
 // off in the same minute, so "the newest transcript in this folder" is used only when the session
@@ -17,6 +21,7 @@ import path from "node:path";
 import {
   contextTokens,
   entries,
+  lastUsage,
   SYNTHETIC,
   userText,
 } from "../../hooks/lib/transcript.mjs";
@@ -26,6 +31,48 @@ const opt = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
+const should = args.includes("--should");
+const cwd = path.resolve(opt("--cwd") || process.cwd());
+const projectsDir = path.join(os.homedir(), ".claude", "projects");
+
+const fail = (msg) => {
+  console.error(
+    `${should ? "No answer on handing off" : "No brief written"}: ${msg}`,
+  );
+  process.exit(1);
+};
+const LIVE_MS = 10 * 60e3;
+// A lead session hands off at a merged slice from this context size (the worker limit in lead/reference.md too)
+const HANDOFF_TOKENS = 150000;
+
+if (should) {
+  const given = opt("--should");
+  const file = given && !given.startsWith("--") ? given : findTranscript();
+  if (!file)
+    fail(
+      `no transcript of this session in ${path.join(projectsDir, cwd.replace(/[^A-Za-z0-9]/g, "-"))}. Pass it: --should <this session's .jsonl>.`,
+    );
+  let list;
+  try {
+    list = entries(fs.readFileSync(file, "utf8"));
+  } catch (e) {
+    fail(`can't read the transcript ${file}: ${e.message}`);
+  }
+  const used = lastUsage(list);
+  if (!used)
+    fail(
+      `${file} has no reply with token counts, so it is not a Claude Code session's transcript.`,
+    );
+  const compactions = list.filter(
+    (e) => e.type === "system" && e.subtype === "compact_boundary",
+  ).length;
+  const go = compactions >= 1 || used.tokens >= HANDOFF_TOKENS;
+  console.log(
+    `${go ? "hand off" : "stay"}: compacted ${compactions} time${compactions === 1 ? "" : "s"}, context ${Math.round(used.tokens / 1000)}k (hand off at 1 compaction or ${HANDOFF_TOKENS / 1000}k)`,
+  );
+  process.exit(0);
+}
+
 const summaryFile = (opt("--summary") || "").replace(
   /^~(?=$|[\\/])/,
   os.homedir(),
@@ -45,14 +92,6 @@ if (summary.length < 40) {
   console.log(`No brief written: ${summaryFile} is nearly empty. ${how}`);
   process.exit(1);
 }
-const cwd = path.resolve(opt("--cwd") || process.cwd());
-const projectsDir = path.join(os.homedir(), ".claude", "projects");
-
-const fail = (msg) => {
-  console.error(`No brief written: ${msg}`);
-  process.exit(1);
-};
-const LIVE_MS = 10 * 60e3;
 
 // Transcript: given; else this session's own (in this folder's key, else any project folder, as a
 // session may have moved folders); else, with no session id, the newest for this folder (the folder

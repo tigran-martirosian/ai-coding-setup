@@ -7,8 +7,8 @@
 // Hub calls run one at a time, as a Cloudflare object takes its events. A PING is answered outside the Hub with
 // its time kept, as Cloudflare's auto-response does. opts.upload (optional): the Hub's streamed Bot API call; without
 // it a file send fails with a clear error, as every Bot API call of a relay run by hand does.
-//   node phone/relay/local/server.mjs --page <dir> --port <n> --bot-id <n> --owner <tgId> --telegram-key <hex>
-//     [--store <file>]
+//   node phone/relay/local/server.mjs --page <dir> --port <n> --bot-id <n> --bot-token <token> --owner <tgId>
+//     --telegram-key <hex> [--store <file>]
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -89,6 +89,7 @@ const REQUIRED = [
   "port",
   "pageDir",
   "botId",
+  "botToken",
   "ownerTgId",
   "telegramKey",
   "telegram",
@@ -112,7 +113,9 @@ function saveStore(file, map) {
 // Starts the local relay. Returns { url, map, hub, idle(), heal(), sleep(), close() }: idle() waits until the Hub has
 // handled everything received so far; heal() runs the scheduled webhook check; sleep() then drops the Hub's memory,
 // as a Cloudflare object put to sleep. opts.storeFile (optional): the file the store is read from at start and kept
-// in. opts.webhookSecret (optional): the secret heal() sets the webhook with.
+// in. opts.webhookSecret (optional): the secret heal() sets the webhook with. opts.countFrame (optional, tests
+// only): called with a socket's request URL and "in" (a frame received), "out" (a frame sent) or "end" (the socket
+// ended), so a test can wait until its frames have crossed instead of waiting a fixed time.
 export async function startLocalRelay(opts) {
   for (const name of REQUIRED) {
     if (opts[name] === undefined)
@@ -152,6 +155,7 @@ export async function startLocalRelay(opts) {
       now: opts.now,
       log: opts.log,
       botId: opts.botId,
+      botToken: opts.botToken,
       ownerTgId: opts.ownerTgId,
       telegramKey: opts.telegramKey,
       // Optional here, as on Cloudflare where only the test copy sets TOPIC_SUFFIX.
@@ -209,11 +213,11 @@ export async function startLocalRelay(opts) {
   }
 
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url, "http://local");
-    const p = url.pathname;
+    const p = pathOf(req.url);
+    if (p === null) return answer(res, 400, "bad request");
     if (p === "/pc/send" || p.startsWith("/pc/dl/") || p.startsWith("/dl/"))
       return void fileRoute(req, res, p);
-    if (url.pathname === "/tg/hook") {
+    if (p === "/tg/hook") {
       if (req.method !== "POST") return answer(res, 405, "POST only");
       const chunks = [];
       req.on("data", (c) => chunks.push(c));
@@ -232,8 +236,9 @@ export async function startLocalRelay(opts) {
     }
     if (req.method !== "GET" && req.method !== "HEAD")
       return answer(res, 405, "GET only");
-    const name = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
-    const file = path.resolve(pageDir, decodeURIComponent(name));
+    const name = decoded(p === "/" ? "index.html" : p.slice(1));
+    if (name === null) return answer(res, 400, "bad request");
+    const file = path.resolve(pageDir, name);
     if (!file.startsWith(pageDir + path.sep) || !fs.existsSync(file))
       return answer(res, 404, "not found", PAGE_HEADERS);
     const type = TYPES[path.extname(file)];
@@ -261,12 +266,21 @@ export async function startLocalRelay(opts) {
   });
 
   server.on("upgrade", (req, socket, head) => {
-    if (new URL(req.url, "http://local").pathname !== "/ws") {
+    const p = pathOf(req.url);
+    if (p === null) {
+      socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    if (p !== "/ws") {
       socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       return;
     }
+    const count = opts.countFrame
+      ? (way) => opts.countFrame(req.url, way)
+      : () => {};
     const conn = upgrade(req, socket, head, {
       onMessage: (text) => {
+        count("in");
         if (text !== PING) return run(conn, () => hub.message(conn, text));
         conn.lastPing = new Date(opts.now());
         conn.send(PONG);
@@ -274,9 +288,18 @@ export async function startLocalRelay(opts) {
       onClose: () => {
         run(conn, () => hub.closed(conn));
         conns.delete(conn);
+        count("end");
       },
     });
-    if (conn) run(conn, () => hub.open(conn, { origin: url() }));
+    if (!conn) return;
+    if (opts.countFrame) {
+      const send = conn.send;
+      conn.send = (text) => {
+        send(text);
+        count("out");
+      };
+    }
+    run(conn, () => hub.open(conn, { origin: url() }));
   });
 
   await new Promise((done, failed) => {
@@ -383,6 +406,25 @@ function matches(ifNoneMatch, etag) {
     .some((tag) => tag.trim().replace(/^W\//, "") === etag);
 }
 
+// A request's path, or null when its address does not read (as "//", which names no host). A throw here would end
+// the relay: node:http does not catch what its request handler throws.
+function pathOf(reqUrl) {
+  try {
+    return new URL(reqUrl, "http://local").pathname;
+  } catch {
+    return null;
+  }
+}
+
+// A page file's name from its path, or null when a %-escape in it is broken (as "%E0").
+function decoded(name) {
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return null;
+  }
+}
+
 function answer(res, status, text, headers = {}) {
   res.writeHead(status, {
     "Content-Type": "text/plain; charset=utf-8",
@@ -399,7 +441,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     const i = args.indexOf(`--${name}`);
     if (i < 0 || !args[i + 1]) {
       console.error(
-        `missing --${name}. Usage: node server.mjs --page <dir> --port <n> --bot-id <n> --owner <tgId> --telegram-key <hex>`,
+        `missing --${name}. Usage: node server.mjs --page <dir> --port <n> --bot-id <n> --bot-token <token> --owner <tgId> --telegram-key <hex>`,
       );
       process.exit(2);
     }
@@ -414,6 +456,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     pageDir: arg("page"),
     storeFile: storeAt < 0 ? null : arg("store"),
     botId: Number(arg("bot-id")),
+    botToken: arg("bot-token"),
     ownerTgId: Number(arg("owner")),
     telegramKey: arg("telegram-key"),
     telegram: offline("Bot API call"),

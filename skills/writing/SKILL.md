@@ -11,8 +11,8 @@ the user around it keeps its normal format; only the draft follows this page. A 
 
 ## Before the draft
 
-A reader opens a text to get something, and every line they didn't come for costs them time. In the user's
-words: "nobody just needs to read stuff just to read stuff". Written from the build chat, a text drifts into a
+A reader opens a text to get something, and every line they didn't come for costs them time: nobody just needs
+to read stuff just to read stuff. Written from the build chat, a text drifts into a
 list of everything that was done; these steps start from the reader instead.
 
 1. **The reader.** Name who reads it and the few questions they arrive with ("what is this?", "why would I want

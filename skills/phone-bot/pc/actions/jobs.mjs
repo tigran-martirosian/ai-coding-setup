@@ -20,29 +20,39 @@ const FIELDS = [
   "gitTag",
 ];
 
+// A link list as [{ itemId }]; anything else is left out.
 const links = (v) =>
   Array.isArray(v)
     ? v
         .filter((l) => l && typeof l.itemId === "string")
         .map((l) => ({ itemId: l.itemId }))
-    : v;
+    : undefined;
+
+// The phone draws these fields as text: text, finite numbers and true/false stay, anything else is left out.
+const asText = (v) =>
+  typeof v === "string" ||
+  typeof v === "boolean" ||
+  (typeof v === "number" && Number.isFinite(v))
+    ? v
+    : undefined;
 
 // The item with only what model.js needs, in its shape.
 export function slimItem(item) {
   const f = item.customFields || {};
   const customFields = {};
-  for (const k of FIELDS)
-    if (f[k] !== undefined && f[k] !== null)
-      customFields[k] =
-        k === "collection" || k === "dependsOn" ? links(f[k]) : f[k];
+  for (const k of FIELDS) {
+    const v =
+      k === "collection" || k === "dependsOn" ? links(f[k]) : asText(f[k]);
+    if (v !== undefined) customFields[k] = v;
+  }
   return {
-    id: item.id,
-    type: item.type,
-    title: item.title,
-    status: item.status,
+    id: asText(item.id),
+    type: asText(item.type),
+    title: asText(item.title),
+    status: asText(item.status),
     archived: !!item.archived,
-    ...(item.owner ? { owner: item.owner } : {}),
-    updated: item.updated,
+    ...(asText(item.owner) ? { owner: item.owner } : {}),
+    updated: asText(item.updated),
     customFields,
   };
 }

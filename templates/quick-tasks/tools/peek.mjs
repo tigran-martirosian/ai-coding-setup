@@ -4,7 +4,8 @@
 //   node tools/peek.mjs <url>... [chars, default 600] [--find "words"] [--save <file>]
 //   --find prints the text around a match. --save writes each page's whole text to <file> (several pages:
 //   <file> with -1, -2 ... before its extension) and prints the path and its length, not the text.
-//   It reads only through Nimbalyst's browser. When that can't be reached it stops and names
+//   It reads only through Nimbalyst's browser. When that can't be reached it stops, prints browser.mjs's
+//   message (the browser_open_session call that opens the session by hand, then the browser_* tools) and names
 //   node ~/.claude/workers/read-page.mjs <url>, which reads a public page without a browser.
 // Every page it opens is printed as "OPENED <url>"; the link gate counts those lines.
 import fs from "node:fs";

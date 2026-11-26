@@ -18,4 +18,6 @@ The first word of the arguments picks the sub-command; the rest are its options 
 | `memory` | each project's memory notes checked against its decisions, then a tick list of fixes and deletes | `memory.md` |
 | `prompt` | the rules, agents, skills and hook messages Claude reads, judged against a writing guide, then a tick list of cuts and rewordings (optional: a file or folder) | `prompt.md` |
 
+Skill shape check, any mode: `node ~/.claude/skills/setup-audit/scripts/skill-lint.mjs [skills folder]` lists each skill lacking numbered steps, a command and a check per step, or an error table (exit 1 on any).
+
 Analysis first: change nothing until the user picks fixes. Reply in the language the user writes in.

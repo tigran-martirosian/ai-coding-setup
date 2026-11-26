@@ -19,7 +19,8 @@ import fs from "node:fs";
 // and has no go word ("go", "start", "continue", "do it", "yes", ...; not "do not continue"), UserPromptSubmit adds a
 // [stop] note: the turn answers and starts no work. The same interrupted result comes from a message sent mid-turn
 // and from an app restart, so a message with no stop words (a correction, a new ask) holds nothing. Form answers and
-// turns the app starts neither set nor lift the hold. (Its PreToolUse refusal of work calls was cut, plan 2.8.)
+// turns the app starts neither set nor lift the hold, and get no note (a helper's finish notice is not the user's
+// message). (Its PreToolUse refusal of work calls was cut, plan 2.8.)
 // System events (background-task notices, "[System: ...]", "[Child Session Update]") are not typed
 // messages, so "No response requested." stays allowed there. Subagents (agent_id) are skipped.
 // Fails open. NO_RESPONSE_GATE=off disables it.
@@ -254,22 +255,27 @@ const STOP_WORDS =
 // A message that says to go on, or to start new work. Not "ok": "Ok what is going on, I stopped you" is no go.
 const GO =
   /\b(go|go ahead|go on|let'?s go|continue|carry on|resume|keep going|proceed|finish|start|do it|run it|yes)\b/gi;
-// A go word counts unless no/not/don't/never comes up to 3 words before it in its sentence ("No, do not continue")
+// A go word counts unless no/not/don't/never comes up to 3 words before it in its sentence ("No, do not continue"),
+// or a question word comes before it in its clause: "Why did you start deploying? Stop.", "how come you keep going
+// stop" ask about the work and say no go
+const ASKS_WHY = /\b(why|how come|what made|what caused)\b|^\s*did\b/i;
 const saysGo = (s) =>
-  [...s.matchAll(GO)].some(
-    (m) =>
+  [...s.matchAll(GO)].some((m) => {
+    const before = s.slice(0, m.index);
+    return (
       !/\b(no|not|don'?t|dont|never)\b/i.test(
-        s
-          .slice(0, m.index)
-          .split(/[.!?]/)
-          .pop()
-          .trim()
-          .split(/\s+/)
-          .slice(-3)
-          .join(" "),
-      ),
-  );
-const holds = (text) => STOP_WORDS.test(text) && !saysGo(text);
+        before.split(/[.!?]/).pop().trim().split(/\s+/).slice(-3).join(" "),
+      ) && !ASKS_WHY.test(before.split(/[,;.!?]/).pop())
+    );
+  });
+// A question or remark about a stop, not a stop: "why did you stop, bro", "did you stop?", "what made it stop",
+// "you stopped again". Only the short phrase goes, not its clause: voice text has no commas, so "why is this still
+// running stop it now" and "did you even read it stop everything" still hold, as do "Wait, why did you stop?" and
+// "I stopped you". A won't/can't/don't before the stop makes it a request to stop: "why won't you stop".
+const ABOUT_STOP =
+  /\b(why|how come)\s+(did|do|does|would)\s+(you|it|this|that)\s+(just\s+)?stop(ped)?\b|\bwhat\s+(made|caused)\s+(you|it|this|that)\s+(to\s+)?stop\b|\bdid\s+(you|it|this|that)\s+(just\s+)?stop\b|\b(you|it)\s+(have\s+|'ve\s+|had\s+)?stopped\b/gi;
+const holds = (text) =>
+  STOP_WORDS.test(text.replace(ABOUT_STOP, " ")) && !saysGo(text);
 // Each tool result's text (a string, or its text blocks)
 const results = (e) =>
   Array.isArray(e.message?.content)
@@ -286,8 +292,12 @@ const results = (e) =>
               : "",
         )
     : [];
-// A message the user typed here: a form's answer, a lead's brief or a relayed note neither sets nor lifts a hold
-const typedHere = (e) => typedByUser(e) && !NOT_TYPED.test(flat(userText(e)));
+// A message the user typed here: a form's answer, a lead's brief or a relayed note neither sets nor lifts a hold,
+// nor does a task's finish notice with text before its <task-notification> tag (INJECTED only sees it at the start)
+const typedHere = (e) =>
+  typedByUser(e) &&
+  !NOT_TYPED.test(flat(userText(e))) &&
+  !userText(e).trim().split("\n", 1)[0].includes("<task-notification>");
 // The user's message that holds work after a stop, or null: their last typed message says to stop and not to go,
 // and it follows an interrupted turn, maybe through earlier typed messages that held too. Turns the app starts
 // (a task's notice, a form's answer) and compact summaries keep the hold; a typed message without stop words lifts it.
@@ -320,17 +330,14 @@ if (isMain(import.meta.url)) {
     const entries = readEntries(tail(input.transcript_path, TAIL_BYTES));
     if (input.hook_event_name === "UserPromptSubmit") {
       const notes = [];
-      // The prompt is not in the file yet: the turn it opens follows a stop when the file ends in one
-      if (
-        stillStopped([
-          ...entries,
-          {
-            type: "user",
-            promptSource: "sdk",
-            message: { role: "user", content: String(input.prompt ?? "") },
-          },
-        ])
-      )
+      // The prompt is not in the file yet: the turn it opens follows a stop when the file ends in one. Only a prompt
+      // the user typed gets the note: a helper's finish notice or a lead's brief keeps the hold but is not their message
+      const said = {
+        type: "user",
+        promptSource: "sdk",
+        message: { role: "user", content: String(input.prompt ?? "") },
+      };
+      if (typedHere(said) && stillStopped([...entries, said]))
         notes.push(
           "[stop] The user stopped your last turn. This reply answers their message: what is done, what is left, what you would do next. Work starts again when they say go; the stopped call is not sent again on its own.",
         );

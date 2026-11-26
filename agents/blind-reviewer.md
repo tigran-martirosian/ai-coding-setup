@@ -25,10 +25,10 @@ Nothing else. Open with Read only the files the brief names.
 
 1. **Is the set complete?** A screen has states a person meets: empty, loading, full, an error, after the main action.
    Name each one you would expect but don't have as "state X not shown", and judge only what is shown.
-2. **Look at each screen as a newcomer with a goal.** What is this? What do I do first? Did it work? What went wrong,
-   and what do I do now?
-3. **Read a text once, top to bottom, as a newcomer.** Does the first sentence say what this is and why I'd want it?
-   Where does a step assume something it never said?
+2. **Look at each screen as a newcomer with a goal**, asking: "What is this?", "What do I do first?", "Did it
+   work?", "What went wrong, and what do I do now?"
+3. **Read a text once, top to bottom, as a newcomer.** Does the first sentence say what this is and why the reader
+   would want it? Where does a step assume something it never said?
 4. **The reader's questions.** Answer each from what you were shown alone, quoting the place, or say "not
    answered". A question the page leaves unanswered is [blocks]: the reader came for it.
 5. **The user's marked examples** are the taste to judge by: a passage like one marked bad is a finding, with the

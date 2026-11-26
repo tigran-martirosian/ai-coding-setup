@@ -867,7 +867,9 @@ try {
   // The frame draws the view again (a new link to the PC) while the user is in the field.
   const d2 = drawSession(S.running, "Works");
   const df2 = await until(() => byTag(d2.dock, "textarea")[0]);
-  await sleep(50);
+  await until(
+    () => df2.value === "half a thought" && df2.focused && df2.caretMoves > 0,
+  );
   check(
     "a redraw while the user types keeps the words in the new field, with the focus and the caret at the end",
     df2 !== df1 &&
@@ -1229,7 +1231,14 @@ try {
   of1.fire("input");
   button(ob1.dock, (b) => hasClass(b, "send"))?.click();
   await until(() => posted("Once only") === 1);
-  await sleep(50);
+  // Wait for the page to take the dropped link: flush skips a message still under way, and a send of one under way
+  // hands back that send (a fixed 50 ms lost to a busy computer: the resend below then sent nothing).
+  // A missing entry fails the check below (waiting 1).
+  const underWay = outbox.list(S.running)[0];
+  if (underWay)
+    await outbox.send(underWay, () => {
+      throw new ChannelError("the first send already ended");
+    });
   const dropped = {
     box: of1.value,
     mark: byClass(ob1.view, "sent-mark")[0]?.textContent,
@@ -1468,7 +1477,7 @@ try {
   of6.fire("input");
   button(ob6.dock, (b) => hasClass(b, "send"))?.click();
   await until(() => newAsked.length);
-  await sleep(50);
+  await until(() => outbox.list(`new:${beta}`).length === 0);
   check(
     "outbox: New session goes through the outbox with an id and leaves it once the PC answers",
     /^m-/.test(newAsked[0]?.mid ?? "") &&
@@ -1548,7 +1557,7 @@ try {
   await until(() =>
     byClass(att1.view, "you").some((b) => /Attached files/.test(b.textContent)),
   );
-  await sleep(100);
+  await until(() => bubbles(att1.view, "Look at this").length === 0);
   const files1 = {
     waiting: bubbles(att1.view, "Look at this").length,
     you: byClass(att1.view, "you").map((b) => b.textContent.slice(0, 30)),
@@ -1760,7 +1769,10 @@ try {
   earlyF1.value = "Start before the link";
   earlyF1.fire("input");
   button(early1.dock, (b) => hasClass(b, "send"))?.click();
-  await sleep(50);
+  // the Send has reached the phone's outbox before the view is left
+  await until(() =>
+    (stored.get("phone.outbox") ?? "").includes("Start before the link"),
+  );
   early1.view.isConnected = false;
   linkUpA = true;
   const early2 = drawSession(null, undefined, {
@@ -1768,7 +1780,8 @@ try {
     linked: () => Promise.resolve(IDS),
     ask: askA,
   });
-  await sleep(20);
+  // the view drawn at the hello draws the waiting bubble from the outbox (a fixed 20 ms lost to a busy computer)
+  await until(() => bubbles(early2.view, "Start before the link").length);
   const redrawn = bubbles(early2.view, "Start before the link").length;
   upA(IDS);
   await outbox.flush(askA);
@@ -1801,7 +1814,13 @@ try {
   earlyF3.value = "Kept through a close";
   earlyF3.fire("input");
   button(early3.dock, (b) => hasClass(b, "send"))?.click();
-  await sleep(50);
+  await until(
+    () =>
+      (stored.get("phone.outbox") ?? "").includes("Kept through a close") &&
+      (stored.get(`phone.draft:${NEW_KEY}`) ?? "").includes(
+        "Kept through a close",
+      ),
+  );
   const keptWords = {
     outbox: (stored.get("phone.outbox") ?? "").includes("Kept through a close"),
     draft: (stored.get(`phone.draft:${NEW_KEY}`) ?? "").includes(
@@ -1841,7 +1860,9 @@ try {
   earlyF4.value = "Refused by an older PC";
   earlyF4.fire("input");
   button(early4.dock, (b) => hasClass(b, "send"))?.click();
-  await sleep(50);
+  await until(() =>
+    (stored.get("phone.outbox") ?? "").includes("Refused by an older PC"),
+  );
   early4.view.isConnected = false;
   linkUpC = true;
   const early5 = drawSession(S.running, "Works", {

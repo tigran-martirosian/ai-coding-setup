@@ -147,14 +147,14 @@ export function createChannel({
     if (f.n === 0) return hello(f, device);
     const s = sessions.get(f.dev);
     if (!s || s.sid !== f.sid) return log("drop", "no channel session");
+    // Anyone on the relay path can send a frame under this device's id: only a frame that opens changes the
+    // session, so a forged frame or an old one sent again is dropped and the session stays.
+    if (f.n <= s.nIn) return log("drop", "old counter");
+    const body = await openFrame(s.in, header(f.dev, f.sid, f.n), f.c);
+    if (!body) return log("drop", "frame does not open");
     if (f.n !== s.nIn + 1) {
       end(f.dev, "counter-gap");
       return log("drop", "counter gap: session ended");
-    }
-    const body = await openFrame(s.in, header(f.dev, f.sid, f.n), f.c);
-    if (!body) {
-      end(f.dev, "bad-frame");
-      return log("drop", "frame does not open: session ended");
     }
     s.nIn = f.n;
     if (body.k === "bye") return end(f.dev, "bye");

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Renders the tour film, its poster and the short gifs in docs/features.md.
+// Renders the tour film, its poster and the short gifs in the docs/using pages.
 //   node render.mjs            everything, into ../img (docs/img)
 //   node render.mjs film       the film, the poster and the checks clip
 //   node render.mjs stills     the last frame of every shot, into out/stills (to check the text)

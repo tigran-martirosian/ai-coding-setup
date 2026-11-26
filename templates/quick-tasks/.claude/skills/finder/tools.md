@@ -6,15 +6,17 @@ Paths are from the project folder.
 
 | Tool | What it does |
 |---|---|
-| `node tools/peek.mjs <url>... [chars] [--find "words"]` | Opens the pages in a hidden browser session, one after another, and prints each one's address, title and text. Give every page in one command |
+| `node tools/peek.mjs <url>... [chars] [--find "words"] [--save <file>]` | Opens the pages in a hidden browser session, one after another, and prints each one's address, title and text. Give every page in one command. `--save` writes each page's whole text to the file (several pages: `-1`, `-2` … before its extension) and prints the path and length instead |
 | `node tools/limits.mjs finds/sources/<topic>` | Checks `candidates.json` against `limits.json`; prints what stays and the "Dropped:" line |
 | `tools/codex-task-template.md` | The text of a Codex `--search` sweep (it costs no Claude usage) |
 | `tools/labels.json` | Written once by the finder skill when answers are not in English: the phrases for "searches to save" and "ruled out" |
 | `node tools/test-finder.mjs` | Tests for the link gate and the limits check |
 
 - `peek.mjs` opens and drives its own hidden browser session through Nimbalyst (`tools/browser.mjs`),
-  so reading a page needs no `browser_*` call. If it says the session could not be used, it prints
-  the call that opens it by hand; if that fails too, use the `browser_*` tools.
+  so reading a page needs no `browser_*` call. When Nimbalyst's browser can't be reached, it stops and says
+  the session could not be used. It prints the `browser_open_session` call that opens the session by hand
+  (then run it again), says to read the pages with the `browser_*` tools if that fails too, and names
+  `node ~/.claude/workers/read-page.mjs <url>` for a public page.
 - **The link gate** (`.claude/hooks/finder-link-gate.mjs`, a Stop hook) blocks a reply or a `finds/` file with a
   link that was not opened in this session, a search or category page given as a product, or a listing
   that failed `limits.mjs` and is not marked. A search link passes only on a line that says it is a

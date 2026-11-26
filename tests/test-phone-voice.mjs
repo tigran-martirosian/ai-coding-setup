@@ -7,10 +7,11 @@
 // with a stand-in script (PHONE_PC_VOICE_SETUP) in place of the download. No speech model is downloaded, no
 // winget runs and nothing real is transcribed.
 // Run: node tests/test-phone-voice.mjs
-import { spawn, spawnSync } from "node:child_process";
+import { ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -183,7 +184,7 @@ import readline from "node:readline";
 process.stdout.write(JSON.stringify({ ready: true }) + "\\n");
 for await (const line of readline.createInterface({ input: process.stdin })) {
   const { file } = JSON.parse(line);
-  fs.appendFileSync(process.env.FAKE_HEARD_LOG, JSON.stringify({ file, there: fs.existsSync(file) }) + "\\n");
+  fs.appendFileSync(process.env.FAKE_HEARD_LOG, JSON.stringify({ file, there: fs.existsSync(file), pid: process.pid }) + "\\n");
   const bytes = fs.readFileSync(file);
   while (bytes.subarray(0, 4).toString() === "HOLD" && !fs.existsSync(process.env.FAKE_RELEASE))
     await new Promise((r) => setTimeout(r, 20));
@@ -327,9 +328,42 @@ try {
       dryOut.includes("would run:") &&
       // A folder name with a space puts the script path in quotes
       /transcribe-server\.py"? --download/.test(dryOut) &&
-      dryOut.includes("--with faster-whisper") &&
       !fs.existsSync(voice.markerPath()),
     dryOut,
+  );
+  // The transcriber's Python packages come from the lock beside it, never resolved fresh: setup installs exactly the
+  // lock, and each start finds the script's Python with no network.
+  check(
+    "setup.mjs voice (dry) installs the transcriber's locked packages, and each start is offline (FAIL: a voice start installs whatever package versions are newest)",
+    fs.existsSync(`${voice.SERVER}.lock`) &&
+      /uv(\.exe)?"? sync --script "?[^\n]*transcribe-server\.py"? --frozen\n/.test(
+        dryOut,
+      ) &&
+      !dryOut.includes("--with") &&
+      voice.FIND_PYTHON_ARGS?.join(" ") ===
+        `python find --script ${voice.SERVER} --offline` &&
+      /python"? -I "?[^\n]*transcribe-server\.py"? --download/.test(dryOut),
+    dryOut,
+  );
+  // uv 0.6.10 is the first with `python find --script`; numbers compare as numbers (0.10 is newer than 0.6).
+  const uvAnswers = {
+    "uv 0.6.9 (8e5b5a3 2025-03-21)": false,
+    "uv 0.5.31": false,
+    "uv 0.6.10 (f2a2d982b 2025-03-25)": true,
+    "uv 0.10.2": true,
+    "uv 1.0.0": true,
+    "error: unknown": false,
+  };
+  const uvWrong = Object.entries(uvAnswers).filter(
+    ([line, ok]) => voice.uvNewEnough?.(line) !== ok,
+  );
+  check(
+    "setup.mjs voice takes uv 0.6.10 or newer and updates an older one first (FAIL: an older uv without sync --script makes every voice setup fail)",
+    uvWrong.length === 0 &&
+      /uv(\.exe)?"? --version, then [^\n]*uv(\.exe)?"? self update when it is older than 0\.6\.10\n/.test(
+        dryOut,
+      ),
+    show({ uvWrong, dryOut }),
   );
   const noUvOn = (platform) =>
     spawnSync(process.execPath, [path.join(PC, "setup.mjs"), "voice"], {
@@ -472,11 +506,20 @@ try {
   if (process.platform === "win32") {
     const standIn = path.join(tmp, "stand-in-setup.mjs");
     const standInDone = path.join(tmp, "stand-in-done");
+    // The stand-in writes its mark only once its caller (setup.mjs, its parent) has ended: an order, not a clock. A
+    // caller that waited on it would never end, and spawnSync's 10 s limit would kill it (status null).
     fs.writeFileSync(
       standIn,
-      `import fs from "node:fs";\nsetTimeout(() => fs.writeFileSync(${JSON.stringify(standInDone)}, "done"), 1500);\n`,
+      `import fs from "node:fs";
+const caller = process.ppid;
+const alive = () => { try { process.kill(caller, 0); return true; } catch { return false; } };
+const poll = setInterval(() => {
+  if (alive()) return;
+  clearInterval(poll);
+  fs.writeFileSync(${JSON.stringify(standInDone)}, "done after the caller ended");
+}, 50);
+`,
     );
-    const t0 = Date.now();
     const bg = spawnSync(
       process.execPath,
       [path.join(PC, "setup.mjs"), "voice", "--background"],
@@ -486,16 +529,12 @@ try {
         timeout: 10000,
       },
     );
-    const took = Date.now() - t0;
-    const notYet = !fs.existsSync(standInDone);
     const appeared = await until(() => fs.existsSync(standInDone), 10000);
     check(
-      "setup.mjs voice --background returns within 5 s and the started setup ends its work after the caller has exited",
-      bg.status === 0 && took < 5000 && notYet && appeared,
+      "setup.mjs voice --background returns without waiting on the setup it started, and that setup ends its work after the caller has exited",
+      bg.status === 0 && appeared,
       show({
         status: bg.status,
-        took,
-        notYet,
         appeared,
         out: bg.stdout,
         err: bg.stderr,
@@ -503,9 +542,93 @@ try {
     );
   }
 
-  // What the real setup step leaves once the model loads.
+  // A marker from a release before the lock: the model is there, but the Python may lack the locked packages.
   fs.mkdirSync(path.dirname(voice.markerPath()), { recursive: true });
   fs.writeFileSync(voice.markerPath(), JSON.stringify({ model: "small" }));
+  const oldMarker = await ask("voice.warm");
+  const lock = createHash("sha256")
+    .update(fs.readFileSync(`${voice.SERVER}.lock`))
+    .digest("hex");
+  fs.writeFileSync(
+    voice.markerPath(),
+    JSON.stringify({ model: "small", lock: "0".repeat(64) }),
+  );
+  const otherLock = await ask("voice.warm");
+  check(
+    "voice.warm with a marker for no lock or another lock answers voice-not-set-up with the setup line (FAIL: a PC set up on an older release runs a Python without the locked packages)",
+    [oldMarker, otherLock].every(
+      (a) =>
+        a.ok === false &&
+        a.err === "voice-not-set-up" &&
+        /setup\.mjs voice$/.test(a.run),
+    ),
+    show({ oldMarker, otherLock }),
+  );
+  // What the real setup step leaves once the model loads.
+  fs.writeFileSync(
+    voice.markerPath(),
+    JSON.stringify({ model: "small", lock }),
+  );
+
+  // ---- the transcriber's Python is found once with `uv python find`, and found again after a start fails.
+  // node:child_process is wrapped here: `python find` answers a made-up path, and that path starts the stand-in.
+  {
+    const cp = createRequire(import.meta.url)("node:child_process");
+    const real = { spawn: cp.spawn, spawnSync: cp.spawnSync };
+    const fakePy = path.join(tmp, "made-up-python.exe");
+    let finds = 0;
+    let startFails = false;
+    let child = null;
+    cp.spawnSync = (cmd, args, opts) => {
+      if (args?.[0] !== "python" || args[1] !== "find")
+        return real.spawnSync(cmd, args, opts);
+      finds++;
+      return { status: 0, stdout: `${fakePy}\n`, stderr: "" };
+    };
+    cp.spawn = (cmd, args, opts) => {
+      if (cmd !== fakePy) return real.spawn(cmd, args, opts);
+      child = real.spawn(
+        process.execPath,
+        startFails ? ["-e", "process.exit(3)"] : [fakeTranscriber],
+        opts,
+      );
+      return child;
+    };
+    syncBuiltinESMExports();
+    delete process.env.PHONE_PC_TRANSCRIBER;
+    // One start: it waits for ready, then the stand-in is stopped and voice.mjs has seen it end.
+    const startOnce = async () => {
+      await ask("voice.warm");
+      const me = child;
+      for (let i = 0; !startFails && i < 500; i++) {
+        if ((await ask("voice.warm")).d?.ready) break;
+        await sleep(20);
+      }
+      if (me.exitCode === null) {
+        const ended = new Promise((r) => me.once("exit", r));
+        me.kill();
+        await ended;
+      }
+    };
+    try {
+      await startOnce();
+      await startOnce();
+      const afterTwo = finds;
+      startFails = true;
+      await startOnce();
+      startFails = false;
+      await startOnce();
+      check(
+        "the transcriber's Python is found once for two starts, and found again after a start fails (FAIL: each start waits for uv python find, or a moved Python is never found again)",
+        afterTwo === 1 && finds === 2,
+        show({ afterTwo, finds }),
+      );
+    } finally {
+      Object.assign(cp, real);
+      syncBuiltinESMExports();
+      process.env.PHONE_PC_TRANSCRIBER = fakeTranscriber;
+    }
+  }
   const warm = await ask("voice.warm");
   check(
     "voice.warm once set up starts the transcriber and answers { ready }",
@@ -617,6 +740,224 @@ try {
     show(t3),
   );
 
+  // ---- a recording is never left in %TEMP%: not after a failed write, not after a restart
+  await registry.handle(
+    { k: "req", id: "big-r", a: "voice.result", d: { job: take30.d?.job } },
+    { page: "ok", device: "big-device" },
+  );
+  {
+    // The disk fills during the write: a part of the file is on disk when the write fails, as with a real ENOSPC.
+    const nodeFs = createRequire(import.meta.url)("node:fs");
+    const realWrite = nodeFs.writeFileSync;
+    nodeFs.writeFileSync = (file, data, opts) => {
+      if (!String(file).includes("phone-app-voice"))
+        return realWrite(file, data, opts);
+      realWrite(file, data.subarray(0, 4), opts);
+      throw Object.assign(new Error("ENOSPC: no space left on device"), {
+        code: "ENOSPC",
+      });
+    };
+    syncBuiltinESMExports();
+    let full;
+    try {
+      const s = await session.sendStream(
+        new TextEncoder().encode("a recording the disk has no room for"),
+        "audio/mp4",
+      );
+      full = await ask("voice.transcribe", { stream: s.d?.stream });
+    } finally {
+      nodeFs.writeFileSync = realWrite;
+      syncBuiltinESMExports();
+    }
+    check(
+      "a recording whose write fails is refused and leaves no file in %TEMP%",
+      full?.ok === false && audioLeft().length === 0,
+      show({ full, left: audioLeft() }),
+    );
+  }
+  {
+    // A program that stopped mid-job left its recording; another program's job written just now is not touched.
+    fs.mkdirSync(voiceDir, { recursive: true });
+    const stale = path.join(voiceDir, "left-by-an-earlier-run.m4a");
+    const fresh = path.join(voiceDir, "another-program-job.m4a");
+    fs.writeFileSync(stale, "old");
+    fs.writeFileSync(fresh, "new");
+    const hoursAgo = new Date(Date.now() - 3 * 3600 * 1000);
+    fs.utimesSync(stale, hoursAgo, hoursAgo);
+    const restarted = await import(
+      `${pathToFileURL(path.join(PC, "actions", "voice.mjs")).href}?restart`
+    );
+    restarted.register(createRegistry());
+    check(
+      "a recording left by an earlier run goes at the next start; one written in the last 2 hours stays",
+      !fs.existsSync(stale) && fs.existsSync(fresh),
+      show(audioLeft()),
+    );
+    fs.rmSync(fresh, { force: true });
+  }
+  let lockJob;
+  {
+    // An old recording another program holds (EBUSY on delete) or that cannot be looked at (EPERM) is passed over
+    // with a log line: the PC program still starts, the other old recordings still go, a new recording is written out.
+    fs.mkdirSync(voiceDir, { recursive: true });
+    const hoursAgo = new Date(Date.now() - 3 * 3600 * 1000);
+    const old = (name) => {
+      const p = path.join(voiceDir, name);
+      fs.writeFileSync(p, "old");
+      fs.utimesSync(p, hoursAgo, hoursAgo);
+      return p;
+    };
+    const locked = old("held-by-another-program.m4a");
+    const denied = old("not-to-be-looked-at.m4a");
+    const plain = old("left-by-an-earlier-run.m4a");
+    const nodeFs = createRequire(import.meta.url)("node:fs");
+    const realRm = nodeFs.rmSync;
+    const realStat = nodeFs.statSync;
+    const refused = (code) =>
+      Object.assign(new Error(`${code}: refused`), { code });
+    nodeFs.rmSync = (p, o) => {
+      if (String(p) === locked) throw refused("EBUSY");
+      return realRm(p, o);
+    };
+    nodeFs.statSync = (p, o) => {
+      if (String(p) === denied) throw refused("EPERM");
+      return realStat(p, o);
+    };
+    syncBuiltinESMExports();
+    let startError = null;
+    let job;
+    try {
+      try {
+        (
+          await import(
+            `${pathToFileURL(path.join(PC, "actions", "voice.mjs")).href}?locked`
+          )
+        ).register(createRegistry());
+      } catch (e) {
+        startError = e.message;
+      }
+      job = await registry.handle(
+        { k: "req", id: "lock-t", a: "voice.transcribe", d: { stream: "s1" } },
+        {
+          page: "ok",
+          device: "lock-device",
+          takeStream: () => ({
+            bytes: Buffer.from("a recording beside a locked one"),
+            mime: "audio/mp4",
+          }),
+        },
+      );
+    } finally {
+      nodeFs.rmSync = realRm;
+      nodeFs.statSync = realStat;
+      syncBuiltinESMExports();
+    }
+    lockJob = job.d?.job;
+    const result = await registry.handle(
+      { k: "req", id: "lock-r", a: "voice.result", d: { job: job.d?.job } },
+      { page: "ok", device: "lock-device" },
+    );
+    const logged = fs
+      .readFileSync(path.join(home, ".phone-app", "pc.log"), "utf8")
+      .split("\n")
+      .filter((l) => l.includes("was not deleted")).length;
+    check(
+      "an old recording that is locked or unreadable is passed over and logged (FAIL: one locked old recording stops the PC program from starting and breaks voice)",
+      startError === null &&
+        job.ok === true &&
+        result.d?.done === true &&
+        !fs.existsSync(plain) &&
+        fs.existsSync(locked) &&
+        logged >= 2,
+      show({ startError, job, result, left: audioLeft(), logged }),
+    );
+    fs.rmSync(locked, { force: true });
+    fs.rmSync(denied, { force: true });
+  }
+
+  // ---- a job over 10 minutes is stopped (the 10 minutes made short here), and the recording queued behind it goes
+  // to a new transcriber, not to the stopped one
+  {
+    // Earlier jobs are through first: each sets a timer of KEEP_DONE_MS (also 10 minutes) as it ends, which the stub
+    // below would shorten in place of the job's own timer.
+    const through = async (job, device) => {
+      for (let i = 0; i < 5; i++) {
+        const r = await registry.handle(
+          { k: "req", id: "through", a: "voice.result", d: { job } },
+          { page: "ok", device },
+        );
+        if (!r.ok || r.d.done) return;
+      }
+      throw new Error(`a job of ${device} was not through after 100 s`);
+    };
+    await through(take30.d?.job, "big-device");
+    await through(lockJob, "lock-device");
+    const realSetTimeout = globalThis.setTimeout;
+    const sA = await session.sendStream(
+      new TextEncoder().encode("HOLD past the job time"),
+      "audio/mp4",
+    );
+    const sB = await session.sendStream(
+      new TextEncoder().encode("the next recording"),
+      "audio/mp4",
+    );
+    let shortened = 0;
+    globalThis.setTimeout = (fn, ms, ...rest) =>
+      realSetTimeout(
+        fn,
+        ms === 10 * 60 * 1000 && !shortened++ ? 300 : ms,
+        ...rest,
+      );
+    // The first stop signal after this fails (kill() answers false, the process goes on), as when Windows refuses it.
+    const realKill = ChildProcess.prototype.kill;
+    let refusedKills = 0;
+    ChildProcess.prototype.kill = function refuseOnce() {
+      ChildProcess.prototype.kill = realKill;
+      refusedKills++;
+      return false;
+    };
+    const heardBefore = heard().length;
+    let slow;
+    let next;
+    try {
+      slow = await ask("voice.transcribe", { stream: sA.d?.stream });
+      next = await ask("voice.transcribe", { stream: sB.d?.stream });
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    const rA = await ask("voice.result", { job: slow.d?.job });
+    const rB = await ask("voice.result", { job: next.d?.job });
+    ChildProcess.prototype.kill = realKill;
+    check(
+      "after a job over 10 minutes is stopped, the next recording is written out by a new transcriber",
+      shortened === 1 &&
+        rA.err === "transcribe-failed" &&
+        /over 10 minutes/.test(rA.message) &&
+        rB.ok === true &&
+        /^heard /.test(rB.d?.text ?? ""),
+      show({ rA, rB }),
+    );
+    const stuck = heard()[heardBefore]?.pid;
+    const alive = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const ended = await until(() => stuck && !alive(stuck), 15_000);
+    const logged = fs
+      .readFileSync(path.join(home, ".phone-app", "pc.log"), "utf8")
+      .split("\n")
+      .filter((l) => l.includes("did not take the stop signal")).length;
+    check(
+      "a stopped transcriber that ignores its stop signal is logged and killed hard a few seconds later (FAIL: a transcriber whose kill failed runs on untracked)",
+      refusedKills === 1 && ended === true && logged >= 1,
+      show({ refusedKills, stuck, ended, logged }),
+    );
+  }
+
   // ---- at most 2 jobs of one device wait: a third is refused until one is through
   const held = [];
   for (let i = 0; i < 3; i++) {
@@ -645,11 +986,12 @@ try {
     pathToFileURL(path.join(PAGE, "screens", "session-voice.js")).href
   );
   const asked = [];
+  const answered = [];
   const streamed = [];
   const ctx = {
     ask: (a, d) => {
       asked.push(a);
-      return session.ask(a, d);
+      return session.ask(a, d).finally(() => answered.push(a));
     },
     sendStream: (bytes, mime, onProgress, max) => {
       const entry = {
@@ -708,7 +1050,12 @@ try {
       /\d:\d\d/.test(a.parts.panel.textContent),
     show({ panel: a.parts.panel.textContent, asked }),
   );
-  await sleep(300);
+  // the record tap's voice.warm is back before Stop, so its answer cannot cross the stop's redraw
+  check(
+    "the record tap's voice.warm is answered",
+    await until(() => answered.includes("voice.warm"), 20000),
+    show({ asked, answered }),
+  );
   mic.next = big;
   recording.click();
   const landed = await until(() => /heard/.test(a.field.value), 15000);

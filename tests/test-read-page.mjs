@@ -83,18 +83,51 @@ if (url.includes("/slow")) {
 } else console.log(${JSON.stringify(envelope(LOCAL_MD, "local", { title: "defuddle - npm" }))});
 `,
 );
+// The stand-in defuddle program; `preload` tells whether net-guard was loaded into it
+const fakeDefuddle = `import fs from "node:fs";
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(LOG)}, JSON.stringify({ tool: "defuddle", args, cwd: process.cwd(), preload: /net-guard/.test(process.env.NODE_OPTIONS || "") }) + "\\n");
+const url = args[1];
+if (url.includes("/hop-")) {
+  // what defuddle does after a redirect to, or a DNS answer of, a local address: it fetches a local page
+  const http = await import("node:http");
+  const server = http.createServer((q, s) => s.end("LOCAL PAGE"));
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const host = url.includes("/hop-name") ? "localhost" : "127.0.0.1";
+  try {
+    const res = await fetch("http://" + host + ":" + server.address().port + "/");
+    process.stdout.write(await res.text());
+    process.exit(0);
+  } catch (e) {
+    console.error("Error: fetch failed " + (e.cause?.code || e.message));
+    process.exit(1);
+  }
+}
+if (url.includes("/fail")) { console.error("Error: fetch failed"); process.exit(1); }
+if (url.includes("/empty")) process.exit(0);
+process.stdout.write(${JSON.stringify(DEFUDDLE_MD)});
+`;
+// The stand-in npx (found, never run) and, beside it, the stand-in npm-cli.js: `npm install --prefix <dir>
+// <spec>` puts the stand-in defuddle in <dir>/node_modules/defuddle with defuddle 0.19.7's bin entry. The npm
+// one uses only import(), so it runs as CommonJS (here) and as an ES module (in a "type": "module" folder).
 const fakeNpx = path.join(tmp, "fake-npx.mjs");
 fs.writeFileSync(
   fakeNpx,
   `import fs from "node:fs";
-const args = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(LOG)}, JSON.stringify({ tool: "npx", args, cwd: process.cwd() }) + "\\n");
-const url = args[3];
-if (url.includes("/fail")) { console.error("Error: fetch failed"); process.exit(1); }
-if (url.includes("/empty")) process.exit(0);
-process.stdout.write(${JSON.stringify(DEFUDDLE_MD)});
+fs.appendFileSync(${JSON.stringify(LOG)}, JSON.stringify({ tool: "npx", args: process.argv.slice(2) }) + "\\n");
+process.exit(1);
 `,
 );
+const fakeNpm = `import("node:fs").then((fs) => {
+  const args = process.argv.slice(2);
+  fs.appendFileSync(${JSON.stringify(LOG)}, JSON.stringify({ tool: "npm", args, cwd: process.cwd(), preload: /net-guard/.test(process.env.NODE_OPTIONS || "") }) + "\\n");
+  const dir = args[args.indexOf("--prefix") + 1] + "/node_modules/defuddle";
+  fs.mkdirSync(dir + "/dist", { recursive: true });
+  fs.writeFileSync(dir + "/package.json", JSON.stringify({ name: "defuddle", bin: { defuddle: "dist/cli.mjs" } }));
+  fs.writeFileSync(dir + "/dist/cli.mjs", ${JSON.stringify(fakeDefuddle)});
+});
+`;
+fs.writeFileSync(path.join(tmp, "npm-cli.js"), fakeNpm);
 
 const calls = () =>
   fs.existsSync(LOG)
@@ -228,7 +261,8 @@ ok(
 r = run(["HTTPS://203.0.113.10/a b?q=1", "--out", OUT], { firecrawl: false });
 ok(
   "defuddle gets the parsed URL too",
-  r.calls[0] && r.calls[0].args[3] === "https://203.0.113.10/a%20b?q=1",
+  r.calls.find((c) => c.tool === "defuddle")?.args[1] ===
+    "https://203.0.113.10/a%20b?q=1",
   JSON.stringify(r.calls),
 );
 
@@ -289,19 +323,28 @@ r = run(["https://203.0.113.30/", "--out", OUT], {
   cwd: caller,
 });
 p = parse(lines(r.out)[0] || "");
-const nx = r.calls.find((c) => c.tool === "npx");
+const nx = r.calls.find((c) => c.tool === "npm");
+const df = r.calls.find((c) => c.tool === "defuddle");
+const samePlace = (a, b) => {
+  const spell = (p) => path.resolve(p).replace(/^\/private(?=\/var\/)/, "");
+  return spell(a) === spell(b);
+};
 ok(
-  "with no Firecrawl Local the page is read by npx -y defuddle@0.19.7 parse <url> --md",
+  "with no Firecrawl Local, npm installs defuddle@0.19.7 into the run's own folder and defuddle reads the page with parse <url> --md",
   nx &&
-    JSON.stringify(nx.args) ===
-      JSON.stringify([
-        "-y",
-        "defuddle@0.19.7",
-        "parse",
-        "https://203.0.113.30/",
-        "--md",
-      ]),
-  nx ? JSON.stringify(nx.args) : `no npx call; exit ${r.code}; ${r.err}`,
+    df &&
+    nx.args[0] === "install" &&
+    nx.args.at(-1) === "defuddle@0.19.7" &&
+    // on a Mac the temp folder /var/... is a link to /private/var/..., so one folder has two spellings
+    samePlace(nx.args[nx.args.indexOf("--prefix") + 1], nx.cwd) &&
+    JSON.stringify(df.args) ===
+      JSON.stringify(["parse", "https://203.0.113.30/", "--md"]),
+  `${JSON.stringify(nx)} ${JSON.stringify(df)}; exit ${r.code}; ${r.err}`,
+);
+ok(
+  "npm installs defuddle without net-guard (a local npm proxy or registry keeps working) and defuddle runs with it",
+  nx && df && nx.preload === false && df.preload === true,
+  `${JSON.stringify(nx)} ${JSON.stringify(df)}`,
 );
 ok(
   "a defuddle read says 'defuddle' and saves its text",
@@ -316,7 +359,7 @@ ok(
   !r.calls.some((c) => c.tool === "firecrawl"),
 );
 ok(
-  "npx runs in an empty folder of its own (not the caller's, with its .npmrc), removed afterwards",
+  "npm runs in an empty folder of its own (not the caller's, with its .npmrc), removed afterwards",
   nx && path.resolve(nx.cwd) !== path.resolve(caller) && !fs.existsSync(nx.cwd),
   nx && nx.cwd,
 );
@@ -362,6 +405,7 @@ ok(
     '{"type":"module"}',
   );
   fs.copyFileSync(fakeNpx, path.join(npmBin, "npx-cli.js"));
+  fs.writeFileSync(path.join(npmBin, "npm-cli.js"), fakeNpm);
   fs.writeFileSync(path.join(npmHome, "npx.cmd"), "@echo not run\r\n");
   const PATHS = [EMPTY_DIR, npmHome].join(path.delimiter);
   r = run(["https://203.0.113.30/", "--out", OUT], {
@@ -369,12 +413,12 @@ ok(
     node: loneNode,
     env: { READ_PAGE_NPX: "", PATH: PATHS, Path: PATHS },
   });
-  const fromPath = r.calls.find((c) => c.tool === "npx");
+  const fromPath = r.calls.find((c) => c.tool === "npm");
   ok(
-    "with no npm next to node, the npx-cli.js next to an npx.cmd on the PATH reads the page with defuddle",
+    "with no npm next to node, the npm-cli.js next to an npx.cmd on the PATH installs defuddle, which reads the page",
     r.code === 0 &&
       fromPath &&
-      fromPath.args[1] === "defuddle@0.19.7" &&
+      fromPath.args.at(-1) === "defuddle@0.19.7" &&
       /defuddle$/.test(lines(r.out)[0] || ""),
     `exit ${r.code}; ${r.out}${r.err}`,
   );
@@ -511,6 +555,23 @@ for (const bad of [
       `exit ${r.code}; ${r.err}; calls ${r.calls.length}`,
     );
   }
+}
+
+// ---------------- a redirect or a DNS answer to a local address, inside defuddle ----------------
+for (const [name, hop] of [
+  ["an address", "https://203.0.113.50/hop-ip"],
+  ["a name that resolves to it", "https://203.0.113.50/hop-name"],
+]) {
+  const before = saved();
+  r = run([hop, "--out", OUT], { firecrawl: false });
+  ok(
+    `defuddle cannot reach a local page through ${name}: every connection it makes must be checked against private and local addresses`,
+    r.code === 1 &&
+      saved() === before &&
+      /ERR_NET_GUARD_REFUSED/.test(r.err) &&
+      !/LOCAL PAGE/.test(r.out),
+    `exit ${r.code}; ${r.err}; ${r.out}`,
+  );
 }
 
 // ---------------- only http(s) ----------------

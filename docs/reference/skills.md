@@ -1,11 +1,11 @@
 # Skills
 
-Stratus has 26 skills. A skill is a set of instructions that Claude loads when your request matches its
-description, or when you type its name as a command, such as `/handoff`. The installer copies 25 of them into
-`~/.claude/skills/`. The 26th, `phone-bot`, is an add-on: add it with `node install.mjs --with phone-bot`.
+Stratus has 30 skills. A skill is a set of instructions that Claude loads when your request matches its
+description, or when you type its name as a command, such as `/handoff`. The installer copies 29 of them into
+`~/.claude/skills/`. The 30th, `phone-bot`, is an add-on: add it with `node install.mjs --with phone-bot`.
 
-Claude picks most skills by itself from what you say. Five skills run only when you type their command: `/btw`,
-`/board-cleanup`, `/design-system`, `/next-move` and `/untangle-codebase`. The table marks them as "Typed only".
+Claude picks most skills by itself from what you say. Seven skills run only when you type their command: `/btw`,
+`/board-cleanup`, `/design-system`, `/grill-with-docs`, `/next-move`, `/untangle-codebase` and `/wayfinder`. The table marks them as "Typed only".
 
 ## Skills in `~/.claude/skills/`
 
@@ -16,11 +16,14 @@ Claude picks most skills by itself from what you say. Five skills run only when 
 | `btw` | Adds a note to, or asks a question of, another Claude session that is busy in the same folder, without stopping it. | Typed only |
 | `design-system` | Shows, writes or refreshes the project's `DESIGN.md` (colours, type, spacing, components) and uses it for the design work at hand. | Typed only |
 | `disk-tidy` | Finds what fills the disk, clears it item by item with your yes, turns the chat archive on or off, and brings back an archived chat. | By itself or `/disk-tidy` |
+| `domain-modeling` | Sharpens the words a project uses for its own things while you plan, writes each settled term to `docs/glossary.md`, and records hard-to-reverse decisions in `DECISIONS.md`. | By itself or `/domain-modeling` |
 | `file-upkeep` | Renames and moves a project's files to the common file standard and removes old copies. | By itself or `/file-upkeep` |
 | `gridlines` | Draws vertical guide lines down an interface, finds items that miss their line, and fixes paddings so panels share a small set of edges. | By itself or `/gridlines` |
 | `grilling` | Asks the questions to settle before a medium or big job, then writes down what done looks like. | By itself or `/grilling` |
+| `grill-with-docs` | Runs `grilling` and `domain-modeling` together: the questions before a job in a code project, with the glossary and decisions written as you go. | Typed only |
 | `handoff` | Writes a short handoff brief and opens a fresh session that continues the work from it. | By itself or `/handoff` |
 | `lead` | Runs a big job from its spec to the end report: a plan, one plan review, your OK, helpers per part, checks and a final review. | By itself or `/lead` |
+| `log-papercut` | Lets Claude note, in one line, a tool, hook, skill or instruction that got in its way, so the setup can be fixed at the root later. | By itself or `/log-papercut` |
 | `new-project` | Sets up a new project folder: a short `CLAUDE.md`, `HANDOFF.md`, `DECISIONS.md`, the `.claude/` folders, the tools this project uses, and its git or GitHub preset. | By itself or `/new-project` |
 | `next-move` | Suggests the one most useful thing to do next, from your goals and the project's state. | Typed only |
 | `pc-tidy` | Shows what holds the computer's memory, stops what finished sessions left running, and names ports a closed program still holds. | By itself or `/pc-tidy` |
@@ -34,6 +37,7 @@ Claude picks most skills by itself from what you say. Five skills run only when 
 | `update-setup` | Updates Stratus to the newest release and keeps your own files and settings. | By itself or `/update-setup` |
 | `wait-what` | Explains the last reply again in plain words when it did not land. | By itself or `/wait-what` |
 | `watch` | Turns a YouTube link or a video file into timed text and sheets of timed stills that a cheap model reads. | By itself or `/watch` |
+| `wayfinder` | Plans work too big for one session as a map of decision tickets on the project tracker, and settles them one per session until the way is clear. | Typed only |
 | `web-research` | Finds web facts at the source that knows them, and reads pages. | By itself or `/web-research` |
 | `where-are-we` | Says how much of a job is left, from the project's Nimbalyst tracker, and brings the tracker up to date. | By itself or `/where-are-we` |
 | `writing` | Shapes any text a person will read: emails, posts, a README, docs, release notes, a profile. | By itself or `/writing` |

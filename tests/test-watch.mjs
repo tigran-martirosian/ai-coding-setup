@@ -558,7 +558,7 @@ fs.writeFileSync(
   `import fs from "node:fs";
 const a = process.argv.slice(2);
 if (a.includes("--version")) process.exit(0);
-if (a.includes("-J")) { console.log(JSON.stringify({ title: "Talk", channel: "someone", duration: 30, language: "en", automatic_captions: { "en-orig": [] } })); process.exit(0); }
+if (a.includes("-J")) { console.log(JSON.stringify({ id: "TESTTALK429", extractor_key: "Youtube", title: "Talk", channel: "someone", duration: 30, language: "en", automatic_captions: { "en-orig": [] } })); process.exit(0); }
 if (a.includes("--write-subs")) { console.error("ERROR: Unable to download video subtitles for 'en-orig': HTTP Error 429: Too Many Requests"); process.exit(1); }
 const o = a[a.indexOf("-o") + 1];
 if (o && o.includes("audio.")) { fs.copyFileSync(${JSON.stringify(short)}, o.replace("%(ext)s", "m4a")); process.exit(0); }
@@ -582,6 +582,112 @@ check(
 check(
   "link: the sound is kept as audio.m4a",
   fs.existsSync(path.join(home, "TESTTALK429", "audio.m4a")),
+);
+
+// A link that is not YouTube gets its own cache folder: a fake yt-dlp names each video by its link, so a
+// second link that reuses another one's kept info.json shows that other link's name.
+const fakeSite = path.join(tmp, "fake-yt-dlp-site.mjs");
+fs.writeFileSync(
+  fakeSite,
+  `const a = process.argv.slice(2);
+if (a.includes("--version")) process.exit(0);
+if (a.includes("-J")) { console.log(JSON.stringify({ title: "page " + a[a.length - 1], duration: 30 })); process.exit(0); }
+process.exit(1);
+`,
+);
+for (const link of [
+  "https://site.example/live/conference2024-day1",
+  "https://site.example/live/conference2024-day2",
+  "https://site.example/page?nav=TESTTALK429",
+  "https://site.example/page?v=TESTTALK429",
+]) {
+  r = listenWith({ YT_DLP: fakeSite, WATCH_STT: "off" }, link, "--no-frames");
+  check(
+    `a video id is taken only from a YouTube link, so another site's link never reuses a kept video: ${link}`,
+    r.out.split("\n")[0].includes(`page ${link}`),
+    r.out + r.err,
+  );
+}
+// A YouTube link that names two ids (a path id and a v, v twice) or a v off /watch: yt-dlp may fetch another
+// video than the id watch.mjs would pick, so such a link never reuses the kept video of either id.
+for (const link of [
+  "https://www.youtube.com/embed/OTHERVIDEO1?v=TESTTALK429",
+  "https://www.youtube.com/watch?v=TESTTALK429&v=OTHERVIDEO1",
+  "https://www.youtube.com/playlist?v=TESTTALK429",
+]) {
+  r = listenWith({ YT_DLP: fakeSite, WATCH_STT: "off" }, link, "--no-frames");
+  check(
+    `a YouTube link names its cache folder by the id only when it holds exactly one id, so it never reuses another video's: ${link}`,
+    r.out.split("\n")[0].includes(`page ${link}`),
+    r.out + r.err,
+  );
+}
+// The folder is named by the id yt-dlp reports for the one YouTube video it reads, never by how watch.mjs reads the
+// link: a fake yt-dlp answers each link from a table (what the real one would fetch).
+const answers = {
+  "https://www.youtube.com/watch?v=TESTTALK429;v=OTHERVIDEO1": {
+    id: "OTHERVIDEO1",
+    extractor_key: "Youtube",
+  },
+  "https://www.youtube.com/watch?v=OTHERVIDEO2&v=OTHERVIDEO3": {
+    id: "OTHERVIDEO3",
+    extractor_key: "Youtube",
+  },
+  "https://www.youtube.com/embed/videoseries?list=PLAAAA": {
+    _type: "playlist",
+    id: "PLAAAA",
+    extractor_key: "YoutubeTab",
+  },
+  "https://www.youtube.com/embed/videoseries?list=PLBBBB": {
+    _type: "playlist",
+    id: "PLBBBB",
+    extractor_key: "YoutubeTab",
+  },
+  "https://site.example/clip": { id: "TESTTALK429", extractor_key: "Generic" },
+};
+const fakeIds = path.join(tmp, "fake-yt-dlp-ids.mjs");
+fs.writeFileSync(
+  fakeIds,
+  `const a = process.argv.slice(2);
+if (a.includes("--version")) process.exit(0);
+const link = a[a.length - 1];
+const answer = ${JSON.stringify(answers)}[link];
+if (a.includes("-J") && answer) { console.log(JSON.stringify({ ...answer, title: "page " + link, duration: 30 })); process.exit(0); }
+process.exit(1);
+`,
+);
+for (const [link, answer] of Object.entries(answers)) {
+  const youtube = answer.extractor_key === "Youtube";
+  r = listenWith({ YT_DLP: fakeIds, WATCH_STT: "off" }, link, "--no-frames");
+  check(
+    `the cache folder is named by the id yt-dlp reports for one YouTube video, else by the link: ${link}`,
+    r.out.split("\n")[0].includes(`page ${link}`) &&
+      (youtube
+        ? fs.existsSync(path.join(home, answer.id, "info.json"))
+        : !fs.existsSync(path.join(home, "videoseries"))),
+    r.out + r.err,
+  );
+}
+// a second look at a YouTube link reads the kept video without yt-dlp (here one that fails every call but --version)
+const fakeOffline = path.join(tmp, "fake-yt-dlp-offline.mjs");
+fs.writeFileSync(
+  fakeOffline,
+  `process.exit(process.argv.includes("--version") ? 0 : 1);\n`,
+);
+r = listenWith(
+  { YT_DLP: fakeOffline, WATCH_STT: "off" },
+  "https://www.youtube.com/watch?v=TESTTALK429;v=OTHERVIDEO1",
+  "--no-frames",
+);
+check(
+  "a second look at a YouTube link reads its kept folder without yt-dlp",
+  r.code === 0 &&
+    r.out
+      .split("\n")[0]
+      .includes(
+        "page https://www.youtube.com/watch?v=TESTTALK429;v=OTHERVIDEO1",
+      ),
+  r.out + r.err,
 );
 
 // (b) The real engine on a spoken clip: Windows speech writes a WAV straight to a file, it is put into a

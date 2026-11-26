@@ -43,7 +43,7 @@ Work found mid-run is not a new step. It goes into the current step's comment as
 These are made-up items, to show the form.
 
 **A build step.**
-Before: title "S4: wire `checkout.mjs` into the cart (shop plan)"; description "Plan: docs/shop-plan.md, row S4. Serves: "the cart should just let me pay" (DECISIONS 2025-03-02). Done when: `npm test` passes; `node scripts/smoke.mjs` → 0 errors. Helper: worker. Runs: after S3."
+Before: title "S4: wire `checkout.mjs` into the cart (shop plan)"; description "Plan: docs/shop-plan.md, row S4. Serves: 'the cart should just let me pay' (DECISIONS 2025-03-02). Done when: `npm test` passes; `node scripts/smoke.mjs` → 0 errors. Helper: worker. Runs: after S3."
 After: title "Let people pay for their cart at checkout"; description "Lets a shopper pay for what is in the cart without leaving the page. Done when all tests pass and a test purchase goes through with no errors. Waits on the new cart page."
 
 **A comment on a finished step.**

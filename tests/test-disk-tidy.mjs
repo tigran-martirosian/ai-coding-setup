@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import zlib from "node:zlib";
 import {
   cwdOf,
@@ -506,6 +507,48 @@ check(
     !byPath(path.join(CL, "video-cache", "v-new")),
 );
 
+// With no SystemRoot, powershell.exe can't be found: the process list counts as unreadable and the replay
+// worktrees are left alone, as when PowerShell fails, instead of the report crashing. Node won't start without
+// SystemRoot, so a preload drops it.
+if (process.platform === "win32") {
+  const noRoot = path.join(T, "no-systemroot.mjs");
+  fs.writeFileSync(noRoot, "delete process.env.SystemRoot;\n");
+  const r = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      pathToFileURL(noRoot).href,
+      WORKER,
+      "--home",
+      HOME,
+      "--tmp",
+      TMP,
+      "--appdata",
+      APPDATA,
+      "--roots",
+      ROOT,
+      "--now",
+      new Date(NOW).toISOString(),
+      "--git-wrapper",
+      WRAP,
+      "--scanner",
+      "node",
+      "--json",
+    ],
+    { encoding: "utf8", env: ENV },
+  );
+  let rep = null;
+  try {
+    rep = JSON.parse(r.stdout);
+  } catch {}
+  check(
+    "no SystemRoot: the process list counts as unreadable, the replay worktrees are kept and the report still runs",
+    r.status === 0 &&
+      rep?.skipped.some((s) => /process list could not be read/.test(s.reason)),
+    `${r.status} ${r.stdout.slice(0, 300)}${r.stderr}`,
+  );
+}
+
 // ---- --auto while a replay runs, then without
 const a1 = tidy("--auto", "--ps-file", PS_YES);
 check("--auto runs", a1.code === 0, a1.all);
@@ -797,6 +840,7 @@ check(
     ) === sha(c61side),
   rs.all,
 );
+// Not a clock: "now" is the --now the test gives (NOW), and 2 s is the coarsest file time a disk keeps (FAT)
 check(
   "--restore sets the file time to now",
   Math.abs(fs.statSync(c61).mtimeMs - NOW) < 2000,

@@ -66,9 +66,13 @@ export function readSecrets(file) {
   }
 }
 
-// Writes the secrets file whole, keeping its other keys. An existing file keeps its access list.
-function writeSecrets(file, data) {
-  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+// Writes the secrets file whole, keeping its other keys. A new folder is made 0700 and a new file 0600, so no other
+// local account can read it between its first byte and lockFile; an existing file keeps its access list.
+export function writeSecrets(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, {
+    mode: 0o600,
+  });
 }
 
 function lockFile(file) {
@@ -128,7 +132,6 @@ async function setup(file) {
   data.cloudflareAccountId = await askHidden("Cloudflare account id: ");
   for (const key of ["cloudflareApiToken", "cloudflareAccountId"])
     if (!data[key]) fail(`${key} was empty, nothing written`);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
   writeSecrets(file, data);
   lockFile(file);
   const missing = Object.keys(KEYS).filter((k) => !data[k]);

@@ -73,7 +73,8 @@ texts sit in git), the count of Important and Nit per group, one section of boxe
 last section "Not text" for code faults you came across. Then one `PromptForUserInput` with one
 `multiSelect` per group, nothing ticked in advance, each item the box's id and sentence with its file
 and line under it, Important items first; then an optional `editText` "Anything else?"
-(`minLength: 0`). If nothing was found, say so and ask nothing.
+(`minLength: 0`). Outside Nimbalyst: the same items as numbered lists in the reply, and ask which numbers to
+do. If nothing was found, say so and ask nothing.
 
 ## 5. Do only what was ticked
 

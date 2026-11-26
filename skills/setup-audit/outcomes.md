@@ -3,7 +3,7 @@
 What the checks led to, counted from the chats of this computer. Hook counts say a gate fired; these say what happened next. Numbers come from a script: **never open transcript files yourself.**
 
 1. **Run** `node ~/.claude/skills/setup-audit/scripts/outcomes.mjs [--days N] [--project <part of a folder name>]` (about 20 seconds; default 14 days). It prints four sections, each with its sample size:
-   - **rec-check:** questions with a recommended option, before rec-check began and after; how often the recommended option was taken; how often rec-check said change and what the user then chose.
+   - **rec-check:** questions with a recommended option, and how often the recommended option was taken. Optional extra: the setup ships no `rec-check` agent, so every question shows under "before rec-check began"; one the person added is counted too (how often it said change, and what the user then chose).
    - **Reviews:** reviewer helpers and code-review runs followed by a code change.
    - **Verify gate:** blocks followed by a passing build or test.
    - **Map:** helpers briefed with Systems map lines against helpers without: edits outside the brief, stopped helpers.

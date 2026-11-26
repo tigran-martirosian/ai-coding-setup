@@ -27,11 +27,12 @@ import { crashLog } from "./lib/crash-log.mjs";
 // Every closed, kept or dropped entry gets one line in ~/.claude/hooks/state/session-cleanup/closed.log.
 // SESSION_CLEANUP=off does nothing; =on closes; anything else (unset, report) is report mode: it records and
 // writes what it would close to closed.log, and closes nothing. Fails open: an error is crash-logged, nothing closed.
-// Windows only (the process list and taskkill); elsewhere it does nothing.
+// Windows only (the process list and taskkill, both by full path: lib/paths.mjs system32Exe); elsewhere it does nothing.
 // Tests: SESSION_CLEANUP_TEST_PROCS names a JSON file used as the process list (each read appends a line to
 // <file>.calls), and closing appends "kill <pid>" to <file>.kills instead of stopping anything;
 // SESSION_CLEANUP_TEST_ROOT names the PID that stands for this session's claude.exe.
 import { isMain, runHook } from "./lib/hook-io.mjs";
+import { powershellExe, system32Exe } from "./lib/paths.mjs";
 import { readJson, STATE_DIR, sweep, writeJson } from "./lib/state.mjs";
 
 const NAME = "session-cleanup";
@@ -102,7 +103,7 @@ export function snapshot() {
     "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; name = $_.Name; " +
     "created = $(if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }); cmd = $_.CommandLine } } | ConvertTo-Json -Compress";
   const r = spawnSync(
-    "powershell.exe",
+    powershellExe(),
     ["-NoProfile", "-NonInteractive", "-Command", ps],
     { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
   );
@@ -313,10 +314,11 @@ function stop(e) {
     fs.appendFileSync(`${FAKE}.kills`, `kill ${e.pid}\n`);
     return "closed";
   }
-  const r = spawnSync("taskkill", ["/T", "/F", "/PID", String(e.pid)], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  const r = spawnSync(
+    system32Exe("taskkill.exe"),
+    ["/T", "/F", "/PID", String(e.pid)],
+    { encoding: "utf8", windowsHide: true },
+  );
   return r.status === 0
     ? "closed"
     : `close failed (${

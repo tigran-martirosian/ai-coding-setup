@@ -35,6 +35,8 @@ npm run build
 npm run install-ext   # validates the bundle, copies to %APPDATA%\@nimbalyst\electron\extensions\systemsmap
 ```
 
+On a Mac it copies to `~/Library/Application Support/@nimbalyst/electron/extensions/systemsmap`.
+
 Then restart Nimbalyst: it loads new and changed extensions only at startup.
 
 ## Checks

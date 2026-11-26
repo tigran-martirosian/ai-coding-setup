@@ -303,6 +303,19 @@ check(
   !fs.existsSync(path.join(claude, "setup-source")),
 );
 
+// ---- a self-install under way (its lock is there): the update by hand waits for it, so two never run at once
+const autoLock = path.join(claude, "update-auto.lock");
+fs.writeFileSync(autoLock, "quiet");
+const whileAuto = await update(home);
+check(
+  "an update by hand stops while a self-install holds update-auto.lock: nothing downloaded, the lock left to its owner",
+  whileAuto.code === 1 &&
+    whileAuto.out.includes("Update stopped:") &&
+    !fs.existsSync(path.join(claude, "setup-source")) &&
+    fs.existsSync(autoLock),
+);
+fs.rmSync(autoLock);
+
 // ---- the update
 const done = await update(home);
 const state = json(path.join(claude, "setup-state.json"));
@@ -478,7 +491,7 @@ check(
       `Already on the newest version (${NEW}).` &&
     again.out.includes("version check skipped"),
 );
-await new Promise((r) => setTimeout(r, 700));
+// update.mjs runs deliver.mjs with spawnSync and starts nothing that outlives it: calls.log is whole now
 check(
   "NB4. on the newest version the nimbalyst: line is passed on too, and no stage starts",
   /^nimbalyst: restart to finish: 0\.83\.0 -> 0\.84\.0, 3 fixes$/m.test(
@@ -807,7 +820,6 @@ fs.writeFileSync(mySkill, "# My own skill\n");
 process.env.NIMBALYST_FOLLOW = "off";
 const keptMine = await update(mine);
 delete process.env.NIMBALYST_FOLLOW;
-await new Promise((r) => setTimeout(r, 700));
 check(
   "NB4. NIMBALYST_FOLLOW=off: the update starts no stage, the nimbalyst: line still comes",
   !callsOf(mine).includes("--stage") &&
@@ -1324,7 +1336,6 @@ released = {
   },
 };
 const nbSelf = await update(filesHome, "--files-only");
-await new Promise((r) => setTimeout(r, 700));
 check(
   "NB4. --files-only installs a nimbalyst release: exit 0, the new version on record, auto ok",
   nbSelf.code === 0 &&

@@ -42,6 +42,9 @@ Object.assign(process.env, {
   LOCALAPPDATA: path.join(home, "AppData", "Local"),
   // Lets folder.send and folder.link post to the stand-in relay on http://127.0.0.1.
   PHONE_PC_TEST: "1",
+  // folder.copy and folder.show name PowerShell and Explorer under SystemRoot, through a stand-in runner here;
+  // a Mac has no SystemRoot of its own
+  SystemRoot: process.env.SystemRoot || "C:/Windows",
 });
 // Where the PC program looks for Nimbalyst's data (core/files.mjs nimbalystDir), on each system.
 const NIM =
@@ -891,12 +894,12 @@ try {
     "folder.remove of a missing file is not-found",
     (await ask("folder.remove", { path: "work/gone.txt" })).err === "not-found",
   );
-  fs.writeFileSync(path.join(INBOX, "work", "a.txt.part-0a1b"), "half");
+  fs.writeFileSync(path.join(INBOX, "work", "a.txt.part-0a1b2c3d4e5f"), "half");
   folder.cleanFolder(Date.now() + 8 * 24 * 3600 * 1000);
   check(
     "the start clean empties .removed entries over 7 days old and .part files over 1 hour old",
     fs.readdirSync(bin).length === 0 &&
-      !fs.existsSync(path.join(INBOX, "work", "a.txt.part-0a1b")),
+      !fs.existsSync(path.join(INBOX, "work", "a.txt.part-0a1b2c3d4e5f")),
     show(fs.readdirSync(bin)),
   );
 
@@ -992,6 +995,32 @@ try {
       showRun.opts?.windowsVerbatimArguments === true,
     show({ shown, showRun }),
   );
+  // A bare program name would run a powershell.exe or explorer.exe planted in the current folder or on the PATH.
+  {
+    const realRoot = process.env.SystemRoot;
+    const madeUp = path.join(os.tmpdir(), "made up windows");
+    process.env.SystemRoot = madeUp;
+    try {
+      await ask("folder.copy", { path: "work/pic.txt" });
+      await ask("folder.show", { path: "work/pic.txt" });
+    } finally {
+      if (realRoot === undefined) delete process.env.SystemRoot;
+      else process.env.SystemRoot = realRoot;
+    }
+    const [ps, ex] = runs.splice(-2).map((r) => r.file);
+    check(
+      "folder.copy and folder.show start PowerShell and Explorer by their full paths under SystemRoot (FAIL: a planted powershell.exe or explorer.exe runs instead)",
+      ps ===
+        path.win32.join(
+          madeUp,
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "powershell.exe",
+        ) && ex === path.win32.join(madeUp, "explorer.exe"),
+      show({ ps, ex }),
+    );
+  }
   for (const a of ["folder.copy", "folder.show"])
     for (const [what, p, rule] of [
       ["a path out of the folder by ..", "../outside/o.md", "path form"],
@@ -1053,14 +1082,31 @@ try {
   fs.rmSync(path.join(INBOX, "proj"), { recursive: true });
   for (const n of realSecrets) fs.rmSync(path.join(INBOX, n));
   // An upload still being saved is not listed.
-  fs.writeFileSync(path.join(INBOX, "work", "up.bin.part-0a1b2c"), "half");
+  fs.writeFileSync(
+    path.join(INBOX, "work", "up.bin.part-0a1b2c3d4e5f"),
+    "half",
+  );
   const partList = await ask("folder.list", { dir: "work" });
   check(
     "folder.list leaves out a .part- upload still being saved",
     partList.ok && !show(partList).includes(".part-"),
     show(partList),
   );
-  fs.rmSync(path.join(INBOX, "work", "up.bin.part-0a1b2c"));
+  fs.rmSync(path.join(INBOX, "work", "up.bin.part-0a1b2c3d4e5f"));
+  // A user's own file named like a split archive part is a file: listed, and kept by the clean.
+  const userParts = ["notes.part-1", "photos.part-2a"];
+  for (const n of userParts)
+    fs.writeFileSync(path.join(INBOX, "work", n), "mine");
+  const userPartList = await ask("folder.list", { dir: "work" });
+  folder.cleanFolder(Date.now() + 2 * 3600 * 1000);
+  check(
+    "a user's file named like notes.part-1 is listed and not deleted by the clean",
+    userParts.every((n) => userPartList.d?.items.some((i) => i.name === n)) &&
+      userParts.every((n) => fs.existsSync(path.join(INBOX, "work", n))),
+    show([userPartList, fs.readdirSync(path.join(INBOX, "work"))]),
+  );
+  for (const n of userParts)
+    fs.rmSync(path.join(INBOX, "work", n), { force: true });
   runAnswer = { code: 1, words: "Set-Clipboard : access denied" };
   const copyFail = await ask("folder.copy", { path: "work/pic.txt" });
   check(
@@ -1351,10 +1397,12 @@ try {
   const { startCutProxy } = await import("./phone-bot/cut-proxy.mjs");
   let cutNext = false;
   let proxy = null;
+  const uploaded = []; // the byte count of each upload the relay read to its end
   const local = await startLocalRelay({
     port: 0,
     pageDir: tmp,
     botId: 1,
+    botToken: "1:local",
     ownerTgId: 7,
     telegramKey: "00".repeat(32),
     telegram: async (method) => {
@@ -1370,6 +1418,7 @@ try {
           proxy.cut();
         }
       }
+      uploaded.push(bytes);
       return { message_id: 2 };
     },
     download: async () => {
@@ -1419,13 +1468,18 @@ try {
   cutNext = true;
   const cutAnswer = await ask("folder.send", { path: "work/cut.bin" });
   proxy.heal();
-  const startedAt = Date.now();
+  const uploadedBefore = uploaded.length;
+  // No clock bound: a send that hangs after the abort ends at the product's own limit (SEND_WAIT_MS) as
+  // relay-failed, so nextAnswer.ok still fails it; the relay must also have read the whole file.
   const nextAnswer = await ask("folder.send", { path: "work/cut.bin" });
-  const tookMs = Date.now() - startedAt;
+  const nextBytes = uploaded.slice(uploadedBefore);
   check(
-    "after a Send to chat cut mid-upload, the next one is sent well under 5 s (FAIL: Send to chat hangs after an abort)",
-    cutAnswer.err === "relay-failed" && nextAnswer.ok && tookMs < 5000,
-    show({ cutAnswer, nextAnswer, tookMs }),
+    "after a Send to chat cut mid-upload, the next one reaches the relay whole and is sent (FAIL: Send to chat hangs after an abort)",
+    cutAnswer.err === "relay-failed" &&
+      nextAnswer.ok &&
+      nextBytes.length === 1 &&
+      nextBytes[0] > 4_000_000,
+    show({ cutAnswer, nextAnswer, nextBytes }),
   );
   const refusedLine = fs
     .readFileSync(path.join(home, ".phone-app", "pc.log"), "utf8")

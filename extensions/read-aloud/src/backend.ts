@@ -15,6 +15,13 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import {
+  lockCommand,
+  movedDefault,
+  othersCanWrite,
+  pathsToCheck,
+  ttsDir,
+} from "./folderSafety";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -32,7 +39,6 @@ interface ActivateCtx {
   };
 }
 
-const DEFAULT_DIR = "C:\\LocalTTS";
 const START_TIMEOUT_MS = 120_000;
 const SYNTH_TIMEOUT_MS = 120_000;
 const MAX_TEXT_CHARS = 2_000;
@@ -49,6 +55,13 @@ interface Job {
   payload: Record<string, unknown>;
   resolve: (v: WorkerReply) => void;
   reject: (e: Error) => void;
+}
+
+interface Run {
+  /** The reason kill() gave, once it stopped this run. */
+  stopped: string | null;
+  /** Rejects the start in progress. */
+  abort: ((e: Error) => void) | null;
 }
 
 interface WorkerReply {
@@ -80,12 +93,46 @@ function findMissing(dir: string): string[] {
   return missing;
 }
 
-function cleanDir(dir: unknown): string {
-  const d = typeof dir === "string" && dir.trim() ? dir.trim() : DEFAULT_DIR;
-  return path.resolve(d);
+const cleanDir = ttsDir;
+
+// The folder, the venv parts python.exe loads code from, python.exe and the base Python: other accounts must not
+// change any
+const openToOthers = (dir: string) => othersCanWrite(pathsToCheck(dir));
+
+/** How a worker is launched: the tests pass a fake child process. */
+export interface Launcher {
+  /** Throws when the TTS folder misses a part or other accounts can change it. */
+  check(dir: string): Promise<void>;
+  spawn(dir: string): ChildProcess;
 }
 
-class KokoroWorker {
+const pythonLauncher: Launcher = {
+  async check(dir) {
+    const missing = findMissing(dir);
+    if (missing.length)
+      throw new Error(movedDefault(dir) ?? `Missing: ${missing.join("; ")}`);
+    const open = await openToOthers(dir);
+    if (open.length)
+      throw new Error(
+        `Refused: other accounts on this PC can change the TTS folder, so its python.exe could run their code. ${open.join("; ")}. Lock it to you, in PowerShell: ${lockCommand(dir)}`,
+      );
+  },
+  spawn(dir) {
+    const p = requiredPaths(dir);
+    return spawn(
+      p.python,
+      ["-u", WORKER_SCRIPT, "--model", p.model, "--voices", p.voices],
+      {
+        cwd: dir,
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+      },
+    );
+  },
+};
+
+export class KokoroWorker {
   state: WorkerState = "stopped";
   lastError: string | null = null;
   loadMs: number | null = null;
@@ -95,42 +142,49 @@ class KokoroWorker {
   private dir: string | null = null;
   private child: ChildProcess | null = null;
   private starting: Promise<void> | null = null;
+  // The current run: kill() marks it stopped and rejects its start, then begins a new one
+  private run: Run = { stopped: null, abort: null };
   private queue: Job[] = [];
   private inFlight: Job | null = null;
   private inFlightTimer: NodeJS.Timeout | null = null;
   private nextId = 1;
   private stderrTail = "";
 
-  constructor(private log: ActivateCtx["services"]["log"]) {}
+  constructor(
+    private log: ActivateCtx["services"]["log"],
+    private launcher: Launcher = pythonLauncher,
+  ) {}
 
   async ensure(dir: string): Promise<void> {
     if (this.child && this.dir !== dir) this.kill("TTS folder changed");
     if (this.state === "ready" && this.child) return;
     if (this.starting) return this.starting;
+    // The checks run inside `starting`, so a second call waits for them instead of starting a second worker
+    const run = this.run;
+    this.starting = this.launcher.check(dir).then(
+      () => {
+        if (run.stopped) throw new Error(run.stopped);
+        return this.start(dir, run);
+      },
+      (e: Error) => {
+        if (run === this.run) {
+          this.starting = null;
+          this.state = "error";
+          this.lastError = e.message;
+        }
+        throw e;
+      },
+    );
+    return this.starting;
+  }
 
-    const missing = findMissing(dir);
-    if (missing.length) {
-      this.state = "error";
-      this.lastError = `Missing: ${missing.join("; ")}`;
-      throw new Error(this.lastError);
-    }
-
-    this.starting = new Promise<void>((resolve, reject) => {
-      const p = requiredPaths(dir);
+  private start(dir: string, run: Run): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       this.dir = dir;
       this.state = "starting";
       this.lastError = null;
       this.stderrTail = "";
-      const child = spawn(
-        p.python,
-        ["-u", WORKER_SCRIPT, "--model", p.model, "--voices", p.voices],
-        {
-          cwd: dir,
-          windowsHide: true,
-          stdio: ["pipe", "pipe", "pipe"],
-          env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-        },
-      );
+      const child = this.launcher.spawn(dir);
       this.child = child;
       this.pid = child.pid ?? null;
       this.startedAt = Date.now();
@@ -140,7 +194,8 @@ class KokoroWorker {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        this.starting = null;
+        run.abort = null;
+        if (run === this.run) this.starting = null;
         if (err) reject(err);
         else resolve();
       };
@@ -149,12 +204,16 @@ class KokoroWorker {
         this.kill(this.lastError);
         settle(new Error(this.lastError));
       }, START_TIMEOUT_MS);
+      run.abort = settle;
 
+      // Each handler below belongs to this child: once kill() replaced it, its lines and its exit change nothing
       child.stderr?.on("data", (d: Buffer) => {
+        if (this.child !== child) return;
         this.stderrTail = (this.stderrTail + d.toString()).slice(-2000);
       });
       // biome-ignore lint/style/noNonNullAssertion: spawn without a stdio option pipes stdout, so it is set
       createInterface({ input: child.stdout! }).on("line", (line) => {
+        if (this.child !== child) return;
         let msg: Record<string, unknown>;
         try {
           msg = JSON.parse(line);
@@ -178,11 +237,12 @@ class KokoroWorker {
         }
       });
       child.on("error", (err) => {
-        this.lastError = `Could not start Python: ${err.message}`;
-        settle(new Error(this.lastError));
+        const message = `Could not start Python: ${err.message}`;
+        if (this.child === child) this.lastError = message;
+        settle(new Error(message));
       });
       child.on("exit", (code, signal) => {
-        // kill() clears this.child first, so reaching this branch means the exit was not ours.
+        // kill() clears this.child and fails its jobs first, so reaching this branch means the exit was not ours
         if (this.child === child) {
           const wasReady = this.state === "ready";
           this.child = null;
@@ -199,8 +259,8 @@ class KokoroWorker {
               .slice(0, 300);
             this.lastError = `Kokoro worker exited during startup (code ${code})${tail ? `: ${tail}` : ""}`;
           }
+          this.failAll(new Error(this.lastError ?? "Kokoro worker stopped"));
         }
-        this.failAll(new Error(this.lastError ?? "Kokoro worker stopped"));
         settle(new Error(this.lastError ?? "Kokoro worker stopped"));
         this.log(
           "warn",
@@ -208,7 +268,6 @@ class KokoroWorker {
         );
       });
     });
-    return this.starting;
   }
 
   synthesize(payload: Record<string, unknown>): Promise<WorkerReply> {
@@ -263,6 +322,12 @@ class KokoroWorker {
   }
 
   kill(reason = "stopped") {
+    // A start in progress fails now, and a folder check still running starts no worker afterwards
+    const run = this.run;
+    this.run = { stopped: null, abort: null };
+    run.stopped = reason;
+    this.starting = null;
+    run.abort?.(new Error(reason));
     const child = this.child;
     if (!child) return;
     this.child = null;

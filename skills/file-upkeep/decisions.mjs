@@ -30,7 +30,7 @@ import {
   VALID_NAME,
 } from "../../hooks/lib/decisions.mjs";
 import { fileKey } from "../../hooks/lib/paths.mjs";
-import { writeJson } from "../../hooks/lib/state.mjs";
+import { STATE_DIR, writeJson } from "../../hooks/lib/state.mjs";
 
 const ROOT_FILE = "DECISIONS.md";
 const ARCHIVE = "docs/decisions-archive.md";
@@ -372,32 +372,27 @@ const findRun = (hay, needle, from) => {
   }
   return -1;
 };
-// Each planned block (texts of its lines) once, whole, in its target, in the planned order.
-export function blocksWhole(after, plan) {
+// Each planned block (texts of its lines) once, whole, in its target, in the planned order; and no block's run of
+// lines more often after than before (a block can also be the start of a longer one, so both sides are counted).
+export function blocksWhole(before, after, plan) {
   const bad = [];
-  const texts = new Map();
-  const textsOf = (rel) => {
-    if (!texts.has(rel))
-      texts.set(
-        rel,
-        linesOf(after, rel).map((l) => l.text),
-      );
-    return texts.get(rel);
+  const textsOn = (set) => {
+    const texts = new Map();
+    return (rel) => {
+      if (!texts.has(rel))
+        texts.set(
+          rel,
+          linesOf(set, rel).map((l) => l.text),
+        );
+      return texts.get(rel);
+    };
   };
-  const cursor = new Map();
-  const want = new Map();
-  for (const p of plan) {
-    const at = findRun(textsOf(p.target), p.texts, cursor.get(p.target) ?? 0);
-    if (at < 0) bad.push(`${p.target}: ${utf8(p.texts[0]).slice(0, 80)}`);
-    else cursor.set(p.target, at + p.texts.length);
-    const key = p.texts.join("\n");
-    want.set(key, (want.get(key) ?? 0) + 1);
-  }
-  for (const [key, n] of want) {
-    const needle = key.split("\n");
+  const textsOf = textsOn(after);
+  const textsBefore = textsOn(before);
+  const count = (set, of, needle) => {
     let found = 0;
-    for (const rel of after.keys()) {
-      const hay = textsOf(rel);
+    for (const rel of set.keys()) {
+      const hay = of(rel);
       for (
         let i = findRun(hay, needle, 0);
         i >= 0;
@@ -405,14 +400,27 @@ export function blocksWhole(after, plan) {
       )
         found++;
     }
-    if (found > n) bad.push(`twice: ${utf8(needle[0]).slice(0, 80)}`);
+    return found;
+  };
+  const cursor = new Map();
+  const keys = new Set();
+  for (const p of plan) {
+    const at = findRun(textsOf(p.target), p.texts, cursor.get(p.target) ?? 0);
+    if (at < 0) bad.push(`${p.target}: ${utf8(p.texts[0]).slice(0, 80)}`);
+    else cursor.set(p.target, at + p.texts.length);
+    keys.add(p.texts.join("\n"));
+  }
+  for (const key of keys) {
+    const needle = key.split("\n");
+    if (count(after, textsOf, needle) > count(before, textsBefore, needle))
+      bad.push(`twice: ${utf8(needle[0]).slice(0, 80)}`);
   }
   return bad;
 }
 // The internal check of a writing command: throws the fail line when anything is off.
 function mustPass(before, after, plan) {
   const r = compare(before, after);
-  const bad = blocksWhole(after, plan);
+  const bad = blocksWhole(before, after, plan);
   if (r.lost.length || r.doubled.length || r.added.length)
     throw new Fail(
       `check found ${r.lost.length} lost, ${r.doubled.length} doubled, ${r.added.length} added`,
@@ -1006,8 +1014,9 @@ function put(root, rel, s) {
   if (s === null) return fs.rmSync(file, { force: true });
   const made = fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}`;
+  fs.rmSync(tmp, { force: true });
   try {
-    fs.writeFileSync(tmp, s, "latin1");
+    fs.writeFileSync(tmp, s, { encoding: "latin1", flag: "wx" }); // wx: a planted link at this name is refused
     fs.renameSync(tmp, file);
   } catch (e) {
     fs.rmSync(tmp, { force: true });
@@ -1019,9 +1028,28 @@ const rmEmptyDir = (root) => {
   const dir = path.join(root, DECISIONS_DIR);
   if (fs.existsSync(dir) && !fs.readdirSync(dir).length) fs.rmdirSync(dir);
 };
+// The lock is the user's own (under ~/.claude/hooks/state), not in the shared temp folder, where another account
+// could plant a restore.json that this run would replay. Restore data still in the old temp-folder lock is not
+// replayed either, but the run stops on it: it may be a real cut-off run's, for the user to check.
 function takeLock(root, command) {
-  const dir = path.join(os.tmpdir(), "claude-decisions-lock", lockKey(root));
-  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  const oldRestore = path.join(
+    os.tmpdir(),
+    "claude-decisions-lock",
+    lockKey(root),
+    "restore.json",
+  );
+  if (fs.existsSync(oldRestore))
+    throw new Fail(
+      `a cut-off run left restore data in the old lock folder, ${oldRestore}; it is not replayed and nothing changed. Check that the decisions files are whole (--verify HEAD names lost and doubled lines), then remove ${path.dirname(oldRestore)} and run this command again`,
+    );
+  const dir = path.join(STATE_DIR, "decisions-lock", lockKey(root));
+  fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
+  const busy = (since) =>
+    new Fail(
+      `decisions: busy, another run holds the lock since ${hhmm(since)}; nothing changed`,
+      { code: 2, raw: true },
+    );
+  const ownerFile = path.join(dir, "owner.json");
   let note = "";
   try {
     fs.mkdirSync(dir);
@@ -1040,29 +1068,78 @@ function takeLock(root, command) {
       Date.now() - started < LOCK_MAX_MS &&
       !(cutOff && owner && !alive(owner.pid))
     )
-      throw new Fail(
-        `decisions: busy, another run holds the lock since ${hhmm(started)}; nothing changed`,
-        {
-          code: 2,
-          raw: true,
-        },
+      throw busy(started);
+    // The takeover is claimed by making a folder named for the stale owner: mkdir is atomic, so of two runs that
+    // found the same stale lock only one takes it over; the other is told busy.
+    const claim = path.join(dir, `taken-${Math.round(started)}`);
+    if (faults.has("lock-race")) {
+      fs.mkdirSync(claim);
+      fs.writeFileSync(
+        ownerFile,
+        JSON.stringify({ pid: 999998, started: new Date().toISOString() }),
       );
+    }
+    try {
+      fs.mkdirSync(claim);
+    } catch (e) {
+      if (e.code === "EEXIST") throw busy(started);
+      throw e;
+    }
     note = `; took over a lock from ${hhmm(started)}`;
-    if (cutOff) note = recoverCutOff(root, dir, restoreFile, started);
+    try {
+      if (cutOff) note = recoverCutOff(root, dir, restoreFile, started);
+    } catch (e) {
+      fs.rmdirSync(claim); // the next run meets the same cut-off run and its message
+      throw e;
+    }
+    fs.rmSync(ownerFile, { force: true });
   }
-  fs.writeFileSync(
-    path.join(dir, "owner.json"),
-    JSON.stringify({
-      pid: process.pid,
-      started: new Date().toISOString(),
-      command,
-    }),
-  );
+  try {
+    fs.writeFileSync(
+      ownerFile,
+      JSON.stringify({
+        pid: process.pid,
+        started: new Date().toISOString(),
+        command,
+      }),
+      { flag: "wx" },
+    );
+  } catch (e) {
+    if (e.code === "EEXIST") throw busy(Date.now());
+    throw e;
+  }
   return { dir, note };
 }
+// A name a run may write: DECISIONS.md, the archive, or one file straight in docs/decisions/.
+const isRecordFile = (rel) =>
+  rel === ROOT_FILE ||
+  rel === ARCHIVE ||
+  (rel.startsWith(`${DECISIONS_DIR}/`) &&
+    !rel.slice(DECISIONS_DIR.length + 1).includes("/") &&
+    VALID_NAME.test(path.posix.basename(rel)));
 // A lock holding restore.json: a run was cut off after it began to write.
 function recoverCutOff(root, dir, restoreFile, started) {
-  const rs = JSON.parse(fs.readFileSync(restoreFile, "utf8"));
+  let rs = null;
+  try {
+    rs = JSON.parse(fs.readFileSync(restoreFile, "utf8"));
+  } catch {}
+  const plain = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  const text = (v) => v === null || typeof v === "string";
+  if (
+    !plain(rs) ||
+    !plain(rs.files) ||
+    !Object.values(rs.files).every(
+      (f) => plain(f) && text(f.before) && text(f.after),
+    )
+  )
+    throw new Fail(
+      `the cut-off run's restore data in ${restoreFile} is not readable or not in its expected shape; nothing changed. Look at it before you remove ${dir}`,
+    );
+  const odd = Object.keys(rs.files).find((rel) => !isRecordFile(rel));
+  if (odd !== undefined)
+    throw new Fail(
+      `the cut-off run's restore data names ${odd}, which is not a decisions file; nothing changed. Look at ${restoreFile} before you remove ${dir}`,
+    );
   const back = [];
   const neither = [];
   for (const [rel, f] of Object.entries(rs.files)) {

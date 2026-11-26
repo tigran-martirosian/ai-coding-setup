@@ -85,7 +85,7 @@ because Claude Code keeps its sign-in in the macOS Keychain ([Usage](using/usage
 | Claude's claims | Nothing checks them | Hooks check a reply against the log of what Claude did |
 | Before a big job | Claude starts building | Questions first, then a spec with a check for each line |
 | Big jobs | You arrange the helpers | `/lead`: a reviewed plan, helpers side by side, one end review |
-| Long chats | Compacted when nearly full, or by hand | Compacted at about 200k tokens during work; finished chats are left alone |
+| Long chats | Compacted when nearly full, or by hand | Compacted at about 200k tokens during work, and after about an hour idle in the terminal and VS Code (not in Nimbalyst); a `/lead` job moves to a fresh session after each merged part |
 | Spending | `/usage`: the last 24 hours and 7 days | Per project, with a forecast of when you reach your limit |
 | Security | Reviews you ask for | A review as Claude edits, a quick check before a release, a deep scan on request |
 

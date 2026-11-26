@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeBot } from "../phone/relay/bot/bot.mjs";
+import * as deployMod from "../phone/relay/deploy.mjs";
 import {
   announceTestCopy,
   BOT_DESCRIPTION,
@@ -25,6 +26,7 @@ import {
   START_COMMANDS,
   WRANGLER_VERSION,
 } from "../phone/relay/deploy.mjs";
+import * as deployTestMod from "../phone/relay/deploy-test.mjs";
 import {
   ADDRESS_KEY,
   deployTest,
@@ -102,6 +104,98 @@ check(
   /^\d+\.\d+\.\d+$/.test(WRANGLER_VERSION) && !/wrangler@/i.test(flow),
   WRANGLER_VERSION,
 );
+
+// ---- Wrangler's whole tree comes from a committed lock, installed with no secret near it ----
+
+const relayJson = (name) => {
+  try {
+    return JSON.parse(read(`phone/relay/${name}`));
+  } catch (e) {
+    return { error: e.message };
+  }
+};
+const pkg = relayJson("package.json");
+const lock = relayJson("package-lock.json");
+const lockedTree = Object.entries(lock.packages ?? {}).filter(([k]) => k);
+check(
+  "phone/relay pins Wrangler exactly and locks its whole tree with integrity hashes (FAIL: a deploy resolves new package versions next to the Cloudflare token)",
+  pkg.private === true &&
+    pkg.devDependencies?.wrangler === WRANGLER_VERSION &&
+    lock.packages?.["node_modules/wrangler"]?.version === WRANGLER_VERSION &&
+    lockedTree.length > 10 &&
+    lockedTree.every(([, p]) => p.link || /^sha512-/.test(p.integrity ?? "")),
+  JSON.stringify({
+    pkg,
+    wrangler: lock.packages?.["node_modules/wrangler"],
+    unhashed: lockedTree.filter(([, p]) => !p.integrity).map(([k]) => k),
+  }).slice(0, 600),
+);
+// The workflow's steps, each as its trimmed lines.
+const steps = flow
+  .split("\n    steps:\n")[1]
+  .split(/\n {6}- /)
+  .slice(1)
+  .map((s) => s.split("\n").map((l) => l.trim()));
+const installAt = steps.findIndex((s) =>
+  s.includes("run: npm ci --ignore-scripts"),
+);
+const deployAt = steps.findIndex((s) =>
+  s.some((l) => l.includes("node phone/relay/deploy.mjs")),
+);
+check(
+  "the workflow installs the locked tree with npm ci --ignore-scripts in phone/relay, in a step with no secret, before the deploy (FAIL: install scripts run next to the Cloudflare token)",
+  installAt >= 0 &&
+    installAt < deployAt &&
+    steps[installAt].includes("working-directory: phone/relay") &&
+    !steps[installAt].some((l) => /secrets\.|^env:/.test(l)),
+  JSON.stringify(steps),
+);
+const wranglerRun = deployMod.wranglerCommand?.(["deploy"]);
+same(
+  "the deploy runs the installed Wrangler with node and no shell, never npx (FAIL: npx fetches packages next to the Cloudflare token)",
+  wranglerRun,
+  {
+    command: process.execPath,
+    args: [
+      path.join(ROOT, "phone/relay/node_modules/wrangler/bin/wrangler.js"),
+      "deploy",
+    ],
+    shell: false,
+  },
+);
+
+// ---- the secrets file is made private from its first byte ----
+
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phone-secrets-mode-"));
+  const calls = [];
+  const { mkdirSync, writeFileSync } = fs;
+  fs.mkdirSync = (p, o) => {
+    calls.push(["mkdir", o?.mode]);
+    return mkdirSync(p, o);
+  };
+  fs.writeFileSync = (p, d, o) => {
+    calls.push(["write", o?.mode]);
+    return writeFileSync(p, d, o);
+  };
+  try {
+    deployTestMod.writeSecrets?.(path.join(dir, "new", "owner-secrets.json"), {
+      ownerTelegramId: "1",
+    });
+  } finally {
+    fs.mkdirSync = mkdirSync;
+    fs.writeFileSync = writeFileSync;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  same(
+    "the secrets file's folder is made 0700 and the file 0600 as they are created (FAIL: another local account can read the deploy token)",
+    calls,
+    [
+      ["mkdir", 0o700],
+      ["write", 0o600],
+    ],
+  );
+}
 
 // ---- the README names the same secrets ----
 
@@ -220,8 +314,10 @@ try {
   check(
     "the dry run shows the deploy, the four relay secrets and the Test copy message",
     text.includes(
-      `npx wrangler@${WRANGLER_VERSION} deploy --name phone-relay-test`,
+      "would run in " +
+        `${path.join(ROOT, "phone", "relay")}: node node_modules/wrangler/bin/wrangler.js deploy --name phone-relay-test`,
     ) &&
+      !/\bnpx\b/.test(text) &&
       RELAY_SECRETS.every((n) => text.includes(`secret put ${n} `)) &&
       text.includes('sendMessage "Test copy"'),
     text,
@@ -453,10 +549,17 @@ check(
     fs.writeFileSync(path.join(dir, "index.html"), "<!doctype html>");
     const tgCalls = [];
     let thread = 10;
+    // Frames the relay has received (its test hook), so settle() waits for the PC's frames, not a fixed time.
+    let framesIn = 0;
+    let framesSent = 0;
     const relay = await startLocalRelay({
+      countFrame: (_url, way) => {
+        if (way === "in") framesIn += 1;
+      },
       port: 0,
       pageDir: dir,
       botId: 4206917,
+      botToken: "4206917:local",
       ownerTgId: 6602207,
       telegramKey: "00".repeat(32),
       topicSuffix: put("TOPIC_SUFFIX"),
@@ -488,9 +591,20 @@ check(
     let ws = await open();
     const token = crypto.getRandomValues(new Uint8Array(32));
     const pcId = await pcIdOf(token);
-    const frame = (f) => ws.send(JSON.stringify({ v: 1, ...f }));
+    const frame = (f) => {
+      ws.send(JSON.stringify({ v: 1, ...f }));
+      framesSent += 1;
+    };
+    // Waits until the relay has every frame sent, then until the Hub has handled them.
     const settle = async () => {
-      await new Promise((ok) => setTimeout(ok, 60));
+      const deadline = Date.now() + 10_000;
+      while (framesIn < framesSent) {
+        if (Date.now() > deadline)
+          throw new Error(
+            `the relay got ${framesIn} of the PC's ${framesSent} frames in 10 s`,
+          );
+        await new Promise((ok) => setTimeout(ok, 2));
+      }
       await relay.idle();
     };
     frame({
@@ -1009,7 +1123,13 @@ console.log(JSON.stringify({ app: f.appDir(), keys: f.keyFilePath(), log: l.logP
       {
         cwd: ROOT,
         encoding: "utf8",
-        env: { ...env, PHONE_PC_DRY: "1", PHONE_PC_PLATFORM: "win32" },
+        env: {
+          ...env,
+          PHONE_PC_DRY: "1",
+          PHONE_PC_PLATFORM: "win32",
+          // dry and pretend-Windows: a Mac has no SystemRoot of its own
+          SystemRoot: process.env.SystemRoot || "C:/Windows",
+        },
       },
     );
     return { status: r.status, text: `${r.stdout}${r.stderr}` };

@@ -16,10 +16,12 @@ const handoff = skill("handoff");
 const where = skill("where-are-we");
 const LINK = /`?linkSession: true`?/;
 
-// The line of a text that starts with a marker, up to the end of that line
+// The step of a text that starts with a marker, up to its blank line (a step may carry sub-bullets)
 const lineOf = (text, marker) => {
   const at = text.indexOf(marker);
-  return at < 0 ? "" : text.slice(at, text.indexOf("\n", at));
+  if (at < 0) return "";
+  const end = text.indexOf("\n\n", at);
+  return text.slice(at, end < 0 ? undefined : end);
 };
 // The queued prompt a handoff gives a new session for a tracker step: the backticked text after "names its key and adds:"
 const handoffPrompt =

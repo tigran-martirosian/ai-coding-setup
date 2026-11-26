@@ -15,7 +15,7 @@ happen here.
   Codex (or takes `--codex yes|no`) and adds the picture skill to the `quick-tasks` folder (without
   Codex it takes it out again). Afterwards:
   - check the sign-in (`codex login status`);
-  - offer to install FFmpeg (only the picture skill's slower "careful run" needs it).
+  - offer to install FFmpeg when it is missing (`/watch` and the picture skill's slower "careful run" need it).
 - **`/setup-audit chat` fits the setup to the real work.** It reads the recent chats of every project on
   this computer (a script and `worker` subagents, which run on Claude, do the reading), finds where Claude got in the way
   and which skills or tools are missing, shows a tick list and sets up only what is ticked, in the

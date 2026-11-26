@@ -682,8 +682,51 @@ check(
     readOr(late.at("a.md.bak")) === "old a\n",
   uLate2.out,
 );
+// a moved file that links to another moved file: when the undo leaves that other move (a file is at its old path
+// again), the moved file goes back with only its own links put back; its link to the left file follows it to where
+// it stays. The left move comes first in the journal, so the undo meets the linking file before it knows.
+const ownLinks = path.join(tmp, "elsewhere", "own-links");
+make(ownLinks, {
+  "README.md": "# own\n",
+  "A_Draft.md": "a\n",
+  "Notes_Draft.md": "see ./A_Draft.md and ./README.md\n",
+});
+const aOwn = fc(
+  "--apply",
+  writeLedger(ledgerFrom(json(ownLinks)), "own-links.json"),
+);
+const ownJournal = path.join(
+  claude,
+  "setup-logs",
+  fs
+    .readdirSync(path.join(claude, "setup-logs"))
+    .find((n) => n.endsWith("-own-links.json")),
+);
+const BLOCK = "a new file at A_Draft.md\n";
+fs.writeFileSync(path.join(ownLinks, "A_Draft.md"), BLOCK);
+const uOwn = fc("--undo", ownJournal);
+const ownAt = (f) => readOr(path.join(ownLinks, f));
 check(
-  "shaFile: a file read in chunks (so over 2 GiB works) hashes as the whole file",
+  "undo: a moved file goes back with only its own links put back; its link to a moved file the undo left points at that file's new path",
+  aOwn.code === 0 &&
+    uOwn.code === 0 &&
+    ownAt("Notes_Draft.md") === "see ./docs/a-draft.md and ./README.md\n" &&
+    ownAt("A_Draft.md") === BLOCK &&
+    ownAt("docs/a-draft.md") === "a\n",
+  `${aOwn.out}\n${uOwn.out}\nNotes_Draft.md: ${JSON.stringify(ownAt("Notes_Draft.md"))}`,
+);
+fs.rmSync(path.join(ownLinks, "A_Draft.md"));
+const uOwn2 = fc("--undo", ownJournal);
+check(
+  "a second undo moves the left file back and puts the moved file's link to it back as it was",
+  uOwn2.code === 0 &&
+    ownAt("Notes_Draft.md") === "see ./A_Draft.md and ./README.md\n" &&
+    ownAt("A_Draft.md") === "a\n" &&
+    !fs.existsSync(path.join(ownLinks, "docs")),
+  `${uOwn2.out}\nNotes_Draft.md: ${JSON.stringify(ownAt("Notes_Draft.md"))}`,
+);
+check(
+  "shaFile:a file read in chunks (so over 2 GiB works) hashes as the whole file",
   (() => {
     const big = path.join(tmp, "three-mib.bin"),
       data = crypto.randomBytes(3 * 1024 * 1024 + 1);
@@ -981,6 +1024,379 @@ check(
   "P11: 20 loose files and 30 in a topic folder ask nothing",
   fewerP11.length === 0,
   JSON.stringify(fewerP11),
+);
+// a word that names the kind of document (plan, spec, report...) is not a topic: 21 "<topic>-plan.md" files are not
+// all asked into docs/plan/; the two sharing "online" are asked into docs/online/
+const kinds = path.join(tmp, "elsewhere", "docs-kinds");
+gitRepo(kinds, {
+  "README.md": "# k\n",
+  "docs/README.md": "# docs\n",
+  ...Object.fromEntries(
+    [
+      "online-plan.md",
+      "online-select-plan.md",
+      ..."combat feel hud movement rounds stun upgrade walk throw select-screen settings-menu strike-controls arcade-controls character-look join-code paired-moves next-steps special-cinematic"
+        .split(" ")
+        .map((t) => `${t}-plan.md`),
+    ].map((n) => [`docs/${n}`, "# n\n"]),
+  ),
+});
+const kindTargets = json(kinds)
+  .findings.filter((f) => f.rules.includes("P11") && f.path !== "docs")
+  .map((f) => f.target);
+check(
+  "P11: a document-kind word (plan) never names a topic folder; a real shared topic (online) still does",
+  !kindTargets.some((t) => /^docs\/plans?\//.test(t)) &&
+    kindTargets.filter((t) => t?.startsWith("docs/online/")).length === 2,
+  JSON.stringify(kindTargets),
+);
+
+// 21 loose files with topics in their names: each is asked to go to a topic folder, an existing one first, else one
+// named by a word two or more files share (a person says yes to each move); job files and files that share no word
+// stay loose; docs/ with no README.md asks for the start page
+const topics = path.join(tmp, "elsewhere", "docs-topics");
+gitRepo(topics, {
+  "README.md": "# t\n",
+  "docs/phone-app/pairing.md": "# p\n",
+  ...Object.fromEntries(
+    [
+      "2026-11-01-sync-spec.md",
+      "2026-11-01-sync-plan.md",
+      "2026-11-02-login-design.md",
+      "2026-10-01-phone-app-icons.md",
+      "phone-app-sleep.md",
+      "2026-09-01-release-26-1.md",
+      "2026-10-01-release-26-2.md",
+      "release-checklist.md",
+      "hooks-errors.md",
+      "2026-08-01-hooks-timing.md",
+      "hooks-list.md",
+      "voice-setup.md",
+      "2026-07-01-voice-tests.md",
+      "2026-06-01-backup-check.md",
+      "backup-restore.md",
+      "getting-started.md",
+      "whats-new.md",
+      "full-install.md",
+      "disk-inventory.md",
+      "test-results.md",
+      "how-it-works.md",
+    ].map((n) => [`docs/${n}`, "# n\n"]),
+  ),
+});
+const rTopics = json(topics);
+const grouped = Object.fromEntries(
+  rTopics.findings
+    .filter((f) => f.rules.includes("P11") && f.path !== "docs")
+    .map((f) => [f.path, `${f.kind} ${f.target}`]),
+);
+const wantGrouped = {
+  "docs/2026-07-01-voice-tests.md": "ask docs/voice/2026-07-01-voice-tests.md",
+  "docs/2026-08-01-hooks-timing.md":
+    "ask docs/hooks/2026-08-01-hooks-timing.md",
+  "docs/2026-09-01-release-26-1.md":
+    "ask docs/release/2026-09-01-release-26-1.md",
+  "docs/2026-10-01-phone-app-icons.md":
+    "ask docs/phone-app/2026-10-01-phone-app-icons.md",
+  "docs/2026-10-01-release-26-2.md":
+    "ask docs/release/2026-10-01-release-26-2.md",
+  "docs/hooks-errors.md": "ask docs/hooks/hooks-errors.md",
+  "docs/hooks-list.md": "ask docs/hooks/hooks-list.md",
+  "docs/phone-app-sleep.md": "ask docs/phone-app/phone-app-sleep.md",
+  "docs/release-checklist.md": "ask docs/release/release-checklist.md",
+  "docs/voice-setup.md": "ask docs/voice/voice-setup.md",
+};
+check(
+  "P11: 21 loose files are each asked about a topic folder (an existing one or a new one, never moved unasked); job files, files sharing no word and archive words (backup) stay",
+  JSON.stringify(Object.entries(grouped).sort()) ===
+    JSON.stringify(Object.entries(wantGrouped).sort()),
+  JSON.stringify(grouped, null, 1),
+);
+const startPage = byPath(rTopics, "docs");
+check(
+  "P11: docs/ without README.md asks for the start page once, on docs",
+  startPage?.rules.includes("P11") &&
+    startPage.kind === "ask" &&
+    !startPage.target &&
+    startPage.why.includes("docs/README.md"),
+  JSON.stringify(startPage),
+);
+check(
+  "P11: the docs ask counts every loose file as staying, as each topic folder move is only asked",
+  startPage?.why.startsWith("21 loose files"),
+  JSON.stringify(startPage),
+);
+// which folders are topic folders, which files stay loose, and the R3 note of an old file asked about a topic folder
+const topics2 = path.join(tmp, "elsewhere", "docs-topics-more");
+gitRepo(topics2, {
+  "README.md": "# t\n",
+  "docs/README.md": "# d\n",
+  "docs/Hooks/a.md": "# a\n",
+  "docs/notes/a.md": "# a\n",
+  "docs/outputs/r.md": "# r\n",
+  "docs/tmp/x.md": "# x\n",
+  "docs/draft-intro/a.md": "# a\n",
+  "docs/report/[Content_Types].xml": "<x/>\n",
+  "docs/report/word.xml": "<x/>\n",
+  "docs/speech/a.md": "# a\n",
+  ...Object.fromEntries(
+    [
+      "hooks-errors.md",
+      "notes-sync.md",
+      "outputs-review.md",
+      "draft-intro-text.md",
+      "tmp-list.md",
+      "report-summary.md",
+      "facts.md",
+      "facts-sources.md",
+      "known-failures.md",
+      "failures-log.md",
+      "speech-glossary.md",
+      "whats-new.md",
+      "whats-next.md",
+      "2025-01-05-release-check.md",
+      "release-steps.md",
+      "zebra.md",
+      "yak.md",
+      "quokka.md",
+      "otter.md",
+      "lynx.md",
+      "ibis.md",
+    ].map((n) => [`docs/${n}`, "# n\n"]),
+  ),
+});
+const rTopics2 = json(topics2);
+const p11At = (f) =>
+  rTopics2.findings.find((x) => x.path === f && x.rules.includes("P11"));
+check(
+  "P11: no file is asked into a run-output, scratch or unpacked-document folder, nor one with a finding of its own",
+  [
+    "outputs-review.md",
+    "draft-intro-text.md",
+    "tmp-list.md",
+    "report-summary.md",
+  ].every((n) => !p11At(`docs/${n}`)),
+  JSON.stringify(rTopics2.findings.filter((x) => x.rules.includes("P11"))),
+);
+check(
+  "P11: the standing files the setup names by path (facts, known-failures, speech-glossary, whats-new) stay loose",
+  ["facts.md", "known-failures.md", "speech-glossary.md", "whats-new.md"].every(
+    (n) => !p11At(`docs/${n}`),
+  ),
+  JSON.stringify(rTopics2.findings.filter((x) => x.rules.includes("P11"))),
+);
+check(
+  "R3: an old unlinked doc asked about a topic folder still gets its keep-or-delete note",
+  rTopics2.findings.some(
+    (x) =>
+      x.path === "docs/2025-01-05-release-check.md" && x.rules.includes("R3"),
+  ),
+  JSON.stringify(
+    rTopics2.findings.filter(
+      (x) => x.path === "docs/2025-01-05-release-check.md",
+    ),
+  ),
+);
+check(
+  "P11: a folder name matches in any case and with _ (docs/Hooks/), and a stop word (docs/notes/) names no topic",
+  p11At("docs/hooks-errors.md")?.target === "docs/Hooks/hooks-errors.md" &&
+    p11At("docs/hooks-errors.md")?.kind === "ask" &&
+    !p11At("docs/notes-sync.md"),
+  JSON.stringify([p11At("docs/hooks-errors.md"), p11At("docs/notes-sync.md")]),
+);
+const docsAsk2 = byPath(rTopics2, "docs");
+check(
+  "P11: with docs/README.md there, docs/ is still asked about while more than 20 files stay loose unless the asks are said yes to",
+  docsAsk2?.rules.includes("P11") && docsAsk2.why.startsWith("22 loose files"),
+  JSON.stringify(docsAsk2),
+);
+// 18 loose texts and 3 pictures P8 moves out of docs/: 18 stay, so only the start page is asked for
+const startOnly = path.join(tmp, "elsewhere", "docs-start-only");
+gitRepo(startOnly, {
+  "README.md": "# s\n",
+  ...loose(18),
+  "docs/a.png": "png\n",
+  "docs/b.png": "png\n",
+  "docs/c.png": "png\n",
+});
+const startAsk = byPath(json(startOnly), "docs");
+check(
+  "P11: 21 loose files of which a fix moves 3 out of docs/: only docs/README.md is asked for, no grouping",
+  startAsk?.why.includes("docs/README.md") &&
+    !startAsk.why.includes("group them") &&
+    !/\d+ loose files go to/.test(startAsk.why),
+  JSON.stringify(startAsk),
+);
+
+// ---- undo of a moved file's links when a move is left: a ./ path to a folder that never moved, a held path to a
+// moved folder, and a move whose file a later folder move carried on
+const journalOf = (name) =>
+  path.join(
+    claude,
+    "setup-logs",
+    fs
+      .readdirSync(path.join(claude, "setup-logs"))
+      .find((n) => n.endsWith(`-${name}.json`)),
+  );
+// docs/release-a.md links ./images; P11 moves it to docs/release/ (the link becomes ../images, following the folder
+// docs/images, which stays) and P8 moves docs/images/x.png to shown/x.png. A new picture at docs/images/x.png makes
+// the undo leave the P8 move; release-a.md goes back with its link as it was.
+const stayDir = path.join(tmp, "elsewhere", "stay-folder");
+make(stayDir, {
+  "README.md": "# s\n",
+  "docs/README.md": "# d\n",
+  ...loose(21),
+  "docs/release-a.md": "see ./images\n",
+  "docs/release-b.md": "b\n",
+  "docs/images/x.png": "png\n",
+});
+const aStay = fc(
+  "--apply",
+  writeLedger(
+    ledgerFrom(json(stayDir), {
+      docs: { action: "keep", reason: "the person sorts docs/ later" },
+      "docs/images/x.png": { action: "move", to: "shown/x.png" },
+    }),
+    "stay-folder.json",
+  ),
+);
+const stayAt = (f) => readOr(path.join(stayDir, f));
+const movedA = stayAt("docs/release/release-a.md");
+make(stayDir, { "docs/images/x.png": "a new picture\n" });
+const uStay = fc("--undo", journalOf("stay-folder"));
+check(
+  "undo: a moved file's link to a folder that never moved goes back as it was, though a move out of that folder is left",
+  aStay.code === 0 &&
+    movedA === "see ../images\n" &&
+    uStay.code === 0 &&
+    stayAt("docs/release-a.md") === "see ./images\n" &&
+    stayAt("shown/x.png") === "png\n",
+  `${aStay.out}\n${uStay.out}\nmoved: ${JSON.stringify(movedA)}\nback: ${JSON.stringify(stayAt("docs/release-a.md"))}`,
+);
+// a journal written by hand: what the apply left, then the undo
+const handUndo = (name, files, journal) => {
+  const root = path.join(tmp, "elsewhere", name);
+  make(root, files);
+  const j = path.join(tmp, `${name}-journal.json`);
+  fs.writeFileSync(
+    j,
+    JSON.stringify(
+      {
+        project: fwd(root),
+        date: "2026-11-26T00:00:00.000Z",
+        git: false,
+        before: null,
+        ledger: [],
+        state: "done",
+        planned: [],
+        listed: [],
+        outside: [],
+        ...journal,
+      },
+      null,
+      2,
+    ),
+  );
+  const u = fc("--undo", j);
+  return {
+    u,
+    at: (f) => readOr(path.join(root, f)),
+    journal: JSON.parse(read(j)),
+  };
+};
+// docs/m.md links ./img and moved to docs/sub/; its link follows the folder docs/img, moved to shown/img. The move
+// of docs/img/a.png is left (a file is at its old path again), so the link stays on shown/img: from docs/ again it
+// is ../shown/img, the folder, never the left file's own path.
+const heldDir = handUndo(
+  "held-folder",
+  {
+    "docs/sub/m.md": "see ../../shown/img\n",
+    "shown/a.png": "png\n",
+    "docs/img/a.png": "a new picture\n",
+  },
+  {
+    ops: [
+      { op: "move", from: "docs/img/a.png", to: "shown/a.png", tracked: false },
+      { op: "move", from: "docs/m.md", to: "docs/sub/m.md", tracked: false },
+    ],
+    edits: [
+      {
+        file: "docs/sub/m.md",
+        edits: [
+          {
+            at: 4,
+            old: "./img",
+            new: "../../shown/img",
+            follows: "docs/img",
+          },
+        ],
+      },
+    ],
+  },
+);
+check(
+  "undo: a held link to a moved folder points at the folder's new place from the file's old folder",
+  heldDir.u.code === 0 && heldDir.at("docs/m.md") === "see ../shown/img\n",
+  `${heldDir.u.out}\ndocs/m.md: ${JSON.stringify(heldDir.at("docs/m.md"))}`,
+);
+// a move to docs/release/, then the folder docs/release renamed to docs/releases: the file is not at the first
+// move's target until the undo takes the folder back, and then that move goes back too, with every link
+const sha256 = (t) => crypto.createHash("sha256").update(t).digest("hex");
+const chain = handUndo(
+  "chained-moves",
+  {
+    "README.md": "see docs/releases/x-release.md\n",
+    "docs/releases/x-release.md": "back to ../../README.md\n",
+  },
+  {
+    ops: [
+      {
+        op: "move",
+        from: "docs/2026-x-release.md",
+        to: "docs/release/x-release.md",
+        tracked: false,
+        sha: sha256("back to ../README.md\n"),
+      },
+      {
+        op: "move",
+        from: "docs/release",
+        to: "docs/releases",
+        tracked: false,
+      },
+    ],
+    edits: [
+      {
+        file: "README.md",
+        edits: [
+          {
+            at: 4,
+            old: "docs/2026-x-release.md",
+            new: "docs/releases/x-release.md",
+            follows: "docs/2026-x-release.md",
+          },
+        ],
+      },
+      {
+        file: "docs/release/x-release.md",
+        edits: [
+          {
+            at: 8,
+            old: "../README.md",
+            new: "../../README.md",
+            follows: "README.md",
+          },
+        ],
+      },
+    ],
+  },
+);
+check(
+  "undo: a move whose file a later folder move carried on goes back with every link, and the journal is closed",
+  chain.u.code === 0 &&
+    chain.at("README.md") === "see docs/2026-x-release.md\n" &&
+    chain.at("docs/2026-x-release.md") === "back to ../README.md\n" &&
+    Boolean(chain.journal.undone),
+  `${chain.u.out}\nREADME.md: ${JSON.stringify(chain.at("README.md"))}`,
 );
 
 // ---- 9. names that say what a file does (N8), Python copies, folders as one finding, documents, folder roles (P8)
@@ -2053,6 +2469,191 @@ for (const [from, to] of [
     betweenHits.includes(`${from} → ${to}`),
     JSON.stringify(betweenHits),
   );
+
+// ---- 18. an extension longer than 8 characters keeps its dot in a rename; a file that is not UTF-8 is never
+// rewritten by the apply's link fix (it is named for a person instead), while a UTF-8 file beside it still is
+for (const [from, to] of [
+  ["My Notes.excalidraw", "my-notes.excalidraw"],
+  ["App_Config.properties", "app-config.properties"],
+  ["Flow_Chart.excalidraw.svg", "flow-chart.excalidraw.svg"],
+])
+  check(
+    `unit: ${from} keeps the dot of its long extension in a rename (→ ${to})`,
+    fixName(from, "docs")[0] === to,
+    fixName(from, "docs")[0],
+  );
+const encoded = path.join(tmp, "elsewhere", "not-utf8");
+const latin1 = Buffer.concat([
+  Buffer.from("caf"),
+  Buffer.from([0xe9]),
+  Buffer.from(" see docs/Setup_Notes.md\n"),
+]);
+gitRepo(encoded, {
+  "docs/Setup_Notes.md": "# notes\n",
+  "notes-latin1.txt": latin1,
+  "docs/notes-utf8.md": "café: see docs/Setup_Notes.md\n",
+});
+const aEnc = fc(
+  "--apply",
+  writeLedger(ledgerFrom(json(encoded)), "not-utf8.json"),
+);
+check(
+  "apply: a file that is not UTF-8 (Latin-1) naming a moved file stays byte for byte",
+  fs.readFileSync(path.join(encoded, "notes-latin1.txt")).equals(latin1),
+  fs.readFileSync(path.join(encoded, "notes-latin1.txt")).toString("hex"),
+);
+check(
+  "apply: a file that is not UTF-8 naming a moved file is listed to fix by hand",
+  /by hand: notes-latin1\.txt\b.*not UTF-8/.test(aEnc.out),
+  aEnc.out,
+);
+check(
+  "apply: a UTF-8 file beside it still gets its link fixed (→ docs/setup-notes.md)",
+  read(path.join(encoded, "docs", "notes-utf8.md")) ===
+    "café: see docs/setup-notes.md\n",
+  read(path.join(encoded, "docs", "notes-utf8.md")),
+);
+
+// ---- 19. names Xcode needs as they are: everything inside an .xcodeproj, .xcworkspace or .xcdatamodeld bundle; in
+// an asset catalog each Contents.json, each asset folder (its extension is its type, its name the asset's), each
+// file a Contents.json names, and a group folder that gives its assets a namespace. A file no Contents.json names
+// and a plain group folder are still renamed. Without git, CocoaPods' Pods/ is skipped like node_modules/
+// (a finding that renames rel, or the folder rel at its depth, breaks the name)
+const keepsName = (findings, rel) => {
+  const segs = rel.split("/");
+  return !findings.some(
+    (f) =>
+      (f.path === rel || f.path.startsWith(`${rel}/`)) &&
+      f.target &&
+      f.target.split("/")[segs.length - 1] !== segs.at(-1),
+  );
+};
+const XA = "ios/App/App/Assets.xcassets";
+const xcodeNames = path.join(tmp, "elsewhere", "xcode-names");
+gitRepo(xcodeNames, {
+  "package.json": "{}\n",
+  "ios/App/App.xcodeproj/project.pbxproj":
+    "path = App; path = Assets.xcassets; path = Model.xcdatamodeld;\n",
+  "ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme": "",
+  "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist":
+    "",
+  "ios/App/App.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings": "",
+  "ios/App/App/Model.xcdatamodeld/Model.xcdatamodel/contents": "",
+  [`${XA}/Contents.json`]: "{}",
+  [`${XA}/AppIcon.appiconset/Contents.json`]:
+    '{"images":[{"filename":"Icon Large.png"}]}',
+  [`${XA}/AppIcon.appiconset/Icon Large.png`]: "",
+  [`${XA}/Splash.imageset/Contents.json`]:
+    '{"images":[{"filename":"Splash_Screen.png"}]}',
+  [`${XA}/Splash.imageset/Splash_Screen.png`]: "",
+  [`${XA}/Splash.imageset/Old_Splash.png`]: "",
+  [`${XA}/Sample_Data.dataset/Contents.json`]:
+    '{"data":[{"filename":"Sample_Data.json"}]}',
+  [`${XA}/Sample_Data.dataset/Sample_Data.json`]: "",
+  [`${XA}/Star_Icon.symbolset/Contents.json`]:
+    '{"symbols":[{"filename":"Star_Icon.svg"}]}',
+  [`${XA}/Star_Icon.symbolset/Star_Icon.svg`]: "",
+  [`${XA}/Brand_Kit/Contents.json`]:
+    '{"properties":{"provides-namespace":true}}',
+  [`${XA}/Brand_Kit/Accent.colorset/Contents.json`]: "{}",
+  [`${XA}/Plain_Group/Contents.json`]: "{}",
+  [`${XA}/Plain_Group/Logo.imageset/Contents.json`]: "{}",
+});
+const xcNames = tryJson(fc("--report", xcodeNames, "--json").out)?.findings;
+for (const rel of [
+  "ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme",
+  "ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist",
+  "ios/App/App.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings",
+  "ios/App/App/Model.xcdatamodeld/Model.xcdatamodel",
+  `${XA}/Contents.json`,
+  `${XA}/AppIcon.appiconset/Contents.json`,
+  `${XA}/AppIcon.appiconset/Icon Large.png`,
+  `${XA}/Splash.imageset/Splash_Screen.png`,
+  `${XA}/Sample_Data.dataset`,
+  `${XA}/Sample_Data.dataset/Sample_Data.json`,
+  `${XA}/Star_Icon.symbolset`,
+  `${XA}/Star_Icon.symbolset/Star_Icon.svg`,
+  `${XA}/Brand_Kit`,
+  `${XA}/Plain_Group/Contents.json`,
+])
+  check(
+    `N1: --report keeps ${rel}, a name Xcode needs as it is (no finding renames it)`,
+    xcNames && keepsName(xcNames, rel),
+    JSON.stringify(xcNames?.map((f) => `${f.path} → ${f.target}`)),
+  );
+for (const [from, to] of [
+  [
+    `${XA}/Splash.imageset/Old_Splash.png`,
+    `${XA}/Splash.imageset/old-splash.png`,
+  ],
+  [
+    `${XA}/Plain_Group/Logo.imageset/Contents.json`,
+    `${XA}/plain-group/Logo.imageset/Contents.json`,
+  ],
+])
+  check(
+    `N1: ${from}, which Xcode does not need by name, is still renamed (→ ${to})`,
+    xcNames?.some((f) => f.path === from && f.target === to),
+    JSON.stringify(xcNames?.map((f) => `${f.path} → ${f.target}`)),
+  );
+const noGitPods = path.join(tmp, "elsewhere", "no-git-pods");
+make(noGitPods, {
+  "ios/App/Podfile": "",
+  "ios/App/Pods/Some_Pod/Some_File.h": "",
+  "Notes_Dir/Plan.md": "",
+});
+const podHits = json(noGitPods).findings.map((f) => `${f.path} → ${f.target}`);
+check(
+  "N1: without git, nothing in CocoaPods' Pods/ folder is renamed",
+  !podHits.some((h) => /(^|\/)pods\//i.test(h)),
+  JSON.stringify(podHits),
+);
+check(
+  "N1: without git, a folder outside Pods/ is still renamed (Notes_Dir → notes-dir)",
+  podHits.includes("Notes_Dir/Plan.md → notes-dir/plan.md"),
+  JSON.stringify(podHits),
+);
+
+// ---- 20. a merge never damages a file that is not UTF-8: the merge is not done, both files stay byte for byte,
+// and it is listed to do by hand
+const LATIN = Buffer.concat([
+  Buffer.from("- caf"),
+  Buffer.from([0xe9]),
+  Buffer.from(" decision\n"),
+]);
+for (const [label, srcText, dstText] of [
+  ["the merged file", LATIN, "- a newer decision\n"],
+  ["the merge target", "- an old decision\n", LATIN],
+]) {
+  const slug = `merge-${label.replace(/ /g, "-")}`;
+  const dir = path.join(tmp, "elsewhere", slug);
+  const src = "docs/decisions-archive-2026-11-02.md",
+    dst = "docs/decisions-archive.md";
+  gitRepo(dir, { [src]: srcText, [dst]: dstText });
+  const l = ledgerFrom(json(dir));
+  const out = fc("--apply", writeLedger(l, `${slug}.json`)).out;
+  const bytes = (rel) =>
+    fs.existsSync(path.join(dir, rel))
+      ? fs.readFileSync(path.join(dir, rel))
+      : Buffer.alloc(0);
+  check(
+    `apply: with ${label} not UTF-8, the merge is not done and both files stay byte for byte`,
+    l.entries.some((e) => e.action === "merge") &&
+      bytes(src).equals(Buffer.from(srcText)) &&
+      bytes(dst).equals(Buffer.from(dstText)),
+    `${JSON.stringify(l.entries)}\n${out}`,
+  );
+  check(
+    `apply: with ${label} not UTF-8, the merge is listed to do by hand`,
+    out
+      .split("\n")
+      .some(
+        (x) =>
+          x.includes("by hand:") && x.includes(src) && x.includes("not UTF-8"),
+      ),
+    out,
+  );
+}
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -1,6 +1,6 @@
 # Read Aloud (Nimbalyst extension)
 
-Reads agent replies aloud with Kokoro TTS running on this computer. No cloud, no API keys, no per-use cost.
+Reads agent replies aloud with Kokoro TTS running on this computer. No cloud, no API keys, no per-use cost. Windows only: the backend starts the TTS folder's Windows Python (`venv\Scripts\python.exe`).
 
 ## Use
 
@@ -39,5 +39,6 @@ Then restart Nimbalyst (or reload extensions) and approve the one-time prompt to
 
 - **Which messages get the button.** The SDK's transcript contribution does not say whether a block is from the user or the agent, or whether it is still streaming. The control checks the host's CSS classes (`.rich-transcript-message.user`, tool and thinking containers) and hides itself on user messages and tool output. If a Nimbalyst update renames those classes, the button may also appear on your own messages; it never breaks the transcript.
 - **One strip, last turn only.** It sits on the last text block of the last turn and shows only when nothing follows it: no "still working" line (`.rich-transcript-waiting`) and no newer message from you. If the host renames that class, the strip may show while a turn still runs.
+- **A long turn must have been on the page.** The chat drops rows far from view, so Read Aloud keeps each session's text blocks in order as they render (in memory, until the window closes) and reads the turn from that. If the start of a long turn never came on the page (for example, you opened an old chat at its end), the button says so: scroll up to the start of the turn, then press Read aloud again. Matching rows uses the host's `data-session-id` and `.rich-transcript-vlist` too.
 - **Collisions.** The control uses its own element name (`readaloud-control`), so it cannot replace other extensions' `code`/`a` overrides. Its rehype plugin only appends one element per block.
 - **Per workspace.** Nimbalyst runs one backend per open project, so each project that you use Read Aloud in loads its own copy of the model (about 350 MB of memory).

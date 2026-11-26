@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { fileKey } from "../hooks/lib/paths.mjs";
 import { key, splitBlocks } from "../scripts/blocks.mjs";
 
@@ -710,6 +710,140 @@ check(
     read(homeMine).includes("- Home rule.") &&
     state().ownTidied[fileKey(homeMine)] === sha(read(homeMine)) &&
     !own("--status", "--homes").out.includes("pending:"),
+);
+
+// ---- an --apply that fails part way (here: a folder where the second file's vault goes) has already tidied both
+// files and written the first vault; its undo record and vault numbers are on disk all the same
+const PART_A = "- Keep this.\n\n- A dead rule.\n";
+const PART_B = "- Home keep.\n\n- A dead home rule.\n";
+const stuck = path.join(projects, "stuck");
+const stuckMine = path.join(stuck, ".claude", "rules", "my-rules.md");
+const stuckVault = path.join(stuck, ".claude", "my-rules-vault.md");
+fs.mkdirSync(path.dirname(stuckMine), { recursive: true });
+fs.mkdirSync(stuckVault);
+fs.writeFileSync(myRules, PART_A);
+fs.writeFileSync(stuckMine, PART_B);
+const keepAndVault = (file, text, kept) => {
+  const b = splitBlocks(text);
+  const out = path.join(
+    tmp,
+    `out-${path.basename(path.dirname(path.dirname(path.dirname(file))))}.md`,
+  );
+  fs.writeFileSync(out, kept);
+  return {
+    file: fwd(file),
+    sha: sha(text),
+    out: fwd(out),
+    leaveOut: [],
+    blocks: [
+      { id: "B1", key: key(b[0].text), kind: "own", verdict: "keep" },
+      { id: "B2", key: key(b[1].text), kind: "dead", verdict: "vault" },
+    ],
+  };
+};
+fs.writeFileSync(
+  ledgerFile,
+  JSON.stringify({
+    ledger: 1,
+    files: [
+      keepAndVault(myRules, PART_A, "- Keep this.\n"),
+      keepAndVault(stuckMine, PART_B, "- Home keep.\n"),
+    ],
+  }),
+);
+const half = own("--apply", ledgerFile);
+const halfIds = [
+  ...(fs.existsSync(vaultFile) ? read(vaultFile) : "").matchAll(
+    /^## V(\d+) /gm,
+  ),
+].map((m) => Number(m[1]));
+check(
+  "an --apply that fails part way fails, and the vault numbers it already wrote are not handed out again (ownVaultNext saved)",
+  half.code !== 0 &&
+    read(myRules) === "- Keep this.\n" &&
+    halfIds.length === 1 &&
+    state().ownVaultNext > halfIds[0],
+);
+const halfUndo = own("--undo");
+check(
+  "--undo after an --apply that failed part way puts back every file it had changed and takes away the vault it created",
+  halfUndo.code === 0 &&
+    read(myRules) === PART_A &&
+    read(stuckMine) === PART_B &&
+    !fs.existsSync(vaultFile),
+);
+fs.rmSync(stuckVault, { recursive: true });
+
+// ---- an --apply that stops before it changed any file (here: the file is read-only) keeps the undo record of the
+// run before it, so that run can still be undone
+const KEEP = "- Keep this one too.\n";
+fs.writeFileSync(myRules, KEEP);
+const prior = own("--apply", writeLedger([allKeep(myRules)], KEEP));
+const priorUndo = state().rulesUndo;
+fs.chmodSync(myRules, 0o444);
+const none = own("--apply", writeLedger([allKeep(myRules)], KEEP));
+fs.chmodSync(myRules, 0o644);
+check(
+  `an --apply that stops before it changed any file keeps the last undo record and says nothing was changed${
+    none.code ? "" : " (it did not stop)"
+  }${JSON.stringify(state().rulesUndo) === JSON.stringify(priorUndo) ? "" : " (the last undo record was replaced)"}`,
+  prior.code === 0 &&
+    none.code !== 0 &&
+    /nothing was changed/.test(none.out) &&
+    JSON.stringify(state().rulesUndo) === JSON.stringify(priorUndo),
+  none.out,
+);
+
+// ---- an --apply whose files are all tidied but whose ledger log can't be written (a preload makes that one write
+// fail) is not called "stopped part way": the tidy is done and says so
+const noLog = path.join(tmp, "no-log.mjs");
+fs.writeFileSync(
+  noLog,
+  `import fs from "node:fs";
+const write = fs.writeFileSync;
+fs.writeFileSync = (f, ...a) => {
+  if (/[\\\\/]tidy-[^\\\\/]*\\.json$/.test(String(f))) throw Object.assign(new Error("EACCES: no log"), { code: "EACCES" });
+  return write(f, ...a);
+};
+`,
+);
+const DONE = "- Tidied, log or not.\n";
+fs.writeFileSync(myRules, "- Tidied, log or not.\n\n- A dead one.\n");
+const noLogRun = spawnSync(
+  process.execPath,
+  [
+    "--import",
+    pathToFileURL(noLog).href,
+    OWN,
+    "--home",
+    home,
+    "--apply",
+    writeLedger(
+      [
+        {
+          ...allKeep(myRules),
+          blocks: splitBlocks(read(myRules)).map((b, i) => ({
+            id: `B${i + 1}`,
+            key: key(b.text),
+            kind: i ? "dead" : "own",
+            verdict: i ? "vault" : "keep",
+          })),
+        },
+      ],
+      DONE,
+    ),
+  ],
+  { encoding: "utf8" },
+);
+const noLogOut = `${noLogRun.stdout}${noLogRun.stderr}`;
+check(
+  `an --apply whose ledger log can't be written says the tidy is done and only the log is missing, not "stopped part way"${
+    /part way/.test(noLogOut) ? " (it said part way)" : ""
+  }`,
+  read(myRules) === DONE &&
+    !/part way/.test(noLogOut) &&
+    /ledger/.test(noLogOut) &&
+    /no log/.test(noLogOut),
 );
 
 // ---- on Windows a ledger may spell the global file in other letter case; it is the same file, so it is marked tidied

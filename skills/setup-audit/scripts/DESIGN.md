@@ -100,15 +100,18 @@ components:
     textColor: "{colors.bad}"
 ---
 
-# Design System: Usage dashboard
+# Design System: Usage dashboard in the browser
 
 ## Overview
+
+This file governs the usage dashboard page that `usage-dashboard.mjs` builds and opens in a web browser. The usage
+dashboard panel inside Nimbalyst follows `extensions/shared/DESIGN.md` instead.
 
 The template is `usage-dashboard.html` in this folder; `~/.claude/reports/usage-dashboard.html` is built output, never edited.
 
 **Creative North Star: "The Instrument Panel"**
 
-A dark slate utility dashboard, data first. Flat panels sit on a slate page, numbers lead and chrome stays out of the way. It mirrors the look of Nimbalyst's usage popover. The page reads top down: the plan, who used it, where it went.
+A dark slate utility dashboard, data first. Flat panels sit on a slate page, numbers lead and chrome stays out of the way. It is a standalone page with its own palette. The page reads top down: the plan, who used it, where it went.
 
 There is one accent, sky blue, for interaction and for the first data series. Green, yellow and red appear only to say how a limit or a state is doing. Nothing else is coloured.
 

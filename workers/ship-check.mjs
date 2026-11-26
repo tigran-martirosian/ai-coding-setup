@@ -360,16 +360,20 @@ export function gitleaksUncommitted(
 // A built-in deploy tool counts only where a command starts (not `npm i -g vercel`, `git checkout gh-pages`): the
 // line's start or after ; & | ( ` " ' (a `bash -c "..."` keeps its quotes in the hook), then the shell's keywords
 // (then, do, else, if ...), wrappers (sudo, env, bash -c, cmd /c ...) and VAR=value words, a package runner with its
-// flags (npx -y, pnpm dlx, yarn, bunx ...), and a path to the program (./node_modules/.bin/). The tool's name may
-// carry its package's version (wrangler@4.162.0, vercel@latest).
-const AT = String.raw`(?<=(?:^|[;&|(\x60"'])\s*(?:(?:then|do|else|elif|if|while|until|sudo|env|exec|command|time|nohup|(?:bash|sh|zsh|pwsh|powershell)(?:\.exe)?\s+-\w*c|cmd(?:\.exe)?\s+\/c)\s+|[A-Za-z_]\w*=\S*\s+)*(?:(?:npx|pnpx|bunx|bun\s+x|(?:npm|pnpm)\s+exec|(?:pnpm|yarn)\s+dlx|pnpm|yarn)(?:\s+-[\w-]+)*(?:\s+--)?\s+)?(?:[^\s;&|"'\x60]*[/\\])?)`;
+// flags (npx -y, npx -p <package>, pnpm dlx, yarn, bunx ...), and a path to the program (./node_modules/.bin/). The
+// tool's name may carry its package's version (wrangler@4.162.0, vercel@latest).
+const AT = String.raw`(?<=(?:^|[;&|(\x60"'])\s*(?:(?:then|do|else|elif|if|while|until|sudo|env|exec|command|time|nohup|(?:bash|sh|zsh|pwsh|powershell)(?:\.exe)?\s+-\w*c|cmd(?:\.exe)?\s+\/c)\s+|[A-Za-z_]\w*=\S*\s+)*(?:(?:npx|pnpx|bunx|bun\s+x|(?:npm|pnpm)\s+exec|(?:pnpm|yarn)\s+dlx|pnpm|yarn)(?:\s+(?:(?:-p|--package)(?:\s+|=)[^\s;&|"'\x60]+|-[\w-]+))*(?:\s+--)?\s+)?(?:[^\s;&|"'\x60]*[/\\])?)`;
 const VERSION = String.raw`(?:@[^\s;&|()"'\x60]*)?`;
-// vercel deploys when it runs with flags only (a flag's value as `--token $T` too) or as `vercel deploy`; a
-// subcommand (env, login, link, dev, pull, ls ...) is no deploy
-const VERCEL_VALUE_FLAG = String.raw`--?(?:token|scope|team|cwd|env|build-env|meta|regions|target|local-config|global-config|archive|[tSTebmAQ])(?:\s+|=)[^\s;&|()"'\x60-][^\s;&|()"'\x60]*`;
+// vercel deploys when it runs with flags only (a flag's value as `--token $T` too), with a folder as its first word
+// (`vercel ./dist`, `vercel .`: a word that starts with . ~ / or holds a slash) or as `vercel deploy`, `vercel
+// redeploy` or `vercel promote`; a subcommand (env, login, link, dev, pull, ls ...) is no deploy. A value flag's name
+// is never read as a bare flag, so its value (`--cwd ./apps/web env ls`) is not taken for the folder.
+const VERCEL_VALUE_NAME = String.raw`--?(?:token|scope|team|cwd|env|build-env|meta|regions|target|local-config|global-config|archive|[tSTebmAQ])`;
+const VERCEL_VALUE_FLAG = String.raw`${VERCEL_VALUE_NAME}(?:\s+|=)[^\s;&|()"'\x60-][^\s;&|()"'\x60]*`;
+const FOLDER_WORD = String.raw`(?:[.~/\\]|[^\s;&|()"'\x60-][^\s;&|()"'\x60]*[/\\])[^\s;&|()"'\x60]*`;
 const BUILT_IN = [
   String.raw`wrangler${VERSION}\s+(?:pages\s+)?(?:deploy|publish)\b`,
-  String.raw`vercel${VERSION}(?:\s+(?:${VERCEL_VALUE_FLAG}|--?[\w-]+(?:=[^\s;&|]*)?))*(?:\s+deploy\b|(?=\s*(?:$|[;&|)\n"'\x60])))`,
+  String.raw`vercel${VERSION}(?:\s+(?:${VERCEL_VALUE_FLAG}|(?!${VERCEL_VALUE_NAME}(?:[\s=]|$))--?[\w-]+(?:=[^\s;&|]*)?))*(?:\s+(?:(?:deploy|redeploy|promote(?!\s+status\b))\b|${FOLDER_WORD})|(?=\s*(?:$|[;&|)\n"'\x60])))`,
   String.raw`netlify(?:-cli)?${VERSION}\s+deploy\b`,
   String.raw`firebase(?:-tools)?${VERSION}\s+deploy\b`,
   String.raw`gh-pages${VERSION}(?![\w-])`,
