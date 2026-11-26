@@ -69,7 +69,10 @@ for (const [file, thin] of [
   ["README.md", /\*\*Thin\*\* \(one or two independent sources\)/],
   ["README.ru.md", /\*\*Thin\*\* \(один или два независимых источника\)/],
   ["CHANGELOG.md", /Thin \(one or two independent sources\)/],
-  ["docs/features.md", /\*\*Thin\*\* \(one or two independent sources\)/],
+  [
+    "docs/using/web-and-video.md",
+    /\*\*Thin\*\* \(one or two independent sources\)/,
+  ],
   ["docs/whats-new.md", /Thin \(one or two independent sources\)/],
 ])
   ok(

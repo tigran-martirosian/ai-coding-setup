@@ -1,4 +1,4 @@
-# How the setup works now (26.6)
+# How Stratus works now (26.6)
 
 ## What changed
 
@@ -20,8 +20,8 @@ Claude says the size of each ask in one line first. To change it, answer with on
 
 A big job runs in this order:
 
-1. `grilling` asks its questions in rounds. Facts are Claude's job: it looks them up instead of asking you.
-2. It looks for what already exists, then writes a spec, a file that lists what done means, each line with the check that proves it, and keeps your exact words for numbers, names and limits.
+1. `grilling` first looks for what already exists (your project's code, its packages, a tool that already does the job). Then it asks its questions in rounds. Facts are Claude's job: it looks them up instead of asking you.
+2. It writes a spec, a file that lists what done means, each line with the check that proves it, and keeps your exact words for numbers, names and limits.
 3. `lead` writes the plan beside the spec as slices, the pieces one helper builds at a time.
 4. A `plan-reviewer`, a helper that only reads, checks the plan once.
 5. You get links to both files and a short summary. Nothing is built before your OK.
@@ -41,6 +41,10 @@ Claude does not call a change done without the command and the output lines that
 
 **One gate.** When Claude edits code and then tries to end its reply with no build or test run after the edit, the **verify-gate** hook holds the reply back once and Claude runs one first. The environment variable `VERIFY_GATE=off` turns it off, for a project with a slow test suite; it is also read from the "env" section of a project's `.claude/settings.json`, so it can be off for one project only.
 
+## How updates reach you
+
+Every 12 hours Stratus asks GitHub for a newer release. A release that needs no answer from you installs itself in the background, and a grey line in the chat says so. A release that needs you waits until you type `/update-setup`. `AUTO_UPDATE=off` makes every release wait. [Updates](using/install-and-update.md#updates) has the details.
+
 ## Say or type → what happens
 
 The quoted words are examples. Every row not marked "typed" also works when you say what you want in your own words; a row marked "typed" starts only when you type its command.
@@ -55,21 +59,21 @@ The quoted words are examples. Every row not marked "typed" also works when you 
 | `/btw <note>` (typed) | A note to a busy chat in the same folder, without stopping it | `btw` |
 | `/next-move` (typed) | The one most useful thing to do next | `next-move` |
 | "set this project up", `/new-project` | A new project folder with its notes, git and verify check | `new-project` |
-| "update this project", `/update-project` | An older project folder brought up to this setup | `update-project` |
+| "update this project", `/update-project` | An older project folder brought up to date with Stratus | `update-project` |
 | "update the setup", "install the update", `/update-setup` | The newest release installed | `update-setup` |
 | "what's new", "что нового" (Russian works too) | A short tour of this page, with its path | `update-setup` |
 | "security check", `/security` | A quick check of a change; `/security deep` scans a whole project | `security` |
 | "edges don't line up", "padding is off", `/gridlines` | Guide lines down an interface, and the paddings fixed so edges line up | `gridlines` |
-| "audit my setup", "where did my tokens go", "chat review", `/setup-audit` | A report on the setup, usage or chats | `setup-audit` |
+| "audit my setup", "where did my tokens go", "chat review", `/setup-audit` | A report on Stratus, usage or chats | `setup-audit` |
 | any web question, or a page to read word for word | Facts from the page that knows them, each tagged by how solid it is | `web-research` |
 | a video link and a question, `/watch` | The video's words and stills, read for you | `watch` |
 | "update the README", "describe this PR" | Text other people read, written for its reader | `writing` |
-| "tidy the PC", `/pc-tidy` | What holds memory; what old sessions left running is stopped | `pc-tidy` |
+| "tidy the PC", `/pc-tidy` | What holds memory; what old sessions left running is stopped (Windows only) | `pc-tidy` |
 | "what takes space", `/disk-tidy` | What fills the disk, cleared item by item with your yes | `disk-tidy` |
 | asking to tidy or rename a project's files, `/file-upkeep` | File names and places put to the common standard | `file-upkeep` |
 | "back up", `/backup` | An encrypted backup to your own cloud storage | `backup` |
-| "pair my phone", `/phone-bot` | The phone app joined to this computer | `phone-bot` |
+| "pair my phone", `/phone-bot` | The phone app joined to this computer (an add-on for Windows: `node install.mjs --with phone-bot`) | `phone-bot` |
 
-Claude Code's own `/code-review` reviews the current change when you type it; Claude also runs it by itself on a risky change.
+Claude Code's own `/code-review` reviews the current change when you type it; Claude also runs it by itself on a risky change. Every skill Stratus installs, those not in this table included, is in [the skills list](reference/skills.md). What to type for each area, kept up to date after this release: [Using Stratus](HOW-TO.md).
 
 Everything else that changed in 26.6, the fixes included, is in the 26.6 section of [CHANGELOG.md](../CHANGELOG.md).

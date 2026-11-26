@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="512" height="512" role="img" aria-labelledby="t">
+  <title id="t">Stratus</title>
+  <style>.a{fill:#2563eb;fill-opacity:.5}.b{fill:#2563eb;fill-opacity:.75}.c{fill:#2563eb;fill-opacity:.875}@media (prefers-color-scheme:dark){.a{fill:#a9c2ff;fill-opacity:1}.b{fill:#7aa2f8;fill-opacity:1}.c{fill:#5688ee;fill-opacity:1}}</style>
+  <clipPath id="cp"><circle cx="32" cy="32" r="30"/></clipPath><g clip-path="url(#cp)"><g><rect class="a" x="-25.6" y="-25.6" width="115.2" height="55.6"/><rect class="b" x="-25.6" y="32" width="115.2" height="17"/><rect class="c" x="-25.6" y="51" width="115.2" height="38.599999999999994"/></g></g>
+</svg>
