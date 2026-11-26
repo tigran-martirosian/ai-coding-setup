@@ -15,7 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appDir, checkPath, readText } from "../core/files.mjs";
 import { log } from "../core/log.mjs";
-import { testOverride } from "../core/mode.mjs";
+import { DRY, testOverride } from "../core/mode.mjs";
 import { ActionError } from "../core/registry.mjs";
 
 const PC_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -79,6 +79,18 @@ function transcriberPython(uv) {
   return found.py;
 }
 const SETUP_LINE = `node ${path.join(PC_DIR, "setup.mjs")} voice`;
+
+// Whether this program run has started `setup.mjs voice --background` for a changed lock.
+let redoStarted = false;
+function redoSetup() {
+  log("voice", "the lock changed: starting the voice setup again");
+  if (DRY) return;
+  spawn(
+    process.execPath,
+    [path.join(PC_DIR, "setup.mjs"), "voice", "--background"],
+    { detached: true, stdio: "ignore", windowsHide: true, shell: false },
+  ).unref();
+}
 
 const IDLE_MS = 15 * 60 * 1000;
 const JOB_MS = 10 * 60 * 1000;
@@ -166,12 +178,20 @@ function command() {
       message: "the speech model is not downloaded",
       run: SETUP_LINE,
     });
-  if (!forLock)
+  // An update changed the lock: the model is here, only the packages are behind. The setup is started here, once
+  // per program run, so the phone never needs a command typed on the PC; a setup that ended without fixing it
+  // gives the setup line.
+  if (!forLock) {
+    if (!redoStarted) {
+      redoStarted = true;
+      redoSetup();
+      throw new ActionError("voice-setting-up", { message: SETTING_UP });
+    }
     throw new ActionError("voice-not-set-up", {
-      message:
-        "voice was set up for other Python packages than this version needs",
+      message: `voice was set up for other Python packages than this version needs, and redoing it failed (see ${path.join(appDir(), "voice-setup.log")})`,
       run: SETUP_LINE,
     });
+  }
   const fake = testOverride("PHONE_PC_TRANSCRIBER");
   if (fake) return [process.execPath, [fake]];
   try {

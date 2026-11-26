@@ -454,7 +454,7 @@ try {
   );
   fs.mkdirSync(path.dirname(pcSetup2), { recursive: true });
   fs.writeFileSync(pcSetup2, "");
-  const server = http.createServer((q, a) =>
+  const server = http.createServer((_q, a) =>
     a.end(JSON.stringify({ version: "1.0.0" })),
   );
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -542,10 +542,21 @@ const poll = setInterval(() => {
     );
   }
 
-  // A marker from a release before the lock: the model is there, but the Python may lack the locked packages.
+  // A marker from a release before the lock: the model is there, but the Python may lack the locked packages. The
+  // PC program starts the setup itself (a stand-in here, which marks that it ran and changes nothing) and the phone
+  // hears it is being set up; once that setup has ended without fixing it, the phone gets the setup line.
   fs.mkdirSync(path.dirname(voice.markerPath()), { recursive: true });
   fs.writeFileSync(voice.markerPath(), JSON.stringify({ model: "small" }));
+  const redoMark = path.join(tmp, "redo-setup-ran");
+  const redoStandIn = path.join(tmp, "redo-setup.mjs");
+  fs.writeFileSync(
+    redoStandIn,
+    `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(redoMark)}, "ran");\n`,
+  );
+  process.env.PHONE_PC_VOICE_SETUP = redoStandIn;
   const oldMarker = await ask("voice.warm");
+  const redoRan = await until(() => fs.existsSync(redoMark), 10000);
+  delete process.env.PHONE_PC_VOICE_SETUP;
   const lock = createHash("sha256")
     .update(fs.readFileSync(`${voice.SERVER}.lock`))
     .digest("hex");
@@ -555,14 +566,19 @@ const poll = setInterval(() => {
   );
   const otherLock = await ask("voice.warm");
   check(
-    "voice.warm with a marker for no lock or another lock answers voice-not-set-up with the setup line (FAIL: a PC set up on an older release runs a Python without the locked packages)",
-    [oldMarker, otherLock].every(
-      (a) =>
-        a.ok === false &&
-        a.err === "voice-not-set-up" &&
-        /setup\.mjs voice$/.test(a.run),
-    ),
-    show({ oldMarker, otherLock }),
+    "voice.warm with a marker for an older lock starts the voice setup itself and answers voice-setting-up (FAIL: voice breaks after an update until a command is typed on the PC)",
+    redoRan &&
+      oldMarker.ok === false &&
+      oldMarker.err === "voice-setting-up" &&
+      oldMarker.run === undefined,
+    show({ redoRan, oldMarker }),
+  );
+  check(
+    "after that setup ended with the lock still old, voice.warm answers voice-not-set-up with the setup line (FAIL: a PC set up on an older release runs a Python without the locked packages)",
+    otherLock.ok === false &&
+      otherLock.err === "voice-not-set-up" &&
+      /setup\.mjs voice$/.test(otherLock.run),
+    show({ otherLock }),
   );
   // What the real setup step leaves once the model loads.
   fs.writeFileSync(

@@ -6,6 +6,11 @@ Each entry describes the setup as it was at that release, so older entries name 
 
 ## [Unreleased]
 
+## [26.6.5] - 2026-11-26
+
+### Phone app
+- Voice works again after an update that changes its speech packages: the PC sets voice up again by itself and the phone says "Voice is being set up on your PC" meanwhile, instead of asking for a command typed on the PC.
+
 ## [26.6.4] - 2026-11-26
 
 ### Phone app
