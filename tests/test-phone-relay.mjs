@@ -388,6 +388,8 @@ for (const file of ["/", "/version.json"]) {
   fs.writeFileSync(same1, "export const word = 'aaaa';\n".repeat(50));
   fs.utimesSync(same1, keptTime, keptTime);
   const before = await get("/same.js");
+  // a second write in the same clock tick keeps the change time on some Windows disks (GitHub runners): wait one
+  await new Promise((r) => setTimeout(r, 1100));
   fs.writeFileSync(same1, "export const word = 'bbbb';\n".repeat(50));
   fs.utimesSync(same1, keptTime, keptTime);
   const after = await get("/same.js");
