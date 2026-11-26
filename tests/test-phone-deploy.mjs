@@ -1123,7 +1123,13 @@ console.log(JSON.stringify({ app: f.appDir(), keys: f.keyFilePath(), log: l.logP
       {
         cwd: ROOT,
         encoding: "utf8",
-        env: { ...env, PHONE_PC_DRY: "1", PHONE_PC_PLATFORM: "win32" },
+        env: {
+          ...env,
+          PHONE_PC_DRY: "1",
+          PHONE_PC_PLATFORM: "win32",
+          // dry and pretend-Windows: a Mac has no SystemRoot of its own
+          SystemRoot: process.env.SystemRoot || "C:/Windows",
+        },
       },
     );
     return { status: r.status, text: `${r.stdout}${r.stderr}` };

@@ -51,10 +51,19 @@ await t(
     );
     assert.doesNotMatch(manifest, /C:\\\\LocalTTS/);
     assert.doesNotMatch(settings, /C:\\\\LocalTTS/);
-    assert.equal(
-      S.ttsDir(""),
-      path.join(process.env.LOCALAPPDATA ?? "", "LocalTTS"),
-    );
+    // A Mac or Linux runner has no LOCALAPPDATA, and ttsDir("") rightly refuses without it: give it one here
+    const saved = process.env.LOCALAPPDATA;
+    const local = tempDir("default");
+    process.env.LOCALAPPDATA = local;
+    try {
+      assert.equal(S.ttsDir(""), path.join(local, "LocalTTS"));
+      delete process.env.LOCALAPPDATA;
+      assert.throws(() => S.ttsDir(""), /LOCALAPPDATA is not set/);
+    } finally {
+      if (saved === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = saved;
+      fs.rmSync(local, { recursive: true, force: true });
+    }
     assert.equal(S.ttsDir("  D:\\tts  "), path.resolve("D:\\tts"));
   },
 );
@@ -80,7 +89,8 @@ await t(
       fs.mkdirSync(dir);
       assert.equal(S.movedDefault(dir, old), null);
     } finally {
-      process.env.LOCALAPPDATA = saved;
+      if (saved === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = saved;
       fs.rmSync(local, { recursive: true, force: true });
       fs.rmSync(old, { recursive: true, force: true });
     }

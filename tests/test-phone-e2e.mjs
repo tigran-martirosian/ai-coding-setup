@@ -311,6 +311,8 @@ try {
     PHONE_PC_DRY: "1",
     PHONE_PC_TEST: "1",
     PHONE_PC_PLATFORM: "win32",
+    // setup only prints the Windows programs in this dry, pretend-Windows run; a Mac has no SystemRoot of its own
+    SystemRoot: process.env.SystemRoot || "C:/Windows",
     PHONE_PC_PIPE:
       process.platform === "win32"
         ? `\\\\.\\pipe\\phone-app-pc-test-${nodeRandom(6).toString("hex")}`
