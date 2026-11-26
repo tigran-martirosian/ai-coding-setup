@@ -497,7 +497,11 @@ function extractOld(dir) {
 }
 
 async function startWorld() {
-  w.tmp = fs.mkdtempSync(path.join(os.tmpdir(), "phone-steady-"));
+  // The real path: on macOS the temp folder is a link (/var -> /private/var) and Node loads a module by its real
+  // path, so a URL made from the link's path never matched SCALED and the old channel ran on the real clock.
+  w.tmp = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "phone-steady-")),
+  );
   w.home = path.join(w.tmp, "home");
   fs.mkdirSync(w.home);
   // The real transcriber's lines: {"ready":true} once loaded, then {"text"} per {"file"}: here the file's size and
