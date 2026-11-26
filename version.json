@@ -1,9 +1,9 @@
 {
-  "version": "26.6.5",
+  "version": "26.6.6",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-26",
-  "summary": "Phone voice sets itself up again after an update",
+  "summary": "A new docs page shows the whole development process and what enforces it",
   "releases": {
     "26.6.3": {
       "kind": "quiet",
@@ -139,6 +139,11 @@
       "kind": "files",
       "important": true,
       "headline": "Phone voice sets itself up again after an update changes its packages"
+    },
+    "26.6.6": {
+      "kind": "files",
+      "important": false,
+      "headline": "New page: the development process, step by step, and what enforces each step"
     }
   }
 }

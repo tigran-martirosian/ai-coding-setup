@@ -6,6 +6,11 @@ Each entry describes the setup as it was at that release, so older entries name 
 
 ## [Unreleased]
 
+## [26.6.6] - 2026-11-26
+
+### Docs
+- A new page, [The development process](docs/how-it-works/development-process.md), lists each step a careful software team follows, what in Stratus does it, what enforces it, the security layers, and how Stratus keeps improving.
+
 ## [26.6.5] - 2026-11-26
 
 ### Phone app
