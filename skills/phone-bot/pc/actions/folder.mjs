@@ -40,7 +40,8 @@ const REMOVED = ".removed";
 const REMOVED_KEEP_MS = 7 * 24 * 3600 * 1000;
 const PART_KEEP_MS = 3600 * 1000;
 const CLEAN_EVERY_MS = 24 * 3600 * 1000;
-const PART = /\.part-[0-9a-f]+$/;
+// An upload's temp name, <name>.part-<6 random bytes in hex>: exactly 12 digits, so a user's notes.part-1 is a file.
+const PART = /\.part-[0-9a-f]{12}$/;
 const SEND_WAIT_MS = 5 * 60 * 1000; // the page waits as long for folder.send
 const MADE_WAIT_MS = 20_000; // dl-open until dl-made (the contract names no time)
 const LINK_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -374,6 +375,14 @@ export function setCommandRunner(fn) {
   run = fn;
 }
 
+// A Windows program by its full path under SystemRoot: a bare name would run a copy planted in the current folder
+// or early on the PATH.
+function systemRoot(...parts) {
+  if (!process.env.SystemRoot)
+    throw new Error("SystemRoot is not set: cannot find the Windows program");
+  return path.win32.join(process.env.SystemRoot, ...parts);
+}
+
 // The file goes on the clipboard as a file, so it pastes in Explorer, a chat or a mail. The path goes to PowerShell
 // in an environment variable, never inside the command text.
 async function copyFile(rel) {
@@ -382,7 +391,7 @@ async function copyFile(rel) {
   let r;
   try {
     r = await run(
-      "powershell.exe",
+      systemRoot("System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
       [
         "-NoProfile",
         "-NonInteractive",
@@ -410,7 +419,7 @@ async function showFile(rel) {
   const real = folderPath(rel);
   statOr(real, "not-found");
   try {
-    await run("explorer.exe", [`/select,"${real}"`], process.env, {
+    await run(systemRoot("explorer.exe"), [`/select,"${real}"`], process.env, {
       windowsVerbatimArguments: true,
     });
   } catch (e) {

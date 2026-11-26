@@ -299,7 +299,7 @@ for (const [name, before, after] of PAIRS) {
 // 4b. Fixes from the build review: no stray steps, the call count in Findings, names that pass, many texts at once
 check(
   "where-are-we: a row added after the plan's OK is copied only with the user's words in its Changed line",
-  /`Changed <date>: <row>` line adds it\) is copied only when that line holds the user's words/.test(
+  /`Changed <date>: <row>` line adds it[^)]*\) is copied only when that line holds the user's words/.test(
     where,
   ) && /listed as "row without your OK"/.test(where),
 );

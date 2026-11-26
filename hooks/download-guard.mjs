@@ -6,9 +6,12 @@
 // `Invoke-WebRequest [-Uri] <url> -OutFile <file>` (iwr too). Only flags the downloader can stand in for are
 // taken (curl -L -s -S -f -#, --retry, -C -; wget -q -c -nv; -UseBasicParsing); a command with any other flag
 // (headers, a login, a method, stdout output), a variable or a pipe is left as it is.
-// "Big" is over 50 MB by a HEAD request's Content-Length (3 s limit): at one stream's 1.5 MB/s that is over
-// half a minute of waiting, where 32 ranges take a few seconds. When the size cannot be learned, the command
+// "Big" is over 50 MB by a HEAD request's Content-Length (3 s limit for all hops): at one stream's 1.5 MB/s that is
+// over half a minute of waiting, where 32 ranges take a few seconds. When the size cannot be learned, the command
 // is left as it is. Fails open. DOWNLOAD_GUARD=off disables it.
+// The HEAD request never goes to a private, local or link-local address, nor to the cloud metadata address: each
+// hop's host is checked by lib/net-guard.mjs after DNS lookup, on the address connected to, and redirects (at most
+// 5) are followed here, hop by hop. Such a download is left as it is.
 // It runs before the guards in the dispatcher's pre-tool group, so they check the command it rewrote. A simple
 // command it can't read the way the shell does (a comment, a backslash outside quotes in Bash) is not rewritten.
 // command-explain runs on the same call at the same time and also returns updatedInput, each from the command
@@ -18,12 +21,16 @@
 // so the hook rewrites nothing (no stand-in line either). Its additionalContext, starting "[download-guard]", names
 // each big file with its size and the `node "<workers/download.mjs>" <url> <out>` command to use instead.
 
+import http from "node:http";
+import https from "node:https";
 import { fileURLToPath } from "node:url";
 import { autoMode, runHook } from "./lib/hook-io.mjs";
+import { checkedLookup, refusal } from "./lib/net-guard.mjs";
 import { NO_NOTE, NOTE_LINE_RE, WHAT_THIS_DOES } from "./lib/texts.mjs";
 
 const BIG = 50e6;
 const HEAD_MS = 3000;
+const HOPS = 5;
 const WORKER = fileURLToPath(
   new URL("../workers/download.mjs", import.meta.url),
 ).replace(/\\/g, "/");
@@ -234,16 +241,48 @@ const TOOLS = {
   iwr,
 };
 
+// The last answer to a HEAD request, redirects followed hop by hop; each hop's address checked by net-guard
+function head(url, signal, hops = HOPS) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:")
+      return reject(new Error(`not http or https: ${u.href}`));
+    const bad = refusal(u.hostname);
+    if (bad) return reject(bad);
+    const req = (u.protocol === "https:" ? https : http).request(
+      u,
+      {
+        method: "HEAD",
+        headers: { "User-Agent": "claude-download-guard" },
+        lookup: checkedLookup(),
+        signal,
+      },
+      (res) => {
+        res.resume();
+        const to = res.headers.location;
+        if (res.statusCode >= 300 && res.statusCode < 400 && to) {
+          if (!hops) return reject(new Error(`over ${HOPS} redirects`));
+          let next;
+          try {
+            next = new URL(to, u).href;
+          } catch {
+            return reject(new Error(`redirect to a broken address: ${to}`));
+          }
+          return head(next, signal, hops - 1).then(resolve, reject);
+        }
+        resolve(res);
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 async function size(url) {
   try {
-    const r = await fetch(url, {
-      method: "HEAD",
-      redirect: "follow",
-      headers: { "User-Agent": "claude-download-guard" },
-      signal: AbortSignal.timeout(HEAD_MS),
-    });
-    const len = Number(r.headers.get("content-length"));
-    return r.ok && len > 0 ? len : null;
+    const r = await head(url, AbortSignal.timeout(HEAD_MS));
+    const len = Number(r.headers["content-length"]);
+    return r.statusCode >= 200 && r.statusCode < 300 && len > 0 ? len : null;
   } catch {
     return null;
   }
@@ -309,16 +348,21 @@ runHook("download-guard", async (event) => {
       `${lead}${instead(dl)}${trail}` +
       rewritten.slice(end);
   }
-  // command-explain's check: a last line of at least 3 words after an empty line, else its stand-in
+  // command-explain's check: a last line of at least 3 words after an empty line, else its stand-in. A good note
+  // with no empty line before it keeps its words and gets the empty line, as command-explain does.
   const lines = command.trim().split(/\r?\n/);
-  const note =
-    (lines[lines.length - 1].trim().match(NOTE_LINE_RE) || [])[1] || "";
-  const noted =
+  const last = lines[lines.length - 1].trim();
+  const note = (last.match(NOTE_LINE_RE) || [])[1] || "";
+  const worded =
     note.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length >= 3 &&
-    lines.length > 1 &&
-    lines[lines.length - 2].trim() === "";
-  if (!noted && (process.env.COMMAND_EXPLAIN || "").toLowerCase() !== "off") {
-    rewritten = `${rewritten.trimEnd()}\n\n${WHAT_THIS_DOES} ${NO_NOTE} ${command.replace(/\s+/g, " ").trim().slice(0, 60)}`;
+    lines.length > 1;
+  const afterBlank = lines.length > 1 && lines[lines.length - 2].trim() === "";
+  if ((process.env.COMMAND_EXPLAIN || "").toLowerCase() !== "off") {
+    if (worded && !afterBlank) {
+      const own = rewritten.trim().split(/\r?\n/);
+      rewritten = `${own.slice(0, -1).join("\n").trimEnd()}\n\n${own[own.length - 1].trim()}`;
+    } else if (!worded)
+      rewritten = `${rewritten.trimEnd()}\n\n${WHAT_THIS_DOES} ${NO_NOTE} ${command.replace(/\s+/g, " ").trim().slice(0, 60)}`;
   }
   process.stdout.write(
     JSON.stringify({

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createExtensionConfig } from "@nimbalyst/extension-sdk/vite";
 import { defineConfig, mergeConfig } from "vite";
-import { extensionConfig } from "../shared/vite-base.ts";
+import { extensionConfig } from "../shared/vite-base.mts";
 
 // The skills installed here: own.ts buttons show only when their skill is (own.ts is in the public repo too).
 const skillsDir = path.join(

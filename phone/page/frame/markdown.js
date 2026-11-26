@@ -136,18 +136,28 @@ function codeBlock(lang, code) {
   return block;
 }
 
+// No pattern here has two quantifiers that can take the same characters back to back, so none backtracks
+// super-linearly on a long line: a heading's text and a table's separator row are cut by code, not by a pattern.
 const FENCE = /^\s*(`{3,}|~{3,})/;
-const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+const HEADING = /^\s{0,3}(#{1,6})\s/;
 const RULE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
 const QUOTE = /^\s{0,3}>\s?/;
 const ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
-const TABLE_LINE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+const TABLE_CELL = /^:?-{2,}:?$/;
+
+// A table's separator row: cells of two or more dashes, each with an optional colon at either end.
+const isTableLine = (line) => cells(line).every((c) => TABLE_CELL.test(c));
 
 const isTableStart = (lines, i) =>
-  lines[i].includes("|") &&
-  i + 1 < lines.length &&
-  TABLE_LINE.test(lines[i + 1]) &&
-  lines[i + 1].includes("-");
+  lines[i].includes("|") && i + 1 < lines.length && isTableLine(lines[i + 1]);
+
+// A heading's text: what follows the #s, without the closing #s and the spaces around them.
+function headingText(line, start) {
+  const t = line.slice(start).trimEnd();
+  let end = t.length;
+  while (end > 0 && t[end - 1] === "#") end--;
+  return t.slice(0, end).trim();
+}
 
 const startsBlock = (lines, i) =>
   FENCE.test(lines[i]) ||
@@ -161,13 +171,21 @@ export function markdown(text, fileLinks = null) {
   const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
   files = fileLinks;
   try {
-    return el("div.md", blocks(lines));
+    return el("div.md", blocks(lines, 0));
   } finally {
     files = null;
   }
 }
 
-function blocks(lines) {
+// Quotes and lists nest by calling blocks() again, one call per level: text nested deeper than this shows as one
+// plain paragraph, so ">" repeated thousands of times cannot run the page out of stack.
+const DEEPEST = 50;
+
+function blocks(lines, depth) {
+  if (depth > DEEPEST) {
+    const words = lines.map((l) => l.trim()).filter(Boolean);
+    return words.length ? [el("p", words.join(" "))] : [];
+  }
   const out = [];
   let i = 0;
   while (i < lines.length) {
@@ -191,7 +209,12 @@ function blocks(lines) {
     }
     const h = line.match(HEADING);
     if (h) {
-      out.push(el(h[1].length <= 2 ? "h3.md-h" : "h4.md-h", inline(h[2])));
+      out.push(
+        el(
+          h[1].length <= 2 ? "h3.md-h" : "h4.md-h",
+          inline(headingText(line, h[0].length)),
+        ),
+      );
       i++;
       continue;
     }
@@ -204,11 +227,11 @@ function blocks(lines) {
       const inner = [];
       while (i < lines.length && QUOTE.test(lines[i]))
         inner.push(lines[i++].replace(QUOTE, ""));
-      out.push(el("blockquote.md-quote", blocks(inner)));
+      out.push(el("blockquote.md-quote", blocks(inner, depth + 1)));
       continue;
     }
     if (ITEM.test(line)) {
-      const [list, next] = listAt(lines, i);
+      const [list, next] = listAt(lines, i, depth);
       out.push(list);
       i = next;
       continue;
@@ -231,7 +254,7 @@ function blocks(lines) {
 }
 
 // One list from line i: items at its indent, deeper lines belong to the item above them.
-function listAt(lines, i) {
+function listAt(lines, i, depth) {
   const first = lines[i].match(ITEM);
   const indent = first[1].length;
   const ordered = /\d/.test(first[2]);
@@ -260,15 +283,15 @@ function listAt(lines, i) {
       else break;
       i++;
     }
-    const cut = Math.min(
-      ...rest.filter((r) => r.trim()).map((r) => r.search(/\S/)),
-    );
+    // The least indent of the item's lines, by a loop: Math.min(...lines) throws RangeError past about 100,000 lines.
+    let cut = Number.POSITIVE_INFINITY;
+    for (const r of rest) if (r.trim()) cut = Math.min(cut, r.search(/\S/));
     const deeper = rest.map((r) => r.slice(Number.isFinite(cut) ? cut : 0));
     items.push(
       el(
         "li",
         inline(m[3]),
-        deeper.some((r) => r.trim()) ? blocks(deeper) : null,
+        deeper.some((r) => r.trim()) ? blocks(deeper, depth + 1) : null,
       ),
     );
   }
@@ -317,9 +340,11 @@ function table(rows) {
   );
 }
 
-// Inline marks, leftmost first; the text between them stays text.
+// Inline marks, leftmost first; the text between them stays text. A link's text may hold [ ] pairs one deep; its
+// two branches never take the same character, so a link start that fails stops at the first stray "[". The address
+// is at most 2,000 characters, so a failed start never scans to the end of the paragraph.
 const INLINE =
-  /`([^`\n]+)`|\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|\*([^*\s](?:[^*]*?[^*\s])?)\*|(?<![\w])_([^_\s](?:[^_]*?[^_\s])?)_(?![\w])|\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)|(https?:\/\/[^\s<>()]*[^\s<>().,;:!?'"])/;
+  /`([^`\n]+)`|\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|\*([^*\s](?:[^*]*?[^*\s])?)\*|(?<![\w])_([^_\s](?:[^_]*?[^_\s])?)_(?![\w])|\[((?:[^[\]\n]|\[[^[\]\n]*\])+)\]\(([^)\s]{1,2000})(?:\s+"[^"]*")?\)|(https?:\/\/[^\s<>()]*[^\s<>().,;:!?'"])/;
 
 export function inline(text) {
   const out = [];

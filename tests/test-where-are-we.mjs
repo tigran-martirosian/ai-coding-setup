@@ -137,7 +137,7 @@ STEPS.forEach(([title, needs], i) => {
     check(`step ${i + 1} (${title}) names ${n}`, n.test(part));
 });
 
-// The rules from the design: writes only on a fact, the user closes what he must see, nothing deleted or redone
+// The rules from the design: writes only on a fact, the user closes what they must see, nothing deleted or redone
 check(
   "it never closes a step the user must see (in-review at most, the user closes it)",
   /step whose result the user must see[^.]*goes to in-review at most, and the user closes it, never this skill/.test(
@@ -148,12 +148,12 @@ check(
 // a user step waits as to-do until its step is done; an act that already happened closes
 check(
   "a build the user will try goes to done, named on the next user check, not one Needs-you line per build",
-  /A build whose Done when check passed goes to done, also when he will try it: his try belongs to the job's next user check/.test(
+  /A build whose Done when check passed goes to done, also when the user will try it: that try belongs to the job's next user check/.test(
     body,
   ) && /one look covers many builds/.test(body),
 );
 // A review the pipeline runs needs nobody: a helper's review step never lands in "Needs you", but a design or
-// mock-up the user must OK still waits on him, also when a helper made it; a user step is listed as the exact ask
+// mock-up the user must OK still waits on the user, also when a helper made it; a user step is listed as the exact ask
 const waits = (body.match(/^7\. \*\*What waits for the user\.\*\*[^\n]*/m) || [
   "",
 ])[0];
@@ -167,7 +167,7 @@ check(
   "a design or mock-up the user must OK still waits on the user, also when a helper made it (the rule covers review steps only)",
   !/A step a helper runs \(any helper/.test(body) &&
     !/A helper's step, a review included/.test(waits) &&
-    /\(a design, a mock-up, a text he reads\) still waits on the user, also when a helper made it/.test(
+    /\(a design, a mock-up, a text the user reads\) still waits on the user, also when a helper made it/.test(
       body,
     ) &&
     /A design or mock-up the user must OK stays on it, also when a helper made it/.test(

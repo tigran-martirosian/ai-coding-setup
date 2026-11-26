@@ -1,24 +1,27 @@
 // Run: node test.mjs   (Node 22.6+ strips the types)
-// Runs the cleanText tests, then the speed-format and voice-name tests, then the player box tests
-// (transcript.tsx and the real player, bundled with esbuild so the .tsx and its imports load in Node).
+// Runs the cleanText and TTS folder safety tests, then the speed-format and voice-name tests, then the player box
+// tests (transcript.tsx and the real player, bundled with esbuild so the .tsx and its imports load in Node), then the
+// Kokoro worker's start and stop with a fake child process.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-const clean = spawnSync(
-  process.execPath,
-  ["--experimental-strip-types", "--no-warnings", "test/cleanText.test.ts"],
-  {
-    stdio: "inherit",
-  },
-);
-if (clean.status !== 0) process.exit(clean.status ?? 1);
+for (const file of ["test/cleanText.test.ts", "test/folderSafety.test.ts"]) {
+  const r = spawnSync(
+    process.execPath,
+    ["--experimental-strip-types", "--no-warnings", file],
+    { stdio: "inherit", cwd: here },
+  );
+  if (r.status !== 0) process.exit(r.status ?? 1);
+}
 
 const { formatSpeed, t } = await import("./src/strings.ts");
 let passed = 0;
@@ -104,7 +107,8 @@ const box = await bundle(
   `export * from "./src/transcript.tsx";
    export { player } from "./src/player.ts";
    export { initBridge } from "./src/bridge.ts";
-   export { dockView } from "./src/dock.ts";`,
+   export { dockView } from "./src/dock.ts";
+   export { KokoroWorker } from "./src/backend.ts";`,
 );
 const { player } = box;
 
@@ -151,10 +155,10 @@ box.initBridge({
 const REPLY =
   "The first sentence is long enough to fill the short opening part on its own, more or less. " +
   "The second sentence goes into the next part. And a third one follows it.";
-const ticks = async (until) => {
+const ticks = async (until, what = "the player never got there") => {
   for (let i = 0; i < 100 && !until(); i++)
     await new Promise((r) => setTimeout(r, 0));
-  assert.ok(until(), "the player never got there");
+  assert.ok(until(), what);
 };
 const atRest = () => {
   const s = player.get();
@@ -329,24 +333,189 @@ await check("only the last finished turn gets the control", () => {
   assert.equal(box.lastTurnEnd([]), -1);
 });
 
+// ---- A long turn in the chat's virtual list: rows far from view leave the page ----------------
+
+/** The control key the real rehype plugin gives this Markdown (it also keeps the text). */
+const keyOf = (md) => {
+  const tree = { type: "root", children: [{ type: "text", value: md }] };
+  box.rehypeReadAloud()(tree, { value: md });
+  return tree.children.at(-1).properties.dataKey;
+};
+
+/**
+ * A stand-in for one session's chat, a virtual list: `show(...rows)` puts only those rows on the page (the
+ * chat drops the rest), `update(row, md)` re-renders a streaming block in the same row with its new text.
+ */
+function fakeChat(id, scrollTop = 800) {
+  const session = {
+    getAttribute: (a) => (a === "data-session-id" ? id : null),
+  };
+  const list = { scrollTop };
+  const element = (classes, extra) => {
+    const attrs = new Set();
+    return {
+      classList: { contains: (c) => classes.includes(c) },
+      dataset: {},
+      textContent: "",
+      parentElement: null,
+      hasAttribute: (n) => attrs.has(n),
+      toggleAttribute: (n, on) => (on ? attrs.add(n) : attrs.delete(n)),
+      closest: (sel) =>
+        sel === "[data-session-id]"
+          ? session
+          : sel === ".rich-transcript-vlist"
+            ? list
+            : null,
+      ...extra,
+    };
+  };
+  const chat = {
+    list,
+    user: (text) => ({
+      el: element(["rich-transcript-message", "user"], { textContent: text }),
+    }),
+    /** A text block; `key` skips the plugin, as if the kept text was dropped. */
+    block(md, key = keyOf(md)) {
+      const row = {};
+      return {
+        row,
+        key,
+        el: element(["readaloud-control"], {
+          dataset: { readaloudKey: key },
+          parentElement: row,
+        }),
+      };
+    },
+    update(block, md) {
+      const next = chat.block(md);
+      next.el.parentElement = block.row;
+      block.key = next.key;
+      block.el = next.el;
+    },
+    show(...rows) {
+      globalThis.document = { querySelectorAll: () => rows.map((r) => r.el) };
+      box.markTurnEnds();
+    },
+  };
+  return chat;
+}
+
+/** Presses Read aloud on `block`; returns the text the player was asked to read, or null. */
+function press(block) {
+  const play = player.play;
+  let read = null;
+  player.play = (_key, text) => {
+    read = text;
+  };
+  try {
+    box.readTurn(block.el, block.key);
+  } finally {
+    player.play = play;
+  }
+  return read;
+}
+
 await check("Read aloud reads every text block of the turn, in order", () => {
-  const kept = new Map([
-    ["a", "Old turn."],
-    ["c", "First part."],
-    ["d", "  "],
-    ["e", "Last part."],
-  ]);
-  const items = [U, C("a"), U, C("c"), C("d"), C("e")];
+  const chat = fakeChat("s-order");
+  const rows = [
+    chat.user("First question."),
+    chat.block("Old turn."),
+    chat.user("Second question."),
+    chat.block("First part."),
+    chat.block("<!-- voice: only a hidden summary -->"),
+    chat.block("Last part."),
+  ];
+  chat.show(...rows);
   assert.equal(
-    box.turnText(items, 5, (k) => kept.get(k)),
+    press(rows[5]),
     "First part.\n\nLast part.",
+    "Read aloud mixed in another turn, a blank block or the wrong order",
   );
-  assert.equal(
-    box.turnText(items, 5, (k) => (k === "c" ? undefined : kept.get(k))),
-    null,
-    "a block whose text is gone",
-  );
+  delete globalThis.document;
 });
+
+await check(
+  "Read aloud reads the whole turn after its first rows left the page",
+  () => {
+    const chat = fakeChat("s-long");
+    const u = chat.user("Explain the change.");
+    const a = chat.block("First, the cause.");
+    const b = chat.block("Then, the fix.");
+    const c = chat.block("Last, the");
+    chat.show(u, a, b);
+    chat.show(b, c);
+    chat.update(c, "Last, the test.");
+    chat.show(c);
+    assert.equal(
+      press(c),
+      "First, the cause.\n\nThen, the fix.\n\nLast, the test.",
+      "Read aloud read only the rows still on the page, not the whole turn",
+    );
+    delete globalThis.document;
+  },
+);
+
+await check(
+  "a long streamed reply does not push an earlier block of the turn out",
+  () => {
+    const chat = fakeChat("s-stream");
+    const u = chat.user("Write it out.");
+    const a = chat.block("The opening block.");
+    const b = chat.block("The");
+    chat.show(u, a, b);
+    // every streaming update of b keeps another copy of its text: more than the 500 kept
+    let md = "The";
+    for (let i = 0; i < 600; i++) {
+      md += ` word${i}`;
+      chat.update(b, md);
+      chat.show(u, a, b);
+    }
+    assert.equal(
+      press(b),
+      `The opening block.\n\n${md}`,
+      "streaming a long block dropped an earlier block, so Read aloud read nothing",
+    );
+    delete globalThis.document;
+  },
+);
+
+await check(
+  "when the turn's text is missing, Read aloud says so instead of doing nothing",
+  () => {
+    // the start of the turn never came on the page
+    const late = fakeChat("s-late");
+    const x = late.block("Only the end of a long reply.");
+    late.show(x);
+    assert.equal(press(x), null, "a turn without its start was read in part");
+    assert.equal(
+      player.get().error?.key,
+      x.key,
+      "no message for a turn without its start",
+    );
+    assert.ok(player.get().error.message, "the message is empty");
+    box.closePlayer();
+    // a block's text is no longer kept
+    const lost = fakeChat("s-lost");
+    const u = lost.user("Hello.");
+    const y = lost.block("", "never-kept");
+    lost.show(u, y);
+    assert.equal(press(y), null);
+    assert.equal(
+      player.get().error?.key,
+      y.key,
+      "no message for a block whose text is gone",
+    );
+    assert.ok(player.get().error.message, "the message is empty");
+    box.closePlayer();
+    // a chat seen from its very top has its whole first turn, even with no user message
+    const top = fakeChat("s-top", 0);
+    const z = top.block("A reply with no message before it.");
+    top.show(z);
+    assert.equal(press(z), "A reply with no message before it.");
+    assert.equal(player.get().error, null);
+    delete globalThis.document;
+  },
+);
 
 await check("hands-free and /voice are gone", () => {
   assert.equal(fs.existsSync(path.join(here, "src/autoRead.ts")), false);
@@ -356,4 +525,118 @@ await check("hands-free and /voice are gone", () => {
   for (const k of Object.keys(t)) assert.doesNotMatch(k, /^auto|handsFree/);
 });
 
-console.log(`\n${passed} passed (speed, voice names, player box, last turn)`);
+// ---- The Kokoro worker: an old worker never touches the one that replaced it ------------------
+
+/** A stand-in for the Python worker: `say` prints one line of its protocol, `sent` holds the requests it got. */
+function fakeChild(pid) {
+  const c = new EventEmitter();
+  c.pid = pid;
+  c.stdin = new PassThrough();
+  c.stdout = new PassThrough();
+  c.stderr = new PassThrough();
+  c.sent = [];
+  c.stdin.on("data", (d) => {
+    for (const line of d.toString().split("\n").filter(Boolean))
+      c.sent.push(JSON.parse(line));
+  });
+  c.say = (msg) => c.stdout.write(`${JSON.stringify(msg)}\n`);
+  c.kill = () => c.emit("exit", null, "SIGTERM");
+  return c;
+}
+/** The promise's value, or a failure naming `what` when it does not settle soon. */
+const within = (p, what) => {
+  let timer;
+  return Promise.race([
+    p,
+    new Promise((_, no) => {
+      timer = setTimeout(() => no(new Error(what)), 300);
+    }),
+  ]).finally(() => clearTimeout(timer));
+};
+
+await check(
+  "Stop while Kokoro loads: the next read starts a new worker that the old one cannot break",
+  async () => {
+    const children = [];
+    const worker = new box.KokoroWorker(() => {}, {
+      check: async () => {},
+      spawn: () => {
+        const c = fakeChild(100 + children.length);
+        children.push(c);
+        return c;
+      },
+    });
+    const first = worker.ensure("C:\\TTS");
+    first.catch(() => {});
+    await ticks(() => children.length === 1, "the first worker never started");
+    const [old] = children;
+    worker.kill("stopped by user");
+    await assert.rejects(
+      within(first, "Stop during loading left the start waiting"),
+      /stopped by user/,
+    );
+
+    const second = worker.ensure("C:\\TTS");
+    await ticks(
+      () => children.length === 2,
+      "a read after Stop during loading started no new worker",
+    );
+    const now = children[1];
+    // the stopped worker finishes loading inside its grace period
+    old.say({ event: "ready", load_ms: 5 });
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(
+      worker.state,
+      "starting",
+      "the stopped worker's ready marked the new one ready",
+    );
+    now.say({ event: "ready", load_ms: 7 });
+    await within(second, "the new worker's ready did not end its start");
+    assert.equal(worker.status("C:\\TTS").pid, 101);
+
+    const job = worker.synthesize({ text: "Hello." });
+    await ticks(
+      () => now.sent.length === 1,
+      "the job never reached the new worker",
+    );
+    old.emit("exit", 0, null);
+    assert.equal(
+      worker.state,
+      "ready",
+      "the stopped worker's exit reset the new one",
+    );
+    now.say({
+      id: now.sent[0].id,
+      ok: true,
+      wav_b64: "UklGRg==",
+      duration: 1,
+    });
+    const reply = await within(
+      job,
+      "the stopped worker's exit failed the new worker's job",
+    );
+    assert.equal(reply.ok, true);
+    worker.kill("done");
+    now.emit("exit", 0, null);
+  },
+);
+
+await check("Stop during the folder check starts no worker", async () => {
+  let spawned = 0;
+  const worker = new box.KokoroWorker(() => {}, {
+    check: async () => {},
+    spawn: () => fakeChild(200 + spawned++),
+  });
+  const start = worker.ensure("C:\\TTS");
+  worker.kill("stopped by user");
+  await assert.rejects(
+    within(start, "Stop during the folder check left the start waiting"),
+    /stopped by user/,
+  );
+  assert.equal(spawned, 0, "a worker started after Stop");
+  assert.equal(worker.state, "stopped");
+});
+
+console.log(
+  `\n${passed} passed (speed, voice names, player box, last turn, Kokoro worker)`,
+);

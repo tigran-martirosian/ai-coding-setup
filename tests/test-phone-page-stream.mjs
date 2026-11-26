@@ -57,7 +57,8 @@ function standInPc(socket) {
   async function sendSealed(body) {
     s.nOut++;
     const h = header(s.sid, s.nOut);
-    socket.fromPc({ ...h, c: await seal.sealFrame(s.keys.pc2p, h, body) });
+    s.last = { ...h, c: await seal.sealFrame(s.keys.pc2p, h, body) };
+    socket.fromPc(s.last);
   }
   async function take(f) {
     if (f.n === 0) {
@@ -127,9 +128,23 @@ function standInPc(socket) {
   }
   return {
     log,
+    // What a stranger on the relay path can send: the last frame again, or a frame that does not open.
+    replayLast: () => socket.fromPc(s.last),
+    forge: (ahead) =>
+      socket.fromPc({
+        ...header(s.sid, s.nOut + ahead),
+        c: seal.toB64u(seal.randomBytes(64)),
+      }),
+    // A frame that opens but skips a counter.
+    async skipOne(body) {
+      s.nOut++;
+      await sendSealed(body);
+    },
     take: (f) => {
       line = line.then(() => take(f));
     },
+    // A frame the PC sends of itself, as an event.
+    send: (body) => sendSealed(body),
     // Answers every ask held so far; the stream it names is taken.
     async answerAsks() {
       for (const [id, body] of s.asks) {
@@ -179,7 +194,7 @@ async function session(link) {
 async function newLink() {
   return channel.openLink({
     url: "ws://stand-in/ws",
-    initData: "test",
+    initData: "hash=test",
     WebSocket: StandInSocket,
   });
 }
@@ -314,6 +329,34 @@ async function caseSideBySide() {
   link.close();
 }
 
+async function caseForged() {
+  const link = await newLink();
+  const s = await session(link);
+  let endedWith = null;
+  s.ended.then((e) => (endedWith = e?.code ?? String(e)));
+  const answered = async () => {
+    const asking = s.ask("files.list").catch((e) => ({ ok: false, e }));
+    await until(() => at("ask ") >= 0, 5000);
+    await pc.answerAsks();
+    pc.log.length = 0;
+    return (await asking).ok;
+  };
+  const before = await answered();
+  pc.replayLast();
+  pc.forge(1);
+  pc.forge(5);
+  const after = await answered();
+  const keptWith = endedWith;
+  await pc.skipOne({ k: "evt", e: "skipped" });
+  await until(() => endedWith, 5000);
+  check(
+    "page: a replayed frame or one that does not open is dropped and the session goes on; a gap in frames that open ends it (FAIL: a stranger on the relay path ends the phone's session)",
+    before && after && keptWith === null && endedWith === "counter-gap",
+    show({ before, after, keptWith, endedWith }),
+  );
+  link.close();
+}
+
 async function caseNewHello() {
   const link = await newLink();
   const s1 = await session(link);
@@ -345,9 +388,96 @@ async function caseNewHello() {
   link.close();
 }
 
+// The page's event handler throws on one event (as a screen that fails to draw it): that event is lost, said on the
+// console, and the frames after it still come.
+async function caseHandlerThrows() {
+  const link = await newLink();
+  const seen = [];
+  const s = await channel.openSession(link, {
+    K,
+    dev: DEV,
+    pageVersion: "test",
+    onEvent: (body) => {
+      seen.push(body.e);
+      if (body.e === "bad") throw new Error("the screen broke on it");
+    },
+  });
+  const said = [];
+  const consoleError = console.error;
+  console.error = (...words) => said.push(words.join(" "));
+  const lost = (e) => said.push(`unhandled: ${e?.message ?? e}`);
+  process.on("unhandledRejection", lost);
+  await pc.send({ k: "evt", e: "bad" });
+  await pc.send({ k: "evt", e: "after" });
+  const asking = s.ask("files.list", undefined, 3000).then(
+    (r) => r.ok,
+    (e) => e.code ?? e.message,
+  );
+  await until(() => at("ask ") >= 0, 5000);
+  await pc.answerAsks();
+  const answered = await asking;
+  await sleep(50);
+  process.off("unhandledRejection", lost);
+  console.error = consoleError;
+  check(
+    "page: an event handler that throws loses only its own event, said on the console; the next event and the next answer still come (FAIL: one bad event stops every later frame of the session)",
+    show(seen) === '["bad","after"]' &&
+      answered === true &&
+      said.length === 1 &&
+      said[0].includes("the screen broke on it"),
+    show({ seen, answered, said }),
+  );
+  await s.bye();
+  link.close();
+}
+
 await caseTwoFull();
 await caseSmallDuringBig();
 await caseSideBySide();
 await caseNewHello();
+await caseForged();
+await caseHandlerThrows();
+
+// The relay login is Telegram's initData with its `hash`: the page refuses to sign in without one, and a pairing
+// frame, which the relay passes to the PC the code names, carries the initData with `hash` removed.
+{
+  let noHash;
+  try {
+    channel.openLink({
+      url: "ws://stand-in/ws",
+      initData: "auth_date=1&signature=x",
+      WebSocket: StandInSocket,
+    });
+    noHash = "signed in";
+  } catch (e) {
+    noHash = e.code;
+  }
+  const sent = [];
+  const link = {
+    next: () => new Promise(() => {}),
+    send: (f) => sent.push(f),
+  };
+  const pcId = "A".repeat(26);
+  const code = seal.makePairCode(pcId, new Uint8Array(16));
+  const initData = "auth_date=1&user=%7B%7D&signature=s&hash=h";
+  channel.pair(link, { code, initData, kind: "iphone" });
+  const frame = await until(() => sent[0]);
+  const mac1 =
+    frame &&
+    (await seal.checkPairMac1(
+      new Uint8Array(16),
+      seal.fromB64u(frame.mac1),
+      pcId,
+      seal.fromB64u(frame.DP),
+      frame.initData,
+    ));
+  check(
+    "openLink refuses initData without hash; pair sends initData without hash, with mac1 over what it sends (FAIL: the PC a code names gets the phone's relay login)",
+    noHash === "no-init-data" &&
+      frame?.initData === "auth_date=1&user=%7B%7D&signature=s" &&
+      mac1 === true,
+    show({ noHash, frame }),
+  );
+}
 console.log(`\n${pass} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

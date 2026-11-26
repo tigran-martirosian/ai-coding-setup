@@ -714,7 +714,9 @@ function apply() {
   const undo = [];
   const marks = { ...tidiedMap(state) };
   const created = new Set();
-  // each changed or created file goes on the undo record once, before its first change in this run
+  const at = new Date().toISOString();
+  // each changed or created file goes on the undo record once, before its first change in this run; the record is
+  // saved before that change, so a run that stops part way can still be undone with --undo
   const before = (file) => {
     if (undo.some((u) => fileKey(u.file) === fileKey(file))) return;
     if (fs.existsSync(file)) {
@@ -725,82 +727,122 @@ function apply() {
       created.add(path.resolve(file));
       undo.push({ file: fwd(file), copy: null });
     }
+    saveState({
+      rulesUndo: { at, by: "tidy", files: undo },
+      rulesUndoBefore: undefined,
+    });
     fs.mkdirSync(path.dirname(file), { recursive: true });
   };
   const said = [];
-  // every tidied file is written first and the moves after, so a block moved into another file of the same
-  // ledger (a global line about a home project) lands in that file's tidied text instead of being overwritten
-  const moves = [];
-  for (const p of plans) {
-    before(p.file);
-    fs.writeFileSync(p.file, p.out);
-    p.blocks.forEach((b, i) => {
-      const e = p.byId.get(`B${i + 1}`);
-      if (e.verdict === "move") moves.push({ e, b });
-    });
-  }
-  for (const { e, b } of moves) {
-    const to = untilde(e.to);
-    before(to);
-    const had = fs.existsSync(to) ? read(to) : "";
-    const sep = had === "" || had.endsWith("\n") ? "" : "\n";
-    if (e.kind === "project-only")
-      fs.writeFileSync(
-        to,
-        appendOwn(had, [{ heading: b.heading, text: b.text }]),
-      );
-    else if (had !== "") fs.writeFileSync(to, `${had}${sep}\n${b.text}\n`);
-    else if (e.kind === "file-type-only")
-      fs.writeFileSync(
-        to,
-        `---\npaths: ${JSON.stringify(e.paths)}\n---\n\n${b.text}\n`,
-      );
-    else
-      fs.writeFileSync(
-        to,
-        `---\nname: ${path.basename(path.dirname(to))}\ndescription: ${e.description.trim()}\n---\n\n${b.text}\n`,
-      );
-  }
-  for (const p of plans) {
-    const copy = undo.find((u) => path.resolve(u.file) === p.file).copy;
-    const entries = [];
-    let moved = 0;
-    p.blocks.forEach((b, i) => {
-      const e = p.byId.get(`B${i + 1}`);
-      if (gone(e) || reworded(e))
-        entries.push(vaultEntry(next++, e, b, p.file));
-      if (e.verdict === "move") moved++;
-    });
-    if (entries.length) {
-      const vault = vaultOf(p.file);
-      before(vault);
-      const had = fs.existsSync(vault) ? read(vault) : "";
-      fs.writeFileSync(
-        vault,
-        had +
-          (had && !had.endsWith("\n") ? "\n" : "") +
-          (had.trim() ? "\n" : "") +
-          entries.join("\n"),
+  let log;
+  try {
+    // every tidied file is written first and the moves after, so a block moved into another file of the same
+    // ledger (a global line about a home project) lands in that file's tidied text instead of being overwritten
+    const moves = [];
+    for (const p of plans) {
+      before(p.file);
+      fs.writeFileSync(p.file, p.out);
+      p.blocks.forEach((b, i) => {
+        const e = p.byId.get(`B${i + 1}`);
+        if (e.verdict === "move") moves.push({ e, b });
+      });
+    }
+    for (const { e, b } of moves) {
+      const to = untilde(e.to);
+      before(to);
+      const had = fs.existsSync(to) ? read(to) : "";
+      const sep = had === "" || had.endsWith("\n") ? "" : "\n";
+      if (e.kind === "project-only")
+        fs.writeFileSync(
+          to,
+          appendOwn(had, [{ heading: b.heading, text: b.text }]),
+        );
+      else if (had !== "") fs.writeFileSync(to, `${had}${sep}\n${b.text}\n`);
+      else if (e.kind === "file-type-only")
+        fs.writeFileSync(
+          to,
+          `---\npaths: ${JSON.stringify(e.paths)}\n---\n\n${b.text}\n`,
+        );
+      else
+        fs.writeFileSync(
+          to,
+          `---\nname: ${path.basename(path.dirname(to))}\ndescription: ${e.description.trim()}\n---\n\n${b.text}\n`,
+        );
+    }
+    for (const p of plans) {
+      const copy = undo.find((u) => path.resolve(u.file) === p.file).copy;
+      const entries = [];
+      let moved = 0;
+      p.blocks.forEach((b, i) => {
+        const e = p.byId.get(`B${i + 1}`);
+        if (gone(e) || reworded(e))
+          entries.push(vaultEntry(next++, e, b, p.file));
+        if (e.verdict === "move") moved++;
+      });
+      if (entries.length) {
+        const vault = vaultOf(p.file);
+        before(vault);
+        // the numbers are taken before the entries are written, so a run that stops after this never hands them out again
+        saveState({ ownVaultNext: next });
+        const had = fs.existsSync(vault) ? read(vault) : "";
+        fs.writeFileSync(
+          vault,
+          had +
+            (had && !had.endsWith("\n") ? "\n" : "") +
+            (had.trim() ? "\n" : "") +
+            entries.join("\n"),
+        );
+      }
+      setMark(marks, p.file, sha(read(p.file))); // after the moves: a block moved in was judged in this run too
+      said.push(
+        `my-rules: tidied ${tilde(p.file)}, ${lines(p.text)} lines before, ${lines(p.out)} after (vaulted ${entries.length}, moved ${moved}, ` +
+          `about ${tokens(Buffer.byteLength(p.text) - Buffer.byteLength(p.out))} tokens less each chat; old copy: ${tilde(copy)}; undo: ${UNDO})`,
       );
     }
-    setMark(marks, p.file, sha(read(p.file))); // after the moves: a block moved in was judged in this run too
-    said.push(
-      `my-rules: tidied ${tilde(p.file)}, ${lines(p.text)} lines before, ${lines(p.out)} after (vaulted ${entries.length}, moved ${moved}, ` +
-        `about ${tokens(Buffer.byteLength(p.text) - Buffer.byteLength(p.out))} tokens less each chat; old copy: ${tilde(copy)}; undo: ${UNDO})`,
+  } catch (err) {
+    // Stopped before any file changed (its first write failed): the last undo record goes back in place of this
+    // run's, so the run before it can still be undone, and this run's copies go.
+    const untouched = (u) => {
+      try {
+        return u.copy ? read(u.file) === read(u.copy) : !fs.existsSync(u.file);
+      } catch {
+        return false;
+      }
+    };
+    if (undo.every(untouched)) {
+      saveState({
+        rulesUndo: state.rulesUndo,
+        rulesUndoBefore: state.rulesUndoBefore,
+      });
+      for (const u of undo) if (u.copy) fs.rmSync(u.copy, { force: true });
+      stop(
+        `the tidy stopped before it changed any file (${err.message}); nothing was changed and the last undo record is kept.`,
+      );
+    }
+    stop(
+      `the tidy stopped part way (${err.message}); every file it changed is on the undo record, put them back with: ${UNDO}`,
     );
   }
-  const logs = path.join(CLAUDE, "setup-logs");
-  fs.mkdirSync(logs, { recursive: true });
-  let log = path.join(logs, `tidy-${today()}.json`);
-  for (let n = 2; fs.existsSync(log); n++)
-    log = path.join(logs, `tidy-${today()}-${n}.json`);
-  fs.writeFileSync(log, JSON.stringify(ledger, null, 2) + "\n");
-  saveState({
-    ownTidied: marks,
-    ownVaultNext: next,
-    rulesUndo: { at: new Date().toISOString(), by: "tidy", files: undo },
-    rulesUndoBefore: undefined,
-  });
+  // Every file is tidied by now: a failure here loses only the ledger log or the tidied marks, not the tidy.
+  try {
+    const logs = path.join(CLAUDE, "setup-logs");
+    fs.mkdirSync(logs, { recursive: true });
+    log = path.join(logs, `tidy-${today()}.json`);
+    for (let n = 2; fs.existsSync(log); n++)
+      log = path.join(logs, `tidy-${today()}-${n}.json`);
+    fs.writeFileSync(log, JSON.stringify(ledger, null, 2) + "\n");
+    saveState({
+      ownTidied: marks,
+      ownVaultNext: next,
+      rulesUndo: { at, by: "tidy", files: undo },
+      rulesUndoBefore: undefined,
+    });
+  } catch (err) {
+    for (const s of said) console.log(s);
+    stop(
+      `the tidy is done, but its ledger log or its tidied marks were not saved (${err.message}); every changed file is on the undo record (${UNDO}), and the files may be offered for a tidy again.`,
+    );
+  }
   for (const s of said) console.log(s);
   if (next > first)
     console.log(

@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeChecker } from "./lib/kit.mjs";
 
@@ -961,6 +961,112 @@ for (const [label, command] of [
     show(r),
   );
   rmSync(FOLDER_LOG, { force: true });
+}
+// Folders the gate misread before: a relative -C after a cd (git reads it from the cd's folder), Git Bash's /tmp on
+// Windows (the user's temp folder, not C:\tmp) and a single-quoted word holding $( (the shell keeps it as written)
+const oddRepo = join(dir, "odd$(x)");
+mkdirSync(join(oddRepo, "src"), { recursive: true });
+sh(oddRepo, "init", "-q");
+writeFileSync(join(oddRepo, "src", "a.mjs"), "x\n");
+sh(oddRepo, "add", "src/a.mjs");
+mkdirSync(join(oddRepo, ".claude", "skills", "verify"), { recursive: true });
+writeFileSync(
+  join(oddRepo, ".claude", "skills", "verify", "SKILL.md"),
+  SKILL_TEXT,
+);
+const oddEdit = [typed("fix"), ...tEdit(join(oddRepo, "src", "a.mjs"))];
+const slashed = (p) => p.replace(/\\/g, "/");
+const folderCases = [
+  [
+    "cd <home> && git -C proj commit (a relative -C after a cd)",
+    tildeEdit,
+    `cd "${slashed(tildeHome)}" && git -C proj commit -m "fix: a"`,
+  ],
+  [
+    "cd '<folder named odd$(x)>' && git commit (single-quoted $( is no command)",
+    oddEdit,
+    `cd '${slashed(oddRepo)}' && git commit -m "fix: a"`,
+  ],
+  [
+    "R='<folder named odd$(x)>'; git -C \"$R\" commit (single-quoted $( in a variable's value)",
+    oddEdit,
+    `R='${slashed(oddRepo)}'; git -C "$R" commit -m "fix: a"`,
+  ],
+  // A cd in a loop's body or in bash -c '...' does not move the commit's shell: the relative -C alone names it
+  [
+    "for d in a b; do cd $d; make; done; git -C <repo> commit (a cd in a loop body)",
+    tildeEdit,
+    `for d in a b; do cd $d; make; done; git -C ${slashed(relative(dir, tildeRepo))} commit -m "fix: a"`,
+  ],
+  [
+    "for d in a b; do make; cd $d; done; git -C <repo> commit (a cd later in a loop body)",
+    tildeEdit,
+    `for d in a b; do make; cd $d; done; git -C ${slashed(relative(dir, tildeRepo))} commit -m "fix: a"`,
+  ],
+  [
+    "bash -c 'make; cd sub'; git -C <repo> commit (a cd inside quotes)",
+    tildeEdit,
+    `bash -c 'make; cd sub'; git -C ${slashed(relative(dir, tildeRepo))} commit -m "fix: a"`,
+  ],
+];
+if (process.platform === "win32")
+  folderCases.push([
+    "cd /tmp/<repo> && git commit on Windows (Git Bash's /tmp is the temp folder)",
+    tildeEdit,
+    `cd /tmp/${slashed(relative(tmpdir(), tildeRepo))} && git commit -m "fix: a"`,
+  ]);
+for (const [label, entries, command] of folderCases) {
+  r = pre(entries, {
+    cwd: dir,
+    command,
+    env: { HOOK_ERRORS_LOG: FOLDER_LOG },
+  });
+  check(
+    `${label}: the gate reads the commit's folder as the shell does, so the unverified code commit is logged would-refuse`,
+    r.lines.at(-1)?.would === "would-refuse" && !existsSync(FOLDER_LOG),
+    show(r),
+  );
+}
+// Git Bash's /tmp and its single-quote rule are Bash's: PowerShell reads neither, so its folder stays unknown
+const psCases = [
+  [
+    "PowerShell cd '<folder named odd$(x)>'; git commit",
+    oddEdit,
+    `cd '${slashed(oddRepo)}'; git commit -m "fix: a"`,
+  ],
+];
+if (process.platform === "win32")
+  psCases.push([
+    "PowerShell cd /tmp/<repo>; git commit on Windows (/tmp is no temp folder there)",
+    tildeEdit,
+    `cd /tmp/${slashed(relative(tmpdir(), tildeRepo))}; git commit -m "fix: a"`,
+  ]);
+for (const [label, entries, command] of psCases) {
+  r = pre(entries, {
+    cwd: dir,
+    tool: "PowerShell",
+    command,
+    env: { HOOK_ERRORS_LOG: FOLDER_LOG },
+  });
+  check(
+    `${label}: Bash's /tmp and quote rules are not used for PowerShell, so the folder is logged folder-unknown`,
+    r.lines.at(-1)?.would === "folder-unknown" && !existsSync(FOLDER_LOG),
+    show(r),
+  );
+}
+// A missing folder is named by the words still in use: a later absolute -C clears the cd before it
+{
+  const missing = slashed(join(dir, "no-such-folder"));
+  r = pre(tildeEdit, {
+    cwd: dir,
+    command: `cd old-place && git -C "${missing}" commit -m "fix: a"`,
+    env: { HOOK_ERRORS_LOG: FOLDER_LOG },
+  });
+  check(
+    "cd <word> && git -C <absolute missing folder> commit: the folder-unknown line names only the -C folder",
+    r.lines[0]?.would === "folder-unknown" && r.lines[0].folder === missing,
+    show(r),
+  );
 }
 
 // The words after git commit: a redirection or a message's words are not paths

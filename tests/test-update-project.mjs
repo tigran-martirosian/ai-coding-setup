@@ -595,11 +595,11 @@ const noRuns = runEnv(
   hub,
 );
 check(
-  "a workflow GitHub knows but has not run: the CI speed check is a note with 0 finished runs",
+  "a workflow GitHub knows but has not run: the CI speed check is a note with 0 finished runs, and no line of gh's own text leaks out",
   /^P26\s+note\s+\S+\s+CI speed not checked: ci\.yml: 0 finished runs; a median needs 5 finished runs$/m.test(
     noRuns.out,
-  ),
-  ciLine(noRuns.out) || noRuns.out,
+  ) && !/^GitHub/m.test(noRuns.out),
+  noRuns.out,
 );
 const unknownFlow = runEnv(
   { PASS_GH: fakeGh, FAKE_GH: "on", FAKE_RUNS: "none" },

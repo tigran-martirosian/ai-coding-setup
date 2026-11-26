@@ -7,9 +7,12 @@ goes into a rule, a skill or a web search, and no report is sent to anyone. The 
 readers besides you are the `worker` subagents: they read the chat digests, so tell the user that
 before the scan.
 
-`$S` below is `~/.claude/skills/setup-audit/scripts`. Work from your `claude-settings` project folder: `DECISIONS.md` and `audits/` live there.
+`$S` below is `~/.claude/skills/setup-audit/scripts`. Work from your `claude-settings` project folder: `DECISIONS.md` lives there. This review's own files go to `~/.claude/reports/chat-review/`.
 
 ## 1. Scan
+
+First read the tracker's open items (ToolSearch `tracker_list`; no tracker tool: skip it): what is filed there is
+not proposed again.
 
 `node $S/chat-scan.mjs` (with `--days <N>` or `--project <name>` when the user gave one; the
 default is 14 days and every project with 10 or more requests, at most 8). It prints one line per project and writes one
@@ -90,8 +93,9 @@ who made it, what it loads into every session. Don't propose what you have not r
 
 ## 5. Ask: one tick list
 
-One `PromptForUserInput` with one `multiSelect`, nothing ticked in advance, at most 12 items, the
-strongest first, then right after it an optional `editText` "Anything else?" (`minLength: 0`). Each item:
+In Nimbalyst: one `PromptForUserInput` with one `multiSelect`, nothing ticked in advance, at most 12 items, the
+strongest first, then right after it an optional `editText` "Anything else?" (`minLength: 0`). Elsewhere: the
+same items as a numbered list in the reply, and ask which numbers to do. Each item:
 
 - **title:** the change in plain words, starting with the project's name ("reports: a skill for ...").
 - **subtitle:** what was seen (how many times, in which week), where the change goes (that project,
@@ -121,6 +125,17 @@ hook, skill or note), then a **Facts and traps** list (each line in the trap sha
 file it went to, or `declined`), then a **Decided** table
 (proposal | ticked or declined | where it went), then a section "Earlier fixes" (fix | held, came
 back or did not come up | chat label), then "seen, nothing to change".
+
+Then each finding nobody acted on (neither set up nor declined: past the tick list's 12, or a set-up that failed),
+and not among the tracker's open items, goes as one line to the findings inbox `~/.claude/findings/<yyyy-mm-dd>.md`,
+in your own words with no quotes; the inbox is read later and filed on the tracker. `kind: bug` is wrong behaviour to
+reproduce and fix; `kind: change` is an improvement that needs the user's yes:
+
+```bash
+d=~/.claude/findings; mkdir -p "$d" && cat >> "$d/$(date +%F).md" <<'EOF'
+- from: <who> | kind: bug|change | seen: <what was seen> | fix: <what would fix it>
+EOF
+```
 
 Reply short: what was set up and where, what was declined, and which of it needs a new chat (a rule
 in a `CLAUDE.md` is read when a chat starts; skills and hooks are picked up by running chats). Add

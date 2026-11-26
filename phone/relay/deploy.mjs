@@ -96,25 +96,44 @@ function mask(value) {
     console.log(`::add-mask::${value}`);
 }
 
+// The Wrangler that `npm ci --ignore-scripts` put in phone/relay from the committed lock, run with this node and no
+// shell. Never npx: npx resolves and fetches packages next to the Cloudflare token.
+export function wranglerCommand(args) {
+  return {
+    command: process.execPath,
+    args: [
+      path.join(RELAY, "node_modules", "wrangler", "bin", "wrangler.js"),
+      ...args,
+    ],
+    shell: false,
+  };
+}
+
 function runWrangler(args, { env, input }) {
-  const win = process.platform === "win32";
   const childEnv = { ...process.env, ...env };
   for (const name of [CI_SECRETS.botToken, CI_SECRETS.ownerTgId])
     delete childEnv[name];
-  // Windows starts npx through cmd; no argument holds a space or a secret.
-  const r = spawnSync(
-    "npx",
-    ["--yes", `wrangler@${WRANGLER_VERSION}`, ...args],
-    {
-      cwd: RELAY,
-      env: childEnv,
-      input: input ?? "",
-      encoding: "utf8",
-      shell: win,
-      maxBuffer: 1 << 26,
-    },
-  );
-  if (r.error) throw new Error(`deploy: cannot start npx: ${r.error.message}`);
+  const run = wranglerCommand(args);
+  const pkgFile = path.join(RELAY, "node_modules", "wrangler", "package.json");
+  if (!fs.existsSync(pkgFile))
+    throw new Error(
+      "deploy: Wrangler is not installed in phone/relay: run npm ci --ignore-scripts there first",
+    );
+  const installed = JSON.parse(fs.readFileSync(pkgFile, "utf8")).version;
+  if (installed !== WRANGLER_VERSION)
+    throw new Error(
+      `deploy: phone/relay has Wrangler ${installed}, not ${WRANGLER_VERSION}: run npm ci --ignore-scripts in phone/relay`,
+    );
+  const r = spawnSync(run.command, run.args, {
+    cwd: RELAY,
+    env: childEnv,
+    input: input ?? "",
+    encoding: "utf8",
+    shell: run.shell,
+    maxBuffer: 1 << 26,
+  });
+  if (r.error)
+    throw new Error(`deploy: cannot start Wrangler: ${r.error.message}`);
   if (r.status !== 0)
     throw new Error(
       `deploy: wrangler ${args.slice(0, 2).join(" ")} failed (exit code ${r.status}):\n${`${r.stderr}\n${r.stdout}`.trim()}`,
@@ -232,7 +251,7 @@ async function probeRelay(origin, { fetch, say, limitMs, wait }) {
           `${tries} tries in about ${Math.round(spent / 1000)} s:\n${found.join("\n")}\n` +
           "The new version is live and serving this now. The secrets and the bot are left as they were. Take the " +
           `problem out and deploy again, or go back to the last version: in phone/relay run ` +
-          `npx wrangler@${WRANGLER_VERSION} rollback --name <worker>.`,
+          "node node_modules/wrangler/bin/wrangler.js rollback --name <worker>.",
       );
     const ms = Math.min(next, left);
     say(
@@ -251,7 +270,7 @@ export const TEST_TOPIC_SUFFIX = " (test)";
 
 // Deploys the Worker `name` with the page; returns { origin, webhookSecret } (the relay's address and the secret its
 // webhook checks), or null on a dry run. `beside`: the test copy beside the real relay (see the top of this file);
-// it also puts TOPIC_SUFFIX. `wrangler`: a stand-in for the npx call, (args, { env, input }) -> its output, for tests.
+// it also puts TOPIC_SUFFIX. `wrangler`: a stand-in for the Wrangler run, (args, { env, input }) -> its output, for tests.
 // `probeLimitMs` and `probeWait` (ms -> a promise): how long the live probe keeps asking and its pause, for tests.
 // `keep` ({ origin, webhookSecret } -> nothing) runs once the secrets are put and before any bot call, so a bot call
 // that fails still leaves the caller the secret the relay now checks.
@@ -295,7 +314,8 @@ export async function deployRelay({
     say(
       "test copy beside the real relay: no bot-wide call, the page keeps its own pairing",
     );
-  const wr = `npx wrangler@${WRANGLER_VERSION}`;
+  // The command wranglerCommand runs, as a person would type it in phone/relay.
+  const wr = "node node_modules/wrangler/bin/wrangler.js";
   if (dryRun) {
     say("dry run: nothing is written, deployed or sent");
     say(

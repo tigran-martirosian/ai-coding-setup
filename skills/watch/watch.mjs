@@ -139,11 +139,10 @@ function clock(s) {
 
 let id;
 if (isLink) {
-  id =
-    source.match(
-      /(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/,
-    )?.[1] ||
-    crypto.createHash("sha1").update(source).digest("hex").slice(0, 12);
+  // A link's folder is first named by a hash of the whole link; the link itself is never read for an id. Step 1 moves
+  // to the folder of the id yt-dlp reports when that is one YouTube video (YOUTUBE_ID), so links to the same video
+  // share it and another site's link, a playlist or a link read two ways never lands in a video's folder.
+  id = crypto.createHash("sha1").update(source).digest("hex").slice(0, 12);
 } else {
   if (!fs.existsSync(source)) stop(`not found: ${source}`);
   const stat = fs.statSync(source);
@@ -160,8 +159,9 @@ if (isLink) {
 // config and code from its working folder (yt-dlp its yt-dlp.conf, uv a .venv and uv.toml, python -c its imports),
 // and the folder Claude runs in may be a cloned repo with such a file planted. yt-dlp also runs with
 // --ignore-config, uv and uvx with --no-config, and python with -I.
-const dir = path.join(HOME, id);
+let dir = path.join(HOME, id);
 fs.mkdirSync(dir, { recursive: true });
+const YOUTUBE_ID = /^[\w-]{11}$/;
 
 let ytCommand;
 function yt(args, options = {}) {
@@ -206,10 +206,33 @@ function yt(args, options = {}) {
   );
 }
 
-// 1. What the video is
-const infoFile = path.join(dir, "info.json");
+// 1. What the video is. A link that yt-dlp read as one YouTube video keeps only video.json ({video: <id>}) in its own
+// folder; everything else goes to the folder of that id, used again only when the info.json there names the same id
+// and came from a link. Anything else yt-dlp reads (another site, a playlist, no id) stays in the link's folder.
+let infoFile = path.join(dir, "info.json");
+const videoFile = path.join(dir, "video.json");
+const readKept = (file) =>
+  fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
+const toVideo = (video) => {
+  id = video;
+  dir = path.join(HOME, video);
+  infoFile = path.join(dir, "info.json");
+  fs.mkdirSync(dir, { recursive: true });
+};
 let info;
-if (fs.existsSync(infoFile))
+if (isLink && fs.existsSync(videoFile)) {
+  const { video } = readKept(videoFile);
+  const there =
+    YOUTUBE_ID.test(video ?? "") &&
+    readKept(path.join(HOME, video, "info.json"));
+  if (there?.id === video && /^https?:\/\//i.test(there.source)) {
+    toVideo(video);
+    info = there;
+  }
+}
+if (info) {
+  // the YouTube video this link was read as before
+} else if (fs.existsSync(infoFile))
   info = JSON.parse(fs.readFileSync(infoFile, "utf8"));
 else if (isLink) {
   const run = yt(["-J", source]);
@@ -218,23 +241,36 @@ else if (isLink) {
       `yt-dlp could not read ${source}:\n${(run.stderr || "").trim().split("\n").slice(-5).join("\n")}`,
     );
   const full = JSON.parse(run.stdout);
-  info = {
-    id,
-    source,
-    title: full.title,
-    channel: full.channel || full.uploader,
-    duration: full.duration,
-    language: full.language,
-    chapters: (full.chapters || []).map((c) => ({
-      start: c.start_time,
-      title: c.title,
-    })),
-    subtitles: Object.keys(full.subtitles || {}).filter(
-      (k) => k !== "live_chat",
-    ),
-    automatic: Object.keys(full.automatic_captions || {}),
-  };
-  fs.writeFileSync(infoFile, JSON.stringify(info, null, 2));
+  if (
+    (full._type ?? "video") === "video" &&
+    full.extractor_key === "Youtube" &&
+    YOUTUBE_ID.test(full.id ?? "")
+  ) {
+    fs.writeFileSync(videoFile, JSON.stringify({ video: full.id }));
+    toVideo(full.id);
+    // another link to the same video read it before: its kept info.json, when it names this id
+    const there = readKept(infoFile);
+    if (there?.id === id && /^https?:\/\//i.test(there.source)) info = there;
+  }
+  if (!info) {
+    info = {
+      id,
+      source,
+      title: full.title,
+      channel: full.channel || full.uploader,
+      duration: full.duration,
+      language: full.language,
+      chapters: (full.chapters || []).map((c) => ({
+        start: c.start_time,
+        title: c.title,
+      })),
+      subtitles: Object.keys(full.subtitles || {}).filter(
+        (k) => k !== "live_chat",
+      ),
+      automatic: Object.keys(full.automatic_captions || {}),
+    };
+    fs.writeFileSync(infoFile, JSON.stringify(info, null, 2));
+  }
 } else {
   info = {
     id,

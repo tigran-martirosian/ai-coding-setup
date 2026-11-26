@@ -21,7 +21,7 @@
         "enablement": {
           "default": "disabled",
           "promptOn": "firstUse",
-          "purpose": "Run the Kokoro text-to-speech model from your local TTS folder (default C:\\LocalTTS) so replies can be read aloud. Everything stays on this computer."
+          "purpose": "Run the Kokoro text-to-speech model from your local TTS folder (default %LOCALAPPDATA%\\LocalTTS) so replies can be read aloud. Everything stays on this computer."
         }
       }
     ],
@@ -71,8 +71,8 @@
         },
         "ttsDirectory": {
           "type": "string",
-          "default": "C:\\LocalTTS",
-          "description": "Folder with venv, kokoro-v1.0.onnx and voices-v1.0.bin",
+          "default": "",
+          "description": "Folder with venv, kokoro-v1.0.onnx and voices-v1.0.bin; empty is %LOCALAPPDATA%\\LocalTTS. A folder other accounts can write to is refused",
           "scope": "user"
         }
       }

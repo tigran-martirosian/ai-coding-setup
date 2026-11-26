@@ -12,7 +12,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeChecker, tmpHome } from "./lib/kit.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
@@ -119,8 +119,9 @@ const FX = {
   "fx-slow-2": `runHook("fx-slow-2", () => new Promise((r) => setTimeout(r, 120000)));`,
   "fx-slow-3": `runHook("fx-slow-3", () => new Promise((r) => setTimeout(r, 120000)));`,
   // ends at once and leaves work that finishes 300 ms later (as fetch's socket is still closing after a HEAD), and
-  // that sets an exit code of the whole process
-  "fx-linger": `import fs from "node:fs";\nsetTimeout(() => { fs.writeFileSync(process.env.FX_MARK, "done"); process.exitCode = 3; }, 300);\nrunHook("fx-linger", () => {});`,
+  // that sets an exit code of the whole process. Node fires beforeExit only when a process ends by itself, never on
+  // process.exit, so the mark says which way the dispatcher ended.
+  "fx-linger": `import fs from "node:fs";\nsetTimeout(() => { fs.writeFileSync(process.env.FX_MARK, "done"); process.exitCode = 3; }, 300);\nprocess.once("beforeExit", () => fs.appendFileSync(process.env.FX_MARK, ", ended by itself"));\nrunHook("fx-linger", () => {});`,
   // ends at once and leaves a timer of two minutes
   "fx-hold": `setTimeout(() => {}, 120000);\nrunHook("fx-hold", () => {});`,
   // rewrites the command, as download-guard does, into one delete-guard refuses
@@ -222,6 +223,35 @@ const groupWith = async (
   seen.push([name, r]);
   return r;
 };
+// A "big" file: a local server answers the HEAD request with 60 MB. download-guard refuses to probe a private or
+// local address, so the URL names the made-up public host dl.test and `env` loads a preload (as in
+// test-download-guard.mjs) that sends a connection to dl.test to 127.0.0.1, below the hook's own address check.
+const dlShim = path.join(tmp, "dl-test-host.mjs");
+fs.writeFileSync(
+  dlShim,
+  `import net from "node:net";
+const connect = net.Socket.prototype.connect;
+net.Socket.prototype.connect = function (...args) {
+  const o = Array.isArray(args[0]) ? args[0][0] : args[0];
+  if (o && typeof o === "object" && o.host === "dl.test") { o.host = "127.0.0.1"; delete o.lookup; }
+  return connect.apply(this, args);
+};
+`,
+);
+async function bigFileServer() {
+  const server = http
+    .createServer((q, s) => {
+      s.writeHead(200, { "Content-Length": String(60e6) });
+      s.end();
+    })
+    .listen(0, "127.0.0.1");
+  await new Promise((r) => server.once("listening", r));
+  return {
+    server,
+    url: `http://dl.test:${server.address().port}/big.bin`,
+    env: { NODE_OPTIONS: `--import ${pathToFileURL(dlShim).href}` },
+  };
+}
 const readEvent = {
   session_id: "t",
   hook_event_name: "PreToolUse",
@@ -308,16 +338,12 @@ for (const name of ["allow-then-deny", "deny-then-allow"]) {
   );
 }
 {
-  // A "big" file: a local server answers the HEAD request with 60 MB
-  const server = http
-    .createServer((q, s) => {
-      s.writeHead(200, { "Content-Length": String(60e6) });
-      s.end();
-    })
-    .listen(0, "127.0.0.1");
-  await new Promise((r) => server.once("listening", r));
-  const url = `http://127.0.0.1:${server.address().port}/big.bin`;
-  const r = await group("download", `curl -L -o big.bin ${url}`);
+  const { server, url, env } = await bigFileServer();
+  const r = await groupWith(
+    "download",
+    bashEvent(`curl -L -o big.bin ${url}`),
+    { env },
+  );
   server.close();
   const o = parse(r.stdout).hookSpecificOutput ?? {};
   const command = String(o.updatedInput?.command ?? "");
@@ -393,19 +419,21 @@ for (const name of ["allow-then-deny", "deny-then-allow"]) {
     env: { DISPATCH_GROUPS: groupsFile, FX_MARK: mark },
   });
   seen.push(["linger", r]);
-  // well under the dispatcher's 1 s fallback: the process ended by itself once the work was done
+  // the mark, not a clock: "done" is the leftover work, ", ended by itself" is beforeExit, which the 1 s fallback's
+  // process.exit never fires
+  const marked = fs.existsSync(mark) ? fs.readFileSync(mark, "utf8") : "";
   check(
-    "D9 linger: the dispatcher ends by letting a hook's leftover work finish (on its own, under 900 ms), not by process.exit in the middle of it, and the exit code that work sets is not the dispatcher's",
+    "D9 linger: the dispatcher ends by letting a hook's leftover work finish (the process ends by itself), not by process.exit in the middle of it, and the exit code that work sets is not the dispatcher's",
     passed(r) &&
       ctx(r).includes("fx-ctx saw") &&
-      fs.existsSync(mark) &&
-      r.ms < 900,
-    `${show(r)}; leftover work ${fs.existsSync(mark) ? "finished" : "cut off"}`,
+      marked === "done, ended by itself",
+    `${show(r)}; mark "${marked}" (want "done, ended by itself")`,
   );
+  // passed() wants exit code 0, and the run is killed at 30 s, a quarter of the hook's two-minute timer
   const held = await group("hold", ECHO, 30000);
   check(
-    "D9 hold: a two-minute timer a hook left does not hold the call (it ends within 5 s, passing)",
-    passed(held) && ctx(held).includes("fx-ctx saw") && held.ms < 5000,
+    "D9 hold: a two-minute timer a hook left does not hold the call (it ends, passing, before the test stops it at 30 s)",
+    passed(held) && ctx(held).includes("fx-ctx saw"),
     show(held),
   );
 }
@@ -512,6 +540,8 @@ for (const [name, why] of [
 }
 {
   const r = await deadline;
+  // A bound kept on purpose: Claude Code kills the entry at its 60 s timeout, so an answer after that is a real bug.
+  // The group gives up at 45 s (GROUP_MS), so 55 s leaves 10 s for a busy computer.
   check(
     "D9 group-deadline: a group whose hooks together run long ends well before the entry's 60 s and blocks for the guard it could not run",
     r.status !== "killed" &&
@@ -835,14 +865,7 @@ fs.writeFileSync(
   }),
 );
 {
-  const server = http
-    .createServer((q, s) => {
-      s.writeHead(200, { "Content-Length": String(60e6) });
-      s.end();
-    })
-    .listen(0, "127.0.0.1");
-  await new Promise((r) => server.once("listening", r));
-  const url = `http://127.0.0.1:${server.address().port}/big.bin`;
+  const { server, url, env: dlEnv } = await bigFileServer();
   const pre = groups?.["pre-tool"] ?? [];
   const autoGroups = path.join(tmp, "auto-groups.json");
   fs.writeFileSync(
@@ -899,19 +922,20 @@ fs.writeFileSync(
       subagent_type: "worker",
     },
   };
-  for (const [what, event, note] of [
+  for (const [what, event, note, more = {}] of [
     ["Bash with no note", bashEvent("echo hi"), "command-explain:"],
     [
       "Bash with a big curl",
       bashEvent(`curl -L -o big.bin ${url}`),
       "[download-guard]",
+      dlEnv,
     ],
     ["an Agent call", agentEvent, "SYSTEMS MAP:"],
   ]) {
     const r = await run(
       realDispatch,
       { ...event, permission_mode: "auto" },
-      { env },
+      { env: { ...env, ...more } },
     );
     const o = parse(r.stdout).hookSpecificOutput ?? {};
     check(

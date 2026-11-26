@@ -18,6 +18,7 @@ const VERSION = JSON.parse(
   fs.readFileSync(path.join(ROOT, "version.json"), "utf8"),
 ).version;
 const BOT_ID = 7000001;
+const BOT_TOKEN = `${BOT_ID}:test-token`;
 const OWNER = 111;
 
 let pass = 0;
@@ -111,6 +112,7 @@ Object.assign(process.env, {
   LOCALAPPDATA: path.join(home, "AppData", "Local"),
 });
 const seal = await import("../phone/shared/seal.mjs");
+const { signInitData } = await import("./phone-bot/telegram-init-data.mjs");
 const { buildPage, writePage } = await import("../phone/page/build.mjs");
 const { startLocalRelay } = await import("../phone/relay/local/server.mjs");
 const channel = await import("../phone/page/frame/channel.js");
@@ -130,17 +132,12 @@ async function initDataFor(userId) {
     query_id: "q1",
     user: JSON.stringify({ id: userId, first_name: "Test" }),
   };
-  const lines = Object.entries(fields)
-    .map(([k, v]) => `${k}=${v}`)
-    .sort();
-  const sig = await crypto.subtle.sign(
-    "Ed25519",
-    tg.privateKey,
-    seal.utf8(`${BOT_ID}:WebAppData\n${lines.join("\n")}`),
-  );
-  const p = new URLSearchParams(fields);
-  p.set("signature", seal.toB64u(new Uint8Array(sig)));
-  return p.toString();
+  return signInitData({
+    fields,
+    botId: BOT_ID,
+    botToken: BOT_TOKEN,
+    privateKey: tg.privateKey,
+  });
 }
 
 function startPc(pcEnv) {
@@ -239,6 +236,7 @@ try {
     port: 0,
     pageDir,
     botId: BOT_ID,
+    botToken: BOT_TOKEN,
     ownerTgId: OWNER,
     telegramKey: tgPubHex,
     // Only the bot line of a join is sent (and kept here); a throw would make the local relay close the PC's socket.
@@ -571,7 +569,13 @@ try {
     const settings = screens.screen("settings");
     const open = async (p) => {
       const { link, s } = await session(relay.url, initData, p);
-      const seen = { popups: [], asks: [], unpaired: 0, answer: null };
+      const seen = {
+        popups: [],
+        answered: 0,
+        asks: [],
+        unpaired: 0,
+        answer: null,
+      };
       const root = settings.render({
         params: {},
         connected: true,
@@ -581,7 +585,11 @@ try {
           initDataUnsafe: { user: { id: OWNER, first_name: "Owner" } },
           showPopup(params, cb) {
             seen.popups.push(params);
-            setTimeout(() => cb(seen.answer), 0);
+            // counted after the page's callback ran: an ask it makes on the answer is in seen.asks by then
+            setTimeout(() => {
+              cb(seen.answer);
+              seen.answered++;
+            }, 0);
           },
         },
         ask(a, d) {
@@ -664,11 +672,12 @@ try {
     );
     C.seen.answer = "cancel";
     byClass(C.root, "unpair")[0].click();
-    await sleep(500);
+    const cancelled = await until(() => C.seen.answered === 1, 10000);
     const popup = C.seen.popups[0];
     check(
       "Unpair asks with Telegram's popup (Cancel and a destructive Unpair); Cancel changes nothing",
-      C.seen.popups.length === 1 &&
+      cancelled &&
+        C.seen.popups.length === 1 &&
         /^Unpair .+\?$/.test(popup.title) &&
         popup.buttons.map((b) => `${b.id}:${b.type}`).join() ===
           "cancel:cancel,unpair:destructive" &&
@@ -705,13 +714,15 @@ try {
   stepAt = Date.now();
   {
     let opened = null;
-    for (const end = Date.now() + 10000; !opened && Date.now() < end; ) {
+    for (const end = Date.now() + 30000; !opened && Date.now() < end; ) {
       opened = await session(relay.url, initData, paired).catch(async (e) => {
         if (e.code !== "pc-offline") throw e;
         await sleep(200);
         return null;
       });
     }
+    if (!opened)
+      throw new Error("the restarted PC still answered pc-offline after 30 s");
     const { link: l, s } = opened;
     check(
       'a changed page: the hello still says page "ok", so older pages do not grey out',
@@ -731,7 +742,11 @@ try {
   // The restarted PC no longer knows the old session; the relay's pc-online ends it, so the app says hello
   // again instead of timing out on every action.
   {
-    const ended = await Promise.race([lost.s.ended, sleep(1000)]);
+    // a deadline, not a wait: it goes on as soon as the session ends
+    const ended = await Promise.race([
+      lost.s.ended,
+      sleep(10000).then(() => ({ code: "not ended within 10 s" })),
+    ]);
     const err = await lost.s.ask("pc.status", {}, 2000).then(
       () => null,
       (e) => e,

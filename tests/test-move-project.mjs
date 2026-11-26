@@ -1433,31 +1433,44 @@ setTimeout(() => {
     });
     write(lockF, lockText);
     const before = fs.readFileSync(movesF, "utf8");
+    // The waits go through Atomics.wait, which this clock skips and adds to Date.now; at exit each process writes how
+    // long it ran on that clock. A wait that is not on it (a real sleep) shows as a short run and a slow test.
     const clock = path.join(w.root, "fast-clock.mjs");
+    const ran = path.join(w.root, "fast-clock-ran.txt");
     write(
       clock,
-      `const now = Date.now.bind(Date);
+      `import fs from "node:fs";
+const now = Date.now.bind(Date);
 let ahead = 0;
 Date.now = () => now() + ahead;
 Atomics.wait = (a, i, v, ms) => ((ahead += ms), "timed-out");
+const started = Date.now();
+process.on("exit", () => fs.appendFileSync(${JSON.stringify(ran)}, \`\${Date.now() - started}\\n\`));
 `,
     );
-    const t0 = Date.now();
     r = w.run(["--run-queued"], {
       MOVE_PROJECT_RUNNING: "0",
       NODE_OPTIONS: `--import=${pathToFileURL(clock).href}`,
     });
-    const took = Date.now() - t0;
+    const clockMs = fs.existsSync(ran)
+      ? Math.max(
+          ...fs
+            .readFileSync(ran, "utf8")
+            .split("\n")
+            .filter(Boolean)
+            .map(Number),
+        )
+      : 0;
     check(
       "a fresh moves.json.lock of a running process: --run-queued waits its 10 s (faked), then refuses (exit 1, names the holder's pid); the queue, the lock and the project stay as they were",
       r.code === 1 &&
         r.out.includes(`is held by process ${process.pid}`) &&
-        took < 8000 &&
+        clockMs >= 10000 &&
         fs.readFileSync(movesF, "utf8") === before &&
         fs.readFileSync(lockF, "utf8") === lockText &&
         fs.existsSync(path.join(w.from, "README.md")) &&
         !fs.existsSync(w.to),
-      `took ${took} ms\n${r.out}`,
+      `ran ${clockMs} ms on the faked clock\n${r.out}`,
     );
   }
 } finally {

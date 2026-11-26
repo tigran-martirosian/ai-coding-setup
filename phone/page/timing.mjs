@@ -350,6 +350,7 @@ try {
     port: 0,
     pageDir,
     botId: 1,
+    botToken: "1:local",
     ownerTgId: 1,
     telegramKey: "00".repeat(32),
     telegram: offline,

@@ -112,8 +112,12 @@ try {
     open = r;
   });
   const slow1 = ask("test.post", { text: "slow", mid: "m-slow" });
-  await sleep(30);
+  // the first send runs and is held
+  for (const end = Date.now() + 20000; runs.post < 4; await sleep(5))
+    if (Date.now() > end)
+      throw new Error("the first slow send did not start running within 20 s");
   const slow2 = ask("test.post", { text: "slow", mid: "m-slow" });
+  // the repeat is not answered while the first is held (a wrong one runs again or answers at once)
   await sleep(30);
   hold = null;
   open();

@@ -1,7 +1,7 @@
 # Commands (Nimbalyst extension)
 
-A gutter button that opens a small pop-up list of the commands I use most, fourteen in four groups set apart
-by a hairline, most-used first: lead, grill me, next move, where are we, board cleanup; new project, update
+A gutter button that opens a small pop-up list of Stratus's most-used commands, fourteen in four groups set
+apart by a hairline, most-used first: lead, grill me, next move, where are we, board cleanup; new project, update
 project, systems map, untangle; setup audit, update setup, backup; PC tidy, disk tidy. Setup audit opens its
 checks in place: health, usage report, prompt audit, project scan, and in the `claude-settings` folder chat
 review and full review. Pressing one starts a new session in the open
@@ -10,8 +10,12 @@ project, with the command as its first message.
 The commands are the skills in [skills](../../skills); the extension only starts them. The list is in
 `src/commands.ts`. To add a button, add a line there, then build and install. A
 button can be tied to one project folder (`only`). Buttons for skills that exist on one computer only go
-in `src/own.ts`, and `npm run build:share` builds the extension without them, which is the build I give
-to other people.
+in `src/own.ts`. `npm run build:share` builds the extension without them, for computers that do not have
+those skills.
+
+The button calls the app's `extensions:ai-send-prompt` directly, the same call the SDK's `sendPrompt`
+makes, because the pop-up is drawn outside a panel (see `src/popover.tsx`). If an app update changes that
+call, the pop-up shows the app's error under the list.
 
 What a button cannot do: reach a session that is already running. The app has no call for that, so
 commands that belong to a running chat stay typed. The Note button below does reach one.
@@ -35,7 +39,7 @@ chat box's nearest ancestor. This reads the app's own page markup (`src/find.ts`
 app update may break it: then the button does not appear and the console says why. It needs
 `~/.claude/skills/steer/steer.mjs`; without it the status shows the error.
 
-A **Try it** button sits beside Note (`src/try-it.ts`). It sends, the way Note does, a fixed note asking the session to run the project's `verify` skill and, when the change has a local page, to run `node ~/.claude/workers/try-page.mjs <url> --session <id>`. For 130 minutes after the press (as long as Note waits) it polls `~/.claude/state/try-it/<session id>.browser.json`, and opens a newer file on `localhost`, `127.0.0.1` or `[::1]` with `workspace:open-file`, so the page shows in a browser tab beside the chat. A successful open ends the watch; a failed one is said in the bubble, and a newer file can still open. What is typed in the box stays, and a press does not light Note's dot.
+A **Try it** button sits beside Note (`src/try-it.ts`). It sends, the way Note does but from its own file `~/.claude/steer/try-it-note-<session id>.txt`, a fixed note asking the session to run the project's `verify` skill and, when the change has a local page, to run `node ~/.claude/workers/try-page.mjs <url> --session <id>`. For 130 minutes after the press (as long as Note waits) it polls `~/.claude/state/try-it/<session id>.browser.json`, and opens a newer file on `localhost`, `127.0.0.1` or `[::1]` with `workspace:open-file`, so the page shows in a browser tab beside the chat. A successful open ends the watch; a failed one is said in the bubble, and a newer file can still open. What is typed in the box stays, and a press does not light Note's dot.
 
 The same component polls `~/.claude/steer/outbox.jsonl` every 3 seconds. Each line
 `{"id","ts","session","prompt"}` newer than 10 minutes and not yet delivered goes to `ai:createQueuedPrompt`
@@ -43,17 +47,9 @@ The same component polls `~/.claude/steer/outbox.jsonl` every 3 seconds. Each li
 so a restart does not deliver twice. The extension never writes `outbox.jsonl`. Two app windows open at once
 would each poll it.
 
-The button calls the app's `extensions:ai-send-prompt` directly, the same call the SDK's `sendPrompt`
-makes, because the pop-up is drawn outside a panel (see `src/popover.tsx`). If an app update changes that
-call, the pop-up shows the app's error under the list.
-
-The button calls the app's `extensions:ai-send-prompt` directly, the same call the SDK's `sendPrompt`
-makes, because the pop-up is drawn outside a panel (see `src/popover.tsx`). If an app update changes that
-call, the pop-up shows the app's error under the list.
-
 ### Diff line comments
 
-In the Agent view's Review panel, a "+" by a diff line opens a comment box (Shift+click a second "+" for a range); the bar at the panel's foot sends all comments of the shown session as one message through the Note button's send, and keeps them per session in localStorage until sent or cleared (`src/diff-comments.ts`).
+In the Agent view's Review panel, a "+" by a diff line opens a comment box (Shift+click a second "+" for a range); the bar at the panel's foot sends all comments of the shown session as one message through the Note button's send, and keeps them per session in localStorage until sent or cleared (`src/diff-comments.ts`). A sent batch stays in localStorage (`diffCommentsSent`) until its note's receipt says how it ended, so after a reload or a restart a batch not delivered still comes back to the list.
 
 ## Build and install
 
@@ -63,12 +59,20 @@ npm run build
 npm run install-ext   # validates the bundle, copies to %APPDATA%\@nimbalyst\electron\extensions\commandbuttons
 ```
 
+On a Mac it copies to `~/Library/Application Support/@nimbalyst/electron/extensions/commandbuttons`.
+
 Then restart Nimbalyst: it loads new and changed extensions only at startup.
 
 ## Checks
 
 - `npm test`: every button names a skill, a button tied to one project shows only there, a button sends
   the right call and does not wait for the reply.
+
+The two checks in the running app use the DevTools helper in the Read Aloud folder of this repository
+(`extensions/read-aloud/scripts/cdp.mjs`); the Read Aloud extension itself does not have to be installed. The
+helper is Windows only, and it needs Nimbalyst started with `--remote-debugging-port=<port>`, so that the app
+writes the `DevToolsActivePort` file the helper reads.
+
 - In the running app: `node ../read-aloud/scripts/cdp.mjs --file test/panel-check.js` clicks the gutter
   button and prints the pop-up's text. It starts no session.
 - In the running app: `node ../read-aloud/scripts/cdp.mjs --file test/send-check.js` starts one real

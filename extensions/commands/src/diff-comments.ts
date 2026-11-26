@@ -309,10 +309,41 @@ export interface KeyValue {
   removeItem(key: string): void;
 }
 export const storeKey = (session: string) => `diffComments:${session}`;
+/** The batches on their way, of every session: kept here, not in memory, so a reload still follows them. */
+export const SENT_KEY = "diffCommentsSent";
+
+/** A batch whose note steer took: followed until its receipt says how it ended, or the time limit. */
+export interface SentBatch {
+  /** the note's id in steer's receipts */
+  id: string;
+  session: string;
+  home: string;
+  /** when it went, for the time limit */
+  ts: number;
+  count: number;
+  comments: DiffComment[];
+}
+
+function isSentBatch(v: unknown): v is SentBatch {
+  if (typeof v !== "object" || v === null) return false;
+  const b = v as Record<string, unknown>;
+  return (
+    typeof b.id === "string" &&
+    typeof b.session === "string" &&
+    typeof b.home === "string" &&
+    typeof b.ts === "number" &&
+    typeof b.count === "number" &&
+    Array.isArray(b.comments) &&
+    b.comments.every(isComment)
+  );
+}
 
 export type Store = ReturnType<typeof commentStore>;
 
-/** The comments of each session, under `diffComments:<session id>`, until sent or cleared. */
+/**
+ * The comments of each session, under `diffComments:<session id>`, until sent or cleared; and the
+ * batches on their way, under SENT_KEY, until their end.
+ */
 export function commentStore(storage: KeyValue) {
   const listeners = new Set<() => void>();
   const list = (session: string): DiffComment[] => {
@@ -334,8 +365,31 @@ export function commentStore(storage: KeyValue) {
     else storage.removeItem(storeKey(session));
     for (const f of listeners) f();
   };
+  const onTheirWay = (): SentBatch[] => {
+    const raw = storage.getItem(SENT_KEY);
+    if (raw === null) return [];
+    let value: unknown;
+    try {
+      value = JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`${SENT_KEY} is not valid JSON: ${(e as Error).message}`);
+    }
+    if (!Array.isArray(value))
+      throw new Error(`${SENT_KEY} is not a list of batches`);
+    return value.filter(isSentBatch);
+  };
+  const writeSent = (next: SentBatch[]) => {
+    if (next.length) storage.setItem(SENT_KEY, JSON.stringify(next));
+    else storage.removeItem(SENT_KEY);
+  };
   return {
     list,
+    onTheirWay,
+    /** Keeps a batch whose note steer took, until its end. */
+    follow: (batch: SentBatch) =>
+      writeSent([...onTheirWay().filter((b) => b.id !== batch.id), batch]),
+    /** Stops following a batch that ended. */
+    ended: (id: string) => writeSent(onTheirWay().filter((b) => b.id !== id)),
     add: (session: string, c: DiffComment) =>
       write(session, [...list(session), c]),
     edit: (session: string, id: string, text: string) =>
@@ -382,8 +436,9 @@ export const NOTE_TAG = "diff-note";
 
 /**
  * Sends the session's comments as one message (those in `moved` labelled so). On success the comments
- * that went are removed (one written or edited during the send stays); on failure all stay and the
- * reason is the message.
+ * that went are removed (one written or edited during the send stays) and, when steer gave the note an
+ * id, the batch is kept on its way first (store.follow), so a reload before its end cannot lose it; on
+ * failure all stay and the reason is the message.
  */
 export async function sendBatch(
   session: string,
@@ -416,6 +471,15 @@ export async function sendBatch(
     [],
     NOTE_TAG,
   );
+  if (out.ok && out.noteId)
+    store.follow({
+      id: out.noteId,
+      session,
+      home: folder,
+      ts: Date.now(),
+      count: list.length,
+      comments: list,
+    });
   if (out.ok) store.removeSent(session, list);
   return {
     ...out,
@@ -446,6 +510,53 @@ export const batchEnd = (state: string): Outcome =>
   state === "delivered"
     ? { ok: true, message: t.diff.delivered }
     : { ok: false, message: t.diff.notConfirmed };
+
+/**
+ * One look at the receipts of every batch on its way (from the store, so it works after a reload). A
+ * batch that ended is followed no more; one not delivered has its comments put back first. Returns each
+ * end with the words for the bar.
+ */
+export async function batchEnds(
+  store: Store,
+  invoke: Invoke,
+  now = Date.now(),
+) {
+  const ways = store.onTheirWay();
+  const notes: Pending[] = ways.map((b) => ({
+    id: b.id,
+    session: b.session,
+    home: b.home,
+    ts: b.ts,
+    text: t.diff.pending(b.count),
+  }));
+  const ends: {
+    id: string;
+    session: string;
+    count: number;
+    ok: boolean;
+    message: string;
+  }[] = [];
+  for (const { note, state } of await noteEnds(notes, invoke, now)) {
+    const batch = ways[notes.indexOf(note)];
+    const end = batchEnd(state);
+    let message = end.message;
+    if (!end.ok)
+      try {
+        store.putBack(batch.session, batch.comments);
+      } catch (err) {
+        message = t.diff.notBack(hostError(err));
+      }
+    store.ended(batch.id);
+    ends.push({
+      id: batch.id,
+      session: batch.session,
+      count: batch.count,
+      ok: end.ok,
+      message,
+    });
+  }
+  return ends;
+}
 
 /** The bar's line after a send went out: how many comments went, then what became of them. */
 export const sentLine = (count: number, outcome: string) =>
@@ -567,13 +678,8 @@ export function startDiffComments(
   // per session, the comments whose file's rows are drawn but no longer read as saved; kept while the
   // file is out of view (the list is virtualised), dropped when the comment is placed again
   const movedIds = new Map<string, Set<string>>();
-  const pending: Pending[] = [];
-  // per batch on its way: how many comments went, the bar line that says so, and the comments themselves,
-  // put back when the note is not delivered
-  const batches = new Map<
-    Pending,
-    { count: number; shown: Status; comments: DiffComment[] }
-  >();
+  // per batch on its way (its note id), the bar line that says so; the batches themselves are in the store
+  const shownFor = new Map<string, Status>();
   // the sessions whose bar asks whether to clear all their comments
   const asking = new Set<string>();
   const complained = new Set<string>();
@@ -653,31 +759,21 @@ export function startDiffComments(
     if (polling) return;
     polling = true;
     try {
-      for (const { note, state } of await noteEnds(pending, invoke)) {
-        pending.splice(pending.indexOf(note), 1);
-        const batch = batches.get(note);
-        batches.delete(note);
-        if (!batch) throw new Error(`note ${note.id} has no batch`);
+      for (const end of await batchEnds(store, invoke)) {
         // the "on their way" line, while still shown, gives way to the end
-        if (status.get(note.session) === batch.shown) {
-          clearTimeout(timers.get(note.session));
-          status.delete(note.session);
+        const shown = shownFor.get(end.id);
+        shownFor.delete(end.id);
+        if (shown && status.get(end.session) === shown) {
+          clearTimeout(timers.get(end.session));
+          status.delete(end.session);
         }
-        const end = batchEnd(state);
-        let message = end.message;
-        if (!end.ok)
-          try {
-            store.putBack(note.session, batch.comments);
-          } catch (err) {
-            message = t.diff.notBack(hostError(err));
-          }
         say(
-          note.session,
+          end.session,
           end.ok ? "ok" : "held",
-          sentLine(batch.count, message),
+          sentLine(end.count, end.message),
         );
       }
-      if (!pending.length) {
+      if (!store.onTheirWay().length) {
         clearInterval(notePoll);
         notePoll = undefined;
       }
@@ -716,24 +812,17 @@ export function startDiffComments(
         say(session, "bad", out.message);
         return;
       }
-      // the bar says how many went; a batch whose end is followed keeps its line until that end shows
-      const followed = !!out.noteId && !!out.home && !stopped;
+      // the bar says how many went; a batch whose end is followed (sendBatch kept it in the store) keeps
+      // its line until that end shows
+      const followed = !!out.noteId && !stopped;
       const shown = say(
         session,
         "ok",
         sentLine(out.count, out.message),
         followed,
       );
-      if (followed && out.noteId && out.home && shown) {
-        const note: Pending = {
-          id: out.noteId,
-          session,
-          home: out.home,
-          ts: Date.now(),
-          text: t.diff.pending(out.count),
-        };
-        pending.push(note);
-        batches.set(note, { count: out.count, shown, comments: out.comments });
+      if (followed && out.noteId && shown) {
+        shownFor.set(out.noteId, shown);
         notePoll ??= setInterval(pollNotes, NOTE_POLL_MS);
       }
     } catch (err) {
@@ -1326,6 +1415,22 @@ export function startDiffComments(
   const sessionCheck = setInterval(() => {
     if (shownPanels().map(sessionOf).join("\n") !== lastSessions) schedule();
   }, SESSION_CHECK_MS);
+  // batches sent before a reload or a restart are still on their way: their lines show and their ends are
+  // followed again
+  try {
+    for (const b of store.onTheirWay()) {
+      const shown = say(
+        b.session,
+        "ok",
+        sentLine(b.count, t.diff.waiting),
+        true,
+      );
+      if (shown) shownFor.set(b.id, shown);
+    }
+    if (shownFor.size) notePoll ??= setInterval(pollNotes, NOTE_POLL_MS);
+  } catch (err) {
+    warn("comments on their way", err);
+  }
   schedule();
 
   return () => {

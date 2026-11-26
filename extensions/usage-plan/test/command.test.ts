@@ -92,6 +92,28 @@ for (const shell of shells) {
     );
   });
 }
+// Nimbalyst's exec caps a command's output at options.maxBuffer, else 10 MB; the dashboard file grows past that
+// (90 days), so a command run with the trusted options must read 12 MB in full
+{
+  const size = 12 * 1024 * 1024;
+  const o: { maxBuffer?: number } & ReturnType<typeof asHost> = asHost(
+    trusted({ timeout: 30_000 }),
+  );
+  await new Promise<void>((done) =>
+    exec(
+      `node -e "process.stdout.write('x'.repeat(${size}))"`,
+      { ...o, maxBuffer: o.maxBuffer || 10 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err || stdout.length !== size)
+          fail(
+            `a large dashboard file is read in full through the trusted options (maxBuffer): ${err?.message ?? stdout.length}`,
+          );
+        else console.log("ok   12 MB of output is read in full");
+        done();
+      },
+    ),
+  );
+}
 // Removed last: right after the decoy run Windows can still hold the new node.cmd (EPERM)
 fs.rmSync(workspace, { recursive: true, force: true });
 process.exit(failed ? 1 : 0);

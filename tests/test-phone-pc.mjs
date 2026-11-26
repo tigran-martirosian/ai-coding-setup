@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes as nodeRandom } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,7 @@ const VERSION = JSON.parse(
   fs.readFileSync(path.join(ROOT, "version.json"), "utf8"),
 ).version;
 const BOT_ID = 7000001;
+const BOT_TOKEN = `${BOT_ID}:test-token`;
 
 let pass = 0;
 let failed = 0;
@@ -39,6 +41,9 @@ Object.assign(process.env, {
   LOCALAPPDATA: path.join(home, "AppData", "Local"),
 });
 const seal = await import("../phone/shared/seal.mjs");
+const { signInitData, withoutHash } = await import(
+  "./phone-bot/telegram-init-data.mjs"
+);
 // The PC modules in this process run in test mode (the join checks read initData with the test's key); the
 // programs the test starts get the mode only where their env says so.
 process.env.PHONE_PC_TEST = "1";
@@ -225,17 +230,12 @@ async function initDataFor(userId, atMs = Date.now()) {
     query_id: "q1",
     user: JSON.stringify({ id: userId, first_name: "Test" }),
   };
-  const lines = Object.entries(fields)
-    .map(([k, v]) => `${k}=${v}`)
-    .sort();
-  const sig = await crypto.subtle.sign(
-    "Ed25519",
-    tg.privateKey,
-    seal.utf8(`${BOT_ID}:WebAppData\n${lines.join("\n")}`),
-  );
-  const p = new URLSearchParams(fields);
-  p.set("signature", seal.toB64u(new Uint8Array(sig)));
-  return p.toString();
+  return signInitData({
+    fields,
+    botId: BOT_ID,
+    botToken: BOT_TOKEN,
+    privateKey: tg.privateKey,
+  });
 }
 
 const newDev = () => seal.toB64u(seal.randomBytes(16));
@@ -244,7 +244,7 @@ const newDev = () => seal.toB64u(seal.randomBytes(16));
 async function pairPhone(phone, dev, codeText, userId, kind) {
   const { pcId, secret } = seal.readPairCode(codeText);
   const d = await seal.newX25519();
-  const initData = await initDataFor(userId);
+  const initData = withoutHash(await initDataFor(userId));
   const mac1 = await seal.pairMac1(secret, pcId, d.publicRaw, initData);
   phone.send({
     v: 1,
@@ -440,6 +440,27 @@ try {
       JSON.stringify(got),
     );
 
+    // Anyone on the relay path can send a frame under the device's id: one that does not open, or an old one sent
+    // again, is dropped and the session stays open.
+    sent.length = 0;
+    runs = 0;
+    ch = await start();
+    const real1 = await ch.frame(1, "r-1");
+    const junk = seal.toB64u(seal.randomBytes(64));
+    await channel.onApp({ ...real1, c: junk });
+    await channel.onApp({ ...real1, n: 9, c: junk });
+    await channel.onApp(real1);
+    await channel.onApp({ ...real1 });
+    await channel.onApp(await ch.frame(2, "r-2"));
+    const kept = (await ch.answers()).map((x) => x?.id);
+    check(
+      "channel: a forged or replayed frame is dropped and does not end the session (FAIL: a stranger can end a device's session)",
+      runs === 2 &&
+        kept.join() === "r-1,r-2" &&
+        channel.openDevices().includes(dev),
+      JSON.stringify({ runs, kept, open: channel.openDevices() }),
+    );
+
     // Whole streams no action took count toward the bytes one channel session holds: two of 25 MB, then one byte.
     const { PIECE_BYTES } = await import(
       "../skills/phone-bot/pc/core/channel.mjs"
@@ -486,7 +507,24 @@ try {
     const page = await servePairPage(text);
     const res = await fetch(page.url);
     const html = await res.text();
+    const plain = await fetch(new URL("/pair", page.url));
+    await plain.text();
     page.close();
+    // Any web page the user opens can try fetches to 127.0.0.1 ports: the page's path is a random secret, and no
+    // other site may put the page in a frame.
+    check(
+      "the pairing page answers only on a random path and refuses frames (FAIL: another site could read the pairing code)",
+      /^\/pair\/[A-Za-z0-9_-]{22,}$/.test(new URL(page.url).pathname) &&
+        plain.status === 404 &&
+        /frame-ancestors 'none'/.test(
+          res.headers.get("content-security-policy"),
+        ),
+      JSON.stringify({
+        path: new URL(page.url).pathname,
+        plain: plain.status,
+        csp: res.headers.get("content-security-policy"),
+      }),
+    );
     // A 53-character code in alphanumeric mode at level M is a version 3 code: 29 modules and 4 light round it.
     const svg = /<svg [^>]*viewBox="0 0 37 37"[^>]*>.*?<\/svg>/s.exec(
       html,
@@ -850,7 +888,6 @@ try {
       const got = [];
       let n = 0;
       const pull = async () => {
-        await sleep(15);
         for (const f of takeOut(w, (x) => x.t === "app" && x.sid === sid))
           got.push(await seal.openFrame(k.pc2p, f, f.c));
       };
@@ -867,6 +904,7 @@ try {
               d,
             }),
           });
+          // onApp is back once the answer (and any pushHere before it) is sent: nothing to wait for.
           await pull();
           return got.find((b) => b?.k === "res" && b.id === `r${n}`) ?? null;
         },
@@ -884,7 +922,10 @@ try {
             }),
           };
         },
+        // A push to every device is sealed and sent without a wait, so its frames get 15 ms to come out; the
+        // same read also says none came.
         async events(e) {
+          await sleep(15);
           await pull();
           return got.filter((b) => b?.k === "evt" && b.e === e);
         },
@@ -1299,7 +1340,7 @@ try {
         const { code } = await pairing.start();
         const { pcId: p, secret } = seal.readPairCode(code);
         const d = await seal.newX25519();
-        const initData = await initDataFor(ME);
+        const initData = withoutHash(await initDataFor(ME));
         const dev = newDev();
         await pairing.onPair({
           v: 1,
@@ -1352,6 +1393,77 @@ try {
         "code: a pair with no kind (a page from before DV4) pairs and writes no kind",
         e3 && !("kind" in e3) && none.out.some((f) => f.t === "pair-ok"),
         JSON.stringify(none.out.map((f) => [f.t, f.reason])),
+      );
+    }
+
+    // Pairing at the same time as other pairings and removals: nothing one of them wrote is lost.
+    {
+      const pairFrame = async (code, dev = newDev()) => {
+        const { pcId: p, secret } = seal.readPairCode(code);
+        const d = await seal.newX25519();
+        const initData = withoutHash(await initDataFor(ME));
+        return {
+          v: 1,
+          t: "pair",
+          dev,
+          pcId: p,
+          DP: seal.toB64u(d.publicRaw),
+          initData,
+          mac1: seal.toB64u(
+            await seal.pairMac1(secret, p, d.publicRaw, initData),
+          ),
+          kind: "desktop",
+        };
+      };
+      const pairingOf = (w) =>
+        createPairing({
+          keys: w.keys,
+          saveKeys: () => w.saves++,
+          send: (f) => w.out.push(f),
+          onAdded: (entry, tgId) => w.join.added(entry, tgId),
+        });
+      const w = world([entryOf("iphone", clock - 1000)]);
+      const pairing = pairingOf(w);
+      const { code } = await pairing.start();
+      const [fa, fb] = [await pairFrame(code), await pairFrame(code)];
+      await Promise.all([pairing.onPair(fa), pairing.onPair(fb)]);
+      const answers = takeOut(w, (f) => /^pair-/.test(f.t));
+      const okDevs = answers.filter((f) => f.t === "pair-ok").map((f) => f.dev);
+      check(
+        "pairing: two pairings with one code at once pair one device (the code is used once), and it is in the key file",
+        okDevs.length === 1 &&
+          answers.some((f) => f.t === "pair-fail" && f.reason === "no-code") &&
+          okDevs.every((d) => w.keys.devices.some((e) => e.device === d)),
+        JSON.stringify([
+          answers.map((f) => [f.t, f.reason]),
+          w.keys.devices.length,
+        ]),
+      );
+
+      // A removal that lands while a pairing is under way (here: when the pairing reads the PC's key) stays done.
+      const old = entryOf("iphone", clock - 1000);
+      const w2 = world([old]);
+      const pairing2 = pairingOf(w2);
+      const { code: code2 } = await pairing2.start();
+      const f2 = await pairFrame(code2);
+      const identity2 = w2.keys.identity;
+      let removedMeanwhile = false;
+      Object.defineProperty(w2.keys, "identity", {
+        configurable: true,
+        get() {
+          if (!removedMeanwhile) {
+            removedMeanwhile = true;
+            w2.join.remove(old.device, old.device);
+          }
+          return identity2;
+        },
+      });
+      await pairing2.onPair(f2);
+      check(
+        "pairing: a device removed while a code pairing is under way stays removed",
+        removedMeanwhile &&
+          w2.keys.devices.map((d) => d.device).join() === f2.dev,
+        JSON.stringify(w2.keys.devices.map((d) => d.device)),
       );
     }
 
@@ -1450,6 +1562,8 @@ try {
     PHONE_PC_DRY: "1",
     PHONE_PC_TEST: "1",
     PHONE_PC_PLATFORM: "win32",
+    // Set here, so the Windows dry runs also pass on a macOS or Linux runner, which has no SystemRoot.
+    SystemRoot: "C:\\Windows",
   };
   {
     const r = run(SETUP, ["start-logon"], dryEnv);
@@ -1481,7 +1595,7 @@ try {
     check(
       "dry start runs the Startup script phone-app-pc.vbs through wscript and nothing else",
       st.code === 0 &&
-        st.out.includes("would run: wscript") &&
+        st.out.includes("wscript.exe") &&
         st.out.includes("phone-app-pc.vbs") &&
         st.out.trim().split("\n").length === 1,
       st.out,
@@ -1491,15 +1605,55 @@ try {
     check(
       "dry remove deletes the old task where it is, stops keep.mjs and the program, and the retired bot's tasks and process",
       rm.code === 0 &&
-        rm.out.includes('schtasks /delete /tn "Phone app PC" /f') &&
-        rm.out.includes('schtasks /delete /tn "Phone bot" /f') &&
-        rm.out.includes('schtasks /delete /tn "Phone inbox bot" /f') &&
+        rm.out.includes('schtasks.exe /delete /tn "Phone app PC" /f') &&
+        rm.out.includes('schtasks.exe /delete /tn "Phone bot" /f') &&
+        rm.out.includes('schtasks.exe /delete /tn "Phone inbox bot" /f') &&
         rm.out.includes(oldBot) &&
         !rm.out.includes("/create") &&
-        rm.out.includes("would run: powershell") &&
+        rm.out.includes("would run: ") &&
+        rm.out.includes("powershell.exe") &&
         rm.out.includes(KEEP) &&
         rm.out.includes(MAIN),
       rm.out,
+    );
+    // A bare "powershell" would run a powershell.exe planted in the current folder or early on the PATH.
+    const sysRoot = path.join(tmp, "made up windows"); // a space, so the dry line quotes it
+    // Node itself needs SystemRoot to start on Windows, so the child starts with the real one and a preload changes
+    // it (or takes it out) before setup.mjs reads it.
+    const withRoot = (root) => {
+      const pre = `data:text/javascript,${encodeURIComponent(
+        root
+          ? `process.env.SystemRoot = ${JSON.stringify(root)};`
+          : "delete process.env.SystemRoot;",
+      )}`;
+      const r = spawnSync(
+        process.execPath,
+        ["--import", pre, SETUP, "remove"],
+        {
+          encoding: "utf8",
+          env: { ...process.env, ...dryEnv },
+          timeout: 30_000,
+        },
+      );
+      return { code: r.status, out: (r.stdout || "") + (r.stderr || "") };
+    };
+    const psRm = withRoot(sysRoot);
+    const psRuns = psRm.out
+      .split("\n")
+      .filter((l) => /^would run: .*powershell\.exe/i.test(l));
+    const noRoot = withRoot("");
+    check(
+      "setup starts PowerShell by its full path under SystemRoot, and stops with a clear error without SystemRoot (FAIL: a planted powershell.exe runs instead)",
+      psRm.code === 0 &&
+        psRuns.length >= 2 &&
+        psRuns.every((l) =>
+          l.startsWith(
+            `would run: "${path.win32.join(sysRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")}" `,
+          ),
+        ) &&
+        noRoot.code === 1 &&
+        /SystemRoot is not set/.test(noRoot.out),
+      `${psRm.out}\n---\n${noRoot.out}`,
     );
     check(
       "with none of the old bot's files there, dry remove names no file of it",
@@ -1628,7 +1782,20 @@ try {
           await new Promise((r) => setTimeout(r, 250));
           first = pidOf();
         }
-        await new Promise((r) => setTimeout(r, 500));
+        // restart asks the child on its pipe: it goes once the child listens there.
+        const listens = () =>
+          new Promise((done) => {
+            const s = net.connect(pipe, () => {
+              s.end();
+              done(true);
+            });
+            s.on("error", () => done(false));
+          });
+        for (
+          const end = Date.now() + 10000;
+          !(await listens()) && Date.now() < end;
+          await sleep(100)
+        );
         const r = run(SETUP, ["restart"], env);
         const second = pidOf();
         check(
@@ -1731,10 +1898,10 @@ try {
     "dry join makes the keys and sets the start at log-on under the new names, and only deletes the retired bot's tasks",
     join.code === 0 &&
       fs.existsSync(path.join(home, ".phone-app", "pc-keys.json")) &&
-      join.out.includes("would run: icacls") &&
+      join.out.includes("icacls.exe") &&
       join.out.includes(KEEP) &&
       !join.out.includes("/create") &&
-      join.out.includes('schtasks /delete /tn "Phone bot" /f') &&
+      join.out.includes('schtasks.exe /delete /tn "Phone bot" /f') &&
       !/phone-bot\.vbs|phone-inbox\.vbs/.test(join.out),
     join.out,
   );
@@ -2037,5 +2204,114 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
+// ---- fields the phone draws as text: a non-text value from the model or the tracker never reaches the page
+{
+  const { mapQuestions } = await import("../skills/phone-bot/pc/core/door.mjs");
+  const { slimItem } = await import("../skills/phone-bot/pc/actions/jobs.mjs");
+  const hostile = { onclick: "x", id: "TelegramWebviewProxy" };
+  const questions = JSON.parse(
+    JSON.stringify(
+      mapQuestions([
+        {
+          question: "Q",
+          header: "Pick",
+          options: [
+            { label: hostile, description: "kept" },
+            { label: "B", description: 7 },
+          ],
+          multiSelect: true,
+        },
+      ]),
+    ),
+  );
+  check(
+    "mapQuestions keeps only text values in question, header, label and description (FAIL: a model-written object becomes element attributes on the phone)",
+    JSON.stringify(questions) ===
+      JSON.stringify([
+        {
+          question: "Q",
+          header: "Pick",
+          options: [{ label: "B" }],
+          multiSelect: true,
+        },
+      ]),
+    JSON.stringify(questions),
+  );
+  const item = JSON.parse(
+    JSON.stringify(
+      slimItem({
+        id: "t-1",
+        type: "task",
+        title: hostile,
+        status: "open",
+        owner: hostile,
+        updated: "2026-11-20",
+        customFields: {
+          step: hostile,
+          stage: "build",
+          collection: hostile,
+          dependsOn: [{ itemId: "t-2" }],
+        },
+      }),
+    ),
+  );
+  check(
+    "slimItem keeps only text values and well-formed links (FAIL: a tracker object becomes element attributes on the phone)",
+    JSON.stringify(item) ===
+      JSON.stringify({
+        id: "t-1",
+        type: "task",
+        status: "open",
+        archived: false,
+        updated: "2026-11-20",
+        customFields: { stage: "build", dependsOn: [{ itemId: "t-2" }] },
+      }),
+    JSON.stringify(item),
+  );
+}
+
+// A question with no text, or an option with no text label, is left out whole: the page reads o.label as text.
+{
+  const { mapQuestions } = await import("../skills/phone-bot/pc/core/door.mjs");
+  const { slimItem } = await import("../skills/phone-bot/pc/actions/jobs.mjs");
+  const qs = JSON.parse(
+    JSON.stringify(
+      mapQuestions([
+        { question: { a: 1 }, options: [{ label: "x" }] },
+        {
+          question: "Q2",
+          options: [{ description: "no label" }, { label: "L" }],
+        },
+      ]),
+    ),
+  );
+  check(
+    "mapQuestions leaves out a question without text and an option without a text label (FAIL: the question card crashes on o.label.replace)",
+    JSON.stringify(qs) ===
+      JSON.stringify([
+        { question: "Q2", options: [{ label: "L" }], multiSelect: false },
+      ]),
+    JSON.stringify(qs),
+  );
+  const item = JSON.parse(
+    JSON.stringify(
+      slimItem({
+        id: "t-3",
+        type: "task",
+        title: "T",
+        status: "open",
+        updated: 1764000000000,
+        customFields: { step: 3, version: 2, stage: () => 1 },
+      }),
+    ),
+  );
+  check(
+    "slimItem keeps finite numbers (updated, step, version) and drops only objects, arrays and functions (FAIL: the job list loses its order and step numbers)",
+    item.updated === 1764000000000 &&
+      JSON.stringify(item.customFields) ===
+        JSON.stringify({ step: 3, version: 2 }),
+    JSON.stringify(item),
+  );
+}
 console.log(`\n${pass} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

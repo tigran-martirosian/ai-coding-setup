@@ -23,6 +23,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { powershellExe, system32Exe } from "../hooks/lib/paths.mjs";
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const HOME = os.homedir();
@@ -161,7 +162,7 @@ function ownerOnly(file) {
   if (process.platform === "win32") {
     const user = process.env.USERNAME || os.userInfo().username;
     const r = spawnSync(
-      "icacls",
+      system32Exe("icacls.exe"),
       [file, "/inheritance:r", "/grant:r", `${user}:F`],
       { encoding: "utf8" },
     );
@@ -170,7 +171,9 @@ function ownerOnly(file) {
         `icacls could not make ${file} owner-only: ${r.error?.message || (r.stdout + r.stderr).trim()}`,
       );
     // /inheritance:r drops only inherited entries; a file can also start with explicit ones (SYSTEM, Administrators)
-    const list = spawnSync("icacls", [file], { encoding: "utf8" });
+    const list = spawnSync(system32Exe("icacls.exe"), [file], {
+      encoding: "utf8",
+    });
     if (list.error || list.status !== 0)
       stop(
         `icacls could not list ${file}: ${list.error?.message || (list.stdout + list.stderr).trim()}`,
@@ -186,7 +189,7 @@ function ownerOnly(file) {
           !p.toLowerCase().endsWith("\\" + user.toLowerCase()),
       );
     for (const p of others) {
-      const rm = spawnSync("icacls", [file, "/remove", p], {
+      const rm = spawnSync(system32Exe("icacls.exe"), [file, "/remove", p], {
         encoding: "utf8",
       });
       if (rm.error || rm.status !== 0)
@@ -341,6 +344,14 @@ export function pinFor(platform = process.platform, arch = process.arch) {
 
 async function getRestic(args) {
   const pin = pinFor();
+  // Windows' own bsdtar reads zip (Git's GNU tar does not), so it is called by full path, found before any download
+  let tar;
+  if (pin.file.endsWith(".zip"))
+    try {
+      tar = system32Exe("tar.exe");
+    } catch (e) {
+      stop(e.message);
+    }
   fs.mkdirSync(F.bin, { recursive: true });
   const work = fs.mkdtempSync(path.join(F.bin, "get-"));
   try {
@@ -364,12 +375,6 @@ async function getRestic(args) {
       );
     const out = resticPath();
     if (pin.file.endsWith(".zip")) {
-      // Windows' own bsdtar reads zip (Git's GNU tar does not), so it is called by full path
-      const tar = path.join(
-        process.env.SystemRoot || "C:\\Windows",
-        "System32",
-        "tar.exe",
-      );
       const r = spawnSync(tar, ["-xf", archive, "-C", work], {
         encoding: "utf8",
       });
@@ -971,8 +976,10 @@ function schedule(args) {
       fs.mkdirSync(path.dirname(f.path), { recursive: true });
       fs.writeFileSync(f.path, f.text);
     }
+  // "powershell" in the spec is a name for --print on any system; the run uses the full path
   for (const c of spec[mode]) {
-    const r = spawnSync(c[0], c.slice(1), { encoding: "utf8" });
+    const exe = c[0] === "powershell" ? powershellExe() : c[0];
+    const r = spawnSync(exe, c.slice(1), { encoding: "utf8" });
     if (r.error || r.status !== 0)
       stop(
         `${c[0]} failed: ${r.error?.message || (r.stderr || r.stdout).trim()}`,
@@ -1203,7 +1210,11 @@ function recoverySheet(pw, repo, cfg) {
 
 async function setup(args) {
   if (args.window)
-    return openWindow(process.argv.slice(3).filter((a) => a !== "--window"));
+    return openWindow(
+      cliArgs()
+        .slice(1)
+        .filter((a) => a !== "--window"),
+    );
   const target = args.target || "b2";
   if (!["b2", "local"].includes(target))
     stop(`--target is b2 or local, not ${target}`);
@@ -1267,15 +1278,50 @@ async function setup(args) {
   if (!args["password-stdin"]) console.log("Back to the chat.");
 }
 
+// cmd.exe's arguments that open the "Claude backup" window running parts (Windows). No part is on the command
+// line, where cmd would act on & ^ % ! in a folder name or a path: node's path, the script's path and the
+// arguments travel in windowEnv's variables, which start hands to the window. The window's cmd reads the two paths
+// with delayed expansion (!name!), which comes after cmd has parsed the line; the script reads the arguments
+// itself (cliArgs). The outer cmd runs with delayed expansion off, so it leaves !name! alone.
+export const windowArgs = () => [
+  "/d",
+  "/v:off",
+  "/c",
+  `start "Claude backup" "${system32Exe("cmd.exe")}" /d /v:on /k ""!BACKUP_WINDOW_NODE!" "!BACKUP_WINDOW_SCRIPT!" ${WINDOW_FLAG}"`,
+];
+
+const WINDOW_FLAG = "--args-from-window";
+
+// The variables windowArgs' window reads: node's path, the script's path and the arguments as JSON
+export const windowEnv = ([node, script, ...rest]) => ({
+  BACKUP_WINDOW_NODE: node,
+  BACKUP_WINDOW_SCRIPT: script,
+  BACKUP_WINDOW_ARGS: JSON.stringify(rest),
+});
+
+// The command-line arguments; in the Windows setup window, the ones windowEnv passed
+export function cliArgs(argv = process.argv.slice(2), env = process.env) {
+  if (argv[0] !== WINDOW_FLAG) return argv;
+  let rest;
+  try {
+    rest = JSON.parse(env.BACKUP_WINDOW_ARGS);
+  } catch {
+    stop(`${WINDOW_FLAG} needs BACKUP_WINDOW_ARGS holding a JSON list`);
+  }
+  if (!Array.isArray(rest) || !rest.every((a) => typeof a === "string"))
+    stop(`${WINDOW_FLAG} needs BACKUP_WINDOW_ARGS holding a JSON list`);
+  return rest;
+}
+
 function openWindow(rest) {
   const parts = [process.execPath, SCRIPT, "setup", ...rest];
   if (process.platform === "win32") {
-    const line = parts.map((p) => `"${p}"`).join(" ");
-    const r = spawn(
-      "cmd.exe",
-      ["/c", `start "Claude backup" cmd /k "${line}"`],
-      { detached: true, stdio: "ignore", windowsVerbatimArguments: true },
-    );
+    const r = spawn(system32Exe("cmd.exe"), windowArgs(), {
+      detached: true,
+      stdio: "ignore",
+      windowsVerbatimArguments: true,
+      env: { ...process.env, ...windowEnv(parts) },
+    });
     r.unref();
   } else if (process.platform === "darwin") {
     const line = parts
@@ -1327,7 +1373,7 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   switch (args._[0]) {
     case "get-restic":
       return getRestic(args);

@@ -8,13 +8,15 @@ description: Run a big job from its spec to the end report - the plan written he
 A big job runs in this session, which plans it, leads it and writes no product code itself unless the whole job is
 one coupled unit. Input: the spec file (`docs/<date>-<job>-spec.md`, written by `grilling`). No spec yet: run
 `grilling` first. The plan file's format, briefs, worktrees, the blind look and review findings:
-[reference.md](reference.md). A big job does not run under `/goal`: section 4's end check is its stop, and `/goal`
-skips its check while a helper still runs.
+[reference.md](reference.md). A big job does not run under `/goal` (Claude Code's built-in command that keeps a
+session going until a goal is met): section 4's end check is its stop, and `/goal` skips its check while a helper
+still runs.
 
 ## 1. Plan
 
 1. **Write the plan yourself,** in this session, from the spec file and the project folder (reference.md "The plan
-   file"). No DECISIONS read, no purpose quotes. Save it as `docs/<date>-<job>-plan.md` beside the spec.
+   file"). Don't read a `DECISIONS.md` file, and don't quote the user's purpose in each slice as older plans did: the
+   spec's "Your words" and "Decided" already hold them. Save it as `docs/<date>-<job>-plan.md` beside the spec.
    - **Split only at a clean interface or for real parallel work.** One session per coherent unit; a feature stays
      with its tests; steps that run one after another on the same files are one slice. Every extra slice is a fresh
      worker that rereads the code. A slice must still fit one worker's turn limit: a sweep across the whole repo is
@@ -27,8 +29,8 @@ skips its check while a helper still runs.
    from your answers", the spec in about 10 lines, the plan in a few (slices, helpers, models, sessions), and
    each plan-reviewer finding you did not take, with why. A question card, if you use one, comes after that text in the same reply, never alone:
    the user cannot open the folder from a card. Wait for go or changed lines. This is the only stop before the build, unless the spec names a sample for the user to look at.
-4. Copy the slices to the Nimbalyst tracker with `where-are-we`, for the board. The plan file stays the record.
-   A slice's step is named `<job step> S<N>` (as `P2-8 S3`), so each step is unique.
+4. In Nimbalyst, copy the slices to its tracker with `where-are-we`, for the board. The plan file stays the record.
+   A slice's step is named `<job short name> S<N>` (as `checkout S3`), so each step is unique.
 
 ## 2. Run the slices
 
@@ -48,8 +50,11 @@ skips its check while a helper still runs.
   `Step: <step> done` (`<step>` the tracker step's name); `done` only after the slice's check passed. Each brief
   that commits says which line its commit ends with.
 - **Plan file:** after each slice fill its Progress row (state, commit, worker sessions used, surprises), redraw
-  the thin later slices from what it found, and run `where-are-we` so the tracker matches. Each cut or dropped
+  the thin later slices from what it found, and (in Nimbalyst) run `where-are-we` so the tracker matches. Each cut or dropped
   slice names the done-when line it touches; it gets no second plan review.
+- **Hand off at a merged slice:** with slices left, once its Progress row and HANDOFF.md are written, run
+  `node <this skill's folder>/../handoff/brief.mjs --should`; on `hand off`, run the `handoff` skill at once, with
+  no question and no pause, its prompt naming the plan and the next slice.
 - **A note the user types** that concerns a running worker: pass it on with SendMessage and say so in one line.
 - **A limit the user states mid-job** goes into the spec's "Your words", dated, at once, and into every brief from
   then on.
@@ -83,8 +88,8 @@ skips its check while a helper still runs.
    `unmerged`, `locked`, `(detached)` and `missing` ones, each with its branch and last commit line, for the user
    to look at. It ends with a few lines: each finding of the reviews and each surprise in the plan file, and what it
    became (a test, a line in the project's `verify` skill, a fix to a pipeline text such as this skill, or
-   nothing; never a new global rule); the worker sessions wasted (redone, thrown away), slice by slice; and each of
-   the plan review, `/code-review` on risky slices and the blind look that caught nothing in this job.
+   nothing; never a new global rule; sorted as reference.md "The closing lines" says); the worker sessions wasted
+   (redone, thrown away), slice by slice; and each of the plan review, `/code-review` on risky slices and the blind look that caught nothing in this job.
 7. **The user tries it.** What they find comes back as fix slices, each with a check that fails on it, through the
    same run. The sweep runs again after the last fix slice merges.
 

@@ -116,6 +116,24 @@ if (!args.length)
       fs.existsSync(path.join(ROOT, "skills", n, "SKILL.md")),
     ),
   );
+// Skills taken whole from github.com/mattpocock/skills (MIT): each must be here with its licence notice, so the
+// glob above checks its frontmatter and the copy keeps the notice the licence asks for.
+const TAKEN_WHOLE = ["domain-modeling", "grill-with-docs", "wayfinder"];
+if (!args.length)
+  for (const n of TAKEN_WHOLE) {
+    const dir = path.join(ROOT, "skills", n);
+    check(
+      `skills/${n}/SKILL.md exists, so the skill taken whole from Pocock ships and its frontmatter is checked`,
+      fs.existsSync(path.join(dir, "SKILL.md")),
+    );
+    check(
+      `skills/${n}/LICENSE keeps Pocock's MIT notice, as the licence requires of a copy`,
+      fs.existsSync(path.join(dir, "LICENSE")) &&
+        /MIT License[\s\S]*Matt Pocock/.test(
+          fs.readFileSync(path.join(dir, "LICENSE"), "utf8"),
+        ),
+    );
+  }
 
 // The checker itself catches what it is for.
 const bad = (desc) =>

@@ -27,11 +27,15 @@ background commands show up while Claude works.
   touchpad or a smooth-scrolling mouse wheel got undone by the next line of text. Now a scroll up (wheel,
   PageUp / Arrow up / Home, the scrollbar, touch) holds the view; scrolling back to the end, the **Scroll
   to bottom** arrow, sending a message or switching sessions makes it follow again. A wheel inside a
-  tool's output box that scrolls on its own, or keys in a text field, leave it alone.
+  tool's output box that scrolls on its own, or keys in a text field, leave it alone. This hold works on
+  Windows and macOS. On Windows, Stratus's Nimbalyst patch `1758` also changes the app's own rule for
+  following the end ([Nimbalyst patches](../../docs/how-it-works/nimbalyst-patches.md)); the two work
+  together, and on a Mac the extension alone holds the view.
+- An open question card stays still while the session's helpers add and grow rows around it.
 
 ## Install
 
-The setup's installer does this for you. By hand: `node build.mjs --install`, then quit Nimbalyst and
+Stratus's installer does this for you. By hand: `node build.mjs --install`, then quit Nimbalyst and
 open it again. `node test.mjs` checks the build.
 
 No build tools are needed: `src/` is plain JavaScript and CSS, copied to `dist/`. Nimbalyst owns the rows

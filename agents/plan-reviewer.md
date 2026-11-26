@@ -30,7 +30,7 @@ fixes what you find, one round; you do not run again. Your input: the user's ask
    those words is a finding; quote both.
 3. **Nothing dropped quietly.** Every part of the ask is in a done-when line or in Out of scope; every done-when and
    must-not-change line is in the plan. A part that is in neither is a finding.
-4. **Each slice runs as written.** All eight fields are there. A file it changes exists, or is new on purpose. What it
+4. **Each slice runs as written.** All nine fields are there. A file it changes exists, or is new on purpose. What it
    uses comes from an earlier slice that gives it under the same name. The helper fits the work (code to `worker-code`,
    the browser, Nimbalyst or a skill to `worker-full`). It fits one fresh worker context. The probe comes first, the
    check slice before any build slice, slice 0 for a new project.

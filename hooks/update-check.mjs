@@ -671,6 +671,10 @@ function passNote(next, now) {
         : k === folder,
     )?.[1];
   const PASS = "node ~/.claude/skills/update-project/pass.mjs";
+  // single quotes for bash, so a $( ), backtick or $NAME in a folder name is passed as text, not run
+  const quoted = `'${folder.replace(/'/g, "'\\''")}'`;
+  const forBash =
+    "These commands are for bash (the Bash tool), not PowerShell or cmd: the folder is quoted the bash way.";
   if (!inProject) {
     // "never" for this folder or for every folder holds at any level
     if (s && (at(s.declined) !== undefined || s.declinedAll != null))
@@ -680,7 +684,8 @@ function passNote(next, now) {
       text: [
         `[update-check] This folder (${folder}) is not set up as a project: neither it nor a folder above it has a CLAUDE.md or .git. Do the user's request first.`,
         "At the end of your reply, ask on one question card (AskUserQuestion; in Nimbalyst mcp__nimbalyst__AskUserQuestion) whether to set this folder up with /new-project: a notes file, a decisions record, a rules folder and a systems map, so sessions here start with the right context. Options: Yes / Not now / Never here / Never in any folder.",
-        `On yes: read ~/.claude/skills/new-project/SKILL.md and follow it. On "not now": nothing to run (asked again another day). On "never here": run ${PASS} --skip "${folder}". On "never in any folder" (this also stops the offer to bring older project folders up to date): run ${PASS} --skip-all.`,
+        `On yes: read ~/.claude/skills/new-project/SKILL.md and follow it. On "not now": nothing to run (asked again another day). On "never here": run ${PASS} --skip ${quoted}. On "never in any folder" (this also stops the offer to bring older project folders up to date): run ${PASS} --skip-all.`,
+        forBash,
         "Ask once; this note comes at most once a day for this folder.",
       ].join("\n"),
     };
@@ -697,7 +702,8 @@ function passNote(next, now) {
     text: [
       `[update-check] This project folder (${folder}) was set up before the current setup. Do the user's request first.`,
       "At the end of your reply, ask on one question card (AskUserQuestion; in Nimbalyst mcp__nimbalyst__AskUserQuestion) whether to bring this folder up to the current setup, so sessions here get the current rules, systems map and file layout: about 15 minutes, every change shown first. Options: Yes / Not now / Never, in any folder.",
-      `On yes: read ~/.claude/skills/update-project/SKILL.md and follow it. On "not now": run ${PASS} --skip "${folder}". On "never, in any folder": run ${PASS} --skip-all.`,
+      `On yes: read ~/.claude/skills/update-project/SKILL.md and follow it. On "not now": run ${PASS} --skip ${quoted}. On "never, in any folder": run ${PASS} --skip-all.`,
+      forBash,
       "Offer it once; this note comes once for this folder.",
     ].join("\n"),
   };

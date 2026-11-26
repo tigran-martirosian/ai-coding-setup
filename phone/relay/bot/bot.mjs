@@ -9,7 +9,8 @@
 import { randomBytes, sha256, toB64u, toHex } from "../../shared/seal.mjs";
 import { createHeld } from "./held.mjs";
 
-const DAY = 24 * 60 * 60_000;
+const HOUR = 60 * 60_000;
+const DAY = 24 * HOUR;
 const INVITE_LIFE = 7 * DAY;
 const ALERT_LIFE = 2 * DAY;
 const DELETE_BATCH = 100;
@@ -37,6 +38,7 @@ export function makeBot({ webhookSecret }) {
     const { store, telegram, now, log, ownerTgId } = ctx;
     const held = createHeld(ctx);
     let username = null;
+    let lastCleanUp = -Infinity; // in memory: a restarted Hub cleans up once more, which is harmless
 
     const say = (chatId, text, extra = {}) =>
       telegram("sendMessage", { chat_id: chatId, text, ...extra });
@@ -92,7 +94,17 @@ export function makeBot({ webhookSecret }) {
         return { status: 400, body: "no update_id" };
       const last = await store.get("tg:last-update");
       if (last !== undefined && update.update_id <= last) return OK;
-      await held.cleanUp();
+      // The clean-up reads every held item: only an invited sender starts it, and at most once an hour.
+      const from = (update.message ?? update.callback_query)?.from?.id;
+      if (
+        now() >= lastCleanUp + HOUR &&
+        Number.isSafeInteger(from) &&
+        (from === ownerTgId || (await store.get(`user:${from}`)))
+      ) {
+        // Counted once it has finished: a clean-up that fails part way runs again on the next message.
+        await held.cleanUp();
+        lastCleanUp = now();
+      }
       let handled = false;
       if (update.message) handled = await onMessage(update.message, req.origin);
       else if (update.callback_query)

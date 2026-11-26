@@ -3,7 +3,7 @@ name: grilling
 description: 'Questions before a medium or big job, then what done looks like (in chat for a medium job, a spec file for a big one). Use when a job is sized medium or big, when the user says "grill me", "задай мне вопросы", "погоняй меня по плану" or asks (in any language) to stress-test a plan, decision or idea.'
 ---
 
-Based on Matt Pocock's `grilling` skill (MIT, see LICENSE), with card rules and a spec step added.
+Based on Matt Pocock's `grilling` skill (MIT licence; its text is the `LICENSE` file in this skill's folder), with card rules and a spec step added.
 
 Interview the user until you reach a shared understanding. Map this as a **design tree**: every decision branches
 into the decisions that hang off it.
@@ -47,6 +47,10 @@ concrete readings and your pick, e.g. "smooth chat": text streams in word by wor
 read / no scroll frame over 16 ms. Where the context already pins the word ("smooth scrolling"), put the number in
 your recommendation and still ask. Each answer becomes a done-when line with a number, a side-by-side reference or
 a list of behaviours; a fuzzy word still in the spec is an open branch.
+
+A word that could name two different things ("account": the customer or the login?) is a question for the
+`domain-modeling` skill. In a code project, call it alongside this one, so each settled term lands in
+`docs/glossary.md` and each hard-to-reverse choice in `DECISIONS.md` as the answers come in.
 
 ## The first fact
 

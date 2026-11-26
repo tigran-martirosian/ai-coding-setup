@@ -7,7 +7,8 @@ import path from "node:path";
 // so no model call is made and no tokens are spent. Anything else passes through untouched.
 // Inside Nimbalyst it never opens a browser: it refreshes the data and names the click (Usage icon, Full dashboard).
 // USAGE_DASH_NO_OPEN=1 builds without opening the browser (for tests).
-// Fails open: on any error the prompt goes through. USAGE_DASHBOARD=off disables it.
+// When the dashboard can't be built (no script installed, the script fails) the prompt is still stopped, with a
+// "could not be built" message; only an error in the hook itself lets the prompt through. USAGE_DASHBOARD=off disables it.
 import { inNimbalyst, runHook } from "./lib/hook-io.mjs";
 
 runHook(

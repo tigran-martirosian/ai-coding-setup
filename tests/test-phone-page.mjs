@@ -1419,6 +1419,51 @@ try {
     show(keptStore.kept("projects")?.data.length),
   );
 
+  // A damaged Home copy on the phone (no PC status, Home's answers or parts missing, not an object): Home still
+  // opens before the first hello, then asks the PC as usual. The copy with no status comes first, so the ones
+  // after it cannot borrow a status an earlier open left in memory.
+  const damagedCopies = {
+    "no status": {
+      home: {
+        status: null,
+        statusAt: null,
+        sessions: null,
+        names: null,
+        sessionsAt: null,
+      },
+      parts: {},
+    },
+    "home null": { home: null, parts: {} },
+    "data null": null,
+    "data not an object": "damaged",
+    "home not an object": { home: "damaged", parts: "damaged" },
+    "sessions damaged": {
+      home: { status: answers.open, sessions: { needsYou: null } },
+      parts: {},
+    },
+  };
+  for (const [name, data] of Object.entries(damagedCopies)) {
+    keptItems.clear();
+    keptStore.keep("home", data);
+    let stopped = null;
+    try {
+      release = await openAgain(`damaged-home-${name}`);
+      await release();
+    } catch (e) {
+      stopped = e.message;
+    }
+    check(
+      `instant open: a damaged Home copy on the phone (${name}) still opens Home and asks the PC (FAIL: the app ` +
+        "stops on every open until the phone's storage is cleared)",
+      stopped === null &&
+        els.fatal.hidden &&
+        frameFake.asked.includes("home.sessions") &&
+        els.content.textContent.includes("Nimbalyst open") &&
+        keptStore.kept("home")?.data.home.status.asOf === answers.open.asOf,
+      show({ stopped, asked: frameFake.asked }),
+    );
+  }
+
   // Unpair: when the PC no longer holds this device, what the screens kept on the phone goes with the key.
   keptStore.keep("home", { home: null, parts: {} });
   release = await openAgain("unpair", "projects");
@@ -1696,6 +1741,136 @@ try {
   delete globalThis.localStorage;
 } catch (e) {
   failure = e;
+}
+
+// ---- frame/dom.js el(): an on… key is a listener in any letter case and never an attribute
+try {
+  const { el } = await import(pageUrl("frame/dom.js"));
+  const fn = () => {};
+  const a = el("div", { ONCLICK: fn, Onpointerdown: fn });
+  const refused = ["onclick", "ONCLICK", "OnFocus"].map((k) => {
+    try {
+      el("div", { [k]: "alert(1)" });
+      return `${k} taken`;
+    } catch {
+      return null;
+    }
+  });
+  check(
+    "el() takes ONCLICK and Onpointerdown as listeners, sets no on… attribute, and refuses an on… key whose value is not a function (FAIL: a PC field like { ONCLICK: … } becomes an inline handler)",
+    show(Object.keys(a.listeners)) === show(["click", "pointerdown"]) &&
+      Object.keys(a.attrs).length === 0 &&
+      refused.every((r) => r === null),
+    show({ listeners: Object.keys(a.listeners), attrs: a.attrs, refused }),
+  );
+} catch (e) {
+  failure ??= e;
+}
+
+// ---- frame/markdown.js: ordinary Markdown renders as before, and hostile text of 200,000 characters (a reply, or a
+// file the Files view opens, which may be up to about 1 MB) renders without regex backtracking. The engine's steps
+// cannot be counted from JavaScript, so each hostile text runs in a worker that is stopped after a generous 3
+// seconds: the patterns that backtrack take minutes on it (n² or n³), the linear ones milliseconds.
+try {
+  const { markdown } = await import(pageUrl("frame/markdown.js"));
+  const flat = (n) =>
+    n instanceof FakeText
+      ? n.data
+      : `<${n.tagName}${n.className ? `.${n.className.replace(/ /g, ".")}` : ""}>${n.childNodes.map(flat).join("")})`;
+  // What the samples rendered as before the rewrite (an element is "<tag.class>children)").
+  const MD_BEFORE = [
+    "<div.md><h3.md-h>Title))",
+    "<div.md><h3.md-h>Spaced))",
+    "<div.md><h4.md-h>C))",
+    "<div.md><h3.md-h>a # b))",
+    "<div.md><p>#nospace))",
+    "<div.md><p>####### seven))",
+    "<div.md><div.md-table><table><thead><tr><th>a)<th>b)))<tbody><tr><td>1)<td>2))))))",
+    "<div.md><div.md-table><table><thead><tr><th>a)<th>b)))<tbody><tr><td>c)<td>d))))))",
+    "<div.md><p>x|y | - |))",
+    "<div.md><p>see <a.md-a>the docs) and <span>x)))",
+    "<div.md><p><strong>bold) <em>em) <code.md-code>code) <s>gone) <a.md-a>https://example.com/x).))",
+  ];
+  const samples = [
+    "# Title ##",
+    "##   Spaced   #  ",
+    "### C#",
+    "# a # b",
+    "#nospace",
+    "####### seven",
+    "| a | b |\n|---|:--:|\n| 1 | 2 |",
+    "a | b\n--|--\nc | d",
+    "x|y\n| - |",
+    "see [the docs](https://example.com/a_b) and [x](u)",
+    "**bold** _em_ `code` ~~gone~~ https://example.com/x.",
+  ].map((s) => flat(markdown(s)));
+  check(
+    "markdown(): headings, tables, links and inline marks render as before the backtracking fix (FAIL: the pattern rewrite changed what the phone shows)",
+    show(samples) === show(MD_BEFORE),
+    show(samples),
+  );
+  const links = [
+    "[page](src/app/[id]/page.tsx)",
+    "[local](http://[::1]:3000/)",
+    "[arr[0] docs](https://x)",
+  ].map((s) => flat(markdown(s)));
+  check(
+    "markdown(): a link whose address or text holds [ is still a link (FAIL: Next.js paths, IPv6 hosts and arr[0] link texts show as plain text)",
+    show(links) ===
+      show([
+        "<div.md><p><span>page)))",
+        "<div.md><p><a.md-a>local)))",
+        "<div.md><p><a.md-a>arr[0] docs)))",
+      ]),
+    show(links),
+  );
+  const N = 200_000;
+  const hostile = {
+    "a heading line with a long run of spaces": `# a${" ".repeat(N)}b`,
+    "a paragraph of [ with no ]": "[".repeat(N),
+    "a link start repeated with no )": "[a](x".repeat(N / 5),
+    "a long blank line under a line with |": `a|b\n${" ".repeat(N)}`,
+    "a quote nested as deep as the text is long": ">".repeat(N),
+  };
+  const { Worker } = await import("node:worker_threads");
+  // "done", "still running after 3 s" or "error <message>".
+  async function inWorker(text) {
+    const worker = new Worker(
+      `const { parentPort, workerData } = require("node:worker_threads");
+      class N { constructor() { this.childNodes = []; } append(...k) { this.childNodes.push(...k); }
+        setAttribute() {} addEventListener() {} }
+      globalThis.Node = N;
+      globalThis.document = { createElement: () => new N(), createElementNS: () => new N(), createTextNode: (t) => t };
+      import(workerData.url).then(({ markdown }) => { markdown(workerData.text); parentPort.postMessage("done"); });`,
+      { eval: true, workerData: { url: pageUrl("frame/markdown.js"), text } },
+    );
+    let stop;
+    const end = await new Promise((done) => {
+      stop = setTimeout(() => done("still running after 3 s"), 3000);
+      worker.once("message", done);
+      worker.once("error", (e) => done(`error ${e.message}`));
+    });
+    clearTimeout(stop);
+    await worker.terminate();
+    return end;
+  }
+  for (const [what, text] of Object.entries(hostile)) {
+    const end = await inWorker(text);
+    check(
+      `markdown() renders ${what} (${N.toLocaleString("en")} characters) within 3 s (FAIL: crafted Markdown freezes the phone page)`,
+      end === "done",
+      end,
+    );
+  }
+  const fileItem = await inWorker(`- a\n${"b\n".repeat(500_000)}`);
+  check(
+    "markdown() renders a 1 MB file that is one list item of 500,000 lines within 3 s (FAIL: a large Markdown file " +
+      "the Files view opens throws instead of showing)",
+    fileItem === "done",
+    fileItem,
+  );
+} catch (e) {
+  failure ??= e;
 }
 if (failure) {
   console.log(`FAIL the run stopped: ${failure.stack}`);

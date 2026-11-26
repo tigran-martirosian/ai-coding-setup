@@ -43,11 +43,13 @@ export const alertName = (name) =>
 
 // The relay's pattern for a session title: letters and digits of any script, space, ".", "_" and "-"; other
 // characters become "-", 60 at most (counted in characters, so a letter outside the BMP is never cut in half).
+// A session sets its own title: a dot before a letter becomes "-", so nothing in it reads as a domain in the chat.
 export const alertTitle = (title) =>
   Array.from(
     String(title ?? "")
       .trim()
-      .replace(/[^\p{L}\p{N} ._-]/gu, "-"),
+      .replace(/[^\p{L}\p{N} ._-]/gu, "-")
+      .replace(/\.(?=\p{L})/gu, "-"),
   )
     .slice(0, 60)
     .join("");
@@ -264,8 +266,16 @@ export function createAlerts({
       open,
     });
     if (!ok) return false;
-    keepHandle(open, s.project.project, session, kind, now());
     log("alert", `${kind} ${mode}`);
+    // The alert is out: a handle that is not kept only loses its Open button and its removal, it never resends.
+    try {
+      keepHandle(open, s.project.project, session, kind, now());
+    } catch (e) {
+      log(
+        "error",
+        `alerts: a sent ${kind} alert's handle was not kept: ${e.message}`,
+      );
+    }
     return true;
   }
 
@@ -316,10 +326,13 @@ export function createAlerts({
       tick();
       lastError = null;
     } catch (e) {
-      // With Nimbalyst closed nothing changes; the next open starts a fresh first look.
-      settled = null;
-      due.clear();
+      // With Nimbalyst closed nothing changes; the next open starts a fresh first look. Any other read error keeps
+      // the known states, so a change made while the sessions could not be read still alerts at the next look.
       const why = e.err === "nimbalyst-closed" ? "nimbalyst-closed" : e.message;
+      if (why === "nimbalyst-closed") {
+        settled = null;
+        due.clear();
+      }
       if (why !== lastError && why !== "nimbalyst-closed")
         log("error", `alerts: ${why}`);
       lastError = why;
@@ -373,7 +386,9 @@ export function register(registry) {
       handle: { type: "string", min: 1, max: 16, pattern: /^[A-Za-z0-9_-]+$/ },
     },
     run: (d) => {
-      const h = readState().handles?.[d.handle];
+      // Own keys only: a name like "constructor" is not a handle.
+      const handles = readState().handles || {};
+      const h = Object.hasOwn(handles, d.handle) ? handles[d.handle] : null;
       if (!h || Date.now() - Date.parse(h.at) >= HANDLE_DAYS * DAY_MS)
         throw new ActionError("expired");
       return { project: h.project, session: h.session };

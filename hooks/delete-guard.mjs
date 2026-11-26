@@ -23,7 +23,17 @@
 //   not an error, not the call being judged, and with no relative path after a cd. A recursive or wildcard delete
 //   passes when every file under the target (the folder above the first wildcard) was made. Named: the target's full
 //   path is a whole path in a message the user typed (not a summary, a helper's brief, a tool's output or a system
-//   note; not the drive root, the home folder or a folder above it; a typed file does not name its folders). A link
+//   note; not the drive root, the home folder or a folder above it; a typed file does not name its folders), or in a
+//   form the user said yes to (2026-11-26: the refusal asks for that form, so its yes must pass). Forms:
+//   AskUserQuestion (Claude Code's or Nimbalyst's) and Nimbalyst's PromptForUserInput; a Nimbalyst answer counts only
+//   with respondedBy desktop or mobile. A yes: a picked option whose label starts with yes / delete / remove (an
+//   optional "(Recommended)" is fine) and holds no keep / no / not / don't / stay / cancel / back; the first option
+//   is no yes for being first. Or a confirm field set to true whose label starts with delete / remove or asks
+//   "Delete ...?" / "Remove ...?", and holds no keep. Multi-select picks: each option's whole label is matched
+//   (Claude Code joins them with ", "; Nimbalyst gives an array). Named by a yes: a full path in the picked yes
+//   option's label or description, or in the question (a confirm field's label and description) when it names
+//   exactly one full path and no unclear one (a space or a stray character inside it). Text typed into "Other", the
+//   form's title and the options not picked never count. A link
 //   or junction in the target's path or under it is neither made nor named. Case counts except on Windows. A named
 //   file outside the project folders (the event's cwd and CLAUDE_PROJECT_DIR) is now refused unless it is in temp,
 //   tracked and unchanged in a git repo, made or named; a path holding an unknown variable still passes.
@@ -47,7 +57,8 @@ import { emit, runHook } from "./lib/hook-io.mjs";
 // The texts, here and nowhere else
 const TAG = "[delete-guard]";
 const INSTEAD_MAIN =
-  "If the user asked for this delete, ask them in a form to confirm the exact paths, or tell them the command to run themselves.";
+  'If the user asked for this delete, ask them in a form to confirm the exact paths: the form lists each full path in the yes option\'s label or description (C:/x/y, not "the nine folders in C:/x"), and their yes lets the same delete pass. ' +
+  'Or tell them the command to run themselves, written for the shell they type it in (on Windows cmd or PowerShell, e.g. rmdir /s /q "C:\\x\\y"), not a Git Bash rm line.';
 const INSTEAD_HELPER =
   "You are a helper: leave the files in place, name them in your report and say why they should go; the user decides.";
 const refuseText = (what, helper) =>
@@ -299,6 +310,7 @@ function readSession(file, cwd, judged) {
   const made = new Set(),
     calls = new Map(),
     done = new Set();
+  const forms = new Map();
   let said = "";
   if (!file) return { made, said };
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
@@ -313,8 +325,12 @@ function readSession(file, cwd, judged) {
     if (e?.type === "user") {
       if (Array.isArray(content))
         for (const b of content)
-          if (b?.type === "tool_result" && b.is_error !== true)
+          if (b?.type === "tool_result" && b.is_error !== true) {
             done.add(b.tool_use_id);
+            if (forms.has(b.tool_use_id) && !e.isSidechain)
+              for (const t of formYes(forms.get(b.tool_use_id), b, e))
+                said += `\n${t}`;
+          }
       if (!typed(e)) continue;
       const texts =
         typeof content === "string"
@@ -326,18 +342,21 @@ function readSession(file, cwd, judged) {
         if (typeof t === "string" && !NOT_TYPED.test(t)) said += `\n${t}`;
     } else if (e?.type === "assistant" && Array.isArray(content))
       for (const b of content)
-        if (b?.type === "tool_use" && b.id !== judged)
+        if (b?.type === "tool_use" && b.id !== judged) {
           calls.set(b.id, madeBy(b.name, b.input ?? {}, e.cwd ?? cwd));
+          if (FORM.test(b.name)) forms.set(b.id, b);
+        }
   }
   for (const [id, paths] of calls)
     if (done.has(id)) for (const p of paths) if (p) made.add(p);
-  return {
-    made,
-    said: fold(said.replace(/\\/g, "/"))
-      .replace(/(^|[\s"'`(])~(?=\/)/g, `$1${norm(HOME, null)}`)
-      .replace(/(^|[\s"'`(])\/([a-z])\//gi, "$1$2:/"),
-  };
+  return { made, said: saidForm(said) };
 }
+// What the user said, in the form targets are matched in: forward slashes, case folded on Windows, ~ as the home
+// folder, /c/ as c:/
+const saidForm = (text) =>
+  fold(text.replace(/\\/g, "/"))
+    .replace(/(^|[\s"'`(])~(?=\/)/g, `$1${norm(HOME, null)}`)
+    .replace(/(^|[\s"'`(])\/([a-z])\//gi, "$1$2:/");
 // A "user" entry the user typed: not a compaction summary, a helper's brief (sidechain), a tool's result or
 // message, a transcript-only or meta entry, nor text the app adds (task notices, slash command output, system notes)
 const typed = (e) =>
@@ -349,6 +368,107 @@ const typed = (e) =>
   e.sourceToolUseID === undefined;
 const NOT_TYPED =
   /^\s*<(task-notification>|local-command-|command-|system-reminder>)/;
+
+// A form the user answered names what it shows when the answer is a yes: a picked option whose label starts with
+// yes / delete / remove (a "(Recommended)" after it is fine) and holds no keep / no / not / don't / stay / cancel /
+// back anywhere (2026-11-26 review: the first option is no yes for being first, and "Go back" or "Sure, keep them"
+// is no yes), or a PromptForUserInput confirm field set to true whose label asks for the delete: it starts with
+// delete / remove or asks "Delete ...?" / "Remove ...?", and holds no keep ("Keep C:/x as it is?" is no yes).
+// Only the picked yes option's label and description count, and the question text (a confirm field's label and
+// description) when it names exactly one full path: a question naming two ("Delete C:/x? (C:/y stays.)") does not
+// say which one the yes is for. Text typed into "Other", the form's title and intro, and the options not picked
+// do not count.
+const FORM =
+  /^(AskUserQuestion|mcp__nimbalyst__AskUserQuestion|mcp__nimbalyst__PromptForUserInput)$/;
+const YES = /^\s*(yes|delete|remove)\b/i;
+const NO = /\b(keep|stay|cancel)|\b(no|not|don['’]?t|back)\b/i;
+const yesLabel = (label) =>
+  typeof label === "string" && YES.test(label) && !NO.test(label);
+const asksDelete = (label) =>
+  typeof label === "string" &&
+  !/\bkeep/i.test(label) &&
+  (/^\s*(delete|remove)\b/i.test(label) ||
+    /(^|[.!?:]\s+)(delete|remove)\b[^?]*\?/i.test(label));
+// The text names exactly one full path, read as named() reads it: in the said form, a path starts where named()
+// lets one start and runs as far as named() lets one run. A path followed by a character that does not end it
+// ("C:/x+y") or by a space and more text with a slash ("C:/My Files/a") is unclear: the text then names none.
+const PATH_AT = /(?<![\w.:/-])(?:[a-z]:\/|\/(?=[\w.]))[\w./-]*/gi;
+function onePath(text) {
+  const t = saidForm(text),
+    found = new Set();
+  for (const m of t.matchAll(PATH_AT)) {
+    const rest = t.slice(m.index + m[0].length);
+    if (/^([^\s?!,;:)\]"'`]|\s+\S*\/)/.test(rest)) return false;
+    found.add(m[0].replace(/\.+$/, ""));
+  }
+  return found.size === 1;
+}
+// The answers of a form's result: Claude Code's own AskUserQuestion keeps them in toolUseResult.answers
+// ({question: picked labels, joined with ", " when several}); Nimbalyst's tools answer with JSON text
+// {"answers":{...},"respondedBy":...}, keyed by question text or field id, and count only when respondedBy is a
+// surface the user answers on (desktop or mobile, the only values on answered forms in the saved transcripts;
+// Nimbalyst also writes "system" and "auto_commit"). Anything else: no answers.
+const HUMAN = new Set(["desktop", "mobile"]);
+function formAnswers(block, e) {
+  if (e.toolUseResult?.answers && typeof e.toolUseResult.answers === "object")
+    return e.toolUseResult.answers;
+  const c = block.content;
+  const text =
+    typeof c === "string"
+      ? c
+      : Array.isArray(c)
+        ? c.map((b) => (typeof b?.text === "string" ? b.text : "")).join("")
+        : "";
+  if (!text.trim().startsWith("{")) return {};
+  try {
+    const { answers, respondedBy } = JSON.parse(text);
+    if (!HUMAN.has(respondedBy)) return {};
+    return answers && typeof answers === "object" ? answers : {};
+  } catch {
+    return {}; // not the JSON a Nimbalyst form answers with: nothing said
+  }
+}
+// The texts a form's yes answer says, as a list
+function formYes(call, block, e) {
+  const answers = formAnswers(block, e),
+    out = [];
+  const input = call.input ?? {};
+  for (const q of Array.isArray(input.questions) ? input.questions : []) {
+    const a = answers[q?.question],
+      options = Array.isArray(q?.options) ? q.options : [];
+    // Claude Code joins several picks with ", ", and a label may hold ", " too: each label is matched whole.
+    // Nimbalyst answers a multi-select with an array of the picked labels.
+    const picked = Array.isArray(a)
+      ? (label) => typeof label === "string" && a.includes(label)
+      : typeof a === "string"
+        ? (label) =>
+            a === label ||
+            (q.multiSelect && `, ${a}, `.includes(`, ${label}, `))
+        : null;
+    if (!picked) continue;
+    let yes = false;
+    for (const o of options) {
+      if (!picked(o?.label) || !yesLabel(o.label)) continue;
+      out.push(o.label, o.description ?? "");
+      yes = true;
+    }
+    if (yes && typeof q.question === "string" && onePath(q.question))
+      out.push(q.question);
+  }
+  for (const f of Array.isArray(input.fields) ? input.fields : []) {
+    const asked = [f?.label, f?.description]
+      .filter((t) => typeof t === "string")
+      .join("\n");
+    if (
+      f?.type === "confirm" &&
+      answers[f.id]?.value === true &&
+      asksDelete(f.label) &&
+      onePath(asked)
+    )
+      out.push(asked);
+  }
+  return out.filter((t) => typeof t === "string" && t);
+}
 const MOVES = [
   "cd",
   "pushd",

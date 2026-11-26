@@ -34,6 +34,7 @@ import {
   stopWatchingTurns,
 } from "./copy-row";
 import { NoteBridge } from "./host";
+import { setExtensionFolder } from "./note";
 import { t } from "./strings";
 
 const SOURCE = "com.local.commandbuttons";
@@ -303,7 +304,9 @@ export function CommandsPanel({ host }: Partial<PanelHostProps>) {
   return <CommandsView path={path} s={s} open={open} hint={hint} act={act} />;
 }
 
-export function activate() {
+export function activate(context: { extensionPath: string }) {
+  // Nimbalyst activates the extension as it loads it, before any button can be pressed
+  setExtensionFolder(context.extensionPath);
   installPopover(() => <CommandsPanel />, t.title);
 }
 

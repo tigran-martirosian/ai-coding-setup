@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 // push-key-scan: a guard of the pre-tool dispatcher (hooks/dispatch-groups.json), for Bash and PowerShell.
 // - `git push`: reads what the push would send (commits on the pushed branch that no remote has yet, plus the
@@ -134,6 +135,28 @@ const winPath = (p) =>
 const CD =
   /(?:^|[;&|(]\s*|\n\s*)(?:cd|Set-Location|pushd)\s+("[^"]+"|'[^']+'|[^\s;&|]+)/g;
 
+// A folder written with variables ($D, ${LOCALAPPDATA}, %APPDATA%, $env:TEMP, ~) as the shell would read it: a
+// variable set earlier in the same command (D="..." or export D=...) wins over the environment. Without this the
+// folder did not exist, git could not start, and every such push asked the user (2026-11-26).
+export function expandVars(p, before = "") {
+  const set = {};
+  for (const a of before.matchAll(
+    /(?:^|[\s;&|(])(?:export\s+|\$env:)?([A-Za-z_]\w*)=("[^"]*"|'[^']*'|[^\s;&|]*)/g,
+  ))
+    set[a[1]] = unquote(a[2]);
+  const value = (name) => {
+    const v = set[name] ?? process.env[name];
+    return v === undefined ? null : expandVars(v, "");
+  };
+  return p
+    .replace(/^~(?=[/\\]|$)/, os.homedir())
+    .replace(
+      /\$env:([A-Za-z_]\w*)|\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|%([A-Za-z_]\w*)%/g,
+      (m, a, b, c, d) => value(a || b || c || d) ?? m,
+    )
+    .replace(/\\/g, "/");
+}
+
 // What the command pushes: the folder (git -C, or the last cd before it), the source refs, whether it commits first
 export function parsePush(command) {
   const bare = bareOf(command);
@@ -161,7 +184,7 @@ export function parsePush(command) {
     .map((r) => r.replace(/^\+/, "").split(":")[0])
     .filter(Boolean);
   return {
-    dir: dir && winPath(dir),
+    dir: dir && winPath(expandVars(dir, before)),
     refs: all ? ["--branches"] : refs.length ? refs : ["HEAD"],
     commitsFirst: /\bgit(?:\.exe)?\s+(?:-\S+\s+)*commit\b/.test(
       bare.slice(0, at),

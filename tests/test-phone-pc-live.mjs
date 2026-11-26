@@ -790,7 +790,7 @@ try {
     await A.ask("test.hook");
     const before = ends.length;
     await act();
-    await sleep(50);
+    await until(() => ends.length > before, 2000);
     const mine = ends.slice(before);
     check(
       `onEnd is called once when the channel session ends by ${why}`,
@@ -802,8 +802,16 @@ try {
   await endsBy("counter-gap", () =>
     A.send({ k: "req", id: "x", a: "pc.status" }, { skip: 1 }),
   );
-  await endsBy("bad-frame", () =>
-    A.send({ k: "req", id: "x", a: "pc.status" }, { wrongKey: true }),
+  // A frame that does not open ends nothing: anyone on the relay path can send one under the device's id.
+  await A.hello();
+  await A.ask("test.hook");
+  const beforeBad = ends.length;
+  await A.send({ k: "req", id: "x", a: "pc.status" }, { wrongKey: true });
+  await sleep(50);
+  check(
+    "a frame that does not open ends no channel session",
+    ends.length === beforeBad && channel.openDevices().includes(A.dev),
+    show(ends.slice(beforeBad)),
   );
   await endsBy("hello", () => A.hello());
   await endsBy("removed", () => channel.closeDevice(A.dev));
@@ -923,7 +931,7 @@ try {
   waits.length = 0;
   const l2 = relayLink();
   l2.start();
-  await sleep(TIMES.connectMs + 50);
+  await nextSock(1);
   check(
     "a socket not accepted within the attempt limit is given up and a new one made",
     socks.length === 2 && socks[0].closed?.reason === "dead-link",

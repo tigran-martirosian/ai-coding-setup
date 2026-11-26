@@ -71,7 +71,8 @@ A project's package upkeep (updating its packages) is its own task: [`packages.m
 
 ## The offer and "not now"
 
-The update-check hook offers a pass once in a folder that is behind the setup's pass level. On
+The update-check hook offers a pass at most once a day in a folder that is behind the setup's pass level,
+until the pass is done or declined. On
 "not now": `PASS --skip "<folder>"` (offered again after a release raises the level). "Never, for
 any folder": `PASS --skip-all`. `PASS --list` names the folders worked in lately and whether each is
 behind, done or declined; `PASS --status` prints the stamp file.

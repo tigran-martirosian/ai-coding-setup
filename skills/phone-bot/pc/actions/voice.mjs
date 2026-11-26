@@ -4,10 +4,11 @@
 // sealed channel; voice.transcribe writes it to %TEMP%\phone-app-voice\<random>.<ext>, queues the job and answers
 // at once with a job id, and voice.result waits up to 20 s for the text. So no request outlasts the page's 30 s
 // answer time, however long the speech is, and a job survives the page going to sleep. The audio file is
-// deleted after the job, also when it fails. The transcriber stops after 15 minutes without a job.
+// deleted after the job, also when it fails or its write fails; one that a stopped program left goes at the next
+// start. The transcriber stops after 15 minutes without a job.
 // It is one of the three programs the PC program may start: a fixed command line, no shell.
-import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -21,25 +22,73 @@ const PC_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const SERVER = path.join(PC_DIR, "voice", "transcribe-server.py");
 export const MODEL = "small";
 export const MODEL_MB = 480;
-// The line probe 7 timed, with the server in place of transcribe.py.
-export const UV_ARGS = [
-  "run",
-  "--no-project",
-  "--with",
-  "faster-whisper",
-  "--with",
-  "av<16",
+// The transcriber's Python packages are locked in SERVER.lock (uv lock --script). `setup.mjs voice` installs exactly
+// the lock into the script's own environment; each start finds that environment's Python with no network and runs
+// the server isolated (-I), so no start resolves or fetches a package.
+export const SYNC_ARGS = ["sync", "--script", SERVER, "--frozen"];
+export const FIND_PYTHON_ARGS = [
   "python",
-  "-I",
+  "find",
+  "--script",
   SERVER,
+  "--offline",
 ];
+export const SERVER_ARGS = ["-I", SERVER];
+// The oldest uv with `sync --script` and `python find --script`: uv's changelog (changelogs/0.6.x.md), 0.6.10
+// "Support `python find --script`" (#11891); `sync --script` is there since before 0.6.7.
+export const UV_MIN = "0.6.10";
+
+// Whether the answer of `uv --version` ("uv 0.6.10 (...)") names UV_MIN or newer; false when it names no version.
+export function uvNewEnough(versionLine) {
+  const m = versionLine.trim().match(/^uv (\d+)\.(\d+)\.(\d+)/);
+  if (!m) return false;
+  const min = UV_MIN.split(".").map(Number);
+  for (let i = 0; i < 3; i++)
+    if (Number(m[i + 1]) !== min[i]) return Number(m[i + 1]) > min[i];
+  return true;
+}
+
+// The Python of the transcriber's environment, from `uv python find`; a clear error when uv cannot say.
+export function scriptPython(uv) {
+  const r = spawnSync(uv, FIND_PYTHON_ARGS, {
+    encoding: "utf8",
+    shell: false,
+    windowsHide: true,
+  });
+  if (r.error) throw new Error(`uv python find failed: ${r.error.message}`);
+  const py = r.stdout.trim();
+  if (r.status !== 0 || !py)
+    throw new Error(
+      `uv python find found no Python for the transcriber (exit code ${r.status}): ${lastLine(r.stderr || "")}`,
+    );
+  return py;
+}
+
+// The SHA-256 of SERVER.lock: `setup.mjs voice` writes it into the marker, and a start needs the same, so a PC set up
+// for an older lock runs the setup again instead of a Python without the new packages.
+export function lockHash() {
+  return createHash("sha256")
+    .update(fs.readFileSync(`${SERVER}.lock`))
+    .digest("hex");
+}
+
+// The transcriber's Python, found once with `uv python find` and kept until a start fails.
+let found = null; // { uv, py }
+function transcriberPython(uv) {
+  if (found?.uv !== uv) found = { uv, py: scriptPython(uv) };
+  return found.py;
+}
 const SETUP_LINE = `node ${path.join(PC_DIR, "setup.mjs")} voice`;
 
 const IDLE_MS = 15 * 60 * 1000;
 const JOB_MS = 10 * 60 * 1000;
+const KILL_WAIT_MS = 5000; // a stopped transcriber still running this long after is killed hard
 const RESULT_WAIT_MS = 20_000;
 const KEEP_DONE_MS = 10 * 60 * 1000;
 const JOBS_WAITING_MAX = 2; // jobs of one device not yet through: each holds up to 50 MB in %TEMP%
+// A recording older than this was left by a program that stopped mid-job: no job lives as long (2 waiting jobs per
+// device, 4 devices, 10 minutes each), so another PC program's job in progress is never taken.
+const LEFT_MS = 2 * 3600 * 1000;
 const AUDIO_MAX = 50 * 1024 * 1024; // the page's FILES_STREAM_MAX, which it sends voice notes with
 const SETTING_UP =
   "Voice is being set up on your PC. Try again in a few minutes.";
@@ -103,7 +152,8 @@ function command() {
   } catch {
     marker = null;
   }
-  if ((!uv || marker?.model !== MODEL) && settingUp())
+  const forLock = marker?.lock === lockHash();
+  if ((!uv || marker?.model !== MODEL || !forLock) && settingUp())
     throw new ActionError("voice-setting-up", { message: SETTING_UP });
   if (!uv)
     throw new ActionError("voice-not-set-up", {
@@ -116,8 +166,22 @@ function command() {
       message: "the speech model is not downloaded",
       run: SETUP_LINE,
     });
+  if (!forLock)
+    throw new ActionError("voice-not-set-up", {
+      message:
+        "voice was set up for other Python packages than this version needs",
+      run: SETUP_LINE,
+    });
   const fake = testOverride("PHONE_PC_TRANSCRIBER");
-  return fake ? [process.execPath, [fake]] : [uv, UV_ARGS];
+  if (fake) return [process.execPath, [fake]];
+  try {
+    return [transcriberPython(uv), SERVER_ARGS];
+  } catch (e) {
+    throw new ActionError("voice-not-set-up", {
+      message: e.message,
+      run: SETUP_LINE,
+    });
+  }
 }
 
 // ---- the kept-running transcriber
@@ -133,6 +197,22 @@ function gone(me, why) {
   if (me.answer) me.answer.reject(new Error(why));
   me.answer = null;
   log("voice", why.slice(0, 200));
+}
+
+// Stops a transcriber that is to answer nothing more. One still there KILL_WAIT_MS later (its stop signal failed or
+// was ignored) is killed hard; each failed kill is logged.
+function stopTranscriber(me) {
+  const { child } = me;
+  if (!child.kill())
+    log("voice", "the transcriber did not take the stop signal");
+  const hard = setTimeout(() => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    log("voice", "the transcriber still runs: killed hard");
+    if (!child.kill("SIGKILL"))
+      log("voice", "the transcriber could not be killed");
+  }, KILL_WAIT_MS);
+  hard.unref?.();
+  child.once("exit", () => clearTimeout(hard));
 }
 
 function idleLater(me) {
@@ -183,15 +263,18 @@ function startTranscriber() {
     me.err = (me.err + c).slice(-4000);
   });
   child.stdin.on("error", () => {});
-  child.on("error", (e) =>
-    gone(me, `the transcriber did not start: ${e.message}`),
-  );
-  child.on("exit", (code) =>
+  // A start that fails finds the Python again next time: the environment may have moved since.
+  child.on("error", (e) => {
+    found = null;
+    gone(me, `the transcriber did not start: ${e.message}`);
+  });
+  child.on("exit", (code) => {
+    if (!me.ready) found = null;
     gone(
       me,
       `the transcriber stopped (exit code ${code}): ${lastLine(me.err)}`,
-    ),
-  );
+    );
+  });
   idleLater(me);
   log("voice", "transcriber started");
   return me;
@@ -203,7 +286,10 @@ function transcribe(file) {
   clearTimeout(me.idle);
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      me.child.kill();
+      // The next job starts a new transcriber: this one is stopping and answers nothing more.
+      if (tr === me) tr = null;
+      me.answer = null;
+      stopTranscriber(me);
       reject(new Error("the transcriber took over 10 minutes: stopped"));
     }, JOB_MS);
     me.answer = {
@@ -227,9 +313,31 @@ function transcribe(file) {
 const jobs = new Map(); // id -> { device, done, text, error, finished }
 let line = Promise.resolve();
 
+// Deletes the recordings a stopped program left (over LEFT_MS old); at start and before each new job. Each file is
+// tried on its own: one another program holds, or one that cannot be looked at, is logged and tried again next time.
+function cleanVoice(now = Date.now()) {
+  const dir = voiceDir();
+  if (!fs.existsSync(dir)) return;
+  for (const f of fs.readdirSync(dir)) {
+    const p = path.join(dir, f);
+    try {
+      const st = fs.statSync(p);
+      if (st.isFile() && now - st.mtimeMs > LEFT_MS)
+        fs.rmSync(p, { force: true });
+    } catch (e) {
+      if (e.code === "ENOENT") continue; /* its job ended meanwhile */
+      log(
+        "voice",
+        `an old recording was not deleted: ${e.code ?? e.message.slice(0, 200)}`,
+      );
+    }
+  }
+}
+
 function queueJob(device, bytes, ext) {
   const id = randomBytes(12).toString("base64url");
   const dir = voiceDir();
+  cleanVoice();
   fs.mkdirSync(dir, { recursive: true });
   const file = checkPath(
     path.join(dir, `${randomBytes(12).toString("hex")}.${ext}`),
@@ -237,7 +345,13 @@ function queueJob(device, bytes, ext) {
       write: true,
     },
   );
-  fs.writeFileSync(file, bytes, { mode: 0o600 });
+  try {
+    fs.writeFileSync(file, bytes, { mode: 0o600 });
+  } catch (e) {
+    // A write that failed half way leaves no part of the recording behind.
+    fs.rmSync(file, { force: true });
+    throw e;
+  }
   const job = { device, done: false, text: null, error: null, finished: null };
   job.finished = line = line.then(async () => {
     try {
@@ -257,6 +371,7 @@ function queueJob(device, bytes, ext) {
 }
 
 export function register(registry) {
+  cleanVoice();
   registry.add({
     name: "voice.warm",
     run() {

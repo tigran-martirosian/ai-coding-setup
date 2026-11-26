@@ -25,7 +25,7 @@ const check = (name, ok, extra = "") => {
   console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : ` ${extra}`}`);
 };
 const show = (v) => JSON.stringify(v)?.slice(0, 500);
-const tick = () => new Promise((r) => setTimeout(r, 30));
+const tick = () => new Promise((r) => setTimeout(r, 2));
 
 // ---- a temp home: the files library finds everything through os.homedir(), APPDATA and LOCALAPPDATA
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "phone-jobs-"));
@@ -390,8 +390,17 @@ try {
     mainButton: () => {},
   });
   const root = screens.screen("home").render(c());
-  await tick();
-  await tick();
+  // Home draws its Jobs block once jobs.list answers: job rows, or a line that a tracker could not be read.
+  const jobsDrawn = () =>
+    byClass(root, "job").length > 0 ||
+    /Could not read .*tracker|Could not read the jobs/.test(root.textContent);
+  for (const end = Date.now() + 10_000; !jobsDrawn() && Date.now() < end; )
+    await tick();
+  check(
+    "Home draws the Jobs block within 10 s of jobs.list answering (FAIL: the jobs never drew)",
+    jobsDrawn(),
+    root.textContent,
+  );
   const text = root.textContent;
   const open = expected.open[0];
   const jobRows = byClass(root, "job");

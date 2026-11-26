@@ -1,11 +1,17 @@
 #!/usr/bin/env python
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["faster-whisper", "av<16"]
+# ///
 # The kept-running transcriber of the phone app's PC program (PC program design, section 7). It loads the speech
 # model once, the same way as bot/transcribe.py, then turns audio files into text, one job at a time:
 #   in  (stdin, one JSON line per job):  {"file": "<audio file>"}
 #   out (stdout, one JSON line each):    {"ready": true} once the model is loaded, then per job
 #                                        {"text": "..."} or {"error": "..."}
-# Run through uv so nothing is installed by hand:
-#   uv run --no-project --with faster-whisper --with "av<16" python -I transcribe-server.py [--download]
+# Its packages are locked in transcribe-server.py.lock (made with: uv lock --script transcribe-server.py). Setup
+# installs exactly the lock into the script's own environment, and the PC program runs that environment's Python:
+#   uv sync --script transcribe-server.py --frozen
+#   <the path from: uv python find --script transcribe-server.py --offline> -I transcribe-server.py [--download]
 # Without --download the model must already be on this PC (it is never downloaded in the middle of a recording);
 # --download fetches the "small" model (about 480 MB) once, says so on stdout and ends.
 import json

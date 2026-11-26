@@ -53,6 +53,7 @@
 // and Node from ~/.claude/setup-state.json, so nothing is asked again, and it only writes the setup's
 // own files: anything else in ~/.claude (other skills, hooks, settings) stays as it is, and so does
 // one of the setup's files that the user changed (the installer lists those at the end).
+// A run by hand (not --check) stops while a self-install holds ~/.claude/update-auto.lock, so two never run at once.
 // A failed download changes nothing. An install that fails part way says so; running the update again finishes it.
 // Nimbalyst, delivered by the setup (scripts/nimbalyst-patch/deliver.mjs): after an install, deliver.mjs --stage starts
 // (NIMBALYST_FOLLOW=off, in the environment or settings.json's env, stops that); on the newest version it starts again
@@ -90,6 +91,7 @@ const args = process.argv.slice(2);
 const homeAt = args.indexOf("--home");
 const home = homeAt === -1 ? os.homedir() : path.resolve(args[homeAt + 1]);
 const CLAUDE = path.join(home, ".claude");
+const AUTO_LOCK = path.join(CLAUDE, "update-auto.lock"); // held by a self-install (hooks/update-check.mjs)
 const fwd = (p) => p.replace(/\\/g, "/");
 const FILES_ONLY = args.includes("--files-only");
 const QUIET = args.includes("--quiet");
@@ -121,7 +123,7 @@ function recordAuto(result) {
   delete kept.autoRun;
   fs.writeFileSync(`${file}.part`, JSON.stringify(kept));
   fs.renameSync(`${file}.part`, file);
-  fs.rmSync(path.join(CLAUDE, "update-auto.lock"), { force: true });
+  fs.rmSync(AUTO_LOCK, { force: true });
 }
 const stop = (why) => {
   console.log(`Update stopped: ${why}`);
@@ -146,6 +148,12 @@ if (UNSEEN) {
   process.on("unhandledRejection", crashed);
 }
 if (FILES_ONLY && QUIET) stop("--files-only and --quiet: give one of them.");
+// A run by hand that writes (not --check) stops while a self-install holds the hook's lock: both use the same
+// setup-source folders and install.mjs writes the same files. The hook frees a lock left by a run that died.
+if (!UNSEEN && !args.includes("--check") && fs.existsSync(AUTO_LOCK))
+  stop(
+    `an update is installing itself right now (${fwd(AUTO_LOCK)} is there); try again in a few minutes.`,
+  );
 const extAt = args.indexOf("--extensions");
 const extAnswer = extAt === -1 ? null : args[extAt + 1] || "";
 if (extAt !== -1 && (!QUIET || !["yes", "no"].includes(extAnswer)))

@@ -1,6 +1,6 @@
 // Test for skills/steer/compact-self.mjs: temp HOME and temp Nimbalyst database, never the real outbox.
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,10 +26,15 @@ db.prepare("INSERT INTO ai_sessions VALUES (?,?,?)").run(
   "claude-bbb",
   1,
 );
+db.prepare("INSERT INTO ai_sessions VALUES (?,?,?)").run(
+  "nim-333",
+  "claude-ccc",
+  1,
+);
 db.close();
 const outbox = path.join(tmp, ".claude", "steer", "outbox.jsonl");
 
-const run = (input, env = {}) => {
+const envWith = (env) => {
   const e = {
     ...process.env,
     HOME: tmp,
@@ -37,12 +42,14 @@ const run = (input, env = {}) => {
     STEER_NIMBALYST_DB: dbPath,
   };
   delete e.CLAUDE_CODE_SESSION_ID;
-  return spawnSync(process.execPath, [SCRIPT], {
+  return { ...e, ...env };
+};
+const run = (input, env = {}) =>
+  spawnSync(process.execPath, [SCRIPT], {
     input,
-    env: { ...e, ...env },
+    env: envWith(env),
     encoding: "utf8",
   });
-};
 let pass = 0,
   failed = 0;
 const check = (name, ok, extra = "") => {
@@ -175,6 +182,73 @@ check(
   !fs
     .readdirSync(path.join(tmp, ".claude", "steer"))
     .some((n) => n.endsWith(".tmp")),
+);
+
+// steer's hooks and commands rewrite the outbox under steer's lock (~/.claude/steer/.lock). While a live steer run
+// holds it, compact-self waits and writes nothing; once it is let go, compact-self adds its entry and keeps the
+// line that run wrote in the meantime.
+const lockDir = path.join(tmp, ".claude", "steer", ".lock");
+fs.mkdirSync(lockDir);
+fs.writeFileSync(path.join(lockDir, `${process.pid}.test`), "");
+const held = fs.readFileSync(outbox, "utf8");
+const child = spawn(process.execPath, [SCRIPT], {
+  env: envWith({ CLAUDE_CODE_SESSION_ID: "claude-ccc" }),
+});
+let childOut = "";
+child.stdout.on("data", (d) => (childOut += d));
+child.stderr.on("data", (d) => (childOut += d));
+const closed = new Promise((r) => child.on("close", r));
+child.stdin.end("while locked");
+await new Promise((r) => setTimeout(r, 1000));
+const during = fs.readFileSync(outbox, "utf8");
+fs.appendFileSync(
+  outbox,
+  JSON.stringify({
+    id: "steer-wrote",
+    ts: Date.now(),
+    session: "o",
+    prompt: "y",
+  }) + "\n",
+);
+fs.rmSync(lockDir, { recursive: true });
+const code = await closed;
+check(
+  "while steer's lock is held, compact-self writes nothing to the outbox",
+  during === held,
+  childOut,
+);
+check(
+  "once steer's lock is let go, compact-self adds its entry and keeps the line the lock holder wrote",
+  code === 0 &&
+    lines().some((e) => e.id === "steer-wrote") &&
+    lines().some((e) => e.prompt === "/compact while locked"),
+  childOut,
+);
+check("compact-self leaves no lock behind", !fs.existsSync(lockDir));
+
+// compact-self is a one-shot command: a live lock that is only slow to go (held 5 s here, under the 10 s after
+// which it counts as stale) must not make it fail with "nothing was queued".
+fs.writeFileSync(
+  path.join(tmp, ".claude", "steer", "outbox-done.json"),
+  JSON.stringify(lines().map((e) => e.id)),
+);
+fs.mkdirSync(lockDir);
+fs.writeFileSync(path.join(lockDir, `${process.pid}.test`), "");
+const slow = spawn(process.execPath, [SCRIPT], {
+  env: envWith({ CLAUDE_CODE_SESSION_ID: "claude-ccc" }),
+});
+let slowOut = "";
+slow.stdout.on("data", (d) => (slowOut += d));
+slow.stderr.on("data", (d) => (slowOut += d));
+const slowClosed = new Promise((r) => slow.on("close", r));
+slow.stdin.end("slow lock");
+await new Promise((r) => setTimeout(r, 5000));
+fs.rmSync(lockDir, { recursive: true });
+const slowCode = await slowClosed;
+check(
+  "a live lock held 5 s does not make compact-self fail: it waits and queues its entry",
+  slowCode === 0 && lines().some((e) => e.prompt === "/compact slow lock"),
+  slowOut,
 );
 
 fs.rmSync(tmp, { recursive: true, force: true });

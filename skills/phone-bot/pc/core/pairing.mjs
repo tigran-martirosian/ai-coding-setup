@@ -67,6 +67,7 @@ async function telegramUser(initData, keys, nowMs) {
 // onAdded(entry, tgId) is called after a code pairing that added a second or later device (createJoin's `added`).
 export function createPairing({ keys, saveKeys, send, onAdded }) {
   let code = null; // { secret, until, tries, page }
+  let line = Promise.resolve();
 
   const fail = (dev, reason) => {
     log("pair-fail", reason);
@@ -92,76 +93,90 @@ export function createPairing({ keys, saveKeys, send, onAdded }) {
       return { code: text, grouped: groupCode(text), url: code.page.url };
     },
 
-    async onPair(f) {
-      const dev = typeof f.dev === "string" && DEV.test(f.dev) ? f.dev : null;
-      if (!dev) return log("pair-fail", "bad device id");
-      if (!code || Date.now() > code.until) return fail(dev, "no-code");
-      if (f.pcId !== keys.pcId) return fail(dev, "other-pc");
-      let devicePub;
-      let mac1;
-      try {
-        devicePub = fromB64u(f.DP);
-        mac1 = fromB64u(f.mac1);
-      } catch {
-        return fail(dev, "bad-input");
-      }
-      if (devicePub.length !== 32 || typeof f.initData !== "string")
-        return fail(dev, "bad-input");
-      // A page before DV4 sends no kind: its entry is written without one, as an old entry ("kind not recorded").
-      // DV4 makes the page send its kind with `pair`; a kind that is there but off the list is refused.
-      if (f.kind !== undefined && !Object.hasOwn(KINDS, f.kind))
-        return fail(dev, "bad-kind");
-      const s = code.secret;
-      if (!(await checkPairMac1(s, mac1, keys.pcId, devicePub, f.initData))) {
-        code.tries++;
-        if (code.tries >= MAX_TRIES) end();
-        return fail(dev, "bad-mac");
-      }
-      let user;
-      try {
-        user = await telegramUser(f.initData, keys, Date.now());
-      } catch (e) {
-        return fail(dev, e.code);
-      }
-      if (keys.ownerTgId !== null && keys.ownerTgId !== user.id)
-        return fail(dev, "other-user");
-      const others = keys.devices.filter((d) => d.device !== dev);
-      if (others.length >= MAX_DEVICES) return fail(dev, "too-many-devices");
-      const pcPub = fromB64u(keys.identity.pub);
-      const K = await pairKey(
-        await identityPrivate(keys),
-        devicePub,
-        s,
-        keys.pcId,
-        devicePub,
-        pcPub,
-      );
-      const mac2 = await pairMac2(s, keys.pcId, devicePub, pcPub);
-      end();
-      keys.ownerTgId = user.id;
-      const entry = {
-        device: dev,
-        K: toB64u(K),
-        ...(f.kind === undefined ? {} : { kind: f.kind }),
-        pairedAt: new Date().toISOString(),
-        via: "code",
-        confirmed: true,
-      };
-      keys.devices = [...others, entry];
-      saveKeys(keys);
-      send({
-        v: PROTOCOL,
-        t: "pair-ok",
-        dev,
-        PCP: keys.identity.pub,
-        mac2: toB64u(mac2),
-      });
-      send({ v: PROTOCOL, t: "paired", tgId: user.id });
-      log("paired", `device ${keys.devices.length} of ${MAX_DEVICES}`);
-      // A second or later device leaves the bot line and the notice on the others, as a join by OK does.
-      if (others.length) onAdded(entry, user.id);
+    // Pair frames are taken one at a time, so one code pairs one device.
+    onPair(f) {
+      const turn = line.then(() => pair(f));
+      line = turn.catch(() => {});
+      return turn;
     },
   };
+
+  // The device list is read again after the last await: a join or a removal made while the keys were worked out
+  // is kept, not written over.
+  async function pair(f) {
+    const dev = typeof f.dev === "string" && DEV.test(f.dev) ? f.dev : null;
+    if (!dev) return log("pair-fail", "bad device id");
+    if (!code || Date.now() > code.until) return fail(dev, "no-code");
+    // The code this pairing checks: a new code shown meanwhile ends it.
+    const mine = code;
+    if (f.pcId !== keys.pcId) return fail(dev, "other-pc");
+    let devicePub;
+    let mac1;
+    try {
+      devicePub = fromB64u(f.DP);
+      mac1 = fromB64u(f.mac1);
+    } catch {
+      return fail(dev, "bad-input");
+    }
+    if (devicePub.length !== 32 || typeof f.initData !== "string")
+      return fail(dev, "bad-input");
+    // A page before DV4 sends no kind: its entry is written without one, as an old entry ("kind not recorded").
+    // DV4 makes the page send its kind with `pair`; a kind that is there but off the list is refused.
+    if (f.kind !== undefined && !Object.hasOwn(KINDS, f.kind))
+      return fail(dev, "bad-kind");
+    const s = mine.secret;
+    if (!(await checkPairMac1(s, mac1, keys.pcId, devicePub, f.initData))) {
+      mine.tries++;
+      if (mine.tries >= MAX_TRIES && code === mine) end();
+      return fail(dev, "bad-mac");
+    }
+    let user;
+    try {
+      user = await telegramUser(f.initData, keys, Date.now());
+    } catch (e) {
+      return fail(dev, e.code);
+    }
+    if (keys.ownerTgId !== null && keys.ownerTgId !== user.id)
+      return fail(dev, "other-user");
+    if (keys.devices.filter((d) => d.device !== dev).length >= MAX_DEVICES)
+      return fail(dev, "too-many-devices");
+    const pcPub = fromB64u(keys.identity.pub);
+    const K = await pairKey(
+      await identityPrivate(keys),
+      devicePub,
+      s,
+      keys.pcId,
+      devicePub,
+      pcPub,
+    );
+    const mac2 = await pairMac2(s, keys.pcId, devicePub, pcPub);
+    if (code !== mine) return fail(dev, "no-code");
+    const others = keys.devices.filter((d) => d.device !== dev);
+    if (others.length >= MAX_DEVICES) return fail(dev, "too-many-devices");
+    end();
+    keys.ownerTgId = user.id;
+    const entry = {
+      device: dev,
+      K: toB64u(K),
+      ...(f.kind === undefined ? {} : { kind: f.kind }),
+      pairedAt: new Date().toISOString(),
+      via: "code",
+      confirmed: true,
+    };
+    keys.devices = [...others, entry];
+    saveKeys(keys);
+    send({
+      v: PROTOCOL,
+      t: "pair-ok",
+      dev,
+      PCP: keys.identity.pub,
+      mac2: toB64u(mac2),
+    });
+    send({ v: PROTOCOL, t: "paired", tgId: user.id });
+    log("paired", `device ${keys.devices.length} of ${MAX_DEVICES}`);
+    // A second or later device leaves the bot line and the notice on the others, as a join by OK does.
+    if (others.length) onAdded(entry, user.id);
+  }
 }
 
 // A further device joins by an OK on a paired device (pipe design, section 15). The request lives in memory only;
@@ -473,19 +488,21 @@ const esc = (s) =>
 
 // The local page on 127.0.0.1 with the code as a QR (drawn here as inline SVG: the page loads nothing), as text and
 // with a Copy button. The phone's pairing screen scans the QR with Telegram's scanner. Only a request whose Host is
-// this address and port gets the code, so another web page cannot read it through a renamed address.
+// this address and port gets the code, so another web page cannot read it through a renamed address. Any web page
+// the user opens can try fetches to 127.0.0.1 ports, so the page's path is a random secret, and no site may frame it.
 export function servePairPage(text) {
+  const pathname = `/pair/${toB64u(randomBytes(16))}`;
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const host = `127.0.0.1:${server.address().port}`;
-      if (req.headers.host !== host || req.url !== "/pair") {
+      if (req.headers.host !== host || req.url !== pathname) {
         res.writeHead(404).end();
         return;
       }
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Content-Security-Policy":
-          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
+          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'",
         "Cache-Control": "no-store",
       });
       res.end(`<!doctype html><meta charset="utf-8"><title>Pair your phone</title>
@@ -500,7 +517,7 @@ ${qrSvg(text)}
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () =>
       resolve({
-        url: `http://127.0.0.1:${server.address().port}/pair`,
+        url: `http://127.0.0.1:${server.address().port}${pathname}`,
         close: () => server.close(),
       }),
     );

@@ -656,6 +656,128 @@ check(
   ),
 );
 
+// review calls Codex with no shell: a picture named with $( ) or %NAME% reaches Codex as written. A fake codex on
+// PATH (on Windows an npm-style .cmd shim, as npm installs it) writes the arguments it got and answers NO FAULTS.
+{
+  const bin = path.join(dir, "fake-bin");
+  fs.mkdirSync(bin, { recursive: true });
+  const argsFile = path.join(dir, "codex-args.json");
+  const js = path.join(bin, "fake-codex.js");
+  fs.writeFileSync(
+    js,
+    `const fs = require("fs"); const a = process.argv.slice(2);
+fs.writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(a));
+const o = a.indexOf("-o"); if (o >= 0) fs.writeFileSync(a[o + 1], "NO FAULTS\\n");`,
+  );
+  if (process.platform === "win32")
+    fs.writeFileSync(
+      path.join(bin, "codex.cmd"),
+      [
+        "@ECHO off",
+        "GOTO start",
+        ":find_dp0",
+        "SET dp0=%~dp0",
+        "EXIT /b",
+        ":start",
+        "SETLOCAL",
+        "CALL :find_dp0",
+        'SET "_prog=node"',
+        'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\fake-codex.js" %*',
+        "",
+      ].join("\r\n"),
+    );
+  else {
+    fs.writeFileSync(
+      path.join(bin, "codex"),
+      `#!/bin/sh\nexec "${process.execPath}" "${js}" "$@"\n`,
+    );
+    fs.chmodSync(path.join(bin, "codex"), 0o755);
+  }
+  const odd = picture("odd %OS% $(echo hi).png");
+  const env = Object.fromEntries(
+    Object.entries(ENV).filter(([k]) => k.toUpperCase() !== "PATH"),
+  );
+  env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
+  const r = spawnSync(
+    process.execPath,
+    [path.join(SKILL, "picture.mjs"), "review", odd],
+    { cwd: job, encoding: "utf8", env },
+  );
+  const got = fs.existsSync(argsFile)
+    ? JSON.parse(fs.readFileSync(argsFile, "utf8"))
+    : [];
+  check(
+    "review runs Codex without a shell: a picture named with $( ) and %NAME% reaches Codex unchanged, nothing in it runs",
+    r.status === 0 && got[got.indexOf("-i") + 1] === path.resolve(odd),
+    `${r.status} ${r.stderr} ${JSON.stringify(got)}`,
+  );
+  // Windows: pnpm, yarn and bun write their shims with %~dp0\ instead of npm's %dp0%\. A shim that names no node
+  // script is passed over for the next PATH folder; when no folder has a usable one, review names it and the fix.
+  if (process.platform === "win32") {
+    const shimRun = (dirs) => {
+      fs.rmSync(argsFile, { force: true });
+      const r = spawnSync(
+        process.execPath,
+        [path.join(SKILL, "picture.mjs"), "review", odd],
+        {
+          cwd: job,
+          encoding: "utf8",
+          // Only these folders: a real codex further on PATH must not run
+          env: { ...env, PATH: dirs.join(path.delimiter) },
+        },
+      );
+      const got = fs.existsSync(argsFile)
+        ? JSON.parse(fs.readFileSync(argsFile, "utf8"))
+        : [];
+      return { r, got };
+    };
+    const shimDir = (name, text) => {
+      const d = path.join(dir, name);
+      fs.mkdirSync(d, { recursive: true });
+      fs.copyFileSync(js, path.join(d, "fake-codex.js"));
+      fs.writeFileSync(path.join(d, "codex.cmd"), text);
+      return d;
+    };
+    const pnpm = shimDir(
+      "pnpm-bin",
+      [
+        "@SETLOCAL",
+        '@IF EXIST "%~dp0\\node.exe" (',
+        '  "%~dp0\\node.exe"  "%~dp0\\fake-codex.js" %*',
+        ") ELSE (",
+        '  node  "%~dp0\\fake-codex.js" %*',
+        ")",
+        "",
+      ].join("\r\n"),
+    );
+    let s = shimRun([pnpm]);
+    check(
+      "review runs Codex through a pnpm/yarn/bun shim (%~dp0\\ form) without a shell",
+      s.r.status === 0 && s.got[s.got.indexOf("-i") + 1] === path.resolve(odd),
+      `${s.r.status} ${s.r.stderr}`,
+    );
+    const yarn = shimDir(
+      "yarn-bin",
+      '@"%~dp0\\..\\Data\\global\\node_modules\\.bin\\codex.cmd"   %*\r\n',
+    );
+    s = shimRun([yarn, bin]);
+    check(
+      "a codex shim naming no node script is passed over for the next PATH folder",
+      s.r.status === 0 && s.got[s.got.indexOf("-i") + 1] === path.resolve(odd),
+      `${s.r.status} ${s.r.stderr}`,
+    );
+    s = shimRun([yarn]);
+    check(
+      "with no usable codex on PATH, review stops naming the shim it found and how to fix it, and runs nothing",
+      s.r.status === 1 &&
+        s.r.stderr.includes(path.join(yarn, "codex.cmd")) &&
+        /npm i -g @openai\/codex/.test(s.r.stderr) &&
+        !fs.existsSync(argsFile),
+      `${s.r.status} ${s.r.stderr}`,
+    );
+  }
+}
+
 // picture.mjs cut: one frame out of a 3 x 3 sheet (needs ffmpeg)
 const yt = path.join(job, "yt");
 const haveFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;

@@ -864,6 +864,461 @@ const realHome = userInfo().homedir;
       got === "allow",
       got,
     );
+    // The user's yes on a form (the refusal tells Claude to ask in one) names the paths in it, like a typed message.
+    // Result shapes as the transcript keeps them: Claude Code's own AskUserQuestion puts the answers in
+    // toolUseResult.answers ({question: picked label}); Nimbalyst's tools answer with JSON text
+    // {"answers":{...},"respondedBy":...}, keyed by question text (AskUserQuestion) or field id (PromptForUserInput).
+    const A = "C:/tmp-x/a";
+    const askInput = (question, labels) => ({
+      questions: [
+        {
+          question,
+          header: "Delete",
+          multiSelect: false,
+          options: labels.map((label) => ({
+            label,
+            description: `${label}.`,
+          })),
+        },
+      ],
+    });
+    const DEL = ["Delete it (Recommended)", "Keep them"];
+    const form = (name, input, result, extra = {}, id = `f${++n}`) => [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id, name, input }],
+        },
+      },
+      ...(result
+        ? [
+            {
+              type: "user",
+              message: {
+                role: "user",
+                content: [
+                  { type: "tool_result", tool_use_id: id, ...result.block },
+                ],
+              },
+              toolUseResult: result.tur,
+              ...extra,
+            },
+          ]
+        : []),
+    ];
+    const builtIn = (question, picked) => ({
+      block: {
+        content: `Your questions have been answered: "${question}"="${picked}". You can now continue with these answers in mind.`,
+      },
+      tur: { questions: [{ question }], answers: { [question]: picked } },
+    });
+    const nimbalyst = (answers, by = "desktop") => {
+      const text = [
+        {
+          type: "text",
+          text: JSON.stringify({
+            answers,
+            ...(by === null ? {} : { respondedBy: by }),
+            respondedAt: 1,
+          }),
+        },
+      ];
+      return { block: { content: text }, tur: text };
+    };
+    const q = `Delete ${A}? It holds the old build.`;
+    const rmA = `rm -rf ${A}`;
+    const formCases = [
+      [
+        "a typed message naming the path (the control for the form cases)",
+        [typed(`Delete ${A} please.`)],
+        rmA,
+        "allow",
+      ],
+      [
+        "a yes on Claude Code's own AskUserQuestion form naming the path",
+        form("AskUserQuestion", askInput(q, DEL), builtIn(q, DEL[0])),
+        rmA,
+        "allow",
+      ],
+      [
+        "a yes on Nimbalyst's AskUserQuestion form naming the path",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, DEL),
+          nimbalyst({ [q]: DEL[0] }),
+        ),
+        rmA,
+        "allow",
+      ],
+      [
+        "a yes label that is not the first option (Yes, delete)",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, ["Keep them", "Yes, delete"]),
+          nimbalyst({ [q]: "Yes, delete" }),
+        ),
+        rmA,
+        "allow",
+      ],
+      [
+        "a yes whose picked option's description holds the path",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          {
+            questions: [
+              {
+                question: "Delete the old build folder?",
+                header: "Delete",
+                multiSelect: false,
+                options: [
+                  { label: "Delete it", description: `Removes ${A} for good` },
+                  { label: "Keep it", description: "Nothing changes." },
+                ],
+              },
+            ],
+          },
+          nimbalyst({ "Delete the old build folder?": "Delete it" }),
+        ),
+        rmA,
+        "allow",
+      ],
+      [
+        "a Nimbalyst PromptForUserInput confirm field set to true naming the path",
+        form(
+          "mcp__nimbalyst__PromptForUserInput",
+          {
+            title: "Delete",
+            fields: [{ type: "confirm", id: "go", label: `Delete ${A}?` }],
+          },
+          nimbalyst({ go: { type: "confirm", value: true } }),
+        ),
+        rmA,
+        "allow",
+      ],
+      [
+        "a Keep them answer on the form",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, DEL),
+          nimbalyst({ [q]: "Keep them" }),
+        ),
+        rmA,
+        "deny",
+      ],
+      [
+        "a Keep them answer on Claude Code's own form",
+        form("AskUserQuestion", askInput(q, DEL), builtIn(q, "Keep them")),
+        rmA,
+        "deny",
+      ],
+      [
+        "a confirm field set to false",
+        form(
+          "mcp__nimbalyst__PromptForUserInput",
+          {
+            title: "Delete",
+            fields: [{ type: "confirm", id: "go", label: `Delete ${A}?` }],
+          },
+          nimbalyst({ go: { type: "confirm", value: false } }),
+        ),
+        rmA,
+        "deny",
+      ],
+      [
+        "a yes form that does not hold the deleted path",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, DEL),
+          nimbalyst({ [q]: DEL[0] }),
+        ),
+        "rm -rf C:/tmp-x/b",
+        "deny",
+      ],
+      [
+        "a yes form that names only the folder around the path (not each full path)",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput("Delete the nine folders in C:/tmp-x?", DEL),
+          nimbalyst({ "Delete the nine folders in C:/tmp-x?": DEL[0] }),
+        ),
+        rmA,
+        "deny",
+      ],
+      [
+        "a form with no answer yet",
+        form("mcp__nimbalyst__AskUserQuestion", askInput(q, DEL), null),
+        rmA,
+        "deny",
+      ],
+      [
+        "a form whose result is an error",
+        form("mcp__nimbalyst__AskUserQuestion", askInput(q, DEL), {
+          block: { content: "The user dismissed the form.", is_error: true },
+          tur: "Error: The user dismissed the form.",
+        }),
+        rmA,
+        "deny",
+      ],
+      // Only a label that starts with yes / delete / remove and holds no keep / no / not / don't / stay / cancel /
+      // back is a yes; the first option is not a yes for being first.
+      [
+        "a picked first option that keeps the files (Keep it (Recommended))",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, ["Keep it (Recommended)", "Delete it"]),
+          nimbalyst({ [q]: "Keep it (Recommended)" }),
+        ),
+        rmA,
+        "deny",
+      ],
+      [
+        "a picked Go back",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, ["Delete it", "Go back"]),
+          nimbalyst({ [q]: "Go back" }),
+        ),
+        rmA,
+        "deny",
+      ],
+      [
+        "a picked Sure, keep them",
+        form(
+          "AskUserQuestion",
+          askInput(q, ["Delete it", "Sure, keep them"]),
+          builtIn(q, "Sure, keep them"),
+        ),
+        rmA,
+        "deny",
+      ],
+      [
+        "a picked Yes, keep them (a yes word with keep in the label)",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, ["Delete it", "Yes, keep them"]),
+          nimbalyst({ [q]: "Yes, keep them" }),
+        ),
+        rmA,
+        "deny",
+      ],
+      [
+        "a picked Remove it, a yes that is not the first option",
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, ["Keep it", "Remove it"]),
+          nimbalyst({ [q]: "Remove it" }),
+        ),
+        rmA,
+        "allow",
+      ],
+      // A confirm field set to true is a yes only when its label asks for the delete: it starts with delete / remove
+      // or asks "Delete ...?" / "Remove ...?", and holds no keep.
+      ...[
+        [`Keep ${A} as it is?`, "deny"],
+        [`Delete nothing and keep ${A}?`, "deny"],
+        [`Is ${A} still needed?`, "deny"],
+        [`The old build in ${A} (100 MB). Delete it?`, "allow"],
+        [`Remove ${A}`, "allow"],
+      ].map(([label, want]) => [
+        `a confirm field set to true labelled "${label}"`,
+        form(
+          "mcp__nimbalyst__PromptForUserInput",
+          { title: "Delete", fields: [{ type: "confirm", id: "go", label }] },
+          nimbalyst({ go: { type: "confirm", value: true } }),
+        ),
+        rmA,
+        want,
+      ]),
+      // A path counts only when it is in the picked yes option's label or description, or the question names
+      // exactly one full path: a question that names two does not say which one the yes is for.
+      ...(() => {
+        const two = `Delete ${A}? (C:/tmp-x/src stays.)`;
+        const ask = (desc) =>
+          form(
+            "mcp__nimbalyst__AskUserQuestion",
+            {
+              questions: [
+                {
+                  question: two,
+                  header: "Delete",
+                  multiSelect: false,
+                  options: [
+                    { label: "Delete it (Recommended)", description: desc },
+                    { label: "Keep them", description: "Nothing changes." },
+                  ],
+                },
+              ],
+            },
+            nimbalyst({ [two]: "Delete it (Recommended)" }),
+          );
+        const confirm = form(
+          "mcp__nimbalyst__PromptForUserInput",
+          {
+            title: "Delete",
+            fields: [{ type: "confirm", id: "go", label: two }],
+          },
+          nimbalyst({ go: { type: "confirm", value: true } }),
+        );
+        return [
+          [
+            "a yes on a question naming two paths: the path it says stays",
+            ask("Goes for good."),
+            "rm -rf C:/tmp-x/src",
+            "deny",
+          ],
+          [
+            "a yes on a question naming two paths, with neither in the yes option",
+            ask("Goes for good."),
+            rmA,
+            "deny",
+          ],
+          [
+            "a yes on a question naming two paths, with the path in the yes option's description",
+            ask(`Removes ${A} for good`),
+            rmA,
+            "allow",
+          ],
+          [
+            "a yes on a question naming two paths, with the other path in the yes option's description",
+            ask(`Removes ${A} for good`),
+            "rm -rf C:/tmp-x/src",
+            "deny",
+          ],
+          [
+            "a confirm field set to true on a label naming two paths: the path it says stays",
+            confirm,
+            "rm -rf C:/tmp-x/src",
+            "deny",
+          ],
+          // The question's paths are counted the way a target is matched in it: a path with a space in it, or one
+          // followed by a character that does not end a path, is unclear, so the question does not count.
+          ...[
+            ["Delete C:/tmp-x/My Files/a?", 'rm -rf "C:/tmp-x/My"', "deny"],
+            [
+              "Delete C:/tmp-x/My Files/a?",
+              'rm -rf "C:/tmp-x/My Files/a"',
+              "deny",
+            ],
+            ["Delete C:/tmp-x/a+b?", rmA, "deny"],
+            ["Delete C:\\tmp-x\\a? It holds the old build.", rmA, "allow"],
+          ].map(([question, command, want]) => [
+            `a yes on the question "${question}", then ${command}`,
+            form(
+              "mcp__nimbalyst__AskUserQuestion",
+              askInput(question, DEL),
+              nimbalyst({ [question]: DEL[0] }),
+            ),
+            command,
+            want,
+          ]),
+        ];
+      })(),
+      // A Nimbalyst answer counts only from a surface the user answers on: respondedBy desktop or mobile (the only
+      // values seen on answered forms in the saved transcripts). Nimbalyst itself also writes "system", and an
+      // answer with no respondedBy says nothing about who gave it.
+      ...[
+        ["mobile", "allow"],
+        ["system", "deny"],
+        ["auto_commit", "deny"],
+        [null, "deny"],
+      ].map(([by, want]) => [
+        `a yes answered with respondedBy ${by ?? "missing"}`,
+        form(
+          "mcp__nimbalyst__AskUserQuestion",
+          askInput(q, DEL),
+          nimbalyst({ [q]: DEL[0] }, by),
+        ),
+        rmA,
+        want,
+      ]),
+      // Multi-select: Claude Code joins the picked labels with ", ", so a label holding ", " is matched whole
+      // against the joined answer; Nimbalyst answers with an array of the picked labels.
+      ...(() => {
+        const which = "Which folders go?";
+        const multi = (labels) => ({
+          questions: [
+            {
+              question: which,
+              header: "Delete",
+              multiSelect: true,
+              options: labels.map((label) => ({ label, description: "" })),
+            },
+          ],
+        });
+        const comma = [`Delete ${A}, the old build`, "Delete C:/tmp-x/b"];
+        return [
+          [
+            "a multi-select yes on Claude Code's own form whose picked label holds a comma",
+            form(
+              "AskUserQuestion",
+              multi(comma),
+              builtIn(which, comma.join(", ")),
+            ),
+            rmA,
+            "allow",
+          ],
+          [
+            "a multi-select yes on Nimbalyst's form answered as an array",
+            form(
+              "mcp__nimbalyst__AskUserQuestion",
+              multi([`Delete ${A}`, "Delete C:/tmp-x/b", "Keep C:/tmp-x/c"]),
+              nimbalyst({ [which]: [`Delete ${A}`, "Delete C:/tmp-x/b"] }),
+            ),
+            rmA,
+            "allow",
+          ],
+          [
+            "a multi-select array answer that did not pick the path's option",
+            form(
+              "mcp__nimbalyst__AskUserQuestion",
+              multi([`Delete ${A}`, "Delete C:/tmp-x/b"]),
+              nimbalyst({ [which]: ["Delete C:/tmp-x/b"] }),
+            ),
+            rmA,
+            "deny",
+          ],
+        ];
+      })(),
+    ];
+    for (const [label, entries, command, want] of formCases) {
+      got = at(entries, command);
+      shot(
+        `D12 form: ${label}: ${want === "allow" ? "the delete passes" : "still asks"}`,
+        want === "allow" ? got === "allow" : notAllow(got),
+        got,
+      );
+    }
+    const refusal = run(
+      bash(rmA, {
+        transcript_path: transcript(
+          form(
+            "mcp__nimbalyst__AskUserQuestion",
+            askInput(q, DEL),
+            nimbalyst({ [q]: "Keep them" }),
+          ),
+        ),
+      }),
+    );
+    shot(
+      "the refusal says the form must list each full path",
+      refusal.includes("each full path"),
+      refusal,
+    );
+    shot(
+      "the refusal says each full path goes in the yes option's label or description",
+      refusal.includes(
+        "each full path in the yes option's label or description",
+      ),
+      refusal,
+    );
+    shot(
+      "the refusal says a command for the user runs in their own shell (cmd or PowerShell on Windows), not a Git Bash rm line",
+      /cmd or PowerShell/.test(refusal) &&
+        refusal.includes("rmdir /s /q") &&
+        refusal.includes("not a Git Bash"),
+      refusal,
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

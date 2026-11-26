@@ -80,7 +80,8 @@ numbers don't show a cause, write "cause not measured" instead of guessing one.
    against subagents, the share that is the context sent again.
 2. **Who did the work:** the share per model; subagents by type and model (which ran mechanical bulk
    work on Opus); did `worker` subagents take the gathering; the looking and
-   building stretches; the "Helper rework" table. A model whose tokens per clean run are higher than a
+   building stretches (runs of main-chat requests a helper could have taken, as review-scan counts them); the
+   "Helper rework" table. A model whose tokens per clean run are higher than a
    dearer model's, on at least 10 file-changing runs each, is an option to put on the list; fewer runs
    than that are reported as too few to judge.
 3. **Reasoning:** reader heading G, checked. Plus the thinking numbers (how much, at which effort
@@ -97,7 +98,7 @@ numbers don't show a cause, write "cause not measured" instead of guessing one.
    and, from a sample of up to 10, how many were right. Propose dropping only a hook whose blocks were mostly
    wrong or a hook that repeats another; a hook that rarely fires is not a finding (ask what it was set up for).
    Basis: Anthropic's best-practices page, "if you have hooks for things that are only preferences, delete them".
-9. **A newcomer's look:** the blind reviewer's whole-approach line and its findings, each checked in
+9. **A newcomer's look:** the blind reviewer's PASS or FAIL, its findings and its `Clear:` line, each finding checked in
    the digest it cites; the number behind one is the count of chats it was seen in.
 
 ## 6. Options
@@ -114,9 +115,9 @@ offered as a rule. A rule is for what no script can check.
 
 | Kind | Offer it when | Where the number comes from |
 |---|---|---|
-| **Another split between models** (who leads, who does the work) | always, as one question | the what-if table, as it is; say that it assumes the same requests. Helpers run Opus by default, so a row that moves building or looking to Sonnet is offered only when the plan's limit was reached in the review's window |
+| **Another split between models** (who leads, who does the work) | always, as one question | the what-if table, as it is; say that it assumes the same requests. The building helpers (`worker-code`, `worker-full`) run Opus by default and the `worker` reader runs Sonnet, so a row that moves building to Sonnet is offered only when the plan's limit was reached in the review's window |
 | **More work for helpers** (`worker` subagents for looking, helpers or `/lead` for building) | looking stretches over 5% of the weight, or building stretches over 25% | "Could have gone to a helper", the low and the high end |
-| **A cheaper model for a subagent type** | a type that ran only mechanical bulk work (renames, bulk edits, scans) on Opus; building, research and reading to judge stay on Opus | usage-scan, "Subagents by type" |
+| **A cheaper model for a subagent type** | a type that ran only mechanical bulk work (renames, bulk edits, scans) on Opus. Not offered for building, which stays on Opus, or for web research that needs judgment, which `web-research` sends to Fable; the `worker` reader already runs Sonnet | usage-scan, "Subagents by type" |
 | **A plugin, skill or tool to add** | a kind of work nothing in the setup covers, seen in two or more chats (reader heading E, or a tool that keeps failing) | look it up as in step 4 of `chat.md` (`claude plugin list`, `npx skills find`, one web lookup); read its own page before offering it |
 | **A setup change** (a rule, a hook, what is loaded) | a hook whose blocks cost more than the mistakes it stops; a rule that causes requests; a correction made twice | "Wasted requests", reader headings B and F |
 | **A fix** | a failing suite, a tool failing in over 20% of its calls, an error seen 10 times or more | "Tool calls that failed", step 4 |
@@ -130,7 +131,8 @@ step 8; **Still open** (what to measure next time). Findings in your own words, 
 
 ## 8. Ask once
 
-One `PromptForUserInput`:
+In Nimbalyst, one `PromptForUserInput` (elsewhere, the same choices as numbered lists in the reply, and ask which
+numbers to do):
 
 - a `singleSelect` "Who leads and who does the work", `allowOther: true`, one option per row of the
   what-if table that is worth choosing, each with its weight against now in the description. Mark one
@@ -146,8 +148,8 @@ again: list the options as text and change nothing.
 
 ## 9. Do what was ticked, then record
 
-As `.claude/rules/changing-the-setup.md` says (the live file first, its test, fixed at the root), and a
-ticked change in another project's setup files is made directly. A program or plugin: ask before each
+Fix each ticked change at its cause: the file the setup loads, with a test that covers the change; a new hook
+only after the user's yes. A ticked change in another project's setup files is made directly. A program or plugin: ask before each
 install. Then fill the **Decided** table, add one line per decision in the setup project's decision record (`DECISIONS.md` names the topic files), rewrite
 `HANDOFF.md`.
 

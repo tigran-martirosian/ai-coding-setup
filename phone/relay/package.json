@@ -1,0 +1,8 @@
+{
+  "name": "phone-relay",
+  "private": true,
+  "description": "The pinned Wrangler the relay deploy runs: install with npm ci --ignore-scripts.",
+  "devDependencies": {
+    "wrangler": "4.162.0"
+  }
+}

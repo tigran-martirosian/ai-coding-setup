@@ -3,7 +3,7 @@ name: Nimbalyst extensions (shared look)
 description: One calm, premium look for every extension and for the Ink shell, with a colour for each state; a theme changes colour only.
 colors:
   # Normative values are the --x-* tokens in tokens.css, derived from the theme's --nim-* colours.
-  # The hex below is the default theme, Ink Aurora (ink-themes/themes.mjs), for reference only.
+  # The hex below is Ink Aurora (ink-themes/themes.mjs), for reference only; the installer sets Ink Cobalt.
   surface-0: "#16151a"
   side: "#100f13"
   raised: "#211f27"
@@ -144,6 +144,9 @@ Source of truth: [`tokens.css`](tokens.css) (the `--x-*` tokens, copied into eac
 `../ink-themes/themes.mjs` (the eleven palettes). Every new screen of an extension, the Ink shell or a fullscreen panel
 (Usage dashboard, Systems map) starts from this file.
 
+This file governs screens inside Nimbalyst, the usage dashboard panel among them. The usage dashboard page that opens
+in a web browser has its own design file: `skills/setup-audit/scripts/DESIGN.md`.
+
 ## Overview
 
 **North star: a calm instrument you can read at a glance.** Premium, organic and comfortable to use: soft surfaces,
@@ -182,8 +185,8 @@ this rule differ, this rule wins.
    "needs you" word also on its own tint (`node test.mjs` here measures it).
 2. **The one main button of a view is filled with the accent;** every other button is quiet (no fill).
 3. **Groups are visible.** Each group has a heading and is set off from the next by a hairline plus 16 px, or by its
-   own surface tone. Spacing alone never separates two groups. Exception: the Commands list's groups have no headings,
-   set apart by a hairline with 8 px above and below (the user's words on that list win, 2026-11-14).
+   own surface tone. Spacing alone never separates two groups. Exception: the Commands list's groups have no headings;
+   a hairline with 8 px above and below sets them apart.
 4. **Three text levels per area, plus its title:** what matters more is bigger. Level 1 is what the area is for,
    level 2 names and controls, level 3 everything secondary (13 px, muted). Which text takes which token is in
    "Text levels by area" below. Counts that matter are in the text colour at 600.
@@ -216,13 +219,13 @@ Never write a raw hex in an extension: use the `--x-*` token, which derives from
 One family: `--x-font-ui` = Figtree when an Ink theme is on (`--ink-sans`), else the app's UI stack. Code and paths: `--x-font-mono` = JetBrains Mono (`--ink-mono`), else Cascadia Mono or Consolas. Tokens are full `font` shorthands (`font: var(--x-body)`).
 
 Four sizes do all the work: 16 for the one title of a view, 15 for text you read, 14 for names and buttons, 13 for
-everything secondary. Weights stay 400, 500 and 600; nothing is 700 (bold in a reply is 600).
+everything secondary. Weights stay 400, 500 and 600, plus 550 for a stat's figure (`--x-figure`); nothing is 700 (bold in a reply is 600).
 
 ### Hierarchy
 - **View title** `--x-title` 600 16/22: once per view; also a heading inside a reply.
 - **Reading** `--x-reading` 400 15/24: text you read in full: reply text, a tracker item's text, the thinking line (word and seconds; the 24 px orb is the line's height).
 - **Section heading** `--x-heading` 600 13/18, text colour, sentence case. Exception: the right panel's section
-  headers ("Agents & commands", "Trackers") use the row title type, as big as the helper rows under them (user, 2026-11-14).
+  headers ("Agents & commands", "Trackers") use the row title type, as big as the helper rows under them.
 - **Row title** `--x-row-title` 500 14/20, text colour; labels and button words too.
 - **Body** `--x-body` 400 14/20: the default.
 - **Meta** `--x-meta` 400 13/18, muted: the one line under a row title, table cells, axis labels, dates, shortcuts.
@@ -271,8 +274,8 @@ used most, so it has the largest text.
 ## Tracker page
 
 The tracker page (the job-tracker extension's one page per job) is a full-size view, not a side panel, so it has
-its own size ladder beyond the four panel sizes above (user decision, 2026-11-14: the panel sizes made it read "like
-a notepad"). The ladder lives only on that page, as `--rt-*` shorthands on `.rt-root` built on `--x-font-ui`; no other
+its own size ladder beyond the four panel sizes above: at the panel sizes, a full-size page reads like a notepad. The
+ladder lives only on that page, as `--rt-*` shorthands on `.rt-root` built on `--x-font-ui`; no other
 area uses it.
 
 | Part | Size/weight |
@@ -290,8 +293,8 @@ The general rules still hold: nothing under 12 px, no weight of 700 or more, sen
 
 ### The chat column
 
-The session open in the Sessions view shows on the right of the tracker page, so the user can keep working in it
-(user decision, 2026-11-14). Left to right: the app's side rail, the Sessions column, the job page, a 6 px handle,
+The session open in the Sessions view shows on the right of the tracker page, so the user can keep working in it.
+Left to right: the app's side rail, the Sessions column, the job page, a 6 px handle,
 the chat column, the app's right gutter. The chat column is the Sessions view's own, moved onto the page and back,
 so a click on a row of the Sessions column changes the chat and the page stays.
 
@@ -366,7 +369,7 @@ floating layer (popover, menu): `0 8px 24px rgba(0, 0, 0, 0.24)` plus a hairline
 ### Figures and bars
 - **Stat tile:** surface-1, radius 8, figure on top, a meta line under it saying what it is based on.
 - **Usage bar (signature):** an 8px track (4px for a small limit) on surface-3, accent fill drawn with `scaleX`, red only when the forecast runs out; a 2px text-coloured tick for the time gone, with its count-size label above ("now").
-- **Forecast line:** one tinted line (tone at 12%), a status dot, the verdict in 550.
+- **Forecast line:** one tinted line (tone at 12%), a status dot, the verdict in 600 (`--x-heading`).
 
 ### Controls
 - **Segmented control** (range pickers, filters): 28 high, surface-1, hairline, segments radius 4; the selected one on the surface with the text colour.

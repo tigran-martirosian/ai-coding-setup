@@ -10,7 +10,7 @@ Open an issue with the bug form. It asks for:
 
 - your system (Windows, macOS or another; Linux is untested) and its version
 - the Claude Code version (`claude --version`), and the Nimbalyst version if you use it
-- the setup version: the `version` in `~/.claude/setup-state.json`, or `version.json` in your copy if that file is missing
+- the Stratus version: the `version` in `~/.claude/setup-state.json`, or `version.json` in your copy if that file is missing
 - what you did, what you expected, and what happened instead
 - for a hook that crashed, its lines from `~/.claude/hooks/state/hook-errors.log`
 - for a send-back you think was wrong, the hook's name and the message the agent got
@@ -23,13 +23,13 @@ A security problem goes through a private report instead. See [SECURITY.md](SECU
 
 ### Running the tests
 
-You need Node.js 18 or newer.
+You need Node.js 22.6 or newer: some tests read SQLite with `node:sqlite`, and the extension tests use `--experimental-strip-types`. GitHub runs the tests on Node.js 24.
 
 ```
 node tests/run-all.mjs
 ```
 
-`--only a,b` runs just those test files, `--failed` reruns what failed last time, `--changed` runs the tests of what you changed (the full suite when no test names it), and `--verbose` runs one file at a time with full output. The README's Tests section says what the tests cover and what CI runs.
+`--only a,b` runs just those test files, `--failed` reruns what failed last time, `--changed` runs the tests of what you changed (the full suite when no test names it), and `--verbose` runs one file at a time with full output. [How it works](docs/how-it-works/overview.md#tests) says what the tests cover and what CI runs.
 
 ### Lint and format
 

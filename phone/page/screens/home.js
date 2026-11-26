@@ -35,12 +35,31 @@ export function keepPart(id, data) {
 // A part's answer as Home kept it on the phone, or null.
 export const keptPart = (id) => onPhone.parts[id] ?? null;
 
-// Home drawn from what it kept, before the first hello: the kept answers come back into memory.
+const isObject = (v) =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+// Home drawn from what it kept, before the first hello: the kept answers come back into memory. A copy kept before
+// the PC status came, or a damaged one, gives what it has; the rest stays empty until the PC answers.
 function restore() {
   const k = keptOnPhone("home");
   if (!k) throw new Error("Home is drawn as kept, but nothing is kept for it.");
-  onPhone = k.data;
-  Object.assign(kept, onPhone.home);
+  const d = isObject(k.data) ? k.data : {};
+  const h = isObject(d.home) ? d.home : {};
+  onPhone = {
+    home: isObject(d.home) ? d.home : null,
+    parts: isObject(d.parts) ? d.parts : {},
+  };
+  kept.status = isObject(h.status) ? h.status : null;
+  kept.statusAt = kept.status ? (h.statusAt ?? null) : null;
+  kept.sessions = isObject(h.sessions) ? h.sessions : null;
+  kept.names = isObject(h.names) ? h.names : null;
+  kept.sessionsAt = kept.sessions ? (h.sessionsAt ?? null) : null;
+}
+
+// Drops a kept copy that is too damaged to draw from memory: Home then waits for the PC.
+function forgetKept() {
+  onPhone = { home: null, parts: {} };
+  for (const key of Object.keys(kept)) kept[key] = null;
 }
 
 export const hhmm = (t) =>
@@ -125,9 +144,16 @@ function render(ctx) {
   });
   if (ctx.updating) {
     restore();
-    home.fresh = true;
-  }
-  draw();
+    home.fresh = kept.status !== null;
+    try {
+      draw();
+    } catch {
+      // A kept part too damaged to draw: Home draws as if nothing was kept, so the app still opens.
+      forgetKept();
+      home.fresh = false;
+      draw();
+    }
+  } else draw();
   if (ctx.connected) load();
   return box;
 }

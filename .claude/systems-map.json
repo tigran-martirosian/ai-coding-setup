@@ -774,7 +774,7 @@
       "what": "Build helpers, design tokens and the host bridge the Nimbalyst extensions share.",
       "files": [
         "extensions/shared/build-lib.mjs",
-        "extensions/shared/vite-base.ts",
+        "extensions/shared/vite-base.mts",
         "extensions/shared/host.ts",
         "extensions/shared/tokens.css",
         "extensions/shared/check.mjs"

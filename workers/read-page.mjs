@@ -17,19 +17,23 @@
 // Only addresses that start with http:// or https:// are read, and the readers get the parsed URL, never the raw
 // text. A host you give that is, or resolves to, a private or local address (localhost, loopback, 10/8,
 // 172.16/12, 192.168/16, 100.64/10, link-local and the cloud metadata address 169.254.169.254, 0.0.0.0, IPv6
-// loopback, unique-local and link-local) is refused before any reader runs, for both readers. Only that host is
-// checked here: a redirect the page answers with is followed by the reader. Firecrawl's --public-only refuses a
-// local or private target itself; defuddle follows redirects with no such check.
+// loopback, unique-local and link-local) is refused before any reader runs, for both readers. Firecrawl's
+// --public-only refuses a local or private target itself, on redirects too. defuddle's own process runs with
+// hooks/lib/net-guard-preload.mjs in NODE_OPTIONS: every connection it makes is checked on the address
+// connected to, so neither a redirect nor a name that resolves differently the second time (DNS rebinding)
+// reaches a private or local address. The npm that installs it runs without net-guard, so an npm proxy or
+// registry on a local address still works.
 //
 // Firecrawl Local is found by FIRECRAWL_LOCAL, then ~/.cargo/bin/firecrawl-local(.exe), then the PATH (absolute
 // entries only). It always runs as `scrape <url> --browser auto --public-only` with FIRECRAWL_CLOUD=auto: a page
 // that blocks the local read goes to Firecrawl's cloud (the URL and the install's id leave this PC). A caller's
 // FIRECRAWL_CLOUD=off is kept. No other flag can be passed. Never run its `init`.
-// Not found: `npx -y defuddle@0.19.7 parse <url> --md`, run in an empty folder of its own so no .npmrc or
-// node_modules of the caller's changes what runs. FIRECRAWL_LOCAL naming a missing file is an error, not a quiet
+// Not found: `npm install --prefix <dir> defuddle@0.19.7` (npm's npm-cli.js, beside the npx-cli.js found) into an
+// empty folder of its own, so no .npmrc or node_modules of the caller's changes what runs, then
+// `node <defuddle's bin> parse <url> --md`. FIRECRAWL_LOCAL naming a missing file is an error, not a quiet
 // switch to defuddle. FIRECRAWL_LOCAL and READ_PAGE_NPX (npx's own npx-cli.js) may name a .mjs or .js file, which
-// runs with node: tests/test-read-page.mjs puts stand-ins there. This file builds no shell command line; npm
-// itself starts defuddle through cmd on Windows, with its own quoting.
+// runs with node: tests/test-read-page.mjs puts stand-ins there (a stand-in npm-cli.js beside the npx one). This
+// file builds no shell command line.
 //
 // READ_PAGE_TIMEOUT_MS: the time limit per page (default 120 s for Firecrawl, 300 s for defuddle, whose first run
 // downloads it). A page past it ends with the reader's whole process tree.
@@ -39,41 +43,19 @@ import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import dns from "node:dns/promises";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { argv } from "node:process";
+import { isBlocked } from "../hooks/lib/net-guard.mjs";
 
 const USAGE = "usage: read-page.mjs <url>... [--out <dir>]";
+const PRELOAD = new URL("../hooks/lib/net-guard-preload.mjs", import.meta.url)
+  .href;
 const DEFUDDLE = "defuddle@0.19.7";
 const FIRECRAWL_MS = 120000;
 const DEFUDDLE_MS = 300000;
 const AT_ONCE = 4;
 const WIN = process.platform === "win32";
-
-// Private, local and not-routable addresses: no reader is sent there
-const BLOCKED = new net.BlockList();
-for (const [a, n] of [
-  ["0.0.0.0", 8],
-  ["10.0.0.0", 8],
-  ["100.64.0.0", 10],
-  ["127.0.0.0", 8],
-  ["169.254.0.0", 16],
-  ["172.16.0.0", 12],
-  ["192.168.0.0", 16],
-  ["224.0.0.0", 4],
-  ["240.0.0.0", 4],
-])
-  BLOCKED.addSubnet(a, n, "ipv4");
-for (const [a, n] of [
-  // ::, ::1 and the old IPv4-compatible form. An IPv4-mapped address (::ffff:127.0.0.1) is checked against the
-  // IPv4 rules by BlockList itself; a ::ffff:0:0/96 rule here would match every IPv4 address.
-  ["::", 96],
-  ["fc00::", 7],
-  ["fe80::", 10],
-  ["ff00::", 8],
-])
-  BLOCKED.addSubnet(a, n, "ipv6");
 
 class UsageError extends Error {}
 
@@ -125,9 +107,7 @@ async function checkHost(url) {
   } catch (e) {
     return `cannot resolve ${host}: ${e.code || e.message}`;
   }
-  const bad = addrs.find((a) =>
-    BLOCKED.check(a.address, a.family === 6 ? "ipv6" : "ipv4"),
-  );
+  const bad = addrs.find((a) => isBlocked(a.address));
   if (bad)
     throw new UsageError(
       `refused: ${url.href} points at a private or local address (${bad.address})`,
@@ -310,9 +290,52 @@ async function readFirecrawl(cmd, url, ms) {
   return { text, from };
 }
 
-async function readDefuddle(npx, url, ms, cwd) {
-  const r = await run(npx, ["-y", DEFUDDLE, "parse", url, "--md"], {
-    env: process.env,
+// npm installs defuddle into dir with no net-guard, so a local npm proxy or registry still works; the path of
+// defuddle's own program (its package.json bin entry) comes back
+async function installDefuddle(npx, dir, ms) {
+  const npm = path.join(path.dirname(npx), "npm-cli.js");
+  if (!fs.existsSync(npm))
+    throw new Error(`npm's npm-cli.js is not beside ${npx}`);
+  const r = await run(
+    npm,
+    [
+      "install",
+      "--prefix",
+      dir,
+      "--no-save",
+      "--no-package-lock",
+      "--no-audit",
+      "--no-fund",
+      DEFUDDLE,
+    ],
+    { env: process.env, cwd: dir, ms },
+  );
+  if (r.timedOut)
+    throw new Error(`npm install ${DEFUDDLE} timed out after ${ms / 1000} s`);
+  if (r.code !== 0)
+    throw new Error(
+      `npm install ${DEFUDDLE} exit ${r.code}: ${lastLine(r.err) || "no reason given"}`,
+    );
+  const home = path.join(dir, "node_modules", "defuddle");
+  const { bin } = JSON.parse(
+    fs.readFileSync(path.join(home, "package.json"), "utf8"),
+  );
+  const rel = typeof bin === "string" ? bin : bin?.defuddle;
+  if (!rel)
+    throw new Error(`${DEFUDDLE}'s package.json names no defuddle program`);
+  return path.join(home, rel);
+}
+
+// defuddle's own process, and only it, runs with net-guard
+async function readDefuddle(program, url, ms, cwd) {
+  const preload = `--import=${PRELOAD}`;
+  const r = await run(process.execPath, [program, "parse", url, "--md"], {
+    env: {
+      ...process.env,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, preload]
+        .filter(Boolean)
+        .join(" "),
+    },
     cwd,
     ms,
   });
@@ -369,14 +392,22 @@ async function main() {
     }
   };
   show();
+  let installed = null; // one install for every page of the run
   const worker = async () => {
     while (todo.length) {
       const i = todo.shift();
       const href = urls[i].href;
       try {
+        if (!firecrawl)
+          installed ??= installDefuddle(npx, npxDir, timeout || DEFUDDLE_MS);
         const page = firecrawl
           ? await readFirecrawl(firecrawl, href, timeout || FIRECRAWL_MS)
-          : await readDefuddle(npx, href, timeout || DEFUDDLE_MS, npxDir);
+          : await readDefuddle(
+              await installed,
+              href,
+              timeout || DEFUDDLE_MS,
+              npxDir,
+            );
         fs.writeFileSync(files[i], page.text);
         done[i] = page;
       } catch (e) {

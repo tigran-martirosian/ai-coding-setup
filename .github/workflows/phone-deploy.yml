@@ -45,6 +45,10 @@ jobs:
               console.error(`::error::tag ${process.env.GITHUB_REF_NAME} is not v${v} from version.json`);
               process.exit(1);
             }'
+      # Wrangler's whole tree from the committed lock, with no install script and no secret in this step.
+      - name: Install the locked Wrangler
+        working-directory: phone/relay
+        run: npm ci --ignore-scripts
       - name: Deploy the relay and its page, point the bot at it
         run: node phone/relay/deploy.mjs --name phone-relay
         env:

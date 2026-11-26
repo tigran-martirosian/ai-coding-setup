@@ -54,6 +54,7 @@ export class Hub extends DurableObject {
       botId: Number(secret(env, "BOT_ID")),
       ownerTgId: Number(secret(env, "OWNER_TG_ID")),
       telegramKey: TELEGRAM_KEY,
+      botToken: secret(env, "BOT_TOKEN"),
       // Set only on the test copy (deploy-test.mjs): " (test)" after the topic names.
       topicSuffix: env.TOPIC_SUFFIX ?? "",
       bot: makeBot({ webhookSecret: secret(env, "WEBHOOK_SECRET") }),

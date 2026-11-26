@@ -180,6 +180,7 @@ export function ReadAloudSettingsPanel() {
         <input
           id="ra-folder"
           className="ra-input"
+          placeholder="%LOCALAPPDATA%\LocalTTS"
           value={dirDraft}
           onChange={(e) => setDirDraft(e.target.value)}
         />

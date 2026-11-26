@@ -134,6 +134,7 @@ const WALK_SKIP = new Set([
   "coverage",
   ".next",
   "target",
+  "Pods",
 ]);
 const skipped = (rel) => /^\.claude\/worktrees\//.test(rel);
 function walk(root, dir = root, out = []) {
@@ -248,9 +249,10 @@ const FIXED =
 const TOOL_NAMES =
   /\.(woff2?|ttf|otf|eot|csproj|fsproj|vbproj|vcxproj|sln)$|^(Makefile|Dockerfile|Gemfile|Gemfile\.lock|Procfile|Rakefile|Jenkinsfile|Vagrantfile|Brewfile|Podfile|Podfile\.lock|Pipfile|Pipfile\.lock|Cargo\.toml|Cargo\.lock|CMakeLists\.txt|AndroidManifest\.xml|Info\.plist|Package\.swift|Package\.resolved|Directory\.Build\.(props|targets)|__init__\.py|__main__\.py|conftest\.py|gunicorn\.conf\.py)$|^Dockerfile\.|@[23]x\.(png|jpe?g|gif|webp)$|\.module\.(css|scss|sass|less)$/;
 // folders a tool names: Python and test runners, GitHub's templates, Next.js route folders ([slug], [...parts],
-// (group), (.)intercepted), Xcode's bundles and asset folders
+// (group), (.)intercepted), Xcode's bundles and asset folders (an asset folder's extension is its asset type, its
+// name the asset's name)
 const TOOL_DIRS =
-  /^(__pycache__|__tests__|__mocks__|__snapshots__|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)$|^\[{1,2}(\.\.\.)?[A-Za-z0-9_-]+\]{1,2}$|^\([^/)]+\)[^/]*$|\.(xcodeproj|xcworkspace|xcassets|appiconset|imageset|colorset|lproj)$/;
+  /^(__pycache__|__tests__|__mocks__|__snapshots__|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)$|^\[{1,2}(\.\.\.)?[A-Za-z0-9_-]+\]{1,2}$|^\([^/)]+\)[^/]*$|\.(xcodeproj|xcworkspace|xcdatamodeld|xcdatamodel|xcassets|xcstickers|lproj|appiconset|imageset|colorset|dataset|symbolset|launchimage|stickerpack|sticker|stickersequence|brandassets|imagestack|imagestacklayer|textureset|cubetextureset|mipmapset|spriteatlas|arresourcegroup|arimageset|complicationset|solidimagestack)$/;
 // a build file of the build-tool list above (CocoaPods, Swift, Cargo, CMake, .NET, Gradle): the tool, its other
 // files and the project's scripts find the folder that holds it by its name, so that name stays as it is
 const BUILD_FILE =
@@ -271,11 +273,23 @@ const BUILD_PARTS = [
 // App.xcodeproj), when every folder between it and the project folder is named too (a `name =` is a group or build
 // setting such as Debug, not a file); a `../` path is resolved from the project folder, each folder and file it
 // names there stays, and the named files below it as below the project folder; everything under an Android res/
-// folder beside an AndroidManifest.xml (a resource's file name is its id, lowercase_underscore). Only those names
-// stay: the other files and folders below them, and anything beside a build file at the top, are still checked.
+// folder beside an AndroidManifest.xml (a resource's file name is its id, lowercase_underscore); everything inside an
+// Xcode bundle (.xcodeproj, .xcworkspace, .xcdatamodeld: schemes, shared settings, model versions); in an asset
+// catalog (.xcassets, .xcstickers) each Contents.json, each file the Contents.json beside it names ("filename"),
+// and each group folder whose Contents.json gives its assets a namespace (asset folders are TOOL_DIRS). Only those
+// names stay: the other files and folders below them, and anything beside a build file at the top, are still checked.
+const XCODE_BUNDLE = /\.(xcodeproj|xcworkspace|xcdatamodeld)$/;
+const ASSET_CATALOG = /\.(xcassets|xcstickers)$/;
 function toolNamed(root, files) {
   const keep = new Set(),
     all = new Set(files),
+    contents = new Map(), // a catalog's Contents.json rel → its text
+    contentsOf = (dir) => {
+      const rel = `${dir}/Contents.json`;
+      if (!all.has(rel)) return "";
+      if (!contents.has(rel)) contents.set(rel, read(path.join(root, rel)));
+      return contents.get(rel);
+    },
     xcode = [], // [the folders its paths start from (the holder first), the names its project.pbxproj gives]
     parts = BUILD_PARTS.map(() => [[], []]); // per tool: [the folders of its top build files, of its projects]
   for (const f of files) {
@@ -335,6 +349,30 @@ function toolNamed(root, files) {
     if (res >= 0)
       for (let i = res; i < segs.length; i++)
         keep.add(segs.slice(0, i + 1).join("/"));
+    const bundle = segs.findIndex(
+      (s, i) => i < segs.length - 1 && XCODE_BUNDLE.test(s),
+    );
+    if (bundle >= 0)
+      for (let i = bundle + 1; i < segs.length; i++)
+        keep.add(segs.slice(0, i + 1).join("/"));
+    const catalog = segs.findIndex(
+      (s, i) => i < segs.length - 1 && ASSET_CATALOG.test(s),
+    );
+    if (catalog < 0) continue;
+    const name = segs.at(-1),
+      dir = segs.slice(0, -1).join("/");
+    if (
+      name === "Contents.json" ||
+      [...contentsOf(dir).matchAll(/"filename"\s*:\s*"([^"]*)"/g)].some(
+        (m) => m[1] === name,
+      )
+    )
+      keep.add(f);
+    for (let i = catalog + 1; i < segs.length - 1; i++) {
+      const folder = segs.slice(0, i + 1).join("/");
+      if (/"provides-namespace"\s*:\s*true/.test(contentsOf(folder)))
+        keep.add(folder);
+    }
   }
   return keep;
 }
@@ -348,9 +386,11 @@ const validDate = (y, m, d) => {
     t.getUTCDate() === +d
   );
 };
+// an extension part is up to 8 letters or digits, or a longer run of lower-case letters (.excalidraw, .properties);
+// a longer word in another case (Project.Requirements.md) stays part of the stem
 const splitExt = (name) => {
   if (name.startsWith(".")) return [name, ""];
-  const m = /^(.*?)((?:\.[A-Za-z0-9]{1,8})+)$/.exec(name);
+  const m = /^(.*?)((?:\.(?:[A-Za-z0-9]{1,8}|[a-z]{9,}))+)$/.exec(name);
   return m && m[1] ? [m[1], m[2]] : [name, ""];
 };
 // words of a name: split on anything that is not a letter or digit, and at camel humps
@@ -438,6 +478,17 @@ const RUN_DIR = /^(draft-.+|unpacked|outputs?)$/i;
 const DRAFT_DIR = /^draft-.+$/i;
 // P11: loose files directly in docs/ before the checker asks for topic folders
 const DOCS_LOOSE_MAX = 20;
+// P3: a job's spec, design and plan, and the records the standard places directly in docs/ or the setup reads there
+// by path (the decisions archive, handoff history, facts, known failures, speech glossary, what's new), stay loose
+const JOB_FILE = /^20\d\d-\d\d-\d\d-.+-(spec|design|plan)\.md$/;
+const DOCS_STANDING =
+  /^(decisions-archive|handoff-history|facts|known-failures|speech-glossary|whats-new)\.md$/;
+// words that name no topic, so no new topic folder is named after them
+const TOPIC_STOP = new Set(
+  "a an and about by for from how in is it my new note notes of old on our the to vs what why with doc docs draft readme plan plans spec specs design designs report reports review reviews summary overview list todo".split(
+    " ",
+  ),
+);
 const SCRATCH_DIR = /^_?(work|scratch|tmp|temp)$/i;
 const unpackedDoc = (has, dir) => has.has(`${dir}/[Content_Types].xml`);
 // P8: a picture or preview (a still, a video, a PDF render); diagrams (.svg, .mmd, .excalidraw, .drawio) belong in
@@ -475,8 +526,12 @@ function vagueName(stem) {
 
 // ---- the text files the reference scan reads (and the apply edits)
 const isBinary = (buf) => buf.subarray(0, 8000).includes(0);
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+// a file that is not valid UTF-8 (a one-byte code page such as Latin-1) is read with its bad bytes replaced, so the
+// scan still sees the paths it names; its rel goes in p._notUtf8 and the apply never writes it back
 function texts(p) {
   if (p._texts) return p._texts;
+  p._notUtf8 = new Set();
   const list = new Set(p.files);
   for (const f of [
     ".claude/systems-map.json",
@@ -490,7 +545,13 @@ function texts(p) {
     const size = fs.statSync(full).size;
     if (size > BIG_TEXT) continue;
     const buf = fs.readFileSync(full);
-    if (!isBinary(buf)) out.set(f, buf.toString("utf8"));
+    if (isBinary(buf)) continue;
+    try {
+      out.set(f, UTF8.decode(buf));
+    } catch {
+      p._notUtf8.add(f);
+      out.set(f, buf.toString("utf8"));
+    }
   }
   return (p._texts = out);
 }
@@ -951,17 +1012,6 @@ function scan(root) {
       why: `one run's output, ${n} file${n === 1 ? "" : "s"}: keep it in the project?`,
     });
   }
-  // P11: docs/ itself holds a start page and a few standing files; more than DOCS_LOOSE_MAX loose files means
-  // the topic folders are missing (a person browsing it sees one long dated list)
-  const looseDocs = live.filter((f) => /^docs\/[^/]+$/.test(f));
-  if (looseDocs.length > DOCS_LOOSE_MAX)
-    add({
-      rules: ["P11"],
-      path: "docs",
-      action: null,
-      kind: "ask",
-      why: `${looseDocs.length} loose files: group them into topic folders, with docs/README.md as the start page`,
-    });
   for (const dir of archives) {
     const inside = live.filter((f) => f.startsWith(dir + "/"));
     const code = inside.filter((f) => CODE_JS.test(f) || f.endsWith(".py"));
@@ -1210,6 +1260,110 @@ function scan(root) {
         why,
       });
   }
+  // P11: docs/ itself holds a start page, the job files and a few standing files; more than DOCS_LOOSE_MAX loose
+  // files means the topic folders are missing (a person browsing it sees one long dated list). Each loose text file
+  // with no other finding is asked about a topic folder, never moved unasked (the topic is a guess from its name): an
+  // existing one whose name's topic words are in its name (the longest name first), else a new one named by a word it
+  // shares with other loose files (the word most of them share first). A run's output, a scratch folder, an unpacked
+  // document or a folder with a finding of its own is no topic folder. Job files, the standing records and files that
+  // share no word stay. docs/ itself is asked about below, once the fixes are final.
+  const looseDocs = live.filter((f) => /^docs\/[^/]+$/.test(f));
+  if (looseDocs.length > DOCS_LOOSE_MAX) {
+    // the words of a name that can name a topic, in any case, split at - _ and .
+    const words = (name) =>
+      name
+        .toLowerCase()
+        .split(/[-_.]+/)
+        .filter(
+          (w) =>
+            /^[a-z][a-z0-9]+$/.test(w) &&
+            !TOPIC_STOP.has(w) &&
+            !GENERIC.test(w) &&
+            // a topic folder named "backup" or "old" would read as an archive (A1) on the next check
+            !ARCHIVE_DIR.test(w) &&
+            !ARCHIVE_TOP.test(w),
+        );
+    const topicWords = (f) =>
+      words(
+        splitExt(path.posix.basename(f))[0].replace(/^20\d\d-\d\d-\d\d-?/, ""),
+      );
+    const dirs = [
+      ...new Set(
+        live
+          .filter((f) => /^docs\/[^/]+\/./.test(f))
+          .map((f) => f.split("/")[1]),
+      ),
+    ];
+    const folders = dirs
+      .filter(
+        (d) =>
+          !d.startsWith(".") &&
+          d !== "decisions" &&
+          !ARCHIVE_DIR.test(d) &&
+          !ARCHIVE_TOP.test(d) &&
+          !inArchive(`docs/${d}/x`) &&
+          !RUN_DIR.test(d) &&
+          !SCRATCH_DIR.test(d) &&
+          !unpackedDoc(has, `docs/${d}`) &&
+          !found.some((x) => x.path === `docs/${d}`) &&
+          words(d).length,
+      )
+      .map((d) => ({ d, seq: words(d) }))
+      .sort((a, b) => b.seq.length - a.seq.length || a.d.localeCompare(b.d));
+    const holds = (words, seq) =>
+      words.some((_, i) => seq.every((w, j) => words[i + j] === w));
+    let rest = looseDocs.filter((f) => {
+      const name = path.posix.basename(f);
+      return (
+        /\.(md|mmd|svg|excalidraw|drawio)$/i.test(name) &&
+        !FIXED.test(name) &&
+        !JOB_FILE.test(name) &&
+        !DOCS_STANDING.test(name) &&
+        !found.some((x) => x.path === f)
+      );
+    });
+    const toTopic = (f, dir, why) =>
+      add({
+        rules: ["P11"],
+        path: f,
+        action: "move",
+        target: `docs/${dir}/${path.posix.basename(f)}`,
+        kind: "ask",
+        why,
+      });
+    rest = rest.filter((f) => {
+      const dir = folders.find((x) => holds(topicWords(f), x.seq));
+      if (dir)
+        toTopic(
+          f,
+          dir.d,
+          `the topic folder docs/${dir.d}/ matches its name: move it there?`,
+        );
+      return !dir;
+    });
+    for (;;) {
+      const count = new Map();
+      for (const f of rest)
+        for (const w of new Set(topicWords(f)))
+          count.set(w, (count.get(w) || 0) + 1);
+      // a word that names a folder already there (one that is no topic folder) names no new one
+      const [word, n] =
+        [...count]
+          .filter(([w, k]) => k > 1 && !dirs.some((d) => d.toLowerCase() === w))
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || [];
+      if (!word) break;
+      rest = rest.filter((f) => {
+        const hit = topicWords(f).includes(word);
+        if (hit)
+          toTopic(
+            f,
+            word,
+            `a new topic folder docs/${word}/ for the ${n} loose files named with "${word}"`,
+          );
+        return !hit;
+      });
+    }
+  }
   // N3: a folder whose JS/TS code files mix styles; the minority goes to the majority
   for (const [dirRel, list] of js) {
     const styled = list
@@ -1279,7 +1433,12 @@ function scan(root) {
           ? rel
           : null;
     const d = unit && /^(20\d\d-\d\d-\d\d)/.exec(path.posix.basename(unit));
-    if (d && d[1] < cutoff && !found.some((f) => f.path === unit))
+    // a P11 topic folder ask is no answer to keep or delete, so the note still comes
+    if (
+      d &&
+      d[1] < cutoff &&
+      !found.some((f) => f.path === unit && f.rules.join() !== "P11")
+    )
       units.add(unit);
   }
   for (const unit of units)
@@ -1310,6 +1469,35 @@ function scan(root) {
         ? `${f.target} is taken`
         : `${f.target} still breaks ${broken}`;
     }
+  }
+  // P11: docs/ itself, once the fixes are final. A loose file stays unless a fix takes it out of docs/ (a P11 move is
+  // only asked); docs/ is asked about while more than DOCS_LOOSE_MAX stay, or when it has no README.md.
+  if (looseDocs.length > DOCS_LOOSE_MAX) {
+    const out = new Set(
+      found
+        .filter(
+          (f) =>
+            f.kind === "fix" &&
+            f.action &&
+            !f.rules.includes("P11") &&
+            !(f.action === "move" && /^docs\/[^/]+$/.test(f.target)),
+        )
+        .map((f) => f.path),
+    );
+    const stay = looseDocs.filter((f) => !out.has(f)).length,
+      asked = found.filter((f) => f.rules.includes("P11")).length,
+      start = has.has("docs/README.md");
+    if (stay > DOCS_LOOSE_MAX || !start)
+      add({
+        rules: ["P11"],
+        path: "docs",
+        action: null,
+        kind: "ask",
+        why:
+          stay > DOCS_LOOSE_MAX
+            ? `${stay} loose files${asked ? `, ${asked} of them asked about a topic folder` : ""}: group them into topic folders${start ? "" : ", with docs/README.md as the start page"}`
+            : "add docs/README.md as the start page, naming what each folder holds",
+      });
   }
   const all = [
     ...found.sort((a, b) => a.path.localeCompare(b.path)),
@@ -2303,6 +2491,22 @@ function apply() {
   for (const { e, f } of entries.filter(({ e }) => e.action === "merge")) {
     const target = path.join(p.root, e.to),
       had = fs.existsSync(target);
+    // a merge of a file that is not UTF-8, or into one, would garble its bytes: both files stay as they are
+    const notUtf8 = [f.path, ...(had ? [e.to] : [])].find((rel) => {
+      try {
+        UTF8.decode(fs.readFileSync(path.join(p.root, rel)));
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    if (notUtf8) {
+      record.listed.push(
+        `merge of ${f.path} into ${e.to} not done: ${notUtf8} is not UTF-8, so both files stay; merge them by hand`,
+      );
+      save();
+      continue;
+    }
     const add =
       (had && !read(target).endsWith("\n") ? "\n" : "") +
       `\n<!-- merged from ${f.path} -->\n` +
@@ -2413,7 +2617,11 @@ function apply() {
       now,
       [...allPairs, ...own].sort((a, b) => b[0].length - a[0].length),
     );
-    if (list.length) {
+    if (list.length && p._notUtf8.has(rel))
+      listed.push(
+        `${now} names ${list.length} moved path(s), but it is not UTF-8: not rewritten, so its bytes stay`,
+      );
+    else if (list.length) {
       fs.writeFileSync(path.join(p.root, now), out);
       edits.push({ file: now, edits: list });
       save();
@@ -2521,45 +2729,109 @@ function undo() {
   };
   // the references fixed in a file, put back: in memory first, so a file is hashed and checked as the apply left it.
   // `hold`: edits that stay, because the move they follow was left (each edit names it in `follows`; journals from
-  // before that name none). A held edit stays in the journal, its place shifted by the edits put back before it.
+  // before that name none). `back`: where the file goes back to; a held ./ or ../ path in a file that goes back is
+  // written again from that folder (pointed). A held edit stays in the journal, its place shifted by the edits before it.
   const editsOf = new Map(l.edits.map((e) => [e.file, e.edits])),
     editsDone = new Set(),
     editsLeft = new Map();
-  const revert = (rel, hold = () => false) => {
-    let text = read(at(rel));
+  // `file`: where the file is read from, when the undo is still to move it there (rel is its journal path)
+  const revert = (rel, hold = () => false, back = rel, file = rel) => {
+    let text = read(at(file));
     const misses = [],
       held = [],
-      done = [];
+      shifts = [];
     for (const e of [...editsOf.get(rel)].sort((a, b) => b.at - a.at)) {
-      if (text.slice(e.at, e.at + e.new.length) !== e.new)
+      if (text.slice(e.at, e.at + e.new.length) !== e.new) {
         misses.push(
           `${rel}: "${e.new}" is no longer at ${e.at}; put back "${e.old}" by hand`,
         );
-      else if (hold(e)) held.push({ ...e });
-      else {
-        text = text.slice(0, e.at) + e.old + text.slice(e.at + e.new.length);
-        done.push(e);
+        continue;
       }
+      const keep = hold(e, rel),
+        put = keep ? pointed(e, rel, back) : e.old;
+      if (keep) held.push({ ...e, new: put });
+      text = text.slice(0, e.at) + put + text.slice(e.at + e.new.length);
+      shifts.push({ at: e.at, by: put.length - e.new.length });
     }
-    for (const h of held)
-      for (const e of done)
-        if (e.at < h.at) h.at += e.old.length - e.new.length;
+    for (const h of held) for (const s of shifts) if (s.at < h.at) h.at += s.by;
     return { text, misses, held };
   };
-  const putBack = (rel, r) => {
+  // `key`: the path its held edits are kept under (a moved file's old path, once it is back there)
+  const putBack = (rel, r, key = rel) => {
     fs.writeFileSync(at(rel), r.text);
     named.push(...r.misses);
     editsDone.add(rel);
-    if (r.held.length) editsLeft.set(rel, r.held);
+    if (r.held.length) editsLeft.set(key, r.held);
   };
-  // an edit that follows a move left for a person (or a file in a folder whose file was left) stays
-  const held = (e) =>
-    !!e.follows &&
-    [...left.keys()].some(
-      (o) =>
-        o.op === "move" &&
-        (o.from === e.follows || o.from.startsWith(e.follows + "/")),
-    );
+  const sepOf = (s) =>
+    s.includes("\\\\") ? "\\\\" : s.includes("\\") ? "\\" : "/";
+  // the path a fixed reference names now, read from rel, the file it is in: a ./ or ../ path from rel's folder
+  const pointsAt = (e, rel) => {
+    const n = e.new.split(sepOf(e.new)).join("/");
+    return /^\.\.?\//.test(n) ? path.posix.join(dirOf(rel), n) : n;
+  };
+  // the move left for a person that an edit follows (or whose file is in the folder it follows), or undefined. An
+  // edit follows a move only when it names a new place: a moved file's ./ or ../ path to a file or folder that stayed
+  // was only written again from its new folder, and goes back as it was whatever moved out of that folder.
+  const leftMove = (e, rel) =>
+    e.follows && pointsAt(e, rel) !== e.follows
+      ? [...stays.keys(), ...left.keys()].find(
+          (o) =>
+            o.op === "move" &&
+            (o.from === e.follows || o.from.startsWith(e.follows + "/")),
+        )
+      : undefined;
+  // an edit that follows a move left for a person stays
+  const held = (e, rel) => !!leftMove(e, rel);
+  // a held edit's path as it reads from `back`: a file that goes back to another folder points its ./ and ../ path
+  // from there to the place it names now (the left file, or the folder it moved with); a root-relative path, or a
+  // file that stays, keeps it as it is
+  const pointed = (e, rel, back) => {
+    const sep = sepOf(e.new);
+    if (back === rel || !/^\.\.?\//.test(e.new.split(sep).join("/")))
+      return e.new;
+    const r = relFrom(dirOf(back), pointsAt(e, rel));
+    return (r.startsWith("../") ? r : `./${r}`).split("/").join(sep);
+  };
+  // why a move is left for a person, "" when it goes back: its file is gone, its old path is taken again, or its file
+  // (with every reference fixed in it put back) changed after the apply. `where`: a path as it is on disk now, for
+  // the place it has once the moves before this one in the undo are done (null: one of them takes it away).
+  const moveBlock = (o, where = (x) => x) => {
+    const to = where(o.to),
+      from = where(o.from);
+    if (to === null || !fs.existsSync(at(to)))
+      return `${o.to} not moved back to ${o.from}: ${o.to} is gone`;
+    const there = from !== null && fs.existsSync(at(from));
+    // a case-only rename: on a case-blind disk the old name is the same file; on any other it is a new one
+    const same =
+      o.from.toLowerCase() === o.to.toLowerCase() &&
+      there &&
+      fs.statSync(at(from), { bigint: true }).ino ===
+        fs.statSync(at(to), { bigint: true }).ino;
+    if (!same && there)
+      return `${o.to} not moved back: ${o.from} is there again`;
+    const r = editsOf.has(o.to) ? revert(o.to, undefined, o.to, to) : null;
+    if (o.sha && (r ? sha(r.text) : journalSha(at(to)).sha) !== o.sha)
+      return `${o.to} not moved back to ${o.from}: it changed after the apply`;
+    return "";
+  };
+  // the moves left, with why, known before any file goes back: the undo may reach a file that links to one of them
+  // first. Each move is checked in the undo's order, on the paths the moves undone before it leave (a later folder
+  // move may have carried an earlier move's file on, so that file is at its target only once the folder is back).
+  const stays = new Map(),
+    goBack = [];
+  const where = (x) => {
+    for (const o of [...goBack].reverse())
+      if (x === o.from || x.startsWith(o.from + "/"))
+        x = o.to + x.slice(o.from.length);
+      else if (x === o.to || x.startsWith(o.to + "/")) return null;
+    return x;
+  };
+  for (const o of [...l.ops].reverse().filter((x) => x.op === "move")) {
+    const why = moveBlock(o, where);
+    if (why) stays.set(o, why);
+    else goBack.push(o);
+  }
   // a file with references fixed, as it was before them (the merge and keep checks compare with that). Moves are
   // undone before merges and keeps, so which moves were left is known here.
   const view = (rel) =>
@@ -2610,29 +2882,15 @@ function undo() {
   };
   for (const o of [...l.ops].reverse()) {
     if (o.op === "move") {
-      if (!fs.existsSync(at(o.to))) {
-        skip(o, `${o.to} not moved back to ${o.from}: ${o.to} is gone`);
+      // a move found left above stays left, so the links held for it match; any other is checked again on the disk
+      const why = stays.get(o) || moveBlock(o);
+      if (why) {
+        skip(o, why);
         continue;
       }
-      // a case-only rename: on a case-blind disk the old name is the same file; on any other it is a new one
-      const same =
-        o.from.toLowerCase() === o.to.toLowerCase() &&
-        fs.existsSync(at(o.from)) &&
-        fs.statSync(at(o.from), { bigint: true }).ino ===
-          fs.statSync(at(o.to), { bigint: true }).ino;
-      if (!same && fs.existsSync(at(o.from))) {
-        skip(o, `${o.to} not moved back: ${o.from} is there again`);
-        continue;
-      }
-      const r = editsOf.has(o.to) ? revert(o.to) : null;
-      if (o.sha && (r ? sha(r.text) : journalSha(at(o.to)).sha) !== o.sha) {
-        skip(
-          o,
-          `${o.to} not moved back to ${o.from}: it changed after the apply`,
-        );
-        continue;
-      }
-      if (r) putBack(o.to, r);
+      // only the moved file's own links go back; one that follows a left move points at where that file stays
+      const r = editsOf.has(o.to) ? revert(o.to, held, o.from) : null;
+      if (r) putBack(o.to, r, o.from);
       moveFile(p, o.to, o.from, o.tracked);
       // a P8 picture: tracked again at its old path, and the shown/.gitignore the apply made goes
       if (o.untracked) gitOk(root, "add", "-f", "--", o.from);

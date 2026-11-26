@@ -19,6 +19,9 @@ project.
 3. **Check slice,** right after the probe and before any build slice: it writes and commits every check the done-when
    lines name. That commit is the spec's version of each check. A check of a screen not built yet is written against
    the spec and counts as seen failing then. On a small job the probe and the checks can be one worker's first steps.
+   A check works through the public interface (a command's output, a page, an API) and takes its expected value from
+   an independent source (a number from the spec, a worked example), never recomputed the way the code computes it:
+   such a check passes by construction. It fakes only what lies outside the project (a paid API, the clock).
 4. **Slices** split only at a clean interface or for real parallel work (SKILL.md section 1). Each delivers a working
    piece and proves at least one done-when line. When the whole job is one coupled unit, it is one slice.
 5. **Edges.** List the files each slice will touch. Two slices that share a file, or that name the same new thing, get
@@ -43,7 +46,7 @@ code): put it under "Open for the user" with your recommendation, and plan no sl
 | `worker` | Sonnet at medium | reading, gathering, summarising, drafting; edits that need no judgement |
 | `worker-code` | Opus at high | code changes |
 | `worker-full` | Opus at high | a slice that needs the browser, Nimbalyst, an MCP tool or a skill |
-| `worker-refactor` | Fable at high | a big refactor or migration, in expand-contract steps |
+| `worker-refactor` | Fable at high | a refactor that is not mechanical: it changes an interface, type or data shape other files depend on, and updates every dependent in the same run |
 
 ```
 # <Job> plan (<date>)
@@ -73,7 +76,7 @@ The lead fills this in. A new session picks the job up from here.
 | Slice | State | Commit | Worker sessions | Surprises |
 ```
 
-The plan is ready for the plan-reviewer when every done-when line appears under Coverage, every slice has all eight
+The plan is ready for the plan-reviewer when every done-when line appears under Coverage, every slice has all nine
 fields, and every file two slices share has its edge.
 
 ## A worker's brief
@@ -92,8 +95,7 @@ COMMANDS: run, test, and the project's verify skill
 WORKTREE: the path, when slices run side by side
 ```
 
-While the setup rebuild runs, add its three lines. No old decision quotes, no systems-map dump, no approach of
-yours. When the project has a verify skill (`.claude/skills/verify/SKILL.md`), every helper's brief for a slice that
+No old decision quotes, no systems-map dump, no approach of yours. When the project has a verify skill (`.claude/skills/verify/SKILL.md`), every helper's brief for a slice that
 changes code names that path: most helpers have no Skill tool, so they read the file and follow it. No helper loads
 auto-memory: a memory note that bears on the slice is pasted in.
 
@@ -112,7 +114,7 @@ failed; `Not verified`; `Outside the brief`. A `BLOCKED` last line instead: answ
   other's entries); commit unfinished work on the worktree's branch instead.
 - **After the merge,** `git worktree remove <path>` without `--force`, then `git branch -D <branch>` (after a squash
   `-d` always refuses). When the remove refuses, the worktree holds uncommitted files: name them to the user and
-  leave it. A worktree left behind costs up to a gigabyte; 58 were found left over on 2026-11-19.
+  leave it. A worktree left behind costs up to a gigabyte, and left-behind worktrees pile up.
 
 ## A stopped worker
 
@@ -160,23 +162,54 @@ The `blind-reviewer` has only the Read tool; what it judges is what its brief ha
    user as open. No second blind round, except for a page with a `.proof/` folder: its new shots get one fresh
    look, and that answer replaces `verdict.md`. Delete the temp folder after the report.
 
+## The closing lines
+
+The end report's last lines (SKILL.md, End step 6) are sorted the way Matt Pocock's `retro` skill sorts its
+candidates (github.com/mattpocock/skills, MIT). Read the job's own record first: the Progress table's Surprises, the
+review findings, and the workers' reports (their found and worries lines, their fix rounds). Put each item under the
+first kind that fits, and list them most costly first:
+
+- **A check could have caught it.** The mistake has a fixed shape (a banned call, a file in the wrong place, a count
+  gone stale). It becomes a test or a lint rule. Look first for a check that exists but does not run (not in the
+  test runner, not in CI, or failing quietly): wiring it in is the fix.
+- **Only a reader could catch it.** A judgement call no script can make. It becomes a line in the project's `verify`
+  skill or in a reviewer's brief: the reviewer reads a diff with room to spare, the worker builds under context
+  pressure.
+- **Slow to find.** A worker spent many calls finding a file or a fact. It becomes a pointer in what the worker reads
+  first (the brief, the plan, the project's CLAUDE.md).
+- **Costly tool use.** A call read far more than it needed (a whole big file, a long log, a full test run repeated).
+  It becomes a cheaper command named in the brief.
+- **Missing information.** A fact the worker could not reach (a log, a service's state). It becomes a way to reach
+  it (a log file it can read, a read-only command).
+- **A line that changes nothing.** A rule or skill line the workers obey without it. It is cut.
+
+Before writing them, read the tracker's open items (ToolSearch `tracker_list`; no tracker tool: skip it), so no line
+repeats what is filed already. Then each change or bug still to make, and not on the tracker, goes as one line to the
+findings inbox `~/.claude/findings/<yyyy-mm-dd>.md` (today's date), which is read later and filed on the tracker.
+`kind: bug` is wrong behaviour to reproduce and fix; `kind: change` is an improvement that needs the user's yes:
+
+```bash
+d=~/.claude/findings; mkdir -p "$d" && cat >> "$d/$(date +%F).md" <<'EOF'
+- from: <who> | kind: bug|change | seen: <what was seen> | fix: <what would fix it>
+EOF
+```
+
 ## Why these defaults
 
-- **One OK, not three stops** (user, 2026-11-19, phase 1 of `docs/2026-11-19-setup-review.md`): the grill settles
-  the what, the spec writes it down, the user OKs the spec and the plan together.
+- **One OK, not three stops:** the grill settles the what, the spec writes it down, the user OKs the spec and the
+  plan together.
 - **The lead plans, no separate planner:** the model that writes the plan is the one that carries it out, as the
   vendors do it; a successor with no notes does 20-59% more work.
-- **Sizes as counts, not time:** model time estimates run about 3x over; one plan here said 2 hours for 6 minutes
-  of work.
+- **Sizes as counts, not time:** model time estimates run about 3x over.
 - **Checks before the build:** a check written after the code by the same author tends to pass on whatever was built;
   committing it first and seeing it fail is what makes it a judge.
 - **Three fix rounds:** Anthropic's number for a failing check before a person looks.
-- **Merge one at a time and remove the worktree in the same step:** the 2026-11-19 git research found 58 left-over
-  worktrees (1.8 GB) and 63 of 70 branches merged but not deleted.
-- **Reproduce first, no extra checking agent** (2026-11-17): the reviewer hands a command, the lead runs it.
-- **Three kinds of check** (release 26.6 layer review): scripts that run (the done-when checks, each slice's
-  checks with the lint, the project's `verify` skill, CI); one fresh reader at four points (`plan-reviewer` on the
-  plan, `/code-review` on a risky slice, `reviewer` at the end, `blind-reviewer` on what a person sees); one gate,
-  verify-gate, on code and pages. The lead's own diff read and a separate retro were cut: neither caught anything.
+- **Merge one at a time and remove the worktree in the same step:** a worktree or branch not removed at its merge
+  is rarely removed later, so they pile up, at up to a gigabyte per worktree.
+- **Reproduce first, no extra checking agent:** the reviewer hands a command, the lead runs it.
+- **Three kinds of check**: scripts that run (the done-when checks, each slice's checks with the lint, the
+  project's `verify` skill, CI); one fresh reader at four points (`plan-reviewer` on the plan, `/code-review` on a
+  risky slice, `reviewer` at the end, `blind-reviewer` on what a person sees); one gate,
+  verify-gate, on code and pages. No diff read by the lead and no separate retro: neither catches what these miss.
 - **The blind look** finds what the builder can't: "once you know how something works, you cannot reliably simulate
   not knowing" (NN/g).

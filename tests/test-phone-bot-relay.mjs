@@ -43,6 +43,7 @@ const same = (name, got, want) =>
 
 const random = (n) => new Uint8Array(randomBytes(n));
 const BOT_ID = 4242;
+const BOT_TOKEN = `${BOT_ID}:${toB64u(random(24))}`;
 const OWNER = 1001;
 const FRIEND = 2002;
 const THIRD = 3003;
@@ -98,7 +99,7 @@ async function telegramFetch(url, init) {
   return { json: async () => ({ ok: true, result }) };
 }
 const api = telegramApi({
-  token: `${BOT_ID}:${toB64u(random(24))}`,
+  token: BOT_TOKEN,
   fetch: telegramFetch,
 });
 const take = () => calls.splice(0);
@@ -116,10 +117,16 @@ fs.writeFileSync(
   path.join(pageDir, "index.html"),
   "<!doctype html><p>page</p>",
 );
+// Sockets the relay has seen end (its test hook), so pcOff() waits for that and not a fixed time.
+let socketsEnded = 0;
 const relay = await startLocalRelay({
+  countFrame: (_url, way) => {
+    if (way === "end") socketsEnded += 1;
+  },
   port: 0,
   pageDir,
   botId: BOT_ID,
+  botToken: BOT_TOKEN,
   ownerTgId: OWNER,
   telegramKey: Buffer.from(
     await crypto.subtle.exportKey("raw", tgKey.publicKey),
@@ -214,9 +221,10 @@ const indexCount = () =>
         .filter(Boolean).length
     : 0;
 async function pcOff() {
+  const before = socketsEnded;
   link.stop();
   await until("the PC socket closes", () => !link.send({ t: "ping" }));
-  await pause(100);
+  await until("the relay sees the PC socket end", () => socketsEnded > before);
   await relay.idle();
 }
 async function pcOn() {
@@ -653,8 +661,6 @@ same(
 relay.map.set(`alert:${FRIEND}:h9`, { msg: 99, at: clock });
 refuse = "deleteMessages";
 await say(FRIEND, "/clear");
-await pause(100);
-await relay.idle();
 refuse = null;
 same(
   "a /clear Telegram refuses is tried once, logged, and the list is empty",
@@ -680,10 +686,16 @@ check(
   keysOf("held:").length === 1 && keysOf("file:").length === 1,
 );
 take();
+const heldPc = keysOf("held:")[0].split(":").slice(0, 2).join(":");
 clock += 29 * DAY;
 await say(OWNER, "/invites");
 check("after 29 days it is still held", keysOf("held:").length === 1);
 clock += 2 * DAY;
+await say(STRANGER, "hello");
+check(
+  "a stranger's message starts no clean-up (FAIL: a stranger makes the relay read every held item)",
+  keysOf("held:").length === 1 && keysOf("file:").length === 1,
+);
 await say(OWNER, "/invites");
 check(
   "after 30 days the held item and its file key are deleted",
@@ -694,6 +706,32 @@ same(
   sent(take(), FRIEND).map((c) => c.params.text),
   ["1 saved item waited over 30 days for your PC and was deleted."],
 );
+// An old item put straight in the store: the next clean-up comes an hour after the last one.
+const planted = `${heldPc}:${clock - 31 * DAY}:000000000001`;
+relay.map.set(planted, "x");
+clock += 30 * 60_000;
+await say(OWNER, "/invites");
+check(
+  "the clean-up runs at most once an hour (FAIL: every message makes the relay read every held item)",
+  keysOf("held:").includes(planted),
+  keysOf("held:"),
+);
+relay.map.delete(planted);
+// A clean-up that fails part way does not count: the next message an hour after the last finished one tries again.
+clock += 31 * 60_000;
+relay.map.set("file:0-unreadable", null);
+relay.map.set("file:zz-expired", { expiresAt: clock - 1 });
+const failedStatus = await say(OWNER, "/invites");
+relay.map.delete("file:0-unreadable");
+clock += 60_000;
+await say(OWNER, "/invites");
+check(
+  "a clean-up that failed runs again on the next message, not an hour later (FAIL: one failed clean-up leaves expired items for an hour more)",
+  failedStatus !== 200 && !relay.map.has("file:zz-expired"),
+  { failedStatus, files: keysOf("file:") },
+);
+relay.map.delete("file:zz-expired");
+take();
 await pcOn();
 await pause(300);
 same("the PC gets nothing more to save", indexCount(), 22);

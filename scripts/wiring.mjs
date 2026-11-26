@@ -247,8 +247,10 @@ export function wire(
             ? { matcher: group.matcher, hooks: [entry] }
             : { hooks: [entry] },
         );
+        // A hook wired once per `if` (opencli-readonly: once for Bash, once for PowerShell) names its `if`,
+        // so the two lines don't read like one hook added twice.
         say(
-          `hook added: ${event}${group.matcher ? ` (${group.matcher})` : ""} ${path.basename(script)}${where}`,
+          `hook added: ${event}${group.matcher ? ` (${group.matcher})` : ""} ${path.basename(script)}${hook.if ? ` for ${hook.if}` : ""}${where}`,
         );
         added++;
       }

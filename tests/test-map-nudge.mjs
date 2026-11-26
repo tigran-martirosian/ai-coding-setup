@@ -156,6 +156,72 @@ check(
   "a year later, still no map: silent (the question is asked once per project, ever)",
   run(at100).stdout === "",
 );
+// A headless run (claude -p) gets the nudge but shows no question card: the one ask is spent only once a session's
+// transcript shows the card (AskUserQuestion naming the Systems map), so the next session asks again.
+const headless = project("headless", 100);
+const transcript = (name, lines = []) => {
+  const file = path.join(tmp, `${name}.jsonl`);
+  fs.writeFileSync(
+    file,
+    [{ type: "user", message: { content: "fix the login bug" } }, ...lines]
+      .map((l) => `${JSON.stringify(l)}\n`)
+      .join(""),
+  );
+  return file;
+};
+const prompted = (p, session, file) =>
+  run(p, "", {
+    RAW: JSON.stringify({
+      prompt: "fix the login bug",
+      session_id: session,
+      transcript_path: file,
+    }),
+  });
+const cardLine = {
+  type: "assistant",
+  message: {
+    content: [
+      {
+        type: "tool_use",
+        name: "AskUserQuestion",
+        input: {
+          questions: [
+            { question: "Build a Systems map for this project now?" },
+          ],
+        },
+      },
+    ],
+  },
+};
+const runA = transcript("headless-a");
+check(
+  "headless: the first session gets the nudge",
+  /Ask the user once/.test(context(prompted(headless, "a", runA))),
+);
+fs.appendFileSync(
+  runA,
+  `${JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Fixed." }] } })}\n`,
+);
+check(
+  "a session that never showed the question card does not spend the one ask: the next session is asked",
+  /Ask the user once/.test(
+    context(prompted(headless, "b", transcript("headless-b"))),
+  ),
+  JSON.stringify(state(headless)),
+);
+const runB = path.join(tmp, "headless-b.jsonl");
+fs.appendFileSync(runB, `${JSON.stringify(cardLine)}\n`);
+check(
+  "once a session showed the card, the ask is spent: the next session is silent",
+  prompted(headless, "c", transcript("headless-c")).stdout === "" &&
+    state(headless).askedAt > 0,
+  JSON.stringify(state(headless)),
+);
+check(
+  "the session that was asked stays silent on its next prompt",
+  prompted(headless, "b", runB).stdout === "",
+);
+
 // The old map-nudge built without asking, up to 3 tries a week apart (state fields tries, nudgedAt)
 const gaveUp = project("gave-up", 100);
 const oldNudge = Date.now() - 30 * DAY;

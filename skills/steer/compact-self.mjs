@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { LOCK, locked, WAIT_LONG } from "./lock.mjs";
 
 const fail = (m) => {
   console.error(`compact-self: ${m}`);
@@ -63,56 +64,78 @@ if (!row?.id)
   );
 
 const now = Date.now();
-const keep = [];
+let queued = null;
+fs.mkdirSync(path.dirname(OUTBOX), { recursive: true });
+// steer's hooks and commands rewrite the outbox too, so it is read and written under steer's lock: a write
+// outside it could drop a line one of them adds at the same time. A failure inside throws, so the lock is let go.
+// It is a one-shot command, so it waits WAIT_LONG: a lock that is only slow to go must not make it fail.
+let took;
 try {
-  // A line that does not parse is skipped, so one bad line does not wipe the queued entries.
-  for (const l of fs.readFileSync(OUTBOX, "utf8").split("\n").filter(Boolean)) {
-    let e;
+  took = locked(() => {
+    const keep = [];
     try {
-      e = JSON.parse(l);
-    } catch {
-      continue;
+      // A line that does not parse is skipped, so one bad line does not wipe the queued entries.
+      for (const l of fs
+        .readFileSync(OUTBOX, "utf8")
+        .split("\n")
+        .filter(Boolean)) {
+        let e;
+        try {
+          e = JSON.parse(l);
+        } catch {
+          continue;
+        }
+        if (now - e.ts < 2 * 3600e3) keep.push(e);
+      }
+    } catch (e) {
+      if (e.code !== "ENOENT")
+        throw new Error(`could not read ${OUTBOX}: ${e.message}`);
     }
-    if (now - e.ts < 2 * 3600e3) keep.push(e);
-  }
+    // A /compact for this session that the Commands extension has not delivered yet: a second one would
+    // compact twice. outbox-done.json (written by the extension) lists the delivered ids.
+    let done = [];
+    try {
+      done = JSON.parse(
+        fs.readFileSync(
+          path.join(path.dirname(OUTBOX), "outbox-done.json"),
+          "utf8",
+        ),
+      );
+    } catch {}
+    queued = keep.find(
+      (e) =>
+        e.session === row.id &&
+        String(e.prompt).startsWith("/compact") &&
+        !done.includes(e.id),
+    );
+    if (queued) return;
+    keep.push({
+      id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+      ts: now,
+      session: row.id,
+      prompt: `/compact ${text}`,
+    });
+    // Written to a temp file and renamed over, so a reader never sees a half-written outbox.
+    const tmpFile = `${OUTBOX}.${process.pid}.tmp`;
+    fs.writeFileSync(
+      tmpFile,
+      keep.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    );
+    fs.renameSync(tmpFile, OUTBOX);
+  }, WAIT_LONG);
 } catch (e) {
-  if (e.code !== "ENOENT") fail(`could not read ${OUTBOX}: ${e.message}`);
+  fail(e.message);
 }
-// A /compact for this session that the Commands extension has not delivered yet: a second one would
-// compact twice. outbox-done.json (written by the extension) lists the delivered ids.
-let done = [];
-try {
-  done = JSON.parse(
-    fs.readFileSync(
-      path.join(path.dirname(OUTBOX), "outbox-done.json"),
-      "utf8",
-    ),
+if (!took)
+  fail(
+    `another steer run kept ${LOCK} locked for ${WAIT_LONG / 1000} s, so nothing was queued. Try again.`,
   );
-} catch {}
-const queued = keep.find(
-  (e) =>
-    e.session === row.id &&
-    String(e.prompt).startsWith("/compact") &&
-    !done.includes(e.id),
-);
 if (queued) {
   console.log(
     `Already queued: ${String(queued.prompt).slice(0, 80)} (for Nimbalyst session ${row.id}, entry ${queued.id}). It runs when this turn ends; nothing added.`,
   );
   process.exit(0);
 }
-const entry = {
-  id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
-  ts: now,
-  session: row.id,
-  prompt: `/compact ${text}`,
-};
-keep.push(entry);
-fs.mkdirSync(path.dirname(OUTBOX), { recursive: true });
-// Written to a temp file and renamed over, so a reader never sees a half-written outbox.
-const tmpFile = `${OUTBOX}.${process.pid}.tmp`;
-fs.writeFileSync(tmpFile, keep.map((e) => JSON.stringify(e)).join("\n") + "\n");
-fs.renameSync(tmpFile, OUTBOX);
 console.log(
   `Queued "/compact ..." for Nimbalyst session ${row.id}. It runs when this turn ends (needs the Commands extension loaded: restart Nimbalyst after installing it).`,
 );

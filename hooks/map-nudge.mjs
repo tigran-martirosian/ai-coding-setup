@@ -7,6 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 //   holding 10,000 or more lines, and no .claude/systems-map.json, gets one line of context: ask the user once, on a
 //   question card (recommended answer yes), whether to build the map now from skills/systems-map/SKILL.md, and start
 //   the background worker only on yes. It is asked once per project, ever (askedAt in the state), whatever the answer.
+//   The ask counts as spent once that session's transcript shows the card (askedIn); a session that never showed it
+//   (a headless claude -p run) gives it back, and the next session asks again.
 //   The lines are counted only up to 10,000, from at most 2,000 files, 256 KB of each and 8 MB in all, so the count
 //   stays cheap. A project the old version gave up on (tries 3 or more: it built without asking, up to 3 tries) counts
 //   as asked.
@@ -28,6 +30,7 @@ const LINE_FILES_CAP = 2000;
 const LINE_BYTES_CAP = 256 * 1024;
 const LINE_TOTAL_CAP = 8 * 1024 * 1024;
 const OLD_MAX_TRIES = 3;
+const CARD_READ_CAP = 8 * 1024 * 1024;
 const STALE_SHARE = 0.2;
 const DAY = 24 * 60 * 60 * 1000;
 const WEEK = 7 * DAY;
@@ -71,6 +74,37 @@ function enoughLines(dir, files) {
   return false;
 }
 
+// Did the asked session show the question card? A question tool call (AskUserQuestion, or Nimbalyst's
+// PromptForUserInput) naming the Systems map in its transcript, after the nudge, in at most CARD_READ_CAP bytes.
+// No transcript, or one that can't be read, counts as no.
+function cardShown({ transcript, from = 0 }) {
+  if (!transcript) return false;
+  let text;
+  try {
+    const fd = fs.openSync(transcript, "r");
+    try {
+      const buf = Buffer.alloc(CARD_READ_CAP);
+      text = buf.toString(
+        "utf8",
+        0,
+        fs.readSync(fd, buf, 0, CARD_READ_CAP, from),
+      );
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+  return text
+    .split("\n")
+    .some(
+      (line) =>
+        /"type":"tool_use"/.test(line) &&
+        /"name":"(AskUserQuestion|[\w-]*PromptForUserInput)"/.test(line) &&
+        /systems map/i.test(line),
+    );
+}
+
 runHook("map-nudge", async (event) => {
   if (
     String(event.prompt ?? "")
@@ -106,7 +140,20 @@ runHook("map-nudge", async (event) => {
       rec.askedAt = rec.nudgedAt ?? now;
       save();
     }
-    if (rec.askedAt || (rec.checkedAt && now - rec.checkedAt < DAY)) return;
+    // The ask is spent once the asked session's transcript shows the card. A session that never showed it (a
+    // headless claude -p run) gives the ask back at the next session's first prompt, which asks again now.
+    let again = false;
+    if (rec.askedIn && event.session_id !== rec.askedIn.session) {
+      if (cardShown(rec.askedIn)) delete rec.askedIn;
+      else {
+        delete rec.askedAt;
+        again = true;
+      }
+      delete rec.askedIn;
+      save();
+    }
+    if (rec.askedAt || (!again && rec.checkedAt && now - rec.checkedAt < DAY))
+      return;
     rec.checkedAt = now;
     save();
     let code;
@@ -118,6 +165,14 @@ runHook("map-nudge", async (event) => {
     } // not a git repository: no
     if (code.length < MIN_CODE_FILES || !enoughLines(dir, code)) return;
     rec.askedAt = now;
+    rec.askedIn = {
+      session: event.session_id,
+      transcript: event.transcript_path,
+      from: event.transcript_path
+        ? (fs.statSync(event.transcript_path, { throwIfNoEntry: false })
+            ?.size ?? 0)
+        : 0,
+    };
     save();
     say(
       [

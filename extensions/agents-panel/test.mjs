@@ -1,7 +1,9 @@
 // Checks the Agents Panel build: manifest points at real files, the script loads and exports
 // activate/deactivate, the stylesheet is well formed and carries both fixes, and the Russian
 // build swaps both labels. Run: node test.mjs
+import { exec } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildFor, createChecks } from "../shared/check.mjs";
@@ -445,6 +447,53 @@ check(
     .map((r) => r.description)
     .join() === "a,b",
 );
+// Nimbalyst runs extension:exec in its own current folder when no cwd is given, and on Windows cmd.exe looks there
+// for `node` before PATH. Here that folder is a project holding a node.cmd, and the guard is taken out of the base
+// environment first (a Claude Code shell sets it already), so only what readRuns sends keeps the planted file out.
+const planted = fs.mkdtempSync(path.join(os.tmpdir(), "agents-panel-ws-"));
+{
+  const { readRuns } = await import(
+    pathToFileURL(path.join(here, "src", "runs.js")).href
+  );
+  const marker = path.join(planted, "planted-ran");
+  fs.writeFileSync(
+    path.join(planted, "node.cmd"),
+    `@echo planted> "${marker}"\r\n`,
+  );
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => !/^NoDefaultCurrentDirectoryInExePath$/i.test(k),
+    ),
+  );
+  const sent = [];
+  globalThis.window = {
+    electronAPI: {
+      invoke: (_channel, p) => {
+        sent.push(p);
+        return new Promise((resolve) =>
+          exec(
+            p.command,
+            { cwd: p.cwd ?? planted, env: { ...base, ...p.env } },
+            (err, stdout, stderr) =>
+              resolve({ success: !err, stdout, stderr, exitCode: err?.code }),
+          ),
+        );
+      },
+    },
+  };
+  await readRuns(here);
+  delete globalThis.window;
+  check(
+    "run log: read in the extension's own folder with cmd.exe's current-folder lookup off",
+    sent[0]?.cwd === here &&
+      sent[0]?.env?.NoDefaultCurrentDirectoryInExePath === "1",
+  );
+  if (process.platform === "win32")
+    check(
+      "run log: a node.cmd in the folder Nimbalyst was started from does not run",
+      !fs.existsSync(marker),
+    );
+}
 check(
   "title: kind word and colon stripped",
   plainTitle("Worker: fix the panel") === "Fix the panel" &&
@@ -2146,7 +2195,7 @@ check(
       /function sync\(\)[\s\S]*?filesRooms\(\)[\s\S]*?syncFiles\(STRINGS, fileRooms\)/.test(
         dist,
       ) &&
-      /function activate\(\)[\s\S]*?startFilesFold\(queue\)/.test(dist) &&
+      /function activate\([^)]*\)[\s\S]*?startFilesFold\(queue\)/.test(dist) &&
       /function deactivate\(\)[\s\S]*?stopFilesFold\(\)/.test(dist),
   );
   check(
@@ -2694,4 +2743,6 @@ check(
   );
 }
 
+// Removed at the end: right after the planted run Windows can still hold the new node.cmd (EPERM)
+fs.rmSync(planted, { recursive: true, force: true });
 finish();

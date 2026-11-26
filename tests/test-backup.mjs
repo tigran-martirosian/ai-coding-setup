@@ -151,6 +151,126 @@ check(
 );
 check("checksum mismatch: nothing installed", !fs.existsSync(B.resticPath()));
 
+if (process.platform === "win32") {
+  // No SystemRoot, so Windows' tar.exe can't be found: the worker's own clear stop, before any download, not a
+  // raw stack. Node won't start without SystemRoot, so a preload drops it.
+  const noRoot = put(
+    "no-systemroot.mjs",
+    "delete process.env.SystemRoot;\n",
+    tmp,
+  );
+  const nr = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      pathToFileURL(noRoot).href,
+      script,
+      "get-restic",
+      "--file",
+      fake,
+    ],
+    { encoding: "utf8", env },
+  );
+  check(
+    "no SystemRoot: get-restic stops with its own clear message, no stack",
+    nr.status === 1 &&
+      nr.stderr.trim() ===
+        "backup: SystemRoot is not set, so tar.exe cannot be found",
+    nr.stderr,
+  );
+  check("no SystemRoot: nothing installed", !fs.existsSync(B.resticPath()));
+
+  // The setup window: start runs cmd.exe by its full path too, not a bare cmd found on PATH
+  const cmdExe = path.win32.join(process.env.SystemRoot, "System32", "cmd.exe");
+  const wa = B.windowArgs(["C:\\a b\\node.exe", "setup"]);
+  check(
+    "setup window: start runs cmd.exe by its quoted full path",
+    wa.includes("/c") &&
+      wa[wa.length - 1].startsWith(`start "Claude backup" "${cmdExe}" `),
+    wa.join(" "),
+  );
+
+  // The setup window gets every argument as given, whatever cmd's special characters the folder, the script's
+  // path or node's path hold. Run without a new window (start /b /wait) and a stand-in for backup.mjs, in a
+  // folder with & in its name, that prints the arguments backup.mjs would read.
+  const odd = path.join(tmp, "a & b ^c");
+  fs.mkdirSync(odd, { recursive: true });
+  const echo = path.join(odd, "echo.mjs");
+  fs.writeFileSync(
+    echo,
+    `const B = await import(${JSON.stringify(pathToFileURL(script).href)});
+console.log("ARGS " + JSON.stringify(B.cliArgs ? B.cliArgs() : process.argv.slice(2)));
+`,
+  );
+  const want = [
+    "setup",
+    "--target",
+    "local",
+    "--repo",
+    "D:\\B & P^2 !OS! %OS%",
+  ];
+  const parts = [process.execPath, echo, ...want];
+  const wenv = {
+    ...process.env,
+    ...(B.windowEnv ? B.windowEnv(parts) : {}),
+  };
+  const line = B.windowArgs(parts);
+  line[line.length - 1] = line[line.length - 1].replace(
+    'start "Claude backup" ',
+    'start "Claude backup" /b /wait ',
+  );
+  const w = spawnSync(cmdExe, line, {
+    windowsVerbatimArguments: true,
+    env: wenv,
+    input: "",
+    encoding: "utf8",
+    timeout: 20000,
+  });
+  const got = (w.stdout || "").match(/^ARGS (.*)$/m)?.[1];
+  check(
+    "setup window: & ^ ! % in the folder or a path reach setup unchanged, and run no other command: arguments must not ride on the cmd line",
+    got === JSON.stringify(want) && !/not recognized/.test(w.stderr || ""),
+    `${got} | ${w.stderr}`,
+  );
+
+  // setup --window, its arguments read from BACKUP_WINDOW_ARGS: the window gets those arguments, not the
+  // process's own command line. A preload in backup.mjs's process stands in for spawn: a cmd.exe start saves the
+  // BACKUP_WINDOW_ARGS it would hand the window, and opens nothing.
+  const seenArgs = path.join(tmp, "window-args.json");
+  const recorder = path.join(tmp, "window-recorder.mjs");
+  fs.writeFileSync(
+    recorder,
+    `import cp from "node:child_process";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const spawn = cp.spawn;
+cp.spawn = (file, args, opts) => {
+  if (!/cmd\\.exe$/i.test(file)) return spawn(file, args, opts);
+  fs.writeFileSync(${JSON.stringify(seenArgs)}, opts?.env?.BACKUP_WINDOW_ARGS ?? "none");
+  return { unref() {}, on() {} };
+};
+syncBuiltinESMExports();
+`,
+  );
+  const given = ["setup", "--window", "--target", "local", "--repo", "D:\\x y"];
+  const ws = spawnSync(process.execPath, [script, "--args-from-window"], {
+    encoding: "utf8",
+    env: {
+      ...env,
+      NODE_OPTIONS: `--import=${pathToFileURL(recorder).href}`,
+      BACKUP_WINDOW_ARGS: JSON.stringify(given),
+    },
+  });
+  const sent = fs.existsSync(seenArgs)
+    ? fs.readFileSync(seenArgs, "utf8")
+    : "(no window started)";
+  check(
+    "setup --window from BACKUP_WINDOW_ARGS: the window gets those arguments, without --window; setup must pass the parsed arguments, not process.argv",
+    sent === JSON.stringify(given.filter((a) => a !== "--window")),
+    `${sent} | exit ${ws.status} ${ws.stderr}`,
+  );
+}
+
 // The pinned restic, downloaded and checked
 r = backup(["get-restic"]);
 const haveRestic = r.code === 0 && fs.existsSync(B.resticPath());

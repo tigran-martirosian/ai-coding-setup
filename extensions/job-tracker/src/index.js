@@ -554,9 +554,7 @@ function drawPage(page) {
   const key = `${+state.readAt} ${state.changes} ${state.picked} ${state.pickerOpen} ${state.moreFinished} ${[...state.open].sort()} ${state.doneAll} ${shown} ${listed}`;
   if (root && root.dataset.readAt === key) return root;
   const view = viewNow();
-  state.back = view.head
-    ? STRINGS.backTo.replace("{name}", view.head.name)
-    : STRINGS.backToList;
+  state.back = view.head ? backLine(view.head.name) : STRINGS.backToList;
   const made = mount(
     document,
     page,
@@ -693,6 +691,20 @@ function showApp(page) {
     list.classList.remove("rt-table-hidden");
 }
 
+// The text goes in through a function, so a "$" in a title or an error is no replace pattern
+/** The item view's Back line for the job named `name`. */
+function backLine(name) {
+  return STRINGS.backTo.replace("{name}", () => name);
+}
+
+/** The line that says the page could not be drawn, and why. */
+function errorLine(error) {
+  const what = String(error && error.message ? error.message : error)
+    .replace(/^job-tracker: /, "")
+    .replace(/^./, (c) => c.toUpperCase());
+  return STRINGS.failed.replace("{error}", () => what);
+}
+
 /**
  * The page could not be drawn: one line over the app's own list says what failed, and the app's left column and list
  * are in view again, so the tracker stays usable. The same line is not drawn twice (the page watcher would loop).
@@ -705,10 +717,7 @@ function showError(page, error) {
     if (old) old.remove();
     return;
   }
-  const what = String(error && error.message ? error.message : error)
-    .replace(/^job-tracker: /, "")
-    .replace(/^./, (c) => c.toUpperCase());
-  const text = STRINGS.failed.replace("{error}", what);
+  const text = errorLine(error);
   if (old && old.classList.contains("rt-error") && old.textContent === text)
     return;
   const box = document.createElement("section");
@@ -1084,8 +1093,10 @@ function deactivate() {
 export {
   activate,
   archiveOldJobs,
+  backLine,
   closeStep,
   deactivate,
+  errorLine,
   failure,
   readSessions,
   STRINGS,

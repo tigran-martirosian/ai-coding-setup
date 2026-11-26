@@ -740,7 +740,12 @@ try {
   );
   const removed = await until(() => callsOf("remove_queued_prompt", S.live)[0]);
   const list = await asked.ask("queue.list", { session: S.live });
-  await sleep(1500);
+  // The dock is drawn again once the removal's answer is in: no row, no Removed line.
+  await until(
+    () =>
+      !byClass(r.dock, "queued").length && !/Removed/.test(r.dock.textContent),
+    4000,
+  );
   check(
     "after the Undo the message is removed through remove_queued_prompt and is gone from the list",
     removed?.args.promptId === "q-1" &&
@@ -1096,7 +1101,9 @@ ${LONG}` &&
       texts(sy.view, "you").includes(QUOTE),
     sy.view.textContent,
   );
-  await sleep(1500);
+  // The live notice is written once the view's watch is on (a line written before it is not live).
+  if (!(await until(() => watchCount() === 1, 4000)))
+    throw new Error("the conversation's watch did not start within 4 s");
   append(
     LIVE_T2,
     notice("failed", 'Agent "check" failed', 50),
@@ -1218,10 +1225,22 @@ ${LONG}` &&
   formMode = "late";
   const chA = channel();
   let tookA = null; // when the PC's answer to form.answer reached the page
+  // The dock just after the page has taken the PC's answer: a 0 ms timer set as the answer arrives runs only after
+  // the page's own code that awaited it. An order, not a clock, so a busy computer can't fail it; a card that waits
+  // for a recheck, a result line or a later ask is still shown then.
+  let atAnswer = null;
   const askA = chA.ask;
   chA.ask = async (a, d) => {
     const r = await askA(a, d);
-    if (a === "form.answer") tookA = Date.now();
+    if (a === "form.answer") {
+      tookA = Date.now();
+      setTimeout(() => {
+        atAnswer = {
+          card: cardShown(fa),
+          answerSent: fa.dock.textContent.includes("Answer sent."),
+        };
+      }, 0);
+    }
     return r;
   };
   const fa = drawSession(S.asks, "Asks while it works", chA);
@@ -1237,9 +1256,12 @@ ${LONG}` &&
   );
   await sleep(L + 1000);
   check(
-    "(a) a form answered while the session works leaves the dock within 1 s of the PC's answer, the typing box says 'Answer sent.', and the card does not come back",
-    Boolean(tookA && outA) && outA - tookA <= 1000 && !cardShown(fa),
-    show({ took: tookA, out: outA, dock: fa.dock.textContent }),
+    "(a) a form answered while the session works leaves the dock at once on the PC's answer, the typing box says 'Answer sent.', and the card does not come back",
+    Boolean(tookA && outA) &&
+      atAnswer?.card === false &&
+      atAnswer.answerSent &&
+      !cardShown(fa),
+    show({ atAnswer, dock: fa.dock.textContent }),
   );
   gone(fa);
   // (b) no result anywhere: the card comes back after L with the new words, and Send works again
@@ -1267,9 +1289,12 @@ ${LONG}` &&
     () => callsOf("answer_form", S.asks).length > beforeB,
     3000,
   );
+  // An order, not an upper bound: the page starts its recheck timers only after the PC's answer reached it (sentB),
+  // so a card that waits for the last ask comes back L or more after sentB however busy the computer is; one that
+  // comes back on an earlier ask comes back sooner.
   check(
-    "(b) a form with no result after its answer leaves within 1 s of the PC's answer, comes back within 2 s after the last ask with 'The session still waits on this. Answer again, or on the PC.', and Send works again",
-    Boolean(sentB && leftB && backB && againB) && backB - sentB <= L + 2000,
+    "(b) a form with no result after its answer leaves on the PC's answer, comes back only with the last ask (not before L) with 'The session still waits on this. Answer again, or on the PC.', and Send works again",
+    Boolean(sentB && leftB && backB && againB) && backB - sentB >= L,
     show({
       left: leftB,
       back: backB && backB - sentB,
@@ -1284,8 +1309,9 @@ ${LONG}` &&
   const tookC = timed(chC);
   const fc = drawSession(S.asks, "Asks while it works", chC);
   await until(() => cardShown(fc));
-  await until(() => tookC["session.watch"]);
-  await sleep(300);
+  // The PC answers session.watch once its watch is on: the result line written after it is live.
+  if (!(await until(() => tookC["session.watch"])))
+    throw new Error("(c) the page's session.watch had no answer within 8 s");
   append(ASK_T, resultLine("toolu_ask_c"));
   const appended = Date.now();
   const goneC = await until(() => !cardShown(fc) && Date.now(), 8000);

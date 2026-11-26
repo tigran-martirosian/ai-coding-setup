@@ -24,9 +24,13 @@ import { autoMode, emit, runHook } from "./lib/hook-io.mjs";
 import {
   COMMAND_EXPLAIN,
   NO_NOTE,
+  NOTE_ANYWHERE_RE,
   NOTE_LINE_RE,
   WHAT_THIS_DOES,
 } from "./lib/texts.mjs";
+
+// A note as a trailing comment on the command's line: a # after a space, so the words inside a quoted string are not one
+const NOTE_TRAILING_RE = new RegExp(`\\s${NOTE_ANYWHERE_RE.source}`);
 
 runHook("command-explain", (event) => {
   if (!["Bash", "PowerShell"].includes(event.tool_name)) return;
@@ -71,8 +75,13 @@ runHook("command-explain", (event) => {
         command: `${command.trimEnd()}\n\n${WHAT_THIS_DOES} ${NO_NOTE} ${start}`,
       },
     };
+    // A note on the same line as the command is not a note line: the reminder says where it goes, as "had no note"
+    // read as if none was written
+    const inline = !NOTE_LINE_RE.test(last) && NOTE_TRAILING_RE.test(last);
     if (!event.agent_id)
-      output.additionalContext = `${COMMAND_EXPLAIN} that command had no "${WHAT_THIS_DOES}" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`;
+      output.additionalContext = inline
+        ? `${COMMAND_EXPLAIN} that command's "${WHAT_THIS_DOES}" note sat on the same line as the command, so a stand-in was added and the user's permission popup explained nothing. The note must be on its own last line, after an empty line. Write the line yourself on every command.`
+        : `${COMMAND_EXPLAIN} that command had no "${WHAT_THIS_DOES}" last line, so a stand-in was added and the user's permission popup explained nothing. Write the line yourself on every command.`;
     process.stdout.write(JSON.stringify({ hookSpecificOutput: output }));
     return;
   }

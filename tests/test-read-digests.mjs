@@ -253,6 +253,29 @@ const f2 = earlierFile(
   );
 }
 
+// ---- chat.md, the chat review's steps: it reads the tracker first and leaves what nobody acted on in the findings
+// inbox, whose lines the nightly run parses by these four parts and files on the tracker
+{
+  const chat = fs.readFileSync(path.join(SKILL, "..", "chat.md"), "utf8");
+  // the text of step <n>: from its "## <n>. " heading to the next heading
+  const step = (n) =>
+    chat.split(/\r?\n## /).find((s) => s.startsWith(`${n}. `)) || "";
+  ok(
+    "7a chat.md step 1 reads the tracker's open items, so the review does not propose what is already filed",
+    /tracker's open items/.test(step(1)),
+    step(1).slice(0, 200),
+  );
+  ok(
+    "7b chat.md step 7 appends each finding nobody acted on to ~/.claude/findings/<YYYY-MM-DD>.md as one '- from: | kind: bug|change | seen: | fix:' line, or the nightly run never files it",
+    step(7).includes("~/.claude/findings/") &&
+      /mkdir -p/.test(step(7)) &&
+      /- from: <[^>]+> \| kind: bug\|change \| seen: <[^>]+> \| fix: <[^>]+>/.test(
+        step(7),
+      ),
+    step(7).slice(0, 200),
+  );
+}
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

@@ -8,7 +8,7 @@ after you edit the title, push again, because a re-run reads the old one.
 
 ## What changed
 
-<!-- What someone using the setup will notice, then anything else they should know. -->
+<!-- What someone using Stratus will notice, then anything else they should know. -->
 
 ## How it was tested
 

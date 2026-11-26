@@ -4,6 +4,7 @@ import type { CellLike, DiffComment, KeyValue } from "../src/diff-comments.ts";
 import {
   BOX_ROOM,
   batchEnd,
+  batchEnds,
   batchOutcome,
   boxSpan,
   buildMessage,
@@ -23,8 +24,10 @@ import {
   stackBoxes,
   withRestored,
 } from "../src/diff-comments.ts";
-import { sendNote } from "../src/note.ts";
+import { GIVE_UP_MS, sendNote, setExtensionFolder } from "../src/note.ts";
 
+// activate sets this in the app; the fake apps below run no command
+setExtensionFolder("C:/ext");
 let n = 0;
 const ok = (name: string) => console.log(`ok ${++n} ${name}`);
 
@@ -660,5 +663,117 @@ assert.deepEqual(
   "a comment whose id is in the list must not be added twice",
 );
 ok("the comments of a batch not delivered are back in the list");
+
+// ---- a batch on its way outlives a reload: its end still puts back comments not delivered
+{
+  const disk = memory();
+  const before = commentStore(disk);
+  before.add("s-1", list[0]);
+  before.add("s-1", list[2]);
+  const out = await sendBatch(
+    "s-1",
+    before,
+    app({ success: true, stdout: "Note id: n-50\n", exitCode: 0 }),
+    root,
+    undefined,
+    undefined,
+    home,
+  );
+  assert.equal(out.noteId, "n-50");
+  assert.deepEqual(before.list("s-1"), [], "a sent batch leaves the list");
+  assert.ok(
+    [...disk.data.values()].some((v) => v.includes(list[2].text)),
+    "a batch on its way must stay in storage until its end, or a reload loses its comments",
+  );
+  // the window reloads: what was in memory is gone, the storage stays
+  const after = commentStore(disk);
+  const receipts = (state: string | null) =>
+    (async (channel: string, ...args: unknown[]) => {
+      if (channel === "extensions:file-exists") return state !== null;
+      if (channel === "extensions:read-file")
+        return JSON.stringify([{ id: "n-50", state }]);
+      throw new Error(`unexpected call ${channel} ${String(args[0])}`);
+    }) as (channel: string, ...args: unknown[]) => Promise<unknown>;
+  const sentAt = Date.now();
+  assert.deepEqual(
+    await batchEnds(after, receipts(null), sentAt + 1000),
+    [],
+    "a batch with no receipt yet keeps waiting",
+  );
+  const ends = await batchEnds(after, receipts("failed"), sentAt + 2000);
+  assert.deepEqual(
+    ends.map((e) => [e.session, e.count, e.ok, e.message]),
+    [["s-1", 2, false, "Not confirmed: your comments are back in the list"]],
+    "after a reload, a batch not delivered must still end with its own line",
+  );
+  assert.deepEqual(
+    after.list("s-1").map((c) => c.id),
+    ["c1", "c3"],
+    "after a reload, a batch not delivered must put its comments back in the list",
+  );
+  assert.deepEqual(
+    await batchEnds(after, receipts("failed"), sentAt + 3000),
+    [],
+    "an ended batch is followed no more",
+  );
+
+  // a delivered batch leaves nothing behind; one with no receipt for 130 minutes comes back
+  const kept = commentStore(memory());
+  kept.add("s-2", list[1]);
+  const late = await sendBatch(
+    "s-2",
+    kept,
+    app({ success: true, stdout: "Note id: n-51\n", exitCode: 0 }),
+    root,
+    undefined,
+    undefined,
+    home,
+  );
+  assert.equal(late.ok, true);
+  const quiet = await batchEnds(
+    kept,
+    receipts(null),
+    Date.now() + GIVE_UP_MS + 1000,
+  );
+  assert.deepEqual(
+    quiet.map((e) => e.ok),
+    [false],
+    "a batch with no receipt by the time limit ends not confirmed",
+  );
+  assert.deepEqual(
+    kept.list("s-2").map((c) => c.id),
+    ["c2"],
+    "a batch with no receipt by the time limit puts its comments back",
+  );
+  const done = commentStore(memory());
+  done.add("s-1", list[0]);
+  await sendBatch(
+    "s-1",
+    done,
+    app({ success: true, stdout: "Note id: n-50\n", exitCode: 0 }),
+    root,
+    undefined,
+    undefined,
+    home,
+  );
+  const fine = await batchEnds(done, receipts("delivered"), Date.now());
+  assert.deepEqual(
+    fine.map((e) => e.ok),
+    [true],
+  );
+  assert.deepEqual(
+    done.list("s-1"),
+    [],
+    "a delivered batch must not put its comments back",
+  );
+  assert.deepEqual(
+    await batchEnds(done, receipts("delivered"), Date.now()),
+    [],
+    "a delivered batch is followed no more",
+  );
+}
+ok(
+  "a batch on its way outlives a reload and still comes back when not delivered",
+);
 
 console.log(`all ${n} passed`);

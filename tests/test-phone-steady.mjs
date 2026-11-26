@@ -11,14 +11,14 @@
 // and leaves those pairs out. A 30 MB recording goes from this page's channel through the PC program to
 // voice.transcribe, with a stand-in transcriber.
 //   node tests/test-phone-steady.mjs
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash, randomBytes as nodeRandom } from "node:crypto";
 import fs from "node:fs";
 import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -29,6 +29,7 @@ const VERSION = JSON.parse(
 ).version;
 const OLD_TAG = "v26.3.3";
 const BOT_ID = 7000001;
+const BOT_TOKEN = `${BOT_ID}:test-token`;
 const OWNER = 111;
 // The scale: the page's and the relay's clock run this many times as fast; the PC's link waits are this many times
 // as short.
@@ -174,16 +175,26 @@ for (const tab of ["home", "projects", "settings"])
   els[`sk-${tab}`].parentNode = new FakeElement("section");
 const pageStore = new Map();
 
-// Every socket the frame opens, with when (real ms) it was made, opened and closed: the reconnect count.
+// Every socket the frame opens, with when (real ms) it was made, opened and closed: the reconnect count. `pongs`
+// counts the relay's answers to the page's pings (phone/relay/src/hub.mjs PONG).
 const RealSocket = globalThis.WebSocket;
 const pageSockets = [];
 class CountingSocket extends RealSocket {
   constructor(url) {
     super(url);
-    const s = { at: Date.now(), url: String(url), openAt: null, closeAt: null };
+    const s = {
+      at: Date.now(),
+      url: String(url),
+      openAt: null,
+      closeAt: null,
+      pongs: 0,
+    };
     pageSockets.push(s);
     this.addEventListener("open", () => {
       s.openAt = Date.now();
+    });
+    this.addEventListener("message", (e) => {
+      if (e.data === '{"t":"pong"}') s.pongs++;
     });
     this.addEventListener("close", () => {
       s.closeAt = Date.now();
@@ -327,17 +338,12 @@ async function initDataFor(userId) {
     query_id: "q1",
     user: JSON.stringify({ id: userId, first_name: "Test" }),
   };
-  const lines = Object.entries(fields)
-    .map(([k, v]) => `${k}=${v}`)
-    .sort();
-  const sig = await crypto.subtle.sign(
-    "Ed25519",
-    w.tg.privateKey,
-    w.seal.utf8(`${BOT_ID}:WebAppData\n${lines.join("\n")}`),
-  );
-  const p = new URLSearchParams(fields);
-  p.set("signature", w.seal.toB64u(new Uint8Array(sig)));
-  return p.toString();
+  return w.signInitData({
+    fields,
+    botId: BOT_ID,
+    botToken: BOT_TOKEN,
+    privateKey: w.tg.privateKey,
+  });
 }
 
 // The env of a PC program with its own home and control pipe.
@@ -367,13 +373,29 @@ function markVoice(home) {
   fs.mkdirSync(path.join(home, ".phone-app"), { recursive: true });
   fs.writeFileSync(
     path.join(home, ".phone-app", "voice.json"),
-    JSON.stringify({ model: "small" }),
+    JSON.stringify({
+      model: "small",
+      lock: createHash("sha256")
+        .update(
+          fs.readFileSync(
+            path.join(
+              ROOT,
+              "skills",
+              "phone-bot",
+              "pc",
+              "voice",
+              "transcribe-server.py.lock",
+            ),
+          ),
+        )
+        .digest("hex"),
+    }),
   );
 }
 
 // A PC paired with a code from the PC program run with `env`, by the page channel `ch`, on the relay at `url`.
 async function pairWith(ch, url, setup, env, kind) {
-  const out = setupRun(setup, ["pair"], env);
+  const out = await setupRun(setup, ["pair"], env);
   const m = /Pairing code[^\n]*\n\s*([A-Z2-7 .]+)/.exec(out);
   if (!m) throw new Error(`setup pair gave no code:\n${out}`);
   // Right after its join the PC program connects again: a pair that finds it offline never reached it, so the
@@ -421,14 +443,59 @@ const count = (text, re) => (text.match(re) || []).length;
 const pcConnects = () => count(logText(w.home), / connect pc-/g);
 const pcLost = () => count(logText(w.home), / lost no pong/g);
 
-function setupRun(setup, args, env) {
-  const r = spawnSync(process.execPath, [setup, ...args], {
-    env: { ...process.env, ...env },
-    encoding: "utf8",
+// Nothing in this process may wait in place: the relays, the proxies and the page live here, and the PC programs give
+// a relay's pong 1 s of real time (10 s scaled). A spawnSync or a sqlite write here took up to half a second, more on
+// a busy machine, and a PC took the stall for a dead link: it connected again, and the "connected once" and Send
+// checks failed. So programs run with spawn and the stand-in Nimbalyst databases are written on a worker thread.
+function runProgram(cmd, args, { env = {}, input = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, {
+      env: { ...process.env, ...env },
+      stdio: [input ? "pipe" : "ignore", "pipe", "pipe"],
+    });
+    const out = [];
+    const err = [];
+    p.stdout.on("data", (d) => out.push(d));
+    p.stderr.on("data", (d) => err.push(d));
+    p.on("error", reject);
+    p.on("close", (status) =>
+      resolve({
+        status,
+        stdout: Buffer.concat(out),
+        stderr: Buffer.concat(err).toString(),
+      }),
+    );
+    if (input) p.stdin.end(input);
   });
+}
+
+// Runs `sql` and then each [statement, ...values] of `rows` on the sqlite file, on a worker thread.
+function dbWork(file, sql, rows = []) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(
+      `const { DatabaseSync } = require("node:sqlite");
+const { workerData: d } = require("node:worker_threads");
+const db = new DatabaseSync(d.file);
+if (d.sql) db.exec(d.sql);
+for (const [q, ...a] of d.rows) db.prepare(q).run(...a);
+db.close();`,
+      { eval: true, workerData: { file, sql, rows } },
+    );
+    worker.on("error", reject);
+    worker.on("exit", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`the database work on ${file} ended with ${code}`)),
+    );
+  });
+}
+
+async function setupRun(setup, args, env) {
+  const r = await runProgram(process.execPath, [setup, ...args], { env });
+  const stdout = r.stdout.toString();
   if (r.status !== 0)
-    throw new Error(`setup ${args[0]} failed:\n${r.stdout}${r.stderr}`);
-  return r.stdout;
+    throw new Error(`setup ${args[0]} failed:\n${stdout}${r.stderr}`);
+  return stdout;
 }
 
 // A new device paired with a code from the running PC program.
@@ -465,32 +532,31 @@ async function openWatcher() {
 
 // The released PC program, page and relay of OLD_TAG in `dir`, or false when this clone has no such tag. The old PC
 // runs through `--pc <dir>`, so its link's waits are scaled like the new one's.
-function extractOld(dir) {
-  const has = spawnSync(
-    "git",
-    ["-C", ROOT, "rev-parse", "--verify", "--quiet", `${OLD_TAG}^{commit}`],
-    { encoding: "utf8" },
-  );
+async function extractOld(dir) {
+  const has = await runProgram("git", [
+    "-C",
+    ROOT,
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    `${OLD_TAG}^{commit}`,
+  ]);
   if (has.status !== 0) return false;
-  const tar = spawnSync(
-    "git",
-    [
-      "-C",
-      ROOT,
-      "archive",
-      OLD_TAG,
-      "skills/phone-bot",
-      "phone/shared",
-      "phone/page",
-      "phone/relay",
-      "version.json",
-    ],
-    { maxBuffer: 1 << 28 },
-  );
+  const tar = await runProgram("git", [
+    "-C",
+    ROOT,
+    "archive",
+    OLD_TAG,
+    "skills/phone-bot",
+    "phone/shared",
+    "phone/page",
+    "phone/relay",
+    "version.json",
+  ]);
   if (tar.status !== 0)
     throw new Error(`git archive ${OLD_TAG} failed: ${tar.stderr}`);
   fs.mkdirSync(dir, { recursive: true });
-  const x = spawnSync("tar", ["-x", "-C", dir], { input: tar.stdout });
+  const x = await runProgram("tar", ["-x", "-C", dir], { input: tar.stdout });
   if (x.status !== 0) throw new Error(`tar failed: ${x.stderr}`);
   fs.writeFileSync(path.join(dir, "package.json"), '{"type":"module"}\n');
   return true;
@@ -535,6 +601,9 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
   });
   hookPage();
   w.seal = await import("../phone/shared/seal.mjs");
+  w.signInitData = (
+    await import("./phone-bot/telegram-init-data.mjs")
+  ).signInitData;
   const { buildPage, writePage } = await import("../phone/page/build.mjs");
   const { startLocalRelay } = await import("../phone/relay/local/server.mjs");
   const { startCutProxy } = await import("./phone-bot/cut-proxy.mjs");
@@ -556,6 +625,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     pageDir: w.pageDir,
     storeFile: path.join(w.tmp, "relay-store.bin"),
     botId: BOT_ID,
+    botToken: BOT_TOKEN,
     ownerTgId: OWNER,
     telegramKey: w.tgPubHex,
     telegram: async () => {
@@ -577,7 +647,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
   w.pcProxy = await startCutProxy({ port: w.relayOpts.port });
 
   w.pcEnv = pcEnvFor(w.home);
-  setupRun(SETUP, ["join", w.pcProxy.url], w.pcEnv);
+  await setupRun(SETUP, ["join", w.pcProxy.url], w.pcEnv);
   w.pc = startProgram([SELF, "--pc"], w.pcEnv);
   // Accepted once the relay keeps a record of it (its first link is a pc-join).
   const known = () => [...w.relay.map.keys()].some((k) => k.startsWith("pc:"));
@@ -720,12 +790,16 @@ async function caseLongOutage() {
 // at the second ping, 50 s after the open: the session ended after more than the page's 45 s (UP_RESET_MS), and the
 // retry waits the long outage grew start over (the first wait at most 1 s). Held earlier, the drop came 30 s after
 // the open, the session's up time a few ms either side of 30 s, and on a slow machine the grown waits (up to 30 s)
-// stayed.
+// stayed. The hold waits for that pong itself (a busy computer can bring it after 28 s), then for 28 s after the
+// open, so the drop is measured from well after the first ping.
 async function caseHalfOpenPage() {
   resetSeen();
   const from = pageSockets.length;
-  const opened = pageSockets.at(-1).openAt;
+  const sock = pageSockets.at(-1);
+  const opened = sock.openAt;
   if (!opened) throw new Error("the page's socket never opened");
+  if ((await within(() => sock.pongs > 0, 25)) === null)
+    throw new Error("the page's socket had no pong 25 s after it opened");
   await sleep(Math.max(0, (28 * 1000) / K - (Date.now() - opened)));
   w.pageProxy.hold();
   const dropped = await within(() => !pageUp(), 32);
@@ -870,8 +944,11 @@ async function caseSendDropped() {
   fs.mkdirSync(path.join(nim, "sqlite-db"), { recursive: true });
   const project = path.join(w.tmp, "projects", "beta");
   fs.mkdirSync(project, { recursive: true });
-  const db = new DatabaseSync(path.join(nim, "sqlite-db", "nimbalyst.sqlite"));
-  db.exec(`
+  const sid = "00000000-0000-4000-8000-00000000a001";
+  const now = new Date().toISOString();
+  await dbWork(
+    path.join(nim, "sqlite-db", "nimbalyst.sqlite"),
+    `
     CREATE TABLE ai_sessions (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT,
       provider_session_id TEXT, worktree_id TEXT, model TEXT, metadata TEXT NOT NULL DEFAULT '{}',
       is_archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -880,14 +957,18 @@ async function caseSendDropped() {
     CREATE TABLE queued_prompts (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, prompt TEXT NOT NULL,
       status TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE worktrees (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, path TEXT NOT NULL);
-  `);
-  const sid = "00000000-0000-4000-8000-00000000a001";
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO ai_sessions (id, workspace_id, title, status, model, created_at, updated_at)
+  `,
+    [
+      [
+        `INSERT INTO ai_sessions (id, workspace_id, title, status, model, created_at, updated_at)
        VALUES (?, ?, 'Waits for a message', 'waiting_for_input', 'claude-code:opus', ?, ?)`,
-  ).run(sid, project, now, now);
-  db.close();
+        sid,
+        project,
+        now,
+        now,
+      ],
+    ],
+  );
   const { startFakeDoor } = await import("./phone-bot/fake-door.mjs");
   let cutAt = null;
   const door = await startFakeDoor({
@@ -902,7 +983,9 @@ async function caseSendDropped() {
       if (cutAt === null) {
         cutAt = Date.now();
         w.pageProxy.cut();
-        await sleep(300);
+        // The answer goes out only once the page knows its link is gone.
+        if ((await within(() => !pageUp(), 5)) === null)
+          throw new Error("the page did not see its cut link within 5 s");
       }
       return {
         statusBeforeQueue: "waiting_for_input",
@@ -1069,8 +1152,14 @@ async function casePcRestart() {
     `sessions +${page.sessions - drawn}, page sockets +${pageSockets.length - from}`,
   );
   await askWorks("a PC program restart");
+  // The page shows "PC off" once the relay's offline answers held 20 s (OFFLINE_HOLD_MS), so after a slower start
+  // "PC off" is right and the check cannot apply.
   if (secs(pcBack) < 20)
     check('a PC program back within 20 s must not show "PC off"', !seen.off);
+  else
+    console.log(
+      `skip 'a PC program back within 20 s must not show "PC off"': the PC took ${secs(pcBack)} s to come back, so the page rightly showed "PC off" (seen ${seen.off})`,
+    );
   timings.push(
     `PC restart: PC back ${secs(pcBack)} s after the stop (start-up not scaled), page session ${secs(back)} s later`,
   );
@@ -1255,7 +1344,7 @@ async function caseUnknownDevice() {
 
 async function startOld() {
   const dir = path.join(w.tmp, "old");
-  if (!extractOld(dir)) {
+  if (!(await extractOld(dir))) {
     console.log(
       `skip old-with-new pairs: this clone has no tag ${OLD_TAG} (a shallow checkout)`,
     );
@@ -1292,7 +1381,7 @@ async function startOld() {
     port: 0,
     storeFile: path.join(w.tmp, "old-pc-relay-store.bin"),
   });
-  setupRun(oldSetup, ["join", old.relay.url], old.env);
+  await setupRun(oldSetup, ["join", old.relay.url], old.env);
   old.pc = startProgram([SELF, "--pc", oldPc], old.env);
   if (
     (await within(() => / connect pc-/.test(logText(old.home)), 100)) === null
@@ -1337,7 +1426,7 @@ async function startOld() {
 // the old page channel paired with this PC program. The PC's home holds a stand-in Nimbalyst (endpoint file and
 // database, as tests/test-phone-alerts.mjs) with one running session, so a finished session gives an alert.
 async function startOldRelay(dir, oldChannel) {
-  const r = { home: path.join(w.tmp, "old-relay-home"), tg: [], dbs: [] };
+  const r = { home: path.join(w.tmp, "old-relay-home"), tg: [] };
   fs.mkdirSync(r.home);
   const { startLocalRelay } = await import(
     pathToFileURL(path.join(dir, "phone", "relay", "local", "server.mjs")).href
@@ -1370,8 +1459,10 @@ async function startOldRelay(dir, oldChannel) {
       : path.join(r.home, ".config", "@nimbalyst", "electron"),
   ];
   r.env.NIMBALYST_ENDPOINT_FILE = path.join(nims[0], "mcp-endpoint.json");
-  const { DatabaseSync } = await import("node:sqlite");
   const at = new Date().toISOString();
+  r.dbFiles = nims.map((nim) =>
+    path.join(nim, "sqlite-db", "nimbalyst.sqlite"),
+  );
   for (const nim of nims) {
     fs.mkdirSync(path.join(nim, "sqlite-db"), { recursive: true });
     fs.writeFileSync(
@@ -1383,13 +1474,14 @@ async function startOldRelay(dir, oldChannel) {
         workspaces: [{ name: "alpha-web", path: project }],
       }),
     );
-    const db = new DatabaseSync(
-      path.join(nim, "sqlite-db", "nimbalyst.sqlite"),
-    );
-    // WAL, as Nimbalyst's own database: the PC's read never waits on the test's write. With the default journal
-    // the PC's look can land on the UPDATE below, fail with "database is locked", and start a fresh first look that
-    // takes the finished state as known, so no alert goes.
-    db.exec(`
+  }
+  // WAL, as Nimbalyst's own database: the PC's read never waits on the test's write. With the default journal
+  // the PC's look can land on the UPDATE below, fail with "database is locked", and start a fresh first look that
+  // takes the finished state as known, so no alert goes.
+  for (const db of r.dbFiles)
+    await dbWork(
+      db,
+      `
       PRAGMA journal_mode = WAL;
       CREATE TABLE ai_sessions (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT,
         provider_session_id TEXT, worktree_id TEXT, model TEXT, metadata TEXT NOT NULL DEFAULT '{}',
@@ -1397,20 +1489,20 @@ async function startOldRelay(dir, oldChannel) {
       CREATE TABLE worktrees (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, path TEXT NOT NULL);
       CREATE TABLE ai_agent_messages (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, created_at TEXT NOT NULL,
         direction TEXT NOT NULL, content TEXT NOT NULL, message_kind TEXT);
-    `);
-    db.prepare(
-      "INSERT INTO ai_sessions (id, workspace_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(
-      "00000000-0000-4000-8000-000000000001",
-      project,
-      "Fix the login page",
-      "running",
-      at,
-      at,
+    `,
+      [
+        [
+          "INSERT INTO ai_sessions (id, workspace_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+          "00000000-0000-4000-8000-000000000001",
+          project,
+          "Fix the login page",
+          "running",
+          at,
+          at,
+        ],
+      ],
     );
-    r.dbs.push(db);
-  }
-  setupRun(SETUP, ["join", r.relay.url], r.env);
+  await setupRun(SETUP, ["join", r.relay.url], r.env);
   r.pc = startProgram([SELF, "--pc"], r.env);
   if ((await within(() => / connect pc-/.test(logText(r.home)), 100)) === null)
     throw new Error(
@@ -1433,13 +1525,16 @@ async function startOldRelay(dir, oldChannel) {
       st.d?.setupVersion === VERSION,
     JSON.stringify({ hello: r.page.s.hello, st }).slice(0, 300),
   );
-  // The watcher's first look (which sends nothing) saw the session running; now it finishes.
-  await sleep(1500);
-  for (const db of r.dbs)
-    db.prepare("UPDATE ai_sessions SET status = ?, updated_at = ?").run(
-      "completed",
-      new Date().toISOString(),
-    );
+  // The watcher's first look (which sends nothing) saw the session running: main.mjs makes it at start, in the same
+  // step as its first connect, so it is done once " connect pc-" is in the log. Now the session finishes.
+  for (const db of r.dbFiles)
+    await dbWork(db, "", [
+      [
+        "UPDATE ai_sessions SET status = ?, updated_at = ?",
+        "completed",
+        new Date().toISOString(),
+      ],
+    ]);
   const alert = () =>
     r.tg.find(
       (c) => c.method === "sendMessage" && /finished/.test(c.params?.text),
@@ -1513,12 +1608,16 @@ async function caseRefusedUpload() {
       })
     : null;
   const started = Date.now();
+  let waited = false; // the page's stream line held the small one back
   const sentSmall = await s
     .sendStream(
       new Uint8Array(nodeRandom(1024)),
       "text/plain",
       () => {},
       ch.FILES_STREAM_MAX,
+      (on) => {
+        if (on) waited = true;
+      },
     )
     .catch((e) => ({ ok: false, err: e.code ?? e.message }));
   const put = sentSmall.ok
@@ -1529,13 +1628,15 @@ async function caseRefusedUpload() {
       })
     : null;
   const took = Date.now() - started;
+  // No clock bound: a PC that kept the refused stream answers the small one stream-broken at once (sentSmall not
+  // ok, put null), and a page that kept its bytes makes the small one wait in its stream line (waited).
   check(
-    "a refused 50 MB upload must not block the next file: after folder.put answers not-found, a 1 KB upload must be saved within 2 s (FAIL: the PC kept the refused stream and refused the next as over its 50 MB)",
+    "a refused 50 MB upload must not block the next file: after folder.put answers not-found, a 1 KB upload goes at once and is saved (FAIL: the PC kept the refused stream and refused the next as over its 50 MB)",
     refused?.ok === false &&
       refused.err === "not-found" &&
-      put?.ok === true &&
-      took < 2000,
-    `${JSON.stringify({ sentBig, refused, sentSmall, put }).slice(0, 400)} in ${took} ms`,
+      !waited &&
+      put?.ok === true,
+    `${JSON.stringify({ sentBig, refused, sentSmall, put, waited }).slice(0, 400)} in ${took} ms`,
   );
   timings.push(`a 1 KB upload after a refused 50 MB one: ${took} ms real`);
   await s.bye();
@@ -1640,7 +1741,6 @@ async function runAll() {
     await stopProgram(w.pc);
     await stopProgram(old?.pc);
     await stopProgram(old?.r?.pc);
-    for (const db of old?.r?.dbs ?? []) db.close();
     for (const p of [w.pageProxy, w.pageProxy2, w.pcProxy]) await p?.close();
     await w.relay?.close();
     await old?.relay?.close();

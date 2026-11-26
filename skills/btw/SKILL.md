@@ -19,9 +19,12 @@ Answer from its output in a few lines. When the user names the session, add `--t
 `<note>`
 `EOF`
 
-- When the user names the session (a Nimbalyst session id), add `--to <that id>` after `send`; Nimbalyst ids work, in any folder.
+- When the user names the session (a Nimbalyst session id), add `--to <that id>` after `send`; Nimbalyst ids work, in any folder,
+  only in Nimbalyst. In a terminal, `--to` takes the start of a session id from the list the script prints for this folder.
 - When the user says the note is for after the current work ("after you finish", "when done", "later", "потом"), add
   `--after` after `send`: the note then comes as a new message once the session's current turn ends, not at its next step.
+  `--after` works only in Nimbalyst: in a terminal the script prints `NOT SENT` and says to send the note without
+  `--after`, so the session reads it at its next step.
 - If it prints `Delivered to …`, `Sent to …`, `Queued for …` or `Left for …`, reply with that line. Only `Delivered` means the session has the note. The
   name in it is the name on that session's tab: it tells the user where the note went.
   With several sessions active the script picks one itself (a busy one, else the most recently

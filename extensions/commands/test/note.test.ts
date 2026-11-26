@@ -1,5 +1,10 @@
 // node --experimental-strip-types test/note.test.ts
 import assert from "node:assert/strict";
+import { exec as shell } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   LOCK_MS,
   MAX_TRIES,
@@ -9,10 +14,87 @@ import {
 import { RESCAN_MS, startNoteButtons } from "../src/composer.ts";
 import { findComposers, readFiles, removeFiles } from "../src/find.ts";
 import type { Attachment } from "../src/note.ts";
-import { endMessage, GIVE_UP_MS, noteEnds, sendNote } from "../src/note.ts";
+import {
+  endMessage,
+  GIVE_UP_MS,
+  homeDir,
+  noteEnds,
+  sendNote,
+  setExtensionFolder,
+} from "../src/note.ts";
 
 let n = 0;
 const ok = (name: string) => console.log(`ok ${++n} ${name}`);
+
+// ---- where the commands run: the extension's own folder, which activate hands over
+await assert.rejects(
+  homeDir(async () => ({ success: true, stdout: "C:/Users/you" })),
+  /not active yet/,
+  "with no folder from activate a command must refuse to run, not run in Nimbalyst's current folder",
+);
+const EXT_DIR = fileURLToPath(new URL("..", import.meta.url));
+setExtensionFolder(EXT_DIR);
+ok("a command before activate is a clear error");
+
+// Nimbalyst runs extension:exec in its own current folder when no cwd is given, and on Windows cmd.exe looks there
+// for `node` before PATH. Here that folder is a project holding a node.cmd, and the guard is taken out of the base
+// environment first (a Claude Code shell sets it already), so only what note.ts sends keeps the planted file out.
+const planted = fs.mkdtempSync(path.join(os.tmpdir(), "commands-ws-"));
+{
+  const marker = path.join(planted, "planted-ran");
+  fs.writeFileSync(
+    path.join(planted, "node.cmd"),
+    `@echo planted> "${marker}"\r\n`,
+  );
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => !/^NoDefaultCurrentDirectoryInExePath$/i.test(k),
+    ),
+  );
+  type Sent = { command: string; cwd?: string; env?: Record<string, string> };
+  const sent: Sent[] = [];
+  const nimbalyst = async (channel: string, ...args: unknown[]) => {
+    if (channel !== "extension:exec") return undefined;
+    const p = args[0] as Sent;
+    sent.push(p);
+    // steer is not run here: only the home folder lookup goes to a real shell
+    if (!p.command.includes("homedir"))
+      return { success: true, stdout: "", exitCode: 0 };
+    return new Promise((resolve) =>
+      shell(
+        p.command,
+        { cwd: p.cwd ?? planted, env: { ...base, ...p.env } },
+        (err, stdout, stderr) =>
+          resolve({ success: !err, stdout, stderr, exitCode: err?.code }),
+      ),
+    );
+  };
+  const home = await homeDir(nimbalyst);
+  await sendNote("hi", "sess-1", home, nimbalyst);
+  assert.equal(sent.length, 2, "homeDir and sendNote each run one command");
+  for (const p of sent) {
+    assert.equal(
+      p.cwd,
+      EXT_DIR,
+      `"${p.command}" must run in the extension's own folder, not Nimbalyst's current folder`,
+    );
+    assert.equal(
+      p.env?.NoDefaultCurrentDirectoryInExePath,
+      "1",
+      `"${p.command}" must run with cmd.exe's current-folder lookup off`,
+    );
+  }
+  if (process.platform === "win32")
+    assert.equal(
+      fs.existsSync(marker),
+      false,
+      "a node.cmd in the folder Nimbalyst was started from ran in place of Node.js",
+    );
+  assert.equal(home, os.homedir().replace(/\\/g, "/"));
+}
+ok(
+  "homeDir and sendNote run in the extension's folder with the current-folder lookup off; a planted node.cmd never runs",
+);
 
 // ---- finding the Send button: a sample modelled on the composer markup in the app's renderer code
 // (no DOM library is installed, so this is a small stand-in tree that understands the selectors used)
@@ -619,3 +701,6 @@ ok(
 ok(
   "the Note button rescan runs while the page keeps changing faster than its 150 ms wait",
 );
+
+// Removed at the end: right after the planted run Windows can still hold the new node.cmd (EPERM)
+fs.rmSync(planted, { recursive: true, force: true });

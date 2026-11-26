@@ -53,7 +53,7 @@ models, 2026-09-16). Re-check this file when a new model ships; trust the famili
 
 ## C. Word choice (2026 Claude vocabulary; goes stale)
 
-13. **The agent words.** load-bearing, genuinely, "honest" as a label (my honest take, the honest answer),
+13. **The agent words.** load-bearing, genuinely, "honest" as a label ("my honest take", "the honest answer"),
     quietly, seam, earns (its keep), dependable, belt and suspenders, smoking gun, heavy lifting, blast radius
     (outside security text), the whole thing, the shape of, deliberately. Fix: the plain word for what you mean
     ("important", "the part the rest depends on"), or cut; a ban only breeds the next synonym. ["The

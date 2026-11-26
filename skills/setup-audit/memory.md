@@ -8,7 +8,7 @@ keeps it monthly.
 Memory has one job, how to work with this user, since only the main session reads it: a fact
 belongs in `docs/facts.md`, a decision in `DECISIONS.md`, a rule in `CLAUDE.md` or a rule file.
 
-Work from your `claude-settings` project folder: `DECISIONS.md` and `audits/` live there.
+Work from your `claude-settings` project folder: `DECISIONS.md` lives there, and this check's report goes to its `docs/` (step 5).
 
 ## 1. Pick the projects
 
@@ -70,7 +70,8 @@ numbered list, each item the note's full path, what is wrong (kind and the evide
 proposed action. This file is what makes the check monthly: the next check is due when the newest
 `docs/<yyyy-mm-dd>-memory-check.md` is over 31 days old, so write it on every run, also when nothing was found. Then one `PromptForUserInput` with one `multiSelect`,
 nothing ticked in advance, the same items, then right after it an optional `editText` "Anything else?"
-(`minLength: 0`). If nothing was found, say so and ask nothing.
+(`minLength: 0`). Outside Nimbalyst: the same items as a numbered list in the reply, and ask which numbers to
+do. If nothing was found, say so and ask nothing.
 
 ## 6. Do only what was ticked
 

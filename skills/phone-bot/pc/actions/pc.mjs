@@ -1,6 +1,7 @@
 // PC status and Start Nimbalyst (actions 1 and 2 of the PC program design). Nimbalyst's own .exe is one of the
-// three programs the PC program may start: a fixed path, no arguments, no shell.
-import { spawn } from "node:child_process";
+// three programs the PC program may start: a fixed path, no arguments, no shell. Before a start, Windows' tasklist
+// (a fixed path under SystemRoot, fixed arguments, no shell) says whether Nimbalyst.exe already runs.
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -163,6 +164,43 @@ export function startCommand() {
   };
 }
 
+// Whether this user runs a program with the file name of `file`, from tasklist's CSV lines ("Nimbalyst.exe","1234",
+// ...). Other lines (the "no tasks" note, in the system's language) name no program. Another user's copy (another
+// Windows session on the PC) does not count: it is not the one the phone talks to.
+function programRuns(file) {
+  if (!process.env.SystemRoot)
+    throw new Error("SystemRoot is not set: cannot find tasklist");
+  const name = path.basename(file);
+  const user = process.env.USERNAME || os.userInfo().username;
+  const who = process.env.USERDOMAIN
+    ? `${process.env.USERDOMAIN}\\${user}`
+    : user;
+  return new Promise((resolve, reject) => {
+    execFile(
+      path.win32.join(process.env.SystemRoot, "System32", "tasklist.exe"),
+      [
+        "/FI",
+        `IMAGENAME eq ${name}`,
+        "/FI",
+        `USERNAME eq ${who}`,
+        "/FO",
+        "CSV",
+        "/NH",
+      ],
+      { shell: false, windowsHide: true, timeout: 15_000 },
+      (e, stdout) => {
+        if (e) return reject(new Error(`tasklist failed: ${e.message}`));
+        const want = `"${name.toLowerCase()}",`;
+        resolve(
+          stdout
+            .split(/\r?\n/)
+            .some((l) => l.trim().toLowerCase().startsWith(want)),
+        );
+      },
+    );
+  });
+}
+
 function watchStart(child, push) {
   const since = Date.now();
   starting = { since };
@@ -211,7 +249,7 @@ export function register(registry) {
 
   registry.add({
     name: "nimbalyst.start",
-    run: (_d, ctx) => {
+    run: async (_d, ctx) => {
       const state = nimbalystState();
       if (state === "open" || state === "starting")
         throw new ActionError("already-open", { state });
@@ -222,6 +260,27 @@ export function register(registry) {
       }
       if (!fs.existsSync(cmd.file))
         throw new ActionError("nimbalyst-missing", { file: cmd.file });
+      // Nimbalyst runs but its endpoint file is gone, so it reads closed. A second copy would quit at once (and, as
+      // it quits, delete the endpoint file of the running one), so the phone would read "failed". A check that
+      // cannot run is logged and Start goes on as it did before the check.
+      let runs = false;
+      try {
+        runs = await programRuns(cmd.file);
+      } catch (e) {
+        log(
+          "nimbalyst",
+          `could not check whether Nimbalyst.exe runs: ${e.message}`,
+        );
+      }
+      if (runs) {
+        log("nimbalyst", "start refused: Nimbalyst.exe already runs");
+        throw new ActionError("nimbalyst-running", {
+          message:
+            "Nimbalyst is already running on the PC, but the phone cannot reach it. Restart Nimbalyst on the PC.",
+        });
+      }
+      if (starting || nimbalystState() === "open")
+        throw new ActionError("already-open", { state: nimbalystState() });
       const child = spawn(cmd.file, cmd.args, cmd.options);
       child.unref();
       log("nimbalyst", "starting");

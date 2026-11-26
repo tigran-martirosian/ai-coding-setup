@@ -15,7 +15,7 @@ export const DEFAULTS: ReadAloudSettings = {
   speed: 1.0,
   skipCodeBlocks: true,
   skipTerminalOutput: true,
-  ttsDirectory: "C:\\LocalTTS",
+  ttsDirectory: "", // empty: %LOCALAPPDATA%\LocalTTS (folderSafety.ts ttsDir)
 };
 
 /** American English voices only; af_sky is the default. */

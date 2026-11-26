@@ -227,6 +227,26 @@ check(
   parsePush("git push --force origin feat:main")?.refs.join() === "feat",
   "parsePush: source of a refspec",
 );
+// A folder named with variables: unexpanded, git could not start and every such push asked the user
+{
+  process.env.PKS_TEST_HOME = "C:\\Data";
+  const viaVar = parsePush(
+    `D="$PKS_TEST_HOME/desk"; git -C "$D" add x && git -C "$D" push -q origin HEAD:main`,
+  );
+  const viaEnv = parsePush(`git -C "$PKS_TEST_HOME/desk" push`);
+  const viaBraces = parsePush(`git -C "\${PKS_TEST_HOME}/desk" push`);
+  const unknown = parsePush(`git -C "$PKS_NOT_SET/desk" push`);
+  check(
+    viaVar?.dir === "C:/Data/desk" &&
+      viaEnv?.dir === "C:/Data/desk" &&
+      viaBraces?.dir === "C:/Data/desk",
+    `parsePush: variables in git -C are read as the shell would (got ${viaVar?.dir}, ${viaEnv?.dir}, ${viaBraces?.dir})`,
+  );
+  check(
+    unknown?.dir === "$PKS_NOT_SET/desk",
+    `parsePush: an unknown variable is left as written (got ${unknown?.dir})`,
+  );
+}
 
 // Reports and digests hide keys: a chat digest once held a pasted Anthropic key in plain text
 {
@@ -427,6 +447,8 @@ for (const [what, fake] of [
 ]) {
   const dir = repo({ commit: { "app.js": "x = 1\n" } });
   const a = answer(bash(dir, "git push"), { SHIP_CHECK_GITLEAKS: fake });
+  // A bound kept on purpose: the hook gives gitleaks 10 s (GITLEAKS_MS) and must answer before the dispatcher's 45 s
+  // group limit, or the push is blocked instead of asked; 30 s leaves 20 s for a busy computer.
   said(
     `D1 ask: a gitleaks that ${what}; the reason says the broad scan could not run`,
     a.decision === "ask" && /could not run/i.test(a.reason) && a.ms < 30000,

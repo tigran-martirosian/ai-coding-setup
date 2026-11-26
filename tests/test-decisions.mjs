@@ -21,7 +21,7 @@ const tmp = fs.realpathSync(
 const home = path.join(tmp, "home");
 const temp = path.join(tmp, "temp");
 fs.mkdirSync(temp, { recursive: true });
-// the lasting-failure record goes under the home folder, the lock under the temp folder: both made up here
+// the lasting-failure record and the lock go under the home folder, made up here with the temp folder
 Object.assign(process.env, {
   HOME: home,
   USERPROFILE: home,
@@ -114,10 +114,14 @@ const diff = (a, b) =>
   [...new Set([...Object.keys(a), ...Object.keys(b)])]
     .filter((k) => a[k] !== b[k])
     .join(", ");
+// the lock is the user's own, under ~/.claude/hooks/state, never in the shared temp folder another account can plant
 const lockDir = (dir) =>
   path.join(
-    temp,
-    "claude-decisions-lock",
+    home,
+    ".claude",
+    "hooks",
+    "state",
+    "decisions-lock",
     crypto.createHash("sha1").update(fileKey(dir)).digest("hex").slice(0, 16),
   );
 
@@ -1117,6 +1121,146 @@ for (const src of real) {
     after[f]?.startsWith("# Qualità\n\n## Qualità\n") &&
       after[D].includes(`- \`${f}\`: Qualità\n`),
     `${after[f]?.split("\n")[0]} | ${after[D]}`,
+  );
+}
+
+{
+  // T18: a planted cut-off run naming a file outside the decisions files: nothing is written, the run stops
+  const dir = project({ [D]: T7 });
+  const lock = lockDir(dir);
+  fs.mkdirSync(lock, { recursive: true });
+  fs.writeFileSync(
+    path.join(lock, "owner.json"),
+    JSON.stringify({
+      pid: 999999,
+      started: new Date(Date.now() - 11 * 60000).toISOString(),
+    }),
+  );
+  fs.writeFileSync(
+    path.join(lock, "restore.json"),
+    JSON.stringify({
+      files: {
+        "../escaped.txt": {
+          before: Buffer.from("planted").toString("base64"),
+          after: null,
+        },
+      },
+    }),
+  );
+  const before = snap(dir);
+  const r = run(dir, ["--split"]);
+  check(
+    "T18: restore data naming a file outside the decisions files is refused and writes nothing",
+    r.code === 1 &&
+      r.out.includes("not a decisions file") &&
+      !fs.existsSync(path.join(dir, "..", "escaped.txt")) &&
+      same(before, snap(dir)),
+    r.out,
+  );
+}
+
+{
+  // T19: a cut-off run's restore data in the old lock folder (the shared temp folder) is never replayed, nor left
+  // unseen: the run stops and names it
+  const dir = project({ [D]: T7 });
+  const old = path.join(
+    temp,
+    "claude-decisions-lock",
+    path.basename(lockDir(dir)),
+  );
+  fs.mkdirSync(old, { recursive: true });
+  fs.writeFileSync(
+    path.join(old, "restore.json"),
+    JSON.stringify({ files: {} }),
+  );
+  const before = snap(dir);
+  const r = run(dir, ["--split"]);
+  check(
+    "T19: restore data in the old temp-folder lock stops the run, names the file, and writes nothing",
+    r.code === 1 &&
+      r.out.includes(path.join(old, "restore.json")) &&
+      fs.existsSync(path.join(old, "restore.json")) &&
+      same(before, snap(dir)),
+    r.out,
+  );
+  fs.rmSync(path.join(temp, "claude-decisions-lock"), {
+    recursive: true,
+    force: true,
+  });
+}
+
+{
+  // T20: two runs find the same stale lock; the one that comes second is told busy (exit 2), it neither takes the
+  // lock over too nor crashes. The fault plays the first run taking it over just after this one read the old owner.
+  const dir = project({ [D]: T7 });
+  const lock = lockDir(dir);
+  fs.mkdirSync(lock, { recursive: true });
+  fs.writeFileSync(
+    path.join(lock, "owner.json"),
+    JSON.stringify({
+      pid: 999999,
+      started: new Date(Date.now() - 11 * 60000).toISOString(),
+    }),
+  );
+  const before = snap(dir);
+  const r = run(dir, ["--split"], "lock-race");
+  check(
+    "T20: a stale lock another run took over first: exit 2 busy, nothing written",
+    r.code === 2 &&
+      r.out.startsWith("decisions: busy") &&
+      same(before, snap(dir)),
+    r.out,
+  );
+  fs.rmSync(lock, { recursive: true, force: true });
+}
+
+{
+  // T21: restore data of the wrong shape is refused with the file named, not half replayed or dropped
+  const shapes = [
+    ["files is a list", { files: [] }],
+    ["before is a number", { files: { [D]: { before: 5, after: null } } }],
+    ["after is an object", { files: { [D]: { before: null, after: {} } } }],
+  ];
+  for (const [what, data] of shapes) {
+    const dir = project({ [D]: T7 });
+    const lock = lockDir(dir);
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(
+      path.join(lock, "owner.json"),
+      JSON.stringify({
+        pid: 999999,
+        started: new Date(Date.now() - 11 * 60000).toISOString(),
+      }),
+    );
+    fs.writeFileSync(path.join(lock, "restore.json"), JSON.stringify(data));
+    const before = snap(dir);
+    const r = run(dir, ["--split"]);
+    check(
+      `T21: restore data where ${what} stops the run naming restore.json, writes nothing, keeps the data`,
+      r.code === 1 &&
+        r.out.includes(path.join(lock, "restore.json")) &&
+        fs.existsSync(path.join(lock, "restore.json")) &&
+        same(before, snap(dir)),
+      r.out,
+    );
+  }
+}
+
+// T22: the same heading twice where the first section's lines are also the start of the second: each section is
+// in the job file once, so the split goes through (the internal "twice" check must not count the longer section)
+{
+  const dir = project({
+    [D]: `${T1}
+## 2026-11-12: Third job
+
+- **Entry twelve** keep it · *user, 2026-11-12*
+- **No date entry** keeps no date · *user*
+- **Twelve again** later · *user, 2026-11-12*
+`,
+  });
+  splitAndProve(
+    "T22 a section that is the start of a later one with the same heading",
+    dir,
   );
 }
 

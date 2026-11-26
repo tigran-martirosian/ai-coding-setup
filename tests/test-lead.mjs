@@ -52,7 +52,9 @@ check(
 );
 check(
   "lead: the plan is written from the spec and the folder, with no DECISIONS read and no purpose quotes",
-  /No DECISIONS read, no purpose quotes/.test(lead),
+  /Don't read a `DECISIONS\.md` file, and don't quote the user's purpose in each slice/.test(
+    lead,
+  ),
 );
 // ---- D3: split only at a clean interface
 check(
@@ -196,7 +198,7 @@ check(
 check(
   "plan-reviewer: checks the plan's Coverage and the slice fields the lead writes",
   /under the plan's Coverage/.test(planReviewer) &&
-    /All eight fields are there/.test(planReviewer),
+    /All nine fields are there/.test(planReviewer),
 );
 
 // ---- the run (setup review 2.5)
@@ -283,6 +285,24 @@ check(
       leadEnd,
     ),
 );
+// the closing lines feed the findings inbox that the nightly run files on the tracker; it parses each line by these
+// four parts, so a changed key or path leaves the lead's findings unread
+const closingRef =
+  leadRef.match(/## The closing lines\r?\n([\s\S]*?)\r?\n## /)?.[1] || "";
+const inboxLine =
+  /- from: <[^>]+> \| kind: bug\|change \| seen: <[^>]+> \| fix: <[^>]+>/;
+check(
+  "lead: the closing lines append each change or bug still to make to ~/.claude/findings/<YYYY-MM-DD>.md as one '- from: | kind: bug|change | seen: | fix:' line, or the nightly run never files them",
+  closingRef.includes("~/.claude/findings/") &&
+    /mkdir -p/.test(closingRef) &&
+    inboxLine.test(closingRef),
+);
+check(
+  "lead: the closing lines read the tracker's open items before writing to the findings inbox, so a filed finding is not filed twice",
+  /tracker's open items/.test(closingRef) &&
+    closingRef.indexOf("tracker's open items") <
+      closingRef.indexOf("~/.claude/findings/"),
+);
 check(
   "lead: the blind look's answer is saved word for word as the page's verdict.md in .proof/<page name>/, and the three kinds of check are named once",
   /\*\*Save the answer\*\* word for word as `verdict\.md` beside the shots in `\.proof\/<page name>\/`/.test(
@@ -314,10 +334,11 @@ const rulesFile = ["CLAUDE.md", path.join("rules", "CLAUDE.md")]
   .find((f) => fs.existsSync(f));
 check("the rules file exists", !!rulesFile);
 const rules = rulesFile ? fs.readFileSync(rulesFile, "utf8") : "";
+// the size rule's bullet with its indented sub-bullets (Small, Medium, Big)
 const sizeLine =
-  rules
-    .split(/\r?\n/)
-    .find((l) => l.includes("**Size each ask in one line first**")) || "";
+  rules.match(
+    /^- \*\*Size each ask in one line first\*\*[^\n]*(?:\r?\n[ \t]+[^\n]*)*/m,
+  )?.[0] || "";
 check(
   "rules: each ask is sized small, medium or big in one line, and the user can overrule it",
   /"Small: doing it now" \/ "Medium: 2 questions first" \/ "Big: questions, then a plan"\); the user can overrule it in a word/.test(

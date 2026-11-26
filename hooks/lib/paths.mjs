@@ -1,4 +1,5 @@
-// Paths the hooks all work out: Git Bash's /c/x, the project folder, a file's comparison key, a session id as a file name.
+// Paths the hooks all work out: Git Bash's /c/x, the project folder, a file's comparison key, a session id as a file name,
+// a Windows program's full path.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -48,3 +49,15 @@ export function setMark(marks, file, sha) {
 
 // A session id as a file name
 export const sessionKey = (id) => String(id || "none").replace(/[^\w-]/g, "");
+
+// A Windows program by its full path under %SystemRoot%\System32 (rel: "taskkill.exe",
+// "WindowsPowerShell/v1.0/powershell.exe"). A bare name is looked up in the working folder and on PATH first, so a
+// planted program of that name would run instead, and a PATH without the folder fails with ENOENT. git stays a bare
+// name in the setup: it has no fixed system folder.
+export function system32Exe(rel) {
+  if (!process.env.SystemRoot)
+    throw new Error(`SystemRoot is not set, so ${rel} cannot be found`);
+  return path.win32.join(process.env.SystemRoot, "System32", rel);
+}
+export const powershellExe = () =>
+  system32Exe("WindowsPowerShell/v1.0/powershell.exe");

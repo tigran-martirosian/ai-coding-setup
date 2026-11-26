@@ -338,13 +338,23 @@ export function chunkForSpeech(
   return chunks;
 }
 
-/** Break an over-long sentence at clause punctuation, then at word boundaries. */
+/**
+ * Break an over-long sentence at clause punctuation, then at word boundaries; a word longer than `max` (a
+ * blob, a long name, text with no spaces) is cut into pieces of `max`, so no chunk goes over the backend's cap.
+ */
 function splitLong(sentence: string, max: number): string[] {
   if (sentence.length <= max) return [sentence];
   const out: string[] = [];
   let cur = "";
+  // whole code points, so a cut never splits an emoji or other surrogate pair
+  const piece = new RegExp(`[\\s\\S]{1,${max}}`, "gu");
   for (const clause of sentence.split(/(?<=[,;:])\s+/)) {
-    const words = clause.length > max ? clause.split(" ") : [clause];
+    const words =
+      clause.length > max
+        ? clause
+            .split(" ")
+            .flatMap((w) => (w.length > max ? (w.match(piece) ?? []) : [w]))
+        : [clause];
     for (const w of words) {
       if (!cur) cur = w;
       else if (cur.length + 1 + w.length <= max) cur += " " + w;

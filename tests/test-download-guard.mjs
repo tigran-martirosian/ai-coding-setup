@@ -1,9 +1,14 @@
-// Tests for hooks/download-guard.mjs against a HEAD server on 127.0.0.1 started here. Run: node test-download-guard.mjs
+// Tests for hooks/download-guard.mjs against a HEAD server on 127.0.0.1 started here. The hook refuses to probe a
+// private or local address, so the hook runs with a preload that sends the made-up public host dl.test to that
+// server, below the hook's own address check. Run: node test-download-guard.mjs
 process.env.HOOK_ERRORS_LOG = "off"; // junk input must not leave lines in the hooks' crash log
 
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
-import { fileURLToPath } from "node:url";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const hook = fileURLToPath(
   new URL("../hooks/download-guard.mjs", import.meta.url),
@@ -12,10 +17,19 @@ const worker = fileURLToPath(
   new URL("../workers/download.mjs", import.meta.url),
 ).replace(/\\/g, "/");
 
-// HEAD only: /big.bin 60 MB, /small.bin 1 KB, /unknown.bin no Content-Length
+// HEAD only: /big.bin 60 MB, /small.bin 1 KB, /unknown.bin no Content-Length, /to-local a redirect to
+// 127.0.0.1's /big.bin?hop. `seen` keeps every path asked for.
+const seen = [];
 const server = http.createServer((req, res) => {
+  seen.push(req.url);
   const name = req.url.split("?")[0];
-  if (name === "/big.bin")
+  if (name === "/to-local")
+    res.writeHead(302, {
+      Location: `http://127.0.0.1:${server.address().port}/big.bin?hop`,
+    });
+  else if (name === "/bad-redirect")
+    res.writeHead(302, { Location: "http://[not-an-address/x" });
+  else if (name === "/big.bin")
     res.writeHead(200, { "Content-Length": 60e6, "Accept-Ranges": "bytes" });
   else if (name === "/small.bin")
     res.writeHead(200, { "Content-Length": 1000 });
@@ -25,17 +39,49 @@ const server = http.createServer((req, res) => {
   res.end();
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
-const base = `http://127.0.0.1:${server.address().port}`;
+const port = server.address().port;
+const base = `http://dl.test:${port}`;
+const local = `http://127.0.0.1:${port}`;
 
-// spawn, not spawnSync: the server in this process has to answer the hook's HEAD request
+// The stand-in for DNS and a public server: a connection to dl.test goes to 127.0.0.1. Loaded before the hook,
+// so the hook's address check wraps it and sees dl.test, as it would see a public host.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "test-download-guard-"));
+const shim = path.join(tmp, "dl-test-host.mjs");
+fs.writeFileSync(
+  shim,
+  `import net from "node:net";
+const connect = net.Socket.prototype.connect;
+net.Socket.prototype.connect = function (...args) {
+  const o = Array.isArray(args[0]) ? args[0][0] : args[0];
+  if (o && typeof o === "object" && o.host === "dl.test") { o.host = "127.0.0.1"; delete o.lookup; }
+  return connect.apply(this, args);
+};
+`,
+);
+
+// spawn, not spawnSync: the server in this process has to answer the hook's HEAD request. `lastExit` keeps the
+// exit code of the last run.
+let lastExit = null;
 const run = (input, env = {}) =>
   new Promise((resolve) => {
-    const child = spawn(process.execPath, [hook], {
-      env: { ...process.env, DOWNLOAD_GUARD: "", COMMAND_EXPLAIN: "", ...env },
-    });
+    const child = spawn(
+      process.execPath,
+      ["--import", pathToFileURL(shim).href, hook],
+      {
+        env: {
+          ...process.env,
+          DOWNLOAD_GUARD: "",
+          COMMAND_EXPLAIN: "",
+          ...env,
+        },
+      },
+    );
     let out = "";
     child.stdout.on("data", (d) => (out += d));
-    child.on("close", () => resolve(out));
+    child.on("close", (code) => {
+      lastExit = code;
+      resolve(out);
+    });
     child.stdin.end(
       typeof input === "string"
         ? input
@@ -216,6 +262,12 @@ const cases = [
     { tool_name: "Read", tool_input: { file_path: "x" } },
     null,
   ],
+  // As command-explain does: a good note keeps its words and gets the empty line, not a second stand-in note
+  [
+    "big curl, a note with no empty line before it: the empty line put in, no stand-in added",
+    bash(`curl -L -o model.bin ${base}/big.bin${NOTE.slice(1)}`),
+    `${N} ${base}/big.bin model.bin${NOTE}`,
+  ],
 ];
 
 let fail = 0;
@@ -338,6 +390,37 @@ for (const mode of ["default", "acceptEdits", "bypassPermissions", "plan"])
     );
   }
 
+// The size probe never reaches a private or local address: not given as an address, not through a name that
+// resolves to one, not through a redirect
+for (const [name, url, mark] of [
+  ["an address", `${local}/big.bin?direct`, "/big.bin?direct"],
+  [
+    "a name that resolves to it",
+    `http://localhost:${port}/big.bin?name`,
+    "/big.bin?name",
+  ],
+  ["a redirect", `${base}/to-local`, "/big.bin?hop"],
+]) {
+  seen.length = 0;
+  const out = await run(bash(`curl -L -o x.bin ${url}`));
+  check(
+    `a size probe is never sent to a local address through ${name}: the probe must refuse private, loopback and link-local addresses on every hop`,
+    out === "" && !seen.includes(mark),
+    `${out || "(nothing)"} | server saw ${JSON.stringify(seen)}`,
+  );
+}
+
+// A redirect to an address that does not parse ends the probe with no size; the hook does not crash
+{
+  const out = await run(bash(`curl -L -o x.bin ${base}/bad-redirect`));
+  check(
+    "a redirect to a broken address: the hook stays silent and exits 0; the probe must reject a Location it cannot parse, not throw",
+    out === "" && lastExit === 0,
+    `${out || "(nothing)"} | exit ${lastExit}`,
+  );
+}
+
 server.close();
+fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fail ? `${fail} failed` : "all passed");
 process.exitCode = fail ? 1 : 0;
