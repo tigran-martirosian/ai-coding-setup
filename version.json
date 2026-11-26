@@ -1,9 +1,9 @@
 {
-  "version": "26.6.3",
+  "version": "26.6.4",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-26",
-  "summary": "Long jobs move to a fresh session on their own, three new skills, many safety fixes",
+  "summary": "Bot chat topics read at a glance: Inbox, Sessions and Files",
   "releases": {
     "26.6.3": {
       "kind": "quiet",
@@ -129,6 +129,11 @@
       "kind": "setup",
       "important": true,
       "headline": "The setup, rebuilt: one path for big jobs, a Try it button, 23 hooks cut, a guided tour"
+    },
+    "26.6.4": {
+      "kind": "files",
+      "important": false,
+      "headline": "Bot chat topics get an emoji each; the alert topic is now called Sessions"
     }
   }
 }

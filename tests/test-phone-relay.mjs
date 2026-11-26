@@ -1671,9 +1671,9 @@ await relay.close();
     "topic mode on: a paired PC's sign-in creates Inbox, Alerts and Files once in its chat (FAIL: no topics, or made twice)",
     made(),
     [
-      { chat_id: OWNER, name: "Inbox" },
-      { chat_id: OWNER, name: "Alerts" },
-      { chat_id: OWNER, name: "Files" },
+      { chat_id: OWNER, name: "📥 Inbox" },
+      { chat_id: OWNER, name: "💬 Sessions" },
+      { chat_id: OWNER, name: "📎 Files" },
     ],
   );
   same(
@@ -1730,7 +1730,7 @@ await relay.close();
   same(
     "a kept Files topic the user deleted is found at sign-in and made again (FAIL: the dead id is trusted and no Files topic exists)",
     [made().length, made().at(-1).name, relay.map.get(`topics:${OWNER}`).files],
-    [4, "Files", 54],
+    [4, "📎 Files", 54],
   );
   same(
     "the Open button is not sent again on a later sign-in, only into the remade Files topic (FAIL: a new pin every sign-in, or none in the new topic)",
@@ -1743,7 +1743,7 @@ await relay.close();
   same(
     "an Alerts topic the user deleted is made again once and the alert sent into the new one",
     [answer, made().length, made().at(-1).name, lastAlert().message_thread_id],
-    [[], 5, "Alerts", 55],
+    [[], 5, "💬 Sessions", 55],
   );
 
   const [, fwd] = await hook({
@@ -1773,7 +1773,7 @@ await relay.close();
       (c) =>
         c.method === "editForumTopic" &&
         c.params.message_thread_id === 54 &&
-        c.params.name !== "Files",
+        c.params.name !== "📎 Files",
     ).length,
     0,
   );
@@ -2473,7 +2473,7 @@ await relay.close();
         .map((c) => c.params.name),
       relay.map.get(`topics:${OWNER}`).files,
     ],
-    [[200, 200], ["Files"], 81],
+    [[200, 200], ["📎 Files"], 81],
   );
   await relay.close();
 }

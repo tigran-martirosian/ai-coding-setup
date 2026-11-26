@@ -6,6 +6,11 @@ Each entry describes the setup as it was at that release, so older entries name 
 
 ## [Unreleased]
 
+## [26.6.4] - 2026-11-26
+
+### Phone app
+- The bot chat's topics are named "📥 Inbox", "💬 Sessions" and "📎 Files", so session alerts are easy to tell apart and to mute on their own. Topics already made are renamed at the PC's next sign-in.
+
 ## [26.6.3] - 2026-11-26
 
 ### Big jobs

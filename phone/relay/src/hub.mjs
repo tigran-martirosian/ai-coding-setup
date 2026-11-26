@@ -59,13 +59,18 @@ const ALERT_OPEN = /^[A-Za-z0-9_-]{1,16}$/;
 // deletes a message only while it is under 48 hours old, so older ones are dropped. bot.mjs reads the same keys.
 const ALERT_LIFE = 2 * DAY;
 const alertKey = (tgId, open) => `alert:${tgId}:${open}`;
-// Topics (files contract, section 7): with the bot's topic mode on, each chat gets an "Inbox" topic for what the
-// user sends to the PC, an "Alerts" topic for alerts and a "Files" topic for documents, made in that order. Their
+// Topics (files contract, section 7): with the bot's topic mode on, each chat gets an "📥 Inbox" topic for what the
+// user sends to the PC, a "💬 Sessions" topic for session alerts and a "📎 Files" topic for documents, made in that order
+// (the keys stay inbox, alerts, files; sign-in renames a kept topic to these names). Their
 // thread ids are kept as `topics:<chat>` -> { inbox, alerts, files, at }; bot.mjs removes them on the
 // `remove-topics` command. Telegram answers a send into a deleted topic "message thread not found" and an edit of
 // one "TOPIC_ID_INVALID", but a chat action into one succeeds (checked live 2026-11-18), so a kept topic is checked
 // with an edit of its own name.
-export const TOPIC_NAMES = { inbox: "Inbox", alerts: "Alerts", files: "Files" };
+export const TOPIC_NAMES = {
+  inbox: "📥 Inbox",
+  alerts: "💬 Sessions",
+  files: "📎 Files",
+};
 const topicKey = (tgId) => `topics:${tgId}`;
 const THREAD_GONE = /message thread not found|TOPIC_ID_INVALID/i;
 // Files to Telegram and to a browser (files contract, section 6): kept in the Hub's memory and the PC socket's
@@ -1352,7 +1357,7 @@ export function createHub(env) {
 
   // ---- the webhook check (worker.mjs's `scheduled`, every few minutes) ----
 
-  // A message to the owner about what the check could not fix: into the owner's Alerts topic in topic mode, else
+  // A message to the owner about what the check could not fix: into the owner's Sessions topic in topic mode, else
   // the plain chat.
   async function alertOwner(text) {
     const me = await telegram("getMe", {});
@@ -1478,7 +1483,7 @@ export function createHub(env) {
         result = "refused";
       }
     }
-    // Kept before the alert: an alert that fails (the owner blocked the bot, the Alerts topic is gone) must not
+    // Kept before the alert: an alert that fails (the owner blocked the bot, the Sessions topic is gone) must not
     // make every run set the webhook and alert again.
     if (JSON.stringify(next) !== JSON.stringify(kept))
       await store.put(HEAL_KEY, next);
