@@ -1,9 +1,9 @@
 {
-  "version": "26.6.4",
+  "version": "26.6.5",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-26",
-  "summary": "Bot chat topics read at a glance: Inbox, Sessions and Files",
+  "summary": "Phone voice sets itself up again after an update",
   "releases": {
     "26.6.3": {
       "kind": "quiet",
@@ -134,6 +134,11 @@
       "kind": "files",
       "important": false,
       "headline": "Bot chat topics get an emoji each; the alert topic is now called Sessions"
+    },
+    "26.6.5": {
+      "kind": "files",
+      "important": true,
+      "headline": "Phone voice sets itself up again after an update changes its packages"
     }
   }
 }
