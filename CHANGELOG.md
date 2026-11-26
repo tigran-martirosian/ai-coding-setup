@@ -4,6 +4,15 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.6.2.1] - 2026-11-26
+
+### Docs
+- The setup is now called Stratus, with a new logo and banner.
+- A shorter README: what it is, requirements and install first, then what you get, what leaves your computer, limits and help.
+- The docs are split by what you want to do: getting started, using it, reference, and how it works, with one start page.
+- Facts in the docs were checked against the code, and contradictions fixed.
+- The how-to copied into your claude-settings folder links to the docs pages on GitHub, so its links work there.
+
 ## [26.6.2] - 2026-11-25
 
 ### Phone app

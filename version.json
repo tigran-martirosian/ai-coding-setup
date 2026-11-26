@@ -1,10 +1,15 @@
 {
-  "version": "26.6.2",
+  "version": "26.6.2.1",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
-  "date": "2026-11-25",
-  "summary": "The phone app never loses a message, takes any file, and opens faster",
+  "date": "2026-11-26",
+  "summary": "A clearer README and docs, split by what you want to do",
   "releases": {
+    "26.6.2.1": {
+      "kind": "quiet",
+      "important": false,
+      "headline": "A clearer README and docs, split by what you want to do"
+    },
     "26.6.2": {
       "kind": "quiet",
       "important": true,

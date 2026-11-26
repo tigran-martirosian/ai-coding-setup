@@ -14,6 +14,9 @@ import {
 import { filesIn, fwd, read, sha } from "./files.mjs";
 import { retire, wire } from "./wiring.mjs";
 
+// Where the docs are published (the same address as skills/update-setup/update.mjs's REPO_URL)
+const DOCS_URL =
+  "https://github.com/tigran-martirosian/ai-coding-setup/blob/main/";
 const NOTE = "## Workers on this computer";
 // The lines about a missing worker, as the last section of a folder's CLAUDE.md; none when nothing is missing
 function withNote(text, wanted) {
@@ -183,7 +186,12 @@ export function projects(ctx) {
         fs.readFileSync(path.join(REPO, "docs", "HOW-TO.md")),
       )
         .toString("utf8")
-        .replace(/\r\n/g, "\n");
+        .replace(/\r\n/g, "\n")
+        // the copy sits alone in claude-settings, so a link to another docs page points at its page on GitHub
+        .replace(
+          /\]\((?![a-z][a-z0-9+.-]*:|#|\/)([^)\s]+)\)/gi,
+          (_, rel) => `](${DOCS_URL}${path.posix.normalize(`docs/${rel}`)})`,
+        );
       const ours = asWritten(howTo);
       put(howTo, Buffer.from(text), { keep: !ours });
       if (ours || !fs.existsSync(howTo) || read(howTo) === text)
