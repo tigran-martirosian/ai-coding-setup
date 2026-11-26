@@ -90,7 +90,7 @@ Claude first says in one line whether an ask is small, medium or big. Name anoth
 - **Medium:** one to three questions with recommended answers, done-when lines for your OK, then built.
 - **Big:** a spec with a check per line, a plan you approve, helpers building the parts side by side, one review against the spec.
 
-What to say: [Using Stratus](docs/HOW-TO.md). Each step: [Big jobs](docs/using/big-jobs.md).
+What to say: [Using Stratus](docs/HOW-TO.md). Each step: [Big jobs](docs/using/big-jobs.md). The whole process, step by step, and how Stratus keeps improving: [The development process](docs/how-it-works/development-process.md).
 
 ## What you get
 

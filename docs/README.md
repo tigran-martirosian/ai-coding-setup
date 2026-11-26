@@ -32,6 +32,8 @@ Each area of [Using Stratus](HOW-TO.md) has its own page:
 
 ## How it works
 
+- [The development process](how-it-works/development-process.md): each step a careful team follows, what in
+  Stratus enforces it, the security layers, and measured results.
 - [How the parts fit together](how-it-works/overview.md): when the rules, hooks, skills and helpers act, what each
   folder of the repository holds, and the tests.
 - [What the install does](how-it-works/install.md): one install run from start to end, and what `--uninstall` takes
