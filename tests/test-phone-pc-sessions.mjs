@@ -366,6 +366,14 @@ const WORKSPACES = Object.entries(P).map(([name, p]) => ({ name, path: p }));
 const doorState = new Map(); // session -> { status, pendingPrompt, clearOnAnswer }
 const queues = new Map(); // session -> [{ id, prompt, createdAt, status? }] (status "pending" when not set)
 const madeOnCreate = new Map(); // project path -> how many sessions create_session leaves
+// tool -> what the door throws instead of answering ({ rpc } or { refuse }, see fake-door.mjs)
+const refusing = {};
+// Nimbalyst's own refusals when a calling session has its children in use (MetaAgentService,
+// assertChildSpawnCapacity): 4 running at once, or 50 made in its lifetime.
+const CHILD_LIMIT =
+  "Too many child sessions running at once (4/4 in flight). Wait for a spawned session to finish before spawning more.";
+const LIFETIME_LIMIT =
+  "Meta-agent lifetime spawn backstop reached (50 total children spawned by this parent); refusing to spawn more";
 let qn = 0;
 const st = (id) => {
   if (!doorState.has(id)) {
@@ -506,6 +514,7 @@ function handle(name, a, call) {
         .join("\n");
     }
     case "spawn_session":
+      if (refusing.spawn_session) throw refusing.spawn_session;
       return {
         sessionId: addSession({
           workspace_id: call.workspacePath,
@@ -513,6 +522,7 @@ function handle(name, a, call) {
         }),
       };
     case "create_session": {
+      if (refusing.create_session) throw refusing.create_session;
       const n = madeOnCreate.get(call.workspacePath) ?? 0;
       for (let i = 0; i < n; i++)
         addSession({ workspace_id: call.workspacePath, title: "New Session" });
@@ -1370,6 +1380,67 @@ try {
       callsOf("send_prompt", m9).length === 0,
     show(twoMade),
   );
+  // The newest session has its 4 children running: spawn_session from it is refused. The phone's session then
+  // starts with no calling session, which counts against no session's limit.
+  refusing.spawn_session = { rpc: CHILD_LIMIT };
+  madeOnCreate.set(P.alpha, 1);
+  const m10 = door.calls.length;
+  const pastLimit = await ask("session.new", {
+    project: handleOf.alpha,
+    text: "past the limit",
+  });
+  const pastSend = callsOf("send_prompt", m10);
+  const pastCreate = callsOf("create_session", m10);
+  check(
+    "a refused spawn_session (child limit) starts the new session with no calling session, and sends the text to it",
+    pastLimit.ok &&
+      callsOf("spawn_session", m10).length === 1 &&
+      pastCreate.length === 1 &&
+      pastCreate[0].caller === null &&
+      pastSend.length === 1 &&
+      pastSend[0].args.sessionId === pastLimit.d.session &&
+      pastSend[0].args.prompt.startsWith("past the limit"),
+    show({ pastLimit, pastCreate, pastSend }),
+  );
+  // Refused both ways: the phone gets the answer word session-limit, whichever shape the refusal has.
+  refusing.spawn_session = { refuse: CHILD_LIMIT };
+  refusing.create_session = { rpc: CHILD_LIMIT };
+  const limitRpc = await ask("session.new", {
+    project: handleOf.alpha,
+    text: "x",
+  });
+  refusing.create_session = { refuse: LIFETIME_LIMIT };
+  const limitResult = await ask("session.new", {
+    project: handleOf.alpha,
+    text: "x",
+  });
+  check(
+    "a child-limit refusal that still reaches the phone answers session-limit, with the door's words",
+    limitRpc.err === "session-limit" &&
+      /Too many child sessions/.test(limitRpc.message) &&
+      limitResult.err === "session-limit" &&
+      /lifetime spawn backstop/.test(limitResult.message),
+    show({ limitRpc, limitResult }),
+  );
+  refusing.create_session = undefined;
+  refusing.spawn_session = {
+    rpc: "Parent session x not found in this workspace",
+  };
+  const m11 = door.calls.length;
+  const otherRefusal = await ask("session.new", {
+    project: handleOf.alpha,
+    text: "x",
+  });
+  check(
+    "a spawn_session refusal for another reason stays door-error and starts no session another way",
+    otherRefusal.err === "door-error" &&
+      /not found/.test(otherRefusal.message) &&
+      callsOf("create_session", m11).length === 0,
+    show(otherRefusal),
+  );
+  refusing.spawn_session = undefined;
+  madeOnCreate.delete(P.alpha);
+
   const newUnknown = await ask("session.new", {
     project: "BBBBBBBBBBBB",
     text: "x",

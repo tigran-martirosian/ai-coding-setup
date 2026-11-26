@@ -2,9 +2,12 @@
 // registry.add({ name, input, run }). The phone can ask for nothing else: any other name is
 // answered "not-offered". Inputs are checked here before `run` sees them.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { log } from "./log.mjs";
+import { appDir } from "./mode.mjs";
+import { createSentIds, MID_INPUT } from "./sent-ids.mjs";
 
 // An answer with ok: false. `extra` adds fields such as { field } or { tool }.
 export class ActionError extends Error {
@@ -50,12 +53,73 @@ function checkInput(spec, d) {
   return data;
 }
 
+const WIN = process.platform === "win32";
+// An absolute path in quotes: Node's and PowerShell's messages quote the paths they name.
+const QUOTED_PATH = /(['"])((?:[A-Za-z]:[\\/]|[\\/]{2}|\/)[^'"\r\n]*)\1/g;
+
+// A folder as a pattern: either slash between its parts, any case on Windows, and only the whole last name (a home
+// folder named "an" never matches one named "anna").
+function folderPattern(dir) {
+  const parts = path
+    .resolve(dir)
+    .split(/[\\/]+/)
+    .filter(Boolean);
+  const text = parts
+    .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[\\\\/]+");
+  return new RegExp(
+    `${WIN ? "" : "/"}${text}(?=[\\\\/'"\\s]|$)`,
+    WIN ? "gi" : "g",
+  );
+}
+
+// A text as the phone sees it: the PC's folders are not shown. Node puts full paths in its messages (EPERM, EBUSY,
+// ENOENT: "rename 'C:\...\a.txt' -> 'C:\...\b.txt'"), PowerShell in its words. The paths an error names (`known`)
+// and any quoted absolute path keep only their last names; the app folder and the home folder left in the text read
+// <app folder> and ~. The PC log keeps the whole message.
+function hidePaths(text, known = []) {
+  let m = String(text);
+  for (const p of known)
+    if (typeof p === "string" && p) m = m.split(p).join(path.basename(p));
+  m = m.replace(QUOTED_PATH, (_, q, p) => `${q}${path.basename(p)}${q}`);
+  m = m.replace(folderPattern(appDir()), "<app folder>");
+  return m.replace(folderPattern(os.homedir()), "~");
+}
+
+// The free-text fields of a refusal, with the PC's folders hidden.
+function shownExtra(extra) {
+  const out = { ...extra };
+  for (const k of ["why", "message"])
+    if (typeof out[k] === "string") out[k] = hidePaths(out[k]);
+  return out;
+}
+
+function refusal(action, e) {
+  if (e instanceof ActionError) {
+    // relay-failed's reason (a message and a network code) is logged; other reasons may hold session labels,
+    // another program's text or Telegram's, which pc.log never holds.
+    const why = e.err === "relay-failed" ? `: ${e.extra.why}` : "";
+    log("refused", `${e.err} ${action.name}${why}`);
+    return { ok: false, err: e.err, ...shownExtra(e.extra) };
+  }
+  if (e.code === "file-refused") return { ok: false, err: "file-refused" };
+  log("error", `${action.name}: ${e.message}`);
+  return {
+    ok: false,
+    err: "failed",
+    message: hidePaths(e.message, [e.path, e.dest]),
+  };
+}
+
 export function createRegistry() {
   const actions = new Map();
   let source = "(code)";
+  const once = createSentIds();
 
   const registry = {
-    add({ name, input = {}, run }) {
+    // `once`: the action takes an optional message id `mid` and runs once per device and id (core/sent-ids.mjs).
+    add({ name, input = {}, run, once: onlyOnce = false }) {
+      if (onlyOnce) input = { ...input, mid: MID_INPUT };
       if (!NAME.test(name || ""))
         throw new Error(`${source}: action name "${name}" is not area.verb`);
       if (typeof run !== "function")
@@ -78,10 +142,14 @@ export function createRegistry() {
         throw new Error(
           `action "${name}" is registered by both ${had.source} and ${source}`,
         );
-      actions.set(name, { name, input, run, source });
+      actions.set(name, { name, input, run, source, once: onlyOnce });
     },
 
     names: () => [...actions.keys()].sort(),
+
+    // True for an action whose input names a whole stream (folder.put, attach.put, voice.transcribe).
+    takesStream: (name) =>
+      Object.hasOwn(actions.get(name)?.input ?? {}, "stream"),
 
     // Imports every .mjs file of `dir`, sorted, and calls its register(registry).
     async load(dir) {
@@ -102,29 +170,55 @@ export function createRegistry() {
       }
     },
 
+    // The hello says so: a page may give Send, Queue, Note and New session a message id (core/sent-ids.mjs).
+    takesIds: true,
+
     // req is the opened body { k: "req", id, a, d }; ctx is { device, page, push }. Returns the res body.
     async handle(req, ctx) {
       const id = typeof req.id === "string" ? req.id.slice(0, 64) : null;
-      const answer = (ok, rest) => ({ k: "res", id, ok, ...rest });
       const action = actions.get(req.a);
       if (!action) {
         log("refused", `not-offered ${String(req.a).slice(0, 40)}`);
-        return answer(false, { err: "not-offered" });
+        return { k: "res", id, ok: false, err: "not-offered" };
       }
-      try {
-        const d = checkInput(action.input, req.d);
-        return answer(true, { d: await action.run(d, ctx) });
-      } catch (e) {
-        if (e instanceof ActionError) {
-          log("refused", `${e.err} ${action.name}`);
-          return answer(false, { err: e.err, ...e.extra });
-        }
-        if (e.code === "file-refused")
-          return answer(false, { err: "file-refused" });
-        log("error", `${action.name}: ${e.message}`);
-        return answer(false, { err: "failed", message: e.message });
-      }
+      return { k: "res", id, ...(await outcome(action, req.d, ctx)) };
     },
   };
+
+  // An action's answer without the request id: { ok: true, d } or { ok: false, err, ... }. An action added with
+  // `once` runs once per device and message id; a repeat gets the first answer.
+  async function outcome(action, data, ctx) {
+    let d;
+    try {
+      d = checkInput(action.input, data);
+    } catch (e) {
+      return refusal(action, e);
+    }
+    if (!action.once || d.mid === undefined) return runOnce(action, d, ctx);
+    const { mid, ...rest } = d;
+    try {
+      return await once(
+        String(ctx.device),
+        mid,
+        action.name,
+        () => runOnce(action, rest, ctx),
+        {
+          refuse: () =>
+            refusal(action, new ActionError("bad-input", { field: "mid" })),
+          unclear: () => refusal(action, new ActionError("send-unclear")),
+        },
+      );
+    } catch (e) {
+      return refusal(action, e);
+    }
+  }
+
+  async function runOnce(action, d, ctx) {
+    try {
+      return { ok: true, d: await action.run(d, ctx) };
+    } catch (e) {
+      return refusal(action, e);
+    }
+  }
   return registry;
 }

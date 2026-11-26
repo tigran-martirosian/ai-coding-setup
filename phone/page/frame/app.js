@@ -1,7 +1,8 @@
 // The frame (DS1 section 2): start-up, the screen in view, the tab bar, the main and back buttons, and the link
-// to the PC. It closes the socket when the page is hidden and, when shown again, opens a new one with a new hello
-// and draws the screen again, so every screen asks for fresh state (pipe design, section 9); a live session goes
-// on from where it was instead. While the link is down it shows one calm connecting view (phone steady design,
+// to the PC. The socket stays while the page is hidden; when it is shown again one ping checks it (a dead one is
+// replaced, with a new hello) and the screen is drawn again, so every screen asks for fresh state (pipe design,
+// section 9); a live session goes on from where it was instead. Every new session sends the outbox's waiting
+// messages again (frame/outbox.js). While the link is down it shows one calm connecting view (phone steady design,
 // section 4). It opens at once (comfort design, sections 2 to 4): a tab screen kept on the phone is drawn before the
 // first hello, marked "Updating" until fresh; where nothing is kept, the skeleton from index.html stands. Only the
 // tab screens load first; the other screens load after the first draw.
@@ -26,6 +27,7 @@ import {
   savePairing,
 } from "./keystore.js";
 import { offers } from "./offers.js";
+import { outbox } from "./outbox.js";
 import {
   hasScreen,
   isLoaded,
@@ -48,6 +50,7 @@ const RETRY_CAP_S = 30; // a retry waits a random time up to 2^n s, at most this
 // its first ping keeps the waits growing.
 const UP_RESET_MS = 45_000;
 const QUIET_MS = 2000; // after a drop the screen stays as it was this long
+const CHECK_MS = 3000; // the page shown again: its socket's pong comes in this long, or it is replaced
 const OFFLINE_HOLD_MS = 20_000; // the relay's offline answers this long, with no good hello between: "PC off"
 const LONG_MS = 30_000; // connecting this long without reaching the relay: the internet line
 const RELOAD_GAP_MS = 5 * 60_000; // a page stuck before its socket opens reloads at most once in this time
@@ -114,6 +117,7 @@ const st = {
   tabY: new Map(), // tab screen id -> its scroll when the user left it
   listeners: new Set(),
   beforeSleep: new Set(), // sends that must go out before the link closes
+  linkWaits: [], // ctx.linked() calls waiting for a session with the PC
   // An alert's Open button opens /?o=<handle>; once linked, the PC turns the handle into its session.
   alert: new URLSearchParams(location.search).get("o"),
   notice: null, // a line about the alert that could not be opened
@@ -253,6 +257,7 @@ async function connect() {
     st.upAt = Date.now();
     const first = !st.ever;
     st.ever = true;
+    for (const go of st.linkWaits.splice(0)) go(s.hello);
     s.ended.then((e) => {
       if (st.session !== s) return;
       st.session = null;
@@ -264,6 +269,9 @@ async function connect() {
     // A screen that can go on from where it was (a live session) keeps what it shows; others draw afresh.
     if (!first && samePage && st.resume?.() === true) drawStatus();
     else draw();
+    // Messages a dropped link left waiting go again; the PC answers a repeat with its first answer. A PC that takes
+    // no ids (put back to an older version) gets none of them: without an id a repeat could run twice.
+    if (s.hello.ids === true) outbox.flush((a, d) => s.ask(a, d));
     if (st.alert) openAlert(s);
   } catch (e) {
     if (!mine()) return;
@@ -384,31 +392,37 @@ function tryAgain() {
   drawStatus();
 }
 
-// The page is hidden: answers still in their Undo go out first (the user saw them as sent), then the bye.
+// The page is hidden: answers still in their Undo go out at once (the user saw them as sent). A live session and
+// its socket stay (phone outbox approach, "The hang-up when hidden"); an attempt under way stops, and a socket with
+// no session closes.
 async function sleep() {
   if (st.asleep) return;
   st.asleep = true;
   clearTimeout(st.timer);
   st.attempt++;
   st.connecting = false;
+  if (!st.session) dropLink();
   const waiting = [...st.beforeSleep];
   st.beforeSleep.clear();
-  if (waiting.length) {
-    await Promise.allSettled(waiting.map((fn) => fn()));
-    if (!st.asleep) return; // shown again meanwhile: the session stays
-  }
-  const s = st.session;
-  const link = st.link;
-  if (s) st.liveAt = Date.now();
-  st.session = null;
-  st.link = null;
-  if (s) s.bye().finally(() => link?.close());
-  else link?.close();
+  await Promise.allSettled(waiting.map((fn) => fn()));
 }
 
-function wake() {
+// The page is shown again. iOS may have frozen it and the socket died meanwhile without a word: one ping checks a
+// kept session; its pong keeps it and the screen is drawn again, no pong (or no session) connects anew.
+async function wake() {
   if (!st.asleep) return;
   st.asleep = false;
+  const s = st.session;
+  if (s && st.link && !st.link.closed) {
+    const alive = await st.link.check(CHECK_MS);
+    if (st.asleep) return;
+    if (alive) {
+      if (st.session !== s) return;
+      if (st.resume?.() === true) drawStatus();
+      else draw();
+      return;
+    }
+  }
   lost(); // the quiet 2 s count from the wake, not from when the page was hidden
   reconnectNow();
 }
@@ -546,7 +560,10 @@ function ctx(params) {
     params,
     tg: st.tg,
     pageVersion: PAGE_VERSION,
-    hello: st.hello,
+    // Read when asked, as `connected`: a screen drawn from what it kept sees the hello once it comes.
+    get hello() {
+      return st.hello;
+    },
     // Read when asked: a screen kept through a drop sees the link as it is now.
     get connected() {
       return Boolean(st.session);
@@ -562,6 +579,12 @@ function ctx(params) {
     onResume(fn) {
       st.resume = fn;
     },
+    // Resolves with the hello once a session with the PC is up (at once when one is): a Send made before the link
+    // waits on it.
+    linked: () =>
+      st.session
+        ? Promise.resolve(st.hello)
+        : new Promise((go) => st.linkWaits.push(go)),
     // `ms` is how long to wait for the answer; none keeps the channel's 30 s.
     ask(action, data, ms) {
       if (!st.session) return Promise.reject(new ChannelError("not-connected"));

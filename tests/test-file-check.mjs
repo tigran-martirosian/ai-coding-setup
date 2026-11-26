@@ -952,6 +952,37 @@ check(
   `${u8.out}\n${JSON.stringify(snapshot(half))}`,
 );
 
+// ---- P11: docs/ with more than 20 loose files asks for topic folders; 20 or fewer, or files in folders, don't
+const loose = (n, sub = "") =>
+  Object.fromEntries(
+    Array.from({ length: n }, (_, i) => [
+      `docs/${sub}2026-11-${String(i + 1).padStart(2, "0")}-note.md`,
+      "# n\n",
+    ]),
+  );
+const many = path.join(tmp, "elsewhere", "docs-many");
+gitRepo(many, { "README.md": "# m\n", ...loose(21) });
+const fewer = path.join(tmp, "elsewhere", "docs-sorted");
+gitRepo(fewer, {
+  "README.md": "# s\n",
+  ...loose(20),
+  ...loose(30, "phone-app/"),
+});
+const p11 = byPath(json(many), "docs");
+const fewerP11 = json(fewer).findings.filter((f) => f.rules.includes("P11"));
+check(
+  "P11: 21 loose files in docs/ is one ask on docs, naming the count",
+  p11?.rules.includes("P11") &&
+    p11.kind === "ask" &&
+    p11.why.startsWith("21 loose files"),
+  JSON.stringify(p11),
+);
+check(
+  "P11: 20 loose files and 30 in a topic folder ask nothing",
+  fewerP11.length === 0,
+  JSON.stringify(fewerP11),
+);
+
 // ---- 9. names that say what a file does (N8), Python copies, folders as one finding, documents, folder roles (P8)
 // Spec 2026-11-20-file-names D1-D4. A guard of a new rule counts only once the rule's hit is there: before, it
 // proves nothing.

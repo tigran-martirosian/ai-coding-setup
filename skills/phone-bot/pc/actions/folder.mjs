@@ -491,7 +491,10 @@ async function sendToChat(rel) {
     });
     body = await res.json().catch(() => null);
   } catch (e) {
-    throw new ActionError("relay-failed", { why: e.message });
+    // fetch says only "fetch failed": its cause's code (ECONNRESET, UND_ERR_SOCKET) says why. The cause's message
+    // is left out, as it can hold the relay's address.
+    const code = typeof e.cause?.code === "string" ? ` (${e.cause.code})` : "";
+    throw new ActionError("relay-failed", { why: `${e.message}${code}` });
   }
   if (body?.ok === true) {
     log("folder", `sent to chat: ${size} bytes`);
@@ -604,7 +607,13 @@ export function folderFrame(f) {
 
 const PATH_INPUT = { type: "string", min: 1, max: PATH_MAX };
 const DIR_INPUT = { type: "string", min: 0, max: PATH_MAX };
-const NAME_INPUT = { type: "string", min: 1, max: NAME_MAX };
+// One name: a slash in it would make or move into another folder.
+const NAME_INPUT = {
+  type: "string",
+  min: 1,
+  max: NAME_MAX,
+  pattern: /^[^/\\]+$/,
+};
 const STREAM_INPUT = {
   type: "string",
   min: 1,

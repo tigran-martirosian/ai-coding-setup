@@ -82,6 +82,7 @@ export function openLink({ url, initData, WebSocket: Socket }) {
   });
   let pinger = null;
   let pongWait = null;
+  const pongWaiters = new Set(); // check()s waiting for the next pong
   // Timers that never keep a Node test run alive (a browser's timer ids have no unref).
   const unref = (t) => {
     t?.unref?.();
@@ -92,6 +93,7 @@ export function openLink({ url, initData, WebSocket: Socket }) {
     closed = c;
     clearInterval(pinger);
     clearTimeout(pongWait);
+    for (const fn of [...pongWaiters]) fn(false);
     markClosed(closed);
   }
 
@@ -149,6 +151,31 @@ export function openLink({ url, initData, WebSocket: Socket }) {
         // a socket still connecting or already gone: nothing more to close
       }
     },
+    // One ping now: resolves true on its pong within `ms`, false on none (the link is then dropped) or a closed
+    // link. The page shown again asks this of a socket that may have died while it was hidden.
+    check(ms) {
+      if (closed) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        const done = (ok) => {
+          clearTimeout(timer);
+          pongWaiters.delete(done);
+          resolve(ok);
+        };
+        const timer = unref(
+          setTimeout(() => {
+            done(false);
+            link.drop("no-pong");
+          }, ms),
+        );
+        pongWaiters.add(done);
+        try {
+          ws.send(PING);
+        } catch {
+          done(false);
+          link.drop("no-pong");
+        }
+      });
+    },
     get closed() {
       return closed;
     },
@@ -170,6 +197,7 @@ export function openLink({ url, initData, WebSocket: Socket }) {
     if (f.t === "pong") {
       clearTimeout(pongWait);
       pongWait = null;
+      for (const fn of [...pongWaiters]) fn(true);
       return;
     }
     for (const fn of [...listeners]) fn(f);
@@ -542,6 +570,9 @@ export async function openSession(link, { K, dev, pageVersion, onEvent }) {
       page: hello.page,
       // The PC's action names, or null from a PC of 26.3.3 or older, which sends no list.
       actions: Array.isArray(hello.actions) ? hello.actions : null,
+      // The PC takes message ids on Send, Queue, Note and New session (the outbox, frame/outbox.js); false from a
+      // PC older than 26.6.2.
+      ids: hello.ids === true,
     },
     ended,
     // Resolves with the PC's answer body: { k: "res", id, ok: true, d } or { ok: false, err }.

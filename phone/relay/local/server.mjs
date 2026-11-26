@@ -1,5 +1,6 @@
 // The local relay: the same Hub as on Cloudflare, run in plain Node for the tests and for trying the page on the
-// PC. node:http serves the page files with the content policy of the pipe design (section 6), `/ws` goes to the
+// PC. node:http serves the page files with the content policy of the pipe design (section 6), packed with br or gzip
+// when asked, with an ETag and a 304 to a repeat (Cloudflare's static assets do the same), `/ws` goes to the
 // Hub through ws.mjs, `POST /tg/hook` to the Hub's webhook, the file routes (`POST /pc/send`, `POST /pc/dl/<link>`,
 // `GET` or `HEAD /dl/<token>`) to the Hub as streams. The store is a Map the caller can dump whole; with
 // `storeFile` it is also kept in that file, so a stopped and started relay has its pairings, as on Cloudflare.
@@ -8,12 +9,14 @@
 // it a file send fails with a clear error, as every Bot API call of a relay run by hand does.
 //   node phone/relay/local/server.mjs --page <dir> --port <n> --bot-id <n> --owner <tgId> --telegram-key <hex>
 //     [--store <file>]
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { pipeline, Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import v8 from "node:v8";
+import zlib from "node:zlib";
 import { createHub, PING, PONG } from "../src/hub.mjs";
 import { upgrade } from "./ws.mjs";
 
@@ -106,8 +109,10 @@ function saveStore(file, map) {
   fs.renameSync(`${file}.part`, file);
 }
 
-// Starts the local relay. Returns { url, map, hub, idle(), close() }: idle() waits until the Hub has handled
-// everything received so far. opts.storeFile (optional): the file the store is read from at start and kept in.
+// Starts the local relay. Returns { url, map, hub, idle(), heal(), sleep(), close() }: idle() waits until the Hub has
+// handled everything received so far; heal() runs the scheduled webhook check; sleep() then drops the Hub's memory,
+// as a Cloudflare object put to sleep. opts.storeFile (optional): the file the store is read from at start and kept
+// in. opts.webhookSecret (optional): the secret heal() sets the webhook with.
 export async function startLocalRelay(opts) {
   for (const name of REQUIRED) {
     if (opts[name] === undefined)
@@ -130,26 +135,30 @@ export async function startLocalRelay(opts) {
     close: (c, code, reason) => c.close(code, reason),
     lastPing: (c) => c.lastPing || null,
   };
-  const hub = createHub({
-    store: mapStore(map, save),
-    sockets,
-    telegram: opts.telegram,
-    upload:
-      opts.upload ??
-      (async () => {
-        throw new Error("the local relay was given no upload (file send)");
-      }),
-    fixedStream: fixedLengthStream,
-    download: opts.download,
-    now: opts.now,
-    log: opts.log,
-    botId: opts.botId,
-    ownerTgId: opts.ownerTgId,
-    telegramKey: opts.telegramKey,
-    // Optional here, as on Cloudflare where only the test copy sets TOPIC_SUFFIX.
-    topicSuffix: opts.topicSuffix ?? "",
-    bot: opts.bot,
-  });
+  // Cloudflare builds the Hub again each time the object wakes from sleep: the store, the sockets and their
+  // attachments are kept, the Hub's memory is not. sleep() does the same here.
+  const makeHub = () =>
+    createHub({
+      store: mapStore(map, save),
+      sockets,
+      telegram: opts.telegram,
+      upload:
+        opts.upload ??
+        (async () => {
+          throw new Error("the local relay was given no upload (file send)");
+        }),
+      fixedStream: fixedLengthStream,
+      download: opts.download,
+      now: opts.now,
+      log: opts.log,
+      botId: opts.botId,
+      ownerTgId: opts.ownerTgId,
+      telegramKey: opts.telegramKey,
+      // Optional here, as on Cloudflare where only the test copy sets TOPIC_SUFFIX.
+      topicSuffix: opts.topicSuffix ?? "",
+      bot: opts.bot,
+    });
+  let hub = makeHub();
 
   let queue = Promise.resolve();
   const run = (conn, job) => {
@@ -169,8 +178,14 @@ export async function startLocalRelay(opts) {
     if (!fromPc && req.method !== "GET" && req.method !== "HEAD")
       return answer(res, 405, "GET only");
     let body = null;
+    // Fires when the client breaks off before the answer is sent, as Cloudflare's request.signal does.
+    const brokenOff = new AbortController();
+    res.on("close", () => {
+      if (!res.writableFinished) brokenOff.abort();
+    });
     const call = {
       headers: req.headers,
+      signal: brokenOff.signal,
       get body() {
         body ??= Readable.toWeb(req);
         return body;
@@ -223,8 +238,26 @@ export async function startLocalRelay(opts) {
       return answer(res, 404, "not found", PAGE_HEADERS);
     const type = TYPES[path.extname(file)];
     if (!type) return answer(res, 404, "unknown file type", PAGE_HEADERS);
-    res.writeHead(200, { "Content-Type": type, ...PAGE_HEADERS });
-    res.end(req.method === "HEAD" ? undefined : fs.readFileSync(file));
+    const { etag, body, encoding } = pageFile(
+      file,
+      req.headers["accept-encoding"],
+    );
+    // no-cache: the phone keeps the file but asks each time, as Cloudflare's assets answer; the names carry no
+    // hash, so nothing may be kept as immutable.
+    const headers = {
+      "Content-Type": type,
+      ETag: etag,
+      Vary: "Accept-Encoding",
+      "Cache-Control": "no-cache",
+      ...PAGE_HEADERS,
+    };
+    if (matches(req.headers["if-none-match"], etag)) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    if (encoding) headers["Content-Encoding"] = encoding;
+    res.writeHead(200, { ...headers, "Content-Length": body.length });
+    res.end(req.method === "HEAD" ? undefined : body);
   });
 
   server.on("upgrade", (req, socket, head) => {
@@ -255,8 +288,23 @@ export async function startLocalRelay(opts) {
   return {
     url: url(),
     map,
-    hub,
+    get hub() {
+      return hub;
+    },
     idle: () => queue,
+    // The scheduled webhook check, as Cloudflare's cron runs it (worker.mjs `scheduled`): in the Hub's turn, with
+    // this relay's address and opts.webhookSecret. Returns the Hub's answer; an error is thrown, not logged.
+    heal: () => {
+      const job = queue.then(() =>
+        hub.heal({ origin: url(), webhookSecret: opts.webhookSecret }),
+      );
+      queue = job.catch(() => {});
+      return job;
+    },
+    sleep: async () => {
+      await queue;
+      hub = makeHub();
+    },
     close: async () => {
       for (const c of conns) c.close(1001, "going-away");
       await queue;
@@ -265,6 +313,70 @@ export async function startLocalRelay(opts) {
       await new Promise((done) => server.close(done));
     },
   };
+}
+
+// A page file as sent: br or gzip when the client asks and the type packs well, with an ETag from its bytes and the
+// encoding (one ETag per form, as each form is other bytes). Each form is made once and kept until the file changes:
+// its size, modified time, change time or file number (a tool may write the same size and put the old modified
+// time back; the change time then still moves, and a file put in by rename has a new number).
+const PACKED = new Set([".html", ".js", ".mjs", ".css", ".json", ".svg"]);
+const STAT_KEYS = ["size", "mtimeMs", "ctimeMs", "ino"];
+const pageCache = new Map();
+function pageFile(file, acceptEncoding) {
+  const stat = fs.statSync(file);
+  let entry = pageCache.get(file);
+  if (!entry || STAT_KEYS.some((k) => entry.stat[k] !== stat[k])) {
+    const raw = fs.readFileSync(file);
+    entry = {
+      stat: Object.fromEntries(STAT_KEYS.map((k) => [k, stat[k]])),
+      raw,
+      hash: createHash("sha256").update(raw).digest("base64url").slice(0, 22),
+      packed: {},
+    };
+    pageCache.set(file, entry);
+  }
+  const encoding = PACKED.has(path.extname(file))
+    ? pickEncoding(acceptEncoding)
+    : null;
+  if (!encoding)
+    return { etag: `"${entry.hash}"`, body: entry.raw, encoding: null };
+  entry.packed[encoding] ??=
+    encoding === "br"
+      ? zlib.brotliCompressSync(entry.raw)
+      : zlib.gzipSync(entry.raw);
+  return {
+    etag: `"${entry.hash}-${encoding}"`,
+    body: entry.packed[encoding],
+    encoding,
+  };
+}
+
+// br or gzip, whichever Accept-Encoding ranks higher by its q-values (RFC 9110; no q is 1, `*` stands for any
+// coding not named, q=0 refuses); br on a tie; null when it allows neither.
+function pickEncoding(acceptEncoding) {
+  const ranked = new Map();
+  for (const part of String(acceptEncoding ?? "").split(",")) {
+    const [name, ...params] = part.split(";").map((s) => s.trim());
+    if (!name) continue;
+    const q = params.find((p) => /^q=/i.test(p));
+    const weight = q === undefined ? 1 : Number(q.slice(2));
+    ranked.set(name.toLowerCase(), Number.isFinite(weight) ? weight : 0);
+  }
+  const weight = (name) => ranked.get(name) ?? ranked.get("*") ?? 0;
+  return (
+    ["br", "gzip"]
+      .filter((name) => weight(name) > 0)
+      .sort((a, b) => weight(b) - weight(a))[0] ?? null
+  );
+}
+
+// If-None-Match against an ETag: `*` or any listed tag, weak or strong (RFC 9110, weak comparison).
+function matches(ifNoneMatch, etag) {
+  if (!ifNoneMatch) return false;
+  if (ifNoneMatch.trim() === "*") return true;
+  return ifNoneMatch
+    .split(",")
+    .some((tag) => tag.trim().replace(/^W\//, "") === etag);
 }
 
 function answer(res, status, text, headers = {}) {

@@ -17,6 +17,11 @@ const empty = mkdtempSync(join(tmpdir(), "opencli-none-"));
 const HELP = {
   amazon: `Commands:
   product <asin> [options]            [read] Read an Amazon product page`,
+  gemini: `Commands:
+  ask <prompt> [options]              [write] Send a prompt to Gemini and return only the assistant response
+  image <prompt> [options]            [write] Generate images with Gemini web and save them locally
+  login [options]                     [write] Open gemini login and wait until the browser session is authenticated
+  read                                [read] Read the turns visible in the current Gemini web conversation`,
   facebook: `Commands:
   add-friend <user>                   [write] Send a friend request
   login [options]                     [write] Open Facebook login`,
@@ -150,6 +155,79 @@ check(
   "page reading: opencli browser me state passes",
   run("opencli browser me state"),
   "allow",
+);
+check(
+  "a prompt in the user's private assistant chat: gemini ask passes",
+  run('opencli gemini ask "Review this text" --new true --timeout 600'),
+  "allow",
+);
+check(
+  "other gemini writes stay denied: gemini login",
+  run("opencli gemini login"),
+  "deny",
+);
+check(
+  "other gemini writes stay denied: gemini image",
+  run('opencli gemini image "a cat"'),
+  "deny",
+);
+check(
+  "a write after a private chat prompt is denied",
+  run('opencli gemini ask "hi" && opencli reddit comment abc "hi"'),
+  "deny",
+);
+check(
+  "page driving in OpenCLI's own form: --session and --window values skipped",
+  run(
+    'opencli browser --session neon --window background open "https://example.com"',
+  ),
+  "allow",
+);
+check(
+  "a browser option before a site command skips no word there: --window reddit gemini ask",
+  run('opencli --window reddit gemini ask "hi"'),
+  "deny",
+);
+check(
+  "an unknown option between site and command is denied: reddit --site-session search comment",
+  run('opencli reddit --site-session search comment abc "hi"'),
+  "deny",
+);
+check(
+  "an unknown option before the page step is denied: --site-session x --keep-tab open eval",
+  run('opencli browser --site-session persistent --keep-tab open eval "x()"'),
+  "deny",
+);
+check(
+  "an unknown option before an own command is denied: --x list reddit comment",
+  run('opencli --x list reddit comment abc "hi"'),
+  "deny",
+);
+check(
+  "an unknown option before the site, with no command after, is denied: --x reddit",
+  run("opencli --x reddit"),
+  "deny",
+);
+check(
+  "an own command with its own option passes: list -f json",
+  run("opencli list -f json"),
+  "allow",
+);
+check("a version check passes: --version", run("opencli --version"), "allow");
+check(
+  "options after the step still pass: browser find --session neon --css",
+  run("opencli browser find --session neon --css 'button'"),
+  "allow",
+);
+check(
+  "options after a read command still pass",
+  run('opencli reddit search "x" --limit 5 -f yaml'),
+  "allow",
+);
+check(
+  "a session named eval does not hide a denied step",
+  run('opencli browser --session neon eval "document.forms[0].submit()"'),
+  "deny",
 );
 for (const cmd of [
   "opencli browser me eval \"fetch('/api/like', {method: 'POST'})\"",

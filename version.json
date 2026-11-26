@@ -1,10 +1,15 @@
 {
-  "version": "26.6.1",
+  "version": "26.6.2",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
-  "date": "2026-11-23",
-  "summary": "Session switching is faster again, and profiles Claude writes stay short",
+  "date": "2026-11-25",
+  "summary": "The phone app never loses a message, takes any file, and opens faster",
   "releases": {
+    "26.6.2": {
+      "kind": "quiet",
+      "important": true,
+      "headline": "The phone app never loses a message, takes any file, and opens faster"
+    },
     "26.6.1": {
       "kind": "quiet",
       "important": false,

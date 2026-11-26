@@ -353,6 +353,22 @@ const hasClass = (n, c) => n.className?.split(" ").includes(c);
 const byClass = (root, c) => walk(root).filter((n) => hasClass(n, c));
 
 const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
+// The build-only screens.generated.js, which cache.js reads STORE_SUFFIX from: "" as in a plain build. app.js's own
+// import of it gets the frame's stand-in below.
+registerHooks({
+  resolve(specifier, context, next) {
+    if (
+      specifier.endsWith("screens.generated.js") &&
+      new URL(specifier, context.parentURL).href ===
+        pageUrl("screens.generated.js")
+    )
+      return {
+        url: `data:text/javascript,${encodeURIComponent('export const STORE_SUFFIX = "";')}`,
+        shortCircuit: true,
+      };
+    return next(specifier, context);
+  },
+});
 const screens = await import(pageUrl("frame/screens.js"));
 await import(pageUrl("screens/home.js"));
 await import(pageUrl("screens/home-sessions.js"));
@@ -486,7 +502,9 @@ export const openLink = async () => {
   if (f.linkWait) await f.linkWait;
   if (f.linkFail) throw new ChannelError(f.linkFail);
   const link = { listeners: new Set(), closed: null, listen(fn) { link.listeners.add(fn); },
-    close() { link.closed = {}; }, drop() { link.closed = {}; } };
+    close() { link.closed = {}; }, drop() { link.closed = {}; },
+    // The ping on show: f.linkDead makes it miss its pong, and the link drops as the real one does.
+    async check() { if (f.linkDead) { link.closed = {}; f.end?.("closed"); return false; } return !link.closed; } };
   f.link = link;
   return link;
 };
@@ -795,19 +813,48 @@ try {
     show(afterBack.asked),
   );
 
+  // Hidden and shown, the socket alive: no new socket, the screen drawn again.
   from = frameFake.asked.length;
+  let opensAt = frameFake.opens;
   frameFake.events.deactivated();
   await tick();
   frameFake.events.activated();
   for (let i = 0; i < 3; i++) await tick();
-  const afterReconnect = {
+  const afterShow = {
+    opens: frameFake.opens - opensAt,
     rows: shownRows().length,
     place: placeNow(),
     asked: frameFake.asked.slice(from),
   };
   check(
-    "a reconnect redraws the project with its 60 rows, the three pages asked again and the 55th row in its place",
-    afterReconnect.rows === 60 &&
+    "shown again with its socket alive, the page keeps the socket and redraws the project with its 60 rows, the three pages asked again and the 55th row in its place",
+    afterShow.opens === 0 &&
+      afterShow.rows === 60 &&
+      near(afterShow.place) &&
+      show(afterShow.asked) === PAGES_1_TO_3,
+    show({ placeBefore, afterShow }),
+  );
+
+  // Hidden and shown, the socket dead (no pong): a new socket and the same redraw.
+  from = frameFake.asked.length;
+  opensAt = frameFake.opens;
+  frameFake.events.deactivated();
+  await tick();
+  frameFake.linkDead = true;
+  frameFake.events.activated();
+  for (let i = 0; i < 3; i++) await tick();
+  frameFake.linkDead = false;
+  for (let i = 0; i < 3; i++) await tick();
+  const afterReconnect = {
+    opens: frameFake.opens - opensAt,
+    rows: shownRows().length,
+    place: placeNow(),
+    asked: frameFake.asked.slice(from),
+  };
+  check(
+    "shown again with a dead socket, the page opens one new socket and redraws the project with its 60 rows, the three pages asked again and the 55th row in its place",
+    afterReconnect.opens === 1 &&
+      afterReconnect.rows === 60 &&
       near(afterReconnect.place) &&
       show(afterReconnect.asked) === PAGES_1_TO_3,
     show({ placeBefore, afterReconnect }),

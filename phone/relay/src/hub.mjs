@@ -68,7 +68,7 @@ export const TOPIC_NAMES = { inbox: "Inbox", alerts: "Alerts", files: "Files" };
 const topicKey = (tgId) => `topics:${tgId}`;
 const THREAD_GONE = /message thread not found|TOPIC_ID_INVALID/i;
 // Files to Telegram and to a browser (files contract, section 6): kept in the Hub's memory and the PC socket's
-// attachment only, never in the store.
+// attachment, never in the store, except a download link's few fields for its 2 minutes (`dl:`, below).
 const FILE_MAX = 50 * 1024 * 1024;
 // Send to chat: Telegram caps the whole sendDocument body at 50 MiB, multipart wrapping included (a 52,428,800-byte
 // file failed, 52,428,300 went; trial 2026-11-17), so the file itself stops at 50,000,000 bytes.
@@ -85,6 +85,28 @@ const REF = /^[A-Za-z0-9_-]{1,32}$/;
 const LINK_TOKEN = /^[A-Za-z0-9_-]{43}$/; // 32 bytes
 const EXPIRED = "This link has expired. Make a new one in the app.";
 const TELEGRAM_REFUSED = /^telegram \w+: /;
+// The webhook's settings besides its address and secret, shared by the deploy's pointBot and the webhook check.
+export const WEBHOOK_SETTINGS = {
+  allowed_updates: ["message", "callback_query"],
+  max_connections: 1,
+};
+// The webhook check's one store key: { unreached: ms when Telegram was first not reached, or null; setAt: ms of
+// the check's last setWebhook, or null; told: the problem the owner was last told of, or null once the webhook is
+// healthy again; seen401: { at: ms of a 401 a run saw but did not count, seenAt: ms of that run }, or null; off:
+// true once a run without the relay's address logged it }.
+const HEAL_KEY = "heal:webhook";
+const HEAL_START = {
+  unreached: null,
+  setAt: null,
+  told: null,
+  seen401: null,
+  off: false,
+};
+// A 401 sets the webhook again only when it goes on past a run that saw one, at least this long ago (the cron runs
+// every 5 minutes), and no longer than the fresh limit ago (an older sighting belongs to another time).
+const STALE_SETTLE_MS = 3 * 60_000;
+const STALE_FRESH_MS = 15 * 60_000;
+const ORIGIN = /^https?:\/\/[^/\s]+$/;
 const PC_ID = /^[A-Z2-7]{26}$/;
 const B64URL = /^[A-Za-z0-9_-]+$/;
 const VERSION = /^[0-9A-Za-z.+-]{1,32}$/;
@@ -184,6 +206,17 @@ export function createHub(env) {
   function closeWhere(match, code, reason) {
     for (const ws of live()) if (match(att(ws))) shut(ws, code, reason);
   }
+  // Counts one in the hour counter `field` ("alerts" or "files") kept in the attachment of the PC on ws; false at
+  // `limit`. It reads the attachment and writes it back with no wait between: a frame's copy read before a wait
+  // would undo what a file route counted meanwhile.
+  function hourCount(ws, field, limit) {
+    const a = att(ws);
+    const hour = Math.floor(now() / HOUR);
+    const n = a[field] && a[field].hour === hour ? a[field].n : 0;
+    if (n >= limit) return false;
+    sockets.setAttachment(ws, { ...a, [field]: { hour, n: n + 1 } });
+    return true;
+  }
 
   // Closes every socket silent too long (steady design, section 3). The time is the last ping the relay answered;
   // a PC that never pinged counts from its open, a phone that never pinged is kept (a page before 26.3.2 never
@@ -241,6 +274,10 @@ export function createHub(env) {
     }
     for (const [key, sent] of await store.list("alert:")) {
       if (t >= sent.at + ALERT_LIFE) await store.delete(key);
+    }
+    for (const [key, list] of await store.list("dl:")) {
+      const left = list.filter((l) => t < l.until);
+      if (left.length < list.length) await keepLinks(key, left);
     }
     const keep = [dayKey(t), dayKey(t - DAY)];
     for (const [key] of await store.list("day:")) {
@@ -704,6 +741,7 @@ export function createHub(env) {
     for (const prefix of [`held:${pcId}:`, `file:${pcId}:`]) {
       for (const [key] of await store.list(prefix)) await store.delete(key);
     }
+    await store.delete(linksKey(pcId));
     closeWhere(
       (x) => x.role === "pc" && x.pcId === pcId,
       CLOSE.removed,
@@ -822,14 +860,15 @@ export function createHub(env) {
     const pc = await store.get(`pc:${a.pcId}`);
     if (!pc) return shut(ws, CLOSE.removed, "removed");
     if (pc.tgId !== f.tgId) return fail(ws, "not-paired");
-    const hour = Math.floor(t / HOUR);
-    const sent = a.alerts && a.alerts.hour === hour ? a.alerts.n : 0;
-    if (sent >= ALERTS_PER_HOUR) return fail(ws, "alert-rate");
+    if (!hourCount(ws, "alerts", ALERTS_PER_HOUR))
+      return fail(ws, "alert-rate");
+    // The attachment as it is now: `a` was read before the waits above.
+    const fresh = att(ws);
+    const same = (x, y) => y && x.conn === y.conn && x.at === y.at;
     sockets.setAttachment(ws, {
-      ...a,
-      joins: a.joins.filter((x) => x !== j),
-      pairs: a.pairs.map((x) => (x === p ? { ...x, lined: true } : x)),
-      alerts: { hour, n: sent + 1 },
+      ...fresh,
+      joins: fresh.joins.filter((x) => !same(x, j)),
+      pairs: fresh.pairs.map((x) => (same(x, p) ? { ...x, lined: true } : x)),
     });
     await telegram("sendMessage", {
       chat_id: pc.tgId,
@@ -903,10 +942,8 @@ export function createHub(env) {
     if (typeof f.open !== "string" || !ALERT_OPEN.test(f.open))
       return fail(ws, "alert-open");
     if (typeof f.silent !== "boolean") return fail(ws, "alert-silent");
-    const hour = Math.floor(now() / HOUR);
-    const sent = a.alerts && a.alerts.hour === hour ? a.alerts.n : 0;
-    if (sent >= ALERTS_PER_HOUR) return fail(ws, "alert-rate");
-    sockets.setAttachment(ws, { ...a, alerts: { hour, n: sent + 1 } });
+    if (!hourCount(ws, "alerts", ALERTS_PER_HOUR))
+      return fail(ws, "alert-rate");
     const params = {
       chat_id: pc.tgId,
       text: f.text,
@@ -959,10 +996,26 @@ export function createHub(env) {
     }
   }
 
-  // ---- files to Telegram and to a browser (files contract, section 6): nothing is written to the store ----
+  // ---- files to Telegram and to a browser (files contract, section 6): only a link's fields go to the store ----
 
-  // A download link lives here only: lost when the object sleeps, and then the link answers 410 (section 6.3).
-  const links = new Map(); // SHA-256 hex of the link's token -> { pcId, ref, name, size, mime, until }
+  // Download links are kept in the store, since Telegram's download box fetches one only after the user confirms it
+  // and an idle object sleeps within seconds: `dl:<pcId>` -> [{ hash, ref, name, size, mime, until }], oldest
+  // first, hash the SHA-256 hex of the link's token (the token itself is never kept). A link goes when used, when
+  // its 2 minutes are over (sweep, dl-open, its GET) and with its PC.
+  const linksKey = (pcId) => `dl:${pcId}`;
+  // Keeps the links of a PC's list, and drops the list when none is left.
+  async function keepLinks(key, list) {
+    if (list.length) await store.put(key, list);
+    else await store.delete(key);
+  }
+  // The kept link of a token's hash: { key, list, l }, or null.
+  async function findLink(hash) {
+    for (const [key, list] of await store.list("dl:")) {
+      const l = list.find((x) => x.hash === hash);
+      if (l) return { key, list, l };
+    }
+    return null;
+  }
   const pulls = new Map(); // pull id (the `link` of dl-pull) -> { pcId, ref, size, writable, timer }
 
   const json = (status, value) => ({
@@ -988,19 +1041,14 @@ export function createHub(env) {
     return ws ? { ws, pc, pcId } : null;
   }
 
-  // Counts one send or link in the hour of the PC on ws (in its attachment, as alerts are); false over the limit.
-  function fileCount(ws) {
-    const a = att(ws);
-    const hour = Math.floor(now() / HOUR);
-    const n = a.files && a.files.hour === hour ? a.files.n : 0;
-    if (n >= FILES_PER_HOUR) return false;
-    sockets.setAttachment(ws, { ...a, files: { hour, n: n + 1 } });
-    return true;
-  }
+  // Counts one send or link in the hour of the PC on ws; false over the limit.
+  const fileCount = (ws) => hourCount(ws, "files", FILES_PER_HOUR);
 
   // POST /pc/send (section 6.2): the PC's file, as the request's body, goes to the paired user's chat as one
   // sendDocument, into the Files topic in topic mode. The body is piped into a multipart body of fixed length,
-  // never held whole. req is { headers (lower-case names), body } and body is read only when the send starts.
+  // never held whole. req is { headers (lower-case names), body, signal } and body is read only when the send starts.
+  // signal (optional) fires when the PC breaks off the request; it cancels the upload to Telegram, which would
+  // otherwise keep running with no one waiting for it.
   async function pcSend(req) {
     const caller = await fileCaller(req.headers);
     if (!caller) return NOBODY;
@@ -1053,6 +1101,13 @@ export function createHub(env) {
     const length = head.length + size + tail.length;
     const pipe = env.fixedStream(length);
     const stop = new AbortController();
+    let brokeOff = false;
+    const brokenOff = () => {
+      brokeOff = true;
+      stop.abort();
+    };
+    if (req.signal?.aborted) brokenOff();
+    req.signal?.addEventListener("abort", brokenOff, { once: true });
     const copy = (async () => {
       let w = pipe.writable.getWriter();
       await w.write(head);
@@ -1073,9 +1128,14 @@ export function createHub(env) {
         body: pipe.readable,
         length,
         type: `multipart/form-data; boundary=${boundary}`,
+        signal: stop.signal,
       });
     } catch (e) {
       stop.abort();
+      if (brokeOff) {
+        log("file send aborted: the PC broke off the request");
+        return refused(400, "aborted");
+      }
       if (!TELEGRAM_REFUSED.test(e.message)) {
         // The PC's body ended early or failed, or the bytes did not reach Telegram.
         log(`file send aborted: ${e.message}`);
@@ -1089,6 +1149,8 @@ export function createHub(env) {
         "telegram-refused",
         e.message.replace(TELEGRAM_REFUSED, ""),
       );
+    } finally {
+      req.signal?.removeEventListener("abort", brokenOff);
     }
     await copy;
     if (!Number.isSafeInteger(msg?.message_id))
@@ -1111,20 +1173,17 @@ export function createHub(env) {
       return no("limit");
     if (typeof f.mime !== "string" || !MIME.test(f.mime)) return no("bad-mime");
     if (!fileCount(ws)) return fail(ws, "files-rate");
-    const t = now();
-    for (const [key, l] of links) if (t >= l.until) links.delete(key);
-    const mine = [...links].filter(([, l]) => l.pcId === a.pcId);
-    if (mine.length >= LINKS_PER_PC) links.delete(mine[0][0]); // the oldest goes
     const token = randomB64url(32);
+    const hash = await sha256Hex(enc.encode(token));
+    const t = now();
     const until = t + LINK_LIFE;
-    links.set(await sha256Hex(enc.encode(token)), {
-      pcId: a.pcId,
-      ref: f.ref,
-      name: f.name,
-      size: f.size,
-      mime: f.mime,
-      until,
-    });
+    const key = linksKey(a.pcId);
+    // Read after the wait above, so a link used meanwhile is not written back.
+    const mine = ((await store.get(key)) ?? []).filter((l) => t < l.until);
+    await keepLinks(key, [
+      ...mine.slice(-(LINKS_PER_PC - 1)), // the oldest goes
+      { hash, ref: f.ref, name: f.name, size: f.size, mime: f.mime, until },
+    ]);
     reply(ws, {
       t: "dl-made",
       ref: f.ref,
@@ -1161,21 +1220,24 @@ export function createHub(env) {
     });
     if (typeof token !== "string" || !LINK_TOKEN.test(token))
       return say(410, EXPIRED);
-    const key = await sha256Hex(enc.encode(token));
-    const l = links.get(key);
-    if (!l || now() >= l.until) {
-      links.delete(key);
+    const found = await findLink(await sha256Hex(enc.encode(token)));
+    if (!found) return say(410, EXPIRED);
+    const { key, list, l } = found;
+    const rest = list.filter((x) => x !== l);
+    if (now() >= l.until) {
+      await keepLinks(key, rest);
       return say(410, EXPIRED);
     }
-    const ws = pcSocket(l.pcId);
+    const pcId = key.slice(3);
+    const ws = pcSocket(pcId);
     if (!ws) return say(503, "Your PC is offline.");
     const headers = downloadHeaders(l);
     if (method === "HEAD") return { status: 200, headers, body: null };
-    links.delete(key);
+    await keepLinks(key, rest);
     const pipe = env.fixedStream(l.size);
     const link = randomB64url(16);
     pulls.set(link, {
-      pcId: l.pcId,
+      pcId,
       ref: l.ref,
       size: l.size,
       writable: pipe.writable,
@@ -1241,7 +1303,149 @@ export function createHub(env) {
     return bot.webhook(req);
   }
 
-  return { open, message, closed, webhook, pcSend, pcDl, download };
+  // ---- the webhook check (worker.mjs's `scheduled`, every few minutes) ----
+
+  // A message to the owner about what the check could not fix: into the owner's Alerts topic in topic mode, else
+  // the plain chat.
+  async function alertOwner(text) {
+    const me = await telegram("getMe", {});
+    const params = { chat_id: ownerTgId, text };
+    const msg =
+      me?.has_topics_enabled === true
+        ? await inTopic(ownerTgId, "alerts", "sendMessage", params)
+        : await telegram("sendMessage", params);
+    if (!Number.isSafeInteger(msg?.message_id))
+      throw new Error("hub: Telegram's sendMessage gave no message_id");
+    log("webhook check: alert sent to the owner");
+  }
+
+  // Checks with getWebhookInfo that the bot's webhook is set and points at `origin`/tg/hook, and sets it again with
+  // `webhookSecret` when it is empty, or when Telegram's last delivery got a 401 after the check last set it (the
+  // relay's secret changed and the webhook kept the old one). A webhook at another address is left as it is (another
+  // relay, or the owner's own move: setting it back would take the bot from that one every run) and told once. The
+  // owner gets an alert only for what it cannot fix: that address, a refused setWebhook, or a time Telegram could
+  // not be reached (logged, then told once by the next run that reaches it).
+  // The test copy (a topicSuffix) shares the bot's token: it makes no Bot API call at all, as a setWebhook there
+  // would take the bot from the real relay. Returns what it did: test-copy, not-configured (no address), ok, set,
+  // foreign, refused or unreached.
+  async function heal({ origin, webhookSecret }) {
+    if (topicSuffix !== "") {
+      log("webhook check: the test copy checks nothing (it shares the bot)");
+      return "test-copy";
+    }
+    const kept = { ...HEAL_START, ...(await store.get(HEAL_KEY)) };
+    // No address: a relay deployed before RELAY_ORIGIN existed, or a deploy that stopped before it put it. Not an
+    // error each run: logged once, until a run has the address.
+    if (typeof origin !== "string" || !ORIGIN.test(origin)) {
+      if (!kept.off) {
+        log(
+          "webhook check: off, this relay has no address in the secret RELAY_ORIGIN (deploy.mjs puts it)",
+        );
+        await store.put(HEAL_KEY, { ...kept, off: true });
+      }
+      return "not-configured";
+    }
+    if (typeof webhookSecret !== "string" || !webhookSecret)
+      throw new Error("hub: the webhook check needs the webhook secret");
+    const unreached = async (e) => {
+      log(`webhook check: Telegram not reached: ${e.message}`);
+      if (kept.unreached === null)
+        await store.put(HEAL_KEY, { ...kept, off: false, unreached: now() });
+      return "unreached";
+    };
+    let info;
+    try {
+      info = await telegram("getWebhookInfo", {});
+    } catch (e) {
+      if (TELEGRAM_REFUSED.test(e.message)) throw e;
+      return unreached(e);
+    }
+    const want = `${origin}/tg/hook`;
+    const next = { ...kept, unreached: null, told: null, off: false };
+    // A 401 from this relay after the check last set the webhook: maybe an old secret. A deploy gives a few
+    // seconds of 401s itself (its new secret is in, its setWebhook not yet), and a check still holding the old
+    // secret must not set that back. So a 401 counts only when a newer one came after a run that saw one, that
+    // run between STALE_SETTLE_MS and STALE_FRESH_MS ago; a run that sees a 401 it did not count keeps it in seen401.
+    const last401 =
+      info?.url === want && /\b401\b/.test(info.last_error_message ?? "")
+        ? Number(info.last_error_date) * 1000
+        : Number.NaN;
+    let staleSecret = false;
+    if (last401 > (kept.setAt ?? 0)) {
+      const seen = kept.seen401;
+      const fresh = seen !== null && now() - seen.seenAt <= STALE_FRESH_MS;
+      if (
+        fresh &&
+        last401 > seen.seenAt &&
+        now() - seen.seenAt >= STALE_SETTLE_MS
+      )
+        staleSecret = true;
+      else if (!fresh && seen?.at !== last401)
+        next.seen401 = { at: last401, seenAt: now() };
+    } else next.seen401 = null;
+    const foreign = Boolean(info?.url) && info.url !== want;
+    const problem = !info?.url
+      ? "not set"
+      : staleSecret
+        ? "refused by the relay (an old secret)"
+        : null;
+    const told = [];
+    if (kept.unreached !== null)
+      told.push(
+        `The relay could not reach Telegram from ${new Date(kept.unreached).toISOString().slice(0, 16).replace("T", " ")} UTC until now; the bot may have missed messages.`,
+      );
+    let result = "ok";
+    if (foreign) {
+      const host = URL.canParse(info.url)
+        ? new URL(info.url).host
+        : "an address that is not a URL";
+      log(
+        `webhook check: the webhook points at another address (${host}); left as it is`,
+      );
+      next.told = `foreign ${host}`;
+      if (kept.told !== next.told)
+        told.push(
+          `The bot's webhook points at another address (${host}), not at this relay, so this relay gets no messages. The relay leaves it as it is, in case it was moved on purpose; to bring the bot back here, deploy the relay again.`,
+        );
+      result = "foreign";
+    } else if (problem) {
+      try {
+        await telegram("setWebhook", {
+          url: want,
+          secret_token: webhookSecret,
+          ...WEBHOOK_SETTINGS,
+        });
+        log(`webhook check: the webhook was ${problem}; set again`);
+        result = "set";
+        next.setAt = now();
+        next.seen401 = null;
+      } catch (e) {
+        if (!TELEGRAM_REFUSED.test(e.message)) return unreached(e);
+        log(`webhook check: setWebhook refused: ${e.message}`);
+        const words = e.message.replace(TELEGRAM_REFUSED, "");
+        next.told = `refused ${problem}: ${words}`;
+        if (kept.told !== next.told)
+          told.push(
+            `The bot's webhook was ${problem} and Telegram refused to set it again (${words}). The bot gets no messages until it is set: deploy the relay again.`,
+          );
+        result = "refused";
+      }
+    }
+    // Kept before the alert: an alert that fails (the owner blocked the bot, the Alerts topic is gone) must not
+    // make every run set the webhook and alert again.
+    if (JSON.stringify(next) !== JSON.stringify(kept))
+      await store.put(HEAL_KEY, next);
+    if (told.length) {
+      try {
+        await alertOwner(told.join("\n\n"));
+      } catch (e) {
+        log(`webhook check: the alert to the owner failed: ${e.message}`);
+      }
+    }
+    return result;
+  }
+
+  return { open, message, closed, webhook, pcSend, pcDl, download, heal };
 }
 
 // ---- bytes ----

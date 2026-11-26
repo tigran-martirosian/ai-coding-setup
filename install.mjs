@@ -486,6 +486,37 @@ function phoneVoice() {
   else say(`phone voice: ${r.stdout.trim()}`);
 }
 
+// The phone app's PC program keeps running the code it started with: when this run changed one of its files (or
+// phone/shared, which it imports), it is restarted, so the update reaches the phone without a restart of the PC.
+// Windows only, not with --home (the program belongs to this user), and only when it runs.
+function phoneRestart() {
+  const setup = path.join(CLAUDE, "skills", "phone-bot", "pc", "setup.mjs");
+  if (!fs.existsSync(setup) || opt("home") !== null) return;
+  if (process.platform !== "win32") return;
+  const old = state.files || {};
+  const changed = Object.keys(ctx.filesWritten).some(
+    (f) =>
+      /\/skills\/phone-bot\/pc\/|\/phone\/shared\//.test(f) &&
+      ctx.filesWritten[f] !== old[f],
+  );
+  if (!changed) return;
+  if (DRY)
+    return say(
+      `phone app: would restart its PC program: node ${fwd(setup)} restart`,
+    );
+  const r = spawnSync(process.execPath, [setup, "restart"], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 60_000,
+  });
+  const out = `${r.stdout || ""}${r.stderr || ""}`.trim().split("\n").pop();
+  say(
+    r.status === 0
+      ? `phone app: ${out}`
+      : `phone app: its PC program could not be restarted (${out || String(r.error)}); it runs the new files after the next log-on. Run: node ${fwd(setup)} restart`,
+  );
+}
+
 // Obscura, the headless browser tools/peek.mjs fell back on, left the setup. --obscura yes|no on an old command
 // line is ignored with a note. The copy an older install put in ~/.claude/obscura goes (oldObscuraDir in
 // scripts/uninstall.mjs tells it from any other folder there, which stays); a VERSION file there that can't be read leaves the folder,
@@ -545,6 +576,7 @@ if (FILES_ONLY) {
     `Files of version ${ctx.version} in place: ${ctx.tally.added} added, ${ctx.tally.replaced.length} replaced, ${ctx.tally.same} unchanged.`,
   );
   phoneVoice();
+  phoneRestart();
   whatsNew();
   process.exit(0);
 }
@@ -672,5 +704,6 @@ if (JSON.stringify(nextState) !== JSON.stringify(onDisk))
 stateSaved = true;
 passLevel();
 phoneVoice();
+phoneRestart();
 whatsNew();
 report(ctx, { noGitBash });

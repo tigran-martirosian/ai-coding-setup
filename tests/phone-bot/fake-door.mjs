@@ -1,7 +1,8 @@
 // A fake Nimbalyst door for the phone app's PC program tests: a local HTTP server that answers MCP
 // `initialize`, `tools/list` and `tools/call`, records every tool call, and writes the endpoint file the PC
 // program reads. `handle(name, args, call)` answers a tool call: a string or object is the answer's text (an
-// object as JSON); throwing { rpc: "message" } answers a JSON-RPC error with that message.
+// object as JSON); throwing { rpc: "message" } answers a JSON-RPC error with that message, and throwing
+// { refuse: "message" } answers a tool result with isError: true and that text (the two ways a door refuses).
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -66,6 +67,15 @@ export async function startFakeDoor({
           result: { content: [{ type: "text", text }], isError: false },
         });
       } catch (e) {
+        if (e.refuse)
+          return send(200, {
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              content: [{ type: "text", text: e.refuse }],
+              isError: true,
+            },
+          });
         if (!e.rpc) throw e;
         send(200, {
           jsonrpc: "2.0",

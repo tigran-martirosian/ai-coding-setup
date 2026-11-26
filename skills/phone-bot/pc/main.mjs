@@ -160,6 +160,7 @@ server.on("connection", (sock) => {
           joined: keys.joined,
           page,
           actions: registry.names().length,
+          pid: process.pid,
         };
       else if (cmd === "stop") {
         // setup.mjs join and remove: whichever copy holds the pipe (installed or a work copy) ends, and its keep.mjs

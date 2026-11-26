@@ -4,6 +4,28 @@ Versions are year.release.fix: 26.1 is the first big release of 2026, 26.1.1 a s
 
 ## [Unreleased]
 
+## [26.6.2] - 2026-11-25
+
+### Phone app
+- Messages are never lost: each one waits on the phone and goes again on every reconnect until the PC confirms it, and the PC posts it only once. Hiding the app no longer hangs up. The "Not sent: the PC answered bye" popup is gone; a message still unsent after an hour offers Send now or Discard.
+- A Send made while the app is still connecting waits for the PC instead of failing.
+- Any file uploads: CSVs saved by Excel in any encoding, zips, and other kinds. Files Windows would run are still refused; an unknown kind is saved with a `.bin` ending.
+- New session works when the session it starts from already runs its limit of helpers; when the PC can't start one, the phone says why.
+- A refused upload no longer holds up the next file, and a Send to chat stopped halfway lets the next one start at once.
+- Error messages show plain words and no full paths from your PC; a name with `/` or `\` is refused, and a too-long name says so.
+- Download works after the relay has been idle; the same text sent twice shows both messages.
+- The app opens faster: the page is compressed and cached.
+- An update now restarts the PC program, so new phone fixes work without restarting the computer.
+
+### Relay
+- The relay checks every 5 minutes that the bot's link to it is set, sets it again when it isn't, and posts in the bot's Alerts topic only what it can't fix (needs the `RELAY_ORIGIN` secret, `phone/README.md`).
+- Two topics made at the same moment no longer come out twice, and a failed test message keeps the new secret.
+
+### Other fixes
+- The Chrome guard can't be tricked by options placed before the site name.
+- Grilling turns vague words like "smooth" or "tight" into lines a check can prove.
+- The file check asks for topic folders when `docs/` has 20 or more loose files.
+
 ## [26.6.1] - 2026-11-23
 
 ### Fixes

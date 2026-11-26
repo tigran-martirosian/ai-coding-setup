@@ -30,6 +30,14 @@ const MAX_ANSWER = 192 * 1024;
 const MAX_TURN_TEXT = 100000;
 const STOP_PROMPT = "Stop here and wait for my next message.";
 const FK_FAILED = /FOREIGN KEY constraint failed/;
+// Nimbalyst counts every session spawn_session or create_session makes as a child of the calling session
+// (isolated and besideCaller too) and refuses past 4 running at once or 50 in all (MetaAgentService,
+// assertChildSpawnCapacity, Nimbalyst 0.83).
+const CHILD_LIMIT =
+  /Too many child sessions running at once|lifetime spawn backstop reached/;
+
+const isChildLimit = (e) =>
+  e.err === "door-error" && CHILD_LIMIT.test(e.extra.message);
 
 export const TEXT_INPUT = { type: "string", min: 1, max: 20000 };
 
@@ -60,11 +68,28 @@ function turnsOf(row, end) {
   return readTurns(file, end, TURNS, sessionPlace(row));
 }
 
-// A project with sessions: spawn_session from its newest one, as the old bot did. A project with none: today's
-// create_session error path (PC program design, section 3, "A new session in a project with no sessions").
+// A project with sessions: spawn_session from its newest one, as the old bot did. When that session has no room
+// for another child, and in a project with none: create_session with no calling session, which counts against no
+// session's limit, by today's error path (PC program design, section 3, "A new session in a project with no
+// sessions"). A child-limit refusal left after that answers session-limit.
 async function newSession(projectPath, text) {
+  try {
+    return await startSession(projectPath, text);
+  } catch (e) {
+    if (!isChildLimit(e)) throw e;
+    throw new ActionError("session-limit", { message: e.extra.message });
+  }
+}
+
+async function startSession(projectPath, text) {
   const callers = await recentSessionIds(projectPath, 1);
-  if (callers.length) return spawnSession(projectPath, callers[0], text);
+  if (callers.length) {
+    try {
+      return await spawnSession(projectPath, callers[0], text);
+    } catch (e) {
+      if (!isChildLimit(e)) throw e;
+    }
+  }
   const since = new Date().toISOString();
   try {
     return await createSession(projectPath, text);
@@ -121,6 +146,7 @@ export function register(registry) {
 
   registry.add({
     name: "session.send",
+    once: true,
     input: {
       session: SESSION_INPUT,
       text: TEXT_INPUT,
@@ -146,6 +172,7 @@ export function register(registry) {
 
   registry.add({
     name: "session.note",
+    once: true,
     input: {
       session: SESSION_INPUT,
       text: TEXT_INPUT,
@@ -185,6 +212,7 @@ export function register(registry) {
 
   registry.add({
     name: "session.new",
+    once: true,
     input: {
       project: PROJECT_INPUT,
       text: TEXT_INPUT,

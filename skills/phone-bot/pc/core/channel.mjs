@@ -4,7 +4,8 @@
 // page has to say hello again.
 // Large payloads come as a stream of `chunk` frames (pipe design, section 4): the pieces are joined in order, the
 // length and SHA-256 checked, and the stream id answered with `res` ok ({ stream, bytes }) or `stream-broken`. A
-// whole stream waits for an action to take it with ctx.takeStream(id) (voice.transcribe), at most a minute.
+// whole stream waits for an action to take it with ctx.takeStream(id) (voice.transcribe), at most a minute; the
+// answer to a request that names it (`d.stream`) drops it when the action did not take it.
 import { createHash } from "node:crypto";
 import {
   fromB64u,
@@ -107,6 +108,8 @@ export function createChannel({
       page: context().page,
       // The action names this PC answers, so the page greys a screen whose actions are missing (26.3.3 sent none).
       actions: registry.names(),
+      // Send, Queue, Note and New session take a message id: a repeat gets the first answer (core/sent-ids.mjs).
+      ids: registry.takesIds === true,
     };
     send({ ...h, c: await sealHello(K, h, reply) });
     end(f.dev, "hello");
@@ -277,6 +280,7 @@ export function createChannel({
     // A device removed while its frame was opened: the request does not run.
     if (!keys.devices.includes(device))
       return log("drop", "device removed before its request ran");
+    let took = false;
     const res = await registry.handle(req.body, {
       ...context(),
       device: f.dev,
@@ -295,6 +299,7 @@ export function createChannel({
         };
       },
       takeStream(id) {
+        took = true;
         const kept = s.whole.get(id);
         if (!kept) return null;
         clearTimeout(kept.timer);
@@ -302,6 +307,20 @@ export function createChannel({
         return { bytes: kept.bytes, mime: kept.mime };
       },
     });
+    // A request of an action that takes a stream, refused before it took the stream it names, drops it: the page frees
+    // the stream's bytes on any answer, so a kept one would hold off the next upload until its minute is up. Another
+    // action's request naming the same id (bad-input) leaves the stream to the upload it belongs to.
+    const named = req.body.d?.stream;
+    const left =
+      !took &&
+      registry.takesStream(req.body.a) &&
+      typeof named === "string" &&
+      s.whole.get(named);
+    if (left) {
+      clearTimeout(left.timer);
+      s.whole.delete(named);
+      log("stream", "dropped: not taken by its request");
+    }
     const unpaired =
       s.endedBy === "removed" &&
       res.ok &&

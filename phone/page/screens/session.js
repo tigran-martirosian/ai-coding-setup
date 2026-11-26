@@ -14,7 +14,9 @@ import {
   markdown,
   textSize,
 } from "../frame/markdown.js";
+import { outbox } from "../frame/outbox.js";
 import { registerScreen } from "../frame/screens.js";
+import { STORE_SUFFIX } from "../screens.generated.js";
 import { hhmm } from "./home.js";
 import { errWord, kept as keptProjects, projectName } from "./projects.js";
 import { attachParts } from "./session-attach.js";
@@ -52,6 +54,9 @@ const STILL_WAITS =
 // A sent message (comfort design, section 5): its "Sending…" turns to "Still sending…" after 10 s; a refused one
 // fades out over 150 ms.
 const SLOW_SEND_MS = 10_000;
+// A message written while the link to a PC whose hello has no message ids is down waits this long for the link,
+// then its words go back in the box. An object, so the tests can shorten it.
+export const linkWait = { ms: 60_000 };
 // The first words of the block the PC adds after a message's words when files go with it (pc/actions/attach.mjs
 // BLOCK_HEAD).
 const FILES_HEAD = "Attached files (";
@@ -72,7 +77,7 @@ const places = new Map();
 // webview: the draft then lasts while the page does, and typing and sending go on as before.
 export const drafts = new Map(); // key -> text
 const fields = new Map(); // key -> the field of the newest view
-const storeKey = (key) => `phone.draft:${key}`;
+const storeKey = (key) => `phone.draft${STORE_SUFFIX}:${key}`;
 function draftOf(key) {
   if (drafts.has(key)) return drafts.get(key);
   try {
@@ -115,14 +120,34 @@ const SAY = {
   "no-prompt": "the question was already answered or is gone",
   "not-running": "the session is not working",
   "needs-door-patch": "this needs the door patch on the PC",
+  // Nimbalyst refused a New session, also when started with no calling session: its helper-session limit (4 at
+  // once, or its lifetime count) for the project's newest session.
+  "session-limit":
+    "Nimbalyst refused a new session: too many helper sessions from the project's newest session. Finish or close some, or start one on the PC",
 };
+// A send whose link dropped after it may have left (a ChannelError, not the PC's answer and not "no link yet"):
+// to a PC without message ids nobody can tell whether it arrived.
+const LINK_DROPPED =
+  "The link dropped before the PC confirmed it: check the session before you send it again.";
+// The outbox keeps such a failure on its entry as { dropped: true } (waitLink, a send without an id).
+const droppedAfter = (r) =>
+  r?.dropped === true ||
+  (r instanceof Error && r.code !== undefined && r.code !== "not-connected");
+// The red line when a message's words go back in the box.
+const backLine = (r) =>
+  droppedAfter(r)
+    ? `${LINK_DROPPED} Your message is back in the box.`
+    : `Not sent: ${why(r)}. Your message is back in the box.`;
 export const why = (r) => {
-  const w = errWord(r);
+  // The answer's own word (or the channel's code), without the message errWord puts after it.
+  const w = r?.err ?? r?.code;
+  if (w === "send-unclear")
+    return "the PC program restarted while taking this message: check the session before you send it again";
   // A Note the session could not take carries the note sender's reason.
   if (w === "note-failed")
     return `the note did not reach the session: ${r.why}`;
-  // errWord carries the answer's message, as "door-error (x)".
-  return SAY[w] ?? `the PC answered "${w}"`;
+  // A word with no plain words shows as the PC sent it, with its message, as "door-error (x)".
+  return SAY[w] ?? `the PC answered "${errWord(r)}"`;
 };
 
 // "14:05", or "12 Nov, 14:05" when it was kept on an earlier day.
@@ -720,6 +745,10 @@ function render(ctx) {
     ctx.scrollBox.scrollTop += ctx.scrollBox.scrollHeight - from;
   }
 
+  const isStale = (m) => {
+    const e = outbox.get(m.mid);
+    return Boolean(e && outbox.stale(e));
+  };
   // A sent message as a bubble, and under it while the PC has not answered its "Sending…" line.
   const sentRows = (m) => [
     talk.you(
@@ -731,13 +760,31 @@ function render(ctx) {
           : "Note",
       `${m.how === "send" || m.state !== "sent" ? "" : ".held"}${m.state === "gone" ? ".gone" : ""}`,
     ),
-    m.state === "sending" || m.state === "slow"
+    // Past the hour of silent retries the outbox no longer sends it by itself: the user picks.
+    (m.state === "sending" || m.state === "slow") && m.mid && isStale(m)
       ? el(
-          "p.sent-mark",
-          icon(GLYPHS.clock, 12),
-          m.state === "slow" ? "Still sending…" : "Sending…",
+          "p.sent-mark.sent-stale",
+          { "data-mid": m.mid },
+          "Not sent yet. ",
+          el(
+            "button.btn-quiet",
+            { type: "button", onclick: () => compose.sendNow(m) },
+            "Send now",
+          ),
+          " ",
+          el(
+            "button.btn-quiet",
+            { type: "button", onclick: () => compose.discard(m) },
+            "Discard",
+          ),
         )
-      : null,
+      : m.state === "sending" || m.state === "slow"
+        ? el(
+            "p.sent-mark",
+            icon(GLYPHS.clock, 12),
+            m.state === "slow" ? "Still sending…" : "Sending…",
+          )
+        : null,
     // The session handed its work on: its transcript never gets the message, the session that continues it does.
     m.movedTo
       ? el(
@@ -781,6 +828,16 @@ function render(ctx) {
     if (n) ctx.scrollBox.scrollTop += n.getBoundingClientRect().top - row.top;
   }
 
+  // The transcript byte the page has read up to (also from a kept conversation): a message sent now is written at
+  // or after it.
+  function readTo() {
+    return Math.max(
+      v.live.read ?? 0,
+      ...(v.info?.items ?? []).map((t) => t.pos + 1),
+      ...v.live.rows.map((r) => r.pos + 1),
+    );
+  }
+
   function drawConvo(toEnd) {
     talk.close();
     if (isNew()) {
@@ -798,18 +855,33 @@ function render(ctx) {
     }
     if (!v.info) return fill(convo);
     // A sent message leaves the waiting bubbles once the transcript or the live rows hold it: its words alone, or
-    // followed by the block the PC adds naming the files sent with it.
+    // followed by the block the PC adds naming the files sent with it. Only a turn written at or after the byte
+    // the page had read when it was sent counts (an earlier "yes" looks the same), and each turn stands for one
+    // message, so the same words sent twice keep both bubbles until both are in.
     const said = [
       ...v.info.items,
       ...v.live.rows.filter((r) => r.kind === "text"),
     ]
       .filter((t) => t.role === "user" && !t.system)
-      .map((t) => t.text.trim());
+      .map((t) => ({ text: t.text.trim(), pos: t.pos }));
+    const used = new Set();
     const holds = (m) => {
       const t = m.text.trim();
-      return said.some((x) => x === t || x.startsWith(`${t}\n\n${FILES_HEAD}`));
+      const turn = said.find(
+        (x) =>
+          !used.has(x) &&
+          x.pos >= m.from &&
+          (x.text === t || x.text.startsWith(`${t}\n\n${FILES_HEAD}`)),
+      );
+      if (turn) used.add(turn);
+      return Boolean(turn);
     };
-    v.sent = v.sent.filter((m) => !holds(m));
+    // A message still in the outbox stays there even when the transcript holds it: the PC's answer to its id is
+    // what ends it.
+    v.sent = v.sent.filter((m) => {
+      const held = holds(m);
+      return (m.mid && outbox.get(m.mid)) || !held;
+    });
     drawLive(false);
     const top = toEnd ? null : topRow();
     fill(
@@ -1227,6 +1299,17 @@ function render(ctx) {
       const a = which === "note" ? "session.note" : action();
       // The picked files go with Send, Queue, Note and a new session.
       const files = !ti && attach.has() ? { attachments: attach.ids() } : {};
+      // A new session's first message still waits in the outbox: a second one would start a second session.
+      if (
+        a === "session.new" &&
+        outbox.list(key).some((e) => e.a === "session.new")
+      ) {
+        line = {
+          text: "The session starts once the PC gets your first message. Send this one after that.",
+          bad: false,
+        };
+        return update();
+      }
       sending = true;
       line = null;
       // The message shows at once at the chat's end with "Sending…", and the box empties (comfort design,
@@ -1243,6 +1326,7 @@ function render(ctx) {
                   ? "queue"
                   : "send",
             state: "sending",
+            from: readTo(),
           };
       if (m) {
         v.sent.push(m);
@@ -1255,56 +1339,177 @@ function render(ctx) {
         drawConvo(true);
       }
       update();
+      const hello = ctx.hello;
+      // A card's answer before the PC is linked waits for the link instead of failing.
+      if (!m && !ctx.connected) await ctx.linked();
+      const data =
+        a === "session.new"
+          ? { project: params.project, text, ...files }
+          : { session: params.session, text, ...files };
+      if (m) m.files = Boolean(files.attachments);
+      // Before the PC is linked (a kept screen before the first hello, or a dropped link to a PC without ids) the
+      // message waits in the outbox for the link (waitLink).
+      if (m && !hello?.ids && !ctx.connected) {
+        const e = outbox.add({
+          key,
+          a,
+          d: data,
+          text,
+          how: m.how,
+          early: true,
+        });
+        m.mid = e.mid;
+        sending = false;
+        if (m.files) attach.clear();
+        update();
+        return waitLink(e);
+      }
+      // A PC whose hello says ids: the message goes through the outbox (frame/outbox.js). A lost link only delays
+      // it: it keeps its clock and goes again on the next link; the PC's answer ends it (the outbox's listener).
+      if (m && hello?.ids) {
+        const e = outbox.add({ key, a, d: data, text, how: m.how });
+        m.mid = e.mid;
+        const o = await outbox.send(e, ctx.ask);
+        sending = false;
+        // The files went with the message: they leave the box, so they are not sent twice.
+        if (o.held && m.files) attach.clear();
+        return update();
+      }
       let r;
       try {
         if (ti) r = await ti.send(text);
-        else if (a === "session.new")
-          r = await ctx.ask(a, { project: params.project, text, ...files });
-        else r = await ctx.ask(a, { session: params.session, text, ...files });
+        else r = await ctx.ask(a, data);
       } catch (e) {
         r = e;
       }
       sending = false;
-      if (m) clearTimeout(m.slow);
-      if (!r?.ok) {
-        // Nothing typed is lost: the text goes back into the box for Try again, ahead of anything typed since.
-        if (files.attachments && (r?.err ?? r?.code) === "attachment-unknown")
-          attach.lost();
-        if (!m) {
+      if (!m) {
+        if (!r?.ok) {
           line = { text: `Not sent: ${why(r)}`, bad: true };
           return update();
         }
+        emptyBox();
+        v.typeInstead = null;
+        update();
+        drawDock();
+        drawConvo(true);
+        return load();
+      }
+      finish(m, a, r);
+    }
+
+    // The PC's answer to a message, or the link's failure with a PC that takes no ids. A refusal fades the message
+    // out and puts its words back in the box, ahead of anything typed since: nothing typed is lost.
+    function finish(m, a, r) {
+      clearTimeout(m.slow);
+      if (!r?.ok) {
+        if (m.files && (r?.err ?? r?.code) === "attachment-unknown")
+          attach.lost();
         m.state = "gone";
         drawConvo(false);
         setTimeout(() => {
           v.sent = v.sent.filter((x) => x !== m);
           drawConvo(false);
         }, FADE_MS);
-        field.value = field.value ? `${text}\n\n${field.value}` : text;
-        saveSoon();
-        fit(true);
-        line = {
-          text: `Not sent: ${why(r)}. Your message is back in the box.`,
-          bad: true,
-        };
+        putBack(m.text);
+        line = { text: backLine(r), bad: true };
         return update();
       }
-      if (files.attachments) attach.clear();
-      if (m) {
-        m.state = "sent";
-        if (m.how === "queue" && !r.d.queued) m.how = "send";
-        // Gone on to the session that continues the work: shown here as sent there, never as waiting in this queue.
-        if (r.d.movedTo) {
-          m.movedTo = r.d.movedTo;
-          m.how = "send";
-        }
-      } else emptyBox();
+      if (m.files) attach.clear();
+      m.state = "sent";
+      if (m.how === "queue" && !r.d.queued) m.how = "send";
+      // Gone on to the session that continues the work: shown here as sent there, never as waiting in this queue.
+      if (r.d.movedTo) {
+        m.movedTo = r.d.movedTo;
+        m.how = "send";
+      }
       if (a === "session.new") params.session = r.d.session;
-      v.typeInstead = null;
       update();
-      if (ti) drawDock();
-      drawConvo(!m || nearEnd());
+      drawConvo(nearEnd());
       load();
+    }
+    function putBack(text) {
+      field.value = field.value ? `${text}\n\n${field.value}` : text;
+      saveSoon();
+      fit(true);
+    }
+
+    // The outbox's answers for this view's messages, also those sent again by the frame after a new link. A
+    // message no longer in the chat (its words already in the transcript) needs nothing more.
+    const offOutbox = outbox.listen(({ entry, r }) => {
+      if (!view.isConnected) return offOutbox();
+      if (entry.key !== key) return;
+      const m = v.sent.find((x) => x.mid === entry.mid);
+      if (!r?.ok) outbox.take(entry.mid);
+      if (m) finish(m, entry.a, r);
+      else if (!r?.ok) {
+        putBack(entry.text);
+        line = { text: backLine(r), bad: true };
+        update();
+      }
+    });
+    // Messages still in the outbox show in the chat with their clock; a refusal that came while this view was
+    // closed puts its words back in the box now. One written before the link (a view the frame drew again at the
+    // hello, or a page closed before it) waits for the link here too.
+    for (const e of outbox.list(key)) {
+      if (e.refused) {
+        outbox.take(e.mid);
+        putBack(e.text);
+        line = { text: backLine(e.refused), bad: true };
+      } else {
+        v.sent.push({
+          text: e.text,
+          how: e.how,
+          state: "sending",
+          mid: e.mid,
+          files: false,
+          // Sent from an earlier view: the session may have written it before anything here was read.
+          from: 0,
+        });
+        if (e.early) waitLink(e);
+      }
+    }
+
+    // A message written before the link waits in the outbox, so a redraw at the hello and a close of the page keep
+    // it. It goes once the link comes: with its id to a PC whose hello says ids (the frame's flush sends it too; the
+    // outbox makes it one send), else once without one. Its answer reaches the view shown then, through the outbox's
+    // listener, never this view's closure. To a PC known to take no ids it waits linkWait.ms at most: then its
+    // words go back in the box. Without an id a repeat could run twice, so a failed link ends it the same way
+    // (dropped: it may have arrived).
+    function waitLink(e) {
+      if (ctx.hello && !ctx.hello.ids && !ctx.connected)
+        setTimeout(
+          () => outbox.giveUp(e.mid, { err: "not-connected" }),
+          linkWait.ms,
+        );
+      ctx.linked().then(async (hello) => {
+        const now = outbox.get(e.mid);
+        if (!now || now.refused) return;
+        const ids = hello?.ids === true;
+        const o = await outbox.send(now, ctx.ask, ids);
+        if (o.held && !ids)
+          outbox.giveUp(e.mid, {
+            err: o.held.code ?? "failed",
+            dropped: droppedAfter(o.held),
+          });
+      });
+    }
+
+    // Send now on a message past its hour of silent retries: the retries start over.
+    async function sendNow(m) {
+      const e = outbox.renew(m.mid);
+      if (!e) return;
+      ctx.haptic("impact");
+      m.state = "sending";
+      drawConvo(false);
+      await outbox.send(e, ctx.ask);
+    }
+    function discard(m) {
+      ctx.haptic("select");
+      outbox.take(m.mid);
+      clearTimeout(m.slow);
+      v.sent = v.sent.filter((x) => x !== m);
+      drawConvo(false);
     }
     function emptyBox() {
       field.value = "";
@@ -1318,6 +1523,8 @@ function render(ctx) {
     return {
       box,
       update,
+      sendNow,
+      discard,
       blur: () => field.blur(),
       focus: () => field.focus(),
       // A queued message's Edit puts its words back here, after what the box holds and one empty line (as
@@ -1500,6 +1707,8 @@ function render(ctx) {
       v.live.before = null;
       v.live.read = null;
       v.sign = null;
+      // Its bytes count from the start again: a message waiting to show may be anywhere in it.
+      for (const m of v.sent) m.from = 0;
     } else if (d.rows.some((r) => !(r.pos < v.live.read))) {
       const toEnd = nearEnd();
       const fresh = d.rows.filter((r) => !(r.pos < v.live.read));

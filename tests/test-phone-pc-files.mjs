@@ -1070,6 +1070,18 @@ try {
       copyFail.why === "Set-Clipboard : access denied",
     show(copyFail),
   );
+  runAnswer = {
+    code: 1,
+    words: `Set-Clipboard : Cannot find path '${picReal}' because it does not exist.`,
+  };
+  const copyPathFail = await ask("folder.copy", { path: "work/pic.txt" });
+  check(
+    "folder.copy's copy-failed keeps PowerShell's words with the file's name, no full PC path (FAIL: the phone sees the PC's folders)",
+    copyPathFail.err === "copy-failed" &&
+      String(copyPathFail.why).includes("'pic.txt'") &&
+      !String(copyPathFail.why).includes(path.dirname(picReal)),
+    show(copyPathFail),
+  );
   runAnswer = Object.assign(new Error("spawn explorer.exe ENOENT"), {
     code: "ENOENT",
   });
@@ -1191,6 +1203,31 @@ try {
     again.ok && again.d.name === "big_2.bin",
     show(again),
   );
+  // A request for an action that takes no stream, naming a stream's id (refused as bad-input), leaves the stream to
+  // the upload it belongs to.
+  const kept = Buffer.from("kept");
+  await frame(chunk("s3", kept, 0));
+  await frame({
+    k: "req",
+    id: "p4",
+    a: "folder.list",
+    d: { dir: "work", stream: "s3" },
+  });
+  await frame({
+    k: "req",
+    id: "p5",
+    a: "folder.put",
+    d: { dir: "work", name: "kept.bin", stream: "s3" },
+  });
+  const [, listBad, keptPut] = await answers();
+  check(
+    "a bad request of an action that takes no stream leaves a named stream to its upload (FAIL: any answer naming a stream id drops another action's stream)",
+    listBad.ok === false &&
+      listBad.err === "bad-input" &&
+      keptPut.ok &&
+      keptPut.d.name === "kept.bin",
+    show({ listBad, keptPut }),
+  );
 
   // Send to chat and the download link, to a stand-in relay that hashes what it gets.
   const http = await import("node:http");
@@ -1307,6 +1344,120 @@ try {
     "a second dl-pull of the same link posts nothing (one use)",
     posts.length === 0,
   );
+
+  // ---- Send to chat after an aborted one, through the local relay (phone/relay/local/server.mjs) behind a proxy
+  // that cuts the PC's link mid-upload. The stand-in Telegram reads the whole upload, or cuts once it has some bytes.
+  const { startLocalRelay } = await import("../phone/relay/local/server.mjs");
+  const { startCutProxy } = await import("./phone-bot/cut-proxy.mjs");
+  let cutNext = false;
+  let proxy = null;
+  const local = await startLocalRelay({
+    port: 0,
+    pageDir: tmp,
+    botId: 1,
+    ownerTgId: 7,
+    telegramKey: "00".repeat(32),
+    telegram: async (method) => {
+      if (method === "getMe") return { has_topics_enabled: false };
+      throw new Error(`the test relay does not call ${method}`);
+    },
+    upload: async (_method, { body }) => {
+      let bytes = 0;
+      for await (const b of body) {
+        bytes += b.length;
+        if (cutNext && bytes > 256 * 1024) {
+          cutNext = false;
+          proxy.cut();
+        }
+      }
+      return { message_id: 2 };
+    },
+    download: async () => {
+      throw new Error("the test relay downloads nothing");
+    },
+    now: Date.now,
+    log: () => {},
+    bot: null,
+  });
+  proxy = await startCutProxy({ port: Number(new URL(local.url).port) });
+  const localToken = crypto.randomBytes(32).toString("base64url");
+  const localPc = "P".repeat(26);
+  local.map.set(`pc:${localPc}`, {
+    tokenHash: crypto
+      .createHash("sha256")
+      .update(Buffer.from(localToken, "base64url"))
+      .digest("hex"),
+    tgId: 7,
+    createdAt: Date.now(),
+    lastSeen: Date.now(),
+  });
+  const pcSocket = new WebSocket(`${local.url.replace("http", "ws")}/ws`);
+  const authed = new Promise((resolve, reject) => {
+    pcSocket.onmessage = (m) => {
+      const f = JSON.parse(m.data);
+      if (f.t === "pc-auth") resolve(f);
+    };
+    pcSocket.onclose = () => reject(new Error("the local relay closed the PC"));
+  });
+  await new Promise((r) => {
+    pcSocket.onopen = r;
+  });
+  pcSocket.send(
+    JSON.stringify({ v: 1, t: "pc-auth", pcId: localPc, token: localToken }),
+  );
+  const pcAuthed = await authed;
+  if (pcAuthed.ok !== true || pcAuthed.files !== 1)
+    throw new Error(`the local relay refused the PC: ${show(pcAuthed)}`);
+  folder.bindFolder({
+    keys: { relay: proxy.url, pcId: localPc, token: localToken },
+    send: () => true,
+  });
+  fs.writeFileSync(
+    path.join(INBOX, "work", "cut.bin"),
+    BIG.subarray(0, 4_000_000),
+  );
+  cutNext = true;
+  const cutAnswer = await ask("folder.send", { path: "work/cut.bin" });
+  proxy.heal();
+  const startedAt = Date.now();
+  const nextAnswer = await ask("folder.send", { path: "work/cut.bin" });
+  const tookMs = Date.now() - startedAt;
+  check(
+    "after a Send to chat cut mid-upload, the next one is sent well under 5 s (FAIL: Send to chat hangs after an abort)",
+    cutAnswer.err === "relay-failed" && nextAnswer.ok && tookMs < 5000,
+    show({ cutAnswer, nextAnswer, tookMs }),
+  );
+  const refusedLine = fs
+    .readFileSync(path.join(home, ".phone-app", "pc.log"), "utf8")
+    .split("\n")
+    .findLast((l) => l.includes("refused relay-failed folder.send"));
+  check(
+    "the PC log line of a cut Send to chat keeps its reason and cause code, and no relay address or token (FAIL: the log drops why the send failed)",
+    /refused relay-failed folder\.send: fetch failed \([A-Z_]+\)$/.test(
+      refusedLine ?? "",
+    ) &&
+      !refusedLine.includes("127.0.0.1") &&
+      !refusedLine.includes(localToken),
+    show(refusedLine),
+  );
+  // A file gone when its bytes are read (fs's error names its full path): the answer names none.
+  const readStream = fs.createReadStream;
+  fs.createReadStream = (p, ...a) => {
+    fs.rmSync(p);
+    return readStream(p, ...a);
+  };
+  const goneAnswer = await ask("folder.send", { path: "work/cut.bin" });
+  fs.createReadStream = readStream;
+  check(
+    "a Send to chat whose file is gone at reading answers relay-failed with no full PC path (FAIL: the phone sees the PC's folders)",
+    goneAnswer.err === "relay-failed" &&
+      !String(goneAnswer.why).includes(tmp) &&
+      !/[A-Za-z]:\\/.test(String(goneAnswer.why)),
+    show(goneAnswer),
+  );
+  pcSocket.close();
+  await proxy.close();
+  await local.close();
   // ---- the same-session rule (files contract, section 8): a file outside the session's folders opens when this
   // session's own transcript shows a Write, Edit, MultiEdit or NotebookEdit of it that did not fail.
   const O = (n) => path.join(OUTSIDE, n);
@@ -1435,6 +1586,172 @@ try {
     appWhy === "app folder",
     appWhy,
   );
+  // A junction made after the write: the folder the session wrote into is swapped for a junction to another folder
+  // that holds a file of the same name. The written path now leads to a file the session never wrote.
+  if (process.platform === "win32") {
+    fs.mkdirSync(O("wrote-here"));
+    fs.writeFileSync(O("wrote-here/w.md"), "# written\n");
+    const elsewhere = path.join(tmp, "elsewhere");
+    fs.mkdirSync(elsewhere);
+    fs.writeFileSync(path.join(elsewhere, "w.md"), "# never written\n");
+    fs.appendFileSync(
+      path.join(tdir(PROJECT), `${T1}.jsonl`),
+      `${JSON.stringify(use("w9", "Write", { file_path: O("wrote-here/w.md") }))}\n${JSON.stringify(res("w9", {}))}\n`,
+    );
+    const before = whyOf(place1, O("wrote-here/w.md"));
+    fs.rmSync(O("wrote-here"), { recursive: true });
+    fs.symlinkSync(elsewhere, O("wrote-here"), "junction");
+    const after = whyOf(place1, O("wrote-here/w.md"));
+    check(
+      "same-session rule: a written file opens, and once its folder is swapped for a junction after the write it is refused (FAIL: a link opens a file the session never wrote)",
+      before === "opens" && after === "outside the session's folders",
+      show({ before, after }),
+    );
+
+    // The cases below each have their own transcript, made when the case needs its session to start: a stale path
+    // in one cannot reach another.
+    let fresh = 0;
+    let freshFile = null;
+    const freshPlace = (writes) => {
+      const id = `11111111-aaaa-4bbb-8ccc-${String(++fresh).padStart(12, "9")}`;
+      freshFile = path.join(tdir(PROJECT), `${id}.jsonl`);
+      fs.writeFileSync(
+        freshFile,
+        `${writes
+          .flatMap((p, i) => [
+            use(`n${i}`, "Write", { file_path: p }),
+            res(`n${i}`, {}),
+          ])
+          .map((l) => JSON.stringify(l))
+          .join("\n")}\n`,
+      );
+      return files.sessionPlace(rowOf(`fresh-${fresh}`, id));
+    };
+    const whyOrError = (place, p) => {
+      try {
+        return whyOf(place, p);
+      } catch (e) {
+        return `threw ${e.code ?? e.message}`;
+      }
+    };
+    // Links made before a session starts: the file system's clock moves on before the transcript is made.
+    fs.mkdirSync(O("chain-a/b"), { recursive: true });
+    fs.writeFileSync(O("chain-a/b/w.md"), "# written\n");
+    fs.symlinkSync(O("chain-a/b"), O("old-link"), "junction");
+    fs.symlinkSync(O("loop"), O("loop"), "junction");
+    const oldAt = fs.lstatSync(O("loop")).ctimeMs;
+    while (Date.now() <= oldAt + 20) await new Promise((r) => setTimeout(r, 5));
+
+    // A junction made after the write whose own creation time is set back: its change time still moves.
+    fs.mkdirSync(O("wrote-old"));
+    fs.writeFileSync(O("wrote-old/w.md"), "# written\n");
+    const backPlace = freshPlace([O("wrote-old/w.md")]);
+    const backBefore = whyOf(backPlace, O("wrote-old/w.md"));
+    fs.rmSync(O("wrote-old"), { recursive: true });
+    fs.symlinkSync(elsewhere, O("wrote-old"), "junction");
+    const setBack = path.join(tmp, "set-back.ps1");
+    fs.writeFileSync(
+      setBack,
+      `param([string]$Path)
+Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices; using Microsoft.Win32.SafeHandles;
+public static class LinkTime {
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  static extern SafeFileHandle CreateFileW(string n, uint a, uint s, IntPtr sa, uint c, uint f, IntPtr t);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool SetFileTime(SafeFileHandle h, ref long c, IntPtr a, IntPtr w);
+  public static void Back(string p) {
+    // FILE_WRITE_ATTRIBUTES; FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT: the link itself, not its target.
+    using (var h = CreateFileW(p, 0x100, 7, IntPtr.Zero, 3, 0x02000000 | 0x00200000, IntPtr.Zero)) {
+      if (h.IsInvalid) throw new System.ComponentModel.Win32Exception();
+      long t = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc).ToFileTimeUtc();
+      if (!SetFileTime(h, ref t, IntPtr.Zero, IntPtr.Zero)) throw new System.ComponentModel.Win32Exception();
+    }
+  }
+}
+"@
+[LinkTime]::Back($Path)
+`,
+    );
+    const { spawnSync } = await import("node:child_process");
+    const back = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        setBack,
+        O("wrote-old"),
+      ],
+      { encoding: "utf8" },
+    );
+    if (back.status !== 0)
+      throw new Error(`setting a junction's time back failed: ${back.stderr}`);
+    const backAfter = whyOf(backPlace, O("wrote-old/w.md"));
+    check(
+      "same-session rule: a junction made after the write with its creation time set back is still refused (FAIL: a link with an old birth time opens a file the session never wrote)",
+      backBefore === "opens" &&
+        backAfter === "outside the session's folders" &&
+        fs.lstatSync(O("wrote-old")).birthtimeMs <
+          Date.parse("2021-01-01T00:00:00Z"),
+      show({ backBefore, backAfter }),
+    );
+
+    // A link made before the session whose target's own way gains a new junction after the write.
+    const chainPlace = freshPlace([O("old-link/w.md")]);
+    if (
+      fs.statSync(freshFile).birthtimeMs <= fs.lstatSync(O("old-link")).ctimeMs
+    )
+      throw new Error(
+        "the old link is not older than the session's transcript",
+      );
+    const chainBefore = whyOf(chainPlace, O("old-link/w.md"));
+    const chainElse = path.join(tmp, "elsewhere-chain");
+    fs.mkdirSync(path.join(chainElse, "b"), { recursive: true });
+    fs.writeFileSync(path.join(chainElse, "b", "w.md"), "# never written\n");
+    fs.rmSync(O("chain-a"), { recursive: true });
+    fs.symlinkSync(chainElse, O("chain-a"), "junction");
+    const chainAfter = whyOf(chainPlace, O("old-link/w.md"));
+    check(
+      "same-session rule: a new junction on an older link's target way is refused (FAIL: a link inside an older link's target is never seen)",
+      chainBefore === "opens" && chainAfter === "outside the session's folders",
+      show({ chainBefore, chainAfter }),
+    );
+
+    // A written path the disk cannot check (under a junction to itself: ELOOP) is left out; the others still open.
+    fs.writeFileSync(O("made3.md"), "# made\n");
+    const loopPlace = freshPlace([O("loop/x.md"), O("made3.md")]);
+    const loopWhy = whyOrError(loopPlace, O("made3.md"));
+    check(
+      "same-session rule: a stale written path the disk cannot check is left out and the others still open (FAIL: one ELOOP path breaks every outside file of the session)",
+      loopWhy === "opens",
+      show(loopWhy),
+    );
+
+    // Only the written path with the asked file's real path is walked for links.
+    fs.writeFileSync(O("made4.md"), "# made\n");
+    const manyPlace = freshPlace([
+      ...Array.from({ length: 60 }, (_, i) => O(`many/${i}/f.md`)),
+      O("made4.md"),
+    ]);
+    const lstat = fs.lstatSync;
+    let lstats = 0;
+    fs.lstatSync = (...a) => {
+      lstats++;
+      return lstat(...a);
+    };
+    const manyWhy = whyOrError(manyPlace, O("made4.md"));
+    fs.lstatSync = lstat;
+    check(
+      "same-session rule: a file among 60 written paths is checked for links on its own way only (FAIL: every written path is walked at each open)",
+      manyWhy === "opens" && lstats < 60,
+      show({ manyWhy, lstats }),
+    );
+  } else
+    console.log(
+      "skip same-session rule: a junction made after the write (Windows only: junctions)",
+    );
   const made1 = files.sessionFile(place1, O("made.md"));
   const opened = await ask("file.open", {
     session: S1,

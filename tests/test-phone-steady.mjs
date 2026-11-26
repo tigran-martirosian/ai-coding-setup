@@ -17,6 +17,7 @@ import fs from "node:fs";
 import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -265,7 +266,8 @@ const STAND_INS = {
   [pageUrl("screens.generated.js")]:
     `export const PAGE_VERSION = ${JSON.stringify(VERSION)};
 export const LATER = [];
-export const loadRest = async () => [];`,
+export const loadRest = async () => [];
+export const STORE_SUFFIX = "";`,
   // index.html's own first module: the style files and Telegram's script are in at once.
   [pageUrl("frame/boot.js")]: `export const stylesLoaded = Promise.resolve();
 export const telegramLoaded = Promise.resolve();
@@ -287,9 +289,12 @@ const SCALED = new Set([APP_URL, pageUrl("frame/channel.js")]);
 function hookPage() {
   registerHooks({
     resolve(specifier, context, next) {
+      // The build-only screens.generated.js is stood in for every page file that imports it (cache.js, outbox.js).
       const code =
-        context.parentURL === APP_URL &&
-        STAND_INS[new URL(specifier, APP_URL).href];
+        (context.parentURL === APP_URL &&
+          STAND_INS[new URL(specifier, APP_URL).href]) ||
+        (specifier.endsWith("screens.generated.js") &&
+          STAND_INS[new URL(specifier, context.parentURL).href]);
       if (code)
         return {
           url: `data:text/javascript,${encodeURIComponent(code)}`,
@@ -786,6 +791,148 @@ async function caseHalfOpenPc() {
     `half-open, PC side: PC dropped after ${secs(dropped)} s, relay closed it by 55 s, PC back ${secs(back)} s after the heal (${pcConnects() - connects} PC connects)`,
   );
   await steady("a half-open PC link");
+}
+
+// The page is hidden and shown again (phone outbox approach, "The hang-up when hidden"): the socket and the session
+// stay; on show one ping checks it.
+function setHidden(hidden) {
+  globalThis.document.hidden = hidden;
+  page.win["document visibilitychange"]();
+}
+async function caseHideShow() {
+  const from = pageSockets.length;
+  const sock = pageSockets.at(-1);
+  setHidden(true);
+  await wait(3);
+  check(
+    "hiding the page must keep its socket open",
+    sock.closeAt === null && pageSockets.length === from,
+    `closed ${sock.closeAt !== null}, page sockets +${pageSockets.length - from}`,
+  );
+  setHidden(false);
+  await wait(3);
+  check(
+    "showing the page again must keep the same socket and session (no new socket)",
+    sock.closeAt === null && pageSockets.length === from && pageUp(),
+    `closed ${sock.closeAt !== null}, page sockets +${pageSockets.length - from}, up ${pageUp()}`,
+  );
+  await askWorks("a hide and show");
+}
+
+// The socket died while the page was hidden (iOS froze it): the ping on show finds it and only then a new one opens.
+async function caseHideDead() {
+  const from = pageSockets.length;
+  const sock = pageSockets.at(-1);
+  setHidden(true);
+  await wait(1);
+  w.pageProxy.hold();
+  setHidden(false);
+  const dropped = await within(() => sock.closeAt !== null || !pageUp(), 5);
+  w.pageProxy.heal();
+  check(
+    "a socket that went silent while hidden must be replaced within 5 s of the show (the ping on show)",
+    dropped !== null,
+  );
+  const back = await within(() => pageUp() && pageSockets.length > from, 10);
+  check(
+    "after a dead socket on show the page must open a new one and its session must come back",
+    back !== null,
+    `page sockets +${pageSockets.length - from}`,
+  );
+  await askWorks("a socket dead on show");
+  timings.push(
+    `hidden, socket dead: replaced ${secs(dropped)} s after the show, back ${secs(back)} s`,
+  );
+  await steady("a socket dead on show");
+}
+
+// A Send while the link drops (phone README, "Sends that survive a dropped link"): the page's link is cut while
+// Nimbalyst takes the message, so the PC's answer never reaches the page; the frame sends it again on its next link
+// and the PC answers the repeat from its kept ids. Nimbalyst is a fake door over a fixture database with one session.
+async function caseSendDropped() {
+  const nim = path.join(w.home, "AppData", "Roaming", "@nimbalyst", "electron");
+  fs.mkdirSync(path.join(nim, "sqlite-db"), { recursive: true });
+  const project = path.join(w.tmp, "projects", "beta");
+  fs.mkdirSync(project, { recursive: true });
+  const db = new DatabaseSync(path.join(nim, "sqlite-db", "nimbalyst.sqlite"));
+  db.exec(`
+    CREATE TABLE ai_sessions (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT,
+      provider_session_id TEXT, worktree_id TEXT, model TEXT, metadata TEXT NOT NULL DEFAULT '{}',
+      is_archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE ai_agent_messages (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, created_at TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'claude-code', direction TEXT NOT NULL, content TEXT NOT NULL, message_kind TEXT);
+    CREATE TABLE queued_prompts (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, prompt TEXT NOT NULL,
+      status TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE worktrees (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, path TEXT NOT NULL);
+  `);
+  const sid = "00000000-0000-4000-8000-00000000a001";
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO ai_sessions (id, workspace_id, title, status, model, created_at, updated_at)
+       VALUES (?, ?, 'Waits for a message', 'waiting_for_input', 'claude-code:opus', ?, ?)`,
+  ).run(sid, project, now, now);
+  db.close();
+  const { startFakeDoor } = await import("./phone-bot/fake-door.mjs");
+  let cutAt = null;
+  const door = await startFakeDoor({
+    endpointFile: path.join(nim, "mcp-endpoint.json"),
+    workspaces: [{ name: "beta", path: project }],
+    tools: ["workspace_open", "get_session_status", "send_prompt"],
+    handle: async (name) => {
+      if (name === "workspace_open") return "opened";
+      if (name === "get_session_status")
+        return { status: "waiting_for_input", waitingForInput: true };
+      if (name !== "send_prompt") throw new Error(`no ${name} here`);
+      if (cutAt === null) {
+        cutAt = Date.now();
+        w.pageProxy.cut();
+        await sleep(300);
+      }
+      return {
+        statusBeforeQueue: "waiting_for_input",
+        processingTriggered: true,
+      };
+    },
+  });
+  const sends = () => door.calls.filter((c) => c.name === "send_prompt");
+  try {
+    const { outbox } = await import(pageUrl("frame/outbox.js"));
+    const from = pageSockets.length;
+    const e = outbox.add({
+      key: sid,
+      a: "session.send",
+      d: { session: sid, text: "posted once" },
+      text: "posted once",
+      how: "send",
+    });
+    const first = await outbox.send(e, page.ctx.ask);
+    check(
+      "a Send whose answer is lost to a cut link must wait in the outbox (not refused, not gone)",
+      Boolean(first.held) && Boolean(outbox.get(e.mid)) && cutAt !== null,
+      JSON.stringify({ first, cut: cutAt !== null, sends: sends().length }),
+    );
+    await sleep(1000 / K);
+    w.pageProxy.heal();
+    const done = await within(() => !outbox.get(e.mid), 10);
+    check(
+      "after the link comes back the frame must send it again and the PC's answer must clear it",
+      done !== null && pageSockets.length > from,
+      `in outbox ${Boolean(outbox.get(e.mid))}, page sockets +${pageSockets.length - from}`,
+    );
+    await wait(2);
+    check(
+      "Nimbalyst must get the message exactly once",
+      sends().length === 1 &&
+        sends()[0].args.prompt.startsWith("posted once\n"),
+      JSON.stringify(sends().map((c) => c.args)),
+    );
+    timings.push(
+      `send while the link drops: sent again and answered ${secs(done)} s after the heal, ${sends().length} send in Nimbalyst`,
+    );
+  } finally {
+    await door.close();
+  }
+  await steady("a send while the link drops");
 }
 
 // The phone's network changes: the old socket goes silent, `online` fires, the page comes from a new address.
@@ -1331,6 +1478,54 @@ async function caseVoice30() {
   link.close();
 }
 
+// A Files drop-in of 50 MB (all the PC holds for one device) that folder.put refuses before it takes the stream (a
+// folder that is not there), then a small one: the page frees the stream's bytes on the answer, so the PC must drop
+// the refused stream then too, or it holds the small one off until its own minute is up. This page's channel on the
+// real clock, as caseVoice30.
+async function caseRefusedUpload() {
+  const ch = await import(`${pageUrl("frame/channel.js")}?real-clock`);
+  const { link, s } = await deviceSession(ch, w.B);
+  const big = new Uint8Array(nodeRandom(ch.FILES_STREAM_MAX));
+  const sentBig = await s
+    .sendStream(big, "application/octet-stream", () => {}, ch.FILES_STREAM_MAX)
+    .catch((e) => ({ ok: false, err: e.code ?? e.message }));
+  const refused = sentBig.ok
+    ? await s.ask("folder.put", {
+        dir: "no-such-folder",
+        name: "big.bin",
+        stream: sentBig.d.stream,
+      })
+    : null;
+  const started = Date.now();
+  const sentSmall = await s
+    .sendStream(
+      new Uint8Array(nodeRandom(1024)),
+      "text/plain",
+      () => {},
+      ch.FILES_STREAM_MAX,
+    )
+    .catch((e) => ({ ok: false, err: e.code ?? e.message }));
+  const put = sentSmall.ok
+    ? await s.ask("folder.put", {
+        dir: "",
+        name: "small.txt",
+        stream: sentSmall.d.stream,
+      })
+    : null;
+  const took = Date.now() - started;
+  check(
+    "a refused 50 MB upload must not block the next file: after folder.put answers not-found, a 1 KB upload must be saved within 2 s (FAIL: the PC kept the refused stream and refused the next as over its 50 MB)",
+    refused?.ok === false &&
+      refused.err === "not-found" &&
+      put?.ok === true &&
+      took < 2000,
+    `${JSON.stringify({ sentBig, refused, sentSmall, put }).slice(0, 400)} in ${took} ms`,
+  );
+  timings.push(`a 1 KB upload after a refused 50 MB one: ${took} ms real`);
+  await s.bye();
+  link.close();
+}
+
 // Checked once 135 s (more than the relay's 130 s for a socket that does not say `ping`) have passed.
 async function checkOld(old) {
   const need = (135 * 1000) / K;
@@ -1407,6 +1602,9 @@ async function runAll() {
     await caseLongOutage();
     await caseHalfOpenPage();
     await caseHalfOpenPc();
+    await caseHideShow();
+    await caseHideDead();
+    await caseSendDropped();
     await caseNetworkSwitch();
     await caseSecondDevice();
     await casePageUpdate();
@@ -1417,6 +1615,7 @@ async function runAll() {
     await caseHelloClosed();
     await caseStreamLimit();
     await caseVoice30();
+    await caseRefusedUpload();
     // Last: it removes the page's device at the PC.
     await caseUnknownDevice();
   } catch (e) {

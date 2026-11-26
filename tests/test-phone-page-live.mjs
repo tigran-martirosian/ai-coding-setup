@@ -5,6 +5,7 @@
 // PC's pushes reach the page through a stand-in channel: pushHere hands them to the page's event listeners.
 // Run: node tests/test-phone-page-live.mjs
 import fs from "node:fs";
+import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -471,6 +472,21 @@ const action = (root, a) => button(root, (b) => b.attrs["data-action"] === a);
 const texts = (root, c) => byClass(root, c).map((n) => n.textContent);
 
 const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
+// The build-only screens.generated.js, which cache.js and outbox.js read STORE_SUFFIX from: "" as in a plain build.
+registerHooks({
+  resolve(specifier, context, next) {
+    if (
+      specifier.endsWith("screens.generated.js") &&
+      new URL(specifier, context.parentURL).href ===
+        pageUrl("screens.generated.js")
+    )
+      return {
+        url: `data:text/javascript,${encodeURIComponent('export const STORE_SUFFIX = "";')}`,
+        shortCircuit: true,
+      };
+    return next(specifier, context);
+  },
+});
 const screens = await import(pageUrl("frame/screens.js"));
 await import(pageUrl("screens/session.js")); // registers the session screen
 const { timing } = await import(pageUrl("screens/session-cards.js"));

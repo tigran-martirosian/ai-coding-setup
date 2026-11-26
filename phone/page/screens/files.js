@@ -91,6 +91,8 @@ const CAUSE_WORDS = {
   "folder-full": "this folder is full",
   "not-found": "it is no longer on your PC",
   exists: "that name is already there",
+  // The PC's answer for a name it can't take: over 120 characters, or with / or \ in it.
+  "bad-input": "a name can have at most 120 characters and no / or \\",
   "relay-too-old": "your relay needs an update for this",
   rate: "too many files this hour, try again later",
   "unknown-action": "Files needs an update on your PC",
@@ -288,31 +290,44 @@ function addFiles(files) {
   }
   redraw();
 }
+// Files are read and streamed one at a time, in the order dropped: a drop of many files holds one in memory, not
+// all of them. A file waits its turn as "Waiting", as it does in the channel's stream line.
+let turn = Promise.resolve();
+function inTurn(fn) {
+  const run = turn.then(fn);
+  turn = run.catch(() => {});
+  return run;
+}
 async function upload(u) {
-  const ctx = view.ctx;
   Object.assign(u, {
     phase: "uploading",
     sent: 0,
-    waiting: false,
+    waiting: true,
     cause: null,
   });
   redraw();
   let r;
   try {
-    const bytes = new Uint8Array(await u.file.arrayBuffer());
-    r = await ctx.sendStream(
-      bytes,
-      u.file.type || "application/octet-stream",
-      (part) => {
-        u.sent = part;
-        redraw();
-      },
-      FILES_STREAM_MAX,
-      (waiting) => {
-        u.waiting = waiting;
-        redraw();
-      },
-    );
+    r = await inTurn(async () => {
+      const ctx = view.ctx;
+      u.waiting = false;
+      redraw();
+      const bytes = new Uint8Array(await u.file.arrayBuffer());
+      return ctx.sendStream(
+        bytes,
+        u.file.type || "application/octet-stream",
+        (part) => {
+          u.sent = part;
+          redraw();
+        },
+        FILES_STREAM_MAX,
+        (waiting) => {
+          u.waiting = waiting;
+          redraw();
+        },
+      );
+    });
+    const ctx = view.ctx;
     if (r?.ok)
       r = await ctx.ask("folder.put", {
         dir: u.dir,
@@ -359,6 +374,11 @@ async function saveName(text) {
   const name = text.trim();
   if (!name) return;
   const mode = sheet.mode;
+  // A name with / or \ would be a path: said here, without asking the PC.
+  if (/[\\/]/.test(name)) {
+    sheet.err = "That name can't have / or \\ in it.";
+    return redraw();
+  }
   const there = (r) => {
     sheet.err =
       r?.err === "exists"

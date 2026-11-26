@@ -8,7 +8,7 @@ import { log } from "./log.mjs";
 import { appDir } from "./mode.mjs";
 import { ActionError } from "./registry.mjs";
 // A cycle (transcripts.mjs reads files through this file); only function declarations cross it.
-import { writtenPaths } from "./transcripts.mjs";
+import { transcriptPath, writtenPaths } from "./transcripts.mjs";
 
 const WIN = process.platform === "win32";
 
@@ -259,7 +259,8 @@ function insideDir(dir, p) {
 }
 
 // The session's folders from its database row: its worktree (when it has one) and its project folder. `base` is
-// where a relative link starts. `written()` gives the paths this session's transcript shows it wrote or edited.
+// where a relative link starts. `written(real)` is true when this session's transcript shows it wrote or edited a
+// path whose real path is `real`.
 export function sessionPlace(row) {
   const folders = [row.worktree_path, row.workspace_id].filter(Boolean);
   if (!folders.length) throw new Error(`session ${row.id} has no folder`);
@@ -268,8 +269,74 @@ export function sessionPlace(row) {
     session: row.id,
     folders,
     base,
-    written: () => writtenPaths(row, base),
+    // A link on a written path's way made since the session began (a junction made after the write) may lead to a
+    // file the session never wrote: that path no longer counts. Only a path of the same real path is walked. A
+    // stale path the disk cannot check (ELOOP, EACCES, ENOTDIR) is left out, so it never stops the others.
+    written: (real) => {
+      let since = null;
+      for (const w of writtenPaths(row, base)) {
+        try {
+          if (!same(realPath(w), real)) continue;
+          since ??= sessionStart(row);
+          if (!linkSince(w, since)) return true;
+        } catch (e) {
+          if (typeof e.code !== "string") throw e;
+        }
+      }
+      return false;
+    },
   };
+}
+
+// When the session's transcript was made, in ms; 0 where the system keeps no birth time (every link counts then).
+function sessionStart(row) {
+  const file = transcriptPath(row);
+  return file && fs.existsSync(file) ? fs.statSync(file).birthtimeMs : 0;
+}
+
+const MAX_HOPS = 32;
+
+// A target that does not read back as a plain local path.
+const oddTarget = (target) =>
+  isUncOrDevice(fixDrive(target)) || /^(UNC[\\/]|\\\?\?\\)/i.test(target);
+
+// A symbolic link or junction on p's real way from the drive's root made at or after `since`. lstat follows a link
+// before the last part, so each link's target is walked too: a new link in an older link's target is seen. A link's
+// time is the later of its birth and change times (a creation time set back, or an old folder made a link in place,
+// keeps an old birth time; the change time moves). A target that cannot be read, an odd one or a chain of over
+// MAX_HOPS links counts as new.
+function linkSince(p, since) {
+  const abs = path.resolve(p);
+  let at = path.parse(abs).root;
+  const rest = partsOf(path.relative(at, abs));
+  let hops = 0;
+  while (rest.length) {
+    const next = path.join(at, rest.shift());
+    let st;
+    try {
+      st = fs.lstatSync(next);
+    } catch (e) {
+      if (e.code === "ENOENT") return false;
+      throw e;
+    }
+    if (!st.isSymbolicLink()) {
+      at = next;
+      continue;
+    }
+    if (Math.max(st.birthtimeMs, st.ctimeMs) >= since) return true;
+    if (++hops > MAX_HOPS) return true;
+    let target;
+    try {
+      target = fs.readlinkSync(next);
+    } catch {
+      return true;
+    }
+    if (oddTarget(target)) return true;
+    const to = path.resolve(at, target);
+    at = path.parse(to).root;
+    rest.unshift(...partsOf(path.relative(at, to)));
+  }
+  return false;
 }
 
 const tooWide = (f) => {
@@ -301,16 +368,15 @@ function linkOnTheWay(folder, p) {
     } catch {
       return true;
     }
-    if (isUncOrDevice(fixDrive(target)) || /^(UNC[\\/]|\\\?\?\\)/i.test(target))
-      return true;
+    if (oddTarget(target)) return true;
   }
   return false;
 }
 
 // The file rule for a file of a session: returns the real path, or throws FileRefused naming the rule (logged,
 // never the content). `p` is absolute; `folders` come from the database row, never from the phone. A file outside
-// the folders passes only when `written()` (the session's own written paths, sessionPlace) holds a path of the same
-// real path; every other rule runs first (files contract, section 8).
+// the folders passes only when `written(real)` (the session's own written paths, sessionPlace) holds a path of the
+// same real path; every other rule runs first (files contract, section 8).
 export function checkSessionFile(p, folders, written = null) {
   const refuse = (rule) => {
     log("file-refused", rule);
@@ -334,8 +400,7 @@ export function checkSessionFile(p, folders, written = null) {
   const realRule = secretRuleOf(real);
   if (realRule) refuse(realRule);
   if (fs.existsSync(real) && !fs.statSync(real).isFile()) refuse("not a file");
-  if (!inside && ![...written()].some((w) => same(realPath(w), real)))
-    refuse("outside the session's folders");
+  if (!inside && !written(real)) refuse("outside the session's folders");
   return real;
 }
 
