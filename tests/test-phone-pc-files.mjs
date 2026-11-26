@@ -42,6 +42,9 @@ Object.assign(process.env, {
   LOCALAPPDATA: path.join(home, "AppData", "Local"),
   // Lets folder.send and folder.link post to the stand-in relay on http://127.0.0.1.
   PHONE_PC_TEST: "1",
+  // folder.copy and folder.show name PowerShell and Explorer under SystemRoot, through a stand-in runner here;
+  // a Mac has no SystemRoot of its own
+  SystemRoot: process.env.SystemRoot || "C:/Windows",
 });
 // Where the PC program looks for Nimbalyst's data (core/files.mjs nimbalystDir), on each system.
 const NIM =

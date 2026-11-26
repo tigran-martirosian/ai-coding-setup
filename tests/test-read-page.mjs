@@ -325,14 +325,18 @@ r = run(["https://203.0.113.30/", "--out", OUT], {
 p = parse(lines(r.out)[0] || "");
 const nx = r.calls.find((c) => c.tool === "npm");
 const df = r.calls.find((c) => c.tool === "defuddle");
+const samePlace = (a, b) => {
+  const spell = (p) => path.resolve(p).replace(/^\/private(?=\/var\/)/, "");
+  return spell(a) === spell(b);
+};
 ok(
   "with no Firecrawl Local, npm installs defuddle@0.19.7 into the run's own folder and defuddle reads the page with parse <url> --md",
   nx &&
     df &&
     nx.args[0] === "install" &&
     nx.args.at(-1) === "defuddle@0.19.7" &&
-    path.resolve(nx.args[nx.args.indexOf("--prefix") + 1]) ===
-      path.resolve(nx.cwd) &&
+    // on a Mac the temp folder /var/... is a link to /private/var/..., so one folder has two spellings
+    samePlace(nx.args[nx.args.indexOf("--prefix") + 1], nx.cwd) &&
     JSON.stringify(df.args) ===
       JSON.stringify(["parse", "https://203.0.113.30/", "--md"]),
   `${JSON.stringify(nx)} ${JSON.stringify(df)}; exit ${r.code}; ${r.err}`,
