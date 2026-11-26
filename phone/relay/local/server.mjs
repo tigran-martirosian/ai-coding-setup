@@ -340,9 +340,13 @@ function pageFile(file, acceptEncoding) {
     : null;
   if (!encoding)
     return { etag: `"${entry.hash}"`, body: entry.raw, encoding: null };
+  // Brotli at level 5, not its default 11: 11 took 1.2 s for the page's files on a fast PC, all of it blocking, and
+  // a slower CI runner stalled past the 5 s a scaled test gives a socket between pings.
   entry.packed[encoding] ??=
     encoding === "br"
-      ? zlib.brotliCompressSync(entry.raw)
+      ? zlib.brotliCompressSync(entry.raw, {
+          params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 },
+        })
       : zlib.gzipSync(entry.raw);
   return {
     etag: `"${entry.hash}-${encoding}"`,
