@@ -7,6 +7,7 @@
 // compared with what model.js gives for the same items. No real tracker or usage file is read.
 // Run: node tests/test-phone-jobs.mjs
 import fs from "node:fs";
+import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -325,6 +326,21 @@ const hasClass = (n, c) => n.className?.split(" ").includes(c);
 const byClass = (root, c) => walk(root).filter((n) => hasClass(n, c));
 
 const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
+// The build-only screens.generated.js, which cache.js and outbox.js read STORE_SUFFIX from: "" as in a plain build.
+registerHooks({
+  resolve(specifier, context, next) {
+    if (
+      specifier.endsWith("screens.generated.js") &&
+      new URL(specifier, context.parentURL).href ===
+        pageUrl("screens.generated.js")
+    )
+      return {
+        url: `data:text/javascript,${encodeURIComponent('export const STORE_SUFFIX = "";')}`,
+        shortCircuit: true,
+      };
+    return next(specifier, context);
+  },
+});
 const PAGE_FILES = [
   "screens/home-jobs.js",
   "screens/job.js",

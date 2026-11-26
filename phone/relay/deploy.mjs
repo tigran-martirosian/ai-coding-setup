@@ -7,7 +7,8 @@
 // the bot showed before), the default menu button back to the command list, the owner's Open button.
 // A deploy `beside` (the test copy, deploy-test.mjs) makes no bot-wide call, so the real relay keeps the bot: it
 // builds the page with `testCopy`, puts TOPIC_SUFFIX (the "(test)" after its topic names) and sends the owner one
-// "Test copy" message with a button to the test address.
+// "Test copy" message with a button to the test address. Only a deploy not `beside` puts RELAY_ORIGIN (the relay's
+// own address): it turns on the scheduled webhook check, which the test copy must never run.
 // Secret values go only into a child's environment or standard input and to Telegram; nothing printed holds one.
 //   node phone/relay/deploy.mjs --name <worker> [--dry-run]
 // This command line is the release workflow's: it reads the values from the environment names in CI_SECRETS.
@@ -20,6 +21,7 @@ import { liveCheck } from "../../workers/ship-check.mjs";
 import { buildPage, writePage } from "../page/build.mjs";
 import { telegramApi } from "./bot/telegram.mjs";
 import { PAGE_HEADERS } from "./local/server.mjs";
+import { WEBHOOK_SETTINGS } from "./src/hub.mjs";
 
 // One exact version for both deploys, never a range.
 export const WRANGLER_VERSION = "4.162.0";
@@ -156,8 +158,7 @@ export async function pointBot({
   await telegram("setWebhook", {
     url: `${origin}/tg/hook`,
     secret_token: webhookSecret,
-    allowed_updates: ["message", "callback_query"],
-    max_connections: 1,
+    ...WEBHOOK_SETTINGS,
     drop_pending_updates: true,
   });
   await telegram("deleteMyCommands", {
@@ -252,6 +253,8 @@ export const TEST_TOPIC_SUFFIX = " (test)";
 // webhook checks), or null on a dry run. `beside`: the test copy beside the real relay (see the top of this file);
 // it also puts TOPIC_SUFFIX. `wrangler`: a stand-in for the npx call, (args, { env, input }) -> its output, for tests.
 // `probeLimitMs` and `probeWait` (ms -> a promise): how long the live probe keeps asking and its pause, for tests.
+// `keep` ({ origin, webhookSecret } -> nothing) runs once the secrets are put and before any bot call, so a bot call
+// that fails still leaves the caller the secret the relay now checks.
 export async function deployRelay({
   name,
   values,
@@ -263,6 +266,7 @@ export async function deployRelay({
   wrangler = runWrangler,
   probeLimitMs = PROBE_LIMIT_MS,
   probeWait = pause,
+  keep = () => {},
 }) {
   if (!WORKER_NAME.test(name ?? ""))
     throw new Error(
@@ -308,6 +312,10 @@ export async function deployRelay({
       say(
         `would run: ${wr} secret put ${s} --name ${name} (the value on standard input)`,
       );
+    if (!beside)
+      say(
+        `would run: ${wr} secret put RELAY_ORIGIN --name ${name} (the relay's address, which turns on its webhook check)`,
+      );
     if (checks)
       say(
         `would serve /version.json with ${Object.entries(PROBE_HEADERS)
@@ -337,6 +345,7 @@ export async function deployRelay({
     limitMs: probeLimitMs,
     wait: probeWait,
   });
+  if (!beside) secrets.RELAY_ORIGIN = origin;
   for (const s of Object.keys(secrets))
     wrangler(["secret", "put", s, "--name", name], {
       env,
@@ -344,6 +353,7 @@ export async function deployRelay({
     });
   say(`relay: ${origin}`);
   const done = { origin, webhookSecret: secrets.WEBHOOK_SECRET };
+  keep(done);
   if (beside) {
     await announceTestCopy({
       botToken: values.botToken,

@@ -4,6 +4,7 @@
 // local MCP server answering from fixtures and recording every call).
 // Run: node tests/test-phone-page-session.mjs
 import fs from "node:fs";
+import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -473,8 +474,26 @@ const button = (root, test) =>
   byTag(root, "button").find((b) => !b.hidden && test(b));
 
 const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
+// The build-only screens.generated.js: only its STORE_SUFFIX is read here, "" as in a plain build; useStoreSuffix
+// plays a test-copy build.
+const GENERATED = pageUrl("screens.generated.js");
+const GENERATED_JS = `export let STORE_SUFFIX = "";
+export const useStoreSuffix = (s) => { STORE_SUFFIX = s; };`;
+registerHooks({
+  resolve(specifier, context, next) {
+    if (
+      specifier.endsWith("screens.generated.js") &&
+      new URL(specifier, context.parentURL).href === GENERATED
+    )
+      return {
+        url: `data:text/javascript,${encodeURIComponent(GENERATED_JS)}`,
+        shortCircuit: true,
+      };
+    return next(specifier, context);
+  },
+});
 const screens = await import(pageUrl("frame/screens.js"));
-const { turnsView, drafts, why, newAtEnd } = await import(
+const { turnsView, drafts, why, newAtEnd, linkWait } = await import(
   pageUrl("screens/session.js")
 );
 const { timing } = await import(pageUrl("screens/session-cards.js"));
@@ -940,6 +959,97 @@ try {
   df5.fire("input");
   df5.fire("blur");
   df5.isConnected = false;
+
+  // ---- the test copy's own store: a test-copy build ends the keys of the saved screens, the outbox and the drafts
+  // with its STORE_SUFFIX, so the test copy and the real app on one phone never read or change each other's.
+  // Each run starts from a store holding only the other build's things, and puts the store back after.
+  const { useStoreSuffix } = await import(GENERATED);
+  const cache = await import(pageUrl("frame/cache.js"));
+  const { createOutbox } = await import(pageUrl("frame/outbox.js"));
+  async function storeRun(suffix) {
+    const before = new Map(stored);
+    stored.clear();
+    useStoreSuffix(suffix);
+    const other = suffix ? "" : "-test";
+    stored.set(
+      `phone.kept${other}:probe`,
+      JSON.stringify({ data: "other", at: 1 }),
+    );
+    stored.set(
+      `phone.outbox${other}`,
+      JSON.stringify([
+        { mid: "m-other", key: S.running, a: "send", d: {}, at: Date.now() },
+      ]),
+    );
+    stored.set(`phone.draft${other}:${S.running}`, "other words");
+    const others = new Map(stored);
+    const read = {
+      kept: cache.kept("probe"),
+      outbox: createOutbox({ storage: localStorage }).list(S.running).length,
+    };
+    cache.keep("probe", "mine");
+    createOutbox({ storage: localStorage }).add({
+      key: S.running,
+      a: "send",
+      d: {},
+    });
+    drafts.clear();
+    const v = drawSession(S.running, "Works");
+    const field = await until(() => byTag(v.dock, "textarea")[0]);
+    read.draft = field.value;
+    field.value = "my words";
+    field.fire("input");
+    field.fire("blur");
+    const written = [...stored.keys()].filter((k) => !others.has(k)).sort();
+    cache.forgetAll();
+    const keptAfterForget = stored.has(`phone.kept${suffix}:probe`);
+    const othersKept = [...others].every(([k, x]) => stored.get(k) === x);
+    field.value = "";
+    field.fire("input");
+    field.fire("blur");
+    field.isConnected = false;
+    useStoreSuffix("");
+    stored.clear();
+    for (const [k, x] of before) stored.set(k, x);
+    return { read, written, keptAfterForget, othersKept };
+  }
+  // The keys a run wrote: its draft, its kept probe and its outbox, and besides them only kept screens (the drawn
+  // session keeps itself), all under the run's suffix.
+  const wroteOnly = (written, suffix) => {
+    const mine = [
+      `phone.draft${suffix}:${S.running}`,
+      `phone.kept${suffix}:probe`,
+      `phone.outbox${suffix}`,
+    ];
+    return (
+      mine.every((k) => written.includes(k)) &&
+      written.every(
+        (k) => mine.includes(k) || k.startsWith(`phone.kept${suffix}:`),
+      )
+    );
+  };
+  const testRun = await storeRun("-test");
+  check(
+    "a test-copy build (STORE_SUFFIX -test) keeps its saved screens, outbox and drafts under -test keys and never reads or changes the real app's (FAIL: the test copy shows or overwrites the real app's screens, messages or words)",
+    testRun.read.kept === null &&
+      testRun.read.outbox === 0 &&
+      testRun.read.draft === "" &&
+      wroteOnly(testRun.written, "-test") &&
+      !testRun.keptAfterForget &&
+      testRun.othersKept,
+    show(testRun),
+  );
+  const plainRun = await storeRun("");
+  check(
+    "a plain build (STORE_SUFFIX empty) keeps its saved screens, outbox and drafts under today's keys and leaves a test copy's alone (FAIL: the real app loses what it kept before the update)",
+    plainRun.read.kept === null &&
+      plainRun.read.outbox === 0 &&
+      plainRun.read.draft === "" &&
+      wroteOnly(plainRun.written, "") &&
+      !plainRun.keptAfterForget &&
+      plainRun.othersKept,
+    show(plainRun),
+  );
   const failed = why({ ok: false, err: "door-error", message: "x" });
   check(
     "a failed send shows the answer's message once: { err: door-error, message: x } shows x",
@@ -955,6 +1065,28 @@ try {
     offWords[0] === "the PC is off or asleep" &&
       offWords[1] === "the link to the PC closed",
     show(offWords),
+  );
+  // A known word that comes with the PC's message keeps its plain words; the child-limit refusal of a New session
+  // has its own. The PC sends it only after a start with no calling session failed too, and Nimbalyst's limit is
+  // either 4 helpers at once or a lifetime count, so the words name no number and no single helper to wait for.
+  const knownWords = [
+    why({ ok: false, err: "timeout", message: "after 30 s" }),
+    why({ ok: false, err: "not-running", message: "idle" }),
+    why({ ok: false, err: "session-limit" }),
+    why({
+      ok: false,
+      err: "session-limit",
+      message: "Maximum 4 child sessions",
+    }),
+  ];
+  check(
+    "a known error word with a message shows its plain words, and session-limit says Nimbalyst refused it for too many helper sessions, with what to do (FAIL: 'the PC answered \"timeout (after 30 s)\"', or one of 4 helpers must finish)",
+    knownWords[0] === "the PC did not answer in time" &&
+      knownWords[1] === "the session is not working" &&
+      knownWords[2] ===
+        "Nimbalyst refused a new session: too many helper sessions from the project's newest session. Finish or close some, or start one on the PC" &&
+      knownWords[3] === knownWords[2],
+    show(knownWords),
   );
 
   // ---- a sent message shows at once (comfort design, section 5): with "Sending…" before the PC answers, once
@@ -1018,6 +1150,372 @@ try {
   sf.fire("input");
   sf.fire("blur");
   held1.view.isConnected = false;
+
+  // ---- the same words sent again: the transcript's earlier "Tidy the tests" does not stand for the new one
+  const talkFile = path.join(
+    talkDir,
+    "11111111-2222-4333-8444-555555555555.jsonl",
+  );
+  const talkBefore = fs.readFileSync(talkFile, "utf8");
+  const twice = drawSession(S.running, "Works", {
+    ask: (a, d) =>
+      a === "session.queue" || a === "session.send"
+        ? Promise.resolve({ ok: true, d: { queued: false } })
+        : ask(a, d),
+  });
+  const tf = await until(() => byTag(twice.dock, "textarea")[0]);
+  await until(() => byClass(twice.view, "reply").length);
+  const sendWords = async (text) => {
+    tf.value = text;
+    tf.fire("input");
+    button(twice.dock, (b) => hasClass(b, "send"))?.click();
+    await until(() => !byClass(twice.view, "sent-mark").length);
+    await sleep(150);
+  };
+  await sendWords("Tidy the tests");
+  const twiceShown = bubbles(twice.view, "Tidy the tests").length;
+  check(
+    "the same words sent twice keep both bubbles while the transcript holds only the first (FAIL: the new message vanishes, matched to the old one)",
+    twiceShown === 2,
+    show({ twiceShown }),
+  );
+  // The session writes the new message: it shows once, from the transcript.
+  fs.appendFileSync(
+    talkFile,
+    `${JSON.stringify({ type: "user", message: { content: "Tidy the tests" }, timestamp: "t9" })}\n`,
+  );
+  await sendWords("Something else");
+  await until(() => byClass(twice.view, "you").length >= 3);
+  const twiceLater = bubbles(twice.view, "Tidy the tests").length;
+  check(
+    "once the transcript holds the second one too, the words show twice, not three times",
+    twiceLater === 2,
+    show({ twiceLater }),
+  );
+  twice.view.isConnected = false;
+  fs.writeFileSync(talkFile, talkBefore);
+
+  // ---- the outbox (phone/README.md, "Sends that survive a dropped link"), with a PC whose hello says ids
+  const { outbox, RETRY_MS } = await import(pageUrl("frame/outbox.js"));
+  const { ChannelError } = await import(pageUrl("frame/channel.js"));
+  const IDS = { ids: true };
+  const posted = (text) =>
+    callsOf("send_prompt", S.running).filter((c) =>
+      c.args.prompt.startsWith(text),
+    ).length;
+  const redLine = (dock) =>
+    byClass(dock, "dock-line").find((p) => !p.hidden && hasClass(p, "bad"))
+      ?.textContent ?? null;
+  // The link drops after the frame left: the PC runs the send, the page never gets its answer.
+  let dropNext = true;
+  const seenMids = [];
+  const ob1 = drawSession(S.running, "Works", {
+    hello: IDS,
+    ask: async (a, d) => {
+      if (a === "session.send" || a === "session.queue") {
+        seenMids.push(d.mid);
+        if (dropNext) {
+          dropNext = false;
+          await ask(a, d);
+          throw new ChannelError("bye");
+        }
+      }
+      return ask(a, d);
+    },
+  });
+  const of1 = await until(() => byTag(ob1.dock, "textarea")[0]);
+  await until(() => byClass(ob1.view, "reply").length);
+  of1.value = "Once only";
+  of1.fire("input");
+  button(ob1.dock, (b) => hasClass(b, "send"))?.click();
+  await until(() => posted("Once only") === 1);
+  await sleep(50);
+  const dropped = {
+    box: of1.value,
+    mark: byClass(ob1.view, "sent-mark")[0]?.textContent,
+    red: redLine(ob1.dock),
+    waiting: outbox.list(S.running).length,
+    mid: seenMids[0],
+  };
+  check(
+    "outbox: a send whose link drops after it left keeps its clock, shows no red, stays out of the box and waits in the outbox with an id",
+    dropped.box === "" &&
+      dropped.mark === "Sending…" &&
+      dropped.red === null &&
+      dropped.waiting === 1 &&
+      /^m-[0-9a-f]{32}$/.test(dropped.mid ?? ""),
+    show(dropped),
+  );
+  check(
+    "outbox: the waiting message is kept in localStorage, so a reopen of the mini app keeps it",
+    (stored.get("phone.outbox") ?? "").includes("Once only"),
+    show(stored.get("phone.outbox")),
+  );
+  // The frame sends the outbox again on the next channel session.
+  await outbox.flush((a, d) => {
+    seenMids.push(d.mid);
+    return ask(a, d);
+  });
+  await until(() => byClass(ob1.view, "sent-mark").length === 0);
+  const resent = {
+    posted: posted("Once only"),
+    waiting: outbox.list(S.running).length,
+    marks: byClass(ob1.view, "sent-mark").length,
+    sameId: seenMids[1] === seenMids[0],
+  };
+  check(
+    "outbox: the resend on the next link carries the same id, the session gets the message exactly once, and the clock leaves",
+    resent.posted === 1 &&
+      resent.waiting === 0 &&
+      resent.marks === 0 &&
+      resent.sameId,
+    show(resent),
+  );
+
+  // A real refusal: red, the words back in the box, out of the outbox.
+  const ob2 = drawSession(S.running, "Works", {
+    hello: IDS,
+    ask: (a, d) =>
+      a === "session.send" || a === "session.queue"
+        ? Promise.resolve({ ok: false, err: "no-session" })
+        : ask(a, d),
+  });
+  const of2 = await until(() => byTag(ob2.dock, "textarea")[0]);
+  await until(() => byClass(ob2.view, "reply").length);
+  of2.value = "Refused one";
+  of2.fire("input");
+  button(ob2.dock, (b) => hasClass(b, "send"))?.click();
+  await until(() => of2.value === "Refused one");
+  await sleep(250);
+  const refusedOb = {
+    box: of2.value,
+    red: redLine(ob2.dock),
+    waiting: outbox.list(S.running).length,
+    bubbles: bubbles(ob2.view, "Refused one").length,
+  };
+  check(
+    "outbox: a refusal from the PC shows red, puts the words back in the box and leaves the outbox",
+    refusedOb.box === "Refused one" &&
+      /^Not sent: .*Your message is back in the box\.$/.test(
+        refusedOb.red ?? "",
+      ) &&
+      refusedOb.waiting === 0 &&
+      refusedOb.bubbles === 0,
+    show(refusedOb),
+  );
+  of2.value = "";
+  of2.fire("input");
+  of2.fire("blur");
+  ob1.view.isConnected = false;
+  ob2.view.isConnected = false;
+
+  // A refusal that came while no view of the session was open: shown when the session is opened. The views drawn
+  // so far are left behind, as the page's are once the user moves on.
+  for (const vw of drawn) vw.isConnected = false;
+  const late = outbox.add({
+    key: S.running,
+    a: "session.send",
+    d: { session: S.running, text: "Came back later" },
+    text: "Came back later",
+    how: "send",
+  });
+  await outbox.send(late, async () => ({ ok: false, err: "no-session" }));
+  const ob3 = drawSession(S.running, "Works", { hello: IDS });
+  const of3 = await until(() => byTag(ob3.dock, "textarea")[0]);
+  await until(() => byClass(ob3.view, "reply").length);
+  await sleep(50);
+  const lateShown = {
+    box: of3.value,
+    red: redLine(ob3.dock),
+    waiting: outbox.list(S.running).length,
+  };
+  check(
+    "outbox: a refusal that came while the session was closed shows when it opens, its words back in the box",
+    lateShown.box === "Came back later" &&
+      /^Not sent: /.test(lateShown.red ?? "") &&
+      lateShown.waiting === 0,
+    show(lateShown),
+  );
+  of3.value = "";
+  of3.fire("input");
+  of3.fire("blur");
+  ob3.view.isConnected = false;
+
+  // Past the hour of silent retries: "Not sent yet" with Send now and Discard; the frame's flush leaves it.
+  const oldOne = outbox.add({
+    key: S.running,
+    a: "session.send",
+    d: { session: S.running, text: "From last night" },
+    text: "From last night",
+    how: "send",
+  });
+  const goneOne = outbox.add({
+    key: S.running,
+    a: "session.send",
+    d: { session: S.running, text: "Drop this" },
+    text: "Drop this",
+    how: "send",
+  });
+  outbox.get(oldOne.mid).at = Date.now() - RETRY_MS - 1000;
+  outbox.get(goneOne.mid).at = Date.now() - RETRY_MS - 1000;
+  const flushed = [];
+  await outbox.flush(async (_a, d) => {
+    flushed.push(d.mid);
+    return { ok: true, d: {} };
+  });
+  check(
+    "outbox: a message older than the hour of silent retries never goes out by itself",
+    flushed.length === 0 && outbox.list(S.running).length === 2,
+    show({ flushed, waiting: outbox.list(S.running).length }),
+  );
+  const nowSent = [];
+  const ob4 = drawSession(S.running, "Works", {
+    hello: IDS,
+    ask: (a, d) => {
+      if (a === "session.send" || a === "session.queue") {
+        nowSent.push(d);
+        return ask(a, d);
+      }
+      return ask(a, d);
+    },
+  });
+  await until(() => byClass(ob4.view, "reply").length);
+  const staleRows = await until(() =>
+    byClass(ob4.view, "sent-stale").length === 2
+      ? byClass(ob4.view, "sent-stale")
+      : null,
+  );
+  check(
+    'outbox: each old message shows "Not sent yet" with Send now and Discard',
+    staleRows?.every(
+      (r) =>
+        r.textContent.startsWith("Not sent yet") &&
+        button(r, (b) => b.textContent === "Send now") &&
+        button(r, (b) => b.textContent === "Discard"),
+    ) === true,
+    show(staleRows?.map((r) => r.textContent)),
+  );
+  const rowOf = (mid) =>
+    byClass(ob4.view, "sent-stale").find((r) => r.attrs["data-mid"] === mid);
+  button(rowOf(goneOne.mid), (b) => b.textContent === "Discard")?.click();
+  await sleep(50);
+  check(
+    "outbox: Discard drops the message from the chat and the outbox, sending nothing",
+    !outbox.get(goneOne.mid) &&
+      bubbles(ob4.view, "Drop this").length === 0 &&
+      nowSent.length === 0,
+    show({ waiting: outbox.list(S.running).map((e) => e.text), nowSent }),
+  );
+  button(rowOf(oldOne.mid), (b) => b.textContent === "Send now")?.click();
+  await until(() => posted("From last night") === 1);
+  await until(() => !outbox.get(oldOne.mid));
+  check(
+    "outbox: Send now sends the old message once, with its own id, and it leaves the outbox",
+    nowSent.length === 1 &&
+      nowSent[0].mid === oldOne.mid &&
+      posted("From last night") === 1 &&
+      !outbox.get(oldOne.mid),
+    show({ nowSent, posted: posted("From last night") }),
+  );
+  ob4.view.isConnected = false;
+
+  // A PC that says nothing of ids (older than this page): today's path, and a lost link says what it means.
+  const ob5 = drawSession(S.running, "Works", {
+    ask: (a, d) =>
+      a === "session.send" || a === "session.queue"
+        ? Promise.reject(new ChannelError("bye"))
+        : ask(a, d),
+  });
+  const of5 = await until(() => byTag(ob5.dock, "textarea")[0]);
+  await until(() => byClass(ob5.view, "reply").length);
+  of5.value = "Old PC";
+  of5.fire("input");
+  button(ob5.dock, (b) => hasClass(b, "send"))?.click();
+  await until(() => of5.value === "Old PC");
+  await sleep(250);
+  const oldPc = {
+    box: of5.value,
+    line: byClass(ob5.dock, "dock-line").find((p) => !p.hidden)?.textContent,
+    waiting: outbox.list(S.running).length,
+  };
+  check(
+    'outbox: with a PC without ids a lost link says "the link dropped before the PC confirmed" and the words go back in the box (FAIL: the PC answered "bye")',
+    oldPc.box === "Old PC" &&
+      oldPc.line ===
+        "The link dropped before the PC confirmed it: check the session before you send it again. Your message is back in the box." &&
+      oldPc.waiting === 0,
+    show(oldPc),
+  );
+  of5.value = "";
+  of5.fire("input");
+  of5.fire("blur");
+  ob5.view.isConnected = false;
+
+  // New session goes through the outbox too: its data carries an id.
+  const newAsked = [];
+  const ob6 = drawSession(null, undefined, {
+    hello: IDS,
+    ask: async (a, d) => {
+      if (a === "session.new") {
+        newAsked.push(d);
+        return { ok: true, d: { session: S.running } };
+      }
+      return ask(a, d);
+    },
+  });
+  const of6 = await until(() => byTag(ob6.dock, "textarea")[0]);
+  of6.value = "Start something";
+  of6.fire("input");
+  button(ob6.dock, (b) => hasClass(b, "send"))?.click();
+  await until(() => newAsked.length);
+  await sleep(50);
+  check(
+    "outbox: New session goes through the outbox with an id and leaves it once the PC answers",
+    /^m-/.test(newAsked[0]?.mid ?? "") &&
+      newAsked[0]?.project === beta &&
+      outbox.list(`new:${beta}`).length === 0,
+    show(newAsked),
+  );
+  ob6.view.isConnected = false;
+
+  // A first message to a new session held by a dropped link: a second one must not start a second session.
+  const newHeld = [];
+  const ob7 = drawSession(null, undefined, {
+    hello: IDS,
+    ask: async (a, d) => {
+      if (a === "session.new") {
+        newHeld.push(d);
+        throw new ChannelError("bye");
+      }
+      return ask(a, d);
+    },
+  });
+  const of7 = await until(() => byTag(ob7.dock, "textarea")[0]);
+  of7.value = "Start X";
+  of7.fire("input");
+  button(ob7.dock, (b) => hasClass(b, "send"))?.click();
+  await until(() => newHeld.length === 1);
+  await sleep(50);
+  of7.value = "Also do Y";
+  of7.fire("input");
+  button(ob7.dock, (b) => hasClass(b, "send"))?.click();
+  await sleep(100);
+  const second = {
+    asked: newHeld.length,
+    waiting: outbox.list(`new:${beta}`).map((e) => e.text),
+    box: of7.value,
+    line: byClass(ob7.dock, "dock-line").find((p) => !p.hidden)?.textContent,
+  };
+  check(
+    "outbox: while a new session's first message waits, a second message starts no second session and stays in the box",
+    second.asked === 1 &&
+      second.waiting.join() === "Start X" &&
+      second.box === "Also do Y" &&
+      /starts once the PC gets your first message/.test(second.line ?? ""),
+    show(second),
+  );
+  for (const e of outbox.list(`new:${beta}`)) outbox.take(e.mid);
+  ob7.view.isConnected = false;
 
   // ---- a sent message never stays pinned at the chat's end (reported 2026-11-18)
   // With files: the transcript holds the words and the block naming the saved files after them.
@@ -1171,6 +1669,247 @@ try {
     show(keptNow),
   );
   k1.view.isConnected = false;
+
+  // ---- Send on a kept session before the PC connects: the message waits for the link instead of failing with
+  // "no link"; once the hello comes it goes through the outbox (hello says ids) or as a plain ask (no ids)
+  const beforeLink = async (hello, text) => {
+    let linkUp = false;
+    let up;
+    const linkP = new Promise((r) => {
+      up = r;
+    });
+    const sentAs = [];
+    const k = drawSession(S.running, "Works", {
+      connected: false,
+      hello: null,
+      linked: () => linkP,
+      ask: (a, d) => {
+        if (!linkUp) return Promise.reject(new ChannelError("not-connected"));
+        if (a === "session.queue" || a === "session.send") {
+          sentAs.push({ a, d });
+          return Promise.resolve({ ok: true, d: { queued: false } });
+        }
+        return ask(a, d);
+      },
+    });
+    const kf = byTag(k.dock, "textarea")[0];
+    kf.value = text;
+    kf.fire("input");
+    button(k.dock, (b) => hasClass(b, "send"))?.click();
+    await sleep(100);
+    const waiting = {
+      line: redLine(k.dock),
+      mark: byClass(k.view, "sent-mark")[0]?.textContent ?? null,
+      sent: sentAs.length,
+    };
+    linkUp = true;
+    up(hello);
+    await until(() => sentAs.length);
+    await sleep(100);
+    k.view.isConnected = false;
+    return { waiting, sentAs, after: redLine(k.dock) };
+  };
+  const withIds = await beforeLink(IDS, "Sent before the link");
+  check(
+    "a Send on a kept session before the PC connects waits with Sending…, then goes through the outbox with its id once the hello says ids (FAIL: 'Not sent: no link to the PC right now')",
+    withIds.waiting.line === null &&
+      withIds.waiting.mark === "Sending…" &&
+      withIds.waiting.sent === 0 &&
+      withIds.sentAs.length === 1 &&
+      /^m-[0-9a-f]{32}$/.test(withIds.sentAs[0].d.mid ?? "") &&
+      withIds.after === null &&
+      outbox.list(S.running).length === 0,
+    show(withIds),
+  );
+  const noIds = await beforeLink({}, "Sent before an older PC");
+  check(
+    "to a PC whose hello has no ids, the waiting message goes as a plain send without an id",
+    noIds.waiting.line === null &&
+      noIds.sentAs.length === 1 &&
+      noIds.sentAs[0].d.mid === undefined &&
+      noIds.sentAs[0].d.text === "Sent before an older PC",
+    show(noIds),
+  );
+
+  // ---- a Send before the first hello survives the frame's redraw at the hello: the frame leaves the view it drew
+  // from what it kept, draws the screen again, then sends the outbox (app.js connect)
+  for (const vw of drawn) vw.isConnected = false;
+  const NEW_KEY = `new:${beta}`;
+  for (const e of outbox.list(NEW_KEY)) outbox.take(e.mid);
+  let upA;
+  const linkA = new Promise((r) => {
+    upA = r;
+  });
+  let linkUpA = false;
+  const startAsked = [];
+  const askA = async (a, d) => {
+    if (!linkUpA) throw new ChannelError("not-connected");
+    if (a === "session.new") {
+      startAsked.push(d);
+      return { ok: true, d: { session: S.running } };
+    }
+    return ask(a, d);
+  };
+  const early1 = drawSession(null, undefined, {
+    connected: false,
+    hello: null,
+    linked: () => linkA,
+    ask: askA,
+  });
+  const earlyF1 = byTag(early1.dock, "textarea")[0];
+  earlyF1.value = "Start before the link";
+  earlyF1.fire("input");
+  button(early1.dock, (b) => hasClass(b, "send"))?.click();
+  await sleep(50);
+  early1.view.isConnected = false;
+  linkUpA = true;
+  const early2 = drawSession(null, undefined, {
+    hello: IDS,
+    linked: () => Promise.resolve(IDS),
+    ask: askA,
+  });
+  await sleep(20);
+  const redrawn = bubbles(early2.view, "Start before the link").length;
+  upA(IDS);
+  await outbox.flush(askA);
+  const startedTo = await until(() =>
+    byClass(early2.view, "reply").length
+      ? button(early2.dock, (b) => hasClass(b, "send"))?.attrs["data-action"]
+      : null,
+  );
+  check(
+    "a New session sent before the first hello still shows its bubble in the view drawn at the hello, starts once with its id, and that view moves to the started session (FAIL: the message was held only by the left view)",
+    redrawn === 1 &&
+      startAsked.length === 1 &&
+      /^m-[0-9a-f]{32}$/.test(startAsked[0].mid ?? "") &&
+      startedTo !== undefined &&
+      startedTo !== null &&
+      startedTo !== "session.new" &&
+      outbox.list(NEW_KEY).length === 0,
+    show({ redrawn, startAsked, startedTo, left: outbox.list(NEW_KEY) }),
+  );
+  early2.view.isConnected = false;
+
+  // The page is closed before the hello: the words are kept on the phone.
+  const early3 = drawSession(null, undefined, {
+    connected: false,
+    hello: null,
+    linked: () => new Promise(() => {}),
+    ask: () => Promise.reject(new ChannelError("not-connected")),
+  });
+  const earlyF3 = byTag(early3.dock, "textarea")[0];
+  earlyF3.value = "Kept through a close";
+  earlyF3.fire("input");
+  button(early3.dock, (b) => hasClass(b, "send"))?.click();
+  await sleep(50);
+  const keptWords = {
+    outbox: (stored.get("phone.outbox") ?? "").includes("Kept through a close"),
+    draft: (stored.get(`phone.draft:${NEW_KEY}`) ?? "").includes(
+      "Kept through a close",
+    ),
+  };
+  check(
+    "a Send before the first hello is kept on the phone, so a close of the page before the hello keeps the words (FAIL: held in memory only)",
+    keptWords.outbox || keptWords.draft,
+    show(keptWords),
+  );
+  for (const e of outbox.list(NEW_KEY)) outbox.take(e.mid);
+  early3.view.isConnected = false;
+
+  // A PC without ids refuses the waiting message after the redraw: the words go back in the box shown then.
+  let upC;
+  const linkC = new Promise((r) => {
+    upC = r;
+  });
+  let linkUpC = false;
+  const oldSent = [];
+  const askC = async (a, d) => {
+    if (!linkUpC) throw new ChannelError("not-connected");
+    if (a === "session.send" || a === "session.queue") {
+      oldSent.push(d);
+      return { ok: false, err: "no-session" };
+    }
+    return ask(a, d);
+  };
+  const early4 = drawSession(S.running, "Works", {
+    connected: false,
+    hello: null,
+    linked: () => linkC,
+    ask: askC,
+  });
+  const earlyF4 = byTag(early4.dock, "textarea")[0];
+  earlyF4.value = "Refused by an older PC";
+  earlyF4.fire("input");
+  button(early4.dock, (b) => hasClass(b, "send"))?.click();
+  await sleep(50);
+  early4.view.isConnected = false;
+  linkUpC = true;
+  const early5 = drawSession(S.running, "Works", {
+    hello: {},
+    linked: () => Promise.resolve({}),
+    ask: askC,
+  });
+  const earlyF5 = await until(() => byTag(early5.dock, "textarea")[0]);
+  upC({});
+  await until(() => earlyF5.value === "Refused by an older PC", 2000);
+  await sleep(50);
+  const liveBack = {
+    live: earlyF5.value,
+    left: earlyF4.value,
+    red: redLine(early5.dock),
+    sent: oldSent.length,
+    mid: oldSent[0]?.mid,
+    waiting: outbox.list(S.running).length,
+  };
+  check(
+    "an older PC's refusal of a message sent before the hello puts the words back in the box shown now, sent once without an id (FAIL: written into the left view's box)",
+    liveBack.live === "Refused by an older PC" &&
+      liveBack.left === "" &&
+      /^Not sent: .*Your message is back in the box\.$/.test(
+        liveBack.red ?? "",
+      ) &&
+      liveBack.sent === 1 &&
+      liveBack.mid === undefined &&
+      liveBack.waiting === 0,
+    show(liveBack),
+  );
+  earlyF5.value = "";
+  earlyF5.fire("input");
+  earlyF5.fire("blur");
+  early5.view.isConnected = false;
+
+  // A dropped link to a PC without ids that does not come back in time: the words go back with a clear line.
+  linkWait.ms = 100;
+  const early6 = drawSession(S.running, "Works", {
+    connected: false,
+    hello: {},
+    linked: () => new Promise(() => {}),
+    ask: () => Promise.reject(new ChannelError("not-connected")),
+  });
+  const earlyF6 = byTag(early6.dock, "textarea")[0];
+  earlyF6.value = "No link came";
+  earlyF6.fire("input");
+  button(early6.dock, (b) => hasClass(b, "send"))?.click();
+  await until(() => earlyF6.value === "No link came", 2000);
+  await sleep(50);
+  linkWait.ms = 60_000;
+  const timedOut = {
+    box: earlyF6.value,
+    red: redLine(early6.dock),
+    waiting: outbox.list(S.running).length,
+  };
+  check(
+    "a message to a PC without ids whose link does not come back in time goes back in the box with a clear line (FAIL: it waited for ever with Sending…)",
+    timedOut.box === "No link came" &&
+      timedOut.red ===
+        "Not sent: no link to the PC right now. Your message is back in the box." &&
+      timedOut.waiting === 0,
+    show(timedOut),
+  );
+  earlyF6.value = "";
+  earlyF6.fire("input");
+  earlyF6.fire("blur");
+  early6.view.isConnected = false;
 
   // ---- New session while a session is kept on the phone: the empty new-session view draws (reported
   // 2026-11-18: the button did nothing, the view threw before it was drawn)

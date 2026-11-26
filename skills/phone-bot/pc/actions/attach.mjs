@@ -49,7 +49,38 @@ const TEXT_EXT = new Set(
     "dockerfile"
   ).split(" "),
 );
-const CAP = { picture: 20 * MB, pdf: 10 * MB, text: 10 * MB };
+// The kinds Windows runs, opens as a program or mounts with programs inside, written without the hyphen the name
+// check removes. A text file with one of these names is still saved as .txt; any other file with one is refused.
+const RUN_EXT = new Set(
+  (
+    "exe com scr pif cpl dll ocx sys drv msi msp mst msc bat cmd ps1 psm1 psd1 ps1xml vbs vbe js jse wsf wsh wsc " +
+    "hta lnk url scf reg inf chm jar application apprefms gadget appx appxbundle msix msixbundle " +
+    "settingcontentms libraryms searchms xll iso img vhd vhdx"
+  ).split(" "),
+);
+// The extensions a plain file keeps: data, archives, documents and media that no program runs. Any other is saved as
+// .bin with the extension in the stem. Picture and PDF names are not here: those bytes are found above.
+const FILE_EXT = new Set(
+  (
+    "csv tsv txt log json xml zip 7z rar gz tgz tar bz2 xz zst xls xlsx doc docx ppt pptx odt ods odp odg rtf " +
+    "epub fb2 mobi djvu numbers pages key mp3 m4a aac wav ogg oga opus flac mp4 m4v mov webm mkv avi 3gp heic " +
+    "heif avif bmp tif tiff"
+  ).split(" "),
+);
+const CAP = { picture: 20 * MB, pdf: 10 * MB, text: 10 * MB, file: 10 * MB };
+// Archive names: a PDF mark inside one of these is a stored PDF, never the file's own kind.
+const ARCHIVE_EXT = new Set("zip 7z rar gz tgz tar bz2 xz zst".split(" "));
+// Containers known by their first bytes (zip and the Office files built on it, 7z, rar, gzip, old Office): a PDF
+// stored uncompressed inside shows its mark in the first 1 KB.
+const CONTAINERS = [
+  [0x50, 0x4b, 0x03, 0x04],
+  [0x50, 0x4b, 0x05, 0x06],
+  [0x50, 0x4b, 0x07, 0x08],
+  [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c],
+  [..."Rar!", 0x1a, 0x07],
+  [0x1f, 0x8b],
+  [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
+];
 
 const starts = (b, bytes, at = 0) =>
   b.length >= at + bytes.length &&
@@ -58,8 +89,10 @@ const starts = (b, bytes, at = 0) =>
   );
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
-// { kind, ext } by the first bytes; the phone's mime is never trusted. ext is null for text (from the name).
-export function kindOf(b) {
+// { kind, ext } by the first bytes and, for a PDF mark late in the head, the phone's name; the phone's mime is never
+// trusted. ext is null for text and a plain file (from the name). UTF-8 with no zero byte is text; any other bytes
+// are a plain file, except a program (MZ) or a shortcut (a .lnk's header), which are null.
+export function kindOf(b, phoneName) {
   if (starts(b, [0x89, ..."PNG", 0x0d, 0x0a, 0x1a, 0x0a]))
     return { kind: "picture", ext: "png" };
   if (starts(b, [0xff, 0xd8, 0xff])) return { kind: "picture", ext: "jpg" };
@@ -68,27 +101,59 @@ export function kindOf(b) {
   if (starts(b, [..."RIFF"]) && starts(b, [..."WEBP"], 8))
     return { kind: "picture", ext: "webp" };
   if (starts(b, [..."%PDF-"])) return { kind: "pdf", ext: "pdf" };
-  if (b.includes(0)) return null;
-  try {
-    utf8.decode(b);
-  } catch {
+  if (!b.includes(0))
+    try {
+      utf8.decode(b);
+      return { kind: "text", ext: null };
+    } catch {
+      /* not UTF-8: a plain file */
+    }
+  if (starts(b, [..."MZ"]) || starts(b, [0x4c, 0, 0, 0, 0x01, 0x14, 0x02, 0]))
     return null;
-  }
-  return { kind: "text", ext: null };
+  // A PDF reader finds the mark anywhere in the first 1 KB; some makers write bytes before it. Taken so only for
+  // bytes that are no known container and a name with no text or archive extension.
+  const had = extOf(phoneName);
+  if (
+    !CONTAINERS.some((head) => starts(b, head)) &&
+    !TEXT_EXT.has(had) &&
+    !ARCHIVE_EXT.has(had) &&
+    Buffer.from(b.subarray(0, 1024)).includes("%PDF-")
+  )
+    return { kind: "pdf", ext: "pdf" };
+  return { kind: "file", ext: null };
 }
+
+// The extension of the phone's name, without its folder part, as it would be saved: only letters and digits, so
+// "b-at" or "exe " is "bat" or "exe".
+const extOf = (phoneName) => {
+  const base = phoneName.split(/[\\/]/).pop();
+  const dot = base.lastIndexOf(".");
+  return (dot > 0 ? base.slice(dot + 1) : "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+};
 
 const clean = (s) =>
   Array.from(s.replace(/[^\p{L}\p{Nd} _-]/gu, ""))
     .slice(0, STEM_MAX)
     .join("");
 
-// The stem and extension of the saved name, from the phone's name without its folder part.
+// The stem and extension of the saved name, from the phone's name without its folder part. A plain file keeps an
+// extension on the safe list, else it is saved as .bin; an extension Windows runs is kind-not-allowed.
 export function nameParts(phoneName, found) {
   const base = phoneName.split(/[\\/]/).pop();
   const dot = base.lastIndexOf(".");
   let stem = dot > 0 ? base.slice(0, dot) : base;
   let ext = found.ext;
-  if (!ext) {
+  if (found.kind === "file") {
+    const had = extOf(phoneName);
+    if (RUN_EXT.has(had)) throw new ActionError("kind-not-allowed");
+    if (FILE_EXT.has(had)) ext = had;
+    else {
+      ext = "bin";
+      if (had) stem = `${stem}-${had}`;
+    }
+  } else if (!ext) {
     const had = dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
     if (TEXT_EXT.has(had)) ext = had;
     else {
@@ -255,8 +320,9 @@ export function register(registry) {
       const got = ctx.takeStream(d.stream);
       if (!got) throw new ActionError("no-stream");
       const size = got.bytes.length;
-      const found = kindOf(got.bytes);
+      const found = kindOf(got.bytes, d.name);
       if (!found) throw new ActionError("kind-not-allowed");
+      const { stem, ext } = nameParts(d.name, found);
       if (size > CAP[found.kind])
         throw new ActionError("too-big", {
           kind: found.kind,
@@ -270,7 +336,6 @@ export function register(registry) {
         throw new ActionError("too-many");
       const place = attachPlace(projectPath);
       checkDisk(place, size);
-      const { stem, ext } = nameParts(d.name, found);
       const { name, file } = save(place, stem, ext, got.bytes);
       const id = randomBytes(8).toString("hex");
       const entry = {

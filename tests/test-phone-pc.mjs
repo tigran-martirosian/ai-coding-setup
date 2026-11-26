@@ -381,6 +381,7 @@ try {
       send: (f) => sent.push(f),
       registry: {
         names: () => ["pc.status"],
+        takesStream: () => false,
         async handle(b) {
           runs++;
           await sleep(20);
@@ -597,6 +598,170 @@ try {
       a3.err === "bad-input" && a3.field === "text",
     );
     check("a good request runs", a4.ok && a4.d === "hi");
+
+    // A disk error's answer names no full PC path: Node's own message holds the paths (EPERM, EBUSY, ENOENT).
+    const deep = path.join(tmp, "error-paths", "inner");
+    fs.mkdirSync(deep, { recursive: true });
+    r.add({
+      name: "a.missing",
+      run: () =>
+        fs.renameSync(path.join(deep, "gone.txt"), path.join(deep, "to.txt")),
+    });
+    r.add({
+      name: "a.locked",
+      run: () => {
+        const e = new Error(
+          `EPERM: operation not permitted, rename '${path.join(deep, "a.txt")}' -> '${path.join(deep, "b.txt")}'`,
+        );
+        Object.assign(e, {
+          code: "EPERM",
+          syscall: "rename",
+          path: path.join(deep, "a.txt"),
+          dest: path.join(deep, "b.txt"),
+        });
+        throw e;
+      },
+    });
+    for (const [a, code] of [
+      ["a.missing", "ENOENT"],
+      ["a.locked", "EPERM"],
+    ]) {
+      const res = await r.handle({ k: "req", id: "5", a }, ok);
+      check(
+        `a ${code} answer keeps its code but names no full PC path (FAIL: the phone sees the PC's folders)`,
+        res.ok === false &&
+          res.err === "failed" &&
+          res.message.startsWith(`${code}:`) &&
+          !res.message.includes(tmp) &&
+          !res.message.includes(deep) &&
+          !/[A-Za-z]:\\|\/(home|Users|tmp)\//.test(res.message),
+        JSON.stringify(res),
+      );
+    }
+
+    // Each other way a path reaches an answer: a plain error's text, a refusal's why. Only file names, ~ for the
+    // home folder or <app folder> are left.
+    const { ActionError } = await import(
+      "../skills/phone-bot/pc/core/registry.mjs"
+    );
+    const elsewhere = path.join(tmp, "error-paths", "elsewhere");
+    let thrown = null;
+    r.add({
+      name: "a.path",
+      run: () => {
+        throw thrown;
+      },
+    });
+    for (const [what, field, error, name] of [
+      [
+        "a plain error with a quoted path",
+        "message",
+        new Error(
+          `checkSessionFile needs an absolute path, got "${path.join(elsewhere, "b.md")}"`,
+        ),
+        "b.md",
+      ],
+      [
+        "a plain error with a path in the home folder, unquoted",
+        "message",
+        new Error(`cannot read ${path.join(home, "notes", "a.md")} now`),
+        "a.md",
+      ],
+      [
+        "a plain error with a path in the app folder, unquoted",
+        "message",
+        new Error(`lock held: ${path.join(home, ".phone-app", "pc.lock")}`),
+        "pc.lock",
+      ],
+      [
+        "a refusal's why with PowerShell's quoted path",
+        "why",
+        new ActionError("copy-failed", {
+          why: `Set-Clipboard : Cannot find path '${path.join(elsewhere, "c.md")}' because it does not exist.`,
+        }),
+        "c.md",
+      ],
+      [
+        "a refusal's message with a path in the home folder",
+        "message",
+        new ActionError("transcribe-failed", {
+          message: `model missing at ${path.join(home, "models", "m.bin")}`,
+        }),
+        "m.bin",
+      ],
+    ]) {
+      thrown = error;
+      const res = await r.handle({ k: "req", id: "5", a: "a.path" }, ok);
+      const text = String(res[field]);
+      check(
+        `${what}: the answer keeps the file name but no full PC path (FAIL: the phone sees the PC's folders)`,
+        res.ok === false &&
+          text.includes(name) &&
+          !text.includes(tmp) &&
+          !text.includes(home) &&
+          !/[A-Za-z]:\\/.test(text),
+        JSON.stringify(res),
+      );
+    }
+
+    // The PC log keeps relay-failed's reason only: other reasons may hold session labels or another program's text.
+    const refusedLog = path.join(home, ".phone-app", "pc.log");
+    for (const [err, why, kept] of [
+      ["relay-failed", "fetch failed (ECONNRESET)", true],
+      ["nimbalyst-closed", "label: the plan for March", false],
+    ]) {
+      thrown = new ActionError(err, { why });
+      await r.handle({ k: "req", id: "5", a: "a.path" }, ok);
+      const line = fs
+        .readFileSync(refusedLog, "utf8")
+        .split("\n")
+        .findLast((l) => l.includes(`refused ${err}`));
+      check(
+        `the PC log line of a refused ${err} ${kept ? "keeps" : "leaves out"} its reason (FAIL: ${kept ? "the log drops why a send failed" : "session text reaches pc.log"})`,
+        typeof line === "string" && line.includes(why) === kept,
+        String(line),
+      );
+    }
+
+    // A file or folder name is one name: `/` or `\` in it is refused before any disk call.
+    const folderReg = createRegistry();
+    (await import("../skills/phone-bot/pc/actions/folder.mjs")).register(
+      folderReg,
+    );
+    const inbox = path.join(home, "phone-inbox");
+    for (const name of ["sub/new", "sub\\new"]) {
+      const made = await folderReg.handle(
+        { k: "req", id: "6", a: "folder.make", d: { dir: "", name } },
+        ok,
+      );
+      check(
+        `folder.make with the name ${JSON.stringify(name)} answers bad-input name and makes nothing (FAIL: a name with a slash makes or moves into another folder)`,
+        made.ok === false &&
+          made.err === "bad-input" &&
+          made.field === "name" &&
+          !fs.existsSync(path.join(inbox, "sub")),
+        JSON.stringify(made),
+      );
+    }
+    fs.mkdirSync(path.join(inbox, "sub"), { recursive: true });
+    fs.writeFileSync(path.join(inbox, "f.txt"), "x");
+    const renamed = await folderReg.handle(
+      {
+        k: "req",
+        id: "7",
+        a: "folder.rename",
+        d: { path: "f.txt", name: "sub/f.txt" },
+      },
+      ok,
+    );
+    check(
+      "folder.rename to a name with a slash answers bad-input name and leaves the file (FAIL: a rename moves the file into another folder)",
+      renamed.ok === false &&
+        renamed.err === "bad-input" &&
+        renamed.field === "name" &&
+        fs.existsSync(path.join(inbox, "f.txt")),
+      JSON.stringify(renamed),
+    );
   }
 
   // ---- a further device joins by an OK (pipe design, section 15: checks 6 to 13 and 15 to 19), in process with a
@@ -1411,6 +1576,94 @@ try {
         !noStart.out.includes("wscript"),
       noStart.out,
     );
+  }
+
+  // ---- restart after an update: only the program ends, keep.mjs starts it again from the new files
+  {
+    const dry = run(SETUP, ["restart"], dryEnv);
+    check(
+      "dry restart would stop main.mjs only, not keep.mjs",
+      dry.code === 0 &&
+        dry.out.includes(`would stop the running ${MAIN}`) &&
+        dry.out.trim().split("\n").length === 1,
+      dry.out,
+    );
+    // A stand-in program on its own pipe under a real keep.mjs: never the real program or its pipe.
+    if (process.platform === "win32") {
+      for (const [label, withPid] of [
+        ["a program of this version", true],
+        ["an older program that names no process", false],
+      ]) {
+        const tag = withPid ? "new" : "old";
+        const child = path.join(tmp, `restart-child-${tag}.mjs`);
+        const pipe = `\\\\.\\pipe\\phone-pc-restart-test-${tag}-${process.pid}`;
+        fs.writeFileSync(
+          child,
+          `import net from "node:net";\nnet.createServer((s) => s.on("data", () => s.end(JSON.stringify({ page: "t"${withPid ? ", pid: process.pid" : ""} }) + "\\n"))).listen(process.env.PHONE_PC_PIPE);\n`,
+        );
+        const env = {
+          PHONE_PC_TEST: "1",
+          PHONE_PC_APP_DIR: path.join(tmp, `restart-app-${tag}`),
+          PHONE_PC_PIPE: pipe,
+          PHONE_PC_KEEP_CHILD: child,
+          PHONE_PC_MAIN: child,
+        };
+        fs.mkdirSync(env.PHONE_PC_APP_DIR, { recursive: true });
+        const keeper = spawn(process.execPath, [KEEP], {
+          env: { ...process.env, ...env },
+          stdio: "ignore",
+        });
+        const pidOf = () =>
+          spawnSync(
+            "powershell",
+            [
+              "-NoProfile",
+              "-Command",
+              `(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${child}') }).ProcessId`,
+            ],
+            { encoding: "utf8", windowsHide: true },
+          ).stdout.trim();
+        let first = "";
+        for (let i = 0; i < 40 && !first; i++) {
+          await new Promise((r) => setTimeout(r, 250));
+          first = pidOf();
+        }
+        await new Promise((r) => setTimeout(r, 500));
+        const r = run(SETUP, ["restart"], env);
+        const second = pidOf();
+        check(
+          `restart ends ${label} and keep.mjs starts it again (a new process, keep.mjs still running)`,
+          r.code === 0 &&
+            r.out.includes("runs again with the new files") &&
+            /^\d+$/.test(first) &&
+            /^\d+$/.test(second) &&
+            first !== second &&
+            keeper.exitCode === null,
+          `${r.out} first=${first} second=${second}`,
+        );
+        keeper.kill();
+        spawnSync(
+          "powershell",
+          [
+            "-NoProfile",
+            "-Command",
+            `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${child}') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`,
+          ],
+          { windowsHide: true },
+        );
+      }
+      const none = run(SETUP, ["restart"], {
+        PHONE_PC_TEST: "1",
+        PHONE_PC_APP_DIR: path.join(tmp, "restart-app-none"),
+        PHONE_PC_PIPE: `\\\\.\\pipe\\phone-pc-restart-test-none-${process.pid}`,
+        PHONE_PC_MAIN: path.join(tmp, "no-such-main.mjs"),
+      });
+      check(
+        "restart with no program running does nothing and says so",
+        none.code === 0 && none.out.includes("not running, nothing to restart"),
+        none.out,
+      );
+    }
   }
 
   // ---- keep.mjs with a stand-in child that writes one line per run and ends with the code it is given

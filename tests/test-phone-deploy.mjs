@@ -175,6 +175,17 @@ check(
   config.compatibility_date,
 );
 check(
+  "the config turns on enable_request_signal (FAIL: an aborted Send to chat keeps its Telegram upload running on Cloudflare)",
+  config.compatibility_flags?.includes("enable_request_signal"),
+  JSON.stringify(config.compatibility_flags),
+);
+check(
+  "the config runs the webhook check every few minutes (FAIL: a lost webhook is never set again)",
+  config.triggers?.crons?.length === 1 &&
+    /^\*\/([1-9]|1[0-5]) \* \* \* \*$/.test(config.triggers.crons[0]),
+  JSON.stringify(config.triggers),
+);
+check(
   "the config holds no Worker name, account, route or address",
   !["name", "account_id", "route", "routes", "vars"].some((k) => k in config) &&
     !/workers\.dev|https?:/.test(configText),
@@ -196,12 +207,14 @@ const run = (file, extra = []) =>
     ["phone/relay/deploy-test.mjs", ...extra, "--secrets", file],
     { cwd: ROOT, encoding: "utf8" },
   );
+let testDryRun = ""; // what the test copy's dry run printed
 try {
   const full = path.join(tmp, "owner-secrets.json");
   fs.writeFileSync(full, JSON.stringify(fake));
   const outBefore = fs.existsSync(OUT);
   const r = run(full, ["--dry-run"]);
   const text = `${r.stdout}${r.stderr}`;
+  testDryRun = text;
   check("the dry run ends well", r.status === 0, text);
   // Changed on purpose by row T1: a test deploy no longer points the bot at itself (it used to list setWebhook).
   check(
@@ -522,6 +535,77 @@ check(
   }
 }
 
+// ---- a test deploy whose "Test copy" message fails still keeps the new webhook secret ----
+// The relay has the new WEBHOOK_SECRET once the secrets are put; a secrets file left with the old one makes
+// --remove-topics knock with a secret the relay refuses.
+
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phone-deploy-secret-"));
+  const outBefore = fs.existsSync(OUT);
+  try {
+    const file = path.join(dir, "owner-secrets.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ ...fake, [HOOK_SECRET_KEY]: "old-secret" }),
+    );
+    const ORIGIN = "https://phone-relay-test.example-sub.workers.dev";
+    const ran = [];
+    const failingFetch = async (input, init) => {
+      const url = String(input?.url ?? input);
+      if (url.startsWith("https://api.telegram.org/"))
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            description: "Bad Request: chat not found",
+          }),
+          { status: 400 },
+        );
+      const headers = {
+        "Content-Type": "text/html; charset=utf-8",
+        ...PAGE_HEADERS,
+      };
+      if (new URL(url).pathname === "/")
+        return new Response(
+          init?.method === "HEAD" ? null : "<!doctype html>",
+          {
+            status: 200,
+            headers,
+          },
+        );
+      return new Response("not found", { status: 404, headers });
+    };
+    let thrown = null;
+    try {
+      await deployTest({
+        file,
+        say: () => {},
+        fetch: failingFetch,
+        wrangler: (args, { input }) => {
+          ran.push({ args, input });
+          return args[0] === "deploy" ? `Deployed\n  ${ORIGIN}\n` : "";
+        },
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    check(
+      "a test deploy whose Test copy message fails still fails (FAIL: the owner is not told the message did not go)",
+      thrown !== null,
+    );
+    const put = ran.find((r) => r.args[2] === "WEBHOOK_SECRET")?.input;
+    const kept = JSON.parse(fs.readFileSync(file, "utf8"));
+    same(
+      "a failed Test copy message keeps the new webhook secret and address (FAIL: the secrets file keeps the old " +
+        "secret the relay now refuses)",
+      [kept[HOOK_SECRET_KEY], kept[ADDRESS_KEY]],
+      [put, ORIGIN],
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (!outBefore) fs.rmSync(OUT, { recursive: true, force: true });
+  }
+}
+
 // ---- job 9 D7 (docs/2026-11-20-safe-deploys-spec.md): the page sends HSTS, and the relay's deploy probes its live
 // address after `wrangler deploy` (liveCheck of workers/ship-check.mjs) and fails on what the probe finds ----
 
@@ -553,6 +637,7 @@ check(
     const events = [];
     const waits = [];
     const said = [];
+    const puts = {}; // secret name -> the value put
     let roots = 0;
     const fetch = async (input, init) => {
       const url = String(input?.url ?? input);
@@ -597,8 +682,9 @@ check(
         probeWait: async (ms) => {
           waits.push(ms);
         },
-        wrangler: (args) => {
+        wrangler: (args, { input }) => {
           events.push(`wrangler ${args.slice(0, 2).join(" ")}`);
+          if (args[0] === "secret") puts[args[2]] = input;
           return args[0] === "deploy"
             ? `Deployed phone-relay\n  ${ORIGIN}\n`
             : "";
@@ -607,10 +693,23 @@ check(
     } catch (e) {
       error = e;
     }
-    return { events, waits, said, error };
+    return { events, waits, said, puts, error };
   };
   try {
     const clean = await deployOnce({ leaky: false });
+    const cleanCopy = await deployOnce({ leaky: false, beside: true });
+    same(
+      "the real relay's deploy puts RELAY_ORIGIN (its address, which turns on the webhook check); the test copy's " +
+        "never does (FAIL: the test copy would set the bot's webhook to itself)",
+      [clean.puts.RELAY_ORIGIN, "RELAY_ORIGIN" in cleanCopy.puts],
+      [ORIGIN, false],
+    );
+    check(
+      "the real relay's dry run names RELAY_ORIGIN, the test copy's does not",
+      ciText.includes("secret put RELAY_ORIGIN") &&
+        !testDryRun.includes("RELAY_ORIGIN"),
+      `${ciText}\n${testDryRun}`,
+    );
     const deployed = clean.events.indexOf("wrangler deploy --name");
     const probed = clean.events.indexOf("probe /.env");
     check(

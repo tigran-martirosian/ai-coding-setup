@@ -255,7 +255,8 @@ const APP_URL = pageUrl("frame/app.js");
 const STAND_INS = {
   [pageUrl("screens.generated.js")]: `export const PAGE_VERSION = "test";
 export const LATER = [];
-export const loadRest = async () => [];`,
+export const loadRest = async () => [];
+export const STORE_SUFFIX = "";`,
   [pageUrl("frame/boot.js")]: `const f = globalThis.frameFake;
 export const stylesLoaded = Promise.resolve();
 export const telegramLoaded = Promise.resolve();
@@ -296,9 +297,12 @@ export const openSession = async () => {
 };
 registerHooks({
   resolve(specifier, context, next) {
+    // The build-only screens.generated.js is stood in for every page file that imports it (cache.js, outbox.js).
     const code =
-      context.parentURL?.split("?")[0] === APP_URL &&
-      STAND_INS[new URL(specifier, APP_URL).href];
+      (context.parentURL?.split("?")[0] === APP_URL &&
+        STAND_INS[new URL(specifier, APP_URL).href]) ||
+      (specifier.endsWith("screens.generated.js") &&
+        STAND_INS[new URL(specifier, context.parentURL).href]);
     if (code)
       return {
         url: `data:text/javascript,${encodeURIComponent(code)}`,
@@ -332,7 +336,7 @@ frameFake.allActions = [
 const screens = await import(pageUrl("frame/screens.js"));
 const cache = await import(pageUrl("frame/cache.js"));
 const { FILES_STREAM_MAX } = await import(pageUrl("frame/channel.js"));
-const { UPDATE_LINE } = await import(pageUrl("screens/files.js"));
+const { UPDATE_LINE, causeWords } = await import(pageUrl("screens/files.js"));
 
 async function openAgain(name, tab) {
   frameFake.shellTab = tab;
@@ -604,6 +608,30 @@ try {
     show({ waited, text: screenText() }),
   );
 
+  // Many files dropped at once: each is read only when its turn comes, never all into memory first
+  let reading = 0;
+  let mostReading = 0;
+  const counted = (name) => ({
+    name,
+    size: 1000,
+    type: "application/octet-stream",
+    arrayBuffer: async () => {
+      reading++;
+      mostReading = Math.max(mostReading, reading);
+      await tick(5);
+      reading--;
+      return new ArrayBuffer(1000);
+    },
+  });
+  const many = ["a.bin", "b.bin", "c.bin", "d.bin"];
+  drop(many.map(counted));
+  await until(() => many.every((n) => fileRow(n)));
+  check(
+    "drop in: four dropped files are read one at a time (FAIL: every dropped file is read into memory at once)",
+    mostReading === 1 && many.every((n) => disk.has(n)),
+    show({ mostReading, onDisk: many.filter((n) => disk.has(n)) }),
+  );
+
   // Send to chat from a file's menu: Sending, then Sent with the toast; a refusal shows its cause in words
   let openSend;
   gates["folder.send"] = new Promise((r) => {
@@ -697,6 +725,31 @@ try {
       cur,
       text: screenText(),
     }),
+  );
+  // A name with / or \ is refused in the sheet, in words, without asking the PC; the PC's own refusal of such a
+  // name (bad-input) names both its causes. Changed on purpose: bad-input also comes for a name over 120 characters
+  // (a dropped file's long name), so slash words alone gave that refusal the wrong reason.
+  const makesBefore = pcLog.filter(([a]) => a === "folder.make").length;
+  button("files-new").click();
+  typeName("Trips/2026");
+  button("files-save").click();
+  await tick(20);
+  const slashSheet = {
+    err: byClass(screenBox, "files-sheet-err")[0]?.textContent ?? null,
+    asked: pcLog.filter(([a]) => a === "folder.make").length - makesBefore,
+    pcWords: causeWords({ ok: false, err: "bad-input" }),
+  };
+  byClass(screenBox, "btn")
+    .find((n) => n.textContent === "Cancel")
+    ?.click();
+  check(
+    "a folder name with / or \\ is refused in the name sheet in plain words without asking the PC, and the PC's bad-input names the length limit and the slashes (FAIL: the PC asked, or 'Bad-input.')",
+    slashSheet.err === "That name can't have / or \\ in it." &&
+      slashSheet.asked === 0 &&
+      slashSheet.pcWords ===
+        "a name can have at most 120 characters and no / or \\" &&
+      byClass(screenBox, "files-sheet-err").length === 0,
+    show(slashSheet),
   );
 
   // ---- part 2: drag out by the recorded Checks, Copy file, Show in folder, Move

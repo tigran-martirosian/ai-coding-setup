@@ -28,8 +28,9 @@ export function telegramApi({ token, fetch }) {
     },
 
     // A call whose body the caller builds and streams: `length` bytes of Content-Type `type` (sendDocument's
-    // multipart). A refusal throws "telegram <method>: <description>", as telegram() does.
-    async upload(method, { body, length, type }) {
+    // multipart). A refusal throws "telegram <method>: <description>", as telegram() does. `signal` (optional)
+    // cancels the upload.
+    async upload(method, { body, length, type, signal }) {
       if (!/^[A-Za-z]+$/.test(method))
         throw new Error(`telegram: bad method name ${String(method)}`);
       const res = await fetch(`${base}/bot${token}/${method}`, {
@@ -37,6 +38,7 @@ export function telegramApi({ token, fetch }) {
         headers: { "Content-Type": type, "Content-Length": String(length) },
         body,
         duplex: "half",
+        signal,
       });
       const out = await res.json();
       if (!out.ok) throw new Error(`telegram ${method}: ${out.description}`);

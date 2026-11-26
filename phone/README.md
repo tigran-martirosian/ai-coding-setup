@@ -34,6 +34,26 @@ whose session ended because the PC was gone says the PC is off only after 20 sec
 `tests/test-phone-steady.mjs` checks this with short timers: drops, outages, half-open links, a network switch,
 restarts of the PC program and the relay, a second device, a page update, and the old-with-new pairs below.
 
+Hiding the page keeps its socket. When the page is shown again it sends one ping; a socket that gives no pong
+within 3 seconds is replaced with a new one.
+
+## Sends that survive a dropped link
+
+Send, Queue, Note and New session go through an outbox on the phone (`page/frame/outbox.js`), the way chat apps
+send messages:
+
+- Each message gets an id made on the phone and is kept in the page's local storage until the PC answers.
+- Every new session with the PC sends each waiting message again. The PC keeps each id with its first answer for
+  7 days (`sent` in `pc-state.json`, `pc/core/sent-ids.mjs`), so a repeat gets that answer and nothing runs twice.
+- A dropped link only delays a message: it keeps its clock and turns red only when the PC refuses it, with its
+  words back in the box.
+- After an hour of silent retries a message stops going out by itself and shows "Not sent yet" with Send now and
+  Discard, so an old instruction never reaches a session hours late without the user choosing it.
+- If the PC program stops in the middle of a message, the repeat is refused ("check the session before you send it
+  again") rather than run a second time.
+
+The PC's hello says `ids: true` when it takes ids; a page talking to an older PC sends as before.
+
 ## Old with new
 
 A relay deploy and a PC update do not happen at the same moment, so parts of different releases meet. The relay
@@ -47,6 +67,8 @@ serves the page, so a new page always comes with a new relay. An old page is one
 | Old PC, new relay | Works. The old PC pings once a minute and sends no ping time, so the relay waits 130 seconds of silence before it closes the socket |
 | New PC, old relay | Works by design, not covered by a test: the old relay ignores the ping time and answers pings itself. Pages fall back to their timed hello retries |
 | New page, 26.3 or 26.3.1 PC (both still check the page) | Status only, with the Read-only line, until the PC runs `/update-setup` |
+| New page, PC older than 26.6.2 (no `ids` in its hello) | Works. Messages go without an id and without the outbox; a link that drops after a message left says so and puts the words back in the box |
+| Page older than 26.6.2, new PC | Works. The id is optional, and a message without one runs as before |
 
 `tests/test-phone-steady.mjs` takes the old page and the old PC from the `v26.3.1` tag. A clone without that tag
 (a shallow clone, as in CI) skips those pairs and prints a `skip` line.
@@ -193,6 +215,11 @@ The deploy puts these on the Worker itself, from the values above. You never set
 | `BOT_ID` | The part of the bot's token before the colon |
 | `OWNER_TG_ID` | Your Telegram user id |
 | `WEBHOOK_SECRET` | 48 random characters, new at each deploy; Telegram sends it with each webhook call, and the relay refuses a call without it |
+
+The real relay's deploy also puts `RELAY_ORIGIN`, the relay's own address; the test copy never gets it. Every 5
+minutes the relay checks that the bot's webhook is set and points at that address, and sets it again when it is
+missing or holds an old secret. A webhook pointed somewhere else is left alone and reported once in the bot's
+Alerts topic, as is a webhook Telegram refuses to set. The test copy makes no such check: it shares the bot.
 
 ### 6. The release deploy
 

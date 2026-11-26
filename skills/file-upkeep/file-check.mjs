@@ -436,6 +436,8 @@ const RUN_DIR = /^(draft-.+|unpacked|outputs?)$/i;
 // `draft-` is also a plain word (`src/draft-editor/`): run output only at the top or right under docs/ or a scratch
 // folder
 const DRAFT_DIR = /^draft-.+$/i;
+// P11: loose files directly in docs/ before the checker asks for topic folders
+const DOCS_LOOSE_MAX = 20;
 const SCRATCH_DIR = /^_?(work|scratch|tmp|temp)$/i;
 const unpackedDoc = (has, dir) => has.has(`${dir}/[Content_Types].xml`);
 // P8: a picture or preview (a still, a video, a PDF render); diagrams (.svg, .mmd, .excalidraw, .drawio) belong in
@@ -949,6 +951,17 @@ function scan(root) {
       why: `one run's output, ${n} file${n === 1 ? "" : "s"}: keep it in the project?`,
     });
   }
+  // P11: docs/ itself holds a start page and a few standing files; more than DOCS_LOOSE_MAX loose files means
+  // the topic folders are missing (a person browsing it sees one long dated list)
+  const looseDocs = live.filter((f) => /^docs\/[^/]+$/.test(f));
+  if (looseDocs.length > DOCS_LOOSE_MAX)
+    add({
+      rules: ["P11"],
+      path: "docs",
+      action: null,
+      kind: "ask",
+      why: `${looseDocs.length} loose files: group them into topic folders, with docs/README.md as the start page`,
+    });
   for (const dir of archives) {
     const inside = live.filter((f) => f.startsWith(dir + "/"));
     const code = inside.filter((f) => CODE_JS.test(f) || f.endsWith(".py"));

@@ -309,17 +309,176 @@ try {
     p2.ok === false && p2.err === "too-big",
     show(p2),
   );
-  const zip = withHead([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00], 4096);
-  const p3 = await put(
-    zip,
-    "project-backup.zip",
-    { session: S.alpha },
-    "image/png",
-  );
+  // ---- any other file is taken as a plain file under its own extension: the phone's type counts for nothing,
+  // the bytes and the name decide. Each is dropped at once, so the 8-file count below starts from none.
+  const ZIP_HEAD = [0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00];
+  const zip = withHead(ZIP_HEAD, 4096);
+  // `as`: the end of the saved name, when it is not the phone's name.
+  const savedAs = async (bytes, name, mime, as = name) => {
+    const r = await put(bytes, name, { session: S.alpha }, mime);
+    const files = fs.readdirSync(alphaPlace);
+    const file = files.find((f) => NAME.test(f) && f.endsWith(`_${as}`));
+    const whole =
+      !!file &&
+      sha(fs.readFileSync(path.join(alphaPlace, file))) === sha(bytes);
+    if (r.ok) await ask("attach.drop", { id: r.d.id });
+    return { r, file, whole };
+  };
+  const p3 = await savedAs(zip, "project-backup.zip", "image/png");
   check(
-    "a zip (named a PNG by the phone) is refused by its bytes with kind-not-allowed",
-    p3.ok === false && p3.err === "kind-not-allowed",
+    "a zip (named a PNG by the phone's type) is taken by its bytes and name, saved whole as .zip",
+    p3.r.ok === true && p3.whole,
     show(p3),
+  );
+  // A CSV from Russian Excel: Windows-1251 (not UTF-8) or UTF-16 (zero bytes), with or without its BOM.
+  const ROWS = "Имя;Сумма\r\nИван;100\r\nЁлка;5\r\n";
+  const cp1251 = new Uint8Array(
+    Array.from(ROWS, (c) => {
+      const u = c.charCodeAt(0);
+      if (u < 0x80) return u;
+      if (u >= 0x410 && u <= 0x44f) return u - 0x410 + 0xc0;
+      if (u === 0x401) return 0xa8;
+      if (u === 0x451) return 0xb8;
+      throw new Error(`no Windows-1251 byte for ${c}`);
+    }),
+  );
+  if (new TextDecoder("windows-1251").decode(cp1251) !== ROWS)
+    throw new Error("the Windows-1251 test bytes do not decode back");
+  const utf16 = Buffer.from(ROWS, "utf16le");
+  const csvs = {
+    cp1251: await savedAs(cp1251, "report-1251.csv"),
+    utf16Bom: await savedAs(
+      new Uint8Array(Buffer.concat([Buffer.from([0xff, 0xfe]), utf16])),
+      "report-utf16-bom.csv",
+    ),
+    utf16: await savedAs(new Uint8Array(utf16), "report-utf16.csv"),
+  };
+  check(
+    "a Windows-1251 CSV and a UTF-16 CSV with and without its BOM are taken as files, saved whole as .csv",
+    Object.values(csvs).every((c) => c.r.ok === true && c.whole),
+    show(csvs),
+  );
+  // Kinds Windows runs stay refused: by their bytes (a program, a shortcut) whatever the name, and by their
+  // name whatever the bytes, also with a hyphen or a space put in the extension.
+  const MZ = withHead([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00], 4096);
+  const LNK = withHead([0x4c, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00], 2048);
+  const OLE = withHead([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1], 4096);
+  const refusedRuns = {};
+  for (const [bytes, name] of [
+    [MZ, "setup.dat"],
+    [MZ, "tool"],
+    [LNK, "shortcut.bin"],
+    [OLE, "installer.msi"],
+    [zip, "invoice.pdf.exe"],
+    [zip, "screen.scr"],
+    [zip, "start.lnk"],
+    [cp1251, "run.bat"],
+    [cp1251, "run.cmd"],
+    [new Uint8Array(utf16), "deploy.ps1"],
+    [new Uint8Array(utf16), "hello.vbs"],
+    [new Uint8Array(utf16), "app.js"],
+    [cp1251, "trailing.exe "],
+    [zip, "app.e-xe"],
+    [cp1251, "run.b-at"],
+    [zip, "lib.j-ar"],
+    [zip, "page.H T A"],
+  ]) {
+    const r = await savedAs(bytes, name);
+    refusedRuns[name] = r.r.ok === false ? r.r.err : "taken";
+  }
+  check(
+    "kinds Windows runs are refused with kind-not-allowed by their bytes and by their name, a hyphen or space in the extension too",
+    Object.values(refusedRuns).every((e) => e === "kind-not-allowed"),
+    show(refusedRuns),
+  );
+  // A plain file keeps only a known-safe extension: any other (kinds that run on some PC, or a picture or PDF
+  // name the bytes do not match) is taken and saved as .bin with its extension in the stem, so it never runs.
+  const HEIC = withHead(
+    [0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63],
+    4096,
+  );
+  const asBin = {};
+  for (const [bytes, name, as] of [
+    [zip, "tool.pyz", "tool-pyz.bin"],
+    [zip, "update.msu", "update-msu.bin"],
+    [zip, "macro.xlsm", "macro-xlsm.bin"],
+    [zip, "fix.diagcab", "fix-diagcab.bin"],
+    [zip, "sandbox.wsb", "sandbox-wsb.bin"],
+    [HEIC, "photo.jpg", "photo-jpg.bin"],
+    [zip, "scan.PDF", "scan-pdf.bin"],
+    [zip, "odd.p-ng", "odd-png.bin"],
+  ]) {
+    const r = await savedAs(bytes, name, undefined, as);
+    asBin[name] = r.r.ok === true && r.whole ? "bin" : (r.r.err ?? "lost");
+  }
+  const heic = await savedAs(HEIC, "IMG_7.heic");
+  check(
+    "a plain file with an extension off the safe list is taken and saved whole as .bin; a .heic keeps its name",
+    Object.values(asBin).every((e) => e === "bin") &&
+      heic.r.ok === true &&
+      heic.whole,
+    show({ asBin, heic }),
+  );
+  // Some PDF makers write a few bytes before %PDF-; a reader still opens it when the mark is in the first 1 KB.
+  const PDF_LATE = withHead(
+    [0x0d, 0x0a, 0x0d, 0x0a, ...Buffer.from("%PDF-1.4")],
+    4096,
+  );
+  const late = await savedAs(PDF_LATE, "statement.pdf");
+  check(
+    "a PDF with bytes before its %PDF- mark (within 1 KB) is taken as a PDF and saved as .pdf",
+    late.r.ok === true && late.whole,
+    show(late),
+  );
+  // A PDF mark late in the head that is not the file's own: a PDF stored uncompressed in a zip (its local header,
+  // then the name, then the PDF's first bytes), a text file that names the mark, the same in Windows-1251.
+  const zipOfPdf = withHead(
+    [...ZIP_HEAD, ...Buffer.alloc(22), ...Buffer.from("doc.pdf%PDF-1.4\n")],
+    4096,
+  );
+  const NOTE = "# Notes\n%PDF- is how a PDF starts. Ёлка.\n";
+  const note1251 = new Uint8Array(
+    Array.from(NOTE, (c) =>
+      c === "Ё"
+        ? 0xa8
+        : c === "л"
+          ? 0xeb
+          : c === "к"
+            ? 0xea
+            : c === "а"
+              ? 0xe0
+              : c.charCodeAt(0),
+    ),
+  );
+  const notPdf = {
+    zip: await savedAs(zipOfPdf, "papers.zip"),
+    md: await savedAs(text(NOTE), "notes.md"),
+    md1251: await savedAs(note1251, "notes.md", undefined, "notes-md.bin"),
+  };
+  check(
+    "a %PDF- mark after the first byte makes no PDF of a zip holding a stored PDF or of a text file naming the mark, in UTF-8 or not (FAIL: saved as .pdf)",
+    Object.values(notPdf).every((c) => c.r.ok === true && c.whole),
+    show(notPdf),
+  );
+  const doc = await savedAs(OLE, "old-sheet.xls");
+  const bare = await put(zip, "backup");
+  const bareFile = fs
+    .readdirSync(alphaPlace)
+    .find((f) => NAME.test(f) && f.endsWith("_backup.bin"));
+  if (bare.ok) await ask("attach.drop", { id: bare.d.id });
+  check(
+    "an old Office file is taken (its bytes are a program's only when named .msi); a file with no extension is saved as .bin",
+    doc.r.ok === true && doc.whole && bare.ok === true && !!bareFile,
+    show({ doc, bare, bareFile }),
+  );
+  const bigZip = await put(withHead(ZIP_HEAD, 10 * MB + 1), "big.zip");
+  check(
+    "a file over 10 MB is refused with too-big, kind file",
+    bigZip.ok === false &&
+      bigZip.err === "too-big" &&
+      bigZip.kind === "file" &&
+      bigZip.max === 10 * MB,
+    show(bigZip),
   );
 
   // ---- a name with a path in it: the folder part dropped, the file inside the attach place

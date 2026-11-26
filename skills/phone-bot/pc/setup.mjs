@@ -1,6 +1,6 @@
 // Joins this PC to a phone app relay, pairs a phone, shows the status, sets or removes the start at log-on, and
 // sets up voice (downloads the speech model once, up front).
-// Run: node setup.mjs join <relay address> | pair | status | start-logon | start | remove | voice
+// Run: node setup.mjs join <relay address> | pair | status | start-logon | start | restart | remove | voice
 // PHONE_PC_DRY=1 writes no log-on entry, starts, stops and downloads nothing: it prints what it would do.
 // The second PC program (PHONE_PC_TEST=1 with PHONE_PC_APP_DIR and PHONE_PC_PIPE, core/mode.mjs) writes no log-on
 // entry and leaves the real program and the old bot alone: it is started straight from this copy's keep.mjs and
@@ -38,13 +38,14 @@ const OLD_BOT_TASKS = ["Phone bot", "Phone inbox bot"];
 const OLD_BOT_MARKER = "<!-- phone-bot: installed by /phone-bot -->";
 const ASK_WAIT_MS = 15_000;
 
-const USAGE = `Usage: node setup.mjs join <relay address> | pair | status | start-logon | start | remove | voice
+const USAGE = `Usage: node setup.mjs join <relay address> | pair | status | start-logon | start | restart | remove | voice
   join <address>  make this PC's keys, start at log-on, start the program and show a pairing code
   pair            show a new pairing code, to pair a phone or add a second device
   status          show the keys, the start at log-on and whether the program runs
   start-logon     set the start at log-on again (the Startup script, which starts keep.mjs; keep.mjs starts
                   the program again when it ends)
   start           start the program now through the Startup script (a second copy stops by itself)
+  restart         end the running program so keep.mjs starts it again from new files (an update runs this)
   remove          stop the program and remove the start at log-on, and the old scheduled task; the keys stay
   (join and remove also take out the retired Telegram inbox bot: its process, Startup scripts, tasks, /phone skill)
   voice           download the speech model (about ${MODEL_MB} MB) once, so the phone's record button works;
@@ -336,6 +337,51 @@ async function cmdStatus() {
   );
 }
 
+// After an update put new files in place: the running program ends and keep.mjs, left running, starts it again from
+// the new files after 5 s. Only main.mjs is stopped, found by its path, so a program too old to know a restart word
+// restarts too. Nothing runs: nothing to do. Not back within 30 s: started through the Startup script.
+async function cmdRestart() {
+  needWindows("Restarting the program");
+  const main = testOverride("PHONE_PC_MAIN") || MAIN;
+  if (DRY) {
+    console.log(
+      `would stop the running ${main} (not keep.mjs, which starts it again in 5 s)`,
+    );
+    return;
+  }
+  const before = await askOnce("status");
+  if (!before) {
+    console.log("restart: the PC program is not running, nothing to restart");
+    return;
+  }
+  const has = `$_.CommandLine.Contains('${main.replace(/'/g, "''")}')`;
+  run("powershell", [
+    "-NoProfile",
+    "-Command",
+    `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and ${has} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`,
+  ]);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until = Date.now() + 30_000;
+  let gone = false;
+  while (Date.now() < until) {
+    const a = await askOnce("status");
+    if (!a) gone = true;
+    // A program from this version names its process; an older one is told apart by the pipe going quiet first.
+    else if (gone || (a.pid && before.pid && a.pid !== before.pid)) {
+      console.log("restart: the PC program runs again with the new files");
+      return;
+    }
+    await sleep(500);
+  }
+  if (!gone) fail("restart: the PC program was asked to end but still runs");
+  if (!SECOND && fs.existsSync(startupScript())) {
+    startProgram();
+    console.log(
+      "restart: keep.mjs did not start it again, so it was started through the Startup script",
+    );
+  } else fail("restart: the PC program ended and did not start again");
+}
+
 async function cmdRemove() {
   removeOldBot();
   removeLogon();
@@ -434,6 +480,7 @@ else if (cmd === "pair") await cmdPair();
 else if (cmd === "status") await cmdStatus();
 else if (cmd === "start-logon") startLogon();
 else if (cmd === "start") startProgram();
+else if (cmd === "restart") await cmdRestart();
 else if (cmd === "remove") await cmdRemove();
 else if (cmd === "voice") cmdVoice(arg === "--background");
 else console.log(USAGE);

@@ -3,7 +3,8 @@
 // to the PC at once, as a stream of sealed pieces (ctx.sendStream, as voice does), then attach.put saves it and
 // answers its id. Send, Queue and a new session carry the ids in `attachments`; the PC names the saved files in the
 // prompt. The main button is off while a file uploads or has failed, and the line under the chips says why. Too
-// big, a kind the PC can't take and a ninth file are refused here before any upload. The chip's X calls
+// big, a kind Windows runs (also a .js, .ps1, .bat or .cmd that is not UTF-8 text) and a ninth file are refused
+// here before any upload. The chip's X calls
 // attach.drop. What the files are doing lives here, one list per session, not in the view: the page draws the
 // session view again on a new channel session, and an upload in progress carries on into the new view.
 import { el, icon } from "../frame/dom.js";
@@ -11,8 +12,8 @@ import { el, icon } from "../frame/dom.js";
 const MB = 1024 * 1024;
 const MAX_FILES = 8;
 const MAX_ALL = 25 * MB; // the stream cap: all files of one message together
-// The PC's caps per kind (actions/attach.mjs).
-const CAP = { picture: 20 * MB, pdf: 10 * MB, text: 10 * MB };
+// The PC's caps per kind (actions/attach.mjs); any other file is kind "file".
+const CAP = { picture: 20 * MB, pdf: 10 * MB, text: 10 * MB, file: 10 * MB };
 const PICTURES = new Set([
   "image/png",
   "image/jpeg",
@@ -26,13 +27,31 @@ const TEXT_EXT = new Set(
     " ",
   ),
 );
+// The kinds Windows runs, opens as a program or mounts with programs inside (the PC's RUN_EXT, actions/attach.mjs):
+// refused here unless the text list above takes them as text, which the PC saves as .txt.
+const RUN_EXT = new Set(
+  (
+    "exe com scr pif cpl dll ocx sys drv msi msp mst msc bat cmd ps1 psm1 psd1 ps1xml vbs vbe js jse wsf wsh wsc " +
+    "hta lnk url scf reg inf chm jar application appref-ms gadget appx appxbundle msix msixbundle " +
+    "settingcontent-ms library-ms search-ms xll iso img vhd vhdx"
+  ).split(" "),
+);
 const HEIC = /\.(heic|heif)$/i;
+// The PC takes a name off RUN_EXT only as text: UTF-8 with no zero byte (actions/attach.mjs kindOf).
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+const isText = (bytes) => {
+  if (bytes.includes(0)) return false;
+  try {
+    utf8.decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+};
 // iOS makes no canvas over about 16.7 million pixels; a 24 or 48 MP photo is drawn smaller to stay under this.
 const MAX_PIXELS = 16_000_000;
-// A file of no known kind is read this far: UTF-8 with no NUL byte is text, as the PC decides (design "Attach").
-const SNIFF_BYTES = 8 * 1024;
-const UNTYPED = new Set(["", "application/octet-stream"]);
-// What the picker offers: the four pictures, HEIC (turned into JPEG here), PDF and the text list.
+// What the picker offers: the four pictures, HEIC (turned into JPEG here), PDF, the text list and zips named so a
+// phone that keys its sheet on them still offers photos and the camera; */* lets any other file be picked.
 const ACCEPT = [
   ...PICTURES,
   "image/heic",
@@ -41,6 +60,9 @@ const ACCEPT = [
   "text/*",
   ".pdf",
   ...[...TEXT_EXT].map((x) => `.${x}`),
+  "application/zip",
+  ".zip",
+  "*/*",
 ].join(",");
 
 const GLYPHS = {
@@ -68,14 +90,16 @@ const ext = (name) => {
   return m ? m[1].toLowerCase() : "";
 };
 
-// The kind the PC will find, from the phone's name and type (a hint only: the PC checks the bytes).
+// The kind the PC will find, from the phone's name and type (a hint only: the PC checks the bytes); null for a kind
+// Windows runs.
 function kindOf(file) {
   const x = ext(file.name);
   if (PICTURES.has(file.type) || PICTURE_EXT.has(x)) return "picture";
   if (/^image\/hei[cf]$/.test(file.type) || HEIC.test(file.name)) return "heic";
   if (file.type === "application/pdf" || x === "pdf") return "pdf";
   if (file.type.startsWith("text/") || TEXT_EXT.has(x)) return "text";
-  return null;
+  if (RUN_EXT.has(x)) return null;
+  return "file";
 }
 
 export function sizeWords(b) {
@@ -311,22 +335,12 @@ async function begin(s, f) {
     f.name = f.file.name;
     f.size = f.file.size;
   }
-  // No type, or the browser's word for "unknown": its first bytes decide. A named type (a zip, a video) does not.
-  if (
-    !f.kind &&
-    UNTYPED.has(f.file.type) &&
-    f.size <= CAP.text &&
-    (await looksLikeText(f.file))
-  )
-    f.kind = "text";
-  if (!f.kind) {
-    const x = ext(f.name);
+  if (!f.kind)
     return refuse(
       s,
       f,
-      `${f.name}: ${x ? `a .${x}` : "a file of this kind"} can't be sent. Pictures, PDFs and text files can. Remove it to send.`,
+      `${f.name}: a .${ext(f.name)} is a kind Windows runs, so the PC does not take it. Remove it to send.`,
     );
-  }
   if (f.size > CAP[f.kind]) {
     f.tooBig = true;
     return refuse(
@@ -355,18 +369,6 @@ function refuse(s, f, line) {
   f.line = line;
   f.retry = false;
   redraw(s);
-}
-
-// The first SNIFF_BYTES decode as UTF-8 (a character cut at the end is allowed) and hold no NUL byte.
-async function looksLikeText(file) {
-  const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
-  if (head.includes(0)) return false;
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(head, { stream: true });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // The photo's size in pixels, made smaller with its shape kept when it is over MAX_PIXELS.
@@ -403,8 +405,16 @@ async function toJpeg(file) {
   });
 }
 
-// Sends one file and keeps its id; Retry runs it once more. The channel's stream line keeps at most 2 streams
-// going at once; the others wait their turn there, the chip still "uploading".
+// Files are read and streamed one at a time, in the order picked, so a pick of many files holds one in memory, not
+// all of them; the others wait, their chip "uploading" at 0%.
+let turn = Promise.resolve();
+function inTurn(fn) {
+  const run = turn.then(fn);
+  turn = run.catch(() => {});
+  return run;
+}
+
+// Sends one file and keeps its id; Retry runs it once more.
 async function upload(s, f) {
   const run = ++f.run;
   f.phase = "uploading";
@@ -414,14 +424,27 @@ async function upload(s, f) {
   redraw(s);
   let r;
   try {
-    const bytes = new Uint8Array(await f.file.arrayBuffer());
-    if (f.removed || run !== f.run) return;
-    const { ctx, target } = s.view;
-    r = await ctx.sendStream(bytes, f.file.type || "text/plain", (part) => {
-      if (run !== f.run || f.removed) return;
-      f.sent = part;
-      redraw(s);
+    // null: removed or sent again while it waited its turn.
+    r = await inTurn(async () => {
+      if (f.removed || run !== f.run) return null;
+      const bytes = new Uint8Array(await f.file.arrayBuffer());
+      if (f.removed || run !== f.run) return null;
+      // A kind Windows runs taken as text (.js .ps1 .bat .cmd) that is not UTF-8: the PC would refuse it after the
+      // whole upload, so it is refused here in the PC's words.
+      if (f.kind === "text" && RUN_EXT.has(ext(f.name)) && !isText(bytes))
+        return { ok: false, err: "kind-not-allowed" };
+      return s.view.ctx.sendStream(
+        bytes,
+        f.file.type || "text/plain",
+        (part) => {
+          if (run !== f.run || f.removed) return;
+          f.sent = part;
+          redraw(s);
+        },
+      );
     });
+    if (r === null) return;
+    const { ctx, target } = s.view;
     if (r?.ok)
       r = await ctx.ask("attach.put", {
         stream: r.d.stream,
@@ -456,7 +479,7 @@ function failed(f, r) {
     f.line =
       w === "too-big"
         ? `${f.name} is ${sizeWords(f.size)}. The PC's limit for it is lower. Remove it to send.`
-        : `${f.name}: the PC found it is not a picture, PDF or text file. Remove it to send.`;
+        : `${f.name}: the PC does not take it: it is a program, or what is inside does not match its name. Remove it to send.`;
   } else if (w === "disk-full")
     f.line = `${f.name}: the PC has no room for files now. Send without it, or try later.`;
   else if (w === "too-many")

@@ -22,6 +22,7 @@ export function register(registry) {
   // queueId is null when the message already left the queue (the turn ended meanwhile).
   registry.add({
     name: "session.queue",
+    once: true,
     input: {
       session: SESSION_INPUT,
       text: TEXT_INPUT,

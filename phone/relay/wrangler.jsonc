@@ -4,6 +4,8 @@
 {
   "main": "src/worker.mjs",
   "compatibility_date": "2026-04-07",
+  // request.signal fires when a caller breaks off, so an aborted Send to chat cancels its upload to Telegram.
+  "compatibility_flags": ["enable_request_signal"],
   // The page files are static assets, served before the Worker runs; any other path reaches worker.mjs.
   "assets": {
     "directory": "./dist"
@@ -12,5 +14,7 @@
     "bindings": [{ "name": "HUB", "class_name": "Hub" }]
   },
   // SQLite-backed: the only kind the free plan has, and the one that offers ctx.storage.kv.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }],
+  // The webhook check every 5 minutes (worker.mjs `scheduled`). Both copies run it; the test copy checks nothing.
+  "triggers": { "crons": ["*/5 * * * *"] }
 }

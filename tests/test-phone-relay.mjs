@@ -7,8 +7,18 @@ import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { startLocalRelay } from "../phone/relay/local/server.mjs";
-import { PING, PONG, pcIdOf, toB64url } from "../phone/relay/src/hub.mjs";
+import {
+  fixedLengthStream,
+  mapStore,
+  startLocalRelay,
+} from "../phone/relay/local/server.mjs";
+import {
+  createHub,
+  PING,
+  PONG,
+  pcIdOf,
+  toB64url,
+} from "../phone/relay/src/hub.mjs";
 import * as seal from "../phone/shared/seal.mjs";
 import { startCutProxy } from "./phone-bot/cut-proxy.mjs";
 
@@ -257,6 +267,141 @@ for (const file of ["/", "/version.json"]) {
     ],
     [200, POLICY, "nosniff", "no-referrer"],
   );
+}
+
+// ---- page files load fast: compressed when asked, an ETag, a 304 on a repeat, nothing kept as immutable ----
+// node:http, not fetch: fetch unpacks the body and hides Content-Encoding.
+{
+  const http = await import("node:http");
+  const zlib = await import("node:zlib");
+  const script = `${"export const line = 'a page script line';\n".repeat(200)}`;
+  fs.writeFileSync(path.join(tmp, "app.js"), script);
+  const get = (file, headers = {}) =>
+    new Promise((done, failed) => {
+      http
+        .get(relay.url + file, { headers }, (res) => {
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () =>
+            done({
+              status: res.statusCode,
+              headers: res.headers,
+              body: Buffer.concat(chunks),
+            }),
+          );
+        })
+        .on("error", failed);
+    });
+  const br = await get("/app.js", { "accept-encoding": "gzip, deflate, br" });
+  same(
+    "a page file asked with br comes br-compressed and unpacks to the file (FAIL: the page goes uncompressed)",
+    [
+      br.status,
+      br.headers["content-encoding"],
+      br.body.length < script.length,
+      br.headers["content-encoding"] === "br" &&
+        zlib.brotliDecompressSync(br.body).toString() === script,
+    ],
+    [200, "br", true, true],
+  );
+  const gz = await get("/app.js", { "accept-encoding": "gzip" });
+  same(
+    "a page file asked with gzip only comes gzip-compressed and unpacks to the file",
+    [
+      gz.headers["content-encoding"],
+      gz.headers["content-encoding"] === "gzip" &&
+        zlib.gunzipSync(gz.body).toString() === script,
+    ],
+    ["gzip", true],
+  );
+  const plain = await get("/app.js");
+  same(
+    "a page file asked with no Accept-Encoding comes whole and plain",
+    [plain.headers["content-encoding"], plain.body.toString() === script],
+    [undefined, true],
+  );
+  // A stand-in when none came, so the checks below fail instead of the request.
+  const etag = br.headers.etag ?? '"none"';
+  check(
+    "a page file carries an ETag and Vary: Accept-Encoding (FAIL: a phone cannot ask whether it changed)",
+    typeof etag === "string" &&
+      etag.length > 2 &&
+      /accept-encoding/i.test(br.headers.vary ?? ""),
+    JSON.stringify(br.headers),
+  );
+  const again = await get("/app.js", {
+    "accept-encoding": "gzip, deflate, br",
+    "if-none-match": etag,
+  });
+  same(
+    "a repeat with If-None-Match answers 304 with no body, the content policy kept (FAIL: the phone loads it again)",
+    [
+      again.status,
+      again.body.length,
+      again.headers.etag,
+      again.headers["content-security-policy"],
+    ],
+    [304, 0, etag, POLICY],
+  );
+  fs.writeFileSync(path.join(tmp, "app.js"), `${script}// changed\n`);
+  const changed = await get("/app.js", {
+    "accept-encoding": "gzip, deflate, br",
+    "if-none-match": etag,
+  });
+  same(
+    "a changed file answers 200 with a new ETag to the old one (FAIL: the phone keeps an old page)",
+    [changed.status, changed.headers.etag !== etag],
+    [200, true],
+  );
+  check(
+    "no page file is marked immutable (FAIL: its name carries no hash, so a phone would keep an old copy)",
+    ![br, gz, plain, changed].some((r) =>
+      /immutable/.test(r.headers["cache-control"] ?? ""),
+    ),
+    JSON.stringify(br.headers["cache-control"]),
+  );
+  const picked = [];
+  for (const asked of [
+    "gzip;q=1.0, br;q=0.5",
+    "*",
+    "br;q=0, *",
+    "gzip;q=0, *;q=0.1",
+    "deflate",
+  ])
+    picked.push(
+      (await get("/app.js", { "accept-encoding": asked })).headers[
+        "content-encoding"
+      ] ?? "plain",
+    );
+  same(
+    "Accept-Encoding is followed by its q-values, and * allows br and gzip (FAIL: a client gets a form it " +
+      "ranked lower, or none it allowed)",
+    picked,
+    ["gzip", "br", "gzip", "br", "plain"],
+  );
+  fs.rmSync(path.join(tmp, "app.js"));
+
+  // A tool that writes the same number of bytes and puts the old modified time back (as a copy that keeps times
+  // does): the file is still new.
+  const same1 = path.join(tmp, "same.js");
+  const keptTime = Math.floor(Date.now() / 1000) - 3600;
+  fs.writeFileSync(same1, "export const word = 'aaaa';\n".repeat(50));
+  fs.utimesSync(same1, keptTime, keptTime);
+  const before = await get("/same.js");
+  fs.writeFileSync(same1, "export const word = 'bbbb';\n".repeat(50));
+  fs.utimesSync(same1, keptTime, keptTime);
+  const after = await get("/same.js");
+  same(
+    "a page file rewritten with the same size and modified time comes new (FAIL: the relay keeps sending the " +
+      "old page)",
+    [
+      before.body.toString().includes("aaaa"),
+      after.body.toString().includes("bbbb"),
+      after.headers.etag !== before.headers.etag,
+    ],
+    [true, true, true],
+  );
+  fs.rmSync(same1);
 }
 
 // ---- signing in (section 3) ----
@@ -1605,8 +1750,10 @@ await relay.close();
     if (method === "sendMessage") return { message_id: ++tgMessageId };
     return true;
   };
+  let holdUpload = null; // (signal) -> a promise: the fake Telegram holds the upload instead of reading it
   // Like Telegram's sendDocument: reads the multipart body to its end, then answers.
-  const fileUpload = async (method, { body, length, type }) => {
+  const fileUpload = async (method, { body, length, type, signal }) => {
+    if (holdUpload) return holdUpload(signal);
     const boundary = /boundary=(\S+)$/.exec(type)[1];
     const chunks = [];
     let firstAt = null;
@@ -1771,6 +1918,62 @@ await relay.close();
     JSON.stringify(keys().filter((k) => !keysBefore.includes(k))),
   );
 
+  // The PC breaks off a Send to chat while Telegram still holds the upload: the relay cancels the upload, and the
+  // next send answers at once. Before, the upload took no abort and kept running.
+  {
+    const tick = () => new Promise((done) => setTimeout(done, 10));
+    let held = "not yet";
+    let cancelled = false;
+    holdUpload = (signal) => {
+      held = signal ?? null;
+      return new Promise((_, no) =>
+        signal?.addEventListener("abort", () => {
+          cancelled = true;
+          no(new Error("the upload was cancelled"));
+        }),
+      );
+    };
+    const pcStop = new AbortController();
+    const first = fetch(`${relay.url}/pc/send`, {
+      method: "POST",
+      headers: {
+        ...pcHeaders(pc, 100_000),
+        "Content-Type": "application/octet-stream",
+        "X-File-Name": "held.bin",
+      },
+      // 1,000 of the 100,000 bytes, then nothing: the PC is still sending when it breaks off.
+      body: new ReadableStream({
+        start(out) {
+          out.enqueue(new Uint8Array(1000));
+        },
+      }),
+      duplex: "half",
+      signal: pcStop.signal,
+    }).catch((e) => e.name);
+    for (let i = 0; i < 200 && held === "not yet"; i++) await tick();
+    pcStop.abort();
+    for (let i = 0; i < 200 && !cancelled; i++) await tick();
+    holdUpload = null;
+    const startedAt = performance.now();
+    const next = await send(pc, "abc", 3);
+    const took = performance.now() - startedAt;
+    same(
+      "an aborted Send to chat cancels its Telegram upload, its reason logged (FAIL: the upload keeps running after the PC gave up)",
+      [
+        held !== "not yet",
+        cancelled,
+        await first,
+        logLines.some((l) => l.startsWith("file send aborted")),
+      ],
+      [true, true, "AbortError", true],
+    );
+    same(
+      "the next Send to chat after an aborted one answers at once (FAIL: it waits behind the held upload)",
+      [next[0], took < 2000],
+      [200, true],
+    );
+  }
+
   // Topic mode off: the plain chat, as before topics.
   topicsOn = false;
   [pcA] = await signIn(pc);
@@ -1843,15 +2046,47 @@ await relay.close();
     `${got.byteLength} bytes, post ${posted.status}`,
   );
   const again = await fetch(made.url);
+  let againText = "a download started";
+  if (again.status === 410) againText = await again.text();
+  else await again.body.cancel();
   same(
     "a link is once-only: a second GET gets 410 with the words to make a new one",
-    [
-      again.status,
-      again.status === 410
-        ? await again.text()
-        : (again.body.cancel(), "a download started"),
-    ],
+    [again.status, againText],
     [410, "This link has expired. Make a new one in the app."],
+  );
+
+  // Telegram's download box fetches the link only after the user confirms it, and Cloudflare puts an idle object to
+  // sleep within seconds: the link must outlive the Hub's memory.
+  const [, [kept]] = await openLink(pcA, {
+    name: "a.txt",
+    size: 3,
+    mime: "text/plain",
+  });
+  check(
+    "a kept link is in the store by its hash only (FAIL: the link's token is readable in the store)",
+    relay.map.has(`dl:${pc.pcId}`) && !dump().includes(kept.url.slice(-43)),
+    dump(),
+  );
+  await relay.sleep();
+  const woken = await fetch(kept.url);
+  await settle();
+  const [wokenPull] = pcA.takeJson();
+  let wokenBody = "no download";
+  if (wokenPull?.t === "dl-pull") {
+    const [bytes] = await Promise.all([
+      woken.arrayBuffer(),
+      fetch(`${relay.url}/pc/dl/${wokenPull.link}`, {
+        method: "POST",
+        headers: pcHeaders(pc, 3),
+        body: "abc",
+      }),
+    ]);
+    wokenBody = Buffer.from(bytes).toString();
+  } else await woken.body.cancel();
+  same(
+    "a link made before the relay slept still downloads the file after it wakes (FAIL: a Download press gets 410 once the relay slept)",
+    [woken.status, wokenBody],
+    [200, "abc"],
   );
 
   const [, [late]] = await openLink(pcA, {
@@ -1907,7 +2142,7 @@ await relay.close();
     ],
   );
   check(
-    "the download links write nothing to the store (FAIL: a link or its trace was kept)",
+    "used and ended download links leave nothing in the store (FAIL: a link or its trace was kept)",
     dump() === stored,
     JSON.stringify(keys().filter((k) => !keysBefore.includes(k))),
   );
@@ -1945,6 +2180,449 @@ await relay.close();
   await relay.close();
 }
 
+// ---- two calls at once: the file routes run beside the socket frames, so a send can meet a frame or another send ----
+
+{
+  let topicsOn = null; // null: getMe is refused, as Telegram may refuse any call
+  let topicsMade = 0;
+  const calls = [];
+  const raceTelegram = async (method, params) => {
+    calls.push({ method, params });
+    if (method === "getMe") {
+      if (topicsOn === null)
+        throw new Error("telegram getMe: Too Many Requests: retry after 1");
+      return { id: BOT_ID, has_topics_enabled: topicsOn };
+    }
+    if (method === "createForumTopic") {
+      // Slow, as Telegram is: a second maker has time to start before the first one's answer.
+      await new Promise((done) => setTimeout(done, 30));
+      return { message_thread_id: 80 + ++topicsMade };
+    }
+    if (method === "sendMessage") return { message_id: ++tgMessageId };
+    return true;
+  };
+  const raceUpload = async (_method, { body }) => {
+    await new Response(body).arrayBuffer();
+    return { message_id: ++tgMessageId };
+  };
+  const sendFile = async (pc, text) => {
+    const r = await fetch(`${relay.url}/pc/send`, {
+      method: "POST",
+      headers: {
+        "X-Phone-Pc": pc.pcId,
+        Authorization: `Bearer ${pc.token}`,
+        "Content-Length": String(text.length),
+        "Content-Type": "text/plain",
+        "X-File-Name": "a.txt",
+      },
+      body: text,
+    });
+    return r.status;
+  };
+
+  relay = await startLocalRelay({
+    ...relayOpts,
+    telegram: raceTelegram,
+    upload: raceUpload,
+  });
+  const pc = await newPc();
+  relay.map.set(`pc:${pc.pcId}`, {
+    ...relay.map.get(`pc:${pc.pcId}`),
+    tgId: OWNER,
+  });
+  relay.map.set(`user:${OWNER}`, {
+    invitedAt: clock,
+    firstName: "Owner",
+    pcId: pc.pcId,
+  });
+  // The sign-in's getMe is refused, so it makes no topics and the topic mode is read again at the next file.
+  const pcA = await connect();
+  pcA.send({ v: 1, t: "pc-auth", pcId: pc.pcId, token: pc.token });
+  await settle();
+  pcA.take();
+  topicsOn = true;
+  const statuses = await Promise.all([
+    sendFile(pc, "one"),
+    sendFile(pc, "two"),
+  ]);
+  same(
+    "two sends at once into a chat with no Files topic make one Files topic and both go into it (FAIL: two Files topics)",
+    [
+      statuses,
+      calls
+        .filter((c) => c.method === "createForumTopic")
+        .map((c) => c.params.name),
+      relay.map.get(`topics:${OWNER}`).files,
+    ],
+    [[200, 200], ["Files"], 81],
+  );
+  await relay.close();
+}
+
+// An alert frame and a file send at once, on the Hub itself: its store may answer later (the Hub takes a sync or an
+// async one), and this one holds a read of the PC's record until the test lets it go, so the send runs inside the
+// alert. Both hour counters live in the PC socket's attachment.
+{
+  const map = new Map();
+  const base = mapStore(map);
+  let hold = null; // when set, the next read of a PC record waits for it
+  const store = {
+    ...base,
+    get: async (key) => {
+      if (hold && key.startsWith("pc:")) {
+        const wait = hold;
+        hold = null;
+        await wait;
+      }
+      return base.get(key);
+    },
+  };
+  const conns = new Set();
+  const hub = createHub({
+    store,
+    sockets: {
+      accept: (c) => void conns.add(c),
+      all: () => [...conns],
+      attachment: (c) => (c.attachment ? structuredClone(c.attachment) : null),
+      setAttachment: (c, value) => void (c.attachment = structuredClone(value)),
+      send: (c, text) => c.inbox.push(text),
+      close: (c) => void conns.delete(c),
+      lastPing: () => null,
+    },
+    telegram: async (method) => {
+      if (method === "getMe") return { id: BOT_ID, has_topics_enabled: false };
+      return { message_id: ++tgMessageId };
+    },
+    upload: async (_method, { body }) => {
+      await new Response(body).arrayBuffer();
+      return { message_id: ++tgMessageId };
+    },
+    fixedStream: fixedLengthStream,
+    download: async () => {
+      throw new Error("this test downloads nothing");
+    },
+    now: () => clock,
+    log: () => {},
+    botId: BOT_ID,
+    ownerTgId: OWNER,
+    telegramKey: tgKeyHex,
+    topicSuffix: "",
+    bot: null,
+  });
+  const token = random(32);
+  const pcId = await pcIdOf(token);
+  map.set(`pc:${pcId}`, {
+    tokenHash: createHash("sha256").update(token).digest("hex"),
+    tgId: OWNER,
+    createdAt: clock,
+    lastSeen: clock,
+    pcVersion: "26.3",
+    inboxPub: toB64url(random(32)),
+  });
+  const ws = { inbox: [] };
+  await hub.open(ws, { origin: "http://127.0.0.1:1" });
+  await hub.message(
+    ws,
+    JSON.stringify({ v: 1, t: "pc-auth", pcId, token: toB64url(token) }),
+  );
+  let letGo;
+  hold = new Promise((done) => {
+    letGo = done;
+  });
+  const alerting = hub.message(
+    ws,
+    JSON.stringify({
+      v: 1,
+      t: "alert",
+      text: "proj: needs you",
+      open: "r1",
+      silent: false,
+    }),
+  );
+  const sent = await hub.pcSend({
+    headers: {
+      "x-phone-pc": pcId,
+      authorization: `Bearer ${toB64url(token)}`,
+      "content-length": "3",
+      "x-file-name": "a.txt",
+    },
+    body: new Response("abc").body,
+  });
+  letGo();
+  await alerting;
+  const { alerts, files } = ws.attachment;
+  same(
+    "an alert and a file send at once each count once in the hour (FAIL: the alert wrote back an old copy and the file count was lost)",
+    [sent.status, alerts?.n, files?.n],
+    [200, 1, 1],
+  );
+}
+
+// ---- the webhook check (worker.mjs `scheduled`, the Hub's heal): a missing or moved webhook is set again, the
+// owner is told only what it cannot fix, and the test copy makes no Bot API call (it shares the bot) ----
+{
+  const SECRET = "fake-webhook-secret-for-the-check";
+  let hook = { url: "" }; // what the fake Telegram holds as the bot's webhook
+  let reachable = true;
+  let refuseSet = null;
+  const calls = [];
+  const healTelegram = async (method, params) => {
+    if (!reachable) throw new TypeError("fetch failed");
+    calls.push({ method, params });
+    if (method === "getMe") return { id: BOT_ID, has_topics_enabled: true };
+    if (method === "getWebhookInfo")
+      return { ...hook, pending_update_count: 0 };
+    if (method === "setWebhook") {
+      if (refuseSet) throw new Error(`telegram setWebhook: ${refuseSet}`);
+      hook = { url: params.url };
+      return true;
+    }
+    if (method === "createForumTopic") return { message_thread_id: 61 };
+    if (method === "sendMessage") {
+      if (blocked)
+        throw new Error(
+          "telegram sendMessage: Forbidden: bot was blocked by the user",
+        );
+      return { message_id: ++tgMessageId };
+    }
+    return true;
+  };
+  let blocked = false; // the owner blocked the bot: every sendMessage is refused
+  relay = await startLocalRelay({
+    ...relayOpts,
+    telegram: healTelegram,
+    webhookSecret: SECRET,
+  });
+  const want = `${relay.url}/tg/hook`;
+  // One scheduled run, 5 minutes after the last: what it answered and the Bot API calls it made.
+  const run = async () => {
+    clock += 5 * MINUTE;
+    calls.length = 0;
+    let done;
+    try {
+      done = await relay.heal?.();
+    } catch (e) {
+      done = `threw: ${e.message}`;
+    }
+    return [done, calls.map((c) => c.method)];
+  };
+  const sent = () => calls.filter((c) => c.method === "sendMessage");
+
+  const missing = await run();
+  const setCall = calls.find((c) => c.method === "setWebhook")?.params;
+  same(
+    "the webhook check sets a missing webhook again to this relay with its secret, and tells no one (FAIL: the bot stays deaf)",
+    [
+      missing,
+      hook.url,
+      setCall?.secret_token,
+      setCall?.allowed_updates,
+      setCall?.drop_pending_updates,
+    ],
+    [
+      ["set", ["getWebhookInfo", "setWebhook"]],
+      want,
+      SECRET,
+      ["message", "callback_query"],
+      undefined,
+    ],
+  );
+  // Changed on purpose: the check used to set a webhook at another address back to itself, so two relays with an
+  // address (an old one left running, or the owner's own move) took the bot from each other every run.
+  const away = "https://another-relay.example/tg/hook";
+  hook = { url: away };
+  const moved = await run();
+  const movedTold = sent().map((c) => c.params.text);
+  const movedAgain = await run();
+  same(
+    "a webhook at another address is left as it is and told to the owner once, not every run (FAIL: two relays " +
+      "take the bot from each other every few minutes)",
+    [
+      moved[0],
+      movedTold.length,
+      movedTold[0]?.includes("another-relay.example"),
+      movedAgain,
+      hook.url,
+    ],
+    ["foreign", 1, true, ["foreign", ["getWebhookInfo"]], away],
+  );
+  hook = { url: want };
+  same(
+    "a webhook already right is only read (FAIL: the check sets it every run)",
+    await run(),
+    ["ok", ["getWebhookInfo"]],
+  );
+  reachable = false;
+  const lostAt = clock + 5 * MINUTE;
+  same(
+    "Telegram not reached: the check logs it and sends nothing, twice over",
+    [
+      await run(),
+      await run(),
+      logLines.at(-1)?.startsWith("webhook check: Telegram not reached"),
+    ],
+    [["unreached", []], ["unreached", []], true],
+  );
+  reachable = true;
+  const back = await run();
+  same(
+    "the first run that reaches Telegram again tells the owner once, in the Alerts topic, from when (FAIL: the outage goes unseen)",
+    [
+      back[0],
+      sent().length,
+      sent()[0]?.params.chat_id,
+      sent()[0]?.params.message_thread_id,
+      sent()[0]?.params.text.includes("could not reach Telegram from") &&
+        sent()[0]?.params.text.includes(
+          new Date(lostAt).toISOString().slice(0, 16).replace("T", " "),
+        ),
+    ],
+    ["ok", 1, OWNER, 61, true],
+  );
+  same("the run after that tells no one again", await run(), [
+    "ok",
+    ["getWebhookInfo"],
+  ]);
+  hook = { url: "" };
+  refuseSet = "Bad Request: bad webhook: Failed to resolve host";
+  const refused = await run();
+  same(
+    "a refused setWebhook is told to the owner with Telegram's words (FAIL: the bot is deaf and no one knows)",
+    [
+      refused[0],
+      sent().length,
+      sent()[0]?.params.text.includes("Failed to resolve host"),
+    ],
+    ["refused", 1, true],
+  );
+  const refusedAgain = await run();
+  const refusedAgainSent = sent().length;
+  refuseSet = "Bad Request: bad webhook: HTTPS url must be provided";
+  const refusedOther = await run();
+  const refusedOtherSent = sent().length;
+  refuseSet = null;
+  await run();
+  hook = { url: "" };
+  refuseSet = "Bad Request: bad webhook: HTTPS url must be provided";
+  const refusedAfterFix = await run();
+  same(
+    "a refused setWebhook is told once, again only when Telegram's words change or after the webhook was healthy " +
+      "(FAIL: the owner gets the same alert every few minutes)",
+    [
+      refusedAgain[0],
+      refusedAgainSent,
+      refusedOther[0],
+      refusedOtherSent,
+      refusedAfterFix[0],
+      sent().length,
+    ],
+    ["refused", 0, "refused", 1, "refused", 1],
+  );
+  refuseSet = null;
+  await run();
+  reachable = false;
+  await run();
+  reachable = true;
+  hook = { url: "" };
+  blocked = true;
+  const blockedRun = await run();
+  const blockedLogged = logLines.some((l) =>
+    l.startsWith("webhook check: the alert to the owner failed"),
+  );
+  same(
+    "an alert that fails (the owner blocked the bot) is logged, and what the run did is kept, so the next run " +
+      "neither sets the webhook nor tries the alert again (FAIL: every run repeats both and fails)",
+    [blockedRun[0], blockedLogged, await run()],
+    ["set", true, ["ok", ["getWebhookInfo"]]],
+  );
+  blocked = false;
+  // Changed on purpose: the check used to set the webhook again on the first run that saw one 401. A deploy's
+  // own few seconds of 401s (its new secret is in, its setWebhook not yet) then let a check with the old secret
+  // set the webhook back to that old secret. Now a 401 counts only when it goes on past a run that saw one.
+  const at401 = (ms) => ({
+    url: want,
+    last_error_date: Math.floor(ms / 1000),
+    last_error_message: "Wrong response from the webhook: 401 Unauthorized",
+  });
+  hook = at401(clock + 5 * MINUTE - 3000); // 3 s before the next run
+  const lone = [await run(), await run()];
+  clock += 2 * 60 * MINUTE; // a long quiet, then another deploy's 401 a few seconds old
+  hook = at401(clock + 5 * MINUTE - 3000);
+  lone.push(await run());
+  same(
+    "a 401 from a few seconds ago, seen by one run only, leaves the webhook as it is, also after a long quiet " +
+      "(FAIL: a check holding the old secret undoes a deploy's new one)",
+    lone,
+    [
+      ["ok", ["getWebhookInfo"]],
+      ["ok", ["getWebhookInfo"]],
+      ["ok", ["getWebhookInfo"]],
+    ],
+  );
+  hook = at401(clock + MINUTE); // a newer 401, after the run that saw the first one
+  const staleRun = await run();
+  const staleSet = calls.find((c) => c.method === "setWebhook")?.params;
+  same(
+    "a 401 that goes on past the run that saw one is set again with this relay's secret, once (FAIL: an old " +
+      "secret leaves the bot deaf)",
+    [staleRun, staleSet?.secret_token, (await run())[0]],
+    [["set", ["getWebhookInfo", "setWebhook"]], SECRET, "ok"],
+  );
+  // A real relay with no address (deployed before RELAY_ORIGIN, then a plain `wrangler deploy`): the Hub's check
+  // as worker.mjs calls it, with origin null.
+  const noAddress = [];
+  for (let i = 0; i < 2; i++) {
+    calls.length = 0;
+    try {
+      noAddress.push([
+        await relay.hub.heal({ origin: null, webhookSecret: SECRET }),
+        calls.length,
+      ]);
+    } catch (e) {
+      noAddress.push(`threw: ${e.message}`);
+    }
+  }
+  same(
+    "a relay with no address answers not-configured, makes no Bot API call and logs it once, not every run " +
+      "(FAIL: the cron fails every 5 minutes)",
+    [
+      noAddress,
+      logLines.filter((l) => l.startsWith("webhook check: off")).length,
+    ],
+    [
+      [
+        ["not-configured", 0],
+        ["not-configured", 0],
+      ],
+      1,
+    ],
+  );
+  same(
+    "the webhook check keeps one store key and logs no secret",
+    [
+      [...relay.map.keys()].filter((k) => k.startsWith("heal:")),
+      logLines.some((l) => l.includes(SECRET)),
+    ],
+    [["heal:webhook"], false],
+  );
+  await relay.close();
+
+  // The test copy: same bot token, its own topics. It must not touch the webhook.
+  hook = { url: "" };
+  relay = await startLocalRelay({
+    ...relayOpts,
+    telegram: healTelegram,
+    webhookSecret: SECRET,
+    topicSuffix: " (test)",
+  });
+  same(
+    "the test copy's webhook check makes no Bot API call at all (FAIL: it would take the bot from the real relay)",
+    [await run(), hook.url],
+    [["test-copy", []], ""],
+  );
+  await relay.close();
+}
+
 // ---- the Worker's own file (Cloudflare loads it; no test above does) must at least parse
 {
   const { spawnSync } = await import("node:child_process");
@@ -1963,6 +2641,52 @@ await relay.close();
     "the relay's worker.mjs parses (FAIL: the deploy's build would stop on it)",
     parsed.status === 0,
     parsed.stderr.trim().split("\n").slice(0, 4).join(" "),
+  );
+
+  // Its cron handler, loaded with a stand-in for Cloudflare's own module. A first deploy whose probe failed has
+  // no secrets at all: the Hub cannot start, so the handler must not call it, and must not fail every run.
+  const { registerHooks } = await import("node:module");
+  const { pathToFileURL } = await import("node:url");
+  registerHooks({
+    resolve: (specifier, context, nextResolve) =>
+      specifier === "cloudflare:workers"
+        ? {
+            url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }",
+            shortCircuit: true,
+          }
+        : nextResolve(specifier, context),
+  });
+  const { default: entry } = await import(pathToFileURL(worker).href);
+  let hubCalls = 0;
+  const HUB = {
+    idFromName: (name) => name,
+    get: () => ({
+      heal: async () => {
+        hubCalls++;
+        throw new Error("relay: the secret BOT_TOKEN is not set");
+      },
+    }),
+  };
+  const printed = [];
+  const consoleLog = console.log;
+  console.log = (line) => printed.push(String(line));
+  let outcome = "ended well";
+  try {
+    await entry.scheduled?.({}, { HUB });
+  } catch (e) {
+    outcome = `threw: ${e.message}`;
+  } finally {
+    console.log = consoleLog;
+  }
+  same(
+    "the cron on a relay with no secrets yet ends well, without starting the Hub, and logs not-configured (FAIL: " +
+      "a first deploy whose probe failed fails its cron every 5 minutes)",
+    [
+      outcome,
+      hubCalls,
+      printed.some((l) => l.startsWith("webhook check: not-configured")),
+    ],
+    ["ended well", 0, true],
   );
 }
 fs.rmSync(tmp, { recursive: true, force: true });

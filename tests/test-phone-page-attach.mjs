@@ -4,6 +4,7 @@
 // sendStream is a stand-in that hands the bytes to the registry's takeStream, and can hold or break an upload.
 // Run: node tests/test-phone-page-attach.mjs
 import fs from "node:fs";
+import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -278,6 +279,21 @@ const byClass = (root, c) => walk(root).filter((n) => hasClass(n, c));
 const byTag = (root, t) => walk(root).filter((n) => n.tagName === t);
 
 const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
+// The build-only screens.generated.js, which cache.js and outbox.js read STORE_SUFFIX from: "" as in a plain build.
+registerHooks({
+  resolve(specifier, context, next) {
+    if (
+      specifier.endsWith("screens.generated.js") &&
+      new URL(specifier, context.parentURL).href ===
+        pageUrl("screens.generated.js")
+    )
+      return {
+        url: `data:text/javascript,${encodeURIComponent('export const STORE_SUFFIX = "";')}`,
+        shortCircuit: true,
+      };
+    return next(specifier, context);
+  },
+});
 const screens = await import(pageUrl("frame/screens.js"));
 await import(pageUrl("screens/session.js")); // registers the session screen
 
@@ -354,7 +370,9 @@ try {
       box(a).input?.attrs.type === "file" &&
       box(a).input.attrs.multiple === "" &&
       box(a).input.attrs.accept.includes("image/jpeg") &&
-      box(a).input.attrs.accept.includes(".pdf"),
+      box(a).input.attrs.accept.includes(".pdf") &&
+      box(a).input.attrs.accept.includes(".zip") &&
+      box(a).input.attrs.accept.includes("*/*"),
     show(box(a).input?.attrs),
   );
   type(a, "Why does checkout fail?");
@@ -488,13 +506,18 @@ try {
       big.main.disabled,
     show({ line: big?.lines.textContent, streams: link.streams }),
   );
-  pick(b, new File(["PK"], "project-backup.zip", { type: "application/zip" }));
+  pick(
+    b,
+    new File([new Uint8Array([0x4d, 0x5a, 0x90, 0])], "setup.exe", {
+      type: "application/x-msdownload",
+    }),
+  );
   check(
-    "a kind the PC can't take is refused with its line",
+    "a kind Windows runs is refused with its line, no upload (FAIL: the phone sends a program to the PC)",
     box(b).lines.textContent.includes(
-      "project-backup.zip: a .zip can't be sent. Pictures, PDFs and text files can. Remove it to send.",
-    ),
-    show(box(b).lines.textContent),
+      "setup.exe: a .exe is a kind Windows runs, so the PC does not take it. Remove it to send.",
+    ) && link.streams === streamsBefore,
+    show({ line: box(b).lines.textContent, streams: link.streams }),
   );
   pick(b, ...Array.from({ length: 6 }, (_, i) => textFile(`n${i}.txt`)));
   check(
@@ -535,31 +558,95 @@ try {
     show(noted),
   );
 
-  // ---- no type from the phone: the first bytes decide, as on the PC
+  // ---- many files picked at once are read one at a time, never all into memory first
+  await until(() => box(q).chips.length === 0);
+  let reading = 0;
+  let mostReading = 0;
+  const counted = (name) => ({
+    name,
+    size: 20,
+    type: "text/plain",
+    arrayBuffer: async () => {
+      reading++;
+      mostReading = Math.max(mostReading, reading);
+      await sleep(5);
+      reading--;
+      return new TextEncoder().encode(`notes of ${name}\n`).buffer;
+    },
+  });
+  const four = ["r1.txt", "r2.txt", "r3.txt", "r4.txt"];
+  pick(q, ...four.map(counted));
+  const allPut = await until(() =>
+    four.every((n) => askedOf("attach.put").some((x) => x.d.name === n)),
+  );
+  check(
+    "four picked files are read one at a time (FAIL: every picked file is read into memory at once)",
+    Boolean(allPut) && mostReading === 1,
+    show({ allPut, mostReading }),
+  );
+
+  // ---- any other file goes to the PC, which checks its bytes: a zip, CSVs that are not UTF-8, a file with no type
   const t = drawSession(S.idle);
   await until(() => box(t).input);
-  pick(
-    t,
+  const anyKind = [
+    new File([new Uint8Array([0x50, 0x4b, 3, 4, 20, 0])], "backup.zip", {
+      type: "application/zip",
+    }),
+    // "Имя;Сумма" in Windows-1251, as Excel saves a CSV on a Russian Windows
+    new File(
+      [new Uint8Array([0xc8, 0xec, 0xff, 0x3b, 0xd1, 0xf3, 0xec, 0xec, 0xe0])],
+      "report-1251.csv",
+      { type: "text/csv" },
+    ),
+    new File([Buffer.from("﻿Name;Sum\n", "utf16le")], "report-16.csv", {
+      type: "text/csv",
+    }),
     new File(["build:\n\tnode make.mjs\n"], "Makefile", { type: "" }),
     new File([new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0, 1])], "core", {
       type: "",
     }),
-  );
-  const sniffed = await until(() =>
-    box(t)
-      .chips.find((c) => c.textContent.includes("Makefile"))
-      ?.textContent.includes(" B")
-      ? box(t)
-      : null,
-  );
+  ];
+  pick(t, ...anyKind);
+  const names = anyKind.map((f) => f.name);
+  const putNames = await until(() => {
+    const got = askedOf("attach.put").map((x) => x.d.name);
+    return names.every((n) => got.includes(n)) ? got : null;
+  });
   check(
-    "a file with no type and no known name is taken as text when its first bytes are UTF-8 with no NUL, and refused when not",
-    Boolean(sniffed) &&
-      sniffed.lines.textContent.includes(
-        "core: a file of this kind can't be sent.",
-      ) &&
-      !sniffed.lines.textContent.includes("Makefile"),
-    show(box(t).lines?.textContent),
+    "a zip, a Windows-1251 CSV, a UTF-16 CSV and files with no type are sent to the PC, not refused on the phone (FAIL: the phone refuses a zip)",
+    Boolean(putNames) && !box(t).lines.textContent.includes("can't be sent"),
+    show({ putNames, line: box(t).lines?.textContent }),
+  );
+
+  // ---- a kind Windows runs that the PC takes only as UTF-8 text (.js .ps1 .bat .cmd): other bytes are refused on
+  // the phone in the PC's words, before any upload
+  const runStreams = link.streams;
+  pick(
+    t,
+    new File([Buffer.from("﻿Write-Host 'hi'\r\n", "utf16le")], "deploy.ps1", {
+      type: "",
+    }),
+    new File(["@echo off\r\necho hi\r\n"], "run.bat", { type: "" }),
+  );
+  const runPut = await until(() =>
+    askedOf("attach.put").find((x) => x.d.name === "run.bat"),
+  );
+  await sleep(50);
+  const runKinds = {
+    put: Boolean(runPut),
+    ps1Put: askedOf("attach.put").some((x) => x.d.name === "deploy.ps1"),
+    streams: link.streams - runStreams,
+    line: box(t).lines.textContent,
+  };
+  check(
+    "a UTF-16 .ps1 is refused on the phone in the PC's words with no upload, and a UTF-8 .bat still goes to the PC (FAIL: the whole file went up first)",
+    runKinds.put &&
+      !runKinds.ps1Put &&
+      runKinds.streams === 1 &&
+      runKinds.line.includes(
+        "deploy.ps1: the PC does not take it: it is a program, or what is inside does not match its name. Remove it to send.",
+      ),
+    show(runKinds),
   );
 } catch (e) {
   failure = e;

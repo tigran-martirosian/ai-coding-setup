@@ -226,7 +226,8 @@ async function caseTwoFull() {
   const { asking } = await askFor(s, a);
   await pc.answerAsks();
   await asking;
-  await until(() => b.done, 5000);
+  // The default 20 s, as for the first stream: this case checks order, not speed, and a busy CI runner took over 5 s.
+  await until(() => b.done);
   check(
     "two 50 MB streams started together must go one after the other: the second calls onWait(true), never fails busy, and goes only once the ask naming the first is answered",
     a.r?.ok &&
@@ -263,7 +264,8 @@ async function caseSmallDuringBig() {
   const heldWhileAsked = !b.done && firsts().length === 1;
   await pc.answerAsks();
   await asking;
-  await until(() => b.done, 5000);
+  // The default 20 s, as for the first stream: this case checks order, not speed, and a busy CI runner took over 5 s.
+  await until(() => b.done);
   check(
     "a 10 MB stream started during a 45 MB one must wait while the PC holds the 45 MB (after its ok and while the ask naming it is unanswered), then go once that ask is answered",
     startedDuring &&

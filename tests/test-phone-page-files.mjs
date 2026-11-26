@@ -4,6 +4,7 @@
 // with two Edits and a Write over two files, and a reply with file links) and a fixture project folder in a temp home.
 // Run: node tests/test-phone-page-files.mjs
 import fs from "node:fs";
+import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -282,6 +283,21 @@ const button = (root, test) =>
   byTag(root, "button").find((b) => !b.hidden && test(b));
 
 const pageUrl = (rel) => pathToFileURL(path.join(PAGE, rel)).href;
+// The build-only screens.generated.js, which cache.js and outbox.js read STORE_SUFFIX from: "" as in a plain build.
+registerHooks({
+  resolve(specifier, context, next) {
+    if (
+      specifier.endsWith("screens.generated.js") &&
+      new URL(specifier, context.parentURL).href ===
+        pageUrl("screens.generated.js")
+    )
+      return {
+        url: `data:text/javascript,${encodeURIComponent('export const STORE_SUFFIX = "";')}`,
+        shortCircuit: true,
+      };
+    return next(specifier, context);
+  },
+});
 const screens = await import(pageUrl("frame/screens.js"));
 await import(pageUrl("screens/session.js")); // registers the session screen
 

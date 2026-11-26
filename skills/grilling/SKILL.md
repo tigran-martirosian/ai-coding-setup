@@ -36,6 +36,20 @@ background to find it: a `worker` for files, docs or code; for a web question th
 Don't block on it: only the questions downstream of it wait; ask the rest of the frontier now. The _decisions_ are
 the user's: put each to them and wait.
 
+## Fuzzy words
+
+A **fuzzy word** is one two people would check differently: a feel ("smooth", "clean", "tight", "nice to use"),
+a comparison ("as good as T3", "like the Claude app") or a size with no number ("compact", "fast", "a few
+buttons"). Sharpen every fuzzy word in the ask, and in the docs the job builds on, as its own frontier question,
+ahead of the questions that hang off it. Research it first with a helper: the reference app measured or
+screenshotted, what users of similar tools praise or complain about, the usual numbers. Then ask with two or three
+concrete readings and your pick, e.g. "smooth chat": text streams in word by word / the view holds still while you
+read / no scroll frame over 16 ms. Where the context already pins the word ("smooth scrolling"), put the number in
+your recommendation and still ask. Each answer becomes a done-when line with a number, a side-by-side reference or
+a list of behaviours; a fuzzy word still in the spec is an open branch.
+
+## The first fact
+
 **What already exists** is the first fact to find, before the first round: the project's own code and its packages,
 then a maintained package, template or repo that does the job. Each find enters a question as the recommended base,
 so the user picks between using it and building; the answers go into the spec's "Built on".

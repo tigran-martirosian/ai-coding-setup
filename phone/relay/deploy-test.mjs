@@ -137,8 +137,9 @@ async function setup(file) {
   );
 }
 
-// The test deploy. After a real one, the relay's address and webhook secret go into the secrets file.
-// `fetch` and `wrangler` are deployRelay's (stand-ins in the tests).
+// The test deploy. After a real one, the relay's address and webhook secret go into the secrets file, as soon as
+// the relay has its new secrets: a "Test copy" message that fails afterwards still leaves the file matching the
+// relay. `fetch` and `wrangler` are deployRelay's (stand-ins in the tests).
 export async function deployTest({
   file,
   dryRun = false,
@@ -165,6 +166,14 @@ export async function deployTest({
     say,
     fetch,
     ...(wrangler ? { wrangler } : {}),
+    keep: ({ origin, webhookSecret }) => {
+      writeSecrets(file, {
+        ...readSecrets(file),
+        [ADDRESS_KEY]: origin,
+        [HOOK_SECRET_KEY]: webhookSecret,
+      });
+      say(`kept the test relay's address and webhook secret in ${file}`);
+    },
   });
   if (dryRun) {
     say(
@@ -172,12 +181,6 @@ export async function deployTest({
     );
     return null;
   }
-  writeSecrets(file, {
-    ...readSecrets(file),
-    [ADDRESS_KEY]: done.origin,
-    [HOOK_SECRET_KEY]: done.webhookSecret,
-  });
-  say(`kept the test relay's address and webhook secret in ${file}`);
   return done;
 }
 
