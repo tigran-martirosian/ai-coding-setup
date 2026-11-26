@@ -201,12 +201,22 @@ else {
 // ---- D1: relative links and #anchors ----
 // GitHub's anchor for a heading: its text without markup, lower case, punctuation dropped, spaces to hyphens (letters
 // of any script kept); a repeated heading gets -1, -2. HTML id="" and name="" anchors count too.
+// Tags are stripped until none is left, so a nested one like `<<b>script>` can't leave a tag behind.
+const noTags = (s) => {
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/<[^>]+>/g, "");
+  } while (s !== prev);
+  return s;
+};
 const slug = (heading) =>
-  heading
-    .trim()
-    .toLowerCase()
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, "")
+  noTags(
+    heading
+      .trim()
+      .toLowerCase()
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1"),
+  )
     .replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, "")
     .replace(/\s/g, "-");
 const anchorCache = new Map();
