@@ -71,7 +71,8 @@ const copyOf = (h, file) => backupsOf(h).find((b) => b.of === file)?.copy;
 const besideFiles = (dir) =>
   walk(dir).filter((f) => f.includes(".before-install-"));
 // The add-on skills are left out of a default install, so they are not part of what a plain run ships
-const ADDON_SKILLS = ["phone-bot"];
+// phone is the phone-bot add-on's second skill (the inbox reader); it comes with phone-bot only
+const ADDON_SKILLS = ["phone-bot", "phone"];
 const shipped = [
   "hooks",
   "agents",
@@ -2169,6 +2170,24 @@ ok(
     phoneIn(addonDefault),
   ],
   [true, false, false, false, false],
+);
+// the phone app saves what the Inbox topic gets into ~/phone-inbox; the /phone skill reads it, so it comes with the add-on
+ok(
+  "phone-bot brings the /phone skill, the same as the repo's; a default install has none",
+  [
+    fs.existsSync(
+      path.join(addonWith, ".claude", "skills", "phone", "SKILL.md"),
+    ) &&
+      fs
+        .readFileSync(
+          path.join(addonWith, ".claude", "skills", "phone", "SKILL.md"),
+        )
+        .equals(
+          fs.readFileSync(path.join(REPO, "skills", "phone", "SKILL.md")),
+        ),
+    fs.existsSync(path.join(addonDefault, ".claude", "skills", "phone")),
+  ],
+  [true, false],
 );
 // the PC program reads its setup version from ~/.claude/version.json, so that file goes with the add-on only
 const versionIn = (home) => path.join(home, ".claude", "version.json");

@@ -25,6 +25,25 @@ const which = (name) => {
         return path.join(d, name + e);
   return null;
 };
+// find-skills is used rarely, and a skill Claude may start on its own puts its description into every turn: so it
+// starts only when typed. Adds `disable-model-invocation: true` to the skill's frontmatter when the line is not
+// there (also after `npx skills update` wrote the upstream copy again). True when the file changed.
+export function typedOnly(file) {
+  const text = fs.readFileSync(file, "utf8");
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!m)
+    throw new Error(
+      `${file} has no frontmatter, so it can't be made to start only when typed`,
+    );
+  if (/^disable-model-invocation:/m.test(m[1])) return false;
+  const nl = text.includes("\r\n") ? "\r\n" : "\n";
+  const at = m.index + m[0].lastIndexOf("---");
+  fs.writeFileSync(
+    file,
+    `${text.slice(0, at)}disable-model-invocation: true${nl}${text.slice(at)}`,
+  );
+  return true;
+}
 const VERSION = ["-c", '"import sys;print(*sys.version_info[:2])"'];
 const hasPython = () =>
   PYTHONS.some((cmd) => {
@@ -173,13 +192,23 @@ export function plugins(ctx) {
       );
       if (got.ok) {
         plugged.push(finder);
-        say(`skill installed: ${finder}`);
+        say(`skill installed: ${finder} (starts when typed: /${finder})`);
       } else
         say(
           `skill failed: ${finder} (${tail(got.out)}). Everything else was installed; run this again to retry.`,
         );
     }
   }
+  // Every run, so a copy installed by an older version or rewritten by `npx skills update` gets the line too
+  const finderFile = path.join(CLAUDE, "skills", finder, "SKILL.md");
+  if (
+    !DRY &&
+    opt("home") === null &&
+    plugged.includes(finder) &&
+    fs.existsSync(finderFile) &&
+    typedOnly(finderFile)
+  )
+    say(`skill ${finder}: starts only when typed now (/${finder})`);
   if (!DRY && JSON.stringify(plugged) !== JSON.stringify(state.plugins || []))
     ctx.nextState.plugins = plugged;
 }

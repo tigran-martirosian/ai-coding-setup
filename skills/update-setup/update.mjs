@@ -337,6 +337,38 @@ function diskTidy() {
       `disk: the cleanup stopped: ${(r.stderr || "").trim().split("\n")[0] || `exit ${r.status}`}`,
     );
 }
+// The programs the setup uses (workers/update-tools.mjs --budget 15: plugins, the setup's global npm packages,
+// yt-dlp, winget programs), under a `Programs:` heading, after a foreground run that is not --check (on the newest
+// version only a plain run, none of the flags passed on to install.mjs). UPDATE_TOOLS=off turns it off. A failure
+// there is said in one `Programs failed:` line with the retry command and does not fail the update. Not with
+// --home (tests): it would update this computer's programs.
+const TOOLS_BUDGET_MIN = 15;
+function programs() {
+  const worker = path.join(CLAUDE, "workers", "update-tools.mjs");
+  if (homeAt !== -1) return;
+  if (!fs.existsSync(worker)) {
+    console.log(
+      `Programs: not updated (${fwd(worker)} is missing; the installer puts it there)`,
+    );
+    return;
+  }
+  const r = spawnSync(
+    process.execPath,
+    [worker, "--budget", String(TOOLS_BUDGET_MIN)],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: (TOOLS_BUDGET_MIN + 1) * 60 * 1000,
+    },
+  );
+  console.log("Programs:");
+  for (const line of `${r.stdout || ""}${r.stderr || ""}`.split(/\r?\n/))
+    if (line.trim()) console.log(`  ${line}`);
+  if (r.status !== 0)
+    console.log(
+      `Programs failed: ${r.error ? `update-tools.mjs ${r.error.code === "ETIMEDOUT" ? `did not end within ${TOOLS_BUDGET_MIN + 1} minutes` : `could not run (${r.error.message})`}` : "see FAILED above"}; the setup itself is updated. Retry: node ~/.claude/workers/update-tools.mjs`,
+    );
+}
 // Then the file reorganize offer (file-upkeep's file-check.mjs --status --homes): its last `offer:` line is passed on as
 // `files-offer:`, so the skill can tell it from the disk offer; `offer: none` prints nothing. With --home it looks at that home.
 function filesOffer() {
@@ -772,6 +804,8 @@ if (!newer(latest.version, installed)) {
   }
   nimbalyst({ stage: args.includes("--check") ? null : "retry" });
   if (!args.includes("--check")) {
+    // a run for one change (--replace, --leave-out, --language, ...) leaves the programs to the plain run
+    if (!passed.length) programs();
     diskTidy();
     filesOffer();
     optIns();
@@ -916,6 +950,7 @@ console.log(
 );
 if (!UNSEEN) {
   nimbalyst({ stage: "always" });
+  programs();
   diskTidy();
   filesOffer();
   passOffer(passBefore);

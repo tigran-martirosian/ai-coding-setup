@@ -1,9 +1,9 @@
 {
-  "version": "26.6.9",
+  "version": "26.7",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-26",
-  "summary": "The README badges load on GitHub again.",
+  "summary": "Reddit and X threads read in full, a diagnose skill, a phone inbox reader, tracker steps closed by commits, and program updates.",
   "releases": {
     "26.6.3": {
       "kind": "quiet",
@@ -159,6 +159,11 @@
       "kind": "files",
       "important": false,
       "headline": "The README badges load on GitHub again"
+    },
+    "26.7": {
+      "kind": "quiet",
+      "important": true,
+      "headline": "Reddit/X threads read in full, /diagnose, /phone inbox, and your programs kept updated"
     }
   }
 }

@@ -1,8 +1,8 @@
 # Skills
 
-Stratus has 30 skills. A skill is a set of instructions that Claude loads when your request matches its
-description, or when you type its name as a command, such as `/handoff`. The installer copies 29 of them into
-`~/.claude/skills/`. The 30th, `phone-bot`, is an add-on: add it with `node install.mjs --with phone-bot`.
+Stratus has 32 skills. A skill is a set of instructions that Claude loads when your request matches its
+description, or when you type its name as a command, such as `/handoff`. The installer copies 30 of them into
+`~/.claude/skills/`. The other two, `phone-bot` and `phone`, are one add-on: add them with `node install.mjs --with phone-bot`.
 
 Claude picks most skills by itself from what you say. Seven skills run only when you type their command: `/btw`,
 `/board-cleanup`, `/design-system`, `/grill-with-docs`, `/next-move`, `/untangle-codebase` and `/wayfinder`. The table marks them as "Typed only".
@@ -15,6 +15,7 @@ Claude picks most skills by itself from what you say. Seven skills run only when
 | `board-cleanup` | Moves finished sessions on this project's Nimbalyst Sessions board to Complete, then archives old ones with the Board Tidy extension. | Typed only |
 | `btw` | Adds a note to, or asks a question of, another Claude session that is busy in the same folder, without stopping it. | Typed only |
 | `design-system` | Shows, writes or refreshes the project's `DESIGN.md` (colours, type, spacing, components) and uses it for the design work at hand. | Typed only |
+| `diagnose` | Finds the cause of a bug: a command that shows it failing first, then ranked guesses tested one change at a time. | By itself or `/diagnose` |
 | `disk-tidy` | Finds what fills the disk, clears it item by item with your yes, turns the chat archive on or off, and brings back an archived chat. | By itself or `/disk-tidy` |
 | `domain-modeling` | Sharpens the words a project uses for its own things while you plan, writes each settled term to `docs/glossary.md`, and records hard-to-reverse decisions in `DECISIONS.md`. | By itself or `/domain-modeling` |
 | `file-upkeep` | Renames and moves a project's files to the common file standard and removes old copies. | By itself or `/file-upkeep` |
@@ -27,10 +28,11 @@ Claude picks most skills by itself from what you say. Seven skills run only when
 | `new-project` | Sets up a new project folder: a short `CLAUDE.md`, `HANDOFF.md`, `DECISIONS.md`, the `.claude/` folders, the tools this project uses, and its git or GitHub preset. | By itself or `/new-project` |
 | `next-move` | Suggests the one most useful thing to do next, from your goals and the project's state. | Typed only |
 | `pc-tidy` | Shows what holds the computer's memory, stops what finished sessions left running, and names ports a closed program still holds. | By itself or `/pc-tidy` |
+| `phone` | Reads what you sent to the phone app's Inbox topic (photos, screenshots, files, links, notes), saved on this PC in `~/phone-inbox`. Comes with the `phone-bot` add-on. | By itself or `/phone` |
 | `phone-bot` | Joins this Windows PC to the phone app, a Telegram Mini App that shows and drives your Nimbalyst sessions. An add-on. | By itself or `/phone-bot` |
 | `security` | Security checks at three levels: always on (the `security-guidance` plugin), quick (one change, before a commit or release) and deep (a whole project, once). | By itself or `/security` |
 | `setup-audit` | Checks that Stratus works, and reports on token use, chats, prompts, projects and memory. | By itself or `/setup-audit` |
-| `site-login` | Signs you in to a website in one visible browser window, then lets Claude reuse the saved login in a headless browser. | By itself or `/site-login` |
+| `site-login` | Reads a page through your own signed-in Chrome where OpenCLI is set up; otherwise signs you in to a website in one visible browser window, then lets Claude reuse the saved login in a headless browser. | By itself or `/site-login` |
 | `systems-map` | Builds and refreshes the project's systems map (`.claude/systems-map.json`): its parts, their files and the links between them. | By itself or `/systems-map` |
 | `untangle-codebase` | Reorganises a whole codebase in one pass so that agents read less per change and break less. | Typed only |
 | `update-project` | Brings an existing project folder up to the current setup: its notes files, `.claude/` rules and settings, file layout and project tools. | By itself or `/update-project` |
