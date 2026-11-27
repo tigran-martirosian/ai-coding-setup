@@ -9,7 +9,7 @@
 <p align="center">Runs on Claude Code, in Nimbalyst or a terminal. Fullest on Windows; most parts also run on macOS.</p>
 
 <p align="center">
-  <a href="https://github.com/tigran-martirosian/ai-coding-setup/releases/latest"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Ftigran-martirosian%2Fai-coding-setup%2Fmain%2Fversion.json&query=%24.version&label=release&prefix=v&color=blue" alt="Latest release"></a>
+  <a href="https://github.com/tigran-martirosian/ai-coding-setup/releases/latest"><img src="https://img.shields.io/badge/release-v26.6.8-blue" alt="Latest release"></a>
   <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml/badge.svg?branch=main" alt="Tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-source--available%2C%20not%20open%20source-blue" alt="Licence: source-available, not open source"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-lightgrey" alt="Platforms: Windows and macOS">
