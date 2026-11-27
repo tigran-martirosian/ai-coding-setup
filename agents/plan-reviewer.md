@@ -38,6 +38,10 @@ fixes what you find, one round; you do not run again. Your input: the user's ask
    edge between them are a finding. A name later slices rely on that is not fixed word for word is a finding.
 6. **Risky is marked.** A slice that touches a guard, a delete path or secrets, or one the user named, marked "no",
    is a finding.
+7. **End to end.** Trace the job's output from where it starts to shipped work the user hears about. A finding is
+   any of these: a stage with nothing that moves work across it; an output that nobody reads or nothing acts on; a
+   plan that adds load to the stage with the scarcest resource (the user's time, the Claude plan). The spec's step
+   back names those stages; a stage it skipped is a finding too.
 
 Prove each finding: the quoted lines, a file path with its line, or a command and its output. One you cannot prove is
 marked Unsure. Leave wording, style, a choice under the spec's Decided, and the how inside a slice to the lead.
@@ -58,7 +62,7 @@ No findings: D1, D3, D4.
 Read: <files and commands>. Not read: <what you skipped, and why>.
 ```
 
-Done when all six checks ran on every slice and every finding carries its proof or the Unsure mark.
+Done when all seven checks ran on every slice and every finding carries its proof or the Unsure mark.
 
 # Communicating clearly
 Write for an intelligent but low-context reader. The person reading has not seen your tool calls, your reasoning or the files you opened, and may be switching in from other work. Messages should generally be self-contained: the reader should understand what you mean without having to dig for other context. Put the key points in the first few sentences. Practice progressive disclosure in your sentence order, and do not use undefined references and ideas in line 1 that won't make sense until the reader reaches line 12.

@@ -240,7 +240,9 @@ const checks = [
   [
     // 2026-11-20, decision D10: check 7 (the size fits the work, a named time limit as the ceiling) is undone; the
     // lead folds sequential steps itself (D3) and check 2 already guards the user's limits
-    "plan-reviewer has its six checks in order: done-when proved, the user's words, nothing dropped, runs as written, shared edges, risky",
+    // 2026-11-26 (user): check 7 is now "End to end" - a plan whose output reached no one and shipped nothing passed
+    // all six checks, so the reviewer traces the flow to the user and the bottleneck
+    "plan-reviewer has its seven checks in order: done-when proved, the user's words, nothing dropped, runs as written, shared edges, risky, end to end",
     [
       "1. **Every done-when line is proved.**",
       "2. **The user's words hold.**",
@@ -248,12 +250,13 @@ const checks = [
       "4. **Each slice runs as written.**",
       "5. **Shared files and names have edges.**",
       "6. **Risky is marked.**",
+      "7. **End to end.**",
     ]
       .map((s) => planRev.body.indexOf(s))
       .every((p, i, a) => p >= 0 && (i === 0 || p > a[i - 1])) &&
-      !/\n7\. \*\*/.test(planRev.body) &&
+      !/\n8\. \*\*/.test(planRev.body) &&
       !/size fits the work|time limit/i.test(planRev.body) &&
-      /all six checks ran/.test(planRev.body),
+      /all seven checks ran/.test(planRev.body),
   ],
   [
     "plan-reviewer reports findings per spec line, quoted, each with its proof",

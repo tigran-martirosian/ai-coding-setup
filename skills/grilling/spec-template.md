@@ -13,6 +13,9 @@ maintained package, template or repo; each with its path or link. A package new 
 install: its name exists on the registry and is the real one, not a lookalike (its source repo, owner and downloads
 match). Or "nothing fits", with what was searched.
 
+Step back: the flow end to end, one line a stage, from what starts it to shipped work the user hears about, each
+with what moves work across it; the bottleneck and its scarce resource; how others run the same flow, with links.
+
 Done when:
 - D1: <what can be seen or measured> | check: <command, test name, or "look: screenshot of X"> | expected from:
   <the user, this spec, real data or a document; never the code under test>

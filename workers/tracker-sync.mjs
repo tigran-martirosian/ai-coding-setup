@@ -94,9 +94,18 @@ function notRunning(why) {
 }
 
 // ---- folders and workspaces ----
-// Folders are compared ignoring letter case and slash kind (Windows and a Mac's default disk ignore case).
+// A folder's full long name: Windows can spell one folder with a short 8.3 name (PROGRA~1 for Program Files) that git never
+// uses, and fs.realpathSync keeps the short spelling; the native one expands it. A missing folder stays as written.
+const longName = (p) => {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return String(p);
+  }
+};
+// Folders are compared by long name, ignoring letter case and slash kind (Windows and a Mac's default disk ignore case).
 const sameFolder = (p) =>
-  String(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  longName(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 const nimbalystSpelling = (p) =>
   process.platform === "win32" ? p.replace(/\//g, "\\") : p;
 
@@ -550,9 +559,11 @@ const inside = (dir, base) => {
 function hookFile(repo) {
   const dir = path.resolve(repo, git(repo, "rev-parse", "--git-path", "hooks"));
   fs.mkdirSync(dir, { recursive: true });
-  const real = fs.realpathSync(dir);
-  const top = fs.realpathSync(git(repo, "rev-parse", "--show-toplevel"));
-  const common = fs.realpathSync(
+  const real = fs.realpathSync.native(dir);
+  const top = fs.realpathSync.native(
+    git(repo, "rev-parse", "--show-toplevel"),
+  );
+  const common = fs.realpathSync.native(
     git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"),
   );
   if (!inside(real, top) && !inside(real, common))

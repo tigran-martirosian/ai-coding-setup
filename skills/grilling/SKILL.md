@@ -58,6 +58,16 @@ A word that could name two different things ("account": the customer or the logi
 then a maintained package, template or repo that does the job. Each find enters a question as the recommended base,
 so the user picks between using it and building; the answers go into the spec's "Built on".
 
+## The step back
+
+Before the first round, run a **premortem** on the whole flow, **end to end**: from what starts it to shipped work
+the user hears about. Name every stage. What makes the output? Where does it land? What turns it into shipped
+work? How does the user learn it is done? How does the user say yes or no? Then mark the **bottleneck**: the stage
+with the scarcest resource, such as the user's time, the Claude plan or a review. Look up, with a helper, how others
+run the same flow; a stage they have and the plan lacks is a gap. Each gap, dead end (output that nobody reads or
+nothing acts on) and bottleneck the job would worsen becomes a frontier question with your recommended fix. Done
+when every stage from the start to the user is named, together with what moves work across it.
+
 ## Plain text or a card
 
 - Open "what and why" questions go as plain text, as above. Their own words carry more than any options can.
