@@ -2,8 +2,14 @@
 // commands, redeeming an invite, the per-chat Open button, and forwards held sealed for the PC (held.mjs).
 // Alert sending and deleting is the Hub's own (hub.mjs, pcAlert); /clear deletes the alerts the Hub keeps. A stranger gets no answer and nothing is stored about him:
 // a reply would tell him the bot is alive.
-//   makeBot({ webhookSecret }) -> the Hub's `bot` option: (ctx) -> { webhook, pcConnected, pcFrame }.
+//   makeBot({ webhookSecret, buttonForwardUrl, buttonForwardSecret, fetch }) -> the Hub's `bot` option:
+//   (ctx) -> { webhook, pcConnected, pcFrame }.
 // webhook({ headers, body, origin }) needs `origin`, the relay's own address, for the Open button and the join line.
+// Button forward: the relay is the bot's one webhook, so another tool that sends buttons through the same bot gets
+// their presses from here. The owner's press of a button whose callback_data starts with `x:` is POSTed to
+// buttonForwardUrl (https) with the header `X-Button-Secret: <buttonForwardSecret>` and the JSON body
+// { data, callbackId, chatId, messageId }; the receiver answers the callback itself. With either setting missing
+// such a press is answered empty and dropped, like any unknown button; `fetch` is needed only when both are set.
 // The body `{ "relay_command": "remove-topics" }` with the webhook secret (deploy-test.mjs --remove-topics) deletes
 // every kept topic at Telegram and forgets the `topics:<chat>` keys (files contract, section 7).
 import { randomBytes, sha256, toB64u, toHex } from "../../shared/seal.mjs";
@@ -19,17 +25,39 @@ const SECRET = /^[A-Za-z0-9_-]{32,256}$/;
 const ORIGIN = /^https?:\/\/[^/]+$/;
 const OK = { status: 200, body: "ok" };
 const CLOSE_REMOVED = 4403;
+const HTTPS_URL = /^https:\/\/[^/\s]+(\/\S*)?$/;
+const FORWARD_PREFIX = "x:";
+// Short: the webhook allows one connection, so a slow receiver holds up the bot's other updates this long.
+const FORWARD_TIMEOUT = 3000;
+const FORWARD_FAILED = "Couldn't reach the tool; try again";
+const FORWARD_SLOW = "The tool is slow; check before pressing again";
+const FORWARD_BAD_URL = "The button forward address is not https; fix BUTTON_FORWARD_URL";
 
 const WARNING =
   "Before you join: the app page comes from the owner's relay. Whoever controls that relay can make your PC do " +
   "anything this app can do, and that includes running commands through a Claude session. Your PC checks the " +
   "page and goes read-only when it changes, but it cannot catch every change. Join only if you trust the owner.";
 
-export function makeBot({ webhookSecret }) {
+export function makeBot({
+  webhookSecret,
+  buttonForwardUrl,
+  buttonForwardSecret,
+  fetch,
+}) {
   if (typeof webhookSecret !== "string" || !SECRET.test(webhookSecret))
     throw new Error(
       "bot: the webhook secret must be 32 to 256 characters of A-Z a-z 0-9 _ -",
     );
+  // A bad forward address turns only the forward off: the phone app keeps running.
+  const forwardUrl = typeof buttonForwardUrl === "string" ? buttonForwardUrl.trim() : buttonForwardUrl;
+  const badUrl = Boolean(forwardUrl && buttonForwardSecret && !HTTPS_URL.test(forwardUrl));
+  if (badUrl) console.log("bot: the button forward address is not an https URL; the forward is off");
+  const forward =
+    forwardUrl && buttonForwardSecret && !badUrl
+      ? { url: forwardUrl, secret: buttonForwardSecret, fetch }
+      : null;
+  if (forward && typeof fetch !== "function")
+    throw new Error("bot: the button forward needs fetch");
 
   return (ctx) => {
     for (const name of ["store", "telegram", "now", "log", "ownerTgId"]) {
@@ -352,10 +380,12 @@ export function makeBot({ webhookSecret }) {
     // ---- buttons ----
 
     async function onButton(cb) {
+      const owner = cb.from?.id === ownerTgId && typeof cb.data === "string";
+      if (owner && (forward || badUrl) && cb.data.startsWith(FORWARD_PREFIX))
+        return forwardButton(cb);
       if (typeof cb.id === "string")
         await telegram("answerCallbackQuery", { callback_query_id: cb.id });
-      if (cb.from?.id !== ownerTgId || typeof cb.data !== "string")
-        return false;
+      if (!owner) return false;
       const rm = /^rm:(\d{1,16})$/.exec(cb.data);
       if (rm) {
         await removeUser(Number(rm[1]));
@@ -373,6 +403,61 @@ export function makeBot({ webhookSecret }) {
         return true;
       }
       return false;
+    }
+
+    // Sends the owner's `x:` press on (see the top of this file) and leaves its answer to the receiver. A receiver
+    // that is not reached in time or does not answer 2xx gets the press answered with a short text here; the update
+    // still counts as handled, so Telegram does not send it again. The log never holds the secret.
+    async function forwardButton(cb) {
+      if (!forward) {
+        // Set but not an https address: the owner is told, since the press does nothing.
+        if (typeof cb.id === "string")
+          await telegram("answerCallbackQuery", { callback_query_id: cb.id, text: FORWARD_BAD_URL }).catch((e) =>
+            log(`button forward answer refused: ${e.message}`),
+          );
+        return true;
+      }
+      let problem = null;
+      let text = FORWARD_FAILED;
+      try {
+        const res = await forward.fetch(forward.url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Button-Secret": forward.secret,
+          },
+          body: JSON.stringify({
+            data: cb.data,
+            callbackId: cb.id,
+            chatId: cb.message?.chat?.id ?? null,
+            messageId: cb.message?.message_id ?? null,
+            threadId: cb.message?.message_thread_id ?? null,
+            inlineMessageId: cb.inline_message_id ?? null,
+          }),
+          signal: AbortSignal.timeout(FORWARD_TIMEOUT),
+        });
+        Promise.resolve(res.body?.cancel?.()).catch(() => {});
+        if (!res.ok) problem = `status ${res.status}`;
+      } catch (e) {
+        // A fixed category, never e.message: it can quote the address.
+        if (e.name === "TimeoutError") {
+          problem = `no answer in ${FORWARD_TIMEOUT / 1000} s`;
+          text = FORWARD_SLOW; // it may have acted: a second press could repeat it
+        } else problem = "unreachable";
+      }
+      if (!problem) return true;
+      log(`button forward failed: ${problem}`);
+      if (typeof cb.id === "string") {
+        try {
+          await telegram("answerCallbackQuery", {
+            callback_query_id: cb.id,
+            text,
+          });
+        } catch (e) {
+          log(`button forward answer refused: ${e.message}`);
+        }
+      }
+      return true;
     }
 
     return {
