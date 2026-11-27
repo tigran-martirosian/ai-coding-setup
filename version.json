@@ -1,9 +1,9 @@
 {
-  "version": "26.6.7",
+  "version": "26.6.8",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-26",
-  "summary": "The README banner and badges show on GitHub's phone app, and scripts on your PC can send a needs-you alert to the phone app.",
+  "summary": "The release badge on the README loads on GitHub again.",
   "releases": {
     "26.6.3": {
       "kind": "quiet",
@@ -149,6 +149,11 @@
       "kind": "files",
       "important": false,
       "headline": "Scripts on your PC can send a needs-you alert to the phone app"
+    },
+    "26.6.8": {
+      "kind": "files",
+      "important": false,
+      "headline": "The README release badge loads on GitHub again"
     }
   }
 }

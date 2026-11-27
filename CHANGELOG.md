@@ -6,6 +6,10 @@ Each entry describes the setup as it was at that release, so older entries name 
 
 ## [Unreleased]
 
+## [26.6.8] - 2026-11-26
+
+- The release badge on the README loads on GitHub again, and the page check in tests no longer stalls on a slow web picture.
+
 ## [26.6.7] - 2026-11-26
 
 - The README banner follows dark mode in GitHub's phone app, and the release and tests badges load again (they timed out on GitHub).
