@@ -31,7 +31,8 @@ const FORWARD_PREFIX = "x:";
 const FORWARD_TIMEOUT = 3000;
 const FORWARD_FAILED = "Couldn't reach the tool; try again";
 const FORWARD_SLOW = "The tool is slow; check before pressing again";
-const FORWARD_BAD_URL = "The button forward address is not https; fix BUTTON_FORWARD_URL";
+const FORWARD_BAD_URL =
+  "The button forward address is not https; fix BUTTON_FORWARD_URL";
 
 const WARNING =
   "Before you join: the app page comes from the owner's relay. Whoever controls that relay can make your PC do " +
@@ -49,9 +50,17 @@ export function makeBot({
       "bot: the webhook secret must be 32 to 256 characters of A-Z a-z 0-9 _ -",
     );
   // A bad forward address turns only the forward off: the phone app keeps running.
-  const forwardUrl = typeof buttonForwardUrl === "string" ? buttonForwardUrl.trim() : buttonForwardUrl;
-  const badUrl = Boolean(forwardUrl && buttonForwardSecret && !HTTPS_URL.test(forwardUrl));
-  if (badUrl) console.log("bot: the button forward address is not an https URL; the forward is off");
+  const forwardUrl =
+    typeof buttonForwardUrl === "string"
+      ? buttonForwardUrl.trim()
+      : buttonForwardUrl;
+  const badUrl = Boolean(
+    forwardUrl && buttonForwardSecret && !HTTPS_URL.test(forwardUrl),
+  );
+  if (badUrl)
+    console.log(
+      "bot: the button forward address is not an https URL; the forward is off",
+    );
   const forward =
     forwardUrl && buttonForwardSecret && !badUrl
       ? { url: forwardUrl, secret: buttonForwardSecret, fetch }
@@ -412,9 +421,10 @@ export function makeBot({
       if (!forward) {
         // Set but not an https address: the owner is told, since the press does nothing.
         if (typeof cb.id === "string")
-          await telegram("answerCallbackQuery", { callback_query_id: cb.id, text: FORWARD_BAD_URL }).catch((e) =>
-            log(`button forward answer refused: ${e.message}`),
-          );
+          await telegram("answerCallbackQuery", {
+            callback_query_id: cb.id,
+            text: FORWARD_BAD_URL,
+          }).catch((e) => log(`button forward answer refused: ${e.message}`));
         return true;
       }
       let problem = null;

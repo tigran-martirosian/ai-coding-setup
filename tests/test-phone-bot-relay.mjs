@@ -800,7 +800,10 @@ const posts = [];
 let receiver = { status: 200 };
 async function receiverFetch(url, init) {
   posts.push({ url, init });
-  if (receiver.throws) throw Object.assign(new Error(receiver.throws), { name: receiver.name ?? "TypeError" });
+  if (receiver.throws)
+    throw Object.assign(new Error(receiver.throws), {
+      name: receiver.name ?? "TypeError",
+    });
   return { ok: receiver.status < 300, status: receiver.status };
 }
 function forwardBot(options) {
@@ -949,7 +952,11 @@ for (const [name, how] of [
   );
 }
 // No answer in time: the tool may have acted, so the owner is told to check, not to press again.
-receiver = { status: 200, throws: "The operation timed out", name: "TimeoutError" };
+receiver = {
+  status: 200,
+  throws: "The operation timed out",
+  name: "TimeoutError",
+};
 {
   const logFrom = logLines.length;
   await on.press(OWNER, "x:job:42:approve", "cbx7");
@@ -957,7 +964,15 @@ receiver = { status: 200, throws: "The operation timed out", name: "TimeoutError
   same(
     "a receiver that does not answer in time gets the press answered with the check-first text (FAIL: a slow tool that acted gets pressed twice)",
     take(),
-    [{ method: "answerCallbackQuery", params: { callback_query_id: "cbx7", text: "The tool is slow; check before pressing again" } }],
+    [
+      {
+        method: "answerCallbackQuery",
+        params: {
+          callback_query_id: "cbx7",
+          text: "The tool is slow; check before pressing again",
+        },
+      },
+    ],
   );
   check(
     "and the log names the wait, not the error text",
@@ -1007,7 +1022,15 @@ check(
 same(
   "and the owner's x: press is answered with the fix-the-address text (FAIL: a bad address leaves the button doing nothing, silently)",
   take(),
-  [{ method: "answerCallbackQuery", params: { callback_query_id: "cbx9", text: "The button forward address is not https; fix BUTTON_FORWARD_URL" } }],
+  [
+    {
+      method: "answerCallbackQuery",
+      params: {
+        callback_query_id: "cbx9",
+        text: "The button forward address is not https; fix BUTTON_FORWARD_URL",
+      },
+    },
+  ],
 );
 
 // ---- what the relay kept ----

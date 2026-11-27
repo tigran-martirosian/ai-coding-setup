@@ -17,6 +17,7 @@ Each entry describes the setup as it was at that release, so older entries name 
 - `find-skills` starts only when you type `/find-skills`, so its description no longer rides along on every turn.
 - A big job's plan review and its questions follow the work end to end, through to what reaches you.
 - The Nimbalyst patch status counts a patch that a later patch builds on as applied, instead of skipped.
+- Buttons another tool of yours sends through the phone bot reach that tool, at the address set in the relay (`phone/README.md`).
 
 ## [26.6.9] - 2026-11-26
 
