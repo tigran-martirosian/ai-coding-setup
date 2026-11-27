@@ -56,6 +56,8 @@ const GROUPS = {
       ["hooks/workflow-fence.mjs", [], "Workflow"],
       // settings-guard asks the user before a session changes one of their Nimbalyst settings (2026-11-23)
       ["hooks/settings-guard.mjs", [], "mcp__nimbalyst.*"],
+      // social-route sends WebFetch and WebSearch calls for Reddit and X to workers/social/social.mjs
+      ["hooks/social-route.mjs", [], "WebFetch|WebSearch"],
       [
         "hooks/verify-gate.mjs",
         ["--pre"],

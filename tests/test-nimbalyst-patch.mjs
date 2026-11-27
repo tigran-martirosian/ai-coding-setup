@@ -199,6 +199,22 @@ try {
     r.out,
   );
 
+  // 3c. a dependant that rewrites the middle of its base patch's replace text: status still shows both applied
+  const O = makeApp("overlap");
+  const OVER = `files: ${R_MAIN}, requires: ["main"], edits: [{ anchor: '"Changed Files", patched', replace: '"Changed Files!", patched' }], upstream: "UPSTREAM_OVER_FIX"`;
+  const OD = patchDir("overlap", { main: MAINP, over: OVER });
+  r = run(["--app", O.res, "--patches", OD]);
+  st = run(["--status", "--app", O.res, "--patches", OD]);
+  check(
+    "overlap: after apply, status shows the base patch and the dependant applied, not partly",
+    r.code === 0 &&
+      readAsar(O.asar)
+        ["out/main/index.js"].data.toString()
+        .includes('"Changed Files!", patched: true') &&
+      ["main", "over"].every((id) => stateOf(st.out, id).startsWith("applied")),
+    r.out + st.out,
+  );
+
   // 4. a changed anchor skips the patch and its dependant; an anchor found twice skips too; others still apply
   const S = makeApp("skip"),
     sBefore = hashOf(S.asar);

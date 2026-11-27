@@ -58,6 +58,23 @@ A word that could name two different things ("account": the customer or the logi
 then a maintained package, template or repo that does the job. Each find enters a question as the recommended base,
 so the user picks between using it and building; the answers go into the spec's "Built on".
 
+For a big job, note for each tool or repo found the stages it runs from start to the user; a stage it has and the
+plan lacks is a gap for the step back below.
+
+## The step back
+
+Before the first round, trace the whole flow, **end to end**: from what starts it to shipped work the user hears
+about. Name every stage. What makes the output? Where does it land? What turns it into shipped work? How does the
+user learn it is done? How does the user say yes or no? Mark the **bottleneck**: the stage with the scarcest
+resource, such as the user's time, the Claude plan or a review. Then imagine it is a week after the job shipped and
+the user says nothing useful reached them: write the three likeliest reasons. Each gap, dead end (output that
+nobody reads or nothing acts on), likely reason and bottleneck the job would worsen becomes a frontier question
+with your recommended fix; a trace that finds none says so in one line and asks nothing.
+
+Size it to the job: the full trace for a big job; three to six lines for a medium one; none when the job adds no
+new stage (a fix inside one stage). Done when every stage from the start to the user is named, together with what
+moves work across it.
+
 ## Plain text or a card
 
 - Open "what and why" questions go as plain text, as above. Their own words carry more than any options can.

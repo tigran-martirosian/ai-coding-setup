@@ -379,10 +379,32 @@ export function plan(asar, patches) {
     else if (need)
       res.reason = `requires ${need}, which was ${states.get(need)}`;
     else {
-      // an edit is in when its replace text is there and its anchor is gone (or lives inside the replace text)
+      // an edit is in when its replace text is there and its anchor is gone (or lives inside the replace text);
+      // a patch that requires this one may edit inside that replace text, so its version counts too
+      const forms = (s, id, seen = new Set([id])) => {
+        const out = [s];
+        for (const d of patches.filter(
+          (q) => q.requires.includes(id) && !seen.has(q.id),
+        )) {
+          seen.add(d.id);
+          for (const v of [...out])
+            for (const de of d.edits)
+              if (v.includes(de.anchor))
+                out.push(
+                  ...forms(
+                    v.replace(de.anchor, () => de.replace),
+                    d.id,
+                    seen,
+                  ),
+                );
+        }
+        return out;
+      };
       const done = p.edits.map(
         (e) =>
-          files.some((f) => text(f).includes(e.replace)) &&
+          forms(e.replace, p.id).some((s) =>
+            files.some((f) => text(f).includes(s)),
+          ) &&
           (e.replace.includes(e.anchor) ||
             files.every((f) => !text(f).includes(e.anchor))),
       );

@@ -43,6 +43,8 @@ const must = [
     /Reddit[^\n]*not read|not read[^\n]*Reddit/i,
   ],
   ["Firecrawl Local first", /Firecrawl/],
+  // the repo ships the Reddit and X reader (workers/social/) since this release
+  ["the shipped Reddit and X reader", /workers\/social\/social\.mjs/],
   [
     "defuddle 0.19.7 as the fallback",
     /defuddle[^\n]*0\.19\.7|0\.19\.7[^\n]*defuddle/i,
@@ -54,7 +56,6 @@ const mustNot = [
   ["r.jina.ai", /r\.jina\.ai/i],
   ["Exa", /\bExa\b|mcporter/],
   ["defuddle 0.19.6", /0\.19\.6/],
-  ["social.mjs (the repo ships none)", /social\.mjs/],
 ];
 for (const [name, re] of mustNot)
   ok(`web-research names no ${name}`, !re.test(skill));

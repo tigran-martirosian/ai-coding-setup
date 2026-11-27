@@ -33,6 +33,7 @@ style, naming, and what the project's tools (linter, formatter, type checker) al
 4. **Each done-when line.** Run its check yourself where you can and compare the output with the expected value the
    line names. A check you cannot run (it needs the real client, a device or a key) is judged from the end-check
    output and marked "from the lead's output". A check with no run that failed before the change is said to be so.
+   A line that runs one item end to end, you run yourself; a flow that stops before the user is a finding.
 5. **Each must-not-change line.** Run its check the same way.
 6. **Not asked for.** A change in the diff that no spec line needs, and the user did not ask for, is a finding.
 

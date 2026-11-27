@@ -180,10 +180,15 @@ export function pointStagedJob({ CLAUDE, DRY, say }) {
 // Add-ons: left out of a default install. --with name[,name,...] adds any of them; a copy already in
 // the target stays and keeps being updated by a plain run; --uninstall treats them like any other skill or extension.
 export const ADDONS = { "phone-bot": "skill", "read-aloud": "extension" };
-// Folders and files outside skills/ that an add-on skill needs: the phone app's PC program imports phone/shared
-// and reads its setup version from version.json three folders up (~/.claude/version.json when installed)
+// Folders and files outside skills/phone-bot that an add-on skill needs: the phone app's PC program imports
+// phone/shared and reads its setup version from version.json three folders up (~/.claude/version.json when
+// installed); the phone skill reads what the app saved to ~/phone-inbox, so it comes only with the app
 const ADDON_PATHS = {
-  "phone-bot": [path.join("phone", "shared"), "version.json"],
+  "phone-bot": [
+    path.join("phone", "shared"),
+    "version.json",
+    path.join("skills", "phone"),
+  ],
 };
 // A file under an add-on skill is left out unless it was asked for with --with, or a copy is already there
 const addonSkip = ({ CLAUDE, withNames }, rel) =>

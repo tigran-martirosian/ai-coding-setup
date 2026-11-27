@@ -1,6 +1,8 @@
 // The relay Worker on Cloudflare (pipe design, section 10). No Worker name and no account here: the deploy passes
 // --name (phone-relay or phone-relay-test) and the account comes from CLOUDFLARE_ACCOUNT_ID. Deploy only with
 // phone/relay/deploy-test.mjs or the release workflow; both first write the page into ./dist with its _headers.
+// The relay's settings are Worker secrets, not vars here (worker.mjs lists them). Two optional ones are set by hand
+// and kept across deploys: BUTTON_FORWARD_URL and BUTTON_FORWARD_SECRET, where the owner's `x:` button presses go.
 {
   "main": "src/worker.mjs",
   "compatibility_date": "2026-04-07",

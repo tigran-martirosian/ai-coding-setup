@@ -1,10 +1,10 @@
 # Hooks
 
-Stratus installs 31 hooks into `~/.claude/hooks/`. A hook is a Node.js script that Claude Code runs at a fixed
+Stratus installs 32 hooks into `~/.claude/hooks/`. A hook is a Node.js script that Claude Code runs at a fixed
 point: before or after a tool call, when you send a message, before a reply ends, or when a session starts. A hook
 can add a note for Claude, ask you first, or send a step back.
 
-18 of the 31 hooks run inside a dispatcher, `hooks/dispatch.mjs`. For each of three events (before a tool call, when
+19 of the 32 hooks run inside a dispatcher, `hooks/dispatch.mjs`. For each of three events (before a tool call, when
 you send a message, before a reply ends), one Node.js process runs every hook of that event's group in turn. The
 other hooks each start their own process. A shell command therefore starts 3 Node.js processes and a file edit 4,
 not one per hook. The groups are in `hooks/dispatch-groups.json`, and the table's "In the dispatcher" column shows
@@ -61,6 +61,7 @@ table marks each guard with "A guard." There are 8: `delete-guard`, `find-guard`
 | `repeat-guard` | Tells a helper close to its turn limit to finish and report. | Before a tool call | Yes | `REPEAT_GUARD=off` |
 | `session-cleanup` | Records the processes and worktrees a session starts, and lists what it would close when the session ends. It closes them only with `SESSION_CLEANUP=on`. Windows only. | Around shell commands, when you send a message, and at session end | Partly: not after a shell command or at session end | `SESSION_CLEANUP=off` |
 | `settings-guard` | Asks you before a session changes one of your Nimbalyst settings (permission mode, default model, theme, extensions and others) with Nimbalyst's own tools. A guard. | Before a Nimbalyst tool call | Yes | `SETTINGS_GUARD=off` |
+| `social-route` | Sends a web fetch or search of Reddit or X to the shipped Reddit and X reader (`workers/social/social.mjs`), which reads the threads themselves; when that reader fails, the plain search goes on. | Before a WebFetch or WebSearch | Yes | `SOCIAL_ROUTE=off` |
 | `sql-guard` | Asks you before destructive SQL runs through a database client: `DROP`, `TRUNCATE`, and `DELETE` or `UPDATE` without `WHERE`. A guard. | Before a shell command | Yes | `SQL_GUARD=off` |
 | `transcript-check` | Says when a new Claude Code version changed the transcript format other hooks read, and names hooks that crashed since the last session. | At session start | No | `TRANSCRIPT_CHECK=off` |
 | `update-check` | Checks every 12 hours whether a newer setup is released, says so, and installs a release that asks you nothing in the background. It also has Claude offer `/new-project` in a folder that is not a project (no `CLAUDE.md` or `.git` in it or above it), at most once a day, and `/update-project` in a project set up before the current setup, until you answer. [Other switches](#other-switches) says how to stop parts of it. | When you send a message | No | `UPDATE_CHECK=off` |

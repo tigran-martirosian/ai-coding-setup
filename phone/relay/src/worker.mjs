@@ -2,7 +2,9 @@
 // never reach this code; `/ws`, `/tg/hook` and the file routes (`/pc/send`, `/pc/dl/<link>`, `/dl/<token>`) go to
 // the one Hub object, and the cron trigger runs the Hub's webhook check. Needs the binding HUB (this file's Hub
 // class, SQLite-backed) and the secrets BOT_TOKEN, BOT_ID, OWNER_TG_ID and WEBHOOK_SECRET; the real relay also has
-// RELAY_ORIGIN (its own address, for the webhook check), the test copy TOPIC_SUFFIX.
+// RELAY_ORIGIN (its own address, for the webhook check), the test copy TOPIC_SUFFIX. Optional, set by hand and kept
+// across deploys: BUTTON_FORWARD_URL (https) and BUTTON_FORWARD_SECRET, where the owner's `x:` button presses go
+// (bot.mjs); with either missing, such a press is dropped.
 import { DurableObject } from "cloudflare:workers";
 import { makeBot } from "../bot/bot.mjs";
 import { telegramApi } from "../bot/telegram.mjs";
@@ -57,7 +59,12 @@ export class Hub extends DurableObject {
       botToken: secret(env, "BOT_TOKEN"),
       // Set only on the test copy (deploy-test.mjs): " (test)" after the topic names.
       topicSuffix: env.TOPIC_SUFFIX ?? "",
-      bot: makeBot({ webhookSecret: secret(env, "WEBHOOK_SECRET") }),
+      bot: makeBot({
+        webhookSecret: secret(env, "WEBHOOK_SECRET"),
+        buttonForwardUrl: env.BUTTON_FORWARD_URL,
+        buttonForwardSecret: env.BUTTON_FORWARD_SECRET,
+        fetch: (url, init) => fetch(url, init),
+      }),
     });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
   }

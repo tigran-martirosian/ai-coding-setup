@@ -490,10 +490,12 @@ launch(
 );
 end("s8", "prompt_input_exit", { SESSION_CLEANUP: "report" });
 ended("s8");
-check(
-  "8 report mode: closed.log names it",
+// waits for the line itself: ended() can return early when a busy Windows runner briefly can't read the ledger
+const named8 = waitFor(() =>
   /s8 would close \(report mode\): pid 5501/.test(closedLog()),
 );
+check("8 report mode: closed.log names it", named8);
+if (!named8) console.log(`closed.log:\n${closedLog()}`);
 check("8 report mode: nothing closed", kills().length === 0);
 reset();
 launch(

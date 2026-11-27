@@ -1,54 +1,87 @@
 name: Tests
 
-# main gets one squash-merged pull request per release; tags start no run (the commit was checked as main).
-# A pull request title is read when the pull request is opened, reopened or pushed to: after an edit of the
-# title, push again (a re-run reads the old title).
+# main gets one squash-merged pull request per release, checked on that pull request; the merge itself starts no
+# run, so a commit on main carries no second, half-skipped set of checks. Every night the whole suite runs on main
+# (schedule), the net under the pull requests that ran only some tests; the README's Tests badge shows that run.
+# The page drawing and the pull request title are checked in pull-request.yml.
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read
 
-# A new push to a pull request stops its older run; runs on main always finish, one per release.
+# A new push to a pull request stops its older run; a nightly or manual run always finishes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Tests run once per release, on its pull request (the ruleset requires them there); the push to main that the
-  # squash merge makes holds the same files, so it gets lint, typecheck and privacy only. A manual run tests too.
-  # Each system runs the suite in two jobs side by side, split by tests/run-all-timings.json (run-all.mjs --shard):
-  # together they run every test file once. Part 1 holds the files that need ffmpeg and installs it; its install
-  # time counts in the split. The ruleset requires "test (windows-latest)" and "test (macos-latest)": the small
-  # jobs of those names below are green only when both parts of their system passed.
+  # Tests run once per release, on its pull request (the ruleset requires them there). A manual or nightly run
+  # tests everything. On a pull request, scripts/ci-lane.mjs picks how much from the files it changes:
+  #   docs   pages and pictures only: one quick Linux job per system says so and runs no test (no check is
+  #          left skipped, so the pull request shows only passed checks)
+  #   small  one job per system runs the tests that cover the changed files, plus the update path tests
+  #   full   the whole suite, in two jobs per system side by side, split by tests/run-all-timings.json
+  #          (run-all.mjs --shard): together they run every test file once. Part 1 holds the files that need
+  #          ffmpeg and installs it; its install time counts in the split.
+  # ffmpeg and Chromium are installed only when a picked test needs them. The ruleset requires
+  # "test (windows-latest)" and "test (macos-latest)": the small jobs of those names below are green only when
+  # every part of their system passed.
   # The limit stops a hung job, not one waiting in the queue. When GitHub has no macOS runner free, the job ends
   # red with "The job was not acquired by Runner"; that is not a test failure: re-run the failed job.
   # The checkout fetches the tags too, each with its own commit only: tests/test-phone-steady.mjs takes the released
   # v26.3.3 phone program, page and relay from git tag v26.3.3 to run them with the new ones, and leaves those checks
   # out without it.
-  test-windows-parts:
-    if: github.event_name != 'push'
-    name: test (windows-latest, part ${{ matrix.part }}/2)
-    strategy:
-      fail-fast: false
-      matrix:
-        part: [1, 2]
-    runs-on: windows-latest
-    timeout-minutes: 30
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
+      parts: ${{ steps.lane.outputs.parts }}
+      only: ${{ steps.lane.outputs.only }}
+      ffmpeg: ${{ steps.lane.outputs.ffmpeg }}
+      browser: ${{ steps.lane.outputs.browser }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-tags: true
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - id: lane
+        shell: bash
+        run: node scripts/ci-lane.mjs "$BASE" --event "$EVENT" --github-output "$GITHUB_OUTPUT"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT: ${{ github.event_name }}
+
+  test-windows-parts:
+    needs: plan
+    name: test (windows-latest, ${{ needs.plan.outputs.lane == 'full' && format('part {0}/2', matrix.part) || needs.plan.outputs.lane == 'docs' && 'pages only, no tests' || 'changed files' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ${{ fromJSON(needs.plan.outputs.parts) }}
+    runs-on: ${{ needs.plan.outputs.lane == 'docs' && 'ubuntu-latest' || 'windows-latest' }}
+    timeout-minutes: 30
+    steps:
+      - if: needs.plan.outputs.lane == 'docs'
+        run: echo "Pages and pictures only, no test to run; the page drawing runs in pull-request.yml."
+      - if: needs.plan.outputs.lane != 'docs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-tags: true
+      - if: needs.plan.outputs.lane != 'docs'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
       # tests/test-watch.mjs and tests/test-picture-gate.mjs draw with ffmpeg, which the runners do not have.
       # It comes from one dated BtbN build on GitHub (with drawtext), checked against its SHA-256, not Chocolatey,
       # whose feed was down twice in a row. A newer build: its tag, file name and the digest GitHub lists for it.
-      - if: matrix.part == 1
+      - if: matrix.part == 1 && needs.plan.outputs.ffmpeg == 'true'
         shell: pwsh
         run: |
           $zip = "$env:RUNNER_TEMP\ffmpeg.zip"
@@ -64,66 +97,94 @@ jobs:
       # tests/test-render-check.mjs draws pages with the packages of package.json and Playwright's Chromium. The
       # browser goes to a folder of the runner: run-all.mjs gives each test an empty home folder, where a Mac keeps
       # Playwright's browsers.
-      - shell: bash
-        run: npm ci --no-audit --no-fund && npx playwright install chromium
+      - if: needs.plan.outputs.lane != 'docs'
+        shell: bash
+        run: npm ci --no-audit --no-fund && { [ "$BROWSER" != true ] || npx playwright install chromium; }
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
-      - shell: bash
-        run: node tests/run-all.mjs --shard ${{ matrix.part }}/2 || { node tests/run-all.mjs --failed --verbose; exit 1; }
+          BROWSER: ${{ needs.plan.outputs.browser }}
+      - if: needs.plan.outputs.lane != 'docs'
+        shell: bash
+        run: |
+          if [ "$LANE" = full ]; then pick=(--shard "$PART/2"); else pick=(--only "$ONLY"); fi
+          node tests/run-all.mjs "${pick[@]}" || { node tests/run-all.mjs --failed --verbose; exit 1; }
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+          LANE: ${{ needs.plan.outputs.lane }}
+          PART: ${{ matrix.part }}
+          ONLY: ${{ needs.plan.outputs.only }}
 
   test-windows:
-    if: always() && github.event_name != 'push'
+    if: always()
     name: test (windows-latest)
-    needs: test-windows-parts
+    needs: [plan, test-windows-parts]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: test "$PARTS" = success || { echo "a Windows test part ended $PARTS"; exit 1; }
+      - run: |
+          test "$PLAN" = success || { echo "the lane step ended $PLAN"; exit 1; }
+          test "$PARTS" = success || { echo "a Windows test part ended $PARTS"; exit 1; }
         env:
+          PLAN: ${{ needs.plan.result }}
+          LANE: ${{ needs.plan.outputs.lane }}
           PARTS: ${{ needs.test-windows-parts.result }}
 
   test-macos-parts:
-    if: github.event_name != 'push'
-    name: test (macos-latest, part ${{ matrix.part }}/2)
+    needs: plan
+    name: test (macos-latest, ${{ needs.plan.outputs.lane == 'full' && format('part {0}/2', matrix.part) || needs.plan.outputs.lane == 'docs' && 'pages only, no tests' || 'changed files' }})
     strategy:
       fail-fast: false
       matrix:
-        part: [1, 2]
-    runs-on: macos-latest
+        part: ${{ fromJSON(needs.plan.outputs.parts) }}
+    runs-on: ${{ needs.plan.outputs.lane == 'docs' && 'ubuntu-latest' || 'macos-latest' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.plan.outputs.lane == 'docs'
+        run: echo "Pages and pictures only, no test to run; the page drawing runs in pull-request.yml."
+      - if: needs.plan.outputs.lane != 'docs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-tags: true
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: needs.plan.outputs.lane != 'docs'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
       # On a Mac the plain ffmpeg has no drawtext filter; skills/watch/watch.mjs finds ffmpeg-full by itself.
-      - if: matrix.part == 1
+      - if: matrix.part == 1 && needs.plan.outputs.ffmpeg == 'true'
         run: brew install ffmpeg ffmpeg-full
       # tests/test-render-check.mjs draws pages with the packages of package.json and Playwright's Chromium. The
       # browser goes to a folder of the runner: run-all.mjs gives each test an empty home folder, where a Mac keeps
       # Playwright's browsers.
-      - shell: bash
-        run: npm ci --no-audit --no-fund && npx playwright install chromium
+      - if: needs.plan.outputs.lane != 'docs'
+        shell: bash
+        run: npm ci --no-audit --no-fund && { [ "$BROWSER" != true ] || npx playwright install chromium; }
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
-      - shell: bash
-        run: node tests/run-all.mjs --shard ${{ matrix.part }}/2 || { node tests/run-all.mjs --failed --verbose; exit 1; }
+          BROWSER: ${{ needs.plan.outputs.browser }}
+      - if: needs.plan.outputs.lane != 'docs'
+        shell: bash
+        run: |
+          if [ "$LANE" = full ]; then pick=(--shard "$PART/2"); else pick=(--only "$ONLY"); fi
+          node tests/run-all.mjs "${pick[@]}" || { node tests/run-all.mjs --failed --verbose; exit 1; }
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+          LANE: ${{ needs.plan.outputs.lane }}
+          PART: ${{ matrix.part }}
+          ONLY: ${{ needs.plan.outputs.only }}
 
   test-macos:
-    if: always() && github.event_name != 'push'
+    if: always()
     name: test (macos-latest)
-    needs: test-macos-parts
+    needs: [plan, test-macos-parts]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: test "$PARTS" = success || { echo "a macOS test part ended $PARTS"; exit 1; }
+      - run: |
+          test "$PLAN" = success || { echo "the lane step ended $PLAN"; exit 1; }
+          test "$PARTS" = success || { echo "a macOS test part ended $PARTS"; exit 1; }
         env:
+          PLAN: ${{ needs.plan.result }}
+          LANE: ${{ needs.plan.outputs.lane }}
           PARTS: ${{ needs.test-macos-parts.result }}
 
   lint:
@@ -242,57 +303,3 @@ jobs:
         working-directory: extensions/usage-plan
         run: |
           npm audit --audit-level=high || { echo "::warning::npm audit failed in extensions/usage-plan (a high advisory, or npm did not answer)"; exit 1; }
-
-  # The pages a person reads that the pull request changes (README.md, README.ru.md, CHANGELOG.md, docs/**/*.md
-  # outside docs/promo/), drawn as GitHub shows them (light and dark, 1280 and 390 px) by scripts/render-check.mjs
-  # and held to the diagram rule by scripts/diagram-rule.mjs. Either one failing fails the job; both always run, so
-  # the log names every problem. A pull request that changes no page passes at once.
-  pages:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      BASE: ${{ github.event.pull_request.base.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - name: changed pages
-        shell: bash
-        run: |
-          git diff --name-only --diff-filter=d "$BASE" HEAD -- README.md README.ru.md CHANGELOG.md 'docs/*.md' ':(exclude)docs/promo/*' > "$RUNNER_TEMP/pages.txt"
-          echo "Pages this pull request changes:"; cat "$RUNNER_TEMP/pages.txt"
-      - name: install the page drawing
-        shell: bash
-        run: |
-          [ -s "$RUNNER_TEMP/pages.txt" ] || exit 0
-          npm ci --no-audit --no-fund
-          npx playwright install --with-deps chromium
-      - name: render check and diagram rule
-        shell: bash
-        run: |
-          [ -s "$RUNNER_TEMP/pages.txt" ] || { echo "no page changed"; exit 0; }
-          mapfile -t pages < "$RUNNER_TEMP/pages.txt"
-          status=0
-          node scripts/render-check.mjs "${pages[@]}" || status=1
-          node scripts/diagram-rule.mjs "${pages[@]}" || status=1
-          exit $status
-
-  # Type and length only; the ids of open plan rows are checked on the PC by the commit hook.
-  pr-title:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-      - run: node scripts/check-pr-title.mjs "$TITLE"
-        env:
-          TITLE: ${{ github.event.pull_request.title }}

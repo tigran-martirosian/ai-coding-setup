@@ -776,6 +776,263 @@ check(
 await say(FRIEND, "after removal");
 same("a removed user is a stranger again", take(), []);
 
+// ---- the button forward: the owner's `x:` presses go to another tool ----
+
+// This relay has no forward settings: an `x:` press is answered empty and dropped, like an unknown button.
+await hook({
+  callback_query: {
+    id: "cbx0",
+    from: { id: OWNER },
+    data: "x:job:1",
+    message: { message_id: 77, chat: { id: OWNER } },
+  },
+});
+same(
+  "with no forward settings an x: press gets only an empty answer (FAIL: a relay without the settings tries to forward or ignores the press)",
+  take(),
+  [{ method: "answerCallbackQuery", params: { callback_query_id: "cbx0" } }],
+);
+
+// A bot with the forward on, run straight on a store of its own; the receiver is a stand-in fetch.
+const FORWARD_URL = "https://tool.example.com/buttons";
+const FORWARD_SECRET = `fwd-${toB64u(random(18))}`;
+const posts = [];
+let receiver = { status: 200 };
+async function receiverFetch(url, init) {
+  posts.push({ url, init });
+  if (receiver.throws)
+    throw Object.assign(new Error(receiver.throws), {
+      name: receiver.name ?? "TypeError",
+    });
+  return { ok: receiver.status < 300, status: receiver.status };
+}
+function forwardBot(options) {
+  const map = new Map();
+  const bot = makeBot({
+    webhookSecret: SECRET,
+    fetch: receiverFetch,
+    ...options,
+  })({
+    store: {
+      get: (k) => map.get(k),
+      put: (k, v) => map.set(k, v),
+      delete: (k) => map.delete(k),
+      list: (p) => [...map].filter(([k]) => k.startsWith(p)),
+    },
+    telegram: api.telegram,
+    download: api.download,
+    now: () => clock,
+    log: (line) => logLines.push(line),
+    ownerTgId: OWNER,
+    sendToPc: () => false,
+    closeUser: () => {},
+  });
+  const press = async (from, data, id) => {
+    const r = await bot.webhook({
+      headers: { "x-telegram-bot-api-secret-token": SECRET },
+      body: JSON.stringify({
+        update_id: ++updateId,
+        callback_query: {
+          id,
+          from: { id: from },
+          data,
+          message: { message_id: 88, chat: { id: from } },
+        },
+      }),
+      origin: "https://relay.example.com",
+    });
+    return { status: r.status, last: map.get("tg:last-update") };
+  };
+  return { press };
+}
+const on = forwardBot({
+  buttonForwardUrl: FORWARD_URL,
+  buttonForwardSecret: FORWARD_SECRET,
+});
+
+take();
+let pressed = await on.press(OWNER, "x:job:42:approve", "cbx1");
+same(
+  "the owner's x: press is POSTed once to the forward address with the secret header and the press (FAIL: the other tool never gets its button presses)",
+  posts.splice(0).map((p) => ({
+    url: p.url,
+    method: p.init.method,
+    headers: p.init.headers,
+    body: JSON.parse(p.init.body),
+  })),
+  [
+    {
+      url: FORWARD_URL,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Button-Secret": FORWARD_SECRET,
+      },
+      body: {
+        data: "x:job:42:approve",
+        callbackId: "cbx1",
+        chatId: OWNER,
+        messageId: 88,
+        threadId: null,
+        inlineMessageId: null,
+      },
+    },
+  ],
+);
+same(
+  "and the relay does not answer that press itself (FAIL: the relay's empty answer takes the receiver's own toast)",
+  take(),
+  [],
+);
+check(
+  "and the update counts as handled",
+  pressed.status === 200 && pressed.last === updateId,
+  JSON.stringify(pressed),
+);
+
+await on.press(FRIEND, "x:job:42:approve", "cbx2");
+same(
+  "a non-owner's x: press sends nothing to the tool (FAIL: anyone who can press a button reaches the tool)",
+  posts.splice(0),
+  [],
+);
+same(
+  "and gets only the empty answer, as before",
+  take().map((c) => c.method),
+  ["answerCallbackQuery"],
+);
+
+for (const [name, half] of [
+  ["the secret", { buttonForwardUrl: FORWARD_URL }],
+  ["the address", { buttonForwardSecret: FORWARD_SECRET }],
+]) {
+  await forwardBot(half).press(OWNER, "x:job:42:approve", "cbx3");
+  check(
+    `with ${name} missing an x: press is answered empty and nothing is sent (FAIL: a half-set forward still sends)`,
+    posts.splice(0).length === 0 &&
+      JSON.stringify(take()) ===
+        JSON.stringify([
+          {
+            method: "answerCallbackQuery",
+            params: { callback_query_id: "cbx3" },
+          },
+        ]),
+  );
+}
+
+const failText = [
+  {
+    method: "answerCallbackQuery",
+    params: {
+      callback_query_id: "cbx4",
+      text: "Couldn't reach the tool; try again",
+    },
+  },
+];
+for (const [name, how] of [
+  ["answers 503", { status: 503 }],
+  ["cannot be reached", { status: 200, throws: "fetch failed" }],
+]) {
+  receiver = how;
+  const logFrom = logLines.length;
+  pressed = await on.press(OWNER, "x:job:42:approve", "cbx4");
+  const lines = logLines.slice(logFrom);
+  posts.splice(0);
+  same(
+    `a receiver that ${name} gets the press answered with the short text (FAIL: a failed forward leaves the owner's button spinning)`,
+    take(),
+    failText,
+  );
+  check(
+    `and the failure is logged without the secret, the update handled (${name})`,
+    lines.some((l) => l.startsWith("button forward failed")) &&
+      !lines.join("\n").includes(FORWARD_SECRET) &&
+      pressed.last === updateId,
+    JSON.stringify({ lines, pressed }),
+  );
+}
+// No answer in time: the tool may have acted, so the owner is told to check, not to press again.
+receiver = {
+  status: 200,
+  throws: "The operation timed out",
+  name: "TimeoutError",
+};
+{
+  const logFrom = logLines.length;
+  await on.press(OWNER, "x:job:42:approve", "cbx7");
+  posts.splice(0);
+  same(
+    "a receiver that does not answer in time gets the press answered with the check-first text (FAIL: a slow tool that acted gets pressed twice)",
+    take(),
+    [
+      {
+        method: "answerCallbackQuery",
+        params: {
+          callback_query_id: "cbx7",
+          text: "The tool is slow; check before pressing again",
+        },
+      },
+    ],
+  );
+  check(
+    "and the log names the wait, not the error text",
+    logLines.slice(logFrom).includes("button forward failed: no answer in 3 s"),
+    JSON.stringify(logLines.slice(logFrom)),
+  );
+}
+receiver = { status: 200 };
+
+await on.press(OWNER, `cancel:${"0".repeat(32)}`, "cbx5");
+await on.press(OWNER, `rm:${THIRD}`, "cbx6");
+check(
+  "with the forward on, the owner's cancel: and rm: buttons are answered and handled as before, nothing forwarded (FAIL: the forward takes other buttons)",
+  posts.splice(0).length === 0 &&
+    JSON.stringify(
+      take().map((c) => [
+        c.method,
+        c.params.text ?? c.params.callback_query_id,
+      ]),
+    ) ===
+      JSON.stringify([
+        ["answerCallbackQuery", "cbx5"],
+        ["sendMessage", "That invite is already gone."],
+        ["answerCallbackQuery", "cbx6"],
+        ["sendMessage", `No invited user ${THIRD}.`],
+      ]),
+);
+
+// A bad address turns only the forward off (the phone app keeps running) and sends nothing in the clear.
+let badUrl = "";
+let plain;
+try {
+  plain = forwardBot({
+    buttonForwardUrl: "http://tool.example.com/buttons",
+    buttonForwardSecret: FORWARD_SECRET,
+  });
+  posts.splice(0);
+  await plain.press(OWNER, "x:job:42:approve", "cbx9");
+} catch (e) {
+  badUrl = e.message;
+}
+check(
+  "a forward address that is not https keeps the bot running and sends nothing (FAIL: one typo stops the phone app, or presses with the secret go out unencrypted)",
+  !badUrl && plain && posts.splice(0).length === 0,
+  badUrl,
+);
+same(
+  "and the owner's x: press is answered with the fix-the-address text (FAIL: a bad address leaves the button doing nothing, silently)",
+  take(),
+  [
+    {
+      method: "answerCallbackQuery",
+      params: {
+        callback_query_id: "cbx9",
+        text: "The button forward address is not https; fix BUTTON_FORWARD_URL",
+      },
+    },
+  ],
+);
+
 // ---- what the relay kept ----
 
 check(

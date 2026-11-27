@@ -235,6 +235,33 @@ minutes the relay checks that the bot's webhook is set and points at that addres
 missing or holds an old secret. A webhook pointed somewhere else is left alone and reported once in the bot's
 Sessions topic, as is a webhook Telegram refuses to set. The test copy makes no such check: it shares the bot.
 
+#### Button forward (optional)
+
+The relay is the bot's only webhook, so another tool that sends messages with inline buttons through the same bot
+never gets the button presses. The relay can pass them on: when you press a button whose `callback_data` starts
+with `x:`, the relay sends it to an address you choose and does not answer the press itself; the tool answers it.
+Presses by anyone else are dropped. Two optional relay secrets turn this on. The deploy does not put them; you set
+them once by hand, and later deploys keep them.
+
+| Name | Value |
+|---|---|
+| `BUTTON_FORWARD_URL` | The tool's https address that takes the presses |
+| `BUTTON_FORWARD_SECRET` | A secret the tool checks in the `X-Button-Secret` header |
+
+Each press is `POST <BUTTON_FORWARD_URL>` with `Content-Type: application/json`, the header
+`X-Button-Secret: <BUTTON_FORWARD_SECRET>` and the body
+`{ "data": "<callback_data>", "callbackId": "<callback query id>", "chatId": <chat id>, "messageId": <message id>, "threadId": <topic id or null>, "inlineMessageId": <id or null> }`.
+The relay waits 3 s, since Telegram sends the bot one update at a time. When the tool cannot be reached or does not
+answer 2xx, the relay answers the press with "Couldn't reach the tool; try again". When the tool does not answer in
+3 s, it may still have acted, so the text is "The tool is slow; check before pressing again". The relay never sends a
+press twice, but the tool should skip a `callbackId` it has seen. With either secret missing, an `x:` press is
+answered empty and dropped; with an address that is not https, the forward stays off and the press is answered with
+a line saying to fix `BUTTON_FORWARD_URL`. Set each in `phone/relay`, with the token and account id of step 1 in
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and type the value at the prompt:
+
+    node node_modules/wrangler/bin/wrangler.js secret put BUTTON_FORWARD_URL --name phone-relay
+    node node_modules/wrangler/bin/wrangler.js secret put BUTTON_FORWARD_SECRET --name phone-relay
+
 ### 6. The release deploy
 
 For your first release, in this order:
