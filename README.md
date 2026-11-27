@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/banner.svg" alt="Stratus" width="100%">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/banner-dark.svg"><img src="docs/img/banner.svg" alt="Stratus"></picture>
 </p>
 
 <p align="center"><b>English</b> | <a href="README.ru.md">Русский</a></p>
@@ -9,8 +9,8 @@
 <p align="center">Runs on Claude Code, in Nimbalyst or a terminal. Fullest on Windows; most parts also run on macOS.</p>
 
 <p align="center">
-  <a href="https://github.com/tigran-martirosian/ai-coding-setup/releases/latest"><img src="https://img.shields.io/github/v/release/tigran-martirosian/ai-coding-setup?label=release" alt="Latest release"></a>
-  <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/tigran-martirosian/ai-coding-setup/tests.yml?branch=main&label=tests" alt="Tests"></a>
+  <a href="https://github.com/tigran-martirosian/ai-coding-setup/releases/latest"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Ftigran-martirosian%2Fai-coding-setup%2Fmain%2Fversion.json&query=%24.version&label=release&prefix=v&color=blue" alt="Latest release"></a>
+  <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml/badge.svg?branch=main" alt="Tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-source--available%2C%20not%20open%20source-blue" alt="Licence: source-available, not open source"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-lightgrey" alt="Platforms: Windows and macOS">
 </p>

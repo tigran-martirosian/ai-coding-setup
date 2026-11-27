@@ -972,7 +972,9 @@ await pointBot({
   },
 });
 same(
-  "the bot calls: webhook, command lists, description, short description, default menu button, Open button",
+  // The webhook keeps Telegram's queue (no drop_pending_updates): a note sent while a deploy swaps the secret is
+  // refused once, queued by Telegram and sent again to the new secret; the relay's tg:last-update skips repeats.
+  "the bot calls: webhook (keeping the queued messages), command lists, description, short description, default menu button, Open button",
   calls,
   [
     {
@@ -982,7 +984,6 @@ same(
         secret_token: "w".repeat(48),
         allowed_updates: ["message", "callback_query"],
         max_connections: 1,
-        drop_pending_updates: true,
       },
     },
     {
