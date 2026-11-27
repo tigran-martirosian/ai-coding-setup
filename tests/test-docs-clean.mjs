@@ -393,7 +393,9 @@ if (readme !== undefined) {
 // The release badge is a fixed picture (GitHub's image proxy gives up after 4 s, and a badge that asks GitHub for
 // the latest release took longer), so each README must name the version in version.json.
 {
-  const version = JSON.parse(readFileSync(join(root, "version.json"), "utf8")).version;
+  const version = JSON.parse(
+    readFileSync(join(root, "version.json"), "utf8"),
+  ).version;
   const badge = `https://img.shields.io/badge/release-v${version.replaceAll("-", "--")}-blue`;
   for (const f of ["README.md", "README.ru.md"])
     report(
