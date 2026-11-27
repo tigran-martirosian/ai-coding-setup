@@ -390,18 +390,27 @@ if (readme !== undefined) {
   );
 }
 
-// The release badge is a fixed picture (GitHub's image proxy gives up after 4 s, and a badge that asks GitHub for
-// the latest release took longer), so each README must name the version in version.json.
+// The README badges are files in the repo: GitHub shows web pictures through an image proxy that gives up after
+// 4 s, and shields.io was slower (2026-11-26). The release badge must name version.json's version
+// (node scripts/release-badge.mjs writes it).
 {
   const version = JSON.parse(
     readFileSync(join(root, "version.json"), "utf8"),
   ).version;
-  const badge = `https://img.shields.io/badge/release-v${version.replaceAll("-", "--")}-blue`;
-  for (const f of ["README.md", "README.ru.md"])
-    report(
-      readFileSync(join(root, f), "utf8").includes(badge),
-      `${f} shows the release badge for version.json's ${version}`,
+  const badge = readFileSync(join(root, "docs/img/badge-release.svg"), "utf8");
+  report(
+    badge.includes(`<title>release: v${version}</title>`),
+    `docs/img/badge-release.svg names version.json's ${version} (node scripts/release-badge.mjs)`,
+  );
+  for (const f of ["README.md", "README.ru.md"]) {
+    const web = readFileSync(join(root, f), "utf8").match(
+      /<img src="https:\/\/img\.shields\.io[^"]*"/g,
     );
+    report(
+      !web,
+      `${f} has no shields.io badge (GitHub's proxy times out on it): ${web?.length ?? 0}`,
+    );
+  }
 }
 
 console.log(

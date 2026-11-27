@@ -1,9 +1,9 @@
 {
-  "version": "26.6.8",
+  "version": "26.6.9",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-26",
-  "summary": "The release badge on the README loads on GitHub again.",
+  "summary": "The README badges load on GitHub again.",
   "releases": {
     "26.6.3": {
       "kind": "quiet",
@@ -154,6 +154,11 @@
       "kind": "files",
       "important": false,
       "headline": "The README release badge loads on GitHub again"
+    },
+    "26.6.9": {
+      "kind": "files",
+      "important": false,
+      "headline": "The README badges load on GitHub again"
     }
   }
 }

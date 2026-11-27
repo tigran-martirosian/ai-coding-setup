@@ -6,6 +6,10 @@ Each entry describes the setup as it was at that release, so older entries name 
 
 ## [Unreleased]
 
+## [26.6.9] - 2026-11-26
+
+- The README badges are pictures in the repo, so they load on GitHub and its phone app instead of timing out.
+
 ## [26.6.8] - 2026-11-26
 
 - The release badge on the README loads on GitHub again, and the page check in tests no longer stalls on a slow web picture.
