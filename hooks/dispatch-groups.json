@@ -49,6 +49,12 @@
       "tools": "mcp__nimbalyst.*"
     },
     {
+      "hook": "hooks/social-route.mjs",
+      "args": [],
+      "guard": false,
+      "tools": "WebFetch|WebSearch"
+    },
+    {
       "hook": "hooks/verify-gate.mjs",
       "args": ["--pre"],
       "guard": false,

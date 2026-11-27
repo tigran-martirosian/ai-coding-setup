@@ -1,6 +1,6 @@
 ---
 name: site-login
-description: Get the user signed in to a website so Claude can work there in its own headless browser - one visible Chromium window for the password that closes itself once the user is in, then headless reuse of the saved login. Use when a site job (LinkedIn, GitHub, any account page) finds the browser signed out, when a password is needed, or on /site-login [name] [url].
+description: Get the user signed in to a website so Claude can work there - pages the user's own Chrome is signed in to are read through it with no window (where OpenCLI is set up); otherwise one visible Chromium window for the password that closes itself once the user is in, then headless reuse of the saved login. Use when a site job (LinkedIn, GitHub, any account page) finds the browser signed out, when a password is needed, or on /site-login [name] [url].
 argument-hint: "[name] [url]"
 ---
 
@@ -10,6 +10,21 @@ Needs Python and `pip install playwright` + `playwright install chromium`. The w
 
 The Nimbalyst browser tool's `headless: false` tab does not open a window the user can see. The
 `browser-visible-gate` hook refuses it. Sign-ins go through a real window instead.
+
+**Any site, first, where OpenCLI is set up** (`opencli doctor` says connected): read the page in the user's own
+signed-in Chrome, `opencli web read --url "<url>" --window background -f md` in a new temp folder. It needs no
+window and no password. The page came back signed in: use it and stop here; never ask the user to sign in for a
+page their Chrome already opens. **An action they asked for in their account** (join, fill a form, click a button,
+upload) is done by you: `opencli browser <session> open <url>`, then `opencli browser <session> state` to see the
+page's elements, then `opencli browser <session> click|fill|type|select|upload <n>` (one session name for the whole
+job; `opencli browser --help`). Before a click that publishes or sends in their name (post, comment, message, pay),
+say what it sends and wait for their yes. Site commands that post, like or follow and `browser eval` stay blocked
+(opencli-readonly). OpenCLI not installed or not connected: go on below.
+
+**The user's own Google accounts (and any page with a Google sign-in): their own Chrome, never the Chromium
+window.** Google blocks the window ("This browser or app may not be secure"). When their Chrome is not signed in
+there either, open the page in it (Windows: `cmd //c start chrome "<url>"`) and say which account to pick. Other
+sites go on with step 1.
 
 1. Check first, headless, no window:
    `python ~/.claude/skills/site-login/login.py <name> <url> <signed-in-url-prefix> --check`

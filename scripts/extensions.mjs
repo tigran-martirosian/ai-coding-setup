@@ -41,7 +41,24 @@ export function extensions(ctx) {
   // Russian panel beside it read as half-translated (user, 2026-11-16: "Always English"). The language stays in the
   // print, so an install built in Russian before rebuilds once in English.
   const EXT_LANG = "english";
-  const printOf = (dir) => sha(sourceText(dir) + `\nlanguage:${EXT_LANG}`);
+  // The commands panel's build shows the buttons in its src/own.ts only where their skill is installed
+  // (vite.config.ts), so which of those skills are installed is part of its print: a skill that comes with an
+  // update (or goes) rebuilds the panel with its button.
+  const ownSkills = (dir) => {
+    const own = path.join(dir, "src", "own.ts");
+    if (!fs.existsSync(own)) return "";
+    const names = [...read(own).matchAll(/prompt:\s*"\/([\w-]+)/g)].map(
+      (m) => m[1],
+    );
+    const skills = path.join(ctx.CLAUDE, "skills");
+    const there = names.filter((n) =>
+      fs.existsSync(path.join(skills, n, "SKILL.md")),
+    );
+    // none installed: the print stays as older versions wrote it, so nothing rebuilds for no reason
+    return there.length ? `\nown skills:${there.join(",")}` : "";
+  };
+  const printOf = (dir) =>
+    sha(sourceText(dir) + `\nlanguage:${EXT_LANG}` + ownSkills(dir));
   const builtExt = { ...(state.extensions || {}) };
   if (names.length && ctx.wantExt && ctx.appData && fs.existsSync(extHome)) {
     const only = (process.env.SETUP_EXTENSIONS || "")

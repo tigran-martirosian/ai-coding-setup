@@ -1,0 +1,66 @@
+name: Pull request
+
+# Checks that only mean something on a pull request: its pages as GitHub draws them and its title. Kept out of
+# tests.yml, so the nightly run on main has no job that skips itself.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The pages a person reads that the pull request changes (README.md, README.ru.md, CHANGELOG.md, docs/**/*.md
+  # outside docs/promo/), drawn as GitHub shows them (light and dark, 1280 and 390 px) by scripts/render-check.mjs
+  # and held to the diagram rule by scripts/diagram-rule.mjs. Either one failing fails the job; both always run, so
+  # the log names every problem. A pull request that changes no page passes at once.
+  pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: changed pages
+        shell: bash
+        run: |
+          git diff --name-only --diff-filter=d "$BASE" HEAD -- README.md README.ru.md CHANGELOG.md 'docs/*.md' ':(exclude)docs/promo/*' > "$RUNNER_TEMP/pages.txt"
+          echo "Pages this pull request changes:"; cat "$RUNNER_TEMP/pages.txt"
+      - name: install the page drawing
+        shell: bash
+        run: |
+          [ -s "$RUNNER_TEMP/pages.txt" ] || exit 0
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: render check and diagram rule
+        shell: bash
+        run: |
+          [ -s "$RUNNER_TEMP/pages.txt" ] || { echo "no page changed"; exit 0; }
+          mapfile -t pages < "$RUNNER_TEMP/pages.txt"
+          status=0
+          node scripts/render-check.mjs "${pages[@]}" || status=1
+          node scripts/diagram-rule.mjs "${pages[@]}" || status=1
+          exit $status
+
+  # Type and length only; the ids of open plan rows are checked on the PC by the commit hook.
+  pr-title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: node scripts/check-pr-title.mjs "$TITLE"
+        env:
+          TITLE: ${{ github.event.pull_request.title }}

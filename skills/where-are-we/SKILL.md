@@ -39,6 +39,7 @@ An older plan reads the same way.
    - Before creating, run `node text-check.mjs --json` (next to this file) on the new titles and bodies and reword what it flags.
    - A row whose Done when (or, in an older plan, budget) changed in the plan gets its body and budget updated; its status, proof and comments stay.
    - A row this session has claimed (its State cell, or a `lead` plan's Progress State, holds this session's claim) is created or updated as in-progress with `linkSession: true`, so the step shows in this chat's Trackers section.
+   - Run `node ~/.claude/workers/tracker-sync.mjs --install <project folder>` (a second run changes nothing): from then on a commit's `Step:` line moves its step by itself, with no session. A commit made while Nimbalyst was closed waits for `node ~/.claude/workers/tracker-sync.mjs --catch-up` or for step 4.
 
    Done when every plan row has exactly one step, or is listed as "row without your OK".
 

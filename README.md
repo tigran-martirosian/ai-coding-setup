@@ -100,7 +100,7 @@ A turn that edits code but runs no build or test does not end. The `verify-gate`
 
 > verify-gate: code was edited this turn (cart.ts) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.
 
-Other checks catch a link Claude never opened and a reply that answers nothing. All 31 hooks, guards and off switches: [Hooks](docs/reference/hooks.md).
+Other checks catch a link Claude never opened and a reply that answers nothing. All 32 hooks, guards and off switches: [Hooks](docs/reference/hooks.md).
 
 ### Research with tags
 

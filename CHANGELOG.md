@@ -6,6 +6,16 @@ Each entry describes the setup as it was at that release, so older entries name 
 
 ## [Unreleased]
 
+## [26.7] - 2026-11-26
+
+- Reddit and X links and searches read the threads themselves: a new reader (`workers/social/social.mjs`) and a hook that sends Reddit and X fetches to it. Where it can't read, the plain search goes on.
+- A new skill, `diagnose`: a bug is pinned with a failing command first, then ranked guesses, one change at a time.
+- The phone app's Inbox topic has a reader: `/phone` looks at the photos, files, links and notes you sent, and the Commands panel gets its button. It comes with the `phone-bot` add-on.
+- Commits that finish a tracker step close it in Nimbalyst's tracker on their own (`workers/tracker-sync.mjs`; `/where-are-we` turns it on for a project).
+- `/update-setup` also updates the programs the setup installed (plugins, its npm tools, yt-dlp and others), within a time budget.
+- Web research and helpers read pages through your own signed-in Chrome where OpenCLI is set up, and fall back to the plain search where it isn't.
+- `find-skills` starts only when you type `/find-skills`, so its description no longer rides along on every turn.
+
 ## [26.6.9] - 2026-11-26
 
 - The README looks right on GitHub and its phone app: the banner follows dark mode, and the badges are pictures in the repo, so they load instead of timing out.

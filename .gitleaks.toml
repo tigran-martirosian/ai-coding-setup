@@ -28,3 +28,9 @@ description = "The sample Sec-WebSocket-Key from RFC 6455 section 1.3 (base64 of
 condition = "AND"
 paths = ['''(^|/)tests/test-phone-relay\.mjs$''']
 regexes = ['''^dGhlIHNhbXBsZSBub25jZQ==$''']
+
+[[allowlists]]
+description = "The made-up bearer token the tracker-sync test sends only to its own fake tracker server on 127.0.0.1"
+condition = "AND"
+paths = ['''(^|/)tests/test-tracker-sync\.mjs$''']
+regexes = ['''^tok-5ecret-abc123$''']
