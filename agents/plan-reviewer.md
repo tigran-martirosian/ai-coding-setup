@@ -40,8 +40,9 @@ fixes what you find, one round; you do not run again. Your input: the user's ask
    is a finding.
 7. **End to end.** Trace the job's output from where it starts to shipped work the user hears about. A finding is
    any of these: a stage with nothing that moves work across it; an output that nobody reads or nothing acts on; a
-   plan that adds load to the stage with the scarcest resource (the user's time, the Claude plan). The spec's step
-   back names those stages; a stage it skipped is a finding too.
+   plan that adds load to the stage with the scarcest resource (the user's time, the Claude plan); a plan for a flow
+   with no early slice or check that runs one item through every stage. The spec's step back names those stages; a
+   stage it skipped is a finding too.
 
 Prove each finding: the quoted lines, a file path with its line, or a command and its output. One you cannot prove is
 marked Unsure. Leave wording, style, a choice under the spec's Decided, and the how inside a slice to the lead.

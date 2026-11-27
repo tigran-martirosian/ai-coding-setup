@@ -986,6 +986,7 @@ await test("the installed hook returns at once, the item moves in the background
   fs.writeFileSync(
     join(hooksDir(hr), "post-commit"),
     "#!/bin/sh\necho mine > ran-own-hook.txt\n",
+    { mode: 0o755 }, // git on a Mac or Linux runs only an executable hook, as a repo's own hook always is
   );
   assert.equal((await sync(["--install", hr])).status, 0);
   items = [item("h1", "P9-15", "to-do")];
