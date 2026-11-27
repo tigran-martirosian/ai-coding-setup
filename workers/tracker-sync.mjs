@@ -560,9 +560,7 @@ function hookFile(repo) {
   const dir = path.resolve(repo, git(repo, "rev-parse", "--git-path", "hooks"));
   fs.mkdirSync(dir, { recursive: true });
   const real = fs.realpathSync.native(dir);
-  const top = fs.realpathSync.native(
-    git(repo, "rev-parse", "--show-toplevel"),
-  );
+  const top = fs.realpathSync.native(git(repo, "rev-parse", "--show-toplevel"));
   const common = fs.realpathSync.native(
     git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"),
   );

@@ -214,8 +214,21 @@ function sync(args, extraEnv = {}) {
     p.stderr.on("data", (d) => {
       out += d;
     });
+    // A run that sticks fails its case after 90 s instead of holding the whole test run (one hung 30 minutes once
+    // with 8 test files running at once and never again; this names the run if it does).
+    const limit = setTimeout(() => {
+      p.kill();
+      reject(
+        new Error(
+          `tracker-sync ${args.join(" ")} was still running after 90 s; output so far:\n${out}`,
+        ),
+      );
+    }, 90000);
     p.on("error", reject);
-    p.on("close", (status) => resolve({ status, out, end: Date.now() }));
+    p.on("close", (status) => {
+      clearTimeout(limit);
+      resolve({ status, out, end: Date.now() });
+    });
   });
 }
 const waitFor = async (ok, ms = 30000) => {

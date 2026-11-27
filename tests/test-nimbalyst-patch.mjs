@@ -208,7 +208,9 @@ try {
   check(
     "overlap: after apply, status shows the base patch and the dependant applied, not partly",
     r.code === 0 &&
-      readAsar(O.asar)["out/main/index.js"].data.toString().includes('"Changed Files!", patched: true') &&
+      readAsar(O.asar)
+        ["out/main/index.js"].data.toString()
+        .includes('"Changed Files!", patched: true') &&
       ["main", "over"].every((id) => stateOf(st.out, id).startsWith("applied")),
     r.out + st.out,
   );
