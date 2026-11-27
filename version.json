@@ -1,9 +1,9 @@
 {
-  "version": "26.6.6",
+  "version": "26.6.9",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
   "date": "2026-11-26",
-  "summary": "A new docs page shows the whole development process and what enforces it",
+  "summary": "The README looks right on GitHub and its phone app, and a PC script can alert your phone.",
   "releases": {
     "26.6.3": {
       "kind": "quiet",
@@ -144,6 +144,21 @@
       "kind": "files",
       "important": false,
       "headline": "New page: the development process, step by step, and what enforces each step"
+    },
+    "26.6.7": {
+      "kind": "files",
+      "important": false,
+      "headline": "Scripts on your PC can send a needs-you alert to the phone app"
+    },
+    "26.6.8": {
+      "kind": "files",
+      "important": false,
+      "headline": "The README release badge loads on GitHub again"
+    },
+    "26.6.9": {
+      "kind": "files",
+      "important": false,
+      "headline": "The README badges load on GitHub again"
     }
   }
 }

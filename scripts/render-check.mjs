@@ -11,7 +11,7 @@
 // a relative link to a file that is not there; a link to a #heading that is not on its page (this page or another
 // .md page, by GitHub's heading ids, or an id or a name in the page's HTML); an image that does not load; with
 // --web, a web link that does not load (HEAD, then GET when HEAD fails; 10 s each; the problem names the status).
-// Without --web no web link is checked, so CI runs offline; the release runs it with --web. A box that scrolls is
+// Without --web no web link or web picture is checked and web requests are blocked, so CI runs offline; the release runs it with --web. A box that scrolls is
 // listed in render-check.json, not failed, and so is a file uploaded to GitHub (github.com/user-attachments, a
 // README film): GitHub answers 404 to any request for it made outside its page, so it cannot be checked here.
 // Exits 2 on a wrong call.
@@ -341,7 +341,7 @@ function measureFrame(tol) {
 }
 
 // In the page: text cut by a box that hides what does not fit; boxes that scroll are listed only.
-function measurePage() {
+function measurePage(web) {
   const cut = [];
   const scrolls = [];
   const hides = (v) => v === "hidden" || v === "clip";
@@ -367,6 +367,7 @@ function measurePage() {
       scrolls.push({ kind: "scrolls", text: short, detail: what });
   }
   const images = [...document.querySelectorAll("article img")]
+    .filter((i) => web || new URL(i.src).origin === location.origin)
     .filter((i) => !i.complete || i.naturalWidth === 0)
     .map((i) => ({
       kind: "image-missing",
@@ -628,6 +629,14 @@ try {
             deviceScaleFactor: 1,
           });
           try {
+            // Offline (no --web): a web request is aborted, so a slow picture server cannot stall the load.
+            if (!WEB)
+              await ctx.route(
+                (u) =>
+                  u.origin !== new URL(base).origin &&
+                  /^https?:$/.test(u.protocol),
+                (r) => r.abort(),
+              );
             const tab = await ctx.newPage();
             await tab.goto(`${base}?scheme=${scheme}`, { waitUntil: "load" });
             await tab.waitForFunction(
@@ -660,7 +669,7 @@ try {
               for (const f of await frame.evaluate(measureFrame, TOLERANCE))
                 report.failures.push({ ...where, diagram: n + 1, ...f });
             }
-            const seen = await tab.evaluate(measurePage);
+            const seen = await tab.evaluate(measurePage, WEB);
             for (const f of [...seen.cut, ...seen.images])
               report.failures.push({ ...where, ...f });
             for (const f of seen.scrolls)

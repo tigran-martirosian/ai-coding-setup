@@ -166,6 +166,9 @@ export const BOT_SHORT_DESCRIPTION =
 
 // Points the bot at the relay (pipe design, section 5). The private-chat command scope is deleted, as a list set
 // there would hide the default list.
+// Telegram's queue is kept (no drop_pending_updates): a deploy puts the new webhook secret first, so a note sent
+// in between is refused once; Telegram sends it again once the webhook carries the new secret. The relay's
+// tg:last-update check skips any update it already handled.
 export async function pointBot({
   botToken,
   ownerTgId,
@@ -178,7 +181,6 @@ export async function pointBot({
     url: `${origin}/tg/hook`,
     secret_token: webhookSecret,
     ...WEBHOOK_SETTINGS,
-    drop_pending_updates: true,
   });
   await telegram("deleteMyCommands", {
     scope: { type: "all_private_chats" },
