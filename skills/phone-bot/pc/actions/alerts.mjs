@@ -13,11 +13,13 @@
 // replaces it and an answered question's alert goes. A finished or handed-off alert also goes when the session is
 // opened in the app (sessionOpened, from session.open) or read in Nimbalyst (its metadata's hasUnread turns false).
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
 import { PROTOCOL } from "../../../../phone/shared/seal.mjs";
 import { openForm, sessionRow, sessionsUpdatedSince } from "../core/db.mjs";
 import { listProjects, mapState } from "../core/door.mjs";
 import { log } from "../core/log.mjs";
 import { ActionError } from "../core/registry.mjs";
+import { waitingAlerts } from "../core/script-alerts.mjs";
 import { readState, updateState } from "../core/state.mjs";
 import { lastTurnCommands, transcriptPath } from "../core/transcripts.mjs";
 
@@ -186,6 +188,61 @@ function stateOf(row) {
   return state === "running" && openForm(row.id) ? "waiting" : state;
 }
 
+// The script door (core/script-alerts.mjs): each waiting ask goes out as "<project> · <title>: needs you" by the
+// user's needs-you choice, and its file goes once the relay socket took it (it stays while the relay is away). Its
+// Open handle is kept marked `script`, with no session, so the watcher never removes the alert and Open says
+// from-a-script. A file that is not a valid ask moves to .bad with a log line, never retried. Returns how many went.
+export function sendScriptAlerts(send, now = Date.now) {
+  let sent = 0;
+  for (const w of waitingAlerts()) {
+    if (w.error) {
+      fs.renameSync(w.file, `${w.file}.bad`);
+      log(
+        "error",
+        `alerts: script ask ${w.file} is not valid (${w.error}): moved to .bad`,
+      );
+      continue;
+    }
+    const mode = alertMode("session-needs-you");
+    if (mode === "off") {
+      fs.rmSync(w.file, { force: true });
+      log("alert", "script needs-you off");
+      continue;
+    }
+    const open = randomBytes(9).toString("base64url");
+    const ok = send({
+      v: PROTOCOL,
+      t: "alert",
+      text: `${alertName(w.ask.project)} · ${alertTitle(w.ask.title) || "-"}: needs you`,
+      silent: mode === "silent",
+      open,
+    });
+    if (!ok) break;
+    fs.rmSync(w.file, { force: true });
+    log("alert", `script needs-you ${mode}`);
+    try {
+      updateState((s) => {
+        s.handles = {
+          ...(s.handles || {}),
+          [open]: {
+            project: null,
+            session: null,
+            at: new Date(now()).toISOString(),
+            script: true,
+          },
+        };
+      });
+    } catch (e) {
+      log(
+        "error",
+        `alerts: a sent script alert's handle was not kept: ${e.message}`,
+      );
+    }
+    sent++;
+  }
+  return sent;
+}
+
 // send(frame) -> true when the relay socket took it. `now` and the timings are for tests.
 export function createAlerts({
   send,
@@ -322,6 +379,12 @@ export function createAlerts({
   }
 
   function safeTick() {
+    // The script door works with Nimbalyst closed too, so it runs apart from the session look.
+    try {
+      sendScriptAlerts(send, now);
+    } catch (e) {
+      log("error", `alerts: script door: ${e.message}`);
+    }
     try {
       tick();
       lastError = null;
@@ -391,6 +454,7 @@ export function register(registry) {
       const h = Object.hasOwn(handles, d.handle) ? handles[d.handle] : null;
       if (!h || Date.now() - Date.parse(h.at) >= HANDLE_DAYS * DAY_MS)
         throw new ActionError("expired");
+      if (h.script) throw new ActionError("from-a-script");
       return { project: h.project, session: h.session };
     },
   });

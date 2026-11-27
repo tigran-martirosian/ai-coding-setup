@@ -6,6 +6,13 @@ Each entry describes the setup as it was at that release, so older entries name 
 
 ## [Unreleased]
 
+## [26.6.9] - 2026-11-26
+
+- The README looks right on GitHub and its phone app: the banner follows dark mode, and the badges are pictures in the repo, so they load instead of timing out.
+- The page check in tests no longer stalls on a slow web picture.
+- A script on your PC can send a needs-you alert to the phone app's bot chat.
+- Redeploying the phone relay keeps the notes sent while it swaps the bot secret.
+
 ## [26.6.6] - 2026-11-26
 
 ### Docs

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/banner.svg" alt="Stratus" width="100%">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/banner-dark.svg"><img src="docs/img/banner.svg" alt="Stratus"></picture>
 </p>
 
 <p align="center"><a href="README.md">English</a> | <b>Русский</b></p>
@@ -9,10 +9,10 @@
 <p align="center">Работает на Claude Code, в Nimbalyst или в терминале. Полнее всего на Windows; большая часть работает и на macOS.</p>
 
 <p align="center">
-  <a href="https://github.com/tigran-martirosian/ai-coding-setup/releases/latest"><img src="https://img.shields.io/github/v/release/tigran-martirosian/ai-coding-setup?label=release" alt="Последний релиз"></a>
-  <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/tigran-martirosian/ai-coding-setup/tests.yml?branch=main&label=tests" alt="Тесты"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-source--available%2C%20not%20open%20source-blue" alt="Лицензия: код открыт для чтения, но это не open source"></a>
-  <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-lightgrey" alt="Платформы: Windows и macOS">
+  <a href="https://github.com/tigran-martirosian/ai-coding-setup/releases/latest"><img src="docs/img/badge-release.svg" alt="Последний релиз"></a>
+  <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml/badge.svg?branch=main" alt="Тесты"></a>
+  <a href="LICENSE"><img src="docs/img/badge-licence.svg" alt="Лицензия: код открыт для чтения, но это не open source"></a>
+  <img src="docs/img/badge-platforms.svg" alt="Платформы: Windows и macOS">
 </p>
 
 <p align="center">
