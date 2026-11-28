@@ -623,22 +623,29 @@ check(
 );
 
 // watchEndpoint catches a file that exists only briefly. The test counts the reads of the file made from inside the
-// watcher's fs.watch listener: the file is deleted as soon as the watcher has read it, and listProjects runs once
-// the watcher has seen it gone.
+// watcher's listeners (fs.watch, and on macOS the fs.watchFile poll that catches what FSEvents reports late): the
+// file is deleted as soon as the watcher has read it, and listProjects runs once the watcher has seen it gone.
 nim.forgetEndpoint();
 const realWatch = fs.watch;
+const realWatchFile = fs.watchFile;
 const realRead = fs.readFileSync;
 let inWatcher = false;
-const watcherReads = { found: 0, missing: 0 };
-fs.watch = (dir, listener) =>
-  realWatch(dir, (...a) => {
+// found / missing: reads of the file from inside a listener; gone: the poll told of a deleted file (macOS)
+const watcherReads = { found: 0, missing: 0, gone: 0 };
+const counted =
+  (listener) =>
+  (...a) => {
+    if (a[0] && typeof a[0] === "object" && a[0].mtimeMs === 0)
+      watcherReads.gone += 1;
     inWatcher = true;
     try {
       return listener(...a);
     } finally {
       inWatcher = false;
     }
-  });
+  };
+fs.watch = (dir, listener) => realWatch(dir, counted(listener));
+fs.watchFile = (f, opts, listener) => realWatchFile(f, opts, counted(listener));
 fs.readFileSync = (f, ...rest) => {
   if (!inWatcher || f !== file) return realRead(f, ...rest);
   try {
@@ -650,9 +657,9 @@ fs.readFileSync = (f, ...rest) => {
     throw e;
   }
 };
-// true once the watcher read the file `what` ("found" or "missing"); false after 20 s
-async function watcherRead(what) {
-  for (const end = Date.now() + 20000; !watcherReads[what]; ) {
+// true once the watcher saw one of `whats` ("found", "missing", "gone"); false after 20 s
+async function watcherRead(...whats) {
+  for (const end = Date.now() + 20000; !whats.some((w) => watcherReads[w]); ) {
     if (Date.now() > end) return false;
     await new Promise((r) => setTimeout(r, 10));
   }
@@ -662,8 +669,9 @@ const stop = nim.watchEndpoint();
 writeEndpoint();
 const sawFile = await watcherRead("found");
 fs.rmSync(file);
-const sawGone = await watcherRead("missing");
+const sawGone = await watcherRead("missing", "gone");
 fs.watch = realWatch;
+fs.watchFile = realWatchFile;
 fs.readFileSync = realRead;
 const watched = await rejects(async () => nim.listProjects());
 check(
