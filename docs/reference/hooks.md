@@ -1,10 +1,10 @@
 # Hooks
 
-Stratus installs 32 hooks into `~/.claude/hooks/`. A hook is a Node.js script that Claude Code runs at a fixed
+Stratus installs 35 hooks into `~/.claude/hooks/`. A hook is a Node.js script that Claude Code runs at a fixed
 point: before or after a tool call, when you send a message, before a reply ends, or when a session starts. A hook
 can add a note for Claude, ask you first, or send a step back.
 
-19 of the 32 hooks run inside a dispatcher, `hooks/dispatch.mjs`. For each of three events (before a tool call, when
+22 of the 35 hooks run inside a dispatcher, `hooks/dispatch.mjs`. For each of three events (before a tool call, when
 you send a message, before a reply ends), one Node.js process runs every hook of that event's group in turn. The
 other hooks each start their own process. A shell command therefore starts 3 Node.js processes and a file edit 4,
 not one per hook. The groups are in `hooks/dispatch-groups.json`, and the table's "In the dispatcher" column shows
@@ -17,7 +17,7 @@ Each hook has one off switch: an environment variable set to `off` (in any case)
 starts Claude Code or Nimbalyst; [How to](../HOW-TO.md#turn-a-hook-off) shows the commands. Some switches are also
 read from the `env` block of a settings file, because Claude Code may not pass that block on to a hook:
 
-- `FILE_NAME_NOTE`, `VERIFY_GATE`, `VERIFY_GATE_COMMIT` and `VERIFY_PATTERN`: `.claude/settings.local.json`, then
+- `FILE_NAME_NOTE`, `VERIFY_GATE`, `VERIFY_GATE_COMMIT`, `VERIFY_GATE_CYCLES` and `VERIFY_PATTERN`: `.claude/settings.local.json`, then
   `.claude/settings.json`, in the project and in each folder above it (for a project inside your home folder, this
   includes `~/.claude`).
 - `SETTINGS_GUARD` and `WORKFLOW_FENCE`: `~/.claude/settings.local.json`, then `~/.claude/settings.json`.
@@ -29,14 +29,15 @@ Every other switch is read only from the environment.
 
 A hook that fails with an error lets the call through and writes one line to `~/.claude/hooks/state/hook-errors.log`.
 A guard is stricter: when it crashes or can't read its input, it refuses the calls it checks, and only those. The
-table marks each guard with "A guard." There are 8: `delete-guard`, `find-guard`, `opencli-readonly`,
+table marks each guard with "A guard." There are 9: `brief-size-guard`, `delete-guard`, `find-guard`, `opencli-readonly`,
 `planner-readonly`, `push-key-scan`, `settings-guard`, `sql-guard` and `workflow-fence`.
 
 ## All hooks
 
 | Hook | What it does | Runs | In the dispatcher | Off switch |
 |---|---|---|---|---|
-| `agent-run-log` | Writes one line per helper to `~/.claude/state/agent-runs.jsonl` with its model, effort and result, for the Agents Panel. | Before and after a helper | No | `AGENT_RUN_LOG=off` |
+| `agent-run-log` | Writes one line per helper to `~/.claude/state/agent-runs.jsonl` with its model, effort and result, for the Agents Panel. A helper sent to the background reports its end only into the chat, so its result is filled in before the reply ends. | Before and after a helper, before a reply ends | Partly: before a reply ends | `AGENT_RUN_LOG=off` |
+| `brief-size-guard` | Refuses a worker brief too big for one helper's 80-turn limit: more than 8 files to change, 8 separate numbered items, 6 DONE WHEN cases or 6,000 characters. The message names each count and says to split the job into slices. A guard. | Before a helper starts | Yes | `BRIEF_SIZE_GUARD=off` |
 | `browser-visible-gate` | Refuses a Nimbalyst browser session opened with `headless: false`, which shows no new window, and points to the `site-login` skill or your own browser. | Before a tool call | No | `BROWSER_VISIBLE_GATE=off` |
 | `command-explain` | Makes every shell command end with a plain-words line that says what it does, so the permission popup is readable. It never refuses a command. | Before a shell command | Yes | `COMMAND_EXPLAIN=off` |
 | `delete-guard` | Refuses deletes that can take many files at once (`rm -rf`, wildcard deletes, `find -delete`, `git clean -f`, `Remove-Item -Recurse`) outside temp, cache and worktree folders. A guard. | Before a shell command | Yes | `DELETE_GUARD=off` |
@@ -50,6 +51,7 @@ table marks each guard with "A guard." There are 8: `delete-guard`, `find-guard`
 | `map-drift` | After an edit to a file that backs a link in the project's systems map, says when that link's evidence is gone from the file. | After a file edit | No | `MAP_DRIFT=off` |
 | `map-generated` | Refuses a hand edit of a file that a script writes (listed under `generated` in the systems map) and names the command that writes it. | Before a file edit | No | `MAP_GENERATED=off` |
 | `map-nudge` | In a project with 100 or more code files and 10,000 or more lines and no systems map, has Claude ask you once whether to build one. Starts a background refresh of a stale map at most once a week. | When you send a message | Yes | `MAP_NUDGE=off` |
+| `compact-handoff` | Right after a session's context is compressed, tells Claude to finish the step it is on, commit and hand off to a fresh session with `/handoff`, so a long chat stops re-sending its whole history. Silent in helpers and at other session starts. | At session start, after a compaction | No | `COMPACT_HANDOFF=off` |
 | `nimbalyst-notes` | Gives Claude the notes that matter only inside Nimbalyst. Silent in the terminal. | At session start | No | `NIMBALYST_NOTES=off` |
 | `no-response-gate` | Sends a reply back once when it has no answer to the message you typed, or when it only forwarded a `/btw` question. After you stop a turn, it tells Claude to answer and start no work. | Before a reply ends, and when you send a message | Yes | `NO_RESPONSE_GATE=off` |
 | `opencli-readonly` | Lets only OpenCLI's read commands through, so Claude can search and read with your signed-in accounts but not post, like or follow. A guard. | Before a shell command | No | `OPENCLI_READONLY=off` |
@@ -66,7 +68,8 @@ table marks each guard with "A guard." There are 8: `delete-guard`, `find-guard`
 | `transcript-check` | Says when a new Claude Code version changed the transcript format other hooks read, and names hooks that crashed since the last session. | At session start | No | `TRANSCRIPT_CHECK=off` |
 | `update-check` | Checks every 12 hours whether a newer setup is released, says so, and installs a release that asks you nothing in the background. It also has Claude offer `/new-project` in a folder that is not a project (no `CLAUDE.md` or `.git` in it or above it), at most once a day, and `/update-project` in a project set up before the current setup, until you answer. [Other switches](#other-switches) says how to stop parts of it. | When you send a message | No | `UPDATE_CHECK=off` |
 | `usage-dashboard-hook` | When your whole message is `usage`, opens the usage dashboard without a model call. | When you send a message | Yes | `USAGE_DASHBOARD=off` |
-| `verify-gate` | Sends a reply back once when the turn edited code and ran no build or test after the last edit. In a project with a verify skill, it also logs code commits made with no verify run. In a repository that holds `scripts/render-check.mjs`, an edited `README.md`, `README.ru.md`, `CHANGELOG.md` or docs page (not `docs/promo/`) also needs fresh screenshots and a `verdict.md` that starts with PASS in `.proof/<page>/`. | Before a reply ends, and before a commit | Yes | `VERIFY_GATE=off` |
+| `usage-report-hook` | At most once a day, sends an anonymous, content-free count of what the setup doesn't cover yet (missing commands, tools you added, friction, file types, which well-known programs the agent's commands start) — never your prompts, replies, code, file names, paths or project names. Runs in the background. | Before a reply ends | Yes | `USAGE_REPORT=off` |
+| `verify-gate` | Sends a reply back once when the turn edited code and ran no build or test after the last edit, or whose JavaScript or TypeScript edits added an import cycle. In a project with a verify skill, it also logs code commits made with no verify run. In a repository that holds `scripts/render-check.mjs`, an edited `README.md`, `README.ru.md`, `CHANGELOG.md` or docs page (not `docs/promo/`) also needs fresh screenshots and a `verdict.md` that starts with PASS in `.proof/<page>/`. | Before a reply ends, and before a commit | Yes | `VERIFY_GATE=off` |
 | `workflow-fence` | Refuses Claude Code's own `/deep-research` inside Nimbalyst or a headless run, where it cannot be stopped, and says to run it in the terminal. A guard. | Before a workflow starts | Yes | `WORKFLOW_FENCE=off` |
 
 ## Hooks in the side-work folders
@@ -99,4 +102,5 @@ Some hooks have a second switch for one part of what they do.
 - `SHIP_CHECK=off` lets a raw deploy command through `push-key-scan`.
 - `VERIFY_GATE_COMMIT=enforce` makes `verify-gate` refuse, once, a code commit that has no verify run after the last
   code edit. By default it only logs the commit.
+- `VERIFY_GATE_CYCLES=off` turns off `verify-gate`'s import-cycle check alone.
 - `VERIFY_PATTERN` is a regular expression that replaces `verify-gate`'s list of build and test commands.

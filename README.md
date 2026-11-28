@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/tigran-martirosian/ai-coding-setup/releases/latest"><img src="docs/img/badge-release.svg" alt="Latest release"></a>
-  <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml/badge.svg?branch=main" alt="Tests"></a>
+  <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
   <a href="LICENSE"><img src="docs/img/badge-licence.svg" alt="Licence: source-available, not open source"></a>
   <img src="docs/img/badge-platforms.svg" alt="Platforms: Windows and macOS">
 </p>
@@ -19,7 +19,7 @@
   <a href="#install">Install</a> · <a href="docs/getting-started.md">Getting started</a> · <a href="docs/how-it-works/overview.md">How it works</a> · <a href="docs/README.md">Docs</a>
 </p>
 
-https://github.com/user-attachments/assets/6384f243-b336-4dae-b890-b14bfb9e6847
+https://github.com/user-attachments/assets/6644599a-eec2-42f3-9b0a-befaf76415ff
 
 - **Big jobs, planned and reviewed.** Questions, a spec, helpers building the parts side by side, a review against the spec.
 - **Claims checked against the log.** Hooks compare Claude's claims with Claude Code's log and send a false claim back.
@@ -100,7 +100,7 @@ A turn that edits code but runs no build or test does not end. The `verify-gate`
 
 > verify-gate: code was edited this turn (cart.ts) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.
 
-Other checks catch a link Claude never opened and a reply that answers nothing. All 32 hooks, guards and off switches: [Hooks](docs/reference/hooks.md).
+Other checks catch a link Claude never opened and a reply that answers nothing. All 35 hooks, guards and off switches: [Hooks](docs/reference/hooks.md).
 
 ### Research with tags
 
@@ -121,12 +121,13 @@ Claude Code sends your work to Anthropic. Stratus adds:
 | What | Where | When | Off switch |
 |---|---|---|---|
 | Your Claude sign-in, to read plan use | api.anthropic.com | At most every 5 minutes | `PLAN_USAGE_LOGGER=off` |
-| Update checks, and updates that install without asking | GitHub | Every 12 hours | `UPDATE_CHECK=off`, `AUTO_UPDATE=off` |
-| Project files, to draw the project map | Anthropic | New projects; large existing ones after your yes; then weekly | `MAP_NUDGE=off` |
-| Addresses of pages the local Firecrawl page reader can't open | Firecrawl's cloud | If you installed Firecrawl | `FIRECRAWL_CLOUD=off` |
-| Project and package names, when Claude checks a version | endoflife.date, GitHub, package registries | During a job | None |
+| Update checks and automatic updates | GitHub | Every 12 hours | `UPDATE_CHECK=off`, `AUTO_UPDATE=off` |
+| Project files, to draw the project map | Anthropic | New projects, others after your yes; then weekly | `MAP_NUDGE=off` |
+| Page addresses local Firecrawl can't open | Firecrawl's cloud | If you installed Firecrawl | `FIRECRAWL_CLOUD=off` |
+| Project and package names, for version checks | endoflife.date, GitHub, package registries | During a job | None |
 | Sessions, encrypted end to end; alerts and sent files in plain text | Telegram; the phone app's relay | With the phone app | `node ~/.claude/skills/phone-bot/pc/setup.mjs remove` |
-| Encrypted backups | Your Backblaze B2 storage | Only with `/backup` | `/backup off` |
+| Encrypted backups | Your Backblaze B2 storage | With `/backup` | `/backup off` |
+| Anonymous counts, no content | A usage endpoint | Daily | `USAGE_REPORT=off` |
 
 No hosted relay: run your own bot and relay ([Phone app](phone/README.md)) or join one by invite. The relay also serves the phone page, so you trust its owner. Backups are tested against a local folder, not yet against Backblaze.
 

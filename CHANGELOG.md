@@ -6,6 +6,19 @@ Each entry describes the setup as it was at that release, so older entries name 
 
 ## [Unreleased]
 
+## [26.7.1] - 2026-11-28
+
+- Right after a chat's context is compressed, Claude finishes the step it is on, commits and hands off to a fresh session, so a long chat stops re-sending its whole history. Turn it off with `COMPACT_HANDOFF=off`.
+- A worker brief too big for one helper (more than 8 files to change, 8 numbered items, 6 DONE WHEN cases or 6,000 characters) is refused before the helper starts, with the counts named, so the job is split into slices instead of running out half done. Turn it off with `BRIEF_SIZE_GUARD=off`.
+- The writing skill names any figure a rewrite changed, so a number never shifts unnoticed.
+- The quick security check looks for symlink and junction escapes in path guards.
+- An install without Nimbalyst says its extensions were skipped.
+- A lead slice's tracker step closes only when the lead merges it.
+- Once a day the setup sends an anonymous count of what it does not yet cover: commands it does not know, tools you added (names only), errors and long waits, file types and kinds of work. It never sends your prompts, replies, code, file names, paths or projects. Turn it off with `USAGE_REPORT=off`.
+- Research helpers look on X as well as Reddit for opinions, and start with the research skill loaded.
+- A note to a spawned session reaches it by its session id.
+- A turn that leaves JavaScript or TypeScript files importing each other in a new loop is sent back once to break it, the loop named. Turn it off with `VERIFY_GATE_CYCLES=off`.
+
 ## [26.7] - 2026-11-26
 
 - Reddit and X links and searches read the threads themselves: a new reader (`workers/social/social.mjs`) and a hook that sends Reddit and X fetches to it. Where it can't read, the plain search goes on.

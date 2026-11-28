@@ -22,8 +22,17 @@ import path from "node:path";
 //   - partial: the app's turn-limit note first (TURN_LIMIT_RE), a line that starts with BLOCKED, or a "what is left" / "left to
 //     do" / "not done" line that is not followed by nothing or none: the helper stopped with work open;
 //   - success: any other report. Words in the middle of a line don't count, so a report that quotes "BLOCKED" is still success.
-// A background launch (a status other than completed) has no report yet, and its end comes as a task notification no hook sees,
-// so it gets no result; neither does a helper resumed by SendMessage.
+// A background launch (a status other than completed) has no report yet: its end comes as a task notification, which no
+// tool hook sees but the session transcript keeps (a queue-operation line, later the user turn it became). So the hook also
+// runs at the session's Stop (the dispatcher's stop group): with open lines of this session (no result, a toolUseId), it reads
+// the transcript's last 2 MB for <task-notification> blocks and fills each open line its <tool-use-id> names. Of an id's
+// notices then in the transcript the newest wins (a helper resumed by SendMessage notifies again); a filled line is not
+// filled again, so a resume after that keeps the first result. A later copy of the same notice keeps the first's time.
+// completed is sorted like a report (sortResult, on <result>); failed is fail and killed partial, both with the
+// <summary> as why; <usage> gives totalTokens, totalToolUseCount and totalDurationMs (tags, or "name: N" lines in older
+// transcripts); endedAt is the notice's timestamp, null when its line has none. Tag text is unescaped (&lt; &amp;).
+//   node agent-run-log.mjs --backfill   fills every open line from its session's saved transcript (the projects folder,
+//   AGENT_RUN_LOG_PROJECTS in tests, read whole) and prints "filled N of M".
 // Writes no stdout, so it never touches the input map-brief rewrites. Keeps the file at its last 500 lines. Fails open: any error is one
 // line on stderr, exit 0. AGENT_RUN_LOG=off disables it; AGENT_RUN_LOG_FILE moves the log (tests); AGENT_RUN_LOG_AGENTS replaces the
 // ~/.claude/agents folder (tests).
@@ -202,7 +211,179 @@ function logResult(event) {
   ]);
 }
 
+const NOTE_RE = /<task-notification>([\s\S]*?)<\/task-notification>/g;
+const SWEEP_BYTES = 2 * 1024 * 1024;
+const PROJECTS =
+  process.env.AGENT_RUN_LOG_PROJECTS ||
+  path.join(os.homedir(), ".claude", "projects");
+// A tag's text, its escapes undone (the transcript keeps "&lt;" and "&amp;")
+const unescapeTag = (text) =>
+  text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+const tag = (block, name) => {
+  const text = block.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1];
+  return text === undefined ? undefined : unescapeTag(text);
+};
+// A total in <usage>: a tag (<tool_uses>12</tool_uses>) or, in older transcripts, a "tool_uses: 12" line
+const usageValue = (usage, name) =>
+  tag(usage, name) ??
+  usage.match(new RegExp(`(?:^|\\n)\\s*${name}:\\s*([\\d.]+)`))?.[1];
+
+// The task notifications in a transcript's lines: tool-use id -> the newest notice
+function notices(lines) {
+  const out = new Map();
+  for (const line of lines) {
+    if (!line.includes("<task-notification>")) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue; // the tail's first line can be cut
+    }
+    const content =
+      entry?.type === "queue-operation"
+        ? entry.content
+        : entry?.message?.content;
+    const body =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content
+              .map((b) => (typeof b?.text === "string" ? b.text : ""))
+              .join("\n")
+          : "";
+    for (const m of body.matchAll(NOTE_RE)) {
+      const id = tag(m[1], "tool-use-id")?.trim();
+      if (!id) continue;
+      const prev = out.get(id);
+      if (prev?.block === m[1]) continue; // the same notice again: its first time stands
+      out.set(id, { block: m[1], at: entry.timestamp || prev?.at || null });
+    }
+  }
+  return out;
+}
+
+// A notice as the fields of a result
+function noticeResult({ block, at }) {
+  const status = tag(block, "status")?.trim();
+  const summary = short(tag(block, "summary") ?? status ?? "no summary");
+  const sorted =
+    status === "completed"
+      ? sortResult({
+          hook_event_name: "PostToolUse",
+          tool_response: tag(block, "result") ?? "",
+        })
+      : status === "failed"
+        ? { result: "fail", why: summary }
+        : { result: "partial", why: summary };
+  const done = { ...sorted };
+  // the raw <usage> text: unescaped, its inner tags would read the same, so match on the raw block
+  const usage = block.match(/<usage>([\s\S]*?)<\/usage>/)?.[1] || "";
+  for (const [key, name] of [
+    ["totalTokens", "subagent_tokens"],
+    ["totalToolUseCount", "tool_uses"],
+    ["totalDurationMs", "duration_ms"],
+  ]) {
+    const value = usageValue(usage, name);
+    const n = Number(value);
+    if (value !== undefined && value !== "" && Number.isFinite(n))
+      done[key] = n;
+  }
+  done.endedAt = at; // null when the transcript line has no timestamp: no end time is made up
+  return done;
+}
+
+// Fills the open lines (no result, a toolUseId) that `pick` accepts from `found`; returns how many
+function fill(lines, found, pick) {
+  let filled = 0;
+  for (let i = 0; i < lines.length; i++) {
+    let run;
+    try {
+      run = JSON.parse(lines[i]);
+    } catch {
+      continue;
+    }
+    if (!run || run.result || !run.toolUseId || !pick(run)) continue;
+    const notice = found(run)?.get(run.toolUseId);
+    if (!notice) continue;
+    lines[i] = JSON.stringify({ ...run, ...noticeResult(notice) });
+    filled++;
+  }
+  return filled;
+}
+
+const openRuns = (lines) =>
+  lines
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter((run) => run && !run.result && run.toolUseId);
+
+// At Stop: this session's open lines from the end of its transcript
+// The log is read again right before it is written, so lines other sessions add while the transcript is parsed stay.
+function sweep(event) {
+  const session = event.session_id || null;
+  if (
+    !event.transcript_path ||
+    !openRuns(readLog()).some((r) => r.session === session)
+  )
+    return;
+  const found = notices(tail(event.transcript_path, SWEEP_BYTES));
+  const lines = readLog();
+  if (
+    fill(
+      lines,
+      () => found,
+      (run) => run.session === session,
+    )
+  )
+    writeLog(lines);
+}
+
+// By hand: every open line, from each session's whole saved transcript
+function backfill() {
+  const lines = readLog();
+  const sessions = new Set(
+    openRuns(lines)
+      .map((r) => r.session)
+      .filter(Boolean),
+  );
+  const files = new Map();
+  for (const dir of fs.readdirSync(PROJECTS)) {
+    for (const s of sessions) {
+      const file = path.join(PROJECTS, dir, `${s}.jsonl`);
+      if (!files.has(s) && fs.existsSync(file)) files.set(s, file);
+    }
+  }
+  const cache = new Map();
+  for (const [s, file] of files)
+    cache.set(s, notices(fs.readFileSync(file, "utf8").split("\n")));
+  const fresh = readLog(); // read again: lines added while the transcripts were read stay
+  const total = openRuns(fresh).length;
+  const filled = fill(
+    fresh,
+    (run) => cache.get(run.session),
+    () => true,
+  );
+  if (filled) writeLog(fresh);
+  console.log(`agent-run-log: filled ${filled} of ${total} open lines`);
+}
+
+if (process.argv.includes("--backfill")) {
+  if ((process.env.AGENT_RUN_LOG || "").toLowerCase() !== "off") backfill();
+  process.exit(0);
+}
+
 runHook("agent-run-log", (event) => {
+  if (event.hook_event_name === "Stop") return sweep(event);
   const input = event.tool_input;
   if (!["Agent", "Task"].includes(event.tool_name)) return;
   if (["PostToolUse", "PostToolUseFailure"].includes(event.hook_event_name))

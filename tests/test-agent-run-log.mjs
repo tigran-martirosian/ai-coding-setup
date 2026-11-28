@@ -485,6 +485,231 @@ check(
   JSON.stringify(l),
 );
 
+// A one-line foreground reply in the hand-back frame, as a plain string and as bare blocks (no crash, a string read)
+for (const [id, response] of [
+  ["t14s", "[Subagent hand-back]\nNO SKILL LOADED"],
+  ["t14b", [{ type: "text", text: "NO SKILL LOADED" }, { type: "image" }]],
+]) {
+  const got = helper(id, "", { response });
+  check(
+    `a one-line reply (${typeof response === "string" ? "string" : "bare blocks"}) is logged, no crash`,
+    got?.result === "success" && r.status === 0 && r.stderr === "",
+    JSON.stringify(got) + r.stderr,
+  );
+}
+
+// A background helper's end: its task notification in the session transcript, read at the session's Stop
+const note = (id, status, result, usage = true) =>
+  [
+    "<task-notification>",
+    `<task-id>a${id}</task-id>`,
+    `<tool-use-id>${id}</tool-use-id>`,
+    "<output-file>C:\\t\\x.output</output-file>",
+    `<status>${status}</status>`,
+    `<summary>Agent "x" ${status === "failed" ? "failed: API error" : status === "killed" ? "was stopped by Claude" : "finished"}</summary>`,
+    result === null ? "" : `<result>${result}</result>`,
+    usage
+      ? "<usage><subagent_tokens>9100</subagent_tokens><tool_uses>42</tool_uses><duration_ms>61000</duration_ms></usage>"
+      : "",
+    "</task-notification>",
+  ].join("\n");
+const queued = (content, timestamp = "2026-11-28T03:00:00.000Z") =>
+  JSON.stringify({
+    type: "queue-operation",
+    operation: "enqueue",
+    timestamp,
+    sessionId: "bg",
+    content,
+  });
+const open = (id, session = "bg", description = `Helper ${id}`) =>
+  JSON.stringify({
+    ts: "2026-11-28T02:00:00.000Z",
+    session,
+    cwd: bare,
+    description,
+    type: "worker-code",
+    model: "opus",
+    effort: "high",
+    toolUseId: id,
+  });
+const bgLog = path.join(tmp, "bg.jsonl");
+const bgTranscript = path.join(tmp, "bg-session.jsonl");
+fs.writeFileSync(
+  bgLog,
+  [
+    open("b1"),
+    open("b2"),
+    open("b3"),
+    open("b4"),
+    open("b5"),
+    open("b6", "other"),
+  ].join("\n") + "\n",
+);
+fs.writeFileSync(
+  bgTranscript,
+  [
+    queued(note("b1", "completed", "Done: all fixes in.\nNothing left.")),
+    queued(
+      note(
+        "b2",
+        "completed",
+        "Done:\n- a\nWhat is left:\n- fix 4 and its test",
+      ),
+    ),
+    queued(note("b3", "failed", "Breaking the check once.")),
+    queued(note("b4", "killed", null, false)),
+    // the same helper resumed later: its newest notice wins
+    queued(note("b5", "completed", "BLOCKED S1: no access")),
+    queued(
+      note("b5", "completed", "Finished after the answer."),
+      "2026-11-28T04:00:00.000Z",
+    ),
+    queued(note("b6", "completed", "Other session's helper.")),
+    // the same notice as the user turn it became: read once
+    JSON.stringify({
+      type: "user",
+      message: {
+        content: note("b1", "completed", "Done: all fixes in.\nNothing left."),
+      },
+    }),
+  ].join("\n") + "\n",
+);
+const stop = {
+  hook_event_name: "Stop",
+  session_id: "bg",
+  cwd: bare,
+  transcript_path: bgTranscript,
+};
+r = run(stop, {}, bgLog);
+const byId = () =>
+  Object.fromEntries(
+    fs
+      .readFileSync(bgLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((x) => JSON.parse(x))
+      .map((x) => [x.toolUseId, x]),
+  );
+let bg = byId();
+check(
+  "background helper: its task notification fills result and totals at Stop",
+  bg.b1?.result === "success" &&
+    bg.b1.totalToolUseCount === 42 &&
+    bg.b1.totalTokens === 9100 &&
+    bg.b1.totalDurationMs === 61000 &&
+    bg.b1.endedAt === "2026-11-28T03:00:00.000Z" &&
+    r.stdout === "" &&
+    r.status === 0,
+  JSON.stringify(bg.b1) + r.stdout + r.stderr,
+);
+check(
+  "background helper: a report with work left is partial",
+  bg.b2?.result === "partial" && /left/i.test(bg.b2.why || ""),
+  JSON.stringify(bg.b2),
+);
+check(
+  "background helper: a failed one is fail with its summary",
+  bg.b3?.result === "fail" && /API error/.test(bg.b3.why || ""),
+  JSON.stringify(bg.b3),
+);
+check(
+  "background helper: a stopped (killed) one is partial, no totals",
+  bg.b4?.result === "partial" &&
+    /stopped/i.test(bg.b4.why || "") &&
+    !("totalToolUseCount" in bg.b4),
+  JSON.stringify(bg.b4),
+);
+check(
+  "background helper resumed: the newest notification wins",
+  bg.b5?.result === "success",
+  JSON.stringify(bg.b5),
+);
+check(
+  "another session's open line is left open at this Stop",
+  !bg.b6?.result,
+  JSON.stringify(bg.b6),
+);
+check(
+  "a sweep adds no lines",
+  fs.readFileSync(bgLog, "utf8").trim().split("\n").length === 6,
+);
+// Backfill: every open line, its transcript found under the projects folder by session id
+const projects = path.join(tmp, "projects");
+fs.mkdirSync(path.join(projects, "C--p"), { recursive: true });
+fs.copyFileSync(bgTranscript, path.join(projects, "C--p", "other.jsonl"));
+r = spawnSync(process.execPath, [HOOK, "--backfill"], {
+  encoding: "utf8",
+  env: {
+    ...process.env,
+    AGENT_RUN_LOG_FILE: bgLog,
+    AGENT_RUN_LOG_PROJECTS: projects,
+  },
+});
+bg = byId();
+check(
+  "--backfill fills open lines from each session's saved transcript",
+  bg.b6?.result === "success" && /filled 1 of 1/.test(r.stdout),
+  JSON.stringify(bg.b6) + r.stdout + r.stderr,
+);
+// Older transcripts: totals as "name: N" lines; escaped text; a line with no timestamp
+const oldLog = path.join(tmp, "bg-old.jsonl");
+const oldTranscript = path.join(tmp, "bg-old-session.jsonl");
+fs.writeFileSync(oldLog, `${open("c1")}\n${open("c2")}\n`);
+fs.writeFileSync(
+  oldTranscript,
+  [
+    queued(
+      [
+        "<task-notification>",
+        "<tool-use-id>c1</tool-use-id>",
+        "<status>completed</status>",
+        "<result>BLOCKED S1: a &amp;&amp; b &lt;both&gt; fail</result>",
+        "<usage>subagent_tokens: 142693\ntool_uses: 77\nduration_ms: 900000</usage>",
+        "</task-notification>",
+      ].join("\n"),
+    ),
+    JSON.stringify({
+      type: "queue-operation",
+      sessionId: "bg",
+      content: note("c2", "failed", "x"),
+    }),
+  ].join("\n") + "\n",
+);
+r = run({ ...stop, transcript_path: oldTranscript }, {}, oldLog);
+const old = Object.fromEntries(
+  fs
+    .readFileSync(oldLog, "utf8")
+    .trim()
+    .split("\n")
+    .map((x) => JSON.parse(x))
+    .map((x) => [x.toolUseId, x]),
+);
+check(
+  "older transcript: totals read from 'tool_uses: 77' lines",
+  old.c1?.totalToolUseCount === 77 &&
+    old.c1.totalTokens === 142693 &&
+    old.c1.totalDurationMs === 900000,
+  JSON.stringify(old.c1) + r.stderr,
+);
+check(
+  "escaped notice text is unescaped (&amp; becomes &, &lt; <)",
+  old.c1?.result === "partial" &&
+    old.c1.why === "BLOCKED S1: a && b <both> fail",
+  JSON.stringify(old.c1),
+);
+check(
+  "a notice line with no timestamp: endedAt is null, not the time of the sweep",
+  old.c2?.endedAt === null,
+  JSON.stringify(old.c2),
+);
+const bgOffLog = path.join(tmp, "bg-off.jsonl");
+fs.writeFileSync(bgOffLog, open("b1") + "\n");
+run(stop, { AGENT_RUN_LOG: "off" }, bgOffLog);
+check(
+  "AGENT_RUN_LOG=off: Stop fills nothing",
+  !JSON.parse(fs.readFileSync(bgOffLog, "utf8")).result,
+);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

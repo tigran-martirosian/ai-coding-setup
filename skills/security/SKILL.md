@@ -36,12 +36,13 @@ says so.
    `/security-review` into a Windows path and the review never starts. It reads the diff against the main branch and reports only findings
    it judges exploitable.
 2. Secrets in the change: `gitleaks git --log-opts="<base>..HEAD" .` when gitleaks is installed (free, seconds).
-3. Each finding: fix it with a test that fails first, or say in one line why it is not real.
+3. A change that guards a file path or an upload (a folder rule, a file the user names, a saved upload): check by hand that the guard resolves the path with `realpath` (Node `fs.realpathSync`) before comparing it with the allowed folder, so a symlink or a Windows junction inside that folder cannot point outside it. The built-in review catches `../` but mostly misses a link escape the change does not mention.
+4. Each finding: fix it with a test that fails first, or say in one line why it is not real.
 
 For a large pull request the person may ask for `/code-review ultra` (Anthropic's cloud runs many reviewers);
 offer it, and run it only when they ask, since it is the costliest review.
 
-Done when: every finding of steps 1 and 2 is fixed or answered, and the reply names the level and the count.
+Done when: every finding of steps 1 to 3 is fixed or answered, and the reply names the level and the count.
 
 ## Deep: a whole project, once
 

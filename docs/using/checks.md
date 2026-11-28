@@ -4,7 +4,7 @@ Stratus's checks are hooks: small Node.js scripts that Claude Code runs around a
 back with a reason. Claude Code logs every tool call in a session, and several hooks compare a reply with that log.
 For example, a reply that links a page Claude never opened goes back to Claude before you see it.
 
-This page describes what the checks do from your side. All 31 hooks, each with its off switch, are listed in the
+This page describes what the checks do from your side. All 35 hooks, each with its off switch, are listed in the
 [hooks reference](../reference/hooks.md). To see how a hook is built, read
 [hooks/link-gate.mjs](../../hooks/link-gate.mjs) first.
 
@@ -18,6 +18,9 @@ This page describes what the checks do from your side. All 31 hooks, each with i
 - **Tests after code.** A turn that edited a code file and ran no build or test after the last edit is sent back
   once to run one (`verify-gate`). The hook never runs a command itself, and a run of the project's verify skill
   counts.
+- **Import cycles.** A turn whose edits leave JavaScript or TypeScript files importing each other in a loop the
+  last commit did not have is sent back once, the loop named, to break it (`verify-gate`). Type-only imports don't
+  count.
 - **Code commits.** In a project with a [verify skill](projects.md#set-up-a-new-project-new-project) (the
   project's own steps that prove a change works), `verify-gate` also notes each `git commit` of code with no
   verify run since the last code edit. By default it only logs it; `VERIFY_GATE_COMMIT=enforce` refuses such a
@@ -105,11 +108,12 @@ Each hook's off switch is an environment variable named after it: `LINK_GATE=off
 |---|---|
 | `VERIFY_GATE=off` | Turns off `verify-gate`, for a project whose build or tests are slow. |
 | `VERIFY_PATTERN` | A regular expression, matched without regard to case against the whole shell command. It replaces `verify-gate`'s list of build and test commands. |
+| `VERIFY_GATE_CYCLES=off` | Turns off `verify-gate`'s import-cycle check alone. |
 | `VERIFY_GATE_COMMIT` | `observe` (the default) only logs a code commit with no verify run; `enforce` refuses it once; `off` turns the commit check off. |
 | `SESSION_CLEANUP` | Unset: `session-cleanup` only reports what it would close. `on`: it closes it. `off`: the hook is off. |
 | `SESSION_CLEANUP_IDLE_HOURS` | How long a session's transcript must go unwritten before `session-cleanup` treats the session as ended. The default is 3. |
 | `HOOK_CRASH_ALARM=off` | Stops the start-of-session line about hook crashes. |
 
-[How to](../HOW-TO.md#turn-a-hook-off) shows how to set them. `VERIFY_PATTERN` and `VERIFY_GATE_COMMIT` are read
+[How to](../HOW-TO.md#turn-a-hook-off) shows how to set them. `VERIFY_PATTERN`, `VERIFY_GATE_COMMIT` and `VERIFY_GATE_CYCLES` are read
 from the same places as `VERIFY_GATE`, so one project can differ; the
 [hooks reference](../reference/hooks.md#turning-a-hook-off) says which switches each hook reads from settings files.

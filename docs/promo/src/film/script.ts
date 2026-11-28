@@ -306,7 +306,7 @@ export const SCRIPT: Shot[] = [
     body: {
       kind: "tiles",
       tiles: [
-        { name: "32 hooks", note: "Small checks on each step" },
+        { name: "35 hooks", note: "Small checks on each step" },
         { name: "32 skills", note: "Commands like /lead" },
         { name: "8 extensions", note: "Job Tracker, commands, side panels" },
         { name: "7 agents", note: "Workers and reviewers" },
@@ -357,8 +357,8 @@ export const SCRIPT: Shot[] = [
       kind: "install",
       code: "node install.mjs",
       output: [
-        "Copied 32 hooks",
-        "Copied 30 skills",
+        "Copied 35 hooks",
+        "Copied 32 skills",
         "Copied 7 agents",
         "Added 8 extensions for Nimbalyst",
         "Kept your own settings",

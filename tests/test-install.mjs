@@ -150,6 +150,35 @@ ok(
   /extensions are not installed by this script.*npm run build/.test(dry.out),
 );
 ok("dry run changes nothing", fs.readdirSync(home), []);
+// No Nimbalyst on this computer: the extensions are skipped with that reason, not a list of build steps to do by
+// hand (APPDATA is where Windows keeps it; a Mac looks in the home folder, so the case runs on Windows only)
+if (process.platform === "win32") {
+  const noApp = path.join(tmp, "no-nimbalyst-appdata");
+  fs.mkdirSync(noApp);
+  const r = spawnSync(
+    process.execPath,
+    [
+      INSTALL,
+      "--home",
+      path.join(tmp, "no-nimbalyst-home"),
+      "--extensions",
+      "yes",
+      "--dry-run",
+    ],
+    {
+      encoding: "utf8",
+      env: { ...process.env, PATH: emptyPath, Path: emptyPath, APPDATA: noApp },
+    },
+  ).stdout;
+  ok(
+    "no Nimbalyst: its extensions are skipped, with no build steps to do by hand",
+    [
+      /Nimbalyst was not found.*extensions were skipped/.test(r),
+      r.includes("npm run build"),
+    ],
+    [true, false],
+  );
+}
 // install-ext copies dist/, so it builds first: a stale or missing dist/ is never what gets installed
 ok(
   "every extension's install-ext builds before it copies dist/",
