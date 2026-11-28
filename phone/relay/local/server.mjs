@@ -105,9 +105,22 @@ function loadStore(file) {
   if (!fs.existsSync(file)) return new Map();
   return new Map(v8.deserialize(fs.readFileSync(file)));
 }
+// On Windows a rename over a file another process holds for a moment (a virus scanner, the indexer, a reader of the
+// old copy) fails with EPERM, EBUSY or EACCES; it is tried again for about a second before that error is thrown.
+const pause = (ms) =>
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 function saveStore(file, map) {
   fs.writeFileSync(`${file}.part`, v8.serialize([...map]));
-  fs.renameSync(`${file}.part`, file);
+  for (let tries = 1; ; tries++) {
+    try {
+      fs.renameSync(`${file}.part`, file);
+      return;
+    } catch (err) {
+      if (tries >= 20 || !["EPERM", "EBUSY", "EACCES"].includes(err.code))
+        throw err;
+      pause(50);
+    }
+  }
 }
 
 // Starts the local relay. Returns { url, map, hub, idle(), heal(), sleep(), close() }: idle() waits until the Hub has
