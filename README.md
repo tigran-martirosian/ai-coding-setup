@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/tigran-martirosian/ai-coding-setup/releases/latest"><img src="docs/img/badge-release.svg" alt="Latest release"></a>
-  <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml/badge.svg?branch=main" alt="Tests"></a>
+  <a href="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml"><img src="https://github.com/tigran-martirosian/ai-coding-setup/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
   <a href="LICENSE"><img src="docs/img/badge-licence.svg" alt="Licence: source-available, not open source"></a>
   <img src="docs/img/badge-platforms.svg" alt="Platforms: Windows and macOS">
 </p>
