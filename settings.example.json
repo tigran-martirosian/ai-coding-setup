@@ -68,6 +68,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/compact-handoff.mjs",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PreToolUse": [

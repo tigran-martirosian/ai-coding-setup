@@ -19,7 +19,7 @@
   <a href="#установка">Установка</a> · <a href="docs/getting-started.md">Первые шаги</a> · <a href="docs/how-it-works/overview.md">Как это устроено</a> · <a href="docs/README.md">Документация</a>
 </p>
 
-https://github.com/user-attachments/assets/6384f243-b336-4dae-b890-b14bfb9e6847
+https://github.com/user-attachments/assets/6644599a-eec2-42f3-9b0a-befaf76415ff
 
 - **Большие задачи с планом и ревью.** Вопросы, спек, помощники, которые параллельно собирают части, ревью по спеку.
 - **Заявления сверяются с журналом.** Хуки сравнивают заявления Claude с журналом Claude Code и возвращают ложное заявление на исправление.
@@ -100,7 +100,7 @@ node install.mjs --uninstall
 
 > verify-gate: code was edited this turn (cart.ts) and no build or test ran after the last edit. Run the project's build or test now, then finish; if it has none, say so in the reply.
 
-Другие проверки ловят ссылку, которую Claude не открывал, и ответ, который ничего не отвечает. Все 31 хук, стражи и выключатели: [Хуки](docs/reference/hooks.md).
+Другие проверки ловят ссылку, которую Claude не открывал, и ответ, который ничего не отвечает. Все 33 хука, стражи и выключатели: [Хуки](docs/reference/hooks.md).
 
 ### Исследования с метками
 
@@ -127,6 +127,7 @@ Claude Code отправляет вашу работу в Anthropic. Stratus д�
 | Названия проектов и пакетов, когда Claude проверяет версию | endoflife.date, GitHub, реестры пакетов | Во время работы | Нет |
 | Сессии со сквозным шифрованием; уведомления и отправленные файлы открытым текстом | Telegram; релей приложения для телефона | С приложением для телефона | `node ~/.claude/skills/phone-bot/pc/setup.mjs remove` |
 | Зашифрованные резервные копии | Ваше хранилище Backblaze B2 | Только с `/backup` | `/backup off` |
+| Анонимные счётчики, без содержимого | Сервер статистики | Раз в день | `USAGE_REPORT=off` |
 
 Общего релея нет: запустите своего бота и релей ([Приложение для телефона](phone/README.md)) или подключитесь к чужому по приглашению. Релей же отдаёт страницу приложения, поэтому вы доверяете его владельцу. Резервное копирование проверено на локальной папке, на Backblaze ещё нет.
 

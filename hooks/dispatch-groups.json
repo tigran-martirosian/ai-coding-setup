@@ -80,6 +80,12 @@
       "tools": "Agent|Task"
     },
     {
+      "hook": "hooks/brief-size-guard.mjs",
+      "args": [],
+      "guard": true,
+      "tools": "Agent|Task"
+    },
+    {
       "hook": "hooks/file-name-note.mjs",
       "args": [],
       "guard": false,
@@ -95,6 +101,8 @@
   ],
   "stop": [
     { "hook": "hooks/plan-usage-logger.mjs", "args": [], "guard": false },
+    { "hook": "hooks/agent-run-log.mjs", "args": [], "guard": false },
+    { "hook": "hooks/usage-report-hook.mjs", "args": [], "guard": false },
     { "hook": "hooks/verify-gate.mjs", "args": [], "guard": false },
     { "hook": "hooks/no-response-gate.mjs", "args": [], "guard": false },
     { "hook": "hooks/file-link-gate.mjs", "args": [], "guard": false },

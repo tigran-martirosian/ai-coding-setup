@@ -66,6 +66,10 @@ word. Then confirm the fix kept every fact and every caveat the reader needs.
 For a draft in a file, `node ~/.claude/skills/writing/tell-check.mjs <file>` lists the marks a script can find
 (stdin works too). A mark is a place to look, not a verdict: a quoted phrase or a literal use stays.
 
+A rewrite of an existing text keeps its figures. `node ~/.claude/skills/writing/figure-check.mjs <old> <new>` (or
+just `<file>` to compare with its last commit) names every number that went or came; each one is a change the user
+asked for, or it goes back.
+
 ## A page: the fresh reader
 
 A page is a file people open on their own: a README, docs, a guide, release notes, the film. Once you know how

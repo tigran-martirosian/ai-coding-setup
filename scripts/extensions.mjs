@@ -186,6 +186,11 @@ export function extensions(ctx) {
       JSON.stringify(builtExt) !== JSON.stringify(state.extensions || {})
     )
       nextState.extensions = builtExt;
+  } else if (names.length && ctx.wantExt && !fs.existsSync(extHome)) {
+    // no Nimbalyst here: nothing to do by hand now; a run after Nimbalyst is installed builds them
+    say(
+      `Nimbalyst was not found, so its extensions were skipped; run this install again after installing Nimbalyst to add them.`,
+    );
   } else if (names.length) {
     say(
       `Nimbalyst extensions are not installed by this script: ${names.join(", ")}. For each one, in ${fwd(path.join(REPO, "extensions"))}/<name>: npm ci, npm run build, npm run install-ext, then restart Nimbalyst.`,

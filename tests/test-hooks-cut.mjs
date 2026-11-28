@@ -73,6 +73,8 @@ const GROUPS = {
         "Edit|Write|Read|Bash|PowerShell|Grep|Glob|WebFetch|WebSearch|mcp__.*",
       ],
       ["hooks/map-brief.mjs", [], "Agent|Task"],
+      // 2026-11-28: a worker brief over one helper's turn limit is refused, after map-brief's rewrite
+      ["hooks/brief-size-guard.mjs", [], "Agent|Task"],
       // job 11a D7: file-name-note is a new note in the pre-tool group, on Write only (no Node process of its own)
       ["hooks/file-name-note.mjs", [], "Write"],
     ],
@@ -91,6 +93,10 @@ const GROUPS = {
     event: "Stop",
     hooks: [
       ["hooks/plan-usage-logger.mjs", [], undefined],
+      // 2026-11-28: fills background helpers' results from their task notifications
+      ["hooks/agent-run-log.mjs", [], undefined],
+      // 2026-11-27: the usage collector's throttled start (missing here since it was added)
+      ["hooks/usage-report-hook.mjs", [], undefined],
       ["hooks/verify-gate.mjs", [], undefined],
       ["hooks/no-response-gate.mjs", [], undefined],
       ["hooks/file-link-gate.mjs", [], undefined],

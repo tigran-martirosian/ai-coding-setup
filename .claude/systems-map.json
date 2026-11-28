@@ -151,6 +151,28 @@
       ]
     },
     {
+      "id": "brief-size-guard",
+      "name": "Worker brief size guard",
+      "what": "A pre-tool hook that refuses a worker brief too big for one helper's 80-turn limit (files to change, separate numbered items, DONE WHEN cases, characters; hooks/lib/brief-size.mjs measures), naming each count, so the lead splits the slice before a helper runs out of turns.",
+      "files": [
+        "hooks/brief-size-guard.mjs",
+        "hooks/lib/brief-size.mjs",
+        "tests/test-brief-size-guard.mjs"
+      ],
+      "group": "hooks",
+      "words": [
+        "brief.size",
+        "turn limit",
+        "BRIEF_SIZE_GUARD",
+        "slice"
+      ],
+      "rules": [
+        "A guard of the dispatcher's pre-tool group (guard: true, tools: Agent|Task), after map-brief: a crash stops only Agent calls; SYSTEMS MAP lines don't count toward the length.",
+        "The limits rest on a scan of saved worker runs; change them only with a new scan.",
+        "Only worker, worker-code, worker-full and worker-refactor briefs are checked."
+      ]
+    },
+    {
       "id": "nimbalyst-tool-gates",
       "name": "Nimbalyst tool gates",
       "what": "Hooks for Nimbalyst's own tools: a typing box on every question (the card first), pictures kept in the project, visible browser, session notes.",
@@ -271,7 +293,8 @@
       "rules": [
         "Writes nothing to stdout, so it never touches the Agent input map-brief rewrites.",
         "extensions/agents-panel/src/runs.js imports nothing: build.mjs inlines it into dist/index.js.",
-        "The panel never changes the app's own elements (the split's two heights aside): it adds only data-ap-* attributes and its own .ap-* elements."
+        "The panel never changes the app's own elements (the split's two heights aside): it adds only data-ap-* attributes and its own .ap-* elements.",
+        "Also in the dispatcher's stop group: at a reply's end it fills this session's background helpers' results from the task notifications in the transcript; --backfill does it for every open line."
       ]
     },
     {

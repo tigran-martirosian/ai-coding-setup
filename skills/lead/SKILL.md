@@ -19,8 +19,10 @@ still runs.
    spec's "Your words" and "Decided" already hold them. Save it as `docs/<date>-<job>-plan.md` beside the spec.
    - **Split only at a clean interface or for real parallel work.** One session per coherent unit; a feature stays
      with its tests; steps that run one after another on the same files are one slice. Every extra slice is a fresh
-     worker that rereads the code. A slice must still fit one worker's turn limit: a sweep across the whole repo is
-     split by folder.
+     worker that rereads the code. A slice must still fit one worker's turn limit, and `brief-size-guard` checks it:
+     it refuses a worker brief with more than 8 files to change, 8 numbered items (fixes, findings), 6 DONE WHEN cases
+     or 6,000 characters, so plan each slice and fix list under those. A sweep across the whole repo is split by
+     folder.
    - **Size is a count of slices and worker sessions.** No time estimates, no summed call ceilings. A time limit the
      user names is a scope limit in the spec's "Your words", not a size.
 2. Launch the `plan-reviewer` once with the user's ask in their own words, the spec and the plan. Fix what it finds
@@ -47,8 +49,9 @@ still runs.
   slice, then remove the worktree and its branch (reference.md). A conflict goes to `worker-code` with both slices'
   briefs.
 - **Step line:** a commit that starts or finishes a slice carries one line `Step: <step> running` or
-  `Step: <step> done` (`<step>` the tracker step's name); `done` only after the slice's check passed. Each brief
-  that commits says which line its commit ends with.
+  `Step: <step> done` (`<step>` the tracker step's name); `done` only on the lead's merge commit into the job
+  branch, after the check and any review fixes. A worker's commit says `running`. Each brief that commits says
+  which line its commit ends with.
 - **Plan file:** after each slice fill its Progress row (state, commit, worker sessions used, surprises), redraw
   the thin later slices from what it found, and (in Nimbalyst) run `where-are-we` so the tracker matches. Each cut or dropped
   slice names the done-when line it touches; it gets no second plan review.

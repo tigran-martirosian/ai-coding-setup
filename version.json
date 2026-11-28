@@ -1,10 +1,15 @@
 {
-  "version": "26.7",
+  "version": "26.7.1",
   "claudeCodeMin": "2.1.321",
   "projectPass": 6,
-  "date": "2026-11-26",
-  "summary": "Reddit and X threads read in full, a diagnose skill, a phone inbox reader, tracker steps closed by commits, and program updates.",
+  "date": "2026-11-28",
+  "summary": "Long chats hand off after a compaction, worker briefs sized to fit, import loops caught, anonymous usage counts.",
   "releases": {
+    "26.7.1": {
+      "kind": "quiet",
+      "important": true,
+      "headline": "Long chats hand off to a fresh session, and helpers get jobs they can finish"
+    },
     "26.6.3": {
       "kind": "quiet",
       "important": true,

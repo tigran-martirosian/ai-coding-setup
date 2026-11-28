@@ -150,6 +150,17 @@ check(
     !KEY.test(read("settings.example.json")),
 );
 
+// ---- quick: a change that guards a file path or an upload is also checked for link escapes (symlinks and
+// Windows junctions), which the built-in review misses when the change does not mention them
+const quick = skill.split(/^## Quick/m)[1]?.split(/^## /m)[0] || "";
+check(
+  "the quick level checks a path or upload guard for symlink and junction escapes, resolved with realpath",
+  /symlink/i.test(quick) &&
+    /junction/i.test(quick) &&
+    /realpath/.test(quick) &&
+    /upload/i.test(quick),
+);
+
 // ---- no new hook: the skill folder holds only text, and nothing of it is wired in the settings example
 check(
   "the skill folder holds only markdown (no hook or script of ours)",

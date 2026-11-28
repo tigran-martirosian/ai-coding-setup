@@ -21,6 +21,9 @@ import { crashLog } from "./lib/crash-log.mjs";
 //   and test commands. VERIFY_GATE=off disables the gate: the opt-out for a project whose suite is slow. Both are read from the
 //   environment, then from "env" in .claude/settings.local.json and settings.json of the project and the folders above it
 //   (settings env may not reach a hook process).
+// - Import cycles (lib/import-cycles.mjs): a JS or TS file the main session edited this turn that now sits on a loop of
+//   relative imports the last commit did not have blocks too, naming the loop, also after a build passed: break it,
+//   then finish. VERIFY_GATE_CYCLES=off turns this part off (environment or the project's settings env).
 // Blocks at most once per turn, remembered in ~/.claude/hooks/state/verify-gate/<session>.json: stop_hook_active alone
 // is not enough, since a block by any other Stop hook sets it too. The turn starts at the user's last typed message.
 // --pre (PreToolUse on Bash, PowerShell and the Nimbalyst commit tool): the commit check. A code commit (a code file
@@ -57,6 +60,7 @@ import {
   observeLine,
   runHook,
 } from "./lib/hook-io.mjs";
+import { isScript, newCycles } from "./lib/import-cycles.mjs";
 import { fileKey, gitBashToNative, sessionKey } from "./lib/paths.mjs";
 import { setting } from "./lib/settings-env.mjs";
 import { readJson, stateFile, sweep, writeJson } from "./lib/state.mjs";
@@ -937,6 +941,40 @@ function codeCheck(
   return verdict === "refused" ? text : null;
 }
 
+// The import cycles the main session's JS/TS edits this turn added; [] when the check is off. A failed git call is
+// logged and gives [], so the rest of the gate still runs.
+function cyclesOf(entries, cwd) {
+  if (setting("VERIFY_GATE_CYCLES").toLowerCase() === "off") return [];
+  const { failed } = resultsOf(entries);
+  const files = new Set();
+  for (const e of entries) {
+    if (
+      e.type !== "assistant" ||
+      e.isSidechain ||
+      !Array.isArray(e.message?.content)
+    )
+      continue;
+    for (const b of e.message.content) {
+      const p = b.input?.file_path;
+      if (
+        b.type === "tool_use" &&
+        !failed.has(b.id) &&
+        EDIT_TOOLS.test(b.name) &&
+        p &&
+        isScript(p)
+      )
+        files.add(path.resolve(cwd || process.cwd(), gitBashToNative(p)));
+    }
+  }
+  if (!files.size) return [];
+  try {
+    return newCycles([...files]);
+  } catch (err) {
+    crashLog(NAME, err);
+    return [];
+  }
+}
+
 // VERIFY_GATE and VERIFY_PATTERN can sit in the project's settings env (setting() looks in settings.local.json too,
 // and in the folders above the project)
 if (isMain(import.meta.url)) {
@@ -963,7 +1001,8 @@ if (isMain(import.meta.url)) {
             custom ? new RegExp(custom, "i") : null,
           ); // a bad pattern throws: logged, fails open
           const needs = missingProof(entries, input.cwd);
-          if (!due && !needs.length) return;
+          const loops = cyclesOf(entries, input.cwd);
+          if (!due && !needs.length && !loops.length) return;
           if (/\?\s*$/.test(String(input.last_assistant_message || ""))) return;
           // Once per turn: the state file holds the turn this hook last blocked; files untouched for two days go
           const marker = stateFile("verify-gate", sessionKey(input.session_id));
@@ -979,6 +1018,15 @@ if (isMain(import.meta.url)) {
           if (needs.length)
             parts.push(
               `what a person reads was edited this turn (${listOf(needs.map((n) => n.page))}) with no fresh proof. ${proofTodo(needs)} Then finish.`,
+            );
+          if (loops.length)
+            parts.push(
+              `this turn's edits made an import cycle (${loops
+                .slice(0, 3)
+                .map((l) => l.join(" → "))
+                .join(
+                  "; ",
+                )}): files that import each other load half-built. Break it (move the shared part into its own file, or make one import type-only), then finish.`,
             );
           emit.block(`${VERIFY_GATE} ${parts.join(" ")}`);
           sweep("verify-gate", 2);
