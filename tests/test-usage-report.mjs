@@ -28,6 +28,18 @@ const proj = path.join(HOME, "projects", "C--work");
 fs.mkdirSync(proj, { recursive: true });
 fs.mkdirSync(path.join(HOME, "skills", "my-skill"), { recursive: true }); // a skill the person added
 fs.mkdirSync(path.join(HOME, "skills", "handoff"), { recursive: true }); // shipped: must NOT count as added
+// the person's own command, and a project whose own command carries the project's name: neither may be reported
+fs.mkdirSync(path.join(HOME, "commands"), { recursive: true });
+fs.writeFileSync(path.join(HOME, "commands", "my-command.md"), "x");
+const PROJECT = path.join(tmp, "acme-project");
+fs.mkdirSync(path.join(PROJECT, ".claude", "commands"), { recursive: true });
+fs.writeFileSync(
+  path.join(PROJECT, ".claude", "commands", "acme-deploy.md"),
+  "x",
+);
+fs.mkdirSync(path.join(PROJECT, ".claude", "skills", "acme-build"), {
+  recursive: true,
+});
 // an MCP server the person added in the Claude config beside the home
 fs.writeFileSync(
   path.join(tmp, ".claude.json"),
@@ -50,6 +62,21 @@ const lines = [
     message: { role: "user", content: "/excel build me a sheet" },
   }, // unknown command
   { type: "user", message: { role: "user", content: "/handoff" } }, // shipped command: not missing
+  { type: "user", message: { role: "user", content: "/my-command" } }, // the person's own command
+  {
+    type: "user",
+    cwd: PROJECT,
+    message: { role: "user", content: "/acme-deploy now" },
+  }, // the project's own command
+  {
+    type: "user",
+    cwd: PROJECT,
+    message: { role: "user", content: "/acme-build" },
+  }, // the project's own skill
+  {
+    type: "user",
+    message: { role: "user", content: "/acmeplugin:release" },
+  }, // a plugin command: the plugin's name is never sent
   {
     type: "user",
     message: { role: "user", content: "/tmp/scratch/notes.txt has it" },
@@ -198,6 +225,13 @@ check(
 check(
   "shipped command /handoff not counted as missing",
   day.missing.handoff === undefined,
+);
+check(
+  "the person's own, project and plugin commands are not reported",
+  ["my-command", "acme-deploy", "acme-build", "acmeplugin"].every(
+    (n) => day.missing[n] === undefined,
+  ),
+  JSON.stringify(day.missing),
 );
 check(
   "a pasted path is not read as a missing command",

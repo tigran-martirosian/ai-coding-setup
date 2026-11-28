@@ -196,17 +196,36 @@ function shipped() {
   };
 }
 
-// The slash-command names this machine CAN serve: shipped skills plus whatever is installed under ~/.claude/skills.
-function knownCommands(shippedSkills) {
-  const set = new Set(shippedSkills);
-  try {
-    for (const e of fs.readdirSync(path.join(home(), "skills"), {
-      withFileTypes: true,
-    }))
-      if (e.isDirectory()) set.add(e.name);
-  } catch {}
+// The command names a .claude folder serves: its skills/<name>/ folders and commands/<name>.md files. A folder that
+// isn't there serves none; any other read error is the caller's crash.
+function servedBy(claudeDir, set) {
+  const list = (dir) => {
+    try {
+      return fs.readdirSync(path.join(claudeDir, dir), { withFileTypes: true });
+    } catch (err) {
+      if (err.code === "ENOENT" || err.code === "ENOTDIR") return [];
+      throw err;
+    }
+  };
+  for (const e of list("skills")) if (e.isDirectory()) set.add(e.name);
+  for (const e of list("commands"))
+    if (e.isFile() && e.name.endsWith(".md")) set.add(e.name.slice(0, -3));
   return set;
 }
+
+// The slash-command names this machine CAN serve: shipped skills plus the person's own skills and commands in
+// ~/.claude. A project's own .claude folder is added per transcript line (projectKnows), so a project's command
+// name, which can carry the project's name, is never reported.
+function knownCommands(shippedSkills) {
+  return servedBy(home(), new Set(shippedSkills));
+}
+const projectCommands = new Map();
+const projectKnows = (cwd, name) => {
+  if (typeof cwd !== "string" || !cwd) return false;
+  if (!projectCommands.has(cwd))
+    projectCommands.set(cwd, servedBy(path.join(cwd, ".claude"), new Set()));
+  return projectCommands.get(cwd).has(name);
+};
 
 // What the person added themselves, by name only: skills/plugins not in the shipped manifest, and MCP servers in
 // their Claude config. Names are tokens; anything else is dropped.
@@ -305,10 +324,12 @@ function reduceSession(file, from, day, seenSessions, sessionId) {
       const t = userText(e).trim();
       // A real slash-command attempt only: starts with a letter, 2+ chars, and is NOT followed by a path separator
       // or more word chars — so a pasted path like "/c/Users/..." or "/tmp/x" is never read as a command name.
-      const m = t.match(/^\/([a-z][a-z0-9-]{1,40})(?![\w/\\-])/i);
+      // A plugin's "/plugin:command" is skipped (":" ends no match): the plugin's name is the person's own choice.
+      const m = t.match(/^\/([a-z][a-z0-9-]{1,40})(?![\w/\\:-])/i);
       if (m) {
         const name = m[1].toLowerCase();
-        if (!known.has(name)) bump(day.missing, name);
+        if (!known.has(name) && !projectKnows(e.cwd, name))
+          bump(day.missing, name);
       }
     }
     // Assistant tool_use blocks
