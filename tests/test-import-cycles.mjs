@@ -3,7 +3,13 @@
 // Each case builds a small git repository of JS/TS files, commits a starting state, edits files on disk and asks
 // which import cycles the edits added (a cycle that was already in the last commit is not the turn's).
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -140,6 +146,22 @@ const abs = (repo, rels) => rels.map((r) => join(repo, r));
   check(
     "a file importing itself is not counted",
     newCycles(abs(repo, ["a.ts"])).length === 0,
+  );
+}
+
+// 8. The file named through a linked folder (macOS /var is /private/var): the loop is still found, paths from the top
+{
+  const repo = repoOf(
+    { "a.ts": 'import { b } from "./b";\n', "b.ts": "export const b = 1;\n" },
+    { "b.ts": 'import { a } from "./a";\nexport const b = 1;\n' },
+  );
+  const linked = join(root, `link${n}`);
+  symlinkSync(repo, linked, "junction");
+  const c = newCycles([join(linked, "b.ts")]);
+  check(
+    "a file named through a linked folder still gives the loop, named from the top",
+    c.length === 1 && c[0].join(" ") === "b.ts a.ts b.ts",
+    JSON.stringify(c),
   );
 }
 

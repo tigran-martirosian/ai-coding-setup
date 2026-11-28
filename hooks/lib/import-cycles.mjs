@@ -112,9 +112,12 @@ function loopFrom(start, edgesOf) {
 export function newCycles(files) {
   const byRepo = new Map();
   for (const f of files) {
-    const file = path.resolve(String(f));
-    if (!isScript(file) || !isFile(file)) continue;
-    const repo = topOf(file);
+    const given = path.resolve(String(f));
+    if (!isScript(given) || !isFile(given)) continue;
+    // Real paths on both sides, as git gives its top: macOS /var is /private/var, Windows may hand an 8.3 short name
+    const file = fs.realpathSync.native(given);
+    const top = topOf(file);
+    const repo = top && fs.realpathSync.native(top);
     if (!repo) continue;
     if (!byRepo.has(keyOf(repo)))
       byRepo.set(keyOf(repo), { repo, edited: new Map() });
