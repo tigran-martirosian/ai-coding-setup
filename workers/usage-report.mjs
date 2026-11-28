@@ -221,10 +221,27 @@ function servedBy(claudeDir, set) {
   const skills = path.join(claudeDir, "skills");
   for (const e of list(skills))
     if (kind(skills, e) === "dir") set.add(e.name.toLowerCase());
+  // Each real folder once (a link back up can't fan out), at most 8 deep and 5,000 entries. A folder past either
+  // limit marks the set `all`: every name then counts as known, so a name it might hold is never sent.
+  const seen = new Set();
+  let left = 5000;
   const walk = (dir, depth) => {
+    let real;
+    try {
+      real = fs.realpathSync(dir);
+    } catch (err) {
+      if (err.code === "ENOENT" || err.code === "ENOTDIR") return;
+      throw err;
+    }
+    if (seen.has(real)) return;
+    seen.add(real);
     for (const e of list(dir)) {
+      if (--left < 0 || depth >= 8) {
+        set.all = true;
+        return;
+      }
       const k = kind(dir, e);
-      if (k === "dir" && depth < 8) walk(path.join(dir, e.name), depth + 1);
+      if (k === "dir") walk(path.join(dir, e.name), depth + 1);
       else if (k === "file" && e.name.toLowerCase().endsWith(".md"))
         set.add(e.name.slice(0, -3).toLowerCase());
     }
@@ -257,7 +274,8 @@ const projectKnows = (cwd, name) => {
     }
     projectCommands.set(cwd, set);
   }
-  return projectCommands.get(cwd).has(name);
+  const set = projectCommands.get(cwd);
+  return set.all === true || set.has(name);
 };
 
 // What the person added themselves, by name only: skills/plugins not in the shipped manifest, and MCP servers in
@@ -361,7 +379,7 @@ function reduceSession(file, from, day, seenSessions, sessionId) {
       const m = t.match(/^\/([a-z][a-z0-9-]{1,40})(?![\w/\\:-])/i);
       if (m) {
         const name = m[1].toLowerCase();
-        if (!known.has(name) && !projectKnows(e.cwd, name))
+        if (!known.all && !known.has(name) && !projectKnows(e.cwd, name))
           bump(day.missing, name);
       }
     }

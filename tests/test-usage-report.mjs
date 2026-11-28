@@ -43,6 +43,13 @@ fs.writeFileSync(
   path.join(PROJECT, ".claude", "commands", "team", "acme-nested.md"),
   "x",
 );
+// links back up to commands/: each real folder is read once, never fanned out
+for (const name of ["loop-a", "loop-b"])
+  fs.symlinkSync(
+    path.join(PROJECT, ".claude", "commands"),
+    path.join(PROJECT, ".claude", "commands", "team", name),
+    "junction",
+  );
 fs.writeFileSync(
   path.join(PROJECT, ".claude", "commands", "Acme-Caps.md"),
   "x",
