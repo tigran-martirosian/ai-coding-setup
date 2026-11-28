@@ -22,7 +22,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  backEntries,
   entries,
   QUESTION_TOOLS,
   typedByUser,
@@ -196,34 +195,68 @@ function shipped() {
   };
 }
 
-// The command names a .claude folder serves: its skills/<name>/ folders and commands/<name>.md files. A folder that
-// isn't there serves none; any other read error is the caller's crash.
+// The command names a .claude folder serves, lowercased: its skills/<name>/ folders and every commands/**/<name>.md
+// file (nested folders included), links followed. A folder that isn't there serves none; a broken link is skipped;
+// any other read error is the caller's crash.
 function servedBy(claudeDir, set) {
   const list = (dir) => {
     try {
-      return fs.readdirSync(path.join(claudeDir, dir), { withFileTypes: true });
+      return fs.readdirSync(dir, { withFileTypes: true });
     } catch (err) {
       if (err.code === "ENOENT" || err.code === "ENOTDIR") return [];
       throw err;
     }
   };
-  for (const e of list("skills")) if (e.isDirectory()) set.add(e.name);
-  for (const e of list("commands"))
-    if (e.isFile() && e.name.endsWith(".md")) set.add(e.name.slice(0, -3));
+  const kind = (dir, e) => {
+    if (!e.isSymbolicLink())
+      return e.isDirectory() ? "dir" : e.isFile() ? "file" : "";
+    try {
+      const s = fs.statSync(path.join(dir, e.name));
+      return s.isDirectory() ? "dir" : s.isFile() ? "file" : "";
+    } catch (err) {
+      if (err.code === "ENOENT" || err.code === "ELOOP") return "";
+      throw err;
+    }
+  };
+  const skills = path.join(claudeDir, "skills");
+  for (const e of list(skills))
+    if (kind(skills, e) === "dir") set.add(e.name.toLowerCase());
+  const walk = (dir, depth) => {
+    for (const e of list(dir)) {
+      const k = kind(dir, e);
+      if (k === "dir" && depth < 8) walk(path.join(dir, e.name), depth + 1);
+      else if (k === "file" && e.name.toLowerCase().endsWith(".md"))
+        set.add(e.name.slice(0, -3).toLowerCase());
+    }
+  };
+  walk(path.join(claudeDir, "commands"), 0);
   return set;
 }
 
 // The slash-command names this machine CAN serve: shipped skills plus the person's own skills and commands in
-// ~/.claude. A project's own .claude folder is added per transcript line (projectKnows), so a project's command
+// ~/.claude. A project's .claude folders are added per transcript line (projectKnows), so a project's command
 // name, which can carry the project's name, is never reported.
 function knownCommands(shippedSkills) {
-  return servedBy(home(), new Set(shippedSkills));
+  return servedBy(
+    home(),
+    new Set([...shippedSkills].map((s) => String(s).toLowerCase())),
+  );
 }
+// A line's folder and every folder above it (Claude Code reads .claude from parents too). A line with no folder
+// can't be checked, so it counts as known: a name that might be the person's own is never sent.
 const projectCommands = new Map();
 const projectKnows = (cwd, name) => {
-  if (typeof cwd !== "string" || !cwd) return false;
-  if (!projectCommands.has(cwd))
-    projectCommands.set(cwd, servedBy(path.join(cwd, ".claude"), new Set()));
+  if (typeof cwd !== "string" || !cwd) return true;
+  if (!projectCommands.has(cwd)) {
+    const set = new Set();
+    for (let dir = path.resolve(cwd); ; ) {
+      servedBy(path.join(dir, ".claude"), set);
+      const up = path.dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    projectCommands.set(cwd, set);
+  }
   return projectCommands.get(cwd).has(name);
 };
 

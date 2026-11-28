@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// Tests for workers/usage-report.mjs, the anonymous usage collector. It builds a fake ~/.claude with a transcript
-// that exercises every signal, runs --scan and --send against a local server standing in for the sink, and checks
-// that the aggregate is content-free (only counts and short tokens) and that the send matches. No network.
-// Run: node tests/test-usage-report.mjs
-import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -40,6 +35,27 @@ fs.writeFileSync(
 fs.mkdirSync(path.join(PROJECT, ".claude", "skills", "acme-build"), {
   recursive: true,
 });
+// harder ones: a nested command, a capitalised file name, a linked skill folder, all typed from a subfolder
+fs.mkdirSync(path.join(PROJECT, ".claude", "commands", "team"), {
+  recursive: true,
+});
+fs.writeFileSync(
+  path.join(PROJECT, ".claude", "commands", "team", "acme-nested.md"),
+  "x",
+);
+fs.writeFileSync(
+  path.join(PROJECT, ".claude", "commands", "Acme-Caps.md"),
+  "x",
+);
+const LINKED = path.join(tmp, "elsewhere", "acme-linked");
+fs.mkdirSync(LINKED, { recursive: true });
+fs.symlinkSync(
+  LINKED,
+  path.join(PROJECT, ".claude", "skills", "acme-linked"),
+  "junction",
+);
+const SUB = path.join(PROJECT, "src", "deep");
+fs.mkdirSync(SUB, { recursive: true });
 // an MCP server the person added in the Claude config beside the home
 fs.writeFileSync(
   path.join(tmp, ".claude.json"),
@@ -59,10 +75,17 @@ const t1 = "2026-11-27T10:02:00.000Z"; // 2 min later → "1to5m" wait bucket
 const lines = [
   {
     type: "user",
+    cwd: SUB,
     message: { role: "user", content: "/excel build me a sheet" },
   }, // unknown command
-  { type: "user", message: { role: "user", content: "/handoff" } }, // shipped command: not missing
-  { type: "user", message: { role: "user", content: "/my-command" } }, // the person's own command
+  ...["/acme-nested", "/ACME-CAPS", "/acme-linked"].map((content) => ({
+    type: "user",
+    cwd: SUB,
+    message: { role: "user", content },
+  })), // the project's own, found from a subfolder: nested, any case, linked
+  { type: "user", message: { role: "user", content: "/acme-nocwd" } }, // no folder: can't be checked, never sent
+  { type: "user", cwd: SUB, message: { role: "user", content: "/handoff" } }, // shipped command: not missing
+  { type: "user", cwd: SUB, message: { role: "user", content: "/my-command" } }, // the person's own command
   {
     type: "user",
     cwd: PROJECT,
@@ -229,6 +252,13 @@ check(
 check(
   "the person's own, project and plugin commands are not reported",
   ["my-command", "acme-deploy", "acme-build", "acmeplugin"].every(
+    (n) => day.missing[n] === undefined,
+  ),
+  JSON.stringify(day.missing),
+);
+check(
+  "nested, capitalised and linked project commands, and a line with no folder, are not reported",
+  ["acme-nested", "acme-caps", "acme-linked", "acme-nocwd"].every(
     (n) => day.missing[n] === undefined,
   ),
   JSON.stringify(day.missing),
